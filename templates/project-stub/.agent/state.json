@@ -1,0 +1,12 @@
+{
+  "project": "<PROJECT_KEY>",
+  "phase": "idle",
+  "active_ticket": null,
+  "branch": null,
+  "pr_url": null,
+  "confluence_url": null,
+  "open_questions": [],
+  "artifacts": [],
+  "tools": {"pncli_verified": null},
+  "last_updated": null
+}

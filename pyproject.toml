@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentdata"
+version = "0.1.0"
+description = "Connector adapter: enterprise sources -> AgentTable -> TOON/TSV/JSON for LLM agents"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+teradata = ["teradatasql"]
+oracle = ["oracledb"]
+hive = ["impyla"]
+pandas = ["pandas", "pyarrow"]
+dev = ["pytest"]
+
+[project.scripts]
+ad-pncli = "agentdata.cli:main_pncli"
+ad-td = "agentdata.cli:main_td"
+ad-ora = "agentdata.cli:main_ora"
+ad-hive = "agentdata.cli:main_hive"
+ad-diff = "agentdata.cli:main_diff"
+ad-view = "agentdata.cli:main_view"
+
+[tool.setuptools.packages.find]
+include = ["agentdata*"]

@@ -1,0 +1,4 @@
+# append to the project's .gitignore
+.agent/out/
+.agent/slurm/logs/
+# keep .agent/state.json, .agent/friction/, .agent/sql/, .agent/dax/ committed
