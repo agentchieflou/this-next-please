@@ -31,6 +31,7 @@ ad-diff = "agentdata.cli:main_diff"
 ad-view = "agentdata.cli:main_view"
 ad-setup = "agentdata.cli_setup:main_setup"
 ad-doctor = "agentdata.cli_setup:main_doctor"
+ad-sql-check = "agentdata.cli_sqlcheck:main"
 
 [tool.setuptools.packages.find]
 include = ["agentdata*"]

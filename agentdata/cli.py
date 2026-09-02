@@ -1,11 +1,12 @@
 """ad-* entry points. Every command prints TOON (or JSON with --raw) and nothing else."""
 from __future__ import annotations
-import argparse, sys
+import argparse, os, sys
 from .model import AgentTable
 from .policy import render, render_nested, error
 from . import toon
-from .config import ConfigError, project_facts
+from .config import ConfigError, capabilities, load as load_config, project_facts
 from .console import utf8_stdout
+from .sqlcheck import check as sql_check, to_toon as sql_findings_toon
 
 
 def _sql_main(connector: str, prog: str) -> None:
@@ -25,12 +26,24 @@ def _sql_main(connector: str, prog: str) -> None:
     env = a.env or facts.get(f"{connector}_env") or (facts.get("env") if connector == "teradata" else None)
     if not env:
         print(error("no --env given", f"pass --env or set `{connector}_env` (teradata: `env`) in AGENTS.md", connector)); sys.exit(2)
+    warnings: list[str] = []
+    mode = os.environ.get("AGENTDATA_SQLCHECK", "block").lower()  # block | warn | off (operator escape, not for agents)
+    if mode != "off":
+        try:
+            caps = capabilities(load_config(), connector, env)
+        except ConfigError:
+            caps = {}
+        findings = sql_check(sql, connector, caps)
+        errors = [f for f in findings if f.severity == "error"]
+        if errors and mode == "block":
+            print(sql_findings_toon(findings, connector, {"env": env, "action": "fix the SQL, then rerun"})); sys.exit(2)
+        warnings = [f"L{f.line} {f.rule}: {f.message} -> {f.fix}" for f in findings]
     try:
         mod = __import__(f"agentdata.connectors.{connector}", fromlist=["query"])
         t = mod.query(sql, env, a.max_rows, a.timeout)
         if a.name:
             t.name = a.name
-        print(render(t, raw=a.raw))
+        print(render(t, raw=a.raw, extra={"warnings": warnings} if warnings else None))
     except PermissionError as e:
         print(error(str(e), "rewrite as a single SELECT", connector)); sys.exit(2)
     except ConfigError as e:
