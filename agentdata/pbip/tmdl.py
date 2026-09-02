@@ -126,9 +126,15 @@ def quote_name(name: str) -> str:
     return "'" + name.replace("'", "''") + "'" if (not name or NEEDS_QUOTE.search(name)) else name
 
 
+_DAX_LABEL = re.compile(r"^('(?:[^']|'')+'|[^\[\]'.]+)\[([^\]]+)\]$")
+
+
 def split_ref(ref: str) -> tuple[str | None, str]:
-    """`Sales.'Order Date'` / `'My Table'.Col` / `Col` -> (table|None, column). Table.Column refs in TMDL."""
+    """TMDL `Sales.'Order Date'` / `'My Table'.Col` / `Col`, or DAX `'Sales'[Quantity]` / `Sales[Quantity]` -> (table|None, column)."""
     ref = ref.strip()
+    m = _DAX_LABEL.match(ref)
+    if m:
+        return unquote(m.group(1)), m.group(2)
     if ref.startswith("'"):
         m = re.match(r"^'((?:[^']|'')*)'(?:\.(.*))?$", ref)
         if m:

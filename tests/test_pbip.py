@@ -56,6 +56,7 @@ def test_tmdl_names_and_refs():
     assert T.quote_name("Order Date") == "'Order Date'" and T.quote_name("Sales") == "Sales" and T.quote_name("a.b") == "'a.b'"
     assert T.split_ref("Sales.'Order Date'") == ("Sales", "Order Date") and T.split_ref("'My Table'.Col") == ("My Table", "Col")
     assert T.split_ref("Col") == (None, "Col") and T.unquote("'Week Day (#)'") == "Week Day (#)"
+    assert T.split_ref("'Sales'[Net Price]") == ("Sales", "Net Price") and T.split_ref("Sales[Quantity]") == ("Sales", "Quantity")
 
 
 def test_measure_upsert_add_and_update(tmp_path):
@@ -116,7 +117,7 @@ def test_check_reports_expected_findings():
     assert not any("Ext Measure" in m for m in msgs)
     assert not any("Total Sales" in m for m in msgs)
     assert any(f.kind == "bookmark-visual-missing" for f in findings)
-    assert [f for f in findings if f.kind in ("relationship-column-missing", "relationship-table-missing", "sort-by-missing", "ref-table-missing")] == []
+    assert [f for f in findings if f.kind in ("relationship-column-missing", "relationship-table-missing", "sort-by-missing", "ref-table-missing", "dax-ref-unresolved")] == []
     assert norm["lineage"]["sources"]["Sales"] == ["JIRA_ISSUE_HISTORY"]
     assert "'Sales'[Quantity]" in norm["lineage"]["measure_usage"] and "'Sales'[Margin]" in norm["lineage"]["field_usage"]
 

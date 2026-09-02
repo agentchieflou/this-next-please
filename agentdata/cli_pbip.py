@@ -8,7 +8,10 @@ from . import config as C
 from . import toon
 from .console import utf8_stdout
 from .model import AgentTable
+from .model import OUT_DIR
 from .pbip import check as CK
+from .pbip import dax as D
+from .pbip import desktop as DT
 from .pbip import edit as E
 from .pbip import normalize as N
 from .pbip import project as PJ
@@ -68,12 +71,81 @@ def cmd_check(a) -> int:
         findings += CK.check_report(report, model)
     else:
         findings.append(CK.Finding("warning", "report-missing", pbip, "", "no *.Report found; only the model was checked", "pass the folder that holds the .pbip"))
+    cfg = C.load()
     if a.te2:
-        te2 = a.te2_exe or C.get(C.load(), "powerbi.tools.te2_exe") or C.project_facts().get("te2_exe")
+        te2 = a.te2_exe or C.get(cfg, "powerbi.tools.te2_exe") or C.project_facts().get("te2_exe")
         fs, info = CK.run_te2(model.definition_dir, te2, bpa=a.bpa)
         findings += fs
         extra["te2"] = "ran" if info.get("ran") else "not run"
+    if a.server and report:
+        fs, info = CK.evaluate_live(report, model, a.server, _dscmd(cfg, a.dscmd), a.db, file_flag=_file_flag(cfg))
+        findings += fs
+        extra.update({"live": a.server, "measures_probed": info.get("measures_probed", 0), "measures_failed": info.get("measures_failed", 0)})
     return _findings_out(findings, "ad-pbip check", extra)
+
+
+def _dscmd(cfg, flag=None):
+    return flag or C.get(cfg, "powerbi.tools.dscmd_exe") or C.project_facts().get("dscmd_exe") or ""
+
+
+def _file_flag(cfg) -> bool:
+    caps = C.get(cfg, "powerbi.tools.dscmd_caps") or {}
+    return bool(caps.get("file_flag", True))
+
+
+def _candidates() -> list[str]:
+    facts = C.project_facts()
+    c = [facts["pbip_path"]] if facts.get("pbip_path") else []
+    return c + glob.glob("*.pbip") + glob.glob(os.path.join("*", "*.pbip"))
+
+
+def cmd_desktop(a) -> int:
+    rows = [i.row() for i in DT.discover(candidates=_candidates())]
+    if not rows:
+        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip desktop", "instances": 0,
+                                    "hint": "no running Power BI Desktop instance found; open the .pbip (ad-pbip launch <pbip>)"}}))
+        return 0
+    print(render(AgentTable.from_records(rows, name="desktop", source="ad-pbip desktop"), extra={"instances": len(rows)}))
+    return 0
+
+
+def cmd_launch(a) -> int:
+    exe = a.exe or C.get(C.load(), "powerbi.tools.pbi_desktop_exe")
+    res = DT.launch(a.path, exe if exe and os.path.exists(exe) else None)
+    print(toon.encode({"meta": {"ok": True, "source": "ad-pbip launch", **res, "next": "wait for Desktop to load, then ad-pbip desktop"}}))
+    return 0
+
+
+def cmd_visual_query(a) -> int:
+    pbip = _pbip_dir(a.pbip)
+    model, report, _ = N.load_all(pbip, legacy_ok=True)
+    if not report:
+        print(error("no report in this PBIP", "", "ad-pbip")); return 2
+    needle = a.visual.lower()
+    hits = [(p, v) for p in report.pages for v in p.visuals if (v.id.lower() == needle or (v.title or "").lower().find(needle) >= 0)
+            and (not a.page or p.name.lower() == a.page.lower() or p.id.lower() == a.page.lower())]
+    if len(hits) != 1:
+        print(error(f"{len(hits)} visuals match {a.visual!r}", "use the visual id from REPORT.md, or add --page", "ad-pbip")); return 2
+    page, visual = hits[0]
+    dax, notes = D.visual_query(visual, N.ModelIndex(model, report), extra_filters=list(page.filters) + list(report.filters), top_n=a.top)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    dax_path = os.path.join(OUT_DIR, f"{visual.id}_visual.dax").replace("\\", "/")
+    with open(dax_path, "w", encoding="utf-8") as f:
+        f.write(dax)
+    if a.dry_run or not a.server:
+        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip visual-query", "visual": visual.id, "title": visual.title, "page": page.name,
+                                    "dax_path": dax_path, "skipped": notes, "note": "no --server: query written, not executed"}}))
+        print(dax)
+        return 0
+    cfg = C.load()
+    try:
+        t = D.run_dax(dax, a.server, _dscmd(cfg, a.dscmd), a.db, file_flag=_file_flag(cfg), name=a.name or f"visual_{visual.id[:8]}")
+    except D.DaxError as e:
+        print(error(str(e)[:300], "check --server (ad-pbip desktop) and the DAX in dax_path; a DAX error here is a real report failure", "ad-pbip"))
+        return 1
+    t.source = f"ad-pbip visual-query {visual.id} @ {a.server}"
+    print(render(t, extra={"visual": visual.id, "title": visual.title or "", "dax_path": dax_path, "skipped": notes}))
+    return 0
 
 
 def cmd_lint(a) -> int:
@@ -171,7 +243,16 @@ def main() -> None:
     p.add_argument("pbip", nargs="?"); p.add_argument("--out"); p.add_argument("--force", action="store_true"); p.add_argument("--legacy-ok", action="store_true"); p.set_defaults(fn=cmd_project)
     p = sub.add_parser("check", help="cross-validate report fields against the TMDL model (+ TE2 build)")
     p.add_argument("pbip", nargs="?"); p.add_argument("--te2", action="store_true"); p.add_argument("--te2-exe"); p.add_argument("--bpa", action="store_true")
-    p.add_argument("--legacy-ok", action="store_true"); p.set_defaults(fn=cmd_check)
+    p.add_argument("--server", help="localhost:<port> (ad-pbip desktop) or an XMLA URL: evaluate every measure the report uses")
+    p.add_argument("--db"); p.add_argument("--dscmd"); p.add_argument("--legacy-ok", action="store_true"); p.set_defaults(fn=cmd_check)
+    p = sub.add_parser("desktop", help="list running Power BI Desktop instances (pid, port, file)")
+    p.set_defaults(fn=cmd_desktop)
+    p = sub.add_parser("launch", help="open a .pbip in Power BI Desktop")
+    p.add_argument("path"); p.add_argument("--exe"); p.set_defaults(fn=cmd_launch)
+    p = sub.add_parser("visual-query", help="build the visual's DAX (SUMMARIZECOLUMNS) and run it via dscmd")
+    p.add_argument("pbip", nargs="?"); p.add_argument("--visual", required=True); p.add_argument("--page"); p.add_argument("--server")
+    p.add_argument("--db"); p.add_argument("--dscmd"); p.add_argument("--top", type=int, default=500); p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--name"); p.set_defaults(fn=cmd_visual_query)
     p = sub.add_parser("lint", help="TMDL syntax lint for a definition folder or one .tmdl file")
     p.add_argument("path"); p.set_defaults(fn=cmd_lint)
     p = sub.add_parser("refs", help="where is a column/measure used; what feeds a visual or page")

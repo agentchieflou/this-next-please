@@ -294,7 +294,7 @@ def _filters(cfg: Any, file: str, scope: str) -> list[dict]:
         if not refs and f.get("filter"):
             refs = list(walk_refs(f["filter"], file, "$.filter", None, "filter"))
         out.append({"name": f.get("name"), "type": f.get("type"), "scope": scope, "file": file,
-                    "field": refs[0].label() if refs else None, "refs": refs})
+                    "field": refs[0].label() if refs else None, "refs": refs, "raw": f})
     return out
 
 

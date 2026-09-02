@@ -159,3 +159,34 @@ def run_te2(definition_dir: str, te2_exe: str, bpa: bool = False, timeout: int =
     if p.returncode != 0 and not any(f.severity == "error" for f in out):
         out.append(Finding("error", "te2", "TE2", "", f"exit code {p.returncode}: {text.strip()[-300:]}", "read the TE2 output above"))
     return out, {"ran": True, "exit_code": p.returncode, "bpa": bpa}
+
+
+# ---------- live evaluation (Desktop or XMLA) ----------
+def evaluate_live(report: P.Report, model: Model, server: str, dscmd: str, database: str | None = None, run=None,
+                  file_flag: bool = True) -> tuple[list[Finding], dict]:
+    """Evaluate every measure the report uses against a live instance, and compare live INFO.VIEW.MEASURES() with
+    the TMDL parse (a stale Desktop shows measures missing or extra)."""
+    from . import dax as D
+    out: list[Finding] = []
+    idx = ModelIndex(model, report)
+    used = sorted({r.prop for _v, r in report.all_refs() if r.kind == "measure" and r.entity and r.prop in idx.tables.get(r.entity, {}).get("measures", set())})
+    info: dict = {"server": server, "measures_probed": 0, "measures_failed": 0}
+    try:
+        live = D.run_dax(D.INFO_MEASURES, server, dscmd, database, run=run, file_flag=file_flag, name="info")
+        live_names = {str(r[1]) for r in live.rows} if live.columns else set()
+        model_names = {m["name"] for t in model.tables for m in t["measures"]}
+        for m in sorted(model_names - live_names):
+            out.append(Finding("warning", "live-stale", server, f"[{m}]", "measure exists in TMDL but not in the running model", "Desktop does not hot-reload: close and reopen the .pbip (ad-pbip launch)"))
+        for m in sorted(live_names - model_names):
+            out.append(Finding("warning", "live-extra", server, f"[{m}]", "measure exists in the running model but not in TMDL", "save from Desktop or delete it there; the files are the source of truth"))
+    except D.DaxError as e:
+        out.append(Finding("error", "live-connect", server, "", f"INFO.VIEW.MEASURES failed: {e}", "check the server (ad-pbip desktop) and dscmd_exe"))
+        return out, info
+    for m in used:
+        info["measures_probed"] += 1
+        try:
+            D.run_dax(D.measure_probe(m), server, dscmd, database, run=run, file_flag=file_flag, name="probe")
+        except D.DaxError as e:
+            info["measures_failed"] += 1
+            out.append(Finding("error", "live-dax", server, f"[{m}]", str(e)[-300:], "fix the measure DAX in TMDL, then reopen the PBIP in Desktop"))
+    return out, info
