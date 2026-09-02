@@ -1,16 +1,16 @@
 ---
 name: state-update
-description: "Use immediately after any skill finishes a step, to record progress in .agent/state.json. The ONLY skill allowed to write state.json. Also use when the user asks \"where was I\"."
+description: "Use immediately after any skill finishes a step, to record progress in .agent/state.json through ad-state. The ONLY skill allowed to write state.json. Also use when the user asks \"where was I\"."
 ---
 # State update
 
-1. Read `.agent/state.json`.
-2. Set fields that changed. Allowed keys and values:
-   - `phase`: `idle | triaged | querying | validating | documenting | pr_open | blocked | done`
-   - `active_ticket`, `branch`, `pr_url`, `confluence_url`: string or null
-   - `artifacts`: append `{path, what, run_id}` for each `.agent/out/` file produced this step
-   - `open_questions`: list of strings (empty unless blocked)
-   - `last_updated`: ISO-8601 UTC now
-3. Write the file. Keep it under 60 lines; drop `artifacts` older than 7 days.
-4. Print one line: `state: phase=<phase> ticket=<ticket>`.
-5. Return to `router`.
+1. `ad-state show` (or `python -m agentdata state show`). It prints the state and one line: `state: phase=<phase> ticket=<ticket>`.
+2. `ad-state set <key=value ...> [--artifact <path>=<what>]... [--question "<text>"]... [--clear-questions] [--tool <key>=<YYYY-MM-DD>]`. Allowed:
+   - `phase=idle | triaged | querying | validating | documenting | pr_open | blocked | done`
+   - `active_ticket=`, `branch=`, `pr_url=`, `confluence_url=`: a string, or `null` to clear
+   - `--artifact .agent/out/<file>=<what it is>` once per file produced this step (`--run-id <id>` from the TOON `meta`)
+   - `--question "<what would unblock me>"` together with `phase=blocked`; `--clear-questions` once unblocked
+   - `--tool doctor_verified=<date>` / `--tool pncli_verified=<date>`
+   The command validates keys and phases, stamps `last_updated`, drops artifacts older than 7 days and writes UTF-8 without BOM.
+3. `ok: false` → fix the key or value the `hint` names and re-run. Never write `.agent/state.json` any other way: no editor, no `Set-Content`, `Out-File`, `>` or `ConvertTo-Json` (Windows PowerShell adds a BOM or writes UTF-16).
+4. Print the `state:` line the command printed. Return to `router`.

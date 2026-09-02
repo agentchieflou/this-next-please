@@ -17,9 +17,11 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+from .. import textio
 from .. import config as C
 from .. import toon
 from ..console import eprint, prompt as _console_prompt, utf8_stdout
+from .. import proc
 
 STATUS_ORDER = {"fail": 0, "warn": 1, "skip": 2, "ok": 3}
 
@@ -46,12 +48,10 @@ class Detectors:
         return bool(p) and os.path.exists(C.expand(p))
 
     def read_json(self, p: str) -> Any:
-        with open(C.expand(p), encoding="utf-8") as f:
-            return json.load(f)
+        return json.loads(textio.read_text(C.expand(p)))
 
     def read_text(self, p: str) -> str:
-        with open(C.expand(p), encoding="utf-8") as f:
-            return f.read()
+        return textio.read_text(C.expand(p))
 
     def write_text(self, p: str, text: str) -> None:
         os.makedirs(os.path.dirname(C.expand(p)) or ".", exist_ok=True)
@@ -62,21 +62,27 @@ class Detectors:
         return sorted(_glob.glob(os.path.join(root, pattern), recursive=True))
 
     def run(self, args: list[str], timeout: int = 120) -> tuple[int, str, str]:
-        exe = shutil.which(args[0]) or args[0]  # `az` is az.cmd on Windows
+        # `az` is az.cmd and `pncli` is pncli.cmd on Windows: proc resolves PATHEXT + npm shims (never bare CreateProcess)
         try:
-            p = subprocess.run([exe, *args[1:]], capture_output=True, text=True, timeout=timeout)
-        except FileNotFoundError:
-            return 127, "", f"{args[0]}: not found"
-        except subprocess.TimeoutExpired:
-            return 124, "", f"{args[0]}: timed out after {timeout}s"
-        return p.returncode, p.stdout, p.stderr
+            rc, out, err, _el = proc.run(args, timeout=timeout)
+        except proc.ProcError as e:
+            return (124 if e.code == "timeout" else 127), "", f"{args[0]}: {e.msg}"
+        return rc, out, err
 
     def run_interactive(self, args: list[str]) -> int:
-        exe = shutil.which(args[0]) or args[0]
         try:
-            return subprocess.call([exe, *args[1:]])
-        except FileNotFoundError:
+            return subprocess.call(proc.command(args))
+        except (proc.ProcError, FileNotFoundError):
             return 127
+
+    def launcher(self, name: str, exe: str | None = None) -> dict:
+        """How `name` resolves, plus `--version` proof that it starts. Faked wholesale in tests."""
+        info = proc.resolve(name, exe=exe)
+        if info["found"]:
+            rc, out, err = self.run([name, "--version"], timeout=60)
+            lines = (out or err).strip().splitlines()
+            info["rc"], info["version"] = rc, (lines[0][:60] if lines else "")
+        return info
 
     def module(self, name: str) -> bool:
         try:
@@ -260,13 +266,26 @@ def render_checks(ctx: Context, source: str, extra: dict | None = None, quiet: b
     return "\n".join([toon.encode(meta, key="meta"), body]), failed == 0
 
 
-def load_answers(path: str | None) -> dict:
-    if not path:
-        return {}
-    with open(C.expand(path), encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
-        raise C.ConfigError("answers file must be a JSON object")
+def load_answers(path: str | None, sets: list[str] | None = None) -> dict:
+    """--answers JSON (any encoding PowerShell writes: UTF-8 BOM, UTF-16) merged with --set key=value pairs, which win."""
+    data: dict = {}
+    if path:
+        p = C.expand(path)
+        if not os.path.isfile(p):
+            raise C.ConfigError(f"answers file not found: {path}", hint="pass --set key=value instead of a file")
+        try:
+            data = textio.read_json(p, "answers file")
+        except ValueError as e:
+            raise C.ConfigError(str(e), hint="use --set key=value instead of a file, or write the file with "
+                                "[IO.File]::WriteAllText (UTF-8 without BOM)") from None
+        if not isinstance(data, dict):
+            raise C.ConfigError("answers file must be a JSON object", hint='{"project.jira_project": "RDSD"}')
+    for item in sets or []:
+        if "=" not in item:
+            raise C.ConfigError(f"--set expects key=value, got {item!r}", hint="example: --set project.jira_project=RDSD")
+        k, v = item.split("=", 1)
+        k, v = k.strip(), v.strip()
+        data[k] = True if v.lower() == "true" else False if v.lower() == "false" else v
     return data
 
 
@@ -303,8 +322,10 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                                  "existing values are the defaults. Secrets go to keyring, never to a file.")
     ap.add_argument("--check", action="store_true", help="doctor mode (no prompts, offline); same as ad-doctor")
     ap.add_argument("--only", action="append", help="step key(s), comma-separated: pncli,sources,powerbi,project")
-    ap.add_argument("--non-interactive", action="store_true", help="no prompts: defaults + --answers")
-    ap.add_argument("--answers", help="JSON file of prompt-key -> answer (never passwords)")
+    ap.add_argument("--non-interactive", action="store_true", help="no prompts: defaults + --set / --answers")
+    ap.add_argument("--set", action="append", metavar="KEY=VALUE", help="answer one prompt key inline, e.g. project.jira_project=RDSD "
+                    "(repeatable; true/false for yes-no prompts; wins over --answers)")
+    ap.add_argument("--answers", help="JSON file of prompt-key -> answer (never passwords); any encoding PowerShell writes is accepted")
     ap.add_argument("--offline", action="store_true", help="skip network verification")
     ap.add_argument("--project", metavar="DIR", help="generate/update a project stub (AGENTS.md, .agent/state.json) in DIR")
     ap.add_argument("--quiet", action="store_true")
@@ -318,7 +339,7 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
     try:
         cfg = C.load()
         interactive = not a.non_interactive
-        prompter: Prompter = Prompter() if interactive else AnswerPrompter(load_answers(a.answers))
+        prompter: Prompter = Prompter() if interactive else AnswerPrompter(load_answers(a.answers, a.set))
         ctx = Context(cfg=cfg, det=det or Detectors(), ask=prompter, online=not a.offline, interactive=interactive,
                       facts=C.project_facts(), project_dir=a.project)
         only = a.only

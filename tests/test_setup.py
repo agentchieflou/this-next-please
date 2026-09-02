@@ -11,8 +11,10 @@ PNCLI = {"jira": {"url": "https://acme.atlassian.net", "email": "me@acme.com", "
 class FakeDet(W.Detectors):
     """No machine or network access. Tunable per test."""
 
-    def __init__(self, pncli=PNCLI, tools=None, modules=(), dsns=None, whoami_error=None, smoke_error=None):
+    def __init__(self, pncli=PNCLI, tools=None, modules=(), dsns=None, whoami_error=None, smoke_error=None,
+                 pncli_bin="C:/Users/me/AppData/Roaming/npm/pncli.cmd", pncli_rc=0):
         self.pncli, self.tools, self.modules = pncli, tools or {}, set(modules)
+        self.pncli_bin, self.pncli_rc = pncli_bin, pncli_rc
         self.dsns = dsns or {}
         self.whoami_error, self.smoke_error = whoami_error, smoke_error
         self.passwords: dict = {}
@@ -21,6 +23,15 @@ class FakeDet(W.Detectors):
 
     def which(self, name):
         return self.tools.get(name)
+
+    def launcher(self, name, exe=None):
+        """pncli is an npm command shim on Windows (pncli.cmd -> node cli.js); never an .exe."""
+        p = exe or self.pncli_bin if name == "pncli" else self.tools.get(name)
+        if not p:
+            return {"found": False, "name": name, "kind": "", "path": "", "tried": ["pncli on PATH + PATHEXT", "npm global prefix"]}
+        return {"found": True, "name": name, "path": p, "kind": "npm shim", "tried": [], "rc": self.pncli_rc,
+                "version": "pncli/1.4.0", "node": "C:/Program Files/nodejs/node.exe",
+                "script": "C:/Users/me/AppData/Roaming/npm/node_modules/@kolatts/pncli/bin/cli.js"}
 
     def exists(self, p):
         p = C.expand(p or "")
@@ -120,6 +131,7 @@ def test_setup_non_interactive_writes_config_without_secrets(cfg_path, capsys):
     cfg = json.loads(cfg_path.read_text())
     assert rc == 0, out.out
     assert cfg["pncli"]["keys"] == {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}
+    assert cfg["pncli"]["exe"].endswith("pncli.cmd")   # the shim we proved starts is pinned; PATH changes cannot break it
     assert cfg["jira"]["base_url"] == "https://acme.atlassian.net" and cfg["jira"]["flavor"] == "cloud"
     td = cfg["sources"]["teradata"]["envs"]
     assert td["prod"]["host"] == "td.acme" and td["prod"]["capabilities"]["tmode"] == "ANSI"
@@ -209,3 +221,42 @@ def _answers(tmp_path, d):
 
 def test_xmla_url_percent_encodes():
     assert powerbi.xmla_url("Sales Workspace/EMEA") == "powerbi://api.powerbi.com/v1.0/myorg/Sales%20Workspace%2FEMEA"
+
+
+def test_answers_file_with_bom_and_set_flags(cfg_path, tmp_path, capsys):
+    """2026-09-02 laptop friction: Windows PowerShell 5.1 `Set-Content -Encoding utf8` adds a BOM; the loader crashed."""
+    det = FakeDet()
+    proj = tmp_path / "proj2"
+    ans = tmp_path / "bom.json"
+    ans.write_bytes(json.dumps({"project.jira_project": "BOMD"}).encode("utf-8-sig"))
+    rc = W.run_setup(["--only", "project", "--non-interactive", "--offline", "--project", str(proj), "--answers", str(ans),
+                      "--set", "project.confluence_space=SPC"], det)
+    assert rc == 0
+    agents = det.files[str(proj / "AGENTS.md")]
+    assert "- jira_project: BOMD" in agents and "- confluence_space: SPC" in agents
+    proj3 = tmp_path / "proj3"
+    rc = W.run_setup(["--only", "project", "--non-interactive", "--offline", "--project", str(proj3), "--set", "project.jira_project=RDSD"], det)
+    assert rc == 0 and "- jira_project: RDSD" in det.files[str(proj3 / "AGENTS.md")]
+    bad = tmp_path / "bad.json"
+    bad.write_bytes(b"\xef\xbb\xbf{not json")
+    capsys.readouterr()
+    rc = W.run_setup(["--only", "project", "--non-interactive", "--offline", "--project", str(tmp_path / "p4"), "--answers", str(bad)], det)
+    out = capsys.readouterr().out
+    assert rc == 2 and "ok: false" in out and "not valid JSON" in out and "--set" in out
+    rc = W.run_setup(["--only", "project", "--non-interactive", "--offline", "--project", str(tmp_path / "p5"), "--set", "project.jira_project"], det)
+    assert rc == 2 and "key=value" in capsys.readouterr().out
+    assert W.load_answers(None, ["a=true", "b=False", "c=x=y", " d = 1 "]) == {"a": True, "b": False, "c": "x=y", "d": "1"}
+    assert W.load_answers(str(ans), ["project.jira_project=OVR"]) == {"project.jira_project": "OVR"}
+
+
+def test_doctor_fails_when_pncli_launcher_is_missing_or_broken(cfg_path, capsys):
+    """2026-09-02 laptop friction: ad-pncli died with [WinError 2] while setup called pncli 'ok' — there is no pncli.exe."""
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
+    assert W.run_doctor(["--only", "pncli"], FakeDet(pncli_bin=None)) == 1
+    out = capsys.readouterr().out
+    assert "pncli launcher" in out and "npm install -g @kolatts/pncli" in out and "there is no pncli.exe" in out
+    assert W.run_doctor(["--only", "pncli"], FakeDet(pncli_rc=9)) == 1
+    out = capsys.readouterr().out
+    assert "exits 9 on --version" in out
+    assert W.run_doctor(["--only", "pncli"], FakeDet()) == 0
+    assert "pncli.cmd (npm shim) · pncli/1.4.0" in capsys.readouterr().out

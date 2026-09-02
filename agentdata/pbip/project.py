@@ -7,6 +7,7 @@ import json
 import os
 from typing import Any
 
+from ..textio import read_text
 from .normalize import Model, source_files
 from . import pbir as P
 
@@ -36,7 +37,7 @@ def write_projection(norm: dict, model: Model, report: P.Report | None, out_dir:
     new_hashes = hashes(model, report)
     if not force and os.path.exists(meta_path):
         try:
-            old = json.load(open(meta_path, encoding="utf-8"))
+            old = json.loads(read_text(meta_path))
             if old.get("sources") == new_hashes:
                 return {"skipped": True, "out_dir": out_dir.replace("\\", "/"), "files": sorted(os.listdir(out_dir))}
         except (ValueError, OSError):

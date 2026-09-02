@@ -14,6 +14,7 @@ description: "How to read and produce data in this workspace. Use whenever you n
 | Re-read a TSV | `ad-view <path>` |
 | Compare two results | `ad-diff <left.tsv> <right.tsv> --key <col> [--cols a,b]` |
 | Toolchain health | `ad-doctor` (offline) · `ad-doctor --online` (Jira, SELECT 1, XMLA) · fix with `ad-setup --only <step>` |
+| pncli will not start | `ad-pncli where` (resolved path, npm shim, node entry, version, what was tried) |
 
 ## Reading TOON
 - Check `meta.ok: true`. `meta.rule` tells you how much you got: `3/4` → complete data is in context; `5` → 20 of `rows` shown + `stats`, full data at `path`; `6` → 10 shown, you MUST script over `path`; never open it in the editor.
@@ -26,4 +27,5 @@ description: "How to read and produce data in this workspace. Use whenever you n
 3. Read-only SQL only; the adapter rejects DML/DDL and there is no bypass for the linter.
 4. Write SQL for the engine you are on: `references/sql-dialects.md` is the side-by-side; each query skill's `references/` has the full dialect guide.
 5. `ok: false` → fix once from `hint`; second failure → `friction-log` type `tool-error`.
-6. Record every `path` via `state-update` so the next session can `ad-view` it.
+6. `refused: not_found` from `ad-pncli` → pncli is not installed or not resolvable (it is an npm package: `pncli.cmd`, never `pncli.exe`). Print `meta.hint` and the `tried` list verbatim, `friction-log` type `tool-error`, STOP. Never install software, change PATH, or substitute another Jira client.
+7. Record every `path` via `state-update` so the next session can `ad-view` it.

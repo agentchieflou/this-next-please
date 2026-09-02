@@ -3,12 +3,14 @@
 No secret ever lands here: save() refuses credential-looking keys. Tokens stay in pncli's own
 config (read by dot-path at call time), passwords live in `keyring` (see connectors/secrets.py).
 """
+
 from __future__ import annotations
 import datetime as _dt
 import json
 import os
 import re
 from typing import Any
+from . import textio
 
 CONFIG_ENV = "AGENTDATA_CONFIG"
 DEFAULT_PATH = "~/.agentdata/config.json"
@@ -57,8 +59,7 @@ def load(p: str | None = None) -> dict:
     if not os.path.exists(p):
         return {"version": VERSION}
     try:
-        with open(p, encoding="utf-8") as f:
-            data = json.load(f)
+        data = json.loads(textio.read_text(p))
     except json.JSONDecodeError as e:
         raise ConfigError(f"config is not valid JSON: {display_path(p)} ({e.msg}, line {e.lineno})",
                           hint="fix or delete the file, then run ad-setup") from None
@@ -171,16 +172,15 @@ def project_facts(agents_md: str = "AGENTS.md") -> dict[str, str]:
     facts: dict[str, str] = {}
     if not os.path.exists(agents_md):
         return facts
-    with open(agents_md, encoding="utf-8") as f:
-        for line in f:
-            m = _FACT.match(line)
-            if not m:
-                continue
-            key, val = m.group(1).lower(), m.group(2)
-            val = re.split(r"\s+#", val, 1)[0].strip().strip("`").strip('"').strip("'")
-            if not val or (val.startswith("<") and val.endswith(">")):
-                continue
-            facts[key] = val
+    for line in textio.read_text(agents_md).splitlines():
+        m = _FACT.match(line)
+        if not m:
+            continue
+        key, val = m.group(1).lower(), m.group(2)
+        val = re.split(r"\s+#", val, 1)[0].strip().strip("`").strip('"').strip("'")
+        if not val or (val.startswith("<") and val.endswith(">")):
+            continue
+        facts[key] = val
     return facts
 
 
