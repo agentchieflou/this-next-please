@@ -268,15 +268,15 @@ Output: `meta{ok, dialect, errors, warnings}` + `findings[n]{severity,line,rule,
 12. **Timestamps**: `parse_ts` accepts `+0000`, `+10:00`, `Z`, epoch seconds and milliseconds (`> 1e11` → ms); never rely on `fromisoformat` for `+0000` on 3.10.
 13. **Windows**: `az` resolves as `az.cmd` via `shutil.which`; `winkerberos` (not `kerberos`) for impyla GSSAPI on Windows; `klist` absence is a warning, never a failure; `AGENTDATA_CA_BUNDLE`/`SSL_CERT_FILE` for corporate CAs, never disable verification.
 
-## Checkpoint / how to resume (written because the session was near its usage limit)
+## Checkpoint / how to resume (state verified 2026-09-02, second session)
 
-**Done:** requirements captured (R1–R9); user decisions recorded (runtime Jira detection, `~/.pncli/config.json`, PBIR + TMDL, TE2/Desktop/dscmd installed, pbi-tools = parts donor, AGPL noted); repo conventions mapped; external research completed and folded in (Jira changelog/bulkfetch/agile shapes, sprint replay algorithm, grammar-verified SQL dialect facts, ODBC/native driver keys, PBIR schema anchors and alias rule, TMDL syntax + Desktop conventions, TE2 CLI switches/exit codes, dscmd forms, Desktop instance discovery mechanism, Fabric API shapes for the stretch item).
+**Repo state right now:** local branch `claude/repository-push-bekwfa` = `origin/main` (merge of PR #1) + one local commit `0ba4c49` "docs: add approved implementation plan for the Luna pipeline phase" (adds `docs/plan-luna-pipeline.md` = this plan, and a pointer paragraph at the top of `HANDOFF.md`). The remote branch was deleted when PR #1 merged, so the earlier `--force-with-lease` push was rejected as stale; **`git push -u origin claude/repository-push-bekwfa` (no force) recreates it.** No open PR exists. No implementation code exists yet (`agentdata/` still has only the original modules).
 
-**Not done:** a file-by-file design pass by a Plan agent was running for slices 1–3 + reconcile when the session checkpointed; its result was not received. It is **optional** — this document is sufficient to implement. If desired, re-run that pass per slice at implementation time using the "Key algorithms" sections as the brief.
+**Done:** requirements R1–R9 captured; user decisions recorded; repo conventions mapped; all research folded in; design approved by the user; design-pass corrections adopted (section above).
 
-**Resume steps:**
-1. Branch: continue on `claude/repository-push-bekwfa` (PR #1 merged → restart the branch from `origin/main` first: `git fetch origin main && git checkout -B claude/repository-push-bekwfa origin/main`).
-2. Implement in the slice order above; one PR per slice (or one draft PR updated per slice). Each slice: code + tests + skill/reference files + README/HANDOFF touch; `pytest -q` green before push.
-3. Slice 1 first (`config.py`, `setup/`, `ad-doctor`, `session-bootstrap`), because every later CLI reads `~/.agentdata/config.json` and project facts through it.
-4. Hard rules to keep: zero required deps; no secrets on disk or in output; TOON/`error()` output contract; SKILL.md < 120 lines with `name`+`description` only; references inside `skills/<name>/references/`; do not change policy thresholds; `sys.stdout.reconfigure(encoding="utf-8", errors="replace")` in every entry point.
-5. Residual unknowns are listed above; they are verified on the Windows laptop in slice 5, not blockers.
+**Next actions, in order:**
+1. `git push -u origin claude/repository-push-bekwfa`; open a **draft PR** to `main` titled "Luna pipeline: setup wizard, SQL guardrails, Jira changelog, PBIP tooling, UAT" whose body links `docs/plan-luna-pipeline.md` and lists the six slices as a checklist; update the body as slices land.
+2. Implement slices 1 → 6 on this branch, one commit per slice (Conventional Commits: `feat:`/`docs:`/`test:`), `pytest -q` green before every push, push after every slice so nothing is lost if the session ends.
+3. Slice 1 first: `agentdata/config.py`, `agentdata/console.py` (utf-8 stdout), `agentdata/setup/` (`ad-setup`, `ad-doctor` offline by default), `pyproject.toml` scripts/extras, `session-bootstrap` skill edit, `README.md` install section, `templates/project-stub` new keys, `tests/test_config.py` + `tests/test_setup.py` + `tests/test_skills.py`.
+4. Keep the hard rules: zero required deps; no secrets on disk or in output; TOON/`error()` contract; SKILL.md < 120 lines with `name`+`description` only; references in `skills/<name>/references/`; policy thresholds unchanged; prompts on stderr, TOON on stdout.
+5. Residual unknowns (above) are verified on the Windows laptop during slice 5; they do not block.
