@@ -1,6 +1,6 @@
 ---
 name: session-bootstrap
-description: Use as the FIRST action of every chat session, before anything else. Loads project identity and state, and confirms the toolchain with ad-doctor. Mandatory even for one-line requests.
+description: "Use as the FIRST action of every chat session, before anything else. Loads project identity and state, and confirms the toolchain with ad-doctor. Mandatory even for one-line requests."
 ---
 # Session bootstrap
 

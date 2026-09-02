@@ -1,6 +1,6 @@
 ---
 name: state-update
-description: Use immediately after any skill finishes a step, to record progress in .agent/state.json. The ONLY skill allowed to write state.json. Also use when the user asks "where was I".
+description: "Use immediately after any skill finishes a step, to record progress in .agent/state.json. The ONLY skill allowed to write state.json. Also use when the user asks \"where was I\"."
 ---
 # State update
 

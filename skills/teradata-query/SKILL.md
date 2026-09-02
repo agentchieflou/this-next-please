@@ -1,6 +1,6 @@
 ---
 name: teradata-query
-description: Use for any read-only SQL against Teradata (Jira history lives here: PROJECT_KEY, ISSUE_KEY, STATUS, CHANGED_TS). Never connect directly; ad-td lints the SQL for Teradata syntax first, runs it, and returns TOON.
+description: "Use for any read-only SQL against Teradata (Jira history lives here: PROJECT_KEY, ISSUE_KEY, STATUS, CHANGED_TS). Never connect directly; ad-td lints the SQL for Teradata syntax first, runs it, and returns TOON."
 ---
 # teradata query (read-only)
 

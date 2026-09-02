@@ -36,6 +36,7 @@ ad-setup --project C:\repos\MyReport        # writes AGENTS.md + .agent/state.js
 | `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |
 | `docs/data-format-policy.md` | the determinant: which format, when |
 | `docs/setup.md` | what the wizard configures, env overrides, Windows notes |
+| `docs/windows-verification.md` | laptop-only verification runbook (pncli, Jira, drivers, TE2, dscmd, Desktop) with paste-back instructions |
 | `docs/plan-luna-pipeline.md` | approved design for the Power BI / UAT / SQL-guardrail phase (implemented) |
 | `prompts/remediate-from-friction.prompt.md` | offline frontier-model repair loop |
 | `templates/project-stub/` | what each project checkout adds |

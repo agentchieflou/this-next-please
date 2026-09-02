@@ -1,6 +1,6 @@
 ---
 name: tmdl-edit
-description: Use for any change to a Power BI semantic model stored as TMDL — add or fix a measure, calculated column, format string, relationship, hierarchy, partition M. Mechanizes the layout rules Luna gets wrong (tabs, expression blocks, quoting) and always ends by validating the report against the model.
+description: "Use for any change to a Power BI semantic model stored as TMDL — add or fix a measure, calculated column, format string, relationship, hierarchy, partition M. Mechanizes the layout rules Luna gets wrong (tabs, expression blocks, quoting) and always ends by validating the report against the model."
 ---
 # TMDL edit (backend change with a mandatory frontend check)
 

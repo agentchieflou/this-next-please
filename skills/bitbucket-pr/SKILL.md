@@ -1,6 +1,6 @@
 ---
 name: bitbucket-pr
-description: Use when code or model changes are ready for review — to branch, commit, push, and open a Bitbucket pull request via pncli. Never merges.
+description: "Use when code or model changes are ready for review — to branch, commit, push, and open a Bitbucket pull request via pncli. Never merges."
 ---
 # Open a PR (never merge)
 

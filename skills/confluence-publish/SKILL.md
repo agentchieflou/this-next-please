@@ -1,6 +1,6 @@
 ---
 name: confluence-publish
-description: Use to write findings, runbooks, or work documentation to Confluence. Use after UAT findings exist, after a deploy, or when the user asks to document work. Deterministic extraction first, one narrow model pass, scripted publish.
+description: "Use to write findings, runbooks, or work documentation to Confluence. Use after UAT findings exist, after a deploy, or when the user asks to document work. Deterministic extraction first, one narrow model pass, scripted publish."
 ---
 # Confluence publish
 

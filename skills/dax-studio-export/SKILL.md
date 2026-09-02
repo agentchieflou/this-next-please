@@ -1,6 +1,6 @@
 ---
 name: dax-studio-export
-description: Use to evaluate a DAX query against a deployed model and get results as TOON, or to export a .vpax model-metrics file, using DAX Studio's dscmd.exe. Use for measure value checks, regression diffs, and model size analysis.
+description: "Use to evaluate a DAX query against a deployed model and get results as TOON, or to export a .vpax model-metrics file, using DAX Studio's dscmd.exe. Use for measure value checks, regression diffs, and model size analysis."
 ---
 # DAX Studio export
 

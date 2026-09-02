@@ -1,6 +1,6 @@
 ---
 name: slurm-submit
-description: Use to run or schedule a batch job on the PAE Slurm cluster via sbatch (scrontab is disabled). Use when a query or script exceeds laptop limits, or the user says schedule, nightly, cluster, sbatch.
+description: "Use to run or schedule a batch job on the PAE Slurm cluster via sbatch (scrontab is disabled). Use when a query or script exceeds laptop limits, or the user says schedule, nightly, cluster, sbatch."
 ---
 # Slurm submit
 

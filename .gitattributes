@@ -1,0 +1,4 @@
+# keep TMDL and fixture bytes exact on Windows checkouts (core.autocrlf must not touch them)
+*.tmdl -text
+tests/fixtures/** -text
+*.dax -text

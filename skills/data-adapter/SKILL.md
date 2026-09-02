@@ -1,6 +1,6 @@
 ---
 name: data-adapter
-description: How to read and produce data in this workspace. Use whenever you need rows from Jira, Teradata, Oracle, Hive or Impala, or need to compare two datasets. Never call pncli/DB drivers directly; every ad-* command lints, runs, and returns TOON.
+description: "How to read and produce data in this workspace. Use whenever you need rows from Jira, Teradata, Oracle, Hive or Impala, or need to compare two datasets. Never call pncli/DB drivers directly; every ad-* command lints, runs, and returns TOON."
 ---
 # Data adapter (ad-* commands)
 
