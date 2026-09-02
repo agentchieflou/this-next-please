@@ -4,7 +4,7 @@ description: Use for UAT/remediation of Jira-tracking dashboards — when number
 ---
 # UAT: live Jira vs Teradata history
 
-Prereq: `jira-triage` done; acceptance criteria include an explicit **date window** and **JQL scope**. Missing either → `friction-log`. STOP.
+Prereq: `jira-triage` done; acceptance criteria include an explicit **date window** and **JQL scope**. Missing either → `friction-log`. STOP. Sprint or story-point questions → run `jira-changelog` first (its `sprint-replay` rows are the live side).
 
 1. Live side: `ad-pncli jira search --jql "<scope JQL> AND updated >= '<start>' AND updated <= '<end>'" --fields key,status,assignee,updated --max-results 2000`. Note `path` → LEFT.
 2. History side: write `.agent/sql/<ticket>-uat.sql` selecting the same grain (one row per issue key, latest status ≤ `<end>`). Run `ad-td --env <env> --sql-file … --name hist`. Note `path` → RIGHT.

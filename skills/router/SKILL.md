@@ -12,8 +12,9 @@ description: Use at the start of every task after session-bootstrap, and wheneve
 |---|---|
 | a ticket key, "triage", "what's next", acceptance criteria | `jira-triage` |
 | UAT, remediation, "compare Jira to Teradata", dashboard numbers wrong | `uat-jira-vs-teradata` |
+| sprint report, committed / completed points, changelog, field history, "when did … change" | `jira-changelog` |
 | query, count, rows, table, SQL (Teradata) | `teradata-query` |
-| Hive, Hadoop, Spark table | `hive-query` |
+| Hive, Hadoop, Impala, Spark table | `hive-query` |
 | Oracle | `oracle-query` |
 | deploy model, TMDL, XMLA, workspace | `pbi-deploy-te2` |
 | refresh model / dataset | `pbi-refresh-xmla` |

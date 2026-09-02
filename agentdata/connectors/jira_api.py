@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 from .. import config as C
 
 USER_AGENT = "agentdata/0.1"
@@ -191,6 +191,150 @@ class Jira:
     def myself(self) -> dict:
         return self.get(f"{self.api}/myself")
 
+    # ---------- pagination ----------
+    def paged(self, path: str, params: dict | None = None, values_key: str = "values", page_size: int = 100) -> Iterator[dict]:
+        """startAt/maxResults paging. Uses the *echoed* maxResults (the server may cap the request)."""
+        start = 0
+        while True:
+            page = self.get(path, {**(params or {}), "startAt": start, "maxResults": page_size}) or {}
+            values = page.get(values_key) or []
+            yield from values
+            if not values or page.get("isLast") is True:
+                return
+            start += page.get("maxResults") or len(values)
+            total = page.get("total")
+            if total is not None and start >= int(total):
+                return
+
+    def paged_token(self, path: str, params: dict | None = None, body: dict | None = None,
+                    values_key: str = "issues") -> Iterator[dict]:
+        """nextPageToken paging (cloud /search/jql and /changelog/bulkfetch); GET when body is None else POST."""
+        token = None
+        while True:
+            extra = {"nextPageToken": token} if token else {}
+            if body is not None:
+                page = self.post(path, {**body, **extra}, params) or {}
+            else:
+                page = self.get(path, {**(params or {}), **extra}) or {}
+            values = page.get(values_key) or []
+            yield from values
+            token = page.get("nextPageToken")
+            if not token or not values or page.get("isLast") is True:
+                return
+
+    # ---------- metadata ----------
+    def fields(self) -> list[dict]:
+        return self.get(f"{self.api}/field") or []
+
+    def statuses(self) -> dict[str, str]:
+        """{status id: statusCategory key} plus {lower-case status name: key}. `done` is the category to test."""
+        out: dict[str, str] = {}
+        for st in self.get(f"{self.api}/status") or []:
+            key = ((st.get("statusCategory") or {}).get("key") or "").lower()
+            if st.get("id") is not None:
+                out[str(st["id"])] = key
+            if st.get("name"):
+                out[str(st["name"]).lower()] = key
+        return out
+
+    # ---------- issues ----------
+    def search(self, jql: str, fields: list[str], max_results: int = 5000) -> list[dict]:
+        """Cloud: GET /rest/api/3/search/jql (token paging; /search was retired) with /search fallback. DC: /rest/api/2/search."""
+        flds = ",".join(fields)
+        out: list[dict] = []
+        if self.flavor.kind == "cloud":
+            try:
+                it = self.paged_token(f"{self.api}/search/jql", {"jql": jql, "fields": flds, "maxResults": 100})
+                for iss in it:
+                    out.append(iss)
+                    if len(out) >= max_results:
+                        break
+                return out
+            except JiraHTTPError as e:
+                if e.status not in (404, 410, 405):
+                    raise
+        for iss in self.paged(f"{self.api}/search", {"jql": jql, "fields": flds}, values_key="issues"):
+            out.append(iss)
+            if len(out) >= max_results:
+                break
+        return out
+
+    def issue(self, key: str, fields: list[str] | None = None, expand: str | None = None) -> dict:
+        params = {}
+        if fields:
+            params["fields"] = ",".join(fields)
+        if expand:
+            params["expand"] = expand
+        return self.get(f"{self.api}/issue/{key}", params or None)
+
+    # ---------- changelog ----------
+    def changelog(self, key: str, name_to_id: dict | None = None) -> list[dict]:
+        """All change items of one issue as flat rows (see history_rows). DC without the paged endpoint falls back to
+        ?expand=changelog and refuses to silently return a truncated history."""
+        try:
+            hist = list(self.paged(f"{self.api}/issue/{key}/changelog"))
+        except JiraHTTPError as e:
+            if e.status != 404 or self.flavor.kind == "cloud":
+                raise
+            cl = (self.issue(key, ["summary"], expand="changelog") or {}).get("changelog") or {}
+            hist = cl.get("histories") or []
+            total = cl.get("total")
+            if total is not None and int(total) > len(hist):
+                raise JiraError(f"changelog truncated for {key}: {len(hist)} of {total} entries",
+                                hint="this Jira lacks the paged changelog endpoint; use the Teradata history for older events") from None
+        rows: list[dict] = []
+        for h in hist:
+            rows.extend(history_rows(key, h, name_to_id))
+        return rows
+
+    def bulk_changelog(self, keys: list[str], field_ids: list[str] | None = None, name_to_id: dict | None = None,
+                       id_to_key: dict | None = None) -> list[dict]:
+        """Cloud bulkfetch (<=1000 issues, <=10 field ids per call); falls back to per-issue on 404/405."""
+        if self.flavor.kind != "cloud":
+            return [r for k in keys for r in self.changelog(k, name_to_id)]
+        id_to_key = dict(id_to_key or {})
+        if not id_to_key:
+            for i in range(0, len(keys), 100):
+                chunk = keys[i:i + 100]
+                for iss in self.search("key in (" + ",".join(chunk) + ")", ["key"]):
+                    id_to_key[str(iss.get("id"))] = iss.get("key")
+        rows: list[dict] = []
+        seen: set[tuple] = set()
+        for i in range(0, len(keys), 1000):
+            body: dict = {"issueIdsOrKeys": keys[i:i + 1000], "maxResults": 1000}
+            if field_ids:
+                body["fieldIds"] = field_ids[:10]
+            try:
+                pages = list(self.paged_token(f"{self.api}/changelog/bulkfetch", body=body, values_key="issueChangeLogs"))
+            except JiraHTTPError as e:
+                if e.status in (404, 405, 400):
+                    return [r for k in keys for r in self.changelog(k, name_to_id)]
+                raise
+            for entry in pages:
+                iid = str(entry.get("issueId"))
+                key = id_to_key.get(iid) or iid
+                for h in entry.get("changeHistories") or []:
+                    sig = (iid, str(h.get("id")))
+                    if sig in seen:
+                        continue
+                    seen.add(sig)
+                    rows.extend(history_rows(key, h, name_to_id))
+        return rows
+
+    # ---------- agile ----------
+    def sprint(self, sprint_id: int) -> dict:
+        return self.get(f"/rest/agile/1.0/sprint/{sprint_id}")
+
+    def board_sprints(self, board_id: int, state: str | None = None) -> list[dict]:
+        return list(self.paged(f"/rest/agile/1.0/board/{board_id}/sprint", {"state": state} if state else None, page_size=50))
+
+    def sprint_issues(self, sprint_id: int, fields: list[str]) -> list[dict]:
+        return list(self.paged(f"/rest/agile/1.0/sprint/{sprint_id}/issue", {"fields": ",".join(fields)}, values_key="issues"))
+
+    def sprintreport(self, board_id: int, sprint_id: int) -> dict:
+        """Undocumented GreenHopper endpoint behind the Sprint Report UI. Cross-check only, never truth."""
+        return self.get("/rest/greenhopper/1.0/rapid/charts/sprintreport", {"rapidViewId": board_id, "sprintId": sprint_id})
+
 
 def detect_flavor(creds: Creds, cfg: dict | None = None, redetect: bool = False, **kw) -> tuple[Jira, dict]:
     """Return (client, /myself payload). Uses the cached flavor unless redetect."""
@@ -227,3 +371,51 @@ def remember_flavor(cfg: dict, j: Jira) -> None:
     C.put(cfg, "jira.auth", j.flavor.auth)
     C.put(cfg, "jira.api", j.flavor.api)
     C.stamp(cfg, "jira")
+
+
+def history_rows(key: str, h: dict, name_to_id: dict | None = None) -> list[dict]:
+    """One row per change item. Snake-case columns; `toString` is read even though Atlassian's schema omits it."""
+    created = parse_ts(h.get("created")).strftime("%Y-%m-%dT%H:%M:%SZ") if h.get("created") is not None else None
+    author = (h.get("author") or {}).get("displayName")
+    cid = h.get("id")
+    cid = int(cid) if str(cid).isdigit() else cid
+    rows = []
+    nm = name_to_id or {}
+    for it in h.get("items") or []:
+        fname = it.get("field")
+        fid = it.get("fieldId") or nm.get(fname) or nm.get(str(fname).lower()) or fname
+        rows.append({"key": key, "changelog_id": cid, "created_utc": created, "author": author,
+                     "field": fname, "field_id": fid,
+                     "field_type": it.get("fieldtype"), "from_id": it.get("from"), "from_str": it.get("fromString"),
+                     "to_id": it.get("to"), "to_str": it.get("toString")})
+    return rows
+
+
+def pin_fields(fields_json: list[dict]) -> dict:
+    """Sprint = the field whose schema.custom ends with :gh-sprint (fallback: named Sprint); story points = the ids of
+    'Story Points' (company-managed) then 'Story point estimate' (team-managed). Ids are per Jira instance."""
+    sprint = None
+    points: list[str] = []
+    names = {}
+    for f in fields_json:
+        fid, name = f.get("id"), str(f.get("name") or "")
+        names[name.lower()] = fid
+        if str((f.get("schema") or {}).get("custom", "")).endswith(":gh-sprint"):
+            sprint = fid
+    sprint = sprint or names.get("sprint")
+    for n in ("story points", "story point estimate"):
+        if names.get(n) and names[n] not in points:
+            points.append(names[n])
+    return {"sprint": sprint, "story_points": points, "name_to_id": {n: i for n, i in names.items()}}
+
+
+def resolve_field_ids(names: list[str], fields_json: list[dict]) -> list[str]:
+    """User-typed field names (status, Sprint, "Story Points") -> field ids; system fields keep their name."""
+    lookup = {str(f.get("name") or "").lower(): f.get("id") for f in fields_json}
+    out = []
+    for n in names:
+        n = n.strip().strip('"')
+        fid = lookup.get(n.lower()) or (n if n.startswith("customfield_") else n.lower())
+        if fid not in out:
+            out.append(fid)
+    return out
