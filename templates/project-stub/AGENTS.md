@@ -3,17 +3,28 @@ Canonical rules: installed `this-next-please` skills. Do not restate them here.
 First action every session: skill `session-bootstrap`.
 State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 
-## Project facts (fill in; skills read these keys)
+## Project facts (fill in; skills read these keys; `ad-setup --project .` fills what it knows)
 - jira_project: <RDSD>
-- env: <td_env_name>              # ad-td --env
+- jira_board_id: <board id>                 # ad-jira sprints --board
+- jira_hist_table: <DB.JIRA_ISSUE_HISTORY>  # Teradata: PROJECT_KEY, ISSUE_KEY, STATUS, CHANGED_TS, STORY_POINTS
+- jira_sprint_table: <DB.JIRA_SPRINT>
+- env: <td_env_name>                        # ad-td --env
+- hive_env: <hive_env_name>                 # ad-hive --env
+- impala_env: <impala_env_name>             # ad-impala --env
+- oracle_env: <oracle_env_name>             # ad-ora --env
 - confluence_space: <SPACE>
 - confluence_parent: <page id>
 - te2_exe: C:/Tools/TabularEditor/TabularEditor.exe
 - dscmd_exe: C:/Tools/DaxStudio/dscmd.exe
-- tmdl_path: semantic-models/<Model>.tmdl
+- pbip_path: <reports/Report.pbip>          # ad-pbip <cmd> <pbip-dir> defaults to its folder
+- tmdl_path: <Model.SemanticModel/definition>   # folder that contains model.tmdl
 - pbi_workspace: <Workspace Name>
+- pbi_xmla: <powerbi://api.powerbi.com/v1.0/myorg/Workspace%20Name>   # percent-encoded; written by ad-setup
 - pbi_model: <Model>
+- ws_id: <workspace guid>
+- ds_id: <dataset guid>
 - deploy_roles: false
+- skills_dir: <~/.copilot/skills>
 - pae_host: <host>
 
 ## Definition of done

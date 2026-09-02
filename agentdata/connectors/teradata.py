@@ -1,30 +1,52 @@
-"""Teradata via teradatasql. Credentials resolved here, never printed. KRB5 first, LDAP via keyring fallback."""
+"""Teradata via teradatasql (KRB5 / TDNEGO / TD2 / LDAP) or a pyodbc DSN. Credentials resolved here, never printed.
+Connection settings come from ~/.agentdata/config.json (ad-setup) or TD_HOST_<ENV> / TD_HOST env vars."""
 from __future__ import annotations
+import getpass
+from ..config import ConfigError, source_env
+from . import odbc, secrets
 from .sql_base import assert_readonly, fetch
 
+PASSWORD_LOGMECH = ("LDAP", "TD2")
 
-def _connect(env: str):
-    import teradatasql  # optional dep
-    # TODO(data_czars): replace with data_czars.connections.teradata(env) which returns host/user/logmech
-    # and, for LDAP, pulls the secret from keyring inside this process.
-    import os
-    host = os.environ.get(f"TD_HOST_{env.upper()}") or os.environ.get("TD_HOST")
-    if not host:
-        raise RuntimeError(f"no host for env {env}; set TD_HOST or wire data_czars")
+
+def connect(env: str, cfg: dict | None = None, timeout: int | None = None):
+    e = source_env(cfg, "teradata", env)
+    user = e.get("user") or getpass.getuser()
+    logmech = str(e.get("logmech") or "").upper()
+    if e.get("mode") == "odbc":
+        pw = secrets.get_password("teradata", env, user) if logmech in PASSWORD_LOGMECH else None
+        return odbc.connect(odbc.dsn_conn_str(e["dsn"], user if pw else None, pw), timeout)
     try:
-        return teradatasql.connect(host=host, logmech="KRB5")
+        import teradatasql  # optional dep
+    except ImportError:
+        raise ConfigError("teradatasql is not installed", hint='pip install -e ".[teradata]"') from None
+    kw: dict = {"host": e["host"]}
+    if e.get("port"):
+        kw["dbs_port"] = str(e["port"])
+    if e.get("tmode"):
+        kw["tmode"] = str(e["tmode"])
+    if e.get("database"):
+        kw["database"] = e["database"]
+    if logmech in PASSWORD_LOGMECH:
+        pw = secrets.get_password("teradata", env, user)
+        if not pw:
+            raise ConfigError(f"no password in keyring for teradata:{env} user {user}", hint="ad-setup --only sources")
+        return teradatasql.connect(**kw, user=user, password=pw, logmech=logmech)
+    if logmech:
+        return teradatasql.connect(**kw, logmech=logmech)
+    try:  # unconfigured: Kerberos first, LDAP via keyring as fallback
+        return teradatasql.connect(**kw, logmech="KRB5")
     except Exception:
-        import keyring, getpass
-        user = os.environ.get("TD_USER") or getpass.getuser()
-        pw = keyring.get_password(f"teradata:{env}", user)
+        pw = secrets.get_password("teradata", env, user) if secrets.has_password("teradata", env, user) else None
         if not pw:
             raise
-        return teradatasql.connect(host=host, user=user, password=pw, logmech="LDAP")
+        return teradatasql.connect(**kw, user=user, password=pw, logmech="LDAP")
 
 
 def query(sql: str, env: str, max_rows: int = 5000, timeout: int = 120):
+    """`timeout` bounds the connection only; teradatasql exposes no statement timeout."""
     assert_readonly(sql)
-    con = _connect(env)
+    con = connect(env, timeout=timeout)
     try:
         cur = con.cursor()
         return fetch(cur, sql, max_rows, name="td", source=f"teradata:{env}")

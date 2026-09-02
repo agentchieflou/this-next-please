@@ -1,12 +1,12 @@
 ---
 name: session-bootstrap
-description: Use as the FIRST action of every chat session, before anything else. Loads project identity, state, and confirms tools. Mandatory even for one-line requests.
+description: Use as the FIRST action of every chat session, before anything else. Loads project identity and state, and confirms the toolchain with ad-doctor. Mandatory even for one-line requests.
 ---
 # Session bootstrap
 
-1. Read `AGENTS.md` at repo root. Read `.agent/state.json`. If missing → copy from `templates/project-stub/` in the installed skills repo, fill `project`, then continue.
-2. Run `pncli --help` ONLY if `state.tools.pncli_verified` is not today's date. Record the date.
-3. Run `ad-view --help`. If it fails → tell the user `pip install -e <this-next-please>` and STOP.
+1. Read `AGENTS.md` at repo root. Read `.agent/state.json`. If missing → run `ad-setup --project .` (copies `templates/project-stub/`, fills the facts it knows), then continue.
+2. Run `ad-doctor --quiet` ONLY if `state.tools.doctor_verified` is not today's date. Command not found → tell the user `pip install -e <this-next-please>` and STOP. `ok: false` → print every `fail` row as `<step>/<check>: <hint>` verbatim, tell the user to run the `ad-setup --only <step>` it names, STOP. Warnings do not stop you.
+3. Record today's date in `state.tools.doctor_verified` via `state-update`.
 4. If `state.active_ticket` is set: run `ad-pncli jira search --jql "key = <ticket>"`. Print one line: `<ticket> · <status> · phase=<phase> · branch=<branch>`.
 5. If `state.phase == "blocked"`: read the newest file in `.agent/friction/`, print its `## What would unblock me` section, ask the user for that input. STOP.
 6. Invoke `router`.
