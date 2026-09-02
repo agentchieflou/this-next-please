@@ -69,9 +69,19 @@ def main_pncli() -> None:
     j.add_argument("--raw", action="store_true")
     r = sub.add_parser("raw", help="any pncli command; result list normalized by policy")
     r.add_argument("pargs", nargs=argparse.REMAINDER); r.add_argument("--raw", action="store_true", dest="raw_out")
+    sub.add_parser("where", help="how pncli resolves on this machine (path, npm shim, node entry, version)")
     a = ap.parse_args()
+    from . import proc
+    from . import toon
     from .connectors import pncli as P
     try:
+        if a.cmd == "where":
+            info = P.where()
+            meta = {"ok": bool(info["found"]) and info.get("rc", 0) == 0, "source": "ad-pncli where", **{k: v for k, v in info.items() if k != "tried"}}
+            if not meta["ok"]:
+                meta["hint"] = P.install_hint()
+            print(toon.encode({"meta": meta, "tried": info["tried"]}))
+            sys.exit(0 if meta["ok"] else 1)
         if a.cmd == "jira":
             t = P.jira_search(a.jql, a.fields.split(",") if a.fields else None, a.max_results)
             print(render(t, raw=a.raw))
@@ -84,8 +94,11 @@ def main_pncli() -> None:
                 print(render(AgentTable(name="pncli", columns=[], rows=[], source=source, raw=payload), raw=True))
             else:
                 print(render_nested(P.extract_records(payload), name="pncli", source=source, raw_payload=payload))
+    except proc.ProcError as e:
+        meta = {"ok": False, "source": "ad-pncli", "error": e.msg, "hint": e.hint, "refused": e.code, **e.detail}
+        print(toon.encode({"meta": meta})); sys.exit(1)
     except Exception as e:  # noqa: BLE001
-        print(error(str(e)[:300], "run the same pncli command with --dry-run --pretty", "pncli")); sys.exit(1)
+        print(error(str(e)[:300], "run the same pncli command with --dry-run --pretty; `ad-pncli where` checks the launcher", "pncli")); sys.exit(1)
 
 
 def main_view() -> None:

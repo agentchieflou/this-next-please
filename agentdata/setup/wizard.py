@@ -21,6 +21,7 @@ from .. import textio
 from .. import config as C
 from .. import toon
 from ..console import eprint, prompt as _console_prompt, utf8_stdout
+from .. import proc
 
 STATUS_ORDER = {"fail": 0, "warn": 1, "skip": 2, "ok": 3}
 
@@ -61,21 +62,27 @@ class Detectors:
         return sorted(_glob.glob(os.path.join(root, pattern), recursive=True))
 
     def run(self, args: list[str], timeout: int = 120) -> tuple[int, str, str]:
-        exe = shutil.which(args[0]) or args[0]  # `az` is az.cmd on Windows
+        # `az` is az.cmd and `pncli` is pncli.cmd on Windows: proc resolves PATHEXT + npm shims (never bare CreateProcess)
         try:
-            p = subprocess.run([exe, *args[1:]], capture_output=True, text=True, timeout=timeout)
-        except FileNotFoundError:
-            return 127, "", f"{args[0]}: not found"
-        except subprocess.TimeoutExpired:
-            return 124, "", f"{args[0]}: timed out after {timeout}s"
-        return p.returncode, p.stdout, p.stderr
+            rc, out, err, _el = proc.run(args, timeout=timeout)
+        except proc.ProcError as e:
+            return (124 if e.code == "timeout" else 127), "", f"{args[0]}: {e.msg}"
+        return rc, out, err
 
     def run_interactive(self, args: list[str]) -> int:
-        exe = shutil.which(args[0]) or args[0]
         try:
-            return subprocess.call([exe, *args[1:]])
-        except FileNotFoundError:
+            return subprocess.call(proc.command(args))
+        except (proc.ProcError, FileNotFoundError):
             return 127
+
+    def launcher(self, name: str, exe: str | None = None) -> dict:
+        """How `name` resolves, plus `--version` proof that it starts. Faked wholesale in tests."""
+        info = proc.resolve(name, exe=exe)
+        if info["found"]:
+            rc, out, err = self.run([name, "--version"], timeout=60)
+            lines = (out or err).strip().splitlines()
+            info["rc"], info["version"] = rc, (lines[0][:60] if lines else "")
+        return info
 
     def module(self, name: str) -> bool:
         try:

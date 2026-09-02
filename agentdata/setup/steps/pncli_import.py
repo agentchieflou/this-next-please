@@ -6,6 +6,7 @@ from ... import config as C
 from ..wizard import Context, Step
 
 DEFAULT_PNCLI_CONFIG = "~/.pncli/config.json"
+NPM_PACKAGE = "@kolatts/pncli"   # laptop diagnosis 2026-09-02; override with the `pncli.npm_package` config key
 _URL_KEY = re.compile(r"(url|base_?url|host|server|site)$", re.I)
 _EMAIL_KEY = re.compile(r"(email|e_?mail|user(name)?|login|account)$", re.I)
 _TOKEN_KEY = re.compile(r"(token|api_?token|pat|password|secret|api_?key)$", re.I)
@@ -38,8 +39,10 @@ class PncliStep(Step):
 
     def detect(self, ctx: Context) -> dict:
         cfg_path = C.get(ctx.cfg, "pncli.config_path") or DEFAULT_PNCLI_CONFIG
-        found: dict = {"bin": ctx.det.which("pncli"), "config_path": cfg_path, "exists": ctx.det.exists(cfg_path),
-                       "flat": {}, "json_error": None, "keys": dict(C.get(ctx.cfg, "pncli.keys", {}) or {})}
+        launcher = ctx.det.launcher("pncli", C.get(ctx.cfg, "pncli.exe") or None)
+        found: dict = {"launcher": launcher, "bin": launcher.get("path") or None, "config_path": cfg_path,
+                       "exists": ctx.det.exists(cfg_path), "flat": {}, "json_error": None,
+                       "keys": dict(C.get(ctx.cfg, "pncli.keys", {}) or {})}
         if found["exists"]:
             try:
                 found["flat"] = C.flatten(ctx.det.read_json(cfg_path))
@@ -50,10 +53,17 @@ class PncliStep(Step):
 
     def check(self, ctx: Context, found: dict) -> None:
         k = self.key
-        if found["bin"]:
-            ctx.add(k, "pncli binary", "ok", found["bin"])
+        lz = found.get("launcher") or {}
+        pkg = C.get(ctx.cfg, "pncli.npm_package") or NPM_PACKAGE
+        hint = (f"pncli is an npm package: `npm install -g {pkg}` installs it as pncli.cmd (there is no pncli.exe), "
+                "or pin its path with PNCLI_EXE / ad-setup --only pncli. `ad-pncli where` shows what was tried.")
+        if not lz.get("found"):
+            ctx.add(k, "pncli launcher", "fail", lz.get("error") or "pncli not found on PATH, PATHEXT or the npm global prefix", hint)
+        elif lz.get("rc") not in (0, None):
+            ctx.add(k, "pncli launcher", "fail", f"{lz['path']} ({lz.get('kind')}) exits {lz.get('rc')} on --version", hint)
         else:
-            ctx.add(k, "pncli binary", "warn", "pncli not on PATH", "install pncli or add it to PATH (ad-pncli needs it)")
+            detail = f"{lz['path']} ({lz.get('kind')})" + (f" · {lz['version']}" if lz.get("version") else "")
+            ctx.add(k, "pncli launcher", "ok", detail + (f" · node {lz['node']}" if lz.get("node") else ""))
         p = C.display_path(C.expand(found["config_path"]))
         if not found["exists"]:
             ctx.add(k, "pncli config", "fail", f"missing {p}", "run `pncli config init`, then `ad-setup --only pncli`")
@@ -110,6 +120,9 @@ class PncliStep(Step):
             chosen[name] = ans or None
         C.put(cfg, "pncli.config_path", path)
         C.put(cfg, "pncli.keys", {k: v for k, v in chosen.items() if v})
+        lz = found.get("launcher") or {}
+        if lz.get("found") and lz.get("kind") != "executable":
+            C.put(cfg, "pncli.exe", lz["path"])      # pin the shim we proved starts, so PATH changes cannot break it
         url = flat.get(chosen["jira_url"]) if chosen["jira_url"] else None
         if isinstance(url, str) and url and not C.looks_secret(chosen["jira_url"] or ""):
             C.put(cfg, "jira.base_url", url.rstrip("/"))

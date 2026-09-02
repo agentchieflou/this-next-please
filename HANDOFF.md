@@ -18,6 +18,11 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 - [ ] Add `agentdata/connectors/spark.py` if a local Spark session exists on the laptop
 - [ ] Stretch: Fabric item-definition deploy of PBIR/TMDL (docs/pbi-tools-parts.md), rename propagation TMDL↔PBIR (`ad-pbip rename`)
 
+## Windows facts learned on the laptop (do not regress)
+- Files written by Windows PowerShell 5.1 carry a UTF-8 BOM (`Set-Content -Encoding utf8`) or are UTF-16 (`>`): read every external file through `agentdata/textio.py`.
+- npm-installed CLIs (pncli, az) exist only as `.cmd` shims. Never hand a bare name to `subprocess`; go through `agentdata/proc.py`.
+- A doctor row must prove a tool *starts*, not that a file exists: `which` found `pncli.cmd` while the connector could not launch it.
+
 ## Rules for you
 1. Keep every SKILL.md < 120 lines. If it grows, split into a new skill.
 2. No hedging language in skills. Imperative, numbered, explicit STOP/handoff at end.
