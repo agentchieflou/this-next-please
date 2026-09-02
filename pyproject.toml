@@ -33,6 +33,7 @@ ad-setup = "agentdata.cli_setup:main_setup"
 ad-doctor = "agentdata.cli_setup:main_doctor"
 ad-sql-check = "agentdata.cli_sqlcheck:main"
 ad-jira = "agentdata.cli_jira:main"
+ad-pbip = "agentdata.cli_pbip:main"
 
 [tool.setuptools.packages.find]
 include = ["agentdata*"]

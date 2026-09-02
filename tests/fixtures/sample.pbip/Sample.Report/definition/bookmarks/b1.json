@@ -1,0 +1,3 @@
+{ "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/bookmark/1.0.0/schema.json",
+  "name": "Bookmark1", "displayName": "Overview default",
+  "explorationState": { "version": "1.3", "activeSection": "page1", "sections": { "page1": { "visualContainers": { "f1a2b3c4d5e6f7a8b9c0": {}, "zzzzzzzzzzzzzzzzzzzz": {} } } } } }

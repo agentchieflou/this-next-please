@@ -16,7 +16,10 @@ description: Use at the start of every task after session-bootstrap, and wheneve
 | query, count, rows, table, SQL (Teradata) | `teradata-query` |
 | Hive, Hadoop, Impala, Spark table | `hive-query` |
 | Oracle | `oracle-query` |
-| deploy model, TMDL, XMLA, workspace | `pbi-deploy-te2` |
+| PBIP, report, visual, page, "what feeds this chart", model overview | `pbip-projection` |
+| add / fix a measure, column, format string, relationship, TMDL edit | `tmdl-edit` |
+| validate the report, broken visual, "does the report still work", before deploy | `pbi-validate` |
+| deploy model, publish, XMLA, workspace | `pbi-deploy-te2` |
 | refresh model / dataset | `pbi-refresh-xmla` |
 | DAX result, vpax, export measures | `dax-studio-export` |
 | sbatch, cluster job, schedule | `slurm-submit` |

@@ -1,0 +1,9 @@
+relationship 21bd108e-527d-4566-be7d-9e474c858ee0
+	fromColumn: Sales.DateKey
+	toColumn: Calendar.Date
+
+relationship 5b0f4bd9-0000-4000-8000-000000000001
+	isActive: false
+	fromColumn: Sales.'Delivery Date'
+	toColumn: Calendar.Date
+

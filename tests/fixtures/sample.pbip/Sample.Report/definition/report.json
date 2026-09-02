@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/1.0.0/schema.json",
+  "themeCollection": { "baseTheme": { "name": "CY24SU06", "reportVersionAtImport": "5.55", "type": "SharedResources" } },
+  "layoutOptimization": "None",
+  "filterConfig": { "filters": [ {
+    "name": "Filter000000000000000000000001", "type": "Categorical",
+    "field": { "Column": { "Expression": { "SourceRef": { "Entity": "Calendar" } }, "Property": "Year" } },
+    "filter": { "Version": 2, "From": [ { "Name": "c", "Entity": "Calendar", "Type": 0 } ],
+                "Where": [ { "Condition": { "In": { "Expressions": [ { "Column": { "Expression": { "SourceRef": { "Source": "c" } }, "Property": "Year" } } ],
+                                                    "Values": [ [ { "Literal": { "Value": "2026L" } } ] ] } } } ] } } ] }
+}

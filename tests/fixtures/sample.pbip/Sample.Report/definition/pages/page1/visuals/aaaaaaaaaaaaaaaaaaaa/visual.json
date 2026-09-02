@@ -1,0 +1,13 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/1.0.0/schema.json",
+  "name": "aaaaaaaaaaaaaaaaaaaa",
+  "position": { "x": 540, "y": 20, "z": 2000, "height": 300, "width": 500, "tabOrder": 2000 },
+  "visual": {
+    "visualType": "tableEx",
+    "query": { "queryState": { "Values": { "projections": [
+      { "field": { "Column": { "Expression": { "SourceRef": { "Entity": "Sales" } }, "Property": "Region Name" } }, "queryRef": "Sales.Region Name" },
+      { "field": { "Measure": { "Expression": { "SourceRef": { "Entity": "Sales" } }, "Property": "Total Sales" } }, "queryRef": "Sales.Total Sales" },
+      { "field": { "Measure": { "Expression": { "SourceRef": { "Entity": "Sales" } }, "Property": "Ext Measure" } }, "queryRef": "Sales.Ext Measure" } ] } } },
+    "visualContainerObjects": { "title": [ { "properties": { "text": { "expr": { "Literal": { "Value": "'Broken table'" } } } } } ] }
+  }
+}

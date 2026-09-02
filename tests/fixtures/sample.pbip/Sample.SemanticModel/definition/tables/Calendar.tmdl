@@ -1,0 +1,55 @@
+﻿table Calendar
+	lineageTag: 7c5b0e3a-0000-4000-8000-000000000030
+	dataCategory: Time
+
+	column Date
+		dataType: dateTime
+		isKey
+		formatString: Short Date
+		lineageTag: 7c5b0e3a-0000-4000-8000-000000000031
+		summarizeBy: none
+		sourceColumn: [Date]
+
+	column Year
+		dataType: int64
+		formatString: 0
+		lineageTag: 7c5b0e3a-0000-4000-8000-000000000032
+		summarizeBy: none
+		sourceColumn: [Year]
+
+	column Month
+		dataType: string
+		lineageTag: 7c5b0e3a-0000-4000-8000-000000000033
+		summarizeBy: none
+		sourceColumn: [Month]
+		sortByColumn: 'Month Number'
+
+	column 'Month Number'
+		dataType: int64
+		isHidden
+		lineageTag: 7c5b0e3a-0000-4000-8000-000000000034
+		summarizeBy: none
+		sourceColumn: [Month Number]
+
+	hierarchy 'Date Hierarchy'
+		lineageTag: 7c5b0e3a-0000-4000-8000-000000000035
+
+		level Year
+			lineageTag: 7c5b0e3a-0000-4000-8000-000000000036
+			column: Year
+
+		level Month
+			lineageTag: 7c5b0e3a-0000-4000-8000-000000000037
+			column: Month
+
+	partition Calendar = calculated
+		mode: import
+		source = ```
+				ADDCOLUMNS (
+				    CALENDAR ( DATE ( 2020, 1, 1 ), DATE ( 2030, 12, 31 ) ),
+				    "Year", YEAR ( [Date] ),
+				    "Month", FORMAT ( [Date], "MMM" ),
+				    "Month Number", MONTH ( [Date] )
+				)
+				```
+
