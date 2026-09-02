@@ -1,6 +1,7 @@
 """keyring wrapper. Service names are `<source>:<env>`. Nothing here ever prints a value."""
 from __future__ import annotations
 from ..config import ConfigError
+from ..install import install_cmd
 
 
 def service(source: str, env: str) -> str:
@@ -11,7 +12,7 @@ def _keyring():
     try:
         import keyring  # optional dep
     except ImportError:
-        raise ConfigError("keyring is not installed", hint='pip install -e ".[keyring]"') from None
+        raise ConfigError("keyring is not installed", hint=install_cmd("keyring")) from None
     return keyring
 
 

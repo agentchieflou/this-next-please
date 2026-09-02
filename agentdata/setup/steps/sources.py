@@ -3,6 +3,7 @@ capability probes (consumed by ad-sql-check). Passwords go to keyring under `<so
 from __future__ import annotations
 import json
 from ... import config as C
+from ...install import install_cmd
 from ..wizard import Context, Step
 
 LABEL = {"teradata": "Teradata", "hive": "Hive (HiveServer2)", "impala": "Impala", "oracle": "Oracle"}
@@ -52,18 +53,18 @@ class SourcesStep(Step):
                 kerberos = kerberos or uses_kerberos(s, e)
                 if mode == "odbc":
                     if not found["pyodbc"]:
-                        ctx.add(k, tag, "fail", "mode odbc but pyodbc is missing", 'pip install -e ".[odbc]"')
+                        ctx.add(k, tag, "fail", "mode odbc but pyodbc is missing", install_cmd("odbc"))
                         continue
                     if e.get("dsn") not in found["dsns"]:
                         ctx.add(k, tag, "fail", f"DSN '{e.get('dsn')}' not visible to this {found['bits']}-bit Python",
                                 "create it in C:/Windows/System32/odbcad32.exe (64-bit) or fix the dsn (ad-setup --only sources)")
                         continue
                 elif not found["modules"][s]:
-                    ctx.add(k, tag, "fail", f"{MODULE[s]} not installed", f'pip install -e ".[{s}]"')
+                    ctx.add(k, tag, "fail", f"{MODULE[s]} not installed", install_cmd(s))
                     continue
                 if needs_password(s, e):
                     if not found["keyring"]:
-                        ctx.add(k, tag, "fail", "password auth but keyring is missing", 'pip install -e ".[keyring]"')
+                        ctx.add(k, tag, "fail", "password auth but keyring is missing", install_cmd("keyring"))
                         continue
                     user = e.get("user") or ctx.det.getuser()
                     if not ctx.det.has_password(s, env, user):

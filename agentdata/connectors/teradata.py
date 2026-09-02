@@ -3,6 +3,7 @@ Connection settings come from ~/.agentdata/config.json (ad-setup) or TD_HOST_<EN
 from __future__ import annotations
 import getpass
 from ..config import ConfigError, source_env
+from ..install import install_cmd
 from . import odbc, secrets
 from .sql_base import assert_readonly, fetch
 
@@ -19,7 +20,7 @@ def connect(env: str, cfg: dict | None = None, timeout: int | None = None):
     try:
         import teradatasql  # optional dep
     except ImportError:
-        raise ConfigError("teradatasql is not installed", hint='pip install -e ".[teradata]"') from None
+        raise ConfigError("teradatasql is not installed", hint=install_cmd("teradata")) from None
     kw: dict = {"host": e["host"]}
     if e.get("port"):
         kw["dbs_port"] = str(e["port"])

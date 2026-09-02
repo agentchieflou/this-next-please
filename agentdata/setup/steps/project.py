@@ -1,18 +1,24 @@
-"""Step 4: project stub — copy templates/project-stub into a project directory and fill the facts we know
-(env names, tool paths, workspace/model/XMLA, the first *.pbip found). Existing files are never overwritten."""
+"""Step 4: project stub — write AGENTS.md and .agent/state.json into a project directory and fill the facts we know
+(env names, tool paths, workspace/model/XMLA, the first *.pbip found). Existing files are never overwritten.
+
+The templates ship inside the package (agentdata/templates/project-stub), so this works from any install kind. A
+project repo needs nothing installed: it holds PBIP folders and TMDL, not Python.
+"""
 from __future__ import annotations
 import os
 import re
-import agentdata
 from ... import config as C
+from ...install import install_cmd, templates_dir
 from ..wizard import Context, Step
 
 _FACT_LINE = re.compile(r"^(\s*-\s*)([A-Za-z_][\w\-]*)(\s*:\s*)(<[^>]*>|\S+)(.*)$")
+# packaged file name -> path written into the project (dot-free in the package so every packaging tool ships it)
+STUB_FILES = [("AGENTS.md", "AGENTS.md"), ("agent-state.json", os.path.join(".agent", "state.json"))]
+GITIGNORE_TEMPLATE = "gitignore-additions.txt"
 
 
 def template_dir() -> str:
-    root = os.path.dirname(os.path.dirname(os.path.abspath(agentdata.__file__)))
-    return os.path.join(root, "templates", "project-stub")
+    return templates_dir()
 
 
 def fill(template_text: str, facts: dict) -> str:
@@ -60,13 +66,14 @@ class ProjectStep(Step):
         if found["template_ok"]:
             ctx.add(self.key, "templates", "ok", C.display_path(found["template"]))
         else:
-            ctx.add(self.key, "templates", "warn", "templates/project-stub not found next to the agentdata package",
-                    "pip install -e <this-next-please> (editable) so ad-setup --project can find the templates")
+            ctx.add(self.key, "templates", "fail", f"project stub missing from the package at {C.display_path(found['template'])}",
+                    f"reinstall agentdata: {install_cmd()}")
         if found["dir"]:
-            for rel in ("AGENTS.md", ".agent/state.json"):
+            for _src, rel in STUB_FILES:
                 p = os.path.join(found["dir"], rel)
                 ok = ctx.det.exists(p)
-                ctx.add(self.key, rel, "ok" if ok else "warn", C.display_path(p), "" if ok else f"ad-setup --project {found['dir']}")
+                ctx.add(self.key, rel.replace(os.sep, "/"), "ok" if ok else "warn", C.display_path(p),
+                        "" if ok else f"ad-setup --project {found['dir']}")
 
     def ask(self, ctx: Context, found: dict) -> None:
         d = ctx.project_dir
@@ -75,7 +82,7 @@ class ProjectStep(Step):
                 return
             d = ctx.ask.ask("project.dir", "project directory", ".") or "."
         if not found["template_ok"]:
-            ctx.add(self.key, "project", "fail", "templates missing", "pip install -e <this-next-please>")
+            ctx.add(self.key, "project", "fail", "packaged project stub missing", f"reinstall agentdata: {install_cmd()}")
             return
         facts = facts_from_config(ctx.cfg)
         facts["jira_project"] = ctx.ask.ask("project.jira_project", "Jira project key", ctx.facts.get("jira_project") or "")
@@ -86,19 +93,18 @@ class ProjectStep(Step):
             facts["pbip_path"] = os.path.relpath(pbips[0], d).replace("\\", "/")
         facts = {k: v for k, v in facts.items() if v}
         written: list[str] = []
-        agents = os.path.join(d, "AGENTS.md")
-        if ctx.det.exists(agents):
-            ctx.add(self.key, "AGENTS.md", "skip", "exists; not overwritten", "edit the facts by hand, or delete it and re-run")
-        else:
-            ctx.det.write_text(agents, fill(ctx.det.read_text(os.path.join(found["template"], "AGENTS.md")), facts))
-            written.append("AGENTS.md")
-        state = os.path.join(d, ".agent", "state.json")
-        if not ctx.det.exists(state):
-            txt = ctx.det.read_text(os.path.join(found["template"], ".agent", "state.json"))
-            ctx.det.write_text(state, txt.replace("<PROJECT_KEY>", facts.get("jira_project", "<PROJECT_KEY>")))
-            written.append(".agent/state.json")
+        for src, rel in STUB_FILES:
+            target = os.path.join(d, rel)
+            if ctx.det.exists(target):
+                ctx.add(self.key, rel.replace(os.sep, "/"), "skip", "exists; not overwritten",
+                        "edit it by hand, or delete it and re-run" if rel == "AGENTS.md" else "")
+                continue
+            text = ctx.det.read_text(os.path.join(found["template"], src))
+            text = fill(text, facts) if src.endswith(".md") else text.replace("<PROJECT_KEY>", facts.get("jira_project", "<PROJECT_KEY>"))
+            ctx.det.write_text(target, text)
+            written.append(rel.replace(os.sep, "/"))
         gi = os.path.join(d, ".gitignore")
-        add = ctx.det.read_text(os.path.join(found["template"], ".gitignore-additions"))
+        add = ctx.det.read_text(os.path.join(found["template"], GITIGNORE_TEMPLATE))
         cur = ctx.det.read_text(gi) if ctx.det.exists(gi) else ""
         if ".agent/out/" not in cur:
             ctx.det.write_text(gi, (cur.rstrip("\n") + "\n\n" if cur else "") + add.rstrip("\n") + "\n")

@@ -11,8 +11,11 @@ Conventions: run in PowerShell inside the project checkout; every `ad-*` command
 ## 0. Baseline
 ```powershell
 git pull origin main
-pip install -e ".[dev,keyring,odbc,pbi,uat,teradata,impala,oracle]"   # drop extras you do not use; impyla needs: pip install winkerberos
-python -m pytest -q                                                    # expect: 96 passed
+pip install "agentdata[keyring,odbc,pbi,uat,teradata,impala,oracle] @ git+https://github.com/agentchieflou/this-next-please.git"
+#   drop extras you do not use; impyla on Windows also needs: pip install winkerberos
+#   developing the repo instead? clone it and `pip install -e ".[dev]"` THERE, never in a report repo
+ad-doctor    # if "not recognized": the Scripts dir is not on PATH -> use `python -m agentdata doctor` everywhere below
+python -m pytest -q     # only in a clone of this-next-please; expect: 96 passed
 chcp 65001 | Out-Null                                                  # UTF-8 console so → · ≤ render (cosmetic)
 ```
 Pass: `96 passed`. Paste: any failing test names and their assertion text (likely candidates: CRLF fixture if `core.autocrlf=true`, path separators).
