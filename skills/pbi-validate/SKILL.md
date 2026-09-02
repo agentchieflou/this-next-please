@@ -1,6 +1,6 @@
 ---
 name: pbi-validate
-description: Use after any model (TMDL) or report (PBIR) edit and before deploy — proves the report still resolves against the model. Runs ad-pbip check (field references, names, structure), Tabular Editor for real TMDL/DAX errors, and, when Power BI Desktop is open, evaluates the affected visuals' DAX. Never deploy without it.
+description: "Use after any model (TMDL) or report (PBIR) edit and before deploy — proves the report still resolves against the model. Runs ad-pbip check (field references, names, structure), Tabular Editor for real TMDL/DAX errors, and, when Power BI Desktop is open, evaluates the affected visuals' DAX. Never deploy without it."
 ---
 # Validate the model and the report together
 

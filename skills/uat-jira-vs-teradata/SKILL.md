@@ -1,6 +1,6 @@
 ---
 name: uat-jira-vs-teradata
-description: Use for UAT/remediation of Jira-tracking dashboards — when numbers look wrong, when validating a fix, or when asked to compare live Jira against the Jira history in Teradata. Pulls both sides through ad-* and diffs on disk.
+description: "Use for UAT/remediation of Jira-tracking dashboards — when numbers look wrong, when validating a fix, or when asked to compare live Jira against the Jira history in Teradata. Pulls both sides through ad-* and diffs on disk."
 ---
 # UAT: live Jira vs Teradata history
 

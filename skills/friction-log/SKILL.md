@@ -1,6 +1,6 @@
 ---
 name: friction-log
-description: Use the moment you second-guess yourself, repeat a tool call, hit ambiguous acceptance criteria, or get two failures in a row. Writes a structured entry for an offline architect model and STOPS. Never try to fix instructions yourself.
+description: "Use the moment you second-guess yourself, repeat a tool call, hit ambiguous acceptance criteria, or get two failures in a row. Writes a structured entry for an offline architect model and STOPS. Never try to fix instructions yourself."
 ---
 # Friction log (then stop)
 

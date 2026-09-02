@@ -1,6 +1,6 @@
 ---
 name: uat-report-visual
-description: Use when a business user says the numbers on a Power BI chart are wrong and hands over a document or CSV of expected values — "the committed points on the sprint chart don't match", "this table should show 42". Reproduces the visual on every tier (live Jira > Jira history in Teradata > Power BI), classifies each difference, and writes the findings. Never argues from memory or from one tier.
+description: "Use when a business user says the numbers on a Power BI chart are wrong and hands over a document or CSV of expected values — \"the committed points on the sprint chart don't match\", \"this table should show 42\". Reproduces the visual on every tier (live Jira > Jira history in Teradata > Power BI), classifies each difference, and writes the findings. Never argues from memory or from one tier."
 ---
 # UAT of a report visual from a document
 

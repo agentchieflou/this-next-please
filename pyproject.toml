@@ -19,7 +19,7 @@ keyring = ["keyring"]
 pbi = ["psutil"]
 uat = ["openpyxl", "python-docx"]
 pandas = ["pandas", "pyarrow"]
-dev = ["pytest"]
+dev = ["pytest", "pyyaml"]
 
 [project.scripts]
 ad-pncli = "agentdata.cli:main_pncli"

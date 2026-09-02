@@ -1,6 +1,6 @@
 ---
 name: pbip-projection
-description: Use whenever a task touches a Power BI project (PBIP) — report pages, visuals, measures, columns, TMDL, "what feeds this chart". Builds the LLM projection of the PBIP (normalized JSON, TSVs, MODEL.md / REPORT.md / LINEAGE.md) with ad-pbip and tells you what to read. Never open visual.json or .tmdl files raw to answer questions.
+description: "Use whenever a task touches a Power BI project (PBIP) — report pages, visuals, measures, columns, TMDL, \"what feeds this chart\". Builds the LLM projection of the PBIP (normalized JSON, TSVs, MODEL.md / REPORT.md / LINEAGE.md) with ad-pbip and tells you what to read. Never open visual.json or .tmdl files raw to answer questions."
 ---
 # PBIP projection (read the model and report without reading the PBIP)
 

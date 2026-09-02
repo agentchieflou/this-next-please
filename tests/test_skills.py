@@ -1,5 +1,6 @@
 """Guardrails for the skill set itself: size, frontmatter, router rows, referenced files."""
 import glob, os, re
+import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKILLS = sorted(glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md")))
@@ -23,9 +24,13 @@ def test_skill_size_and_frontmatter():
         assert lines < 120, f"{path}: {lines} lines (limit 120)"
         keys, fm = _frontmatter(text)
         assert keys == ["name", "description"], f"{path}: frontmatter keys {keys}"
-        name = re.search(r"^name:\s*(.+)$", fm, re.M).group(1).strip()
-        assert name == os.path.basename(os.path.dirname(path)), f"{path}: name != folder"
-        assert re.search(r"^description:\s*\S", fm, re.M), f"{path}: empty description"
+        # `gh skill install` parses this block as strict YAML: an unquoted value containing ": " is a nested mapping
+        data = yaml.safe_load(fm)
+        assert isinstance(data, dict) and list(data) == ["name", "description"], f"{path}: frontmatter must be YAML with name, description"
+        assert data["name"] == os.path.basename(os.path.dirname(path)), f"{path}: name != folder"
+        assert isinstance(data["description"], str) and data["description"].strip(), f"{path}: empty description"
+        desc_line = re.search(r"^description:\s*(.*)$", fm, re.M).group(1)
+        assert desc_line.startswith('"'), f"{path}: quote the description (it may contain ': ' or '#')"
 
 
 def test_router_rows_resolve():

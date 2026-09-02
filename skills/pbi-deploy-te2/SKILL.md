@@ -1,6 +1,6 @@
 ---
 name: pbi-deploy-te2
-description: Use to deploy a TMDL semantic model folder to a Power BI Premium workspace over XMLA with TabularEditor 2 (TabularEditor.exe). Use when the user says deploy, publish model, push TMDL, or after model edits are committed.
+description: "Use to deploy a TMDL semantic model folder to a Power BI Premium workspace over XMLA with TabularEditor 2 (TabularEditor.exe). Use when the user says deploy, publish model, push TMDL, or after model edits are committed."
 ---
 # Deploy TMDL with Tabular Editor 2
 

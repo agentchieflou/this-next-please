@@ -1,6 +1,6 @@
 ---
 name: hive-query
-description: Use for read-only SQL against Hive (HiveServer2) or Impala on Hadoop. Never connect directly; ad-hive / ad-impala lint the SQL for the engine's syntax first, run it, and return TOON. Hive and Impala differ — `||` is OR in Impala.
+description: "Use for read-only SQL against Hive (HiveServer2) or Impala on Hadoop. Never connect directly; ad-hive / ad-impala lint the SQL for the engine's syntax first, run it, and return TOON. Hive and Impala differ — `||` is OR in Impala."
 ---
 # hive / impala query (read-only)
 

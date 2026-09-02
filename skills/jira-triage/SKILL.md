@@ -1,6 +1,6 @@
 ---
 name: jira-triage
-description: Use when given a Jira ticket key, asked "what's next", or asked to plan work. Reads the ticket via ad-pncli, extracts acceptance criteria, sets the plan and branch name. Use before any query, code, or PR work on a ticket.
+description: "Use when given a Jira ticket key, asked \"what's next\", or asked to plan work. Reads the ticket via ad-pncli, extracts acceptance criteria, sets the plan and branch name. Use before any query, code, or PR work on a ticket."
 ---
 # Jira triage
 

@@ -1,6 +1,6 @@
 ---
 name: pbi-refresh-xmla
-description: Use to refresh a deployed Power BI semantic model (full, table, or partition) through the XMLA endpoint using a TE2 C# script (TOM RequestRefresh + SaveChanges). Use after deploy or when asked to refresh a model/dataset.
+description: "Use to refresh a deployed Power BI semantic model (full, table, or partition) through the XMLA endpoint using a TE2 C# script (TOM RequestRefresh + SaveChanges). Use after deploy or when asked to refresh a model/dataset."
 ---
 # Refresh via TE2 script
 

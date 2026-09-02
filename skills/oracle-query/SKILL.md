@@ -1,6 +1,6 @@
 ---
 name: oracle-query
-description: Use for any read-only SQL against Oracle. Never connect directly; ad-ora lints the SQL for Oracle syntax first, runs it, and returns TOON.
+description: "Use for any read-only SQL against Oracle. Never connect directly; ad-ora lints the SQL for Oracle syntax first, runs it, and returns TOON."
 ---
 # oracle query (read-only)
 
