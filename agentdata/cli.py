@@ -1,6 +1,7 @@
 """ad-* entry points. Every command prints TOON (or JSON with --raw) and nothing else."""
 from __future__ import annotations
 import argparse, os, sys
+from .textio import read_text
 from .model import AgentTable
 from .policy import render, render_nested, error
 from . import toon
@@ -21,7 +22,7 @@ def _sql_main(connector: str, prog: str) -> None:
     ap.add_argument("--name", default=None)
     ap.add_argument("--raw", action="store_true")
     a = ap.parse_args()
-    sql = a.sql or open(a.sql_file, encoding="utf-8").read()
+    sql = a.sql or read_text(a.sql_file)
     facts = project_facts()
     env = a.env or facts.get(f"{connector}_env") or (facts.get("env") if connector == "teradata" else None)
     if not env:

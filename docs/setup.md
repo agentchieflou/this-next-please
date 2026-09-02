@@ -18,8 +18,15 @@ interactive picker (its first row is a search box that swallows Enter, so paging
 | `powerbi` | locates `TabularEditor.exe`, `dscmd.exe`, `PBIDesktop.exe`; `az login`; lists workspaces via the Power BI REST API; percent-encodes the XMLA URL; smoke-tests each workspace/model with a one-line Tabular Editor script | `powerbi.tools.*`, `powerbi.workspaces[]`, `powerbi.tenant_id`, `verified.powerbi:xmla:<ws>` |
 | `project` | `--project DIR`: writes the packaged project stub into DIR and fills the facts it knows (env names, tool paths, workspace/model/XMLA, first `*.pbip`) | `AGENTS.md`, `.agent/state.json`, `.gitignore` additions (never overwrites existing files) |
 
-Non-interactive: `ad-setup --non-interactive --answers answers.json` (prompt key → answer; an answers file must not
-contain passwords — store them once interactively). `ad-setup --offline` skips network verification.
+Non-interactive (Copilot terminals have no stdin for prompts):
+`ad-setup --only project --non-interactive --offline --project . --set project.jira_project=RDSD`. `--set key=value`
+answers one prompt key inline (repeatable; `true`/`false` for yes-no prompts; wins over `--answers`). `--answers
+answers.json` still works and is read in any encoding PowerShell produces (UTF-8 BOM, UTF-16); answers must never
+contain passwords — store them once interactively. `ad-setup --offline` skips network verification.
+
+Session state: `ad-state show` / `ad-state set phase=<phase> active_ticket=<KEY> --artifact <path>=<what> --question "…"`
+is the only writer of `.agent/state.json` (validated keys and phases, `last_updated`, artifacts pruned after 7 days,
+UTF-8 without BOM).
 
 ## Config file
 `~/.agentdata/config.json` (override the path with `AGENTDATA_CONFIG`). It never contains a credential: `save()`
@@ -38,4 +45,5 @@ Jira: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`; TLS: `AGENTDATA_CA_BUNDLE`.
 - Kerberos (`KRB5`/`GSSAPI`) needs a ticket (`klist`); impyla on Windows needs `pip install winkerberos`.
 - `az` resolves to `az.cmd`; `ad-setup` offers `az login --allow-no-subscriptions` when not signed in.
 - Console encoding: every `ad-*` command switches stdout to UTF-8 (TOON uses `→ · ≤`).
+- File encoding: Windows PowerShell 5.1 writes a BOM with `Set-Content -Encoding utf8` / `Out-File` and UTF-16 with `>`. Every `ad-*` reader (answers, `AGENTS.md`, config, TSV, SQL and DAX files, pncli config, state) sniffs the BOM and accepts the file (`agentdata/textio.py`); the tools themselves write UTF-8 without BOM. When you must write a file from PowerShell use `[IO.File]::WriteAllText($absolutePath, $text)`; for state use `ad-state set`.
 - Power BI XMLA needs Premium/PPU/Fabric capacity with the XMLA endpoint set to Read Write by the capacity admin.

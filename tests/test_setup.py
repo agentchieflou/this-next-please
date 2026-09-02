@@ -209,3 +209,29 @@ def _answers(tmp_path, d):
 
 def test_xmla_url_percent_encodes():
     assert powerbi.xmla_url("Sales Workspace/EMEA") == "powerbi://api.powerbi.com/v1.0/myorg/Sales%20Workspace%2FEMEA"
+
+
+def test_answers_file_with_bom_and_set_flags(cfg_path, tmp_path, capsys):
+    """2026-09-02 laptop friction: Windows PowerShell 5.1 `Set-Content -Encoding utf8` adds a BOM; the loader crashed."""
+    det = FakeDet()
+    proj = tmp_path / "proj2"
+    ans = tmp_path / "bom.json"
+    ans.write_bytes(json.dumps({"project.jira_project": "BOMD"}).encode("utf-8-sig"))
+    rc = W.run_setup(["--only", "project", "--non-interactive", "--offline", "--project", str(proj), "--answers", str(ans),
+                      "--set", "project.confluence_space=SPC"], det)
+    assert rc == 0
+    agents = det.files[str(proj / "AGENTS.md")]
+    assert "- jira_project: BOMD" in agents and "- confluence_space: SPC" in agents
+    proj3 = tmp_path / "proj3"
+    rc = W.run_setup(["--only", "project", "--non-interactive", "--offline", "--project", str(proj3), "--set", "project.jira_project=RDSD"], det)
+    assert rc == 0 and "- jira_project: RDSD" in det.files[str(proj3 / "AGENTS.md")]
+    bad = tmp_path / "bad.json"
+    bad.write_bytes(b"\xef\xbb\xbf{not json")
+    capsys.readouterr()
+    rc = W.run_setup(["--only", "project", "--non-interactive", "--offline", "--project", str(tmp_path / "p4"), "--answers", str(bad)], det)
+    out = capsys.readouterr().out
+    assert rc == 2 and "ok: false" in out and "not valid JSON" in out and "--set" in out
+    rc = W.run_setup(["--only", "project", "--non-interactive", "--offline", "--project", str(tmp_path / "p5"), "--set", "project.jira_project"], det)
+    assert rc == 2 and "key=value" in capsys.readouterr().out
+    assert W.load_answers(None, ["a=true", "b=False", "c=x=y", " d = 1 "]) == {"a": True, "b": False, "c": "x=y", "d": "1"}
+    assert W.load_answers(str(ans), ["project.jira_project=OVR"]) == {"project.jira_project": "OVR"}

@@ -4,6 +4,7 @@ import argparse
 import glob
 import os
 import sys
+from .textio import read_text
 from . import config as C
 from . import toon
 from .console import utf8_stdout
@@ -224,7 +225,7 @@ def cmd_refs(a) -> int:
 def cmd_measure_set(a) -> int:
     pbip = _pbip_dir(a.pbip)
     model, _report, _ = N.load_all(pbip, legacy_ok=True)
-    expr = a.expr if a.expr is not None else open(a.expr_file, encoding="utf-8-sig").read()
+    expr = a.expr if a.expr is not None else read_text(a.expr_file)
     try:
         res = E.measure_set(model, a.table, a.name, expr, a.format_string, a.display_folder, a.description, a.lineage_tag,
                             hidden=True if a.hidden else None, dry_run=a.dry_run)

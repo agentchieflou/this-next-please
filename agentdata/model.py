@@ -1,6 +1,7 @@
 from __future__ import annotations
-import csv, json, os, time, uuid
+import csv, io, json, os, time, uuid
 from dataclasses import dataclass, field
+from .textio import read_text
 from typing import Any
 
 OUT_DIR = os.environ.get("AGENTDATA_OUT", os.path.join(".agent", "out"))
@@ -118,10 +119,9 @@ class AgentTable:
 
     @staticmethod
     def read_tsv(path: str, name="result") -> "AgentTable":
-        with open(path, newline="", encoding="utf-8") as f:
-            r = csv.reader(f, delimiter="\t")
-            cols = next(r)
-            rows = [[_coerce(v) for v in row] for row in r]
+        r = csv.reader(io.StringIO(read_text(path), newline=""), delimiter="\t")
+        cols = next(r)
+        rows = [[_coerce(v) for v in row] for row in r]
         return AgentTable(name=name, columns=cols, rows=rows, source=path)
 
     def to_records(self) -> list[dict]:

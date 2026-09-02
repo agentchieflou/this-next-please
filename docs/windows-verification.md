@@ -89,7 +89,7 @@ Pass: `desktop` lists the instance with `port`, `title` and `matched` file; `che
 ## 8. Mechanical measure edit round trip (on a scratch copy of the PBIP)
 ```powershell
 Copy-Item -Recurse <report repo> <scratch dir>; cd <scratch dir>
-"DIVIDE ( [Margin], [Total Sales] )" | Set-Content margin.dax
+[IO.File]::WriteAllText("$PWD\margin.dax", "DIVIDE ( [Margin], [Total Sales] )")   # UTF-8 without BOM; Set-Content -Encoding utf8 would add one (tolerated, but do not teach Luna that)
 ad-pbip measure set --table <Table> --name "Verify Pct" --expr-file margin.dax --format-string "0.0%" --display-folder Verify
 ad-pbip lint <Name>.SemanticModel\definition
 ad-pbip check --te2
@@ -110,6 +110,8 @@ Pass: `plan` names the right measures and warehouse objects; `expect` infers the
 ## 10. Project stub
 ```powershell
 ad-setup --project <fresh project folder>
+ad-setup --only project --non-interactive --offline --project <another fresh folder> --set project.jira_project=RDSD   # the form Luna runs (no stdin)
+ad-state --file <folder>\.agent\state.json set phase=triaged active_ticket=RDSD-1
 ```
 Pass: `AGENTS.md` facts filled (env names, tool paths, workspace, model, `pbi_xmla`, `pbip_path`), `.agent\state.json` present, `.gitignore` extended. Paste: the generated `AGENTS.md`.
 
@@ -130,4 +132,8 @@ In PyCharm with the skills installed (`gh skill install agentchieflou/this-next-
 | dscmd rejects `-f` / needs `-d` | `pbip/dax.run_dax`, `steps/powerbi.py` caps probe | flag detection, catalog discovery via `$SYSTEM.DBSCHEMA_CATALOGS` |
 | visual-query wrong rows | `pbip/dax.visual_query` | filter translation, aggregation mapping, hierarchy level column |
 | reconcile class wrong | `uat/reconcile.classify` | rule order, coverage semantics |
+| `JSONDecodeError: Unexpected UTF-8 BOM` or garbled text from a file PowerShell wrote | `agentdata/textio.py` | every reader goes through `textio.read_text` (BOM / UTF-16 sniffing); Luna uses `--set` and `ad-state` instead of writing files |
 | `pytest` fails on Windows | tests / `.gitattributes` | line endings, path separators |
+
+## Fixed from laptop results
+- 2026-09-02 (data_remediation_foundry_dpm_fork, session-bootstrap): `ad-setup --only project --non-interactive --answers .agent\setup-answers.json` failed with `JSONDecodeError: Unexpected UTF-8 BOM` — the answers file came from `Set-Content -Encoding utf8` (Windows PowerShell 5.1 adds a BOM) and the loader crashed with a traceback instead of a TOON error. Fix: every reader sniffs BOM/UTF-16 (`agentdata/textio.py`), `ad-setup --set key=value` removes the need for answer files, `ad-state` replaces hand-written state.json edits, and the three skills say so.

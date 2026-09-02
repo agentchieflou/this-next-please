@@ -78,3 +78,17 @@ def test_source_env_and_env_override(monkeypatch):
     assert C.source_env(dsn_only, "hive", "p")["mode"] == "odbc"
     with pytest.raises(C.ConfigError):
         C.source_env(cfg, "spark", "prod")
+
+
+def test_facts_and_config_tolerate_powershell_encodings(tmp_path, monkeypatch):
+    p = tmp_path / "AGENTS.md"
+    p.write_bytes("- jira_project: RDSD\r\n- env: prod   # ad-td --env\r\n- pbip_path: <x>\r\n".encode("utf-8-sig"))
+    assert C.project_facts(str(p)) == {"jira_project": "RDSD", "env": "prod"}
+    cfgp = tmp_path / "cfg.json"
+    monkeypatch.setenv(C.CONFIG_ENV, str(cfgp))
+    cfgp.write_bytes(b"\xff\xfe" + json.dumps({"version": C.VERSION, "a": 1}).encode("utf-16-le"))
+    assert C.load()["a"] == 1
+    cfgp.write_bytes(b"\xef\xbb\xbf{not json")
+    with pytest.raises(C.ConfigError) as ei:
+        C.load()
+    assert "not valid JSON" in str(ei.value)

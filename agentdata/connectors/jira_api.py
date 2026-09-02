@@ -16,6 +16,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterator
+from .. import textio
 from .. import config as C
 
 USER_AGENT = "agentdata/0.1"
@@ -79,8 +80,7 @@ def load_credentials(cfg: dict | None = None) -> Creds:
             raise JiraError(f"pncli config not found: {C.display_path(p)}",
                             hint="run `pncli config init`, then `ad-setup --only pncli`")
         try:
-            with open(p, encoding="utf-8") as f:
-                pj = json.load(f)
+            pj = json.loads(textio.read_text(p))
         except json.JSONDecodeError:
             raise JiraError("pncli config is not valid JSON", hint="ad-setup --only pncli") from None
         tk = keys.get("jira_token")

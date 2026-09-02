@@ -42,6 +42,8 @@ works and takes the same arguments: `python -m agentdata setup`, `python -m agen
 ```powershell
 cd C:\repos\rdsd-pbi-reporting
 ad-setup --project .        # writes AGENTS.md + .agent/state.json from the packaged stub, fills the facts it knows
+#   Luna's form (no stdin): ad-setup --only project --non-interactive --offline --project . --set project.jira_project=RDSD
+ad-state show               # session state; `ad-state set phase=… active_ticket=…` is the only way state.json is written
 ```
 - `AGENTS.md`  — ~25 lines of project facts, points at the installed skills
 - `.agent/state.json` — machine-owned project state
@@ -61,6 +63,8 @@ python -m pytest -q
 | `skills/*/SKILL.md` | one job each; router dispatches to exactly one. `skills/*/references/` hold the long reference docs. |
 | `agentdata/` | connector adapter: sources -> AgentTable -> TOON / TSV / JSON |
 | `agentdata/config.py` | global config + project facts; every CLI resolves settings flag → env var → config → AGENTS.md |
+| `agentdata/textio.py` | reads files other tools wrote (UTF-8 BOM, UTF-16, cp1252 — what Windows PowerShell and Notepad produce); writes UTF-8 without BOM |
+| `agentdata/state.py` | `ad-state`: the only writer of `.agent/state.json` (validated keys and phases, clean encoding) |
 | `agentdata/setup/` | `ad-setup` wizard and `ad-doctor` (step registry: pncli, sources, powerbi, project) |
 | `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), pncli, jira_api (Jira REST on pncli's token), keyring wrapper, probes |
 | `agentdata/sqlcheck/` | dialect pre-flight lint (`ad-sql-check`, auto inside the query commands) |

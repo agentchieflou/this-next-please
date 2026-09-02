@@ -1,6 +1,7 @@
 """Expected values from a document the business hands over: CSV/TSV, XLSX (openpyxl), DOCX tables (python-docx),
 Markdown tables. Output is an AgentTable plus an inferred grain (key column, dimensions, metric columns)."""
 from __future__ import annotations
+from ..textio import read_text
 from ..install import install_cmd
 import csv
 import io
@@ -101,7 +102,7 @@ def load_expected(path: str, sheet: str | None = None, table_index: int = 0, nam
         rows = [[c.text.strip() for c in r.cells] for r in tbl.rows]
         return _table(rows[0], rows[1:], f"{path}#table{table_index}", name)
     if ext in (".md", ".markdown"):
-        blocks = markdown_tables(open(path, encoding="utf-8").read())
+        blocks = markdown_tables(read_text(path))
         if table_index >= len(blocks):
             raise ExpectError(f"{path} has {len(blocks)} markdown tables; --table-index {table_index} is out of range")
         headers, rows = blocks[table_index]

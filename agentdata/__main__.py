@@ -15,6 +15,7 @@ COMMANDS = {
     "pbip": ("agentdata.cli_pbip", "main", "PBIP projection, validation, TMDL edits"),
     "uat": ("agentdata.cli_uat", "main", "expected values, UAT plan, reconciliation"),
     "dpm": ("agentdata.cli_dpm", "main", "DPM run root -> consumer job manifest (handoff contract)"),
+    "state": ("agentdata.cli_state", "main", "show / set .agent/state.json (its only writer)"),
     "pncli": ("agentdata.cli", "main_pncli", "pncli reads through the format policy"),
     "td": ("agentdata.cli", "main_td", "Teradata query"),
     "ora": ("agentdata.cli", "main_ora", "Oracle query"),

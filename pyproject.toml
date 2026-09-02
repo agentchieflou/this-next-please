@@ -36,6 +36,7 @@ ad-jira = "agentdata.cli_jira:main"
 ad-pbip = "agentdata.cli_pbip:main"
 ad-uat = "agentdata.cli_uat:main"
 ad-dpm = "agentdata.cli_dpm:main"
+ad-state = "agentdata.cli_state:main"
 
 [tool.setuptools.packages.find]
 include = ["agentdata*"]
