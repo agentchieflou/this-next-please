@@ -1,6 +1,6 @@
 # Plan: Power BI pipeline, UAT engine, setup CLI, SQL dialect guardrails for Luna
 
-_Status: v6 APPROVED (2026-09-02) — design complete, user-approved; design-pass corrections adopted (see the section before the checkpoint)._
+_Status: IMPLEMENTED (2026-09-02) — all six slices landed on `claude/repository-push-bekwfa` (PR #2), 96 tests green. Residual unknowns below are verified on the Windows laptop._
 
 ## Context
 
@@ -268,15 +268,14 @@ Output: `meta{ok, dialect, errors, warnings}` + `findings[n]{severity,line,rule,
 12. **Timestamps**: `parse_ts` accepts `+0000`, `+10:00`, `Z`, epoch seconds and milliseconds (`> 1e11` → ms); never rely on `fromisoformat` for `+0000` on 3.10.
 13. **Windows**: `az` resolves as `az.cmd` via `shutil.which`; `winkerberos` (not `kerberos`) for impyla GSSAPI on Windows; `klist` absence is a warning, never a failure; `AGENTDATA_CA_BUNDLE`/`SSL_CERT_FILE` for corporate CAs, never disable verification.
 
-## Checkpoint / how to resume (state verified 2026-09-02, second session)
+## Status after implementation (2026-09-02)
 
-**Repo state right now:** local branch `claude/repository-push-bekwfa` = `origin/main` (merge of PR #1) + one local commit `0ba4c49` "docs: add approved implementation plan for the Luna pipeline phase" (adds `docs/plan-luna-pipeline.md` = this plan, and a pointer paragraph at the top of `HANDOFF.md`). The remote branch was deleted when PR #1 merged, so the earlier `--force-with-lease` push was rejected as stale; **`git push -u origin claude/repository-push-bekwfa` (no force) recreates it.** No open PR exists. No implementation code exists yet (`agentdata/` still has only the original modules).
+All six slices are committed (one commit each) and pushed; `pytest -q` → 96 passed. Entry points: `ad-setup`, `ad-doctor`,
+`ad-sql-check`, `ad-impala`, `ad-jira`, `ad-pbip`, `ad-uat` (plus the original `ad-*`). New skills: `jira-changelog`,
+`pbip-projection`, `tmdl-edit`, `pbi-validate`, `uat-report-visual`; references live under each skill's `references/`.
 
-**Done:** requirements R1–R9 captured; user decisions recorded; repo conventions mapped; all research folded in; design approved by the user; design-pass corrections adopted (section above).
-
-**Next actions, in order:**
-1. `git push -u origin claude/repository-push-bekwfa`; open a **draft PR** to `main` titled "Luna pipeline: setup wizard, SQL guardrails, Jira changelog, PBIP tooling, UAT" whose body links `docs/plan-luna-pipeline.md` and lists the six slices as a checklist; update the body as slices land.
-2. Implement slices 1 → 6 on this branch, one commit per slice (Conventional Commits: `feat:`/`docs:`/`test:`), `pytest -q` green before every push, push after every slice so nothing is lost if the session ends.
-3. Slice 1 first: `agentdata/config.py`, `agentdata/console.py` (utf-8 stdout), `agentdata/setup/` (`ad-setup`, `ad-doctor` offline by default), `pyproject.toml` scripts/extras, `session-bootstrap` skill edit, `README.md` install section, `templates/project-stub` new keys, `tests/test_config.py` + `tests/test_setup.py` + `tests/test_skills.py`.
-4. Keep the hard rules: zero required deps; no secrets on disk or in output; TOON/`error()` contract; SKILL.md < 120 lines with `name`+`description` only; references in `skills/<name>/references/`; policy thresholds unchanged; prompts on stderr, TOON on stdout.
-5. Residual unknowns (above) are verified on the Windows laptop during slice 5; they do not block.
+**Verify on the Windows laptop (cannot be exercised from Linux CI):** `ad-setup` end to end (pncli import → `ad-jira whoami`
+flavor detection, ODBC DSN listing, keyring, TE2 XMLA ping, `az rest` workspace listing); `ad-pbip desktop` finding an open
+Desktop; `ad-pbip check --te2` on a real PBIP; `ad-pbip visual-query --server localhost:<port>` (dscmd `-f` vs `-q`);
+`ad-jira sprint-replay --compare-sprintreport` on a closed sprint. Anything that fails there is a bug report against the
+matching module, not a design gap.
