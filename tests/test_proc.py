@@ -96,6 +96,18 @@ def test_not_found_names_what_was_tried(tmp_path):
     assert not info["found"] and "configured path not found" in info["error"]
 
 
+def test_binaries_are_not_scanned_for_a_shim(tmp_path):
+    """resolve() runs before every subprocess: it must never read a whole executable looking for an npm shim."""
+    big = tmp_path / "hugetool"
+    big.write_bytes(b"\x7fELF\x00\x00" + b"x" * (4 << 20))
+    os.chmod(big, 0o755)
+    assert proc.unwrap_shim(str(big), windows=False) is None
+    assert proc.resolve("hugetool", path=str(tmp_path), windows=False)["kind"] == "executable"
+    text = tmp_path / "textual"
+    text.write_text("#!/bin/sh\n" + "# padding\n" * 5000 + 'exec node "$basedir/late.js" "$@"\n', encoding="utf-8")
+    assert proc.unwrap_shim(str(text), windows=False) is None      # beyond SHIM_HEAD: treated as a plain program
+
+
 def test_run_returns_streams_and_reports_start_failure(tmp_path):
     rc, out, err, el = proc.run([sys.executable, "-c", "print('hi')"])
     assert rc == 0 and out.strip() == "hi" and err == "" and el >= 0

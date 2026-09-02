@@ -88,12 +88,24 @@ def _script_from(text: str) -> str | None:
     return None
 
 
+SHIM_HEAD = 16384      # a command shim is a few hundred bytes; never read a 100 MB binary looking for one
+
+
+def _head(path: str) -> str | None:
+    """First SHIM_HEAD bytes as text, or None for a binary (a real executable is not a shim)."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read(SHIM_HEAD)
+    except OSError:
+        return None
+    return None if b"\x00" in raw[:1024] else textio.decode(raw)
+
+
 def unwrap_shim(shim: str, *, windows: bool | None = None) -> tuple[str, str] | None:
     """(node executable, script path) for an npm command shim, else None. Lets us skip cmd.exe entirely."""
     windows = WINDOWS if windows is None else windows
-    try:
-        text = textio.read_text(shim)
-    except OSError:
+    text = _head(shim)
+    if text is None:
         return None
     rel = _script_from(text)
     if not rel:
