@@ -1,0 +1,94 @@
+/// Jira issue facts loaded from the Teradata history table
+table Sales
+	lineageTag: 7c5b0e3a-0000-4000-8000-000000000010
+
+	measure Margin = ```
+			SUMX (
+			    Sales,
+			    Sales[Quantity] * ( Sales[Net Price] - Sales[Unit Cost] )
+			)
+			```
+		formatString: $ #,##0
+		lineageTag: d22a262b-b776-4ccd-b9bd-7ef9c90eba51
+
+	/// Sales Amount Last Year considering a full month
+	measure 'Sales Amount (LY)' =
+			var ly = CALCULATE ( [Total Sales], SAMEPERIODLASTYEAR ( 'Calendar'[Date] ) )
+			return
+			DIVIDE ( [Total Sales] - ly, ly )
+		formatString: #,##0.00 %
+		lineageTag: 0d3ae0f6-0000-4000-8000-000000000011
+
+	measure 'Total Sales' = SUMX ( Sales, Sales[Quantity] * Sales[Net Price] )
+		formatString: $ #,##0
+		displayFolder: KPIs
+		lineageTag: 0d3ae0f6-0000-4000-8000-000000000012
+
+	column DateKey
+		dataType: dateTime
+		isHidden
+		formatString: General Date
+		lineageTag: 0d3ae0f6-0000-4000-8000-000000000013
+		summarizeBy: none
+		sourceColumn: DateKey
+
+		changedProperty = IsHidden
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Delivery Date'
+		dataType: dateTime
+		lineageTag: 0d3ae0f6-0000-4000-8000-000000000014
+		summarizeBy: none
+		sourceColumn: Delivery Date
+
+	column Quantity
+		dataType: int64
+		formatString: 0
+		lineageTag: 0d3ae0f6-0000-4000-8000-000000000015
+		summarizeBy: sum
+		sourceColumn: Quantity
+
+	column 'Net Price'
+		dataType: decimal
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+		lineageTag: 0d3ae0f6-0000-4000-8000-000000000016
+		summarizeBy: sum
+		sourceColumn: Net Price
+
+	column 'Unit Cost'
+		dataType: decimal
+		lineageTag: 0d3ae0f6-0000-4000-8000-000000000017
+		summarizeBy: sum
+		sourceColumn: Unit Cost
+
+	column Status
+		dataType: string
+		lineageTag: 0d3ae0f6-0000-4000-8000-000000000018
+		summarizeBy: none
+		sourceColumn: Status
+		sortByColumn: 'Status Order'
+
+	column 'Status Order'
+		dataType: int64
+		isHidden
+		lineageTag: 0d3ae0f6-0000-4000-8000-000000000019
+		summarizeBy: none
+		sourceColumn: Status Order
+
+	column 'Story Points Rounded' = ROUND ( Sales[Quantity], 0 )
+		dataType: int64
+		lineageTag: 0d3ae0f6-0000-4000-8000-000000000020
+		summarizeBy: sum
+
+	partition Sales = m
+		mode: import
+		source =
+				let
+				    Source = Teradata.Database(Server, [HierarchicalNavigation=true]),
+				    JIRA = Source{[Schema="RDSD_DB", Item="JIRA_ISSUE_HISTORY"]}[Data]
+				in
+				    JIRA
+
+	annotation PBI_QueryOrder = ["Sales"]
+

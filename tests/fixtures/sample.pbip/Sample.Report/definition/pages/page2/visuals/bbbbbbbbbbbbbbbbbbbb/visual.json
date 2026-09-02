@@ -1,0 +1,12 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/1.0.0/schema.json",
+  "name": "bbbbbbbbbbbbbbbbbbbb",
+  "position": { "x": 20, "y": 20, "z": 1000, "height": 300, "width": 900, "tabOrder": 1000 },
+  "visual": {
+    "visualType": "columnChart",
+    "query": { "queryState": {
+      "Category": { "projections": [ { "field": { "HierarchyLevel": { "Expression": { "Hierarchy": { "Expression": { "SourceRef": { "Entity": "Calendar" } }, "Hierarchy": "Date Hierarchy" } }, "Level": "Year" } }, "queryRef": "Calendar.Date Hierarchy.Year" } ] },
+      "Y": { "projections": [ { "field": { "Aggregation": { "Expression": { "Column": { "Expression": { "SourceRef": { "Entity": "Sales" } }, "Property": "Quantity" } }, "Function": 0 } }, "queryRef": "Sum(Sales.Quantity)" } ] } } },
+    "objects": { "dataPoint": [ { "properties": { "fill": { "solid": { "color": { "expr": { "Measure": { "Expression": { "SourceRef": { "Entity": "Sales" } }, "Property": "Margin" } } } } } } } ] }
+  }
+}

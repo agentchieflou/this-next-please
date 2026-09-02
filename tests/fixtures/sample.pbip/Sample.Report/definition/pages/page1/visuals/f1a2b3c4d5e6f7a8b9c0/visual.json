@@ -1,0 +1,13 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/1.0.0/schema.json",
+  "name": "f1a2b3c4d5e6f7a8b9c0",
+  "position": { "x": 20, "y": 20, "z": 1000, "height": 300, "width": 500, "tabOrder": 1000 },
+  "visual": {
+    "visualType": "barChart",
+    "query": { "queryState": {
+      "Category": { "projections": [ { "field": { "Column": { "Expression": { "SourceRef": { "Entity": "Calendar" } }, "Property": "Year" } }, "queryRef": "Calendar.Year", "nativeQueryRef": "Year", "active": true } ] },
+      "Y": { "projections": [ { "field": { "Measure": { "Expression": { "SourceRef": { "Entity": "Sales" } }, "Property": "Margin" } }, "queryRef": "Sales.Margin", "nativeQueryRef": "Margin" } ] } },
+      "sortDefinition": { "sort": [ { "field": { "Measure": { "Expression": { "SourceRef": { "Entity": "Sales" } }, "Property": "Margin" } }, "direction": "Descending" } ] } },
+    "visualContainerObjects": { "title": [ { "properties": { "text": { "expr": { "Literal": { "Value": "'Margin by Year'" } } } } } ] }
+  }
+}

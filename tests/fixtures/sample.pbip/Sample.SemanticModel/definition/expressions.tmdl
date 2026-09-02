@@ -1,0 +1,5 @@
+expression Server = "tdprod.example.com" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: a7c64317-d746-4e5a-813d-43bbf0439e23
+
+	annotation PBI_ResultType = Text
+

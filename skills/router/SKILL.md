@@ -11,11 +11,16 @@ description: Use at the start of every task after session-bootstrap, and wheneve
 | Request mentions | Invoke |
 |---|---|
 | a ticket key, "triage", "what's next", acceptance criteria | `jira-triage` |
-| UAT, remediation, "compare Jira to Teradata", dashboard numbers wrong | `uat-jira-vs-teradata` |
+| numbers on a chart/visual are wrong, expected values in a document or CSV, UAT of a report | `uat-report-visual` |
+| UAT, remediation, "compare Jira to Teradata" (status/assignee lists) | `uat-jira-vs-teradata` |
+| sprint report, committed / completed points, changelog, field history, "when did … change" | `jira-changelog` |
 | query, count, rows, table, SQL (Teradata) | `teradata-query` |
-| Hive, Hadoop, Spark table | `hive-query` |
+| Hive, Hadoop, Impala, Spark table | `hive-query` |
 | Oracle | `oracle-query` |
-| deploy model, TMDL, XMLA, workspace | `pbi-deploy-te2` |
+| PBIP, report, visual, page, "what feeds this chart", model overview | `pbip-projection` |
+| add / fix a measure, column, format string, relationship, TMDL edit | `tmdl-edit` |
+| validate the report, broken visual, "does the report still work", before deploy | `pbi-validate` |
+| deploy model, publish, XMLA, workspace | `pbi-deploy-te2` |
 | refresh model / dataset | `pbi-refresh-xmla` |
 | DAX result, vpax, export measures | `dax-studio-export` |
 | sbatch, cluster job, schedule | `slurm-submit` |
