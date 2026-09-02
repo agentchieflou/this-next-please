@@ -34,6 +34,7 @@ ad-jira whoami
 ad-jira whoami --redetect        # only if the first call failed
 ad-pncli where                   # resolved launcher: path, kind (npm shim), node entry, version
 ad-pncli jira search --jql "key = <any issue>"
+ad-pncli jira get <any issue key>   # pncli's confirmed read verb, built for you (jira get-issue --key <KEY>)
 ```
 Pass: `whoami` returns `flavor` (`cloud` or `dc`), `auth`, `api`, `display_name`, `token_source: pncli:<key path>`; `ad-doctor --only pncli` is all `ok`. Paste: the key list the wizard printed (values are masked), the answers you gave, and the `whoami` TOON. If `~/.pncli/config.json` is not JSON or the token is stored indirectly (env var, keychain), say so — that changes `steps/pncli_import.py` and `jira_api.load_credentials`.
 
@@ -135,9 +136,11 @@ In PyCharm with the skills installed (`gh skill install agentchieflou/this-next-
 | visual-query wrong rows | `pbip/dax.visual_query` | filter translation, aggregation mapping, hierarchy level column |
 | reconcile class wrong | `uat/reconcile.classify` | rule order, coverage semantics |
 | `JSONDecodeError: Unexpected UTF-8 BOM` or garbled text from a file PowerShell wrote | `agentdata/textio.py` | every reader goes through `textio.read_text` (BOM / UTF-16 sniffing); Luna uses `--set` and `ad-state` instead of writing files |
+| pncli says `required option '--x <y>' not specified` | `connectors/pncli.usage_hint`, `cli.py` | pncli is commander.js: arguments are named options. The hint names the exact re-run; confirmed verbs get their own `ad-pncli` subcommand |
 | `[WinError 2] The system cannot find the file specified` from any `ad-*` command | `agentdata/proc.py` | the tool is a `.cmd` shim (npm) or a `.bat`, not an `.exe`: resolution honours PATHEXT + the npm global prefix and unwraps the shim to `node <script>`; `ad-pncli where` shows what was tried |
 | `pytest` fails on Windows | tests / `.gitattributes` | line endings, path separators |
 
 ## Fixed from laptop results
 - 2026-09-02 (data_remediation_foundry_dpm_fork, session-bootstrap): `ad-setup --only project --non-interactive --answers .agent\setup-answers.json` failed with `JSONDecodeError: Unexpected UTF-8 BOM` — the answers file came from `Set-Content -Encoding utf8` (Windows PowerShell 5.1 adds a BOM) and the loader crashed with a traceback instead of a TOON error. Fix: every reader sniffs BOM/UTF-16 (`agentdata/textio.py`), `ad-setup --set key=value` removes the need for answer files, `ad-state` replaces hand-written state.json edits, and the three skills say so.
 - 2026-09-02 (data_remediation_foundry_dpm_fork, skill jira-triage): `ad-pncli jira search --jql "key = RDSD-22399"` failed with `[WinError 2] The system cannot find the file specified`, and `ad-doctor` had called pncli "ok" because `shutil.which` found the shim while the connector passed the bare name `pncli` to `subprocess`. pncli is an npm package: on Windows it is `pncli.cmd`, there is no `pncli.exe`. Fix: `agentdata/proc.py` resolves PATHEXT + the npm global prefix and runs the shim's Node entry point directly, the doctor row now proves the launcher starts (`--version`), the resolved shim is pinned in `pncli.exe`, and `ad-pncli where` diagnoses it.
+- 2026-09-02 (data_remediation_foundry_dpm_fork, skill jira-triage): `ad-pncli raw jira get-issue RDSD-22399` returned `ok: false` — pncli wants `--key <issue-key>`, because it is a commander.js CLI where every argument is a named option, and the skill still carried a `TODO(pin the verb)` placeholder. Fix: `ad-pncli jira get <KEY>` builds the confirmed verb `jira get-issue --key <KEY>`; any pncli usage error is turned into the exact re-run (`usage_hint`); the jira-triage step no longer asks the model to assemble a pncli command.

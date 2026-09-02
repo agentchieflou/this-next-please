@@ -13,7 +13,7 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
       teradata-query, hive-query, oracle-query, uat-jira-vs-teradata, bitbucket-pr, confluence-publish,
       pbi-deploy-te2, pbi-refresh-xmla (+refresh.csx), dax-studio-export, slurm-submit
 - [x] `ad-setup` / `ad-doctor` (agentdata/setup/): pncli import, data sources with SELECT 1 + capability probes, Power BI tools/workspaces, project stub
-- [ ] Discover exact pncli verbs for confluence write + bitbucket pr create (`pncli confluence --help`, `pncli bitbucket --help`) and pin them into those two skills. `pncli jira search --jql "<JQL>"` is confirmed.
+- [ ] Discover exact pncli verbs for confluence write + bitbucket pr create (`pncli confluence --help`, `pncli bitbucket --help`) and wrap them in `ad-pncli` subcommands. Confirmed on the laptop: `pncli jira search --jql "<JQL>"` and `pncli jira get-issue --key <KEY>` (wrapped as `ad-pncli jira get <KEY>`). pncli is commander.js: **every argument is a named option, never positional** — wrap each confirmed verb in a command instead of writing the recipe into a skill.
 - [ ] Run `gh skill publish --dry-run` (pytest is green per slice)
 - [ ] Add `agentdata/connectors/spark.py` if a local Spark session exists on the laptop
 - [ ] Stretch: Fabric item-definition deploy of PBIR/TMDL (docs/pbi-tools-parts.md), rename propagation TMDL↔PBIR (`ad-pbip rename`)

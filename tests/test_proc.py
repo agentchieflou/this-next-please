@@ -156,3 +156,32 @@ def test_pncli_where_and_install_hint(tmp_path, monkeypatch):
     with open(tmp_path / "cfg.json", "w", encoding="utf-8") as f:
         json.dump({"pncli": {"npm_package": "@acme/pncli"}}, f)
     assert "@acme/pncli" in P.install_hint()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
+def test_usage_errors_become_the_exact_fix(tmp_path, monkeypatch):
+    """2026-09-02 laptop friction: `jira get-issue RDSD-22399` -> pncli wants a NAMED option, --key."""
+    assert P.usage_hint("error: required option '--key <issue-key>' not specified", ["jira", "get-issue", "RDSD-22399"]) == (
+        "pncli options are named, never positional (you passed 'RDSD-22399' positionally): re-run with "
+        "`--key RDSD-22399`, e.g. `ad-pncli raw jira get-issue --key RDSD-22399`")
+    assert "--key <issue-key>" in P.usage_hint("required option '--key <issue-key>' not specified", ["jira", "get-issue"])
+    assert "run `pncli jira --help` once" in P.usage_hint("error: unknown command 'fetch'", ["jira", "fetch", "X"])
+    assert P.usage_hint("Traceback: connection reset", ["jira", "search"]) == ""
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, "echo \"error: required option '--key <issue-key>' not specified\" >&2; exit 1"))
+    with pytest.raises(proc.ProcError) as e:
+        P.run(["jira", "get-issue", "RDSD-22399"])
+    assert e.value.code == "bad_output" and "--key RDSD-22399" in e.value.hint and e.value.detail["exit_code"] == 1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
+def test_get_issue_uses_the_named_option_and_renames_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    echo = _fake_pncli(tmp_path, 'printf \'{"key":"RDSD-22399","fields":{"summary":"Trace points","description":"AC: 1) x","status":{"name":"In Progress"}}}\'; echo " " >&2')
+    monkeypatch.setenv("PNCLI_EXE", echo)
+    t = P.get_issue("RDSD-22399")
+    assert t.source == "pncli jira get-issue --key RDSD-22399"
+    row = dict(zip(t.columns, t.rows[0]))
+    assert row["key"] == "RDSD-22399" and row["status"] == "In Progress" and row["description"] == "AC: 1) x"
+    t = P.get_issue("RDSD-22399", ["key", "description"])
+    assert t.columns == ["key", "description"] and t.rows == [["RDSD-22399", "AC: 1) x"]]

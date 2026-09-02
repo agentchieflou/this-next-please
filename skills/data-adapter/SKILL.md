@@ -7,7 +7,8 @@ description: "How to read and produce data in this workspace. Use whenever you n
 | Need | Command |
 |---|---|
 | Jira rows | `ad-pncli jira search --jql "<JQL>" [--fields key,status,assignee,updated]` |
-| Any other pncli read | `ad-pncli raw <pncli args…>` |
+| One Jira issue (description, acceptance criteria) | `ad-pncli jira get <KEY>` |
+| Any other pncli read | `ad-pncli raw <pncli args…>` — every pncli argument is a NAMED option (`--key RDSD-1`), never positional |
 | Teradata | `ad-td --sql "<SELECT…>"` or `--sql-file q.sql` (`--env` defaults to the AGENTS.md fact `env`) |
 | Oracle / Hive / Impala | `ad-ora …` / `ad-hive …` / `ad-impala …` (same flags; facts `oracle_env`, `hive_env`, `impala_env`) |
 | Lint SQL before running | `ad-sql-check --dialect teradata|hive|impala|oracle q.sql` (ad-td/ad-ora/ad-hive/ad-impala run it for you) |
@@ -27,5 +28,6 @@ description: "How to read and produce data in this workspace. Use whenever you n
 3. Read-only SQL only; the adapter rejects DML/DDL and there is no bypass for the linter.
 4. Write SQL for the engine you are on: `references/sql-dialects.md` is the side-by-side; each query skill's `references/` has the full dialect guide.
 5. `ok: false` → fix once from `hint`; second failure → `friction-log` type `tool-error`.
-6. `refused: not_found` from `ad-pncli` → pncli is not installed or not resolvable (it is an npm package: `pncli.cmd`, never `pncli.exe`). Print `meta.hint` and the `tried` list verbatim, `friction-log` type `tool-error`, STOP. Never install software, change PATH, or substitute another Jira client.
-7. Record every `path` via `state-update` so the next session can `ad-view` it.
+6. `refused: bad_output` whose hint names a `required option` → you passed a value positionally; re-run exactly as the hint says. Unknown verb → run `pncli <group> --help` ONCE, use a listed verb, and report the working command so it can be wrapped in `ad-pncli`. Never guess a second time.
+7. `refused: not_found` from `ad-pncli` → pncli is not installed or not resolvable (it is an npm package: `pncli.cmd`, never `pncli.exe`). Print `meta.hint` and the `tried` list verbatim, `friction-log` type `tool-error`, STOP. Never install software, change PATH, or substitute another Jira client.
+8. Record every `path` via `state-update` so the next session can `ad-view` it.
