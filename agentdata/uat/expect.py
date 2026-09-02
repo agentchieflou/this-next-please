@@ -1,6 +1,7 @@
 """Expected values from a document the business hands over: CSV/TSV, XLSX (openpyxl), DOCX tables (python-docx),
 Markdown tables. Output is an AgentTable plus an inferred grain (key column, dimensions, metric columns)."""
 from __future__ import annotations
+from ..install import install_cmd
 import csv
 import io
 import os
@@ -79,7 +80,7 @@ def load_expected(path: str, sheet: str | None = None, table_index: int = 0, nam
         try:
             import openpyxl  # optional
         except ImportError:
-            raise ExpectError("openpyxl is not installed", hint='pip install -e ".[uat]"') from None
+            raise ExpectError("openpyxl is not installed", hint=install_cmd("uat")) from None
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
         ws = wb[sheet] if sheet else wb.active
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
@@ -92,7 +93,7 @@ def load_expected(path: str, sheet: str | None = None, table_index: int = 0, nam
         try:
             import docx  # optional (python-docx)
         except ImportError:
-            raise ExpectError("python-docx is not installed", hint='pip install -e ".[uat]"') from None
+            raise ExpectError("python-docx is not installed", hint=install_cmd("uat")) from None
         d = docx.Document(path)
         if table_index >= len(d.tables):
             raise ExpectError(f"{path} has {len(d.tables)} tables; --table-index {table_index} is out of range")

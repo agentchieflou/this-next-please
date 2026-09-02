@@ -2,13 +2,14 @@
 (configure them in C:\\Windows\\System32\\odbcad32.exe, not SysWOW64)."""
 from __future__ import annotations
 from ..config import ConfigError
+from ..install import install_cmd
 
 
 def _pyodbc():
     try:
         import pyodbc  # optional dep
     except ImportError:
-        raise ConfigError("pyodbc is not installed", hint='pip install -e ".[odbc]"') from None
+        raise ConfigError("pyodbc is not installed", hint=install_cmd("odbc")) from None
     return pyodbc
 
 

@@ -3,6 +3,7 @@ GSSAPI needs a live TGT (klist); on Windows install `winkerberos`."""
 from __future__ import annotations
 import getpass
 from ..config import ConfigError, source_env
+from ..install import install_cmd
 from . import odbc, secrets
 
 DEFAULT_PORT = {"hive": 10000, "impala": 21050}
@@ -21,7 +22,7 @@ def connect(source: str, env: str, cfg: dict | None = None, timeout: int | None 
         from impala.dbapi import connect as _connect  # optional dep
     except ImportError:
         raise ConfigError("impyla is not installed",
-                          hint='pip install -e ".[impala]" (Windows Kerberos: pip install winkerberos)') from None
+                          hint=install_cmd("impala") + " (Windows Kerberos: pip install winkerberos)") from None
     kw: dict = {"host": e["host"], "port": int(e.get("port") or DEFAULT_PORT[source]), "auth_mechanism": auth,
                 "use_ssl": bool(e.get("ssl", False))}
     if timeout:

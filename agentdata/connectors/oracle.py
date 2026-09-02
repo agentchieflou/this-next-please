@@ -3,6 +3,7 @@ thick mode with `client_lib` for Kerberos/external auth (Thin cannot do KRB5).""
 from __future__ import annotations
 import getpass
 from ..config import ConfigError, expand, source_env
+from ..install import install_cmd
 from . import secrets
 from .sql_base import assert_readonly, fetch
 
@@ -15,7 +16,7 @@ def connect(env: str, cfg: dict | None = None, timeout: int | None = None):
     try:
         import oracledb  # optional dep
     except ImportError:
-        raise ConfigError("oracledb is not installed", hint='pip install -e ".[oracle]"') from None
+        raise ConfigError("oracledb is not installed", hint=install_cmd("oracle")) from None
     dsn = e["dsn"]
     if e.get("tns_admin"):
         oracledb.defaults.config_dir = expand(e["tns_admin"])
