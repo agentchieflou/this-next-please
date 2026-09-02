@@ -15,6 +15,7 @@ pip install "agentdata[keyring,odbc,pbi,uat,teradata,impala,oracle] @ git+https:
 #   drop extras you do not use; impyla on Windows also needs: pip install winkerberos
 #   developing the repo instead? clone it and `pip install -e ".[dev]"` THERE, never in a report repo
 ad-doctor    # if "not recognized": the Scripts dir is not on PATH -> use `python -m agentdata doctor` everywhere below
+gh skill install agentchieflou/this-next-please --all --scope user   # --all avoids the picker; --scope user applies to every repo
 python -m pytest -q     # only in a clone of this-next-please; expect: 96 passed
 chcp 65001 | Out-Null                                                  # UTF-8 console so → · ≤ render (cosmetic)
 ```
@@ -113,7 +114,7 @@ ad-setup --project <fresh project folder>
 Pass: `AGENTS.md` facts filled (env names, tool paths, workspace, model, `pbi_xmla`, `pbip_path`), `.agent\state.json` present, `.gitignore` extended. Paste: the generated `AGENTS.md`.
 
 ## 11. Luna dry run (optional but the real test)
-In PyCharm with the skills installed (`gh skill install agentchieflou/this-next-please`), ask Luna: "add a measure `<X>` to `<Table>` that does `<Y>` and make sure the report still works". Pass: it runs `pbip-projection` → `tmdl-edit` (`ad-pbip measure set`) → `pbi-validate` (`check --te2`, `desktop`, `visual-query`) without hand-editing TMDL. Paste: the friction log if it stops (`.agent\friction\*.md`).
+In PyCharm with the skills installed (`gh skill install agentchieflou/this-next-please --all --scope user` — `--all` skips the interactive picker, whose search row swallows Enter), ask Luna: "add a measure `<X>` to `<Table>` that does `<Y>` and make sure the report still works". Pass: it runs `pbip-projection` → `tmdl-edit` (`ad-pbip measure set`) → `pbi-validate` (`check --te2`, `desktop`, `visual-query`) without hand-editing TMDL. Paste: the friction log if it stops (`.agent\friction\*.md`).
 
 ## Triage map (where a failure lands)
 | Symptom | Module | Likely fix |

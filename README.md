@@ -8,8 +8,8 @@ several large projects at once without hand-maintained AGENTS.md sprawl.
 Two independent pieces, neither of which belongs to your report repos:
 
 ```powershell
-# 1. the skills  ->  ~/.copilot/skills
-gh skill install agentchieflou/this-next-please
+# 1. the skills  ->  ~/.copilot/skills, for every repo you work in
+gh skill install agentchieflou/this-next-please --all --scope user
 
 # 2. the ad-* CLI  ->  a normal Python tool, installed straight from GitHub (no clone needed)
 pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.git"
@@ -20,6 +20,13 @@ pncli config init      # if not done (pncli keeps the Jira token; we only borrow
 ad-setup               # guided: pncli import, data sources, Power BI tools/workspaces
 ad-doctor              # any time: offline health check (session-bootstrap runs it)
 ```
+
+**Skip the skill picker.** Without `--all`, `gh skill install` opens an interactive list whose first row is a
+search box: pressing Enter there re-enters search instead of paging, so you have to arrow down one row before the
+list will move. `--all` installs all 21 skills and never shows the picker. `--scope user` puts them in your home
+directory so they apply in every project repo (`--scope project`, the default, writes only into the current repo).
+`--all` needs a recent `gh` (check with `gh --version`; it landed in cli/cli#13471). On an older CLI, either update it
+or name the skills you want: `gh skill install agentchieflou/this-next-please router --scope user`, repeated per skill.
 
 **Project repos install nothing.** `rdsd-pbi-reporting` and friends hold PBIP folders, TMDL and SQL — not Python.
 Running `pip install -e ".[dev]"` there fails with *"neither 'setup.py' nor 'pyproject.toml' found"*, and that is

@@ -5,6 +5,11 @@
 health check that `session-bootstrap` runs at the start of every Luna session (`--online` adds network checks).
 Prompts go to stderr; only TOON goes to stdout. Re-running shows current values as defaults.
 
+The skills are installed separately and once per laptop:
+`gh skill install agentchieflou/this-next-please --all --scope user`. `--all` installs every skill without opening the
+interactive picker (its first row is a search box that swallows Enter, so paging requires arrowing down first);
+`--scope user` makes them available in every repo instead of only the current one.
+
 ## Steps (`--only <key>` runs one)
 | key | what it does | writes |
 |---|---|---|
