@@ -66,6 +66,7 @@ python -m pytest -q
 | `agentdata/sqlcheck/` | dialect pre-flight lint (`ad-sql-check`, auto inside the query commands) |
 | `agentdata/pbip/` | PBIP tooling: TMDL parser/lint/editor, PBIR loader, projection, model↔report validator, Desktop discovery, DAX runner (`ad-pbip`) |
 | `agentdata/uat/` | sprint replay, expected-value loader, tiered reconciliation (`ad-jira sprint-replay`, `ad-uat`) |
+| `agentdata/dpm/` | DPM → consumer handoff contract: read-only run root, reference resolution, versioned refusals, job manifest with lineage (`ad-dpm`) |
 | `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |
 | `docs/data-format-policy.md` | the determinant: which format, when |
 | `docs/setup.md` | what the wizard configures, env overrides, Windows notes |

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentdata"
-version = "0.2.0"
-description = "Connector adapter: enterprise sources -> AgentTable -> TOON/TSV/JSON for LLM agents, plus setup, SQL guardrails, Jira changelog, PBIP tooling and UAT helpers"
+version = "0.3.0"
+description = "Connector adapter: enterprise sources -> AgentTable -> TOON/TSV/JSON for LLM agents, plus setup, SQL guardrails, Jira changelog, PBIP tooling, UAT helpers and the DPM handoff contract"
 requires-python = ">=3.10"
 dependencies = []
 
@@ -35,6 +35,7 @@ ad-sql-check = "agentdata.cli_sqlcheck:main"
 ad-jira = "agentdata.cli_jira:main"
 ad-pbip = "agentdata.cli_pbip:main"
 ad-uat = "agentdata.cli_uat:main"
+ad-dpm = "agentdata.cli_dpm:main"
 
 [tool.setuptools.packages.find]
 include = ["agentdata*"]

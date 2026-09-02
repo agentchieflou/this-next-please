@@ -24,6 +24,10 @@ State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 - ws_id: <workspace guid>
 - ds_id: <dataset guid>
 - deploy_roles: false
+- dpm_run_root: <\\share\dpm\runs\RUN-id>     # ad-dpm: one DPM run root (orchestrator.db + text_analysis/)
+- dpm_runs_dir: <\\share\dpm\runs>            # ad-dpm --run-id / --latest picks under this folder
+- dpm_artifact_dir: <artifacts/dpm>            # consumer's governed artifact directory, relative to this repo; ad-dpm writes only here
+- dpm_binding: <dpm-binding.json>               # optional: names DPM uses differently (ad-dpm binding --write)
 - skills_dir: <~/.copilot/skills>
 - pae_host: <host>
 

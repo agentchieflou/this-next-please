@@ -46,9 +46,11 @@ goes to **disk**. Agents never choose; the adapter does.
 - `ad-jira changelog|sprint-replay`: change rows / per-issue rows through rules 4–6 (TSV on disk); `summary` is a small TOON record.
 - `ad-pbip project`: files under `.agent/pbip/<name>/` (committed, hash-skipped); `check|lint`: `findings` table; `refs`, `visual-query`: rules 4–6.
 - `ad-uat expect|reconcile`: TSVs through rules 4–6; `<KEY>-uat-findings.md` (≤ 40 lines) is the document of record.
+- `ad-dpm validate`: `dpm_findings` table (rule 4/5/6) with counts in `meta`; `convert`: small TOON record + `files` + `excluded` sample; the governed artifacts (`job-manifest.json`, `*.tsv`, `receipt.json`) live under the consumer's `dpm_artifact_dir`, never in `.agent/out/`.
 - `ad-doctor|ad-setup`: `checks` table, rows sorted fail → warn → ok.
 Rule 7 note: `render_nested` writes `.tsv` only (the `.json` copy is kept only when flattening fails, rule 8).
 
 ## Changelog
 - 2026-09-01 v1: initial thresholds (50/1500, 500). Revisit after 2 weeks of friction logs.
 - 2026-09-02 v1.1: no threshold change; documented the outputs of ad-sql-check, ad-jira, ad-pbip, ad-uat, ad-doctor and the rule-7 disk behaviour.
+- 2026-09-02 v1.2: no threshold change; documented ad-dpm outputs and that its artifacts are governed, not scratch.

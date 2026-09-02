@@ -17,6 +17,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 | query, count, rows, table, SQL (Teradata) | `teradata-query` |
 | Hive, Hadoop, Impala, Spark table | `hive-query` |
 | Oracle | `oracle-query` |
+| DPM run, hand back / handoff, orchestrator.db, selection manifest, text_analysis, job manifest, OCR routing, native text | `dpm-consumer-integration` |
 | PBIP, report, visual, page, "what feeds this chart", model overview | `pbip-projection` |
 | add / fix a measure, column, format string, relationship, TMDL edit | `tmdl-edit` |
 | validate the report, broken visual, "does the report still work", before deploy | `pbi-validate` |

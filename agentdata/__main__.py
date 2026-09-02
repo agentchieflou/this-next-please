@@ -14,6 +14,7 @@ COMMANDS = {
     "jira": ("agentdata.cli_jira", "main", "Jira changelog and sprint replay"),
     "pbip": ("agentdata.cli_pbip", "main", "PBIP projection, validation, TMDL edits"),
     "uat": ("agentdata.cli_uat", "main", "expected values, UAT plan, reconciliation"),
+    "dpm": ("agentdata.cli_dpm", "main", "DPM run root -> consumer job manifest (handoff contract)"),
     "pncli": ("agentdata.cli", "main_pncli", "pncli reads through the format policy"),
     "td": ("agentdata.cli", "main_td", "Teradata query"),
     "ora": ("agentdata.cli", "main_ora", "Oracle query"),
