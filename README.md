@@ -29,10 +29,14 @@ ad-setup --project C:\repos\MyReport        # writes AGENTS.md + .agent/state.js
 | `agentdata/` | connector adapter: sources -> AgentTable -> TOON / TSV / JSON |
 | `agentdata/config.py` | global config + project facts; every CLI resolves settings flag → env var → config → AGENTS.md |
 | `agentdata/setup/` | `ad-setup` wizard and `ad-doctor` (step registry: pncli, sources, powerbi, project) |
-| `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), pncli, jira_api, keyring wrapper, probes |
+| `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), pncli, jira_api (Jira REST on pncli's token), keyring wrapper, probes |
+| `agentdata/sqlcheck/` | dialect pre-flight lint (`ad-sql-check`, auto inside the query commands) |
+| `agentdata/pbip/` | PBIP tooling: TMDL parser/lint/editor, PBIR loader, projection, model↔report validator, Desktop discovery, DAX runner (`ad-pbip`) |
+| `agentdata/uat/` | sprint replay, expected-value loader, tiered reconciliation (`ad-jira sprint-replay`, `ad-uat`) |
+| `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |
 | `docs/data-format-policy.md` | the determinant: which format, when |
 | `docs/setup.md` | what the wizard configures, env overrides, Windows notes |
-| `docs/plan-luna-pipeline.md` | approved design for the Power BI / UAT / SQL-guardrail phase (in progress) |
+| `docs/plan-luna-pipeline.md` | approved design for the Power BI / UAT / SQL-guardrail phase (implemented) |
 | `prompts/remediate-from-friction.prompt.md` | offline frontier-model repair loop |
 | `templates/project-stub/` | what each project checkout adds |
 

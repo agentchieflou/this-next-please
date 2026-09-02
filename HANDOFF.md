@@ -1,6 +1,6 @@
 # HANDOFF — for the Claude Code session that finishes this repo
 
-> **2026-09-02 checkpoint:** the approved design for the next phase (Power BI PBIP/TMDL pipeline, `ad-setup` wizard, SQL dialect guardrails, Jira changelog + sprint replay, visual-level UAT) lives in `docs/plan-luna-pipeline.md`. Implement it in the slice order given there; slice 1 (`agentdata/config.py` + `ad-setup`/`ad-doctor`) comes first. Slice 1 (config + setup wizard) is built; slices 2–6 follow in the order the plan gives.
+> **2026-09-02 checkpoint:** the approved design for the next phase (Power BI PBIP/TMDL pipeline, `ad-setup` wizard, SQL dialect guardrails, Jira changelog + sprint replay, visual-level UAT) lives in `docs/plan-luna-pipeline.md`. Implement it in the slice order given there; slice 1 (`agentdata/config.py` + `ad-setup`/`ad-doctor`) comes first. All six slices are built (setup wizard, SQL guardrails, Jira changelog + sprint replay, PBIP projection/validator/editor, Desktop + DAX runner, UAT engine). Verify the residual unknowns listed in the plan on the Windows laptop (dscmd `-f`, TE2 `-L`, Desktop discovery) and then remove this note.
 
 Context: scaffold produced offline. Owner: Michael. Worker model in production: "Luna"
 (GPT-5.x via Copilot in PyCharm, Windows). You are the architect/finisher.
@@ -16,6 +16,7 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 - [ ] Discover exact pncli verbs for confluence write + bitbucket pr create (`pncli confluence --help`, `pncli bitbucket --help`) and pin them into those two skills. `pncli jira search --jql "<JQL>"` is confirmed.
 - [ ] Run `gh skill publish --dry-run` (pytest is green per slice)
 - [ ] Add `agentdata/connectors/spark.py` if a local Spark session exists on the laptop
+- [ ] Stretch: Fabric item-definition deploy of PBIR/TMDL (docs/pbi-tools-parts.md), rename propagation TMDL↔PBIR (`ad-pbip rename`)
 
 ## Rules for you
 1. Keep every SKILL.md < 120 lines. If it grows, split into a new skill.

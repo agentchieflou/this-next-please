@@ -41,5 +41,14 @@ goes to **disk**. Agents never choose; the adapter does.
 - Fixed thresholds remove a decision the worker model would otherwise deliberate over.
 - Full data on disk keeps context stable across turns and lets scripts do the arithmetic.
 
+## New commands and the rules their output hits
+- `ad-sql-check` / lint inside `ad-td|ad-ora|ad-hive|ad-impala`: `findings` table (rule 4/5 by size); errors end the command with `ok: false` before any query runs; warnings ride in `meta.warnings`.
+- `ad-jira changelog|sprint-replay`: change rows / per-issue rows through rules 4–6 (TSV on disk); `summary` is a small TOON record.
+- `ad-pbip project`: files under `.agent/pbip/<name>/` (committed, hash-skipped); `check|lint`: `findings` table; `refs`, `visual-query`: rules 4–6.
+- `ad-uat expect|reconcile`: TSVs through rules 4–6; `<KEY>-uat-findings.md` (≤ 40 lines) is the document of record.
+- `ad-doctor|ad-setup`: `checks` table, rows sorted fail → warn → ok.
+Rule 7 note: `render_nested` writes `.tsv` only (the `.json` copy is kept only when flattening fails, rule 8).
+
 ## Changelog
 - 2026-09-01 v1: initial thresholds (50/1500, 500). Revisit after 2 weeks of friction logs.
+- 2026-09-02 v1.1: no threshold change; documented the outputs of ad-sql-check, ad-jira, ad-pbip, ad-uat, ad-doctor and the rule-7 disk behaviour.
