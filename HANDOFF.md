@@ -1,5 +1,7 @@
 # HANDOFF — for the Claude Code session that finishes this repo
 
+> **2026-09-02 checkpoint:** the approved design for the next phase (Power BI PBIP/TMDL pipeline, `ad-setup` wizard, SQL dialect guardrails, Jira changelog + sprint replay, visual-level UAT) lives in `docs/plan-luna-pipeline.md`. Implement it in the slice order given there; slice 1 (`agentdata/config.py` + `ad-setup`/`ad-doctor`) comes first. Nothing from that plan is built yet.
+
 Context: scaffold produced offline. Owner: Michael. Worker model in production: "Luna"
 (GPT-5.x via Copilot in PyCharm, Windows). You are the architect/finisher.
 
