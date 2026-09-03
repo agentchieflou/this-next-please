@@ -4,6 +4,34 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.4.6 — 2026-09-03
+
+- **Confluence pages are built, not written.** The page body was going up as raw Markdown, so a reader got
+  `## mismatch` and `- L-1001` as literal text: Confluence renders Markdown as text, and asking the model to
+  "write HTML" from a Markdown file produced Markdown with tags around it. `ad-confluence html <file.md>` now
+  converts it — headings, nested lists, GFM tables with alignment, code blocks as the `code` macro with a CDATA
+  body, links, autolinked URLs, bold/italic/strike, blockquotes, horizontal rules — escaping `&` `<` `>` and
+  turning named HTML entities into characters, because storage format allows only the five XML ones. Every body
+  is parsed as XML before it is returned, so a page is refused here with the text that broke it rather than by
+  Confluence with a 400. `ad-confluence check <file>` validates a body that already exists.
+- `ad-pncli raw --body-file` **refuses to post Markdown to Confluence**: a body with no markup at all but a
+  `# heading`, a `- bullet` or a ``` fence is rejected, naming the construct and pointing at `ad-confluence html`.
+  Only `confluence` commands are checked — a Jira comment may be plain text.
+- **Jira transitions know that a Task is not a Story.** `bitbucket-pr` moved a ticket with a hard-coded
+  `"In Review"`, which exists in a Story's workflow and often not in a Task's, in a command whose verb was a guess.
+  `ad-jira transitions <KEY>` lists what *that* issue can do (id, name, target status, category, and the screen
+  fields each demands); `ad-jira transition <KEY> --to <intent|name>` resolves an intent — `todo`, `in-progress`,
+  `review`, `blocked`, `done` — against that list. `review` and `blocked` must match by name, so a Task with no
+  review state is refused with what it *can* do instead of being parked in In Progress; `todo`, `in-progress` and
+  `done` may also match by status category, so a workflow that spells them differently still resolves. Ambiguity
+  is reported with the candidates, never broken by picking one.
+- `--dry-run` resolves without moving; an issue already in the target status is a no-op, not a failure;
+  transition screens are reported before the POST (`--resolution`, `--field NAME=VALUE`); the status is read back
+  afterwards, so a post-function that undoes the move is caught; `--comment` is sent as ADF on Cloud and a plain
+  string on Data Center; `--pin` remembers the resolved status per issue type in `jira.workflow.<type>.<intent>`.
+- New skill `jira-transition`, wired into the router; `bitbucket-pr` delegates to it. `confluence-publish` calls
+  `ad-confluence` and keeps its Markdown source as the thing it edits.
+
 ## 0.4.5 — 2026-09-03
 
 - **confluence-publish now matches pncli.** The verb is `confluence create-page` and the body is passed **inline**

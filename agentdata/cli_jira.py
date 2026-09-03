@@ -1,10 +1,11 @@
-"""ad-jira: Jira REST reusing pncli's token. whoami · fields · statuses · sprints · changelog · sprint-replay.
+"""ad-jira: Jira REST reusing pncli's token. whoami · fields · statuses · transitions · transition · sprints · changelog · sprint-replay.
 Never shells out to pncli; the token is read from pncli's config file by key name at call time."""
 from __future__ import annotations
 import argparse
 import sys
 from . import config as C
 from . import toon
+from . import jira_workflow as W
 from .connectors import jira_api as J
 from .console import utf8_stdout
 from .model import AgentTable
@@ -68,6 +69,80 @@ def cmd_statuses(a) -> int:
             for s in j.get(f"{j.api}/status") or []]
     print(render(AgentTable.from_records(recs, name="statuses", source="ad-jira statuses"), raw=a.raw))
     return 0
+
+
+def _issue_state(j: J.Jira, key: str) -> tuple[str, str, str]:
+    """(issue type, status name, status category) -- the three facts that decide which transitions exist."""
+    f = (j.issue(key, ["issuetype", "status", "summary"]) or {}).get("fields") or {}
+    st = f.get("status") or {}
+    return ((f.get("issuetype") or {}).get("name") or "", st.get("name") or "",
+            ((st.get("statusCategory") or {}).get("key") or "").lower())
+
+
+def cmd_transitions(a) -> int:
+    _, j, _ = _client()
+    itype, status, cat = _issue_state(j, a.key)
+    rows = W.normalize(j.transitions(a.key))
+    for r in rows:
+        r["requires"] = ",".join(r["requires"])
+    print(render(AgentTable.from_records(rows, name="transitions", source=f"ad-jira transitions {a.key}"), raw=a.raw,
+                 extra={"key": a.key, "issue_type": itype, "status": status, "status_category": cat,
+                        "note": "this list is the issue TYPE's workflow: a Task and a Story in the same project differ"}))
+    return 0
+
+
+def cmd_transition(a) -> int:
+    cfg, j, _ = _client()
+    itype, status, _ = _issue_state(j, a.key)
+    tkey, intent = W.type_key(itype), W.intent_of(a.to)
+    src = f"ad-jira transition {a.key} --to {a.to}"
+    if not a.force and W.already_there(status, a.to):
+        print(toon.encode({"meta": {"ok": True, "source": src, "key": a.key, "issue_type": itype, "status": status,
+                                    "already": True, "note": "no transition run: the issue is already there"}}))
+        return 0
+    pinned = C.get(cfg, f"jira.workflow.{tkey}.{intent}") if intent else None
+    rows = W.normalize(j.transitions(a.key))
+    try:
+        t, why = W.resolve(rows, a.to, itype, pinned or "")
+    except W.WorkflowError as e:
+        print(toon.encode({"meta": {"ok": False, "source": src, "key": a.key, "issue_type": itype, "status": status,
+                                    "error": str(e), "hint": e.hint},
+                           "available": [{**r, "requires": ",".join(r["requires"])} for r in e.available]}))
+        return 2
+    bad = [x for x in a.field or [] if "=" not in x]
+    if bad:
+        print(error(f"--field expects NAME=VALUE, got {bad[0]!r}", 'example: --field \'resolution={"name":"Done"}\'', "ad-jira"))
+        return 2
+    fields = {k.strip(): W.field_value(v) for k, v in (x.split("=", 1) for x in a.field or []) if k.strip()}
+    if a.resolution:
+        fields["resolution"] = {"name": a.resolution}
+    missing = [f for f in t["requires"] if f.lower() not in {k.lower() for k in fields}]
+    meta = {"ok": True, "source": src, "key": a.key, "issue_type": itype, "status": status,
+            "transition": f"{t['id']} {t['name']}", "to": t["to_status"], "matched": why,
+            "fields": ",".join(sorted(fields)) or None, "requires": ",".join(t["requires"]) or None}
+    if missing:
+        meta.update({"ok": False, "error": f"transition {t['name']!r} has a screen requiring {', '.join(missing)}",
+                     "hint": "supply them: " + " ".join(f'--field "{m}=<value>"' for m in missing)
+                             + (" (or --resolution <name>)" if any(m.lower() == "resolution" for m in missing) else "")})
+        print(toon.encode({"meta": {k: v for k, v in meta.items() if v is not None}}))
+        return 2
+    if a.dry_run:
+        meta["dry_run"] = True
+        print(toon.encode({"meta": {k: v for k, v in meta.items() if v is not None}}))
+        return 0
+    j.transition(a.key, t["id"], fields or None, a.comment)
+    _, now, _ = _issue_state(j, a.key)                    # read it back: a post-function can move it somewhere else
+    meta["status"], meta["moved"] = now, now.lower() != status.lower()
+    if not meta["moved"]:
+        meta.update({"ok": False, "error": f"Jira accepted the transition but {a.key} is still {now!r}",
+                     "hint": "a looped transition or a workflow post-function put it back; ad-jira transitions "
+                             f"{a.key} shows what is on offer now"})
+    elif a.pin and intent:
+        C.put(cfg, f"jira.workflow.{tkey}.{intent}", t["to_status"] or t["name"])
+        C.save(cfg)
+        meta["pinned"] = f"jira.workflow.{tkey}.{intent}={t['to_status'] or t['name']}"
+    print(toon.encode({"meta": {k: v for k, v in meta.items() if v is not None}}))
+    return 0 if meta["moved"] else 1
 
 
 def cmd_sprints(a) -> int:
@@ -170,7 +245,7 @@ def cmd_sprint_replay(a) -> int:
     return 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-jira", description="Jira REST via pncli's token: history the current-state search cannot give.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -180,6 +255,18 @@ def main() -> None:
     p.add_argument("--like"); p.add_argument("--pin", action="store_true"); p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_fields)
     p = sub.add_parser("statuses", help="status id, name, category (done|indeterminate|new)")
     p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_statuses)
+    p = sub.add_parser("transitions", help="what THIS issue can move to (a Task and a Story have different workflows)")
+    p.add_argument("key", metavar="KEY"); p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_transitions)
+    p = sub.add_parser("transition", help='move an issue: --to takes an intent (review, done, in-progress, todo, blocked) '
+                                          'or an exact transition/status name')
+    p.add_argument("key", metavar="KEY"); p.add_argument("--to", required=True)
+    p.add_argument("--dry-run", action="store_true", help="resolve and print the transition without running it")
+    p.add_argument("--resolution", help='shorthand for --field \'resolution={"name":"<X>"}\'')
+    p.add_argument("--field", action="append", metavar="NAME=VALUE", help="a transition-screen field (repeatable); JSON value if it parses")
+    p.add_argument("--comment", help="comment to post with the transition")
+    p.add_argument("--pin", action="store_true", help="remember the resolved status for this issue type (jira.workflow.<type>.<intent>)")
+    p.add_argument("--force", action="store_true", help="run even if the issue already looks like it is there")
+    p.set_defaults(fn=cmd_transition)
     p = sub.add_parser("sprints", help="sprints of a board")
     p.add_argument("--board", type=int, required=True); p.add_argument("--state", choices=["active", "closed", "future"])
     p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_sprints)
@@ -193,10 +280,10 @@ def main() -> None:
     p.add_argument("--points-at", choices=["commit", "close"], default="close"); p.add_argument("--include-subtasks", action="store_true")
     p.add_argument("--compare-sprintreport", action="store_true"); p.add_argument("--now"); p.add_argument("--no-bulk", action="store_true")
     p.add_argument("--name"); p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_sprint_replay)
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     try:
-        sys.exit(a.fn(a))
+        return a.fn(a)
     except J.JiraError as e:
-        print(error(str(e), e.hint or "ad-jira whoami --redetect", "ad-jira")); sys.exit(1)
+        print(error(str(e), e.hint or "ad-jira whoami --redetect", "ad-jira")); return 1
     except C.ConfigError as e:
-        print(error(str(e), e.hint or "ad-setup --only pncli", "ad-jira")); sys.exit(2)
+        print(error(str(e), e.hint or "ad-setup --only pncli", "ad-jira")); return 2

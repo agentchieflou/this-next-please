@@ -77,7 +77,7 @@ def main_pncli() -> None:
     r.add_argument("pargs", nargs=argparse.REMAINDER); r.add_argument("--raw", action="store_true", dest="raw_out")
     sub.add_parser("where", help="how pncli resolves on this machine (path, npm shim, node entry, version)")
     a = ap.parse_args()
-    from . import proc                 # deferred: only ad-pncli needs them
+    from . import confluence, proc     # deferred: only ad-pncli needs them
     from .connectors import pncli as P
     try:
         if a.cmd == "where":
@@ -105,6 +105,11 @@ def main_pncli() -> None:
             if a.body_file:
                 # the body goes across as ONE argv element: no shell, so quotes, newlines and < > in the HTML are safe
                 body = read_text(a.body_file)
+                why = confluence.looks_like_markdown(body) if "confluence" in pargs else ""
+                if why:
+                    print(error(f"{a.body_file} is Markdown, not Confluence storage format ({why})",
+                                f"Confluence renders it literally; build the body first: ad-confluence html {a.body_file}", "pncli"))
+                    sys.exit(2)
                 pargs = [*pargs, a.body_arg, body]
                 shown = [*shown, a.body_arg, f"<{len(body)} chars from {a.body_file}>"]
             payload, el = P.run(pargs)

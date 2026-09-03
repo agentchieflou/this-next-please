@@ -245,3 +245,28 @@ def test_raw_body_file_sends_the_page_as_one_argument(tmp_path, monkeypatch, cap
     out = capsys.readouterr().out
     assert f"body: {len(html)}" in out and "args: 9" in out          # the whole file, as one trailing argument
     assert "<h2>" not in out and f"<{len(html)} chars from" in out   # the page is summarised, never echoed
+
+
+def test_raw_refuses_to_post_markdown_to_confluence(tmp_path, monkeypatch, capsys):
+    """The reported bug: the body reached Confluence as Markdown and rendered as `## mismatch`. The last gate is
+    here, because a body only becomes a page at the moment `--body-file` is read."""
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    md = tmp_path / "findings.md"
+    md.write_text("## Findings\n\n- one\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(md), "confluence", "create-page", "--dry-run"])
+    from agentdata import cli
+    with pytest.raises(SystemExit) as e:
+        cli.main_pncli()
+    out = capsys.readouterr().out
+    assert e.value.code == 2 and "ok: false" in out and "# heading" in out and "ad-confluence html" in out
+
+    html = tmp_path / "findings.html"                                # the converted body goes through
+    html.write_text("<h2>Findings</h2><ul><li>one</li></ul>", encoding="utf-8")
+    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, 'printf \'{"ok":true}\''))
+    monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(html), "confluence", "create-page", "--dry-run"])
+    cli.main_pncli()
+    assert "ok: true" in capsys.readouterr().out
+
+    monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(md), "jira", "add-comment", "--key", "X"])
+    cli.main_pncli()                                                 # a Jira comment is not a page: Markdown is fine
+    assert "ok: true" in capsys.readouterr().out

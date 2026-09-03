@@ -267,6 +267,22 @@ class Jira:
             params["expand"] = expand
         return self.get(f"{self.api}/issue/{key}", params or None)
 
+    # ---------- workflow ----------
+    def transitions(self, key: str) -> list[dict]:
+        """What this ONE issue can do next. The workflow belongs to the issue type, so a Story's answer says
+        nothing about a Task's; `expand=transitions.fields` also reveals the screens that would 400 the POST."""
+        data = self.get(f"{self.api}/issue/{key}/transitions", {"expand": "transitions.fields"}) or {}
+        return data.get("transitions") or []
+
+    def transition(self, key: str, transition_id: str, fields: dict | None = None, comment: str | None = None) -> None:
+        body: dict = {"transition": {"id": str(transition_id)}}
+        if fields:
+            body["fields"] = fields
+        if comment:
+            from ..jira_workflow import adf
+            body["update"] = {"comment": [{"add": {"body": adf(comment) if self.flavor.api == "3" else comment}}]}
+        self.post(f"{self.api}/issue/{key}/transitions", body)
+
     # ---------- changelog ----------
     def changelog(self, key: str, name_to_id: dict | None = None) -> list[dict]:
         """All change items of one issue as flat rows (see history_rows). DC without the paged endpoint falls back to

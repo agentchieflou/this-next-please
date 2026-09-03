@@ -45,6 +45,18 @@ Session state: `ad-state show` / `ad-state set phase=<phase> active_ticket=<KEY>
 is the only writer of `.agent/state.json` (validated keys and phases, `last_updated`, artifacts pruned after 7 days,
 UTF-8 without BOM).
 
+Jira transitions: `ad-jira transitions <KEY>` lists what that one issue can move to; `ad-jira transition <KEY> --to
+<intent|name>` runs it. A workflow belongs to the **issue type**, so a Story's `In Review` may not exist on a Task —
+the intents `todo`, `in-progress`, `review`, `blocked`, `done` resolve against the transitions Jira offers, and an
+intent the workflow cannot satisfy is refused with the list of what it can do. `--dry-run` resolves without moving,
+`--resolution` / `--field NAME=VALUE` answer a transition screen, and `--pin` stores the resolved status under
+`jira.workflow.<type>.<intent>` so the next issue of that type resolves exactly.
+
+Confluence pages: `ad-confluence html <file.md>` converts a Markdown file to storage format (Confluence renders
+Markdown as literal text) and refuses a body it cannot parse as XML, which is what Confluence would reject. Publish
+the result with `ad-pncli raw --body-file <file.html> confluence create-page …`; that command refuses a body that is
+still Markdown.
+
 ## Config file
 `~/.agentdata/config.json` (override the path with `AGENTDATA_CONFIG`). It never contains a credential: `save()`
 refuses keys that look like one. Capability probes recorded per source env (used by `ad-sql-check`): Teradata `tmode`
