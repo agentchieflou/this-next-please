@@ -6,6 +6,22 @@ Read this before running `ad-update`: it says whether an update needs anything b
 
 ## 0.5.3 — 2026-09-03
 
+**A Teradata (or Hive/Impala/Oracle) env named after its DSN or hostname silently vanished from config.json.**
+Reported: `ad-setup --only sources` walks the Teradata questions and reports success, but the very next
+`ad-setup --patch sources.teradata` treats it as never configured -- `Use Teradata? [y/N]` again, `[prod]`
+instead of the env just typed, `sources.teradata.envs` empty in the saved file. Root cause: environment names
+are routinely a DSN or a hostname (`TPRDDB.pncint.net`), which contains dots -- and
+`C.put(cfg, f"sources.teradata.envs.{env}", e)` builds a dot-path string and splits it on `.`, so instead of
+one key `envs["TPRDDB.pncint.net"]` it creates three nested levels, `envs["TPRDDB"]["pncint"]["net"]`.
+`ask()`'s own cleanup step -- which drops any top-level env key no longer in the list the user just typed --
+then sees the leftover top-level fragment `"TPRDDB"`, finds it does not match the full name `"TPRDDB.pncint.net"`,
+and deletes it immediately, in the same wizard run. The net effect is a clean, no-error `ad-setup` run that
+leaves `envs` empty on disk. `config.py` now exposes `get_leaf()`/`put_leaf()`, which walk a dot-path prefix
+normally but take the final segment (the env or workspace name) as one literal key, never split further;
+`sources.py` (`ask()`, `verify()`, the `verified.<tag>` lookup) and `powerbi.py` (the same lookup, for
+workspace names) now go through them, as does `config.source_env()`/`capabilities()` -- the same functions
+`ad-td`/`ad-hive`/`ad-impala`/`ad-ora` call at runtime with that exact env name.
+
 **Setup UX: connect everything as fast as possible (Epic #14, sub-issues #21, #22, #23).**
 - **Quick mode (`ad-setup --quick`, #21)**: middle ground between interactive and non-interactive setup. Accepts
   unambiguous detected facts (single ODBC DSN, tools found at standard paths, single workspace) without prompting,

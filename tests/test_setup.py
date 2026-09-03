@@ -613,6 +613,46 @@ def test_patch_explicit_teradata_target_sees_a_freshly_interactive_setup(cfg_pat
     assert cfg2["sources"]["teradata"]["envs"] == cfg1["sources"]["teradata"]["envs"]   # untouched by the patch
 
 
+def test_teradata_env_named_after_its_dsn_survives_setup_and_patch(cfg_path, monkeypatch):
+    """The actual root cause of the original report: a Teradata env is routinely named after its DSN or
+    hostname (e.g. `TPRDDB.pncint.net`), which contains dots. `C.put(cfg, f"sources.teradata.envs.{env}", e)`
+    treats every dot as a path separator, so the env lands nested under `envs.TPRDDB.pncint.net` (three
+    levels) instead of as one key `envs["TPRDDB.pncint.net"]` -- and `ask()`'s own cleanup, which drops any
+    top-level key not in the just-typed env list, then deletes that "TPRDDB" fragment immediately because it
+    doesn't match the full name. Net effect: `ad-setup --only sources` reports success and `envs` ends up `{}`
+    on disk with no error at all, and the next `ad-setup --patch sources.teradata` sees nothing configured."""
+    monkeypatch.setattr(W, "has_tty", lambda: True)
+    dsn = "TPRDDB.pncint.net"
+    det = FakeDet(modules={"teradatasql", "pyodbc", "keyring"}, dsns={dsn: "Teradata Database ODBC Driver 20.00"})
+
+    setup_answers = iter(["y", dsn, "odbc", "1", "LDAP", "pk40484", "hunter2", "n", "n", "n"])
+    monkeypatch.setattr(W, "_console_prompt", lambda text, default=None, secret=False: next(setup_answers))
+    rc1 = W.run_setup(["--only", "sources", "--offline"], det)
+    assert rc1 == 0
+    cfg1 = json.loads(cfg_path.read_text())
+    envs1 = cfg1["sources"]["teradata"]["envs"]
+    assert list(envs1) == [dsn]                            # one key, the full dotted name -- not shredded
+    assert envs1[dsn]["dsn"] == dsn and envs1[dsn]["logmech"] == "LDAP"
+
+    patch_prompts = []
+
+    def echo_defaults(text, default=None, secret=False):
+        patch_prompts.append((text, default))
+        return default or ""
+
+    monkeypatch.setattr(W, "_console_prompt", echo_defaults)
+    rc2 = W.run_setup(["--patch", "sources.teradata", "--offline"], det)
+    assert rc2 == 0
+
+    use_prompt = next(text for text, _ in patch_prompts if text.startswith("Use Teradata?"))
+    assert "[Y/n]" in use_prompt
+    envs_default = next(default for text, default in patch_prompts if "environment names" in text)
+    assert envs_default == dsn                             # remembered, not the "prod" fallback
+
+    cfg2 = json.loads(cfg_path.read_text())
+    assert cfg2["sources"]["teradata"]["envs"] == envs1     # completely untouched by the patch
+
+
 def test_setup_quick_mode_auto_accepts_unambiguous_defaults(cfg_path, capsys, monkeypatch):
     """ad-setup --quick accepts unambiguous detected facts without prompting stdin,
     while passwords and ambiguous cases still prompt."""

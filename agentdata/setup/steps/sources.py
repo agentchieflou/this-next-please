@@ -112,7 +112,7 @@ class SourcesStep(Step):
                     if not ctx.det.has_password(s, env, user):
                         _password_row(ctx, k, tag, s, env, user)
                         continue
-                v = C.get(ctx.cfg, f"verified.{tag}")
+                v = C.get_leaf(ctx.cfg, "verified", tag)
                 target = f" · {C.oracle_dsn(e)}" if s == "oracle" else ""
                 ctx.add(k, tag, "ok" if v else "warn", (f"{mode} · verified {v}" if v else f"{mode} · never verified") + target,
                         "" if v else "ad-doctor --online or ad-setup --patch", (f"sources.{s}.{env}.",))
@@ -228,7 +228,7 @@ class SourcesStep(Step):
                     else:
                         ctx.add(self.key, tag, "warn", "password auth configured but no keyring entry",
                                 "run interactive `ad-setup --only sources` once to store it")
-                C.put(ctx.cfg, f"sources.{s}.envs.{env}", e)
+                C.put_leaf(ctx.cfg, f"sources.{s}.envs", env, e)
             envs_cfg = C.get(ctx.cfg, f"sources.{s}.envs") or {}
             for old in list(envs_cfg):
                 if old not in envs:
@@ -273,6 +273,6 @@ class SourcesStep(Step):
                 continue
             caps = r.get("capabilities", {}) or {}
             e["capabilities"] = caps
-            C.put(ctx.cfg, f"sources.{s}.envs.{env}", e)
+            C.put_leaf(ctx.cfg, f"sources.{s}.envs", env, e)
             C.stamp(ctx.cfg, tag)
             ctx.add(self.key, tag, "ok", f"SELECT 1 ok in {r.get('elapsed_s')}s · caps {json.dumps(caps, sort_keys=True)}"[:200])
