@@ -205,7 +205,11 @@ class SourcesStep(Step):
                     elif ctx.interactive:
                         pw = ctx.ask.ask(f"sources.{s}.{env}.password", f"[{tag}] password (stored in keyring only)", secret=True)
                         if pw:
-                            det.set_password(s, env, user, pw)
+                            try:
+                                det.set_password(s, env, user, pw)
+                            except C.ConfigError as ex:
+                                # a broken keyring backend must not throw away the rest of this env's answers
+                                ctx.add(self.key, tag, "warn", str(ex), ex.hint)
                     else:
                         ctx.add(self.key, tag, "warn", "password auth configured but no keyring entry",
                                 "run interactive `ad-setup --only sources` once to store it")

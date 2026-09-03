@@ -23,6 +23,18 @@ type exactly that) still works rather than erroring on an unknown extra. The `Im
 `agentdata/connectors/secrets.py` and `connectors/odbc.py` stay -- cheap insurance for a `--no-deps` or stripped
 install -- but neither is the expected path anymore.
 
+**Found and fixed while proving that: a broken keyring backend crashed the wizard and threw away everything
+just answered for the current source, not only the password.** This is very likely the actual shape of the
+report -- reproduced end to end, for real, through the CLI. Every guard in `secrets.py` was a bare
+`except Exception:`, which does not catch everything a native extension can raise (a `PanicException` from a
+Rust-backed dependency, reproduced here, subclasses only `BaseException`) -- so `has_password()`, `set_password()`
+and `backend_name()` could all crash straight through, mid-question, with a raw traceback, before the step's
+`C.put(...)`/`C.save(...)` ever ran. Answer every Teradata question including an LDAP/TD2 password on a machine
+with a misbehaving keyring backend and **nothing** was saved -- not the password, not the host, not the mode. All
+three now degrade to a clean `ConfigError` instead, and `ad-setup` catches it locally at the one call that can
+actually fail (storing the password) and downgrades it to a `warn` row -- so the rest of the env's answers
+(host, mode, logmech, user) are saved regardless of whether the credential store itself is working.
+
 ## 0.5.1 — 2026-09-03
 
 Verified against a real Python 3.14.0rc2 interpreter (`uv python install 3.14`, every optional extra installed):
