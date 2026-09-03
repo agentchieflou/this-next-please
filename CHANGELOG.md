@@ -4,6 +4,20 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.5.2 — 2026-09-03
+
+**`keyring` is now a base dependency.** It lived in the per-connector extras (`teradata`, `oracle`, `hive`,
+`impala`) and a separate `keyring` extra, so whether it was installed depended on which one a user happened to
+pick -- and `ad-setup` calls it for **any** password-auth source, not just those. Pick ODBC mode, or an install
+command that skipped the right extra, and the wizard died mid-run with `keyring is not installed` on whichever
+step first tried to store a password -- occasional and confusing, because it depended on choices made several
+prompts earlier.
+
+Now it installs with the package every time, regardless of extras. The old `[keyring]` extra is kept as a
+no-op so an existing `pip install agentdata[keyring]` (this repo's own docs used to say to type it) still works
+rather than erroring on an unknown extra. `agentdata/connectors/secrets.py`'s `ImportError` guard stays --
+cheap insurance for a `--no-deps` or stripped install -- but is no longer the expected path.
+
 ## 0.5.1 — 2026-09-03
 
 Verified against a real Python 3.14.0rc2 interpreter (`uv python install 3.14`, every optional extra installed):

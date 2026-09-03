@@ -95,7 +95,7 @@ class SourcesStep(Step):
                     continue
                 if needs_password(s, e):
                     if not found["keyring"]:
-                        ctx.add(k, tag, "fail", "password auth but keyring is missing", install_cmd("keyring"))  # install, not an answer
+                        ctx.add(k, tag, "fail", "password auth but keyring is missing", install_cmd())  # install, not an answer
                         continue
                     user = e.get("user") or ctx.det.getuser()
                     if not ctx.det.has_password(s, env, user):

@@ -6,6 +6,7 @@ Two regressions these tests pin down:
 2. the project stub lived outside the package, so `ad-setup --project` broke on any non-editable install.
 """
 import fnmatch, os, re, subprocess, sys
+import tomllib
 import pytest
 import agentdata
 from agentdata import install as I
@@ -40,6 +41,20 @@ def test_install_cmd_adapts_to_the_install_kind(monkeypatch):
     monkeypatch.setattr(I, "source_checkout", lambda: None)
     assert I.install_cmd("odbc") == 'pip install "agentdata[odbc] @ git+https://github.com/agentchieflou/this-next-please.git"'
     assert I.install_cmd() == 'pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.git"'
+
+
+def test_keyring_is_a_base_dependency_not_gated_behind_an_extra():
+    """The reported bug: `ad-setup` picks a password-auth source, tries to store it, and dies mid-wizard with
+    `keyring is not installed` -- but only for whichever install command the user happened to run, since keyring
+    lived in the per-connector extras (`teradata`, `oracle`, ...) instead of the base install. Every source needs
+    it, so it must be unconditional."""
+    with open(os.path.join(ROOT, "pyproject.toml"), "rb") as f:
+        proj = tomllib.load(f)["project"]
+    assert any(re.match(r"keyring(\W|$)", dep) for dep in proj["dependencies"]), \
+        "keyring must be a base dependency: it is needed by every password-auth source, not just one extra's users"
+    for name, deps in proj["optional-dependencies"].items():
+        assert not any(d.lower().startswith("keyring") for d in deps), \
+            f"keyring is redundant in the [{name}] extra now that it is a base dependency"
 
 
 def test_source_checkout_detects_this_clone():

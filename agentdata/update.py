@@ -153,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="report what is installed and print the commands; run nothing")
     ap.add_argument("--cli", action="store_true", help="update only the ad-* CLI")
     ap.add_argument("--skills", action="store_true", help="update only the skills")
-    ap.add_argument("--extras", help="extras to (re)install with the CLI, e.g. teradata,odbc,keyring")
+    ap.add_argument("--extras", help="extras to (re)install with the CLI, e.g. teradata,odbc,pbi")
     ap.add_argument("--pull", action="store_true",
                     help="in a checkout: `git pull --ff-only` there instead of skipping the CLI half")
     ap.add_argument("--from-git", action="store_true", dest="from_git",

@@ -4,18 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentdata"
-version = "0.5.1"
+version = "0.5.2"
 description = "Connector adapter: enterprise sources -> AgentTable -> TOON/TSV/JSON for LLM agents, plus setup, SQL guardrails, Jira changelog, PBIP tooling, UAT helpers and the DPM handoff contract"
 requires-python = ">=3.10"
-dependencies = ["rich>=13"]        # the human-facing rendering; every command still works without it
+dependencies = [
+    "rich>=13",     # the human-facing rendering; every command still works without it
+    "keyring",      # every source's password path (ad-setup, ad-td, ad-ora, ...), not just the ones with a
+                    # connector extra installed -- gating it behind an extra made `ad-setup` fail mid-wizard
+                    # depending on which options a user picked, which is exactly the failure mode this avoids
+]
 
 [project.optional-dependencies]
-teradata = ["teradatasql", "keyring"]
-oracle = ["oracledb", "keyring"]
-hive = ["impyla", "keyring"]
-impala = ["impyla", "keyring"]
+teradata = ["teradatasql"]
+oracle = ["oracledb"]
+hive = ["impyla"]
+impala = ["impyla"]
 odbc = ["pyodbc"]
-keyring = ["keyring"]
+keyring = []        # no-op: keyring is a base dependency now. Kept so an existing `pip install agentdata[keyring]`
+                    # (this repo's own docs used to say to type it) still works instead of erroring on an unknown extra.
 pbi = ["psutil"]
 uat = ["openpyxl", "python-docx"]
 pandas = ["pandas", "pyarrow"]

@@ -10,9 +10,9 @@ def service(source: str, env: str) -> str:
 
 def _keyring():
     try:
-        import keyring  # optional dep
+        import keyring  # a base dependency; this stays defensive for an install that skipped deps (--no-deps, a stripped venv)
     except ImportError:
-        raise ConfigError("keyring is not installed", hint=install_cmd("keyring")) from None
+        raise ConfigError("keyring is not installed", hint=install_cmd()) from None
     return keyring
 
 
