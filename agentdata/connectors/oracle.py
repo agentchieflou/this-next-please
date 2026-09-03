@@ -1,5 +1,9 @@
-"""Oracle via python-oracledb. Thin mode by default (no client libraries, user+password from keyring);
-thick mode with `client_lib` for Kerberos/external auth (Thin cannot do KRB5)."""
+"""Oracle via python-oracledb.
+
+Two independent settings. `client_lib` turns on thick mode (Instant Client): needed for Kerberos or a wallet, and for
+some older servers. `auth` says how to authenticate: `password` (user + keyring password — valid in BOTH thin and
+thick mode), `kerberos` or `wallet` (external, thick only). Configs written before `auth` existed meant Kerberos by
+setting client_lib, and still do."""
 from __future__ import annotations
 import getpass
 from ..config import ConfigError, expand, source_env
@@ -20,6 +24,7 @@ def connect(env: str, cfg: dict | None = None, timeout: int | None = None):
     dsn = e["dsn"]
     if e.get("tns_admin"):
         oracledb.defaults.config_dir = expand(e["tns_admin"])
+    auth = str(e.get("auth") or ("kerberos" if (e.get("client_lib") or e.get("thick")) else "password")).lower()
     if e.get("client_lib") or e.get("thick"):
         if not _thick_ready:
             kw = {}
@@ -33,13 +38,18 @@ def connect(env: str, cfg: dict | None = None, timeout: int | None = None):
                 raise ConfigError(f"oracle thick-mode init failed: {ex}",
                                   hint="check client_lib (ad-setup --only sources)") from None
             _thick_ready = True
-        con = oracledb.connect(externalauth=True, dsn=dsn)  # Kerberos via sqlnet.ora
+    if auth in ("kerberos", "wallet"):
+        if not (e.get("client_lib") or e.get("thick")):
+            raise ConfigError(f"oracle:{env} uses {auth} auth but no Oracle client is configured (thin mode cannot)",
+                              hint="set client_lib to the Instant Client lib dir: ad-setup --patch sources.oracle")
+        con = oracledb.connect(externalauth=True, dsn=dsn)   # Kerberos / wallet via sqlnet.ora
     else:
         user = e.get("user") or getpass.getuser()
         pw = secrets.get_password("oracle", env, user)
         if not pw:
             raise ConfigError(f"no password in keyring for oracle:{env} user {user}",
-                              hint="ad-setup --only sources (thin mode needs a password; set client_lib for Kerberos)")
+                              hint="`ad-setup --patch sources.oracle` asks for the user and password "
+                                   "(thick mode takes a password too; only kerberos/wallet skip it)")
         con = oracledb.connect(user=user, password=pw, dsn=dsn)
     if timeout:
         con.call_timeout = int(timeout) * 1000

@@ -9,10 +9,21 @@ from ..wizard import Context, Step
 LABEL = {"teradata": "Teradata", "hive": "Hive (HiveServer2)", "impala": "Impala", "oracle": "Oracle"}
 ORA_STYLES = ["basic", "tns"]      # basic = hostname + port + service/SID (SQL Developer's Basic tab); tns = alias
 ORA_IDENT = ["service", "sid"]
+# Thick mode (client_lib) and authentication are INDEPENDENT: thick is also how you reach an old server or a wallet,
+# and it still takes a username and password. Only kerberos/wallet skip the credential prompts.
+ORA_AUTH = ["password", "kerberos", "wallet"]
 MODULE = {"teradata": "teradatasql", "hive": "impala", "impala": "impala", "oracle": "oracledb"}
 DEFAULT_PORT = {"hive": 10000, "impala": 21050}
 TD_LOGMECH = ["KRB5", "TDNEGO", "LDAP", "TD2"]
 HS2_AUTH = ["GSSAPI", "PLAIN", "LDAP", "NOSASL"]
+
+
+def ora_auth(e: dict) -> str:
+    """password | kerberos | wallet. Configs written before this question existed meant Kerberos by setting client_lib."""
+    a = str(e.get("auth") or "").strip().lower()
+    if a in ORA_AUTH:
+        return a
+    return "kerberos" if (e.get("client_lib") or e.get("thick")) else "password"
 
 
 def needs_password(source: str, e: dict) -> bool:
@@ -21,7 +32,7 @@ def needs_password(source: str, e: dict) -> bool:
     if source in ("hive", "impala"):
         return str(e.get("auth", "GSSAPI")).upper() in ("PLAIN", "LDAP")
     if source == "oracle":
-        return not (e.get("client_lib") or e.get("thick"))
+        return ora_auth(e) == "password"
     return False
 
 
@@ -30,7 +41,7 @@ def uses_kerberos(source: str, e: dict) -> bool:
         return str(e.get("logmech", "KRB5")).upper() in ("KRB5", "TDNEGO")
     if source in ("hive", "impala"):
         return str(e.get("auth", "GSSAPI")).upper() == "GSSAPI"
-    return bool(e.get("client_lib") or e.get("thick"))
+    return ora_auth(e) == "kerberos"
 
 
 class SourcesStep(Step):
@@ -55,25 +66,36 @@ class SourcesStep(Step):
                 kerberos = kerberos or uses_kerberos(s, e)
                 if mode == "odbc":
                     if not found["pyodbc"]:
-                        ctx.add(k, tag, "fail", "mode odbc but pyodbc is missing", install_cmd("odbc"), (f"sources.{s}.{env}.",))
+                        ctx.add(k, tag, "fail", "mode odbc but pyodbc is missing", install_cmd("odbc"))          # install, not an answer
                         continue
                     if e.get("dsn") not in found["dsns"]:
                         ctx.add(k, tag, "fail", f"DSN '{e.get('dsn')}' not visible to this {found['bits']}-bit Python",
                                 "create it in C:/Windows/System32/odbcad32.exe (64-bit) or fix the dsn (ad-setup --patch)",
-                                (f"sources.{s}.{env}.",))
+                                (f"sources.{s}.{env}.dsn",))
                         continue
                 elif not found["modules"][s]:
-                    ctx.add(k, tag, "fail", f"{MODULE[s]} not installed", install_cmd(s), (f"sources.{s}.{env}.",))
+                    ctx.add(k, tag, "fail", f"{MODULE[s]} not installed", install_cmd(s))                    # install, not an answer
+                    continue
+                if s == "oracle" and ora_auth(e) != "password" and not (e.get("client_lib") or e.get("thick")):
+                    ctx.add(k, tag, "fail", f"{ora_auth(e)} auth needs the Oracle client (thick mode) but no client_lib is set",
+                            "give the Instant Client lib dir (…/instantclient_XX), or switch auth to password: ad-setup --patch",
+                            (f"sources.{s}.{env}.auth", f"sources.{s}.{env}.client_lib"))
                     continue
                 if s == "oracle" and not C.oracle_dsn(e):
-                    missing = "service name or SID" if e.get("host") else "hostname (or a TNS alias)"
+                    if e.get("host"):        # only the identifier is missing: ask for that, not the whole connection
+                        missing, keys = "service name or SID", (f"sources.{s}.{env}.identifier", f"sources.{s}.{env}.service_name",
+                                                                f"sources.{s}.{env}.sid")
+                    else:
+                        missing, keys = "hostname (or a TNS alias)", (f"sources.{s}.{env}.style", f"sources.{s}.{env}.host",
+                                                                      f"sources.{s}.{env}.port", f"sources.{s}.{env}.identifier",
+                                                                      f"sources.{s}.{env}.service_name", f"sources.{s}.{env}.sid",
+                                                                      f"sources.{s}.{env}.dsn")
                     ctx.add(k, tag, "fail", f"incomplete Oracle connection: no {missing}",
-                            "Oracle has no ODBC DSN: it needs hostname + port + service name. `ad-setup --patch`",
-                            (f"sources.{s}.{env}.",))
+                            "Oracle has no ODBC DSN: it needs hostname + port + service name. `ad-setup --patch`", keys)
                     continue
                 if needs_password(s, e):
                     if not found["keyring"]:
-                        ctx.add(k, tag, "fail", "password auth but keyring is missing", install_cmd("keyring"), (f"sources.{s}.{env}.",))
+                        ctx.add(k, tag, "fail", "password auth but keyring is missing", install_cmd("keyring"))  # install, not an answer
                         continue
                     user = e.get("user") or ctx.det.getuser()
                     if not ctx.det.has_password(s, env, user):
@@ -150,8 +172,11 @@ class SourcesStep(Step):
                                                e.get("dsn") or "")
                         for k in ("host", "port", "service_name", "sid"):
                             e.pop(k, None)
-                    for opt, label in (("tns_admin", "TNS_ADMIN directory (blank = none)"),
-                                       ("client_lib", "Oracle client lib dir for Kerberos (blank = thin mode + password)")):
+                    auth = ctx.ask.ask(f"sources.{s}.{env}.auth", f"[{tag}] authentication", ora_auth(e), ORA_AUTH) or "password"
+                    e["auth"] = auth
+                    lib_label = ("Oracle Instant Client lib dir (REQUIRED for %s)" % auth if auth != "password"
+                                 else "Oracle Instant Client lib dir (blank = thin mode, which is fine with a password)")
+                    for opt, label in (("tns_admin", "TNS_ADMIN directory (blank = none)"), ("client_lib", lib_label)):
                         v = ctx.ask.ask(f"sources.{s}.{env}.{opt}", f"[{tag}] {label}", e.get(opt) or "")
                         if v:
                             e[opt] = v

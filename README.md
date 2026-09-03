@@ -91,6 +91,7 @@ ad-setup --project .        # writes AGENTS.md + .agent/state.json from the pack
 #   Luna's form (no stdin): ad-setup --only project --non-interactive --offline --project . --set project.jira_project=RDSD
 ad-state show               # session state; `ad-state set phase=… active_ticket=…` is the only way state.json is written
 ad-doctor                   # what is broken · ad-setup --patch re-asks ONLY the settings behind the fail rows
+ad-setup --patch sources.oracle   # or name a target: re-ask exactly that, without waiting for a check to fail
 ```
 - `AGENTS.md`  — ~25 lines of project facts, points at the installed skills
 - `.agent/state.json` — machine-owned project state

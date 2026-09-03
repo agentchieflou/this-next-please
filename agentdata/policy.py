@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 from .model import AgentTable
+from . import color
 from . import toon
 
 INLINE_ROWS, INLINE_TOKENS = 50, 1500
@@ -74,4 +75,6 @@ def render_nested(records: list, name: str, source: str, raw_payload) -> str:
 
 
 def error(msg: str, hint: str = "", source: str = "") -> str:
-    return toon.encode({"meta": {"ok": False, "source": source, "error": msg, "hint": hint}})
+    """The line a human reads when something failed. Colour is off whenever stdout is not a terminal."""
+    return toon.encode({"meta": {"ok": color.status("false") if color.enabled() else False, "source": source,
+                                 "error": color.paint(msg, "red"), "hint": color.paint(hint, "dim")}})

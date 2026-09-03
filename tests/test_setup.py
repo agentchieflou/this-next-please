@@ -2,7 +2,7 @@ import json, os
 import pytest
 from agentdata import config as C
 from agentdata.setup import wizard as W
-from agentdata.setup.steps import pncli_import, powerbi, project
+from agentdata.setup.steps import pncli_import, powerbi, project, sources
 
 PNCLI = {"jira": {"url": "https://acme.atlassian.net", "email": "me@acme.com", "token": "tok_1234567890abcdef"},
          "bitbucket": {"token": "bb_secret_value_123"}}
@@ -305,7 +305,12 @@ def test_patch_with_nothing_broken_asks_nothing(cfg_path, capsys):
             "verified": {"jira": "2026-09-02"}})
     assert W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "pncli"], FakeDet()) == 0
     out = capsys.readouterr().out
-    assert "repaired: 0" in out and "nothing to repair" in out and "--include-warnings" in out
+    assert "repaired: 0" in out and "nothing to repair" in out
+    assert "--include-warnings" not in out              # no warn rows: do not advertise a flag that finds nothing
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
+    assert W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "pncli"], FakeDet()) == 0
+    out = capsys.readouterr().out                       # jira never verified is a warn row
+    assert "nothing to repair" in out and "--include-warnings covers warn rows" in out
 
 
 def test_patch_repairs_a_missing_pncli_launcher(cfg_path, capsys, tmp_path):
@@ -452,3 +457,96 @@ def test_oracle_tns_style_and_incomplete_connections_are_caught(cfg_path, capsys
     assert W.run_doctor(["--only", "sources"], det) == 1
     out = capsys.readouterr().out
     assert "incomplete Oracle connection: no service name or SID" in out and "no ODBC DSN" in out
+
+
+def test_patch_never_asks_questions_an_answer_cannot_fix(cfg_path, capsys):
+    """`teradatasql not installed` is a pip install. Asking that env's questions repairs nothing and, with no stdin,
+    dies on the first prompt — which is what a laptop run looked like."""
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"}},
+            "verified": {"jira": "2026-09-02"},
+            "sources": {"teradata": {"envs": {"prod": {"mode": "native", "host": "td.example.net", "logmech": "KRB5"}}}}})
+    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "sources"], FakeDet())   # no teradatasql
+    out = capsys.readouterr().out
+    assert rc == 1 and "repaired: 0" in out and "nothing to repair by answering a question" in out
+    assert "manual[1]" in out and "teradatasql not installed" in out and "an install or an action, not an answer" in out
+    assert "asked[" not in out                                    # nothing was asked
+
+
+def test_patch_takes_explicit_targets(cfg_path, capsys, tmp_path):
+    """`ad-setup --patch sources.oracle` re-asks that area on demand, without waiting for a check to fail."""
+    C.save({"sources": {"oracle": {"envs": {"prod": {"mode": "native", "host": "old.example.net", "port": 1521,
+                                                     "service_name": "old.svc", "auth": "password", "user": "luna"}}}},
+            "pncli": {"keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
+    det = FakeDet(modules={"oracledb", "keyring"})
+    det.passwords[("oracle", "prod", "luna")] = "pw"
+    rc = W.run_setup(["--patch", "sources.oracle", "--non-interactive", "--offline",
+                      "--set", "sources.oracle.prod.host=new.example.net",
+                      "--set", "sources.oracle.prod.service_name=new.svc"], det)
+    out = capsys.readouterr().out
+    e = json.loads(cfg_path.read_text())["sources"]["oracle"]["envs"]["prod"]
+    assert rc == 0 and e["host"] == "new.example.net" and e["service_name"] == "new.svc"
+    assert "sources.oracle.prod.host" in out and "pncli" not in out.split("checks[")[0]   # only that step ran
+    rc = W.run_setup(["--patch", "nope.thing", "--non-interactive", "--offline"], det)
+    assert rc == 2 and "nothing to repair for: nope.thing" in capsys.readouterr().out
+
+
+def test_oracle_thick_mode_still_asks_for_a_username_and_password(cfg_path, capsys):
+    """A client_lib path used to mean 'external auth', so giving one made it impossible to authenticate at all."""
+    det = FakeDet(modules={"oracledb", "keyring"})
+    sets = ["--set", "sources.teradata.use=false", "--set", "sources.hive.use=false", "--set", "sources.impala.use=false",
+            "--set", "sources.oracle.use=true", "--set", "sources.oracle.envs=prod", "--set", "sources.oracle.prod.style=basic",
+            "--set", "sources.oracle.prod.host=db.example.net", "--set", "sources.oracle.prod.identifier=service",
+            "--set", "sources.oracle.prod.service_name=svc.example.net",
+            "--set", "sources.oracle.prod.auth=password",
+            "--set", "sources.oracle.prod.client_lib=C:/Oracle/instantclient_21_13/bin",     # thick AND a password
+            "--set", "sources.oracle.prod.user=pk40484",
+            "--set", "powerbi.use=false", "--set", "project.generate=false"]
+    assert W.run_setup(["--only", "sources", "--non-interactive", "--offline", *sets], det) == 0
+    e = json.loads(cfg_path.read_text())["sources"]["oracle"]["envs"]["prod"]
+    assert e["auth"] == "password" and e["client_lib"] == "C:/Oracle/instantclient_21_13/bin"
+    assert e["user"] == "pk40484"                       # the credential prompts ran despite thick mode
+    assert sources.needs_password("oracle", e) is True and sources.uses_kerberos("oracle", e) is False
+    out = capsys.readouterr().out
+    assert "no keyring entry" in out                    # non-interactive cannot store one; it says so
+
+
+def test_oracle_auth_modes_and_the_missing_client_check(cfg_path, capsys):
+    assert sources.ora_auth({"client_lib": "C:/oracle/bin"}) == "kerberos"      # written before `auth` existed
+    assert sources.ora_auth({}) == "password" and sources.ora_auth({"auth": "WALLET"}) == "wallet"
+    assert sources.needs_password("oracle", {"auth": "kerberos", "client_lib": "x"}) is False
+    assert sources.needs_password("oracle", {"auth": "password", "client_lib": "x"}) is True
+    C.save({"sources": {"oracle": {"envs": {"prod": {"mode": "native", "host": "h", "service_name": "s",
+                                                     "auth": "kerberos"}}}}})   # kerberos without the client
+    assert W.run_doctor(["--only", "sources"], FakeDet(modules={"oracledb", "keyring"})) == 1
+    out = capsys.readouterr().out
+    assert "kerberos auth needs the Oracle client (thick mode)" in out and "instantclient" in out
+
+
+def test_patch_asks_only_the_missing_oracle_field(cfg_path, capsys):
+    """A host with no service name is one question, not the whole connection."""
+    C.save({"sources": {"oracle": {"envs": {"prod": {"mode": "native", "host": "db.example.net", "port": 1521,
+                                                     "auth": "password", "user": "luna"}}}},
+            "pncli": {"keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
+    det = FakeDet(modules={"oracledb", "keyring"})
+    det.passwords[("oracle", "prod", "luna")] = "pw"
+    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "sources",
+                      "--set", "sources.oracle.prod.identifier=service",
+                      "--set", "sources.oracle.prod.service_name=svc.example.net"], det)
+    out = capsys.readouterr().out
+    assert rc == 0 and "no service name or SID" in out
+    asked = out.split("asked[")[1].split("\n")[0]
+    assert "identifier" in asked and "service_name" in asked
+    assert "prod.host" not in asked and "prod.port" not in asked and "prod.user" not in asked
+    e = json.loads(cfg_path.read_text())["sources"]["oracle"]["envs"]["prod"]
+    assert e["service_name"] == "svc.example.net" and e["host"] == "db.example.net"   # untouched
+
+
+def test_patch_refuses_to_prompt_with_no_terminal(cfg_path, capsys, monkeypatch):
+    """Piped (Luna's terminal, CI): dying on EOF at the first prompt taught nobody anything."""
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_token": "jira.token"}}})
+    monkeypatch.setattr(W, "has_tty", lambda: False)
+    assert W.run_setup(["--patch", "--include-warnings", "--offline", "--only", "pncli"], FakeDet(pncli=None)) == 2
+    out = capsys.readouterr().out
+    assert "no terminal to ask on" in out and "needs_answers[" in out and "--set pncli.config_path=<value>" in out
+    assert W.run_setup(["--offline", "--only", "pncli"], FakeDet()) == 2
+    assert "no terminal to ask on" in capsys.readouterr().out
