@@ -20,6 +20,7 @@ from . import config as C
 from . import proc
 from . import toon
 from .console import utf8_stdout
+from . import ui
 from .install import REPO_URL, editable_cmd, source_checkout
 
 SKILL_SPEC = "agentchieflou/this-next-please"
@@ -122,6 +123,29 @@ def _run(name: str, argv: list[str], rows: list[dict], timeout: int) -> bool:
     return rc == 0
 
 
+def _report(meta: dict, rows: list[dict], cmds: dict, payload: dict, show_commands: bool) -> None:
+    """TOON for whoever is parsing, a panel and a table for whoever is reading -- one or the other, never both.
+    `AGENTDATA_UI=plain` gives the TOON on a terminal, for pasting into a friction log."""
+    if not ui.on():
+        print(toon.encode(payload))
+        return
+    ui.facts([("status", ui.status_text("ok" if meta["ok"] else "fail")), ("version", meta["version"]),
+              ("commit", meta["commit"]), ("install", meta["install"]), ("python", meta["python"]),
+              ("skills", f"{meta['skills']} in {meta['skills_dir']}"),
+              ("newest", meta.get("skills_newest") or ""), ("skipped", ", ".join(meta.get("skipped") or []))],
+             title="ad-update")
+    if rows:
+        ui.table(["part", "status", "detail", "hint"],
+                 [[r["part"], "ok" if r["ok"] else "fail", r.get("detail") or "", r.get("hint") or ""] for r in rows],
+                 status_col=1, wrap=(2, 3), group_col=0)
+    if show_commands:
+        ui.table(["", "command"], [[k, v] for k, v in cmds.items()], title="what it runs", wrap=(1,), group_col=0)
+    if meta.get("hint"):
+        ui.note(str(meta["hint"]), style="hint")
+    if meta.get("next"):
+        ui.note(str(meta["next"]), style="muted")
+
+
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-update", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -150,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
         meta["stale_skills"] = stale(skills)
         meta["hint"] = ("skills look older than the CLI: run the skills command below, then start a new Copilot chat"
                         if meta["stale_skills"] else "run `ad-update` to apply both commands, then `ad-doctor`")
-        print(toon.encode({"meta": meta, "commands": cmds, "installed_skills": skills["names"]}))
+        _report(meta, [], cmds, {"meta": meta, "commands": cmds, "installed_skills": skills["names"]}, True)
         return 0
 
     rows: list[dict] = []
@@ -187,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     elif skipped:
         meta["hint"] = ("the skills were updated; the CLI half was left alone because you are running a checkout "
                         "(that is what `commit: checkout` means). `--pull`, `--from-git`, or update it yourself.")
-    print(toon.encode({"meta": meta, "parts": rows, "commands": cmds}))
+    _report(meta, rows, cmds, {"meta": meta, "parts": rows, "commands": cmds}, not ok)
     return 0 if ok else 1
 
 

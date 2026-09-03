@@ -21,7 +21,11 @@ def _sql_main(connector: str, prog: str) -> None:
     ap.add_argument("--timeout", type=int, default=120)
     ap.add_argument("--name", default=None)
     ap.add_argument("--raw", action="store_true")
+    ap.add_argument("--pretty", action="store_true", help="draw the result as a table for a person to read "
+                                                          "(same as AGENTDATA_UI=rich); the default is TOON")
     a = ap.parse_args()
+    if a.pretty:
+        os.environ["AGENTDATA_UI"] = "rich"
     sql = a.sql or read_text(a.sql_file)
     facts = project_facts()
     env = a.env or facts.get(f"{connector}_env") or (facts.get("env") if connector == "teradata" else None)
@@ -129,7 +133,10 @@ def main_view() -> None:
     """Re-render a TSV on disk through the policy (e.g., after a script wrote it)."""
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-view"); ap.add_argument("path"); ap.add_argument("--name", default="result")
+    ap.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     a = ap.parse_args()
+    if a.pretty:
+        os.environ["AGENTDATA_UI"] = "rich"
     print(render(AgentTable.read_tsv(a.path, a.name)))
 
 

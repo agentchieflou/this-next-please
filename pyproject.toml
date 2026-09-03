@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentdata"
-version = "0.4.6"
+version = "0.5.0"
 description = "Connector adapter: enterprise sources -> AgentTable -> TOON/TSV/JSON for LLM agents, plus setup, SQL guardrails, Jira changelog, PBIP tooling, UAT helpers and the DPM handoff contract"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["rich>=13"]        # the human-facing rendering; every command still works without it
 
 [project.optional-dependencies]
 teradata = ["teradatasql", "keyring"]

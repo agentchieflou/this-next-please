@@ -31,10 +31,22 @@ USAGE = ("usage: python -m agentdata <command> [options]\n\nSame commands as the
          + "\n\nExample: python -m agentdata pbip check  (identical to: ad-pbip check)\n")
 
 
+def usage() -> None:
+    """The front door. A table when a person is reading it, the same lines as plain text otherwise."""
+    from . import ui
+    if not ui.on():
+        print(USAGE)
+        return
+    ui.commands([(name, f"ad-{name}", help) for name, (_m, _f, help) in COMMANDS.items()],
+                title="agentdata",
+                footer="usage: python -m agentdata <command> [options] — identical to the ad-* script, and it works "
+                       "when the Scripts directory is not on PATH. Every command prints TOON.")
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help", "help"):
-        print(USAGE)
+        usage()
         return 0
     name, rest = argv[0], argv[1:]
     if name.startswith("ad-"):

@@ -4,6 +4,26 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.5.0 — 2026-09-03
+
+**This one needs `pip install`, not just `ad-update --skills`:** `rich` is a new dependency. `ad-update` (or
+`pip install --force-reinstall "agentdata @ git+https://github.com/agentchieflou/this-next-please"`) pulls it in.
+Every command still works without it -- the rendering falls back to the plain text it printed before.
+
+- **The operator commands look like a tool now.** `ad-setup`, `ad-doctor`, `ad-update` and
+  `python -m agentdata` render a rounded panel of facts, a real table with a status glyph (`✓ ok`, `! warn`,
+  `✗ fail`) and word-wrapped hints, one label per group of rows, and section rules between wizard steps. Colour
+  and glyph both carry the status, so a screenshot in black and white still reads.
+- **Nothing an agent parses changed.** The pretty rendering is used only when a person is at the console:
+  `color.enabled()` is already false whenever stdout is piped or captured, and `ui.on()` is false with it. Query
+  results (`ad-td`, `ad-jira`, `ad-pbip`, `ad-uat`, `ad-dpm`, `ad-pncli`, ...) stay TOON even on a terminal,
+  because `auto` cannot tell Luna's shell from a person's.
+- Ask for a drawn result when you want to read one: `--pretty` on the query commands and `ad-view`, or
+  `AGENTDATA_UI=rich` for everything. Numbers right-align, status words are coloured, and the sample size and
+  `path` sit above it. `AGENTDATA_UI=plain` goes the other way -- TOON on a terminal, for pasting into a ticket.
+- `AGENTDATA_WIDTH` pins the render width (screenshots, docs, tests). On a Windows console that cannot do VT,
+  rich draws its ASCII box; everywhere else the Unicode one.
+
 ## 0.4.6 — 2026-09-03
 
 - **Confluence pages are built, not written.** The page body was going up as raw Markdown, so a reader got

@@ -113,3 +113,23 @@ query time. Oracle never uses the ODBC mode: an ODBC DSN handed to python-oracle
 - Console encoding: every `ad-*` command switches stdout to UTF-8 (TOON uses `→ · ≤`).
 - File encoding: Windows PowerShell 5.1 writes a BOM with `Set-Content -Encoding utf8` / `Out-File` and UTF-16 with `>`. Every `ad-*` reader (answers, `AGENTS.md`, config, TSV, SQL and DAX files, pncli config, state) sniffs the BOM and accepts the file (`agentdata/textio.py`); the tools themselves write UTF-8 without BOM. When you must write a file from PowerShell use `[IO.File]::WriteAllText($absolutePath, $text)`; for state use `ad-state set`.
 - Power BI XMLA needs Premium/PPU/Fabric capacity with the XMLA endpoint set to Read Write by the capacity admin.
+
+## What a person sees, and what Luna sees
+
+`ad-setup`, `ad-doctor`, `ad-update` and `python -m agentdata` render a panel and a table on a terminal, and the
+same TOON they always did when stdout is piped or captured. The switch is `AGENTDATA_UI`:
+
+| value | operator commands | query results |
+|---|---|---|
+| `auto` (default) | drawn on a terminal, TOON when piped | TOON always |
+| `rich` | drawn | drawn |
+| `plain` | TOON | TOON |
+
+Query results are deliberately not drawn under `auto`: nothing can tell Luna's shell from a person's, and a table
+in box characters is not TOON. Ask for one when you want to read it — `--pretty` on `ad-td` / `ad-ora` / `ad-hive`
+/ `ad-impala` / `ad-view`, or `AGENTDATA_UI=rich`. Use `AGENTDATA_UI=plain` to paste a report into a ticket, and
+`AGENTDATA_WIDTH=100` to pin the width for a screenshot. `NO_COLOR`, `FORCE_COLOR` and `AGENTDATA_COLOR` still
+control colour on its own.
+
+The rendering needs `rich` (a dependency since 0.5.0). Without it every command prints exactly what it printed
+before, so an older install is not broken — it is just plainer.
