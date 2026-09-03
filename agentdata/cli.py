@@ -7,6 +7,7 @@ from .model import AgentTable
 from .policy import render, render_nested, error
 from . import completion
 from . import toon
+from . import ui
 from . import version
 from .config import ConfigError, capabilities, load as load_config, project_facts
 from .console import utf8_stdout
@@ -50,7 +51,8 @@ def _sql_main(connector: str, prog: str) -> None:
         warnings = [f"L{f.line} {f.rule}: {f.message} -> {f.fix}" for f in findings]
     try:
         mod = __import__(f"agentdata.connectors.{connector}", fromlist=["query"])
-        t = mod.query(sql, env, a.max_rows, a.timeout)
+        with ui.progress(f"Running query on {connector} ({env})..."):
+            t = mod.query(sql, env, a.max_rows, a.timeout)
         if a.name:
             t.name = a.name
         print(render(t, raw=a.raw, extra={"warnings": warnings} if warnings else None))

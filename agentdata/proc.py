@@ -202,14 +202,20 @@ def command(argv: list[str], **kw) -> list[str] | str:
 
 
 def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: str = "", check: bool = False,
-        cwd: str | None = None) -> tuple[int, str, str, float]:
+        cwd: str | None = None, progress: str | None = None) -> tuple[int, str, str, float]:
     """(returncode, stdout, stderr, elapsed). Raises ProcError for start failures and, with check, for exit != 0."""
     real, info = prepare(argv, exe=exe, hint=hint)
     launched = info["path"]
     t0 = time.time()
     try:
-        p = subprocess.run(real, capture_output=True, text=True, timeout=timeout, cwd=cwd,
-                           encoding="utf-8", errors="replace")
+        if progress:
+            from . import ui
+            with ui.progress(progress):
+                p = subprocess.run(real, capture_output=True, text=True, timeout=timeout, cwd=cwd,
+                                   encoding="utf-8", errors="replace")
+        else:
+            p = subprocess.run(real, capture_output=True, text=True, timeout=timeout, cwd=cwd,
+                               encoding="utf-8", errors="replace")
     except FileNotFoundError as e:      # resolved, then vanished, or a broken shim target
         raise ProcError("start_failed", f"{argv[0]}: cannot start {launched} ({e.strerror or e})",
                         hint or "re-run `ad-setup --patch`", {"executable": launched, "kind": info["kind"]}) from None

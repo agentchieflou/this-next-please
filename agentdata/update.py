@@ -114,7 +114,7 @@ def cli_command_text(extras: str | None = None) -> str:
 
 def _run(name: str, argv: list[str], rows: list[dict], timeout: int) -> bool:
     try:
-        rc, out, err, el = proc.run(argv, timeout=timeout)
+        rc, out, err, el = proc.run(argv, timeout=timeout, progress=f"Updating {name}...")
     except proc.ProcError as e:
         rows.append({"part": name, "ok": False, "detail": e.msg, "hint": e.hint})
         return False
