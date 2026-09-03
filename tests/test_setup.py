@@ -6,6 +6,7 @@ from agentdata.setup.steps import pncli_import, powerbi, project
 
 PNCLI = {"jira": {"url": "https://acme.atlassian.net", "email": "me@acme.com", "token": "tok_1234567890abcdef"},
          "bitbucket": {"token": "bb_secret_value_123"}}
+PKG_DIR = os.path.normcase(os.path.dirname(os.path.abspath(__import__("agentdata").__file__)))
 
 
 class FakeDet(W.Detectors):
@@ -34,9 +35,16 @@ class FakeDet(W.Detectors):
                 "script": "C:/Users/me/AppData/Roaming/npm/node_modules/@kolatts/pncli/bin/cli.js"}
 
     def exists(self, p):
+        """Only what a test registered, plus data packaged inside agentdata/ (that ships with the code and is not
+        machine state). Never the rest of the real filesystem: this class stands in for the machine, and a Windows
+        CI runner really does have `C:/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd` — one of the az
+        candidates — so falling through made a tool "found" there and missing everywhere else."""
         p = C.expand(p or "")
-        return p.endswith("config.json") and self.pncli is not None or p in self.tools.values() or p in self.files \
-            or os.path.exists(p)
+        if p.endswith("config.json"):
+            return self.pncli is not None
+        if os.path.normcase(os.path.abspath(p)).startswith(PKG_DIR):
+            return os.path.exists(p)
+        return p in self.tools.values() or p in self.files
 
     def read_json(self, p):
         if self.pncli is None:
@@ -314,10 +322,16 @@ def test_patch_repairs_a_missing_pncli_launcher(cfg_path, capsys, tmp_path):
     assert rc == 0 and "ok: true" in out and "was_failing: 1" in out
 
 
-def test_patch_repairs_a_wrong_az_path(cfg_path, capsys, tmp_path):
+def test_patch_repairs_a_wrong_az_path(cfg_path, capsys, tmp_path, monkeypatch):
     """Laptop case: a configured az path that is not there (the real one is
-    C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd). Both paths are synthetic on purpose: FakeDet.exists
-    falls through to the real filesystem, and the GitHub Windows runner HAS az installed at the canonical location."""
+    C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd).
+
+    The candidate below really exists on this machine, which is the condition that broke this test on the GitHub
+    Windows runner: it ships the Azure CLI at the canonical candidate path, so a FakeDet that fell through to the
+    real filesystem "found" it, the check passed, and --patch had nothing to repair."""
+    installed = tmp_path / "really-installed-az.cmd"
+    installed.write_text("@echo off", encoding="utf-8")
+    monkeypatch.setitem(powerbi.TOOLS, "az_exe", ("az", [str(installed)]))
     az = str(tmp_path / "Azure" / "CLI2" / "wbin" / "az.cmd").replace("\\", "/")
     C.save({"powerbi": {"tools": {"az_exe": str(tmp_path / "wrong" / "az.cmd").replace("\\", "/")}}})
     det = FakeDet(tools={"az": None})
@@ -384,3 +398,17 @@ def test_patch_repairs_a_launcher_that_is_found_but_will_not_start(cfg_path, cap
     assert "exits 9 on --version" in out and "asked[1]: pncli.exe" in out
     assert json.loads(cfg_path.read_text())["pncli"]["exe"] == str(good).replace("\\", "/")
     assert rc in (0, 1)
+
+
+def test_the_fake_detector_never_consults_the_real_machine(tmp_path):
+    """FakeDet stands in for everything that touches the machine; if it falls through, tests pass or fail by luck."""
+    real = tmp_path / "really-here.exe"
+    real.write_text("x", encoding="utf-8")
+    det = FakeDet()
+    assert det.exists(str(real)) is False
+    det.files[str(real)] = "x"
+    assert det.exists(str(real)) is True
+    for candidate in powerbi.TOOLS["az_exe"][1]:            # the paths a Windows runner may really have
+        assert det.exists(candidate) is False
+    from agentdata.install import templates_dir            # packaged data is the one carve-out
+    assert det.exists(os.path.join(templates_dir(), "AGENTS.md")) is True
