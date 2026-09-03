@@ -577,6 +577,42 @@ def test_a_broken_keyring_backend_does_not_lose_the_rest_of_the_answers(cfg_path
     assert ("teradata", "prod", "jsmith") not in det.passwords   # the password itself correctly did not land
 
 
+def test_patch_explicit_teradata_target_sees_a_freshly_interactive_setup(cfg_path, monkeypatch):
+    """Reported: `ad-setup --only sources` configures Teradata, then `ad-setup --patch sources.teradata` right
+    after treats it as never configured -- 'Use Teradata? [y/N]' again, envs back to the 'prod' fallback, an
+    empty envs dict in config.json. Both commands go through the real interactive Prompter here (not
+    AnswerPrompter), which is the only path that ever showed this shape of data loss (see 7db3e07). A custom
+    env name is used deliberately: the 'prod' fallback is also a valid answer, so only a name that is NOT the
+    fallback proves the second run is reading what the first run wrote, not just landing on the same default."""
+    monkeypatch.setattr(W, "has_tty", lambda: True)
+    det = FakeDet(modules={"teradatasql"})
+
+    setup_answers = iter(["y", "PRODTD1", "native", "tdprod01.corp.example.com", "KRB5", "", "n", "n", "n"])
+    monkeypatch.setattr(W, "_console_prompt", lambda text, default=None, secret=False: next(setup_answers))
+    rc1 = W.run_setup(["--only", "sources", "--offline"], det)
+    assert rc1 == 0
+    cfg1 = json.loads(cfg_path.read_text())
+    assert cfg1["sources"]["teradata"]["envs"]["PRODTD1"]["host"] == "tdprod01.corp.example.com"
+
+    patch_prompts = []
+
+    def echo_defaults(text, default=None, secret=False):
+        patch_prompts.append((text, default))
+        return default or ""                     # accept whatever default the second run offers, every time
+
+    monkeypatch.setattr(W, "_console_prompt", echo_defaults)
+    rc2 = W.run_setup(["--patch", "sources.teradata", "--offline"], det)
+    assert rc2 == 0
+
+    use_prompt = next(text for text, _ in patch_prompts if text.startswith("Use Teradata?"))
+    assert "[Y/n]" in use_prompt                  # remembered as already configured, not "[y/N]" from scratch
+    envs_default = next(default for text, default in patch_prompts if "environment names" in text)
+    assert envs_default == "PRODTD1"              # the env just typed, not the "prod" fallback
+
+    cfg2 = json.loads(cfg_path.read_text())
+    assert cfg2["sources"]["teradata"]["envs"] == cfg1["sources"]["teradata"]["envs"]   # untouched by the patch
+
+
 def test_setup_quick_mode_auto_accepts_unambiguous_defaults(cfg_path, capsys, monkeypatch):
     """ad-setup --quick accepts unambiguous detected facts without prompting stdin,
     while passwords and ambiguous cases still prompt."""
