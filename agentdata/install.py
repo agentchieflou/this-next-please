@@ -26,6 +26,11 @@ def install_cmd(extras: str | None = None) -> str:
     return f'pip install "agentdata{suffix} @ git+{REPO_URL}"'
 
 
+def editable_cmd(extras: str = "dev") -> str:
+    """The runnable editable form, with no explanatory suffix (ad-update composes it with `git pull`)."""
+    return 'pip install -e ".[%s]"' % extras
+
+
 def templates_dir() -> str:
     """Packaged project-stub templates. Ships in the wheel, so every install kind can run `ad-setup --project`."""
     return os.path.join(os.path.dirname(os.path.abspath(agentdata.__file__)), "templates", "project-stub")

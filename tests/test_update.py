@@ -1,0 +1,107 @@
+"""ad-update: pick up a new version of the CLI and the skills, and prove which commit is installed."""
+import os
+import sys
+import time
+
+import pytest
+
+from agentdata import proc
+from agentdata import update as U
+
+
+def _skills(tmp_path, names=("router", "jira-triage"), age_days=0.0):
+    d = tmp_path / "skills"
+    for n in names:
+        (d / n).mkdir(parents=True)
+        f = d / n / "SKILL.md"
+        f.write_text(f"---\nname: {n}\n---\n", encoding="utf-8")
+        if age_days:
+            old = time.time() - age_days * 86400
+            os.utime(f, (old, old))
+    return str(d)
+
+
+def test_command_text_matches_the_install_kind(monkeypatch):
+    monkeypatch.setattr(U, "source_checkout", lambda: None)
+    text = U.cli_command_text()
+    assert text.startswith("python -m pip install --force-reinstall --no-deps ") and "git+https://github.com/agentchieflou" in text
+    assert '"agentdata @ git+' in text                       # pip skips a git URL whose version did not change
+    assert "--no-deps" not in U.cli_command_text("teradata,odbc") and "agentdata[teradata,odbc] @" in U.cli_command_text("teradata,odbc")
+    monkeypatch.setattr(U, "source_checkout", lambda: "/repos/this-next-please")
+    assert U.cli_command_text() == 'git -C "/repos/this-next-please" pull && pip install -e ".[dev]"'
+    argv = U.cli_command()
+    assert argv[:6] == [sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-deps"]
+
+
+def test_skills_state_and_staleness(tmp_path):
+    st = U.skills_state(_skills(tmp_path))
+    assert st["installed"] == 2 and st["names"] == ["jira-triage", "router"] and st["newest"]
+    assert U.stale(st) is False
+    assert U.stale(U.skills_state(_skills(tmp_path / "old", age_days=30))) is True
+    assert U.stale({"installed": 0, "newest_epoch": 0.0}) is False      # nothing installed is not "stale"
+    empty = U.skills_state(str(tmp_path / "nothing"))
+    assert empty["installed"] == 0 and empty["dir"].endswith("nothing")
+
+
+def test_check_runs_nothing_and_reports_both_parts(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(proc, "run", lambda *a, **k: pytest.fail("--check must not run anything"))
+    assert U.main(["--check", "--skills-dir", _skills(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "source: ad-update" in out and "version: " in out and "skills: 2" in out
+    assert "gh skill install agentchieflou/this-next-please --all --scope user" in out
+    assert "stale_skills: false" in out and "installed_skills[2]" in out
+
+
+def test_editable_install_is_never_pip_reinstalled(capsys, monkeypatch):
+    monkeypatch.setattr(proc, "run", lambda *a, **k: pytest.fail("a checkout must not be pip-reinstalled"))
+    monkeypatch.setattr(U, "source_checkout", lambda: "/repos/this-next-please")
+    assert U.main([]) == 2
+    out = capsys.readouterr().out
+    assert "ok: false" in out and "checkout / editable install" in out and "git -C" in out and "ad-update --skills" in out
+
+
+def test_update_runs_both_commands_and_surfaces_a_failure(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(U, "source_checkout", lambda: None)
+    monkeypatch.setattr(U, "direct_url", lambda: {"url": "https://github.com/x.git", "vcs_info": {"commit_id": "a" * 40}})
+    calls = []
+
+    def fake_run(argv, **kw):
+        calls.append(argv)
+        if argv[0] == "gh":
+            raise proc.ProcError("not_found", "gh: executable not found", "")
+        return 0, "Successfully installed agentdata-0.3.0", "", 1.0
+
+    monkeypatch.setattr(proc, "run", fake_run)
+    rc = U.main(["--skills-dir", _skills(tmp_path)])
+    out = capsys.readouterr().out
+    assert rc == 1                                                     # the skills half failed
+    assert [c[:4] for c in calls] == [[sys.executable, "-m", "pip", "install"], ["gh", "skill", "install", "agentchieflou/this-next-please"]]
+    assert "--force-reinstall" in calls[0] and "--no-deps" in calls[0]
+    assert "Successfully installed agentdata-0.3.0" in out and "commit: aaaaaaaaaaaa" in out
+    assert "install GitHub CLI (gh)" in out and "NEW Copilot chat" in out
+    calls.clear()
+    assert U.main(["--cli"]) == 0 and len(calls) == 1                   # --cli skips the skills half
+    calls.clear()
+    U.main(["--cli", "--extras", "teradata,keyring"])
+    assert "agentdata[teradata,keyring] @ git+" in calls[0][-1] and "--no-deps" not in calls[0]
+
+
+def test_doctor_reports_the_installed_version(capsys):
+    from agentdata.setup import wizard as W
+    ctx = W.Context(cfg={}, det=W.Detectors(), ask=W.AnswerPrompter({}))
+    out, _ok = W.render_checks(ctx, "ad-doctor")
+    assert f"version: {U.version()}" in out and "commit: " in out
+    from agentdata.__main__ import COMMANDS
+    assert COMMANDS["update"][0] == "agentdata.update"
+
+
+def test_changelog_top_version_matches_the_package():
+    """`ad-update --check` compares versions, so a release without a note (or vice versa) is a bug."""
+    import re
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pyproject = open(os.path.join(root, "pyproject.toml"), encoding="utf-8").read()
+    changelog = open(os.path.join(root, "CHANGELOG.md"), encoding="utf-8").read()
+    declared = re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1)
+    top = re.search(r"^## (\d+\.\d+\.\d+)", changelog, re.M).group(1)
+    assert top == declared, f"CHANGELOG top is {top}, pyproject says {declared}"
+    assert "ad-update" in changelog and "start a new Copilot chat" in changelog

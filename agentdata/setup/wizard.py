@@ -298,8 +298,10 @@ def render_checks(ctx: Context, source: str, extra: dict | None = None, quiet: b
     checks = sorted(ctx.checks, key=lambda c: (STATUS_ORDER.get(c.status, 9), c.step))
     failed = sum(1 for c in checks if c.status == "fail")
     warned = sum(1 for c in checks if c.status == "warn")
-    meta = {"ok": failed == 0, "source": source, "config": C.display_path(C.path()), "online": ctx.online,
-            "checks": len(checks), "failed": failed, "warned": warned}
+    from ..update import cli_state
+    ver = cli_state()
+    meta = {"ok": failed == 0, "source": source, "version": ver["version"], "commit": ver["commit"] or ("checkout" if ver["editable"] else "n/a"),
+            "config": C.display_path(C.path()), "online": ctx.online, "checks": len(checks), "failed": failed, "warned": warned}
     if extra:
         meta.update(extra)
     if failed and "hint" not in meta:

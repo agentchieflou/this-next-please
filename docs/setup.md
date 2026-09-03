@@ -1,5 +1,8 @@
 # Setup: `ad-setup` and `ad-doctor`
 
+Update first, configure second: **`ad-update`** reinstalls the CLI from GitHub and every skill, then
+`ad-update --check` shows the version and commit you are actually running (see README → Install and update).
+
 `ad-setup` is the guided, idempotent wizard a new laptop runs after installing the CLI
 (`pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.git"` — never inside a project repo). `ad-doctor` is the offline
 health check that `session-bootstrap` runs at the start of every Luna session (`--online` adds network checks).

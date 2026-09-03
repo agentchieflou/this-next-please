@@ -10,6 +10,7 @@ Conventions: run in PowerShell inside the project checkout; every `ad-*` command
 
 ## 0. Baseline
 ```powershell
+ad-update --check                                                      # version + commit you are on now
 git pull origin main
 pip install "agentdata[keyring,odbc,pbi,uat,teradata,impala,oracle] @ git+https://github.com/agentchieflou/this-next-please.git"
 #   drop extras you do not use; impyla on Windows also needs: pip install winkerberos

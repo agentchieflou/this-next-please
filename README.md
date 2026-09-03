@@ -3,9 +3,52 @@
 Shared skills + credential-blind data adapter so a cheap Copilot model can run
 several large projects at once without hand-maintained AGENTS.md sprawl.
 
-## Install (once per laptop — never inside a project repo)
+## Install and update (once per laptop — never inside a project repo)
 
-Two independent pieces, neither of which belongs to your report repos:
+Two pieces, installed separately, and **both must move together**: the `ad-*` CLI (pip, from GitHub) and the skills
+(`gh skill install`, into `~/.copilot/skills`). Updating one and not the other is the most common breakage — a skill
+tells Luna to run a command the CLI does not have yet.
+
+### Update — this repo changes often, so this is the part to know
+
+```powershell
+ad-update            # reinstall the CLI from GitHub + reinstall every skill, then tell you what changed
+ad-update --check    # what you have right now: version, commit, skills dir, whether the skills look stale. Runs nothing.
+```
+
+Then **start a new Copilot chat** (skills are read when a chat starts) and run `ad-doctor` — followed by
+`ad-setup --patch` if it reports anything. [`CHANGELOG.md`](CHANGELOG.md) says what changed and whether an
+update needs anything beyond these two commands.
+
+If `ad-update` does not exist yet — you are on a build from before it was added — run the two commands by hand, once:
+
+```powershell
+python -m pip install --force-reinstall --no-deps "agentdata @ git+https://github.com/agentchieflou/this-next-please.git"
+gh skill install agentchieflou/this-next-please --all --scope user
+```
+
+`--force-reinstall` is not optional: **pip will not reinstall a git URL whose version has not changed**, and the
+version does not change on every commit, so a plain `pip install` prints *"Requirement already satisfied"* and you
+keep the old code. `--no-deps` stops the update from re-downloading `teradatasql` and friends every time; use the
+extras form instead when the release notes say a new optional dependency is needed:
+`python -m pip install --force-reinstall "agentdata[teradata,odbc,keyring] @ git+https://github.com/agentchieflou/this-next-please.git"`.
+
+### Did the update take?
+
+```powershell
+ad-update --check
+```
+- `version` / `commit` — the exact commit pip recorded for this install (from the `direct_url.json` metadata pip
+  writes for git installs). Compare it with the newest commit on `main`. `ad-doctor` prints both in its `meta` too,
+  so every session shows what it is running.
+- `python` — the interpreter that owns the install. If that is not the Python you type `python` for, that mismatch is
+  why an update "did not take": run the update with **that** interpreter, or use `python -m agentdata <command>`.
+- `skills` / `skills_newest` / `stale_skills: true` — the skills are older than the CLI; run the `gh skill install`
+  line and start a new chat.
+- `gh skill install` refusing because a skill already exists → delete that folder under the printed `skills_dir` and
+  re-run; `ad-update --check` shows the new timestamp.
+
+### First install
 
 ```powershell
 # 1. the skills  ->  ~/.copilot/skills, for every repo you work in
@@ -19,11 +62,12 @@ pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.g
 pncli config init      # if not done (pncli keeps the Jira token; we only borrow it by key name)
 ad-setup               # guided: pncli import, data sources, Power BI tools/workspaces
 ad-doctor              # any time: offline health check (session-bootstrap runs it)
+ad-setup --patch       # after any fail row: re-asks ONLY the settings behind it, nothing else
 ```
 
 **Skip the skill picker.** Without `--all`, `gh skill install` opens an interactive list whose first row is a
 search box: pressing Enter there re-enters search instead of paging, so you have to arrow down one row before the
-list will move. `--all` installs all 21 skills and never shows the picker. `--scope user` puts them in your home
+list will move. `--all` installs every skill and never shows the picker. `--scope user` puts them in your home
 directory so they apply in every project repo (`--scope project`, the default, writes only into the current repo).
 `--all` needs a recent `gh` (check with `gh --version`; it landed in cli/cli#13471). On an older CLI, either update it
 or name the skills you want: `gh skill install agentchieflou/this-next-please router --scope user`, repeated per skill.
@@ -35,8 +79,8 @@ correct: the CLI is laptop-wide, like `git` or `pncli`. Per project you only run
 **If `ad-setup` is "not recognized as the name of a cmdlet"**, pip printed *Defaulting to user installation* and put the
 console scripts in a folder Windows does not have on PATH. Either add it —
 `python -c "import sysconfig;print(sysconfig.get_path('scripts','nt_user'))"` — or use the module form, which always
-works and takes the same arguments: `python -m agentdata setup`, `python -m agentdata doctor`,
-`python -m agentdata pbip check`, `python -m agentdata jira whoami`, `python -m agentdata --help`.
+works and takes the same arguments: `python -m agentdata update`, `python -m agentdata setup`,
+`python -m agentdata doctor`, `python -m agentdata pbip check`, `python -m agentdata --help`.
 
 ## Per project
 ```powershell
@@ -66,6 +110,8 @@ python -m pytest -q
 | `agentdata/config.py` | global config + project facts; every CLI resolves settings flag → env var → config → AGENTS.md |
 | `agentdata/textio.py` | reads files other tools wrote (UTF-8 BOM, UTF-16, cp1252 — what Windows PowerShell and Notepad produce); writes UTF-8 without BOM |
 | `agentdata/proc.py` | starts other programs on Windows: PATHEXT + npm global prefix resolution, npm `.cmd` shims run as `node <script>` (no cmd.exe re-parsing) |
+| `agentdata/update.py` | `ad-update`: reinstall the CLI + skills, and report the exact commit installed |
+| `CHANGELOG.md` | what each version changed, and whether picking it up needs more than the two update commands |
 | `agentdata/state.py` | `ad-state`: the only writer of `.agent/state.json` (validated keys and phases, clean encoding) |
 | `agentdata/setup/` | `ad-setup` wizard and `ad-doctor` (step registry: pncli, sources, powerbi, project) |
 | `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), pncli, jira_api (Jira REST on pncli's token), keyring wrapper, probes |
