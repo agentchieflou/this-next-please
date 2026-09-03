@@ -412,3 +412,43 @@ def test_the_fake_detector_never_consults_the_real_machine(tmp_path):
         assert det.exists(candidate) is False
     from agentdata.install import templates_dir            # packaged data is the one carve-out
     assert det.exists(os.path.join(templates_dir(), "AGENTS.md")) is True
+
+
+def test_oracle_setup_asks_for_host_port_service_not_a_hand_built_string(cfg_path, capsys):
+    """SQL Developer's Basic tab: Name, Hostname, Port, Service name. There is no ODBC DSN to point at."""
+    det = FakeDet(modules={"oracledb", "keyring"})
+    det.passwords[("oracle", "OIMPROD1_ROSVC", "luna")] = "pw"
+    answers = {"sources.teradata.use": False, "sources.hive.use": False, "sources.impala.use": False,
+               "sources.oracle.use": True, "sources.oracle.envs": "OIMPROD1_ROSVC",
+               "sources.oracle.OIMPROD1_ROSVC.style": "basic",
+               "sources.oracle.OIMPROD1_ROSVC.host": "exag1301-scan1.example.net",
+               "sources.oracle.OIMPROD1_ROSVC.port": "1521",
+               "sources.oracle.OIMPROD1_ROSVC.identifier": "service",
+               "sources.oracle.OIMPROD1_ROSVC.service_name": "oimprod1_rosvc.prod.example.net",
+               "powerbi.use": False, "project.generate": False}
+    assert W.run_setup(["--only", "sources", "--non-interactive", "--offline",
+                        *sum((["--set", f"{k}={v}"] for k, v in answers.items()), [])], det) == 0
+    e = json.loads(cfg_path.read_text())["sources"]["oracle"]["envs"]["OIMPROD1_ROSVC"]
+    assert e["host"] == "exag1301-scan1.example.net" and e["port"] == 1521
+    assert e["service_name"] == "oimprod1_rosvc.prod.example.net" and "dsn" not in e
+    assert e["mode"] == "native"                       # never ODBC: an ODBC DSN would be read as a TNS alias
+    assert C.oracle_dsn(e) == "exag1301-scan1.example.net:1521/oimprod1_rosvc.prod.example.net"
+    capsys.readouterr()
+    W.run_doctor(["--only", "sources"], det)
+    assert "exag1301-scan1.example.net:1521/oimprod1_rosvc" in capsys.readouterr().out   # visible in every doctor run
+
+
+def test_oracle_tns_style_and_incomplete_connections_are_caught(cfg_path, capsys):
+    det = FakeDet(modules={"oracledb", "keyring"})
+    det.passwords[("oracle", "prod", "luna")] = "pw"
+    sets = ["--set", "sources.teradata.use=false", "--set", "sources.hive.use=false", "--set", "sources.impala.use=false",
+            "--set", "sources.oracle.use=true", "--set", "sources.oracle.envs=prod", "--set", "sources.oracle.prod.style=tns",
+            "--set", "sources.oracle.prod.dsn=MYALIAS", "--set", "powerbi.use=false", "--set", "project.generate=false"]
+    assert W.run_setup(["--only", "sources", "--non-interactive", "--offline", *sets], det) == 0
+    e = json.loads(cfg_path.read_text())["sources"]["oracle"]["envs"]["prod"]
+    assert e["dsn"] == "MYALIAS" and "host" not in e and "service_name" not in e
+    capsys.readouterr()
+    C.save({"sources": {"oracle": {"envs": {"prod": {"mode": "native", "host": "h", "user": "luna"}}}}})
+    assert W.run_doctor(["--only", "sources"], det) == 1
+    out = capsys.readouterr().out
+    assert "incomplete Oracle connection: no service name or SID" in out and "no ODBC DSN" in out

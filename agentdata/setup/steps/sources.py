@@ -7,6 +7,8 @@ from ...install import install_cmd
 from ..wizard import Context, Step
 
 LABEL = {"teradata": "Teradata", "hive": "Hive (HiveServer2)", "impala": "Impala", "oracle": "Oracle"}
+ORA_STYLES = ["basic", "tns"]      # basic = hostname + port + service/SID (SQL Developer's Basic tab); tns = alias
+ORA_IDENT = ["service", "sid"]
 MODULE = {"teradata": "teradatasql", "hive": "impala", "impala": "impala", "oracle": "oracledb"}
 DEFAULT_PORT = {"hive": 10000, "impala": 21050}
 TD_LOGMECH = ["KRB5", "TDNEGO", "LDAP", "TD2"]
@@ -63,6 +65,12 @@ class SourcesStep(Step):
                 elif not found["modules"][s]:
                     ctx.add(k, tag, "fail", f"{MODULE[s]} not installed", install_cmd(s), (f"sources.{s}.{env}.",))
                     continue
+                if s == "oracle" and not C.oracle_dsn(e):
+                    missing = "service name or SID" if e.get("host") else "hostname (or a TNS alias)"
+                    ctx.add(k, tag, "fail", f"incomplete Oracle connection: no {missing}",
+                            "Oracle has no ODBC DSN: it needs hostname + port + service name. `ad-setup --patch`",
+                            (f"sources.{s}.{env}.",))
+                    continue
                 if needs_password(s, e):
                     if not found["keyring"]:
                         ctx.add(k, tag, "fail", "password auth but keyring is missing", install_cmd("keyring"), (f"sources.{s}.{env}.",))
@@ -73,7 +81,8 @@ class SourcesStep(Step):
                                 (f"sources.{s}.{env}.user", f"sources.{s}.{env}.keep_password", f"sources.{s}.{env}.password"))
                         continue
                 v = C.get(ctx.cfg, f"verified.{tag}")
-                ctx.add(k, tag, "ok" if v else "warn", f"{mode} · verified {v}" if v else f"{mode} · never verified",
+                target = f" · {C.oracle_dsn(e)}" if s == "oracle" else ""
+                ctx.add(k, tag, "ok" if v else "warn", (f"{mode} · verified {v}" if v else f"{mode} · never verified") + target,
                         "" if v else "ad-doctor --online or ad-setup --patch", (f"sources.{s}.{env}.",))
         if not any_env:
             ctx.add(k, "sources", "warn", "no data sources configured", "ad-setup --only sources", ("sources.",))
@@ -89,16 +98,20 @@ class SourcesStep(Step):
             existing = found["envs"][s]
             if not ctx.ask.confirm(f"sources.{s}.use", f"Use {LABEL[s]}?", bool(existing) or found["modules"][s]):
                 continue
-            raw = ctx.ask.ask(f"sources.{s}.envs", f"[{s}] environment names (comma-separated)", ",".join(existing) or "prod")
+            label = "connection names, e.g. OIMPROD1_ROSVC" if s == "oracle" else "environment names"
+            raw = ctx.ask.ask(f"sources.{s}.envs", f"[{s}] {label} (comma-separated)", ",".join(existing) or "prod")
             envs = [x.strip() for x in raw.split(",") if x.strip()] or ["prod"]
             for env in envs:
                 e = dict(existing.get(env, {}))
                 e.pop("env", None)
                 e.pop("source", None)
                 tag = f"{s}:{env}"
-                modes = ([("native")] if found["modules"][s] else []) + (["odbc"] if found["pyodbc"] and found["dsns"] else [])
-                modes = modes or ["native", "odbc"]
-                mode = ctx.ask.ask(f"sources.{s}.{env}.mode", f"[{tag}] connection mode", e.get("mode") or modes[0], modes) or modes[0]
+                if s == "oracle":
+                    mode = "native"          # python-oracledb only; an ODBC DSN here would be read as a TNS alias
+                else:
+                    modes = ([("native")] if found["modules"][s] else []) + (["odbc"] if found["pyodbc"] and found["dsns"] else [])
+                    modes = modes or ["native", "odbc"]
+                    mode = ctx.ask.ask(f"sources.{s}.{env}.mode", f"[{tag}] connection mode", e.get("mode") or modes[0], modes) or modes[0]
                 e["mode"] = mode
                 if mode == "odbc":
                     names = list(found["dsns"])
@@ -114,7 +127,29 @@ class SourcesStep(Step):
                     elif s in ("hive", "impala"):
                         e["auth"] = ctx.ask.ask(f"sources.{s}.{env}.auth", f"[{tag}] auth mechanism", e.get("auth") or "GSSAPI", HS2_AUTH) or "GSSAPI"
                 elif s == "oracle":
-                    e["dsn"] = ctx.ask.ask(f"sources.{s}.{env}.dsn", f"[{tag}] Easy Connect (host:1521/service) or TNS alias", e.get("dsn") or "")
+                    # Oracle has no ODBC DSN to pick from, so ask for the parts SQL Developer's Basic tab asks for
+                    style = ctx.ask.ask(f"sources.{s}.{env}.style", f"[{tag}] connection style",
+                                        e.get("style") or ("tns" if e.get("dsn") and not e.get("host") else "basic"),
+                                        ORA_STYLES) or "basic"
+                    e["style"] = style
+                    if style == "basic":
+                        e["host"] = ctx.ask.ask(f"sources.{s}.{env}.host", f"[{tag}] hostname", e.get("host") or "")
+                        port = ctx.ask.ask(f"sources.{s}.{env}.port", f"[{tag}] port", str(e.get("port") or C.ORACLE_PORT))
+                        e["port"] = int(port) if str(port).isdigit() else C.ORACLE_PORT
+                        which = ctx.ask.ask(f"sources.{s}.{env}.identifier", f"[{tag}] identified by",
+                                            "sid" if e.get("sid") and not e.get("service_name") else "service", ORA_IDENT) or "service"
+                        if which == "service":
+                            e["service_name"] = ctx.ask.ask(f"sources.{s}.{env}.service_name", f"[{tag}] service name", e.get("service_name") or "")
+                            e.pop("sid", None)
+                        else:
+                            e["sid"] = ctx.ask.ask(f"sources.{s}.{env}.sid", f"[{tag}] SID", e.get("sid") or "")
+                            e.pop("service_name", None)
+                        e.pop("dsn", None)                      # composed from the parts (config.oracle_dsn)
+                    else:
+                        e["dsn"] = ctx.ask.ask(f"sources.{s}.{env}.dsn", f"[{tag}] TNS alias or connect string (host:1521/service)",
+                                               e.get("dsn") or "")
+                        for k in ("host", "port", "service_name", "sid"):
+                            e.pop(k, None)
                     for opt, label in (("tns_admin", "TNS_ADMIN directory (blank = none)"),
                                        ("client_lib", "Oracle client lib dir for Kerberos (blank = thin mode + password)")):
                         v = ctx.ask.ask(f"sources.{s}.{env}.{opt}", f"[{tag}] {label}", e.get(opt) or "")

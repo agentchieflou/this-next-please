@@ -4,6 +4,19 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.4.2 — 2026-09-03
+
+Oracle is configured by its parts. No new dependencies; existing Oracle settings keep working.
+
+- `ad-setup` asks hostname, port, and service name (or SID) — the fields SQL Developer's Basic tab asks for —
+  instead of one free-text "Easy Connect or TNS alias" string. Oracle has no ODBC DSN registry, so the parts had
+  nowhere to come from. Choose the `tns` style to give an alias or a ready-made connect string instead.
+- The connect string is composed at call time (`host:port/service`, or the `(DESCRIPTION=…(SID=…))` form), so
+  `ORA_HOST_<ENV>`, `ORA_PORT_<ENV>`, `ORA_SERVICE_<ENV>` and `ORA_SID_<ENV>` now override individual parts.
+- `ad-doctor` prints the composed target next to each Oracle env, and fails a host with no service name or SID by
+  name instead of leaving it to fail at query time. `ad-setup --patch` repairs just that env.
+- Oracle no longer offers the ODBC connection mode: an ODBC DSN handed to python-oracledb is read as a TNS alias.
+
 ## 0.4.1 — 2026-09-03
 
 Review pass over everything merged in 0.4.0. No new dependencies; the standard update line is enough.

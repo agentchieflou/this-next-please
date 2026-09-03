@@ -17,7 +17,7 @@ interactive picker (its first row is a search box that swallows Enter, so paging
 | key | what it does | writes |
 |---|---|---|
 | `pncli` | resolves the pncli launcher (PATH + PATHEXT + the npm global prefix) and proves it starts with `--version`; finds `~/.pncli/config.json`, lists its keys (values masked), asks which keys hold the Jira URL / email / token; verifies with `/myself` and detects Cloud (v3, Basic) vs Data Center (v2, Bearer) | `pncli.exe` (the resolved shim), `pncli.config_path`, `pncli.keys.*` (key **names**), `jira.base_url/flavor/auth/api`, `verified.jira` |
-| `sources` | per Teradata / Hive / Impala / Oracle: environments, native driver or ODBC DSN (lists what this 64-bit Python can see), auth mechanism, user; `SELECT 1` smoke test; capability probes | `sources.<s>.envs.<env>.*`, `capabilities`, `verified.<s>:<env>`; passwords → `keyring` service `<s>:<env>` |
+| `sources` | per Teradata / Hive / Impala: environments, native driver or ODBC DSN (lists what this 64-bit Python can see), auth mechanism, user. **Oracle is asked differently** (see below): hostname, port, service name or SID, because there is no ODBC DSN to point at. Then `SELECT 1` and capability probes | `sources.<s>.envs.<env>.*`, `capabilities`, `verified.<s>:<env>`; passwords → `keyring` service `<s>:<env>` |
 | `powerbi` | locates `TabularEditor.exe`, `dscmd.exe`, `PBIDesktop.exe` and **`az`** (a `.cmd`, searched on PATH and in `%ProgramFiles%\Microsoft SDKs\Azure\CLI2\wbin`); `az login`; lists workspaces via the Power BI REST API; percent-encodes the XMLA URL; smoke-tests each workspace/model with a one-line Tabular Editor script | `powerbi.tools.*` (incl. `az_exe`), `powerbi.workspaces[]`, `powerbi.tenant_id`, `verified.powerbi:xmla:<ws>` |
 | `project` | `--project DIR`: writes the packaged project stub into DIR and fills the facts it knows (env names, tool paths, workspace/model/XMLA, first `*.pbip`) | `AGENTS.md`, `.agent/state.json`, `.gitignore` additions (never overwrites existing files) |
 
@@ -46,8 +46,31 @@ refuses keys that look like one. Capability probes recorded per source env (used
 ## Precedence for every setting
 CLI flag → environment variable → `~/.agentdata/config.json` → project `AGENTS.md` fact → error with a hint.
 Env overrides keep working: `TD_HOST_<ENV>`/`TD_HOST`, `TD_USER`, `TD_LOGMECH`, `HIVE_HOST_<ENV>`, `HIVE_PORT`,
-`IMPALA_HOST_<ENV>`, `IMPALA_PORT`, `ORA_DSN_<ENV>`, `ORA_USER`, `ORACLE_CLIENT_LIB`, `TNS_ADMIN`;
+`IMPALA_HOST_<ENV>`, `IMPALA_PORT`, `ORA_HOST_<ENV>`, `ORA_PORT_<ENV>`, `ORA_SERVICE_<ENV>`, `ORA_SID_<ENV>`,
+`ORA_DSN_<ENV>`, `ORA_USER`, `ORACLE_CLIENT_LIB`, `TNS_ADMIN`;
 Jira: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`; pncli launcher: `PNCLI_EXE`; TLS: `AGENTDATA_CA_BUNDLE`.
+
+## Oracle: the four fields, not one string
+
+Teradata, Hive and Impala can name an ODBC DSN, so one value identifies the connection. Oracle has no such registry,
+and python-oracledb wants a connect string — which is why SQL Developer's Basic tab asks for **Name, Hostname, Port,
+Service name**. `ad-setup` now asks for exactly those:
+
+```
+[oracle] connection names, e.g. OIMPROD1_ROSVC (comma-separated)   <- the Name; it is the --env value
+[oracle:OIMPROD1_ROSVC] connection style (basic/tns)
+[oracle:OIMPROD1_ROSVC] hostname                                   <- exag1301-scan1.example.net
+[oracle:OIMPROD1_ROSVC] port                                       <- 1521
+[oracle:OIMPROD1_ROSVC] identified by (service/sid)
+[oracle:OIMPROD1_ROSVC] service name                               <- oimprod1_rosvc.prod.example.net
+```
+
+They are stored as `host`, `port`, `service_name` (or `sid`) and composed into the connect string at call time:
+`host:port/service` (Easy Connect), or the `(DESCRIPTION=…(SID=…))` form when identified by SID. Choose `tns` instead
+to give a TNS alias or a connect string you already have — that value is used verbatim, and `TNS_ADMIN` points at the
+directory holding `tnsnames.ora`. Every `ad-doctor` run prints the composed target next to the env, so a wrong port or
+service name is visible without connecting. A host with no service name or SID fails the check by name rather than at
+query time. Oracle never uses the ODBC mode: an ODBC DSN handed to python-oracledb would be read as a TNS alias.
 
 ## Windows notes
 - Console scripts land in the per-user Scripts folder when site-packages is not writeable; if `ad-*` is "not recognized", use `python -m agentdata <command>` (identical arguments) or add that folder to PATH.
