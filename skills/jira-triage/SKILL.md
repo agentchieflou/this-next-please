@@ -5,7 +5,7 @@ description: "Use when given a Jira ticket key, asked \"what's next\", or asked 
 # Jira triage
 
 1. Run `ad-pncli jira search --jql "key = <KEY>" --fields key,status,assignee,priority,updated,summary`. `refused: not_found` → `ad-pncli where`, print its `hint` and `tried` rows, `friction-log` type `tool-error`, STOP (never install pncli or edit PATH yourself).
-2. Run `ad-pncli raw jira <get-issue verb> <KEY>` for description + acceptance criteria. Pinned verb: `TODO(HANDOFF: pin after pncli jira --help)`. If unpinned, run `pncli jira --help` once, use the listed verb. Do not guess twice.
+2. Run `ad-pncli jira get <KEY>` for description + acceptance criteria (`--fields key,status,summary,description` narrows it). It issues pncli's confirmed read verb `jira get-issue --key <KEY>`: never assemble that command by hand.
 3. Extract acceptance criteria into ≤ 6 numbered lines. Each must be testable (has a number, date window, or exact field).
 4. Any criterion untestable → `friction-log` type `ambiguity`, quote the line. STOP.
 5. Decide type: `data-fix | model-change | report | investigation`. Branch: `feature/<KEY>-<slug≤4 words>`.

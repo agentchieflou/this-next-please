@@ -9,8 +9,11 @@ So every subprocess in this package goes through `command()`:
      prefix, which is where npm-installed CLIs live and is often not on a locked-down laptop's PATH;
   2. an npm `.cmd` shim is unwrapped to `node <script>` so arguments keep exact argv semantics -- a JQL such as
      `updated >= '2026-01-01'` must never be re-parsed by `cmd.exe`, where `>` is a redirection;
-  3. only if the shim cannot be unwrapped, fall back to `cmd.exe /d /s /c` with cmd-safe quoting, and refuse
-     rather than corrupt an argument that cmd.exe would expand (`%VAR%`).
+  3. only if the shim cannot be unwrapped (az.cmd calls python, not node), fall back to `cmd.exe /d /s /c` with
+     cmd-safe quoting, and refuse rather than corrupt an argument that cmd.exe would expand (`%VAR%`). That command
+     line is returned as a STRING: handing subprocess a list would put it through list2cmdline, which escapes inner
+     quotes with backslashes (`\"\"C:\Program Files\...`) and makes cmd.exe answer "The filename, directory name,
+     or volume label syntax is incorrect".
 Failures raise ProcError, which carries the fix in `hint`; nothing here ever prints a traceback at an agent."""
 from __future__ import annotations
 import os
@@ -24,6 +27,11 @@ WINDOWS = os.name == "nt"
 WIN_EXTS = (".exe", ".com", ".cmd", ".bat", "")
 NPM_DIRS = (r"%APPDATA%\npm", r"%ProgramFiles%\nodejs", r"%ProgramFiles(x86)%\nodejs", r"%LOCALAPPDATA%\npm",
             "~/.npm-global/bin", "~/.nvm/current/bin", "/usr/local/bin", "/usr/bin")
+# installers that do not always leave their directory on PATH (or leave it only for new shells)
+TOOL_DIRS = {
+    "az": (r"%ProgramFiles%\Microsoft SDKs\Azure\CLI2\wbin", r"%ProgramFiles(x86)%\Microsoft SDKs\Azure\CLI2\wbin",
+           r"%LOCALAPPDATA%\Programs\Microsoft SDKs\Azure\CLI2\wbin"),
+}
 CMD_UNSAFE = "%"          # cmd.exe expands %VAR% even inside quotes; there is no escape on a /c command line
 SHIM_EXTS = (".cmd", ".bat")
 
@@ -45,10 +53,10 @@ def _exts(windows: bool, pathext: str | None) -> tuple[str, ...]:
     return WIN_EXTS + extra
 
 
-def _dirs(path: str | None, windows: bool) -> list[str]:
+def _dirs(path: str | None, windows: bool, name: str = "") -> list[str]:
     raw = path if path is not None else os.environ.get("PATH", "")
     out = [d for d in raw.split(os.pathsep) if d]
-    for d in NPM_DIRS:                                    # npm's global prefix is often missing from PATH
+    for d in TOOL_DIRS.get(os.path.splitext(name)[0].lower(), ()) + NPM_DIRS:   # installers that skip PATH
         e = os.path.expandvars(os.path.expanduser(d))
         if "%" in e or "$" in e:
             continue
@@ -70,7 +78,7 @@ def which(name: str, *, path: str | None = None, windows: bool | None = None, pa
     if os.path.splitext(name)[1] and windows:             # explicit extension: try it first
         exts = (os.path.splitext(name)[1].lower(),) + exts
         name = os.path.splitext(name)[0]
-    for d in _dirs(path, windows):
+    for d in _dirs(path, windows, name):
         for e in exts:
             p = os.path.join(d, name + e)
             if os.path.isfile(p) and (windows or os.access(p, os.X_OK)):
@@ -146,7 +154,8 @@ def resolve(name: str, *, exe: str | None = None, windows: bool | None = None, p
         p = which(name, windows=windows, path=path)
         tried.append(f"{name} on PATH" + (f" + PATHEXT ({', '.join(e for e in _exts(windows, None) if e)})" if windows else ""))
         if windows:
-            tried.append("npm global prefix (%APPDATA%\\npm, %ProgramFiles%\\nodejs)")
+            extra = TOOL_DIRS.get(name.lower(), ())
+            tried.append("npm global prefix (%APPDATA%\\npm, %ProgramFiles%\\nodejs)" if not extra else "; ".join(extra))
     if not p:
         return {"found": False, "name": name, "tried": tried, "kind": "", "path": ""}
     info = {"found": True, "name": name, "path": p.replace("\\", "/"), "tried": tried, "kind": "executable",
@@ -163,35 +172,43 @@ def resolve(name: str, *, exe: str | None = None, windows: bool | None = None, p
     return info
 
 
-def command(argv: list[str], *, exe: str | None = None, windows: bool | None = None, path: str | None = None,
-            hint: str = "") -> list[str]:
-    """The argv to hand to subprocess. Raises ProcError('not_found') with `tried` in the detail."""
+def prepare(argv: list[str], *, exe: str | None = None, windows: bool | None = None, path: str | None = None,
+            hint: str = "") -> tuple[list[str] | str, dict]:
+    """(what to hand subprocess, resolution info). A `.cmd`/`.bat` that is not an npm shim comes back as a STRING:
+    subprocess must pass that command line to Windows verbatim, never through list2cmdline."""
     windows = WINDOWS if windows is None else windows
     info = resolve(argv[0], exe=exe, windows=windows, path=path)
     if not info["found"]:
         raise ProcError("not_found", info.get("error") or f"{argv[0]}: executable not found",
                         hint or f"install {argv[0]} and put it on PATH", {"tried": info["tried"], "name": argv[0]})
     if info["kind"] == "npm shim":
-        return [info["node"], info["script"], *argv[1:]]
+        return [info["node"], info["script"], *argv[1:]], info
     if info["kind"] == "cmd shim":
-        comspec = os.environ.get("COMSPEC") or "cmd.exe"
-        return [comspec, "/d", "/s", "/c", cmd_line([info["path"], *argv[1:]])]
-    return [info["path"], *argv[1:]]
+        comspec = os.path.normpath(os.environ.get("COMSPEC") or "cmd.exe")
+        return f'"{comspec}" /d /s /c {cmd_line([os.path.normpath(info["path"]), *argv[1:]])}', info
+    return [info["path"], *argv[1:]], info
+
+
+def command(argv: list[str], **kw) -> list[str] | str:
+    """What to hand subprocess: a list, or a Windows command line string for a non-npm `.cmd` shim."""
+    return prepare(argv, **kw)[0]
 
 
 def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: str = "", check: bool = False,
         cwd: str | None = None) -> tuple[int, str, str, float]:
     """(returncode, stdout, stderr, elapsed). Raises ProcError for start failures and, with check, for exit != 0."""
-    real = command(argv, exe=exe, hint=hint)
+    real, info = prepare(argv, exe=exe, hint=hint)
+    launched = info["path"]
     t0 = time.time()
     try:
         p = subprocess.run(real, capture_output=True, text=True, timeout=timeout, cwd=cwd,
                            encoding="utf-8", errors="replace")
     except FileNotFoundError as e:      # resolved, then vanished, or a broken shim target
-        raise ProcError("start_failed", f"{argv[0]}: cannot start {real[0]} ({e.strerror or e})",
-                        hint or "re-run ad-setup --only pncli", {"executable": real[0]}) from None
+        raise ProcError("start_failed", f"{argv[0]}: cannot start {launched} ({e.strerror or e})",
+                        hint or "re-run `ad-setup --patch`", {"executable": launched, "kind": info["kind"]}) from None
     except OSError as e:
-        raise ProcError("start_failed", f"{argv[0]}: cannot start {real[0]} ({e})", hint, {"executable": real[0]}) from None
+        raise ProcError("start_failed", f"{argv[0]}: cannot start {launched} ({e})", hint,
+                        {"executable": launched, "kind": info["kind"]}) from None
     except subprocess.TimeoutExpired:
         raise ProcError("timeout", f"{argv[0]}: no answer after {timeout}s",
                         hint or "raise --timeout, or run the command yourself to see where it hangs") from None
@@ -199,5 +216,5 @@ def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: st
     if check and p.returncode != 0:
         tail = (p.stderr or p.stdout or "").strip().splitlines()
         raise ProcError("exit_code", f"{argv[0]} exited {p.returncode}: " + (tail[-1][:200] if tail else "no output"),
-                        hint, {"exit_code": p.returncode, "executable": real[0]})
+                        hint, {"exit_code": p.returncode, "executable": launched})
     return p.returncode, p.stdout, p.stderr, el

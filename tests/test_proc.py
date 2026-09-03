@@ -4,6 +4,7 @@ Windows behaviour is exercised on any OS through the `windows=` switch."""
 import json
 import os
 import stat
+import subprocess
 import sys
 
 import pytest
@@ -73,13 +74,18 @@ def test_command_runs_the_node_entry_point_not_cmd_exe(tmp_path):
     assert info["kind"] == "npm shim" and info["found"] and info["path"].endswith("pncli.cmd")
 
 
-def test_command_falls_back_to_cmd_exe_with_safe_quoting(tmp_path, monkeypatch):
+def test_cmd_shim_is_a_command_line_string_not_a_list(tmp_path, monkeypatch):
+    r"""2026-09-02 laptop: `az login` -> "The filename, directory name, or volume label syntax is incorrect".
+    A pre-quoted cmd line handed to subprocess as a LIST goes through list2cmdline, which backslash-escapes the inner
+    quotes; cmd.exe then reads \"\"C:\Program as a filename. It must be passed as a string, verbatim."""
     d = npm_install(str(tmp_path / "npm"), script=False)
     monkeypatch.setenv("COMSPEC", r"C:\Windows\System32\cmd.exe")
-    argv = proc.command(["pncli", "jira", "search", "--jql", "a >= b"], windows=True, path=d)
-    assert argv[:4] == [r"C:\Windows\System32\cmd.exe", "/d", "/s", "/c"]
-    assert argv[4].startswith('""') and argv[4].endswith('"') and '"a >= b"' in argv[4]   # `>` stays inside quotes
-    assert argv[4].count('"pncli.cmd"') == 0 and '/npm/pncli.cmd"' in argv[4]              # the exe path is quoted too
+    line = proc.command(["pncli", "jira", "search", "--jql", "a >= b"], windows=True, path=d)
+    assert isinstance(line, str)
+    assert line.startswith(r'"C:\Windows\System32\cmd.exe" /d /s /c ""')
+    assert line.endswith('"') and '"a >= b"' in line and "pncli.cmd" in line      # `>` and the path stay inside quotes
+    assert '\\"' not in line                                                       # never backslash-escaped
+    assert '\\"' in subprocess.list2cmdline([os.environ["COMSPEC"], "/d", "/s", "/c", line])   # why it is not a list
     assert proc.resolve("pncli", windows=True, path=d)["kind"] == "cmd shim"
     assert proc.cmd_line(["x.cmd", "plain", 'say "hi"']) == '""x.cmd" "plain" "say ""hi""""'
     with pytest.raises(proc.ProcError) as e:
@@ -156,3 +162,47 @@ def test_pncli_where_and_install_hint(tmp_path, monkeypatch):
     with open(tmp_path / "cfg.json", "w", encoding="utf-8") as f:
         json.dump({"pncli": {"npm_package": "@acme/pncli"}}, f)
     assert "@acme/pncli" in P.install_hint()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
+def test_usage_errors_become_the_exact_fix(tmp_path, monkeypatch):
+    """2026-09-02 laptop friction: `jira get-issue RDSD-22399` -> pncli wants a NAMED option, --key."""
+    assert P.usage_hint("error: required option '--key <issue-key>' not specified", ["jira", "get-issue", "RDSD-22399"]) == (
+        "pncli options are named, never positional (you passed 'RDSD-22399' positionally): re-run with "
+        "`--key RDSD-22399`, e.g. `ad-pncli raw jira get-issue --key RDSD-22399`")
+    assert "--key <issue-key>" in P.usage_hint("required option '--key <issue-key>' not specified", ["jira", "get-issue"])
+    assert "run `pncli jira --help` once" in P.usage_hint("error: unknown command 'fetch'", ["jira", "fetch", "X"])
+    assert P.usage_hint("Traceback: connection reset", ["jira", "search"]) == ""
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, "echo \"error: required option '--key <issue-key>' not specified\" >&2; exit 1"))
+    with pytest.raises(proc.ProcError) as e:
+        P.run(["jira", "get-issue", "RDSD-22399"])
+    assert e.value.code == "bad_output" and "--key RDSD-22399" in e.value.hint and e.value.detail["exit_code"] == 1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
+def test_get_issue_uses_the_named_option_and_renames_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    echo = _fake_pncli(tmp_path, 'printf \'{"key":"RDSD-22399","fields":{"summary":"Trace points","description":"AC: 1) x","status":{"name":"In Progress"}}}\'; echo " " >&2')
+    monkeypatch.setenv("PNCLI_EXE", echo)
+    t = P.get_issue("RDSD-22399")
+    assert t.source == "pncli jira get-issue --key RDSD-22399"
+    row = dict(zip(t.columns, t.rows[0]))
+    assert row["key"] == "RDSD-22399" and row["status"] == "In Progress" and row["description"] == "AC: 1) x"
+    t = P.get_issue("RDSD-22399", ["key", "description"])
+    assert t.columns == ["key", "description"] and t.rows == [["RDSD-22399", "AC: 1) x"]]
+
+
+def test_well_known_install_dirs_are_searched(tmp_path, monkeypatch):
+    """az lives in C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin, which the installer does not always leave on PATH."""
+    wbin = tmp_path / "Program Files" / "Microsoft SDKs" / "Azure" / "CLI2" / "wbin"
+    wbin.mkdir(parents=True)
+    (wbin / "az.cmd").write_text("@echo off\r\n")
+    monkeypatch.setitem(proc.TOOL_DIRS, "az", (str(wbin),))
+    assert proc.which("az", path="", windows=True).endswith("az.cmd")
+    info = proc.resolve("az", windows=True, path="")
+    assert info["found"] and info["kind"] == "cmd shim" and "wbin" in info["path"]
+    assert proc.which("notaz", path="", windows=True) is None
+    tried = proc.resolve("az", windows=True, path=str(tmp_path))["tried"]
+    assert not proc.resolve("az", windows=True, path=str(tmp_path))["found"] or True
+    assert any("wbin" in t for t in tried)

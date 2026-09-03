@@ -62,9 +62,11 @@ def main_impala(): _sql_main("impala", "ad-impala")
 def main_pncli() -> None:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-pncli",
-        description="ad-pncli jira search --jql '<JQL>' [--fields key,status,...] | ad-pncli raw <pncli args...>")
+        description="ad-pncli jira search --jql '<JQL>' | ad-pncli jira get <KEY> | ad-pncli raw <pncli args...> | ad-pncli where")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    j = sub.add_parser("jira"); j.add_argument("verb", choices=["search"]); j.add_argument("--jql", required=True)
+    j = sub.add_parser("jira", help="search issues by JQL, or read one issue (pncli's named options are built here)")
+    j.add_argument("verb", choices=["search", "get"]); j.add_argument("target", nargs="?", help="issue key for `get`, JQL for `search`")
+    j.add_argument("--jql", default=None); j.add_argument("--key", default=None, help="issue key for `get`")
     j.add_argument("--fields", default=None); j.add_argument("--max-results", type=int, default=500)
     j.add_argument("--raw", action="store_true")
     r = sub.add_parser("raw", help="any pncli command; result list normalized by policy")
@@ -82,8 +84,16 @@ def main_pncli() -> None:
                 meta["hint"] = P.install_hint()
             print(toon.encode({"meta": meta, "tried": info["tried"]}))
             sys.exit(0 if meta["ok"] else 1)
-        if a.cmd == "jira":
-            t = P.jira_search(a.jql, a.fields.split(",") if a.fields else None, a.max_results)
+        if a.cmd == "jira" and a.verb == "get":
+            key = a.key or a.target
+            if not key:
+                print(error("no issue key", "ad-pncli jira get <KEY> (pncli's own option is --key; ad-pncli passes it for you)", "pncli")); sys.exit(2)
+            print(render(P.get_issue(key, a.fields.split(",") if a.fields else None), raw=a.raw))
+        elif a.cmd == "jira":
+            jql = a.jql or a.target
+            if not jql:
+                print(error("no JQL", 'ad-pncli jira search --jql "key = <KEY>"', "pncli")); sys.exit(2)
+            t = P.jira_search(jql, a.fields.split(",") if a.fields else None, a.max_results)
             print(render(t, raw=a.raw))
         else:
             pargs = [x for x in a.pargs if x != "--raw"]  # REMAINDER swallows a trailing --raw

@@ -53,28 +53,30 @@ class SourcesStep(Step):
                 kerberos = kerberos or uses_kerberos(s, e)
                 if mode == "odbc":
                     if not found["pyodbc"]:
-                        ctx.add(k, tag, "fail", "mode odbc but pyodbc is missing", install_cmd("odbc"))
+                        ctx.add(k, tag, "fail", "mode odbc but pyodbc is missing", install_cmd("odbc"), (f"sources.{s}.{env}.",))
                         continue
                     if e.get("dsn") not in found["dsns"]:
                         ctx.add(k, tag, "fail", f"DSN '{e.get('dsn')}' not visible to this {found['bits']}-bit Python",
-                                "create it in C:/Windows/System32/odbcad32.exe (64-bit) or fix the dsn (ad-setup --only sources)")
+                                "create it in C:/Windows/System32/odbcad32.exe (64-bit) or fix the dsn (ad-setup --patch)",
+                                (f"sources.{s}.{env}.",))
                         continue
                 elif not found["modules"][s]:
-                    ctx.add(k, tag, "fail", f"{MODULE[s]} not installed", install_cmd(s))
+                    ctx.add(k, tag, "fail", f"{MODULE[s]} not installed", install_cmd(s), (f"sources.{s}.{env}.",))
                     continue
                 if needs_password(s, e):
                     if not found["keyring"]:
-                        ctx.add(k, tag, "fail", "password auth but keyring is missing", install_cmd("keyring"))
+                        ctx.add(k, tag, "fail", "password auth but keyring is missing", install_cmd("keyring"), (f"sources.{s}.{env}.",))
                         continue
                     user = e.get("user") or ctx.det.getuser()
                     if not ctx.det.has_password(s, env, user):
-                        ctx.add(k, tag, "fail", f"no password in keyring for {tag} user {user}", "ad-setup --only sources")
+                        ctx.add(k, tag, "fail", f"no password in keyring for {tag} user {user}", "ad-setup --patch",
+                                (f"sources.{s}.{env}.user", f"sources.{s}.{env}.keep_password", f"sources.{s}.{env}.password"))
                         continue
                 v = C.get(ctx.cfg, f"verified.{tag}")
                 ctx.add(k, tag, "ok" if v else "warn", f"{mode} · verified {v}" if v else f"{mode} · never verified",
-                        "" if v else "ad-doctor --online or ad-setup --only sources")
+                        "" if v else "ad-doctor --online or ad-setup --patch", (f"sources.{s}.{env}.",))
         if not any_env:
-            ctx.add(k, "sources", "warn", "no data sources configured", "ad-setup --only sources")
+            ctx.add(k, "sources", "warn", "no data sources configured", "ad-setup --only sources", ("sources.",))
         if kerberos and not found["klist"]:
             ctx.add(k, "kerberos", "warn", "klist not on PATH (no Kerberos tools found)",
                     "Kerberos logons need a TGT; install MIT Kerberos, or switch the env to LDAP/TD2 with a keyring password")
@@ -161,7 +163,8 @@ class SourcesStep(Step):
                     r = ctx.det.smoke(s, env, ctx.cfg)
                 except Exception as ex:  # noqa: BLE001
                     ctx.add(self.key, tag, "fail", f"{type(ex).__name__}: {str(ex)[:160]}",
-                            getattr(ex, "hint", "") or "check host/DSN, VPN, TGT (klist), keyring password; ad-setup --only sources")
+                            getattr(ex, "hint", "") or "check host/DSN, VPN, TGT (klist), keyring password; `ad-setup --patch` re-asks just this env",
+                            (f"sources.{s}.{env}.",))
                     continue
                 caps = r.get("capabilities", {}) or {}
                 e["capabilities"] = caps

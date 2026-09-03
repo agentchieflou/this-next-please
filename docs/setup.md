@@ -15,7 +15,7 @@ interactive picker (its first row is a search box that swallows Enter, so paging
 |---|---|---|
 | `pncli` | resolves the pncli launcher (PATH + PATHEXT + the npm global prefix) and proves it starts with `--version`; finds `~/.pncli/config.json`, lists its keys (values masked), asks which keys hold the Jira URL / email / token; verifies with `/myself` and detects Cloud (v3, Basic) vs Data Center (v2, Bearer) | `pncli.exe` (the resolved shim), `pncli.config_path`, `pncli.keys.*` (key **names**), `jira.base_url/flavor/auth/api`, `verified.jira` |
 | `sources` | per Teradata / Hive / Impala / Oracle: environments, native driver or ODBC DSN (lists what this 64-bit Python can see), auth mechanism, user; `SELECT 1` smoke test; capability probes | `sources.<s>.envs.<env>.*`, `capabilities`, `verified.<s>:<env>`; passwords → `keyring` service `<s>:<env>` |
-| `powerbi` | locates `TabularEditor.exe`, `dscmd.exe`, `PBIDesktop.exe`; `az login`; lists workspaces via the Power BI REST API; percent-encodes the XMLA URL; smoke-tests each workspace/model with a one-line Tabular Editor script | `powerbi.tools.*`, `powerbi.workspaces[]`, `powerbi.tenant_id`, `verified.powerbi:xmla:<ws>` |
+| `powerbi` | locates `TabularEditor.exe`, `dscmd.exe`, `PBIDesktop.exe` and **`az`** (a `.cmd`, searched on PATH and in `%ProgramFiles%\Microsoft SDKs\Azure\CLI2\wbin`); `az login`; lists workspaces via the Power BI REST API; percent-encodes the XMLA URL; smoke-tests each workspace/model with a one-line Tabular Editor script | `powerbi.tools.*` (incl. `az_exe`), `powerbi.workspaces[]`, `powerbi.tenant_id`, `verified.powerbi:xmla:<ws>` |
 | `project` | `--project DIR`: writes the packaged project stub into DIR and fills the facts it knows (env names, tool paths, workspace/model/XMLA, first `*.pbip`) | `AGENTS.md`, `.agent/state.json`, `.gitignore` additions (never overwrites existing files) |
 
 Non-interactive (Copilot terminals have no stdin for prompts):
@@ -23,6 +23,13 @@ Non-interactive (Copilot terminals have no stdin for prompts):
 answers one prompt key inline (repeatable; `true`/`false` for yes-no prompts; wins over `--answers`). `--answers
 answers.json` still works and is read in any encoding PowerShell produces (UTF-8 BOM, UTF-16); answers must never
 contain passwords — store them once interactively. `ad-setup --offline` skips network verification.
+
+Repair mode: **`ad-setup --patch`** runs the checks first and then re-asks ONLY the settings behind the rows that
+fail — one wrong DSN costs one env's questions, not the whole wizard. Every other answer silently keeps its stored
+value, and steps with no failures are never entered. `--include-warnings` covers `warn` rows too; `--only <step>`
+narrows it further; `--set key=value` / `--answers` make it non-interactive. The output names what it repaired
+(`repairing[]`, `asked[]`) and then the state afterwards. Each check row carries the prompt keys that fix it, so
+`--patch` never guesses.
 
 Session state: `ad-state show` / `ad-state set phase=<phase> active_ticket=<KEY> --artifact <path>=<what> --question "…"`
 is the only writer of `.agent/state.json` (validated keys and phases, `last_updated`, artifacts pruned after 7 days,
@@ -41,7 +48,8 @@ Jira: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`; pncli launcher: `PNCLI_EXE`; TLS: 
 
 ## Windows notes
 - Console scripts land in the per-user Scripts folder when site-packages is not writeable; if `ad-*` is "not recognized", use `python -m agentdata <command>` (identical arguments) or add that folder to PATH.
-- **npm-installed tools have no `.exe`.** pncli is an npm package (`npm install -g @kolatts/pncli`), so it lands as `pncli.cmd`; `az` is `az.cmd`. Windows `CreateProcess` only appends `.exe`, which is why launching the bare name returns `[WinError 2] The system cannot find the file specified`. `agentdata/proc.py` resolves PATHEXT and the npm global prefix (`%APPDATA%\npm`), then runs the shim's Node entry point directly so an argument like `updated >= '2026-01-01'` is never re-parsed by cmd.exe. `ad-pncli where` prints what resolved; `ad-setup --only pncli` pins it in `pncli.exe`; `PNCLI_EXE` overrides.
+- **npm-installed tools have no `.exe`.** pncli is an npm package (`npm install -g @kolatts/pncli`), so it lands as `pncli.cmd`; `az` is `C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd`. Windows `CreateProcess` only appends `.exe`, which is why launching the bare name returns `[WinError 2] The system cannot find the file specified`. `agentdata/proc.py` resolves PATHEXT, the npm global prefix (`%APPDATA%\npm`) and each tool's install dir (the Azure CLI `wbin`), then runs an npm shim's Node entry point directly so an argument like `updated >= '2026-01-01'` is never re-parsed by cmd.exe. `ad-pncli where` prints what resolved; `ad-setup --patch` pins a path in `pncli.exe` / `powerbi.tools.az_exe`; `PNCLI_EXE` overrides.
+- **A `.cmd` that is not an npm shim** (az) is run as `cmd.exe /d /s /c "<quoted line>"` passed to Windows **as one string**. Handing that line to `subprocess` as a list would put it through `list2cmdline`, which backslash-escapes the inner quotes; cmd.exe then reads `\"\"C:\Program` as a filename and answers *"The filename, directory name, or volume label syntax is incorrect"*.
 - A 64-bit Python sees only 64-bit ODBC drivers/DSNs; configure them in `C:\Windows\System32\odbcad32.exe`.
 - Kerberos (`KRB5`/`GSSAPI`) needs a ticket (`klist`); impyla on Windows needs `pip install winkerberos`.
 - `az` resolves to `az.cmd`; `ad-setup` offers `az login --allow-no-subscriptions` when not signed in.

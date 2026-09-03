@@ -18,6 +18,10 @@ TOOLS = {
                                 "C:/Tools/DaxStudio/dscmd.exe"]),
     "pbi_desktop_exe": ("PBIDesktop.exe", ["C:/Program Files/Microsoft Power BI Desktop/bin/PBIDesktop.exe",
                                            "%LOCALAPPDATA%/Microsoft/WindowsApps/PBIDesktop.exe"]),
+    # az is a .cmd, not an .exe; the MSI does not always leave wbin on PATH (proc.py searches these too)
+    "az_exe": ("az", ["%ProgramFiles%/Microsoft SDKs/Azure/CLI2/wbin/az.cmd",
+                      "%ProgramFiles(x86)%/Microsoft SDKs/Azure/CLI2/wbin/az.cmd",
+                      "%LOCALAPPDATA%/Programs/Microsoft SDKs/Azure/CLI2/wbin/az.cmd"]),
 }
 PBI_RESOURCE = "https://analysis.windows.net/powerbi/api"
 GROUPS_URL = "https://api.powerbi.com/v1.0/myorg/groups"
@@ -48,29 +52,32 @@ class PowerBIStep(Step):
         return configured  # configured but missing: check() flags it
 
     def detect(self, ctx: Context) -> dict:
-        return {"tools": {n: self._find_tool(ctx, n) for n in TOOLS}, "az": ctx.det.which("az"),
-                "workspaces": list(C.get(ctx.cfg, "powerbi.workspaces", []) or [])}
+        tools = {n: self._find_tool(ctx, n) for n in TOOLS}
+        return {"tools": tools, "az": tools["az_exe"], "workspaces": list(C.get(ctx.cfg, "powerbi.workspaces", []) or [])}
 
     def check(self, ctx: Context, found: dict) -> None:
         k = self.key
         for n, p in found["tools"].items():
+            keys = (f"powerbi.{n}",)
             if p and ctx.det.exists(p):
                 ctx.add(k, n, "ok", p)
             elif p:
-                ctx.add(k, n, "fail", f"configured path missing: {p}", "ad-setup --only powerbi")
+                ctx.add(k, n, "fail", f"configured path missing: {p}", "ad-setup --patch", keys)
+            elif n == "az_exe":
+                ctx.add(k, n, "warn", "az not found on PATH or in the Azure CLI install dirs",
+                        r"install Azure CLI, or `ad-setup --patch` and give the path (usually "
+                        r"C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd)", keys)
             else:
-                ctx.add(k, n, "warn", "not found", f"install it or set powerbi.tools.{n} (ad-setup --only powerbi)")
-        if found["az"]:
-            ctx.add(k, "az cli", "ok", found["az"])
-        else:
-            ctx.add(k, "az cli", "warn", "az not on PATH", "install Azure CLI (workspace listing, refresh status)")
+                ctx.add(k, n, "warn", "not found", f"install it or set powerbi.tools.{n} (ad-setup --patch)", keys)
         if not found["workspaces"]:
-            ctx.add(k, "workspaces", "warn", "none configured", "ad-setup --only powerbi")
+            ctx.add(k, "workspaces", "warn", "none configured", "ad-setup --patch",
+                    ("powerbi.workspaces.configure", "powerbi.workspaces.select"))
         for ws in found["workspaces"]:
             v = C.get(ctx.cfg, f"verified.powerbi:xmla:{ws.get('name')}")
             detail = f"{ws.get('xmla')} · models {', '.join(ws.get('models', []))}" + (f" · verified {v}" if v else "")
             ctx.add(k, f"workspace {ws.get('name')}", "ok" if v else "warn", detail,
-                    "" if v else "ad-doctor --online (needs te2_exe and a model name)")
+                    "" if v else "ad-doctor --online (needs te2_exe and a model name)",
+                    ("powerbi.te2_exe", f"powerbi.workspace.{ws.get('name')}.models"))
 
     def ask(self, ctx: Context, found: dict) -> None:
         cfg = ctx.cfg
@@ -81,7 +88,7 @@ class PowerBIStep(Step):
             if p:
                 C.put(cfg, f"powerbi.tools.{n}", p.replace("\\", "/"))
                 if not ctx.det.exists(p):
-                    ctx.add(self.key, n, "warn", f"path not found: {p}", "check the path (ad-setup --only powerbi)")
+                    ctx.add(self.key, n, "warn", f"path not found: {p}", "check the path (ad-setup --patch)", (f"powerbi.{n}",))
             else:
                 (C.get(cfg, "powerbi.tools") or {}).pop(n, None)
         if not ctx.ask.confirm("powerbi.workspaces.configure", "Configure Power BI Service workspaces (XMLA)?",
@@ -89,10 +96,11 @@ class PowerBIStep(Step):
             return
         groups: list[dict] = []
         if ctx.online and found["az"]:
-            rc, out, err = ctx.det.run(["az", "account", "show", "-o", "json"], 60)
+            az = found["az"] or "az"     # the resolved az.cmd: never the bare name (CreateProcess only tries az.exe)
+            rc, out, err = ctx.det.run([az, "account", "show", "-o", "json"], 60)
             if rc != 0 and ctx.interactive and ctx.ask.confirm("powerbi.az_login", "Not signed in to Azure CLI. Run `az login --allow-no-subscriptions` now?", True):
-                ctx.det.run_interactive(["az", "login", "--allow-no-subscriptions"])
-                rc, out, err = ctx.det.run(["az", "account", "show", "-o", "json"], 60)
+                ctx.det.run_interactive([az, "login", "--allow-no-subscriptions"])
+                rc, out, err = ctx.det.run([az, "account", "show", "-o", "json"], 60)
             if rc == 0:
                 try:
                     acct = json.loads(out or "{}")
@@ -100,7 +108,7 @@ class PowerBIStep(Step):
                     acct = {}
                 if acct.get("tenantId"):
                     C.put(cfg, "powerbi.tenant_id", acct["tenantId"])
-                rc2, out2, err2 = ctx.det.run(["az", "rest", "--resource", PBI_RESOURCE, "--url", GROUPS_URL, "-o", "json"], 120)
+                rc2, out2, err2 = ctx.det.run([az, "rest", "--resource", PBI_RESOURCE, "--url", GROUPS_URL, "-o", "json"], 120)
                 if rc2 == 0:
                     try:
                         groups = [{"name": g.get("name"), "id": g.get("id")} for g in json.loads(out2).get("value", [])]
@@ -108,9 +116,11 @@ class PowerBIStep(Step):
                         groups = []
                 else:
                     ctx.add(self.key, "workspaces", "warn", f"az rest failed: {(err2 or out2).strip()[-160:]}",
-                            "check Power BI permissions; workspace names can be typed manually")
+                            "check Power BI permissions; workspace names can be typed manually",
+                            ("powerbi.workspaces.select",))
             else:
-                ctx.add(self.key, "az login", "warn", "not signed in", "az login --allow-no-subscriptions")
+                ctx.add(self.key, "az login", "warn", "not signed in", "az login --allow-no-subscriptions",
+                        ("powerbi.az_login", "powerbi.az_exe"))
         existing = {w["name"]: w for w in found["workspaces"] if w.get("name")}
         if groups:
             for i, g in enumerate(groups, 1):
