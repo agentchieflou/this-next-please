@@ -36,6 +36,17 @@ def needs_password(source: str, e: dict) -> bool:
     return False
 
 
+def _password_row(ctx: Context, key: str, tag: str, s: str, env: str, user: str) -> None:
+    """One shared row for `check()` and `verify()`: a password-auth source with nothing in keyring is never
+    worth a live connection attempt -- ad-doctor and ad-setup's own verify step are always non-interactive, so
+    they must say "a human needs to run --patch" instead of dialing out with no credential and hitting
+    whatever the driver does about that (hang, its own native prompt, a cryptic error)."""
+    ctx.add(key, tag, "fail", f"no password in keyring for {tag} user {user}",
+            f"ad-setup --patch sources.{s}.{env}.password -- a password prompt needs a human at a real "
+            "terminal; it cannot be answered non-interactively",
+            (f"sources.{s}.{env}.user", f"sources.{s}.{env}.keep_password", f"sources.{s}.{env}.password"))
+
+
 def uses_kerberos(source: str, e: dict) -> bool:
     if source == "teradata":
         return str(e.get("logmech", "KRB5")).upper() in ("KRB5", "TDNEGO")
@@ -99,8 +110,7 @@ class SourcesStep(Step):
                         continue
                     user = e.get("user") or ctx.det.getuser()
                     if not ctx.det.has_password(s, env, user):
-                        ctx.add(k, tag, "fail", f"no password in keyring for {tag} user {user}", "ad-setup --patch",
-                                (f"sources.{s}.{env}.user", f"sources.{s}.{env}.keep_password", f"sources.{s}.{env}.password"))
+                        _password_row(ctx, k, tag, s, env, user)
                         continue
                 v = C.get(ctx.cfg, f"verified.{tag}")
                 target = f" · {C.oracle_dsn(e)}" if s == "oracle" else ""
@@ -223,6 +233,14 @@ class SourcesStep(Step):
         for s in C.SOURCES:
             for env, e in (C.get(ctx.cfg, f"sources.{s}.envs", {}) or {}).items():
                 tag = f"{s}:{env}"
+                if needs_password(s, e):
+                    user = e.get("user") or ctx.det.getuser()
+                    if not ctx.det.has_password(s, env, user):
+                        # this is what check()/ad-doctor already do; verify() is called directly by ad-setup's
+                        # own wizard right after ask() and had NO such guard, so declining (or losing) the
+                        # password there went straight to smoke() -- a live connection with no credential
+                        _password_row(ctx, self.key, tag, s, env, user)
+                        continue
                 try:
                     r = ctx.det.smoke(s, env, ctx.cfg)
                 except Exception as ex:  # noqa: BLE001

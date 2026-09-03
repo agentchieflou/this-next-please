@@ -47,9 +47,7 @@ def connect(env: str, cfg: dict | None = None, timeout: int | None = None):
         user = e.get("user") or getpass.getuser()
         pw = secrets.get_password("oracle", env, user)
         if not pw:
-            raise ConfigError(f"no password in keyring for oracle:{env} user {user}",
-                              hint="`ad-setup --patch sources.oracle` asks for the user and password "
-                                   "(thick mode takes a password too; only kerberos/wallet skip it)")
+            raise secrets.missing_password_error("oracle", env, user) from None
         con = oracledb.connect(user=user, password=pw, dsn=dsn)
     if timeout:
         con.call_timeout = int(timeout) * 1000
