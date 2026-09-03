@@ -4,6 +4,34 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.5.3 — 2026-09-03
+
+**ODBC connections with a password auth mechanism (Teradata LDAP/TD2, Hive/Impala PLAIN/LDAP) dialed out with
+neither a username nor a password when none was stored in keyring.** Native mode already refused this --
+`teradata.py` and `hs2.py`'s native branches both checked `if not pw: raise ...` before ever calling the
+driver. Their ODBC branches did not: `dsn_conn_str()` just omits `UID=`/`PWD=` when there is nothing to put in
+them, and the code went ahead and connected anyway, leaving the ODBC driver free to do whatever it does about
+that -- hang, show its own native credential prompt, or fail with a driver-specific error. Both connectors now
+refuse the same gap the same way, before constructing the connection string at all.
+
+**Separately, and likely the same root cause from the user's side: `ad-setup`'s own wizard had no guard against
+this at all.** `run_setup()` calls `verify()` directly after `ask()` -- there is no `check()` in between.
+`check()` (what `ad-doctor` uses) already skipped the live connection when a password-auth source had nothing
+in keyring; `verify()` did not, and unconditionally called `smoke()` for every configured env regardless. Decline
+a password prompt (or lose it to any other failure) for a live source and the very next thing that happens,
+still inside the same wizard run, is exactly the dial-with-no-credential problem above -- hit mid-wizard, right
+after answering that source's other questions. If that hangs or looks like a crash, the whole run reads as
+"ad-setup doesn't work for this source," even though every answer up to that point was already saved to disk
+before `verify()` ran (`C.save(cfg)` happens right after `ask()`, before `verify()` is ever called).
+
+Both are fixed: a shared `secrets.missing_password_error(source, env, user)` gives one consistent message
+everywhere (both connectors' ODBC and native branches, `check()`, and the new `verify()` guard) --
+`ad-setup --patch sources.<source>.<env>.password -- a password prompt needs a human at a real terminal; it
+cannot be answered non-interactively`. `verify()` now checks the same `needs_password()`/`has_password()`
+pair `check()` already used, and reports the same clean `fail` row instead of ever attempting a connection.
+Oracle's own connector already had the correct guard (it is always native mode, never ODBC, which is
+consistent with it never being reported as affected) and now shares the same message for consistency.
+
 ## 0.5.2 — 2026-09-03
 
 **`keyring` and `pyodbc` are now base dependencies.** Both lived behind per-connector extras (`teradata`,

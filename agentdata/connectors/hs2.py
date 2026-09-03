@@ -17,6 +17,10 @@ def connect(source: str, env: str, cfg: dict | None = None, timeout: int | None 
     auth = str(e.get("auth") or "GSSAPI").upper()
     if e.get("mode") == "odbc":
         pw = secrets.get_password(source, env, user) if auth in PASSWORD_AUTH else None
+        if auth in PASSWORD_AUTH and not pw:
+            # native mode below refuses the same gap before dialing out; ODBC must too, or the driver connects
+            # with neither UID nor PWD and is free to hang or show its own native credential prompt
+            raise secrets.missing_password_error(source, env, user) from None
         return odbc.connect(odbc.dsn_conn_str(e["dsn"], user if pw else None, pw), timeout)
     try:
         from impala.dbapi import connect as _connect  # optional dep
@@ -32,7 +36,7 @@ def connect(source: str, env: str, cfg: dict | None = None, timeout: int | None 
     elif auth in PASSWORD_AUTH:
         pw = secrets.get_password(source, env, user)
         if not pw:
-            raise ConfigError(f"no password in keyring for {source}:{env} user {user}", hint="ad-setup --only sources")
+            raise secrets.missing_password_error(source, env, user) from None
         kw.update(user=user, password=pw)
     if e.get("database"):
         kw["database"] = e["database"]
