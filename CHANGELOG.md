@@ -6,6 +6,17 @@ Read this before running `ad-update`: it says whether an update needs anything b
 
 ## 0.5.3 — 2026-09-03
 
+**Setup UX: connect everything as fast as possible (Epic #14, sub-issues #21, #22, #23).**
+- **Quick mode (`ad-setup --quick`, #21)**: middle ground between interactive and non-interactive setup. Accepts
+  unambiguous detected facts (single ODBC DSN, tools found at standard paths, single workspace) without prompting,
+  printing what was accepted to stderr. Passwords and ambiguous choices still prompt interactively. Check report
+  indicates how many settings were auto-accepted.
+- **Shareable team defaults (`ad-setup --export-defaults` / `--import`, #22)**: exports non-secret configuration
+  without machine-specific verified stamps. `--import` loads defaults into the wizard without overwriting existing
+  settings, combinable with `--quick` or `--patch`.
+- **Parallel verification (#23)**: network verifications in `sources` (SELECT 1 + capability probes) and `powerbi`
+  (XMLA smoke tests) now execute concurrently across environments and workspaces using bounded worker threads,
+  substantially reducing wall-clock setup time while preserving exact reporting and deterministic timestamping.
 **ODBC connections with a password auth mechanism (Teradata LDAP/TD2, Hive/Impala PLAIN/LDAP) dialed out with
 neither a username nor a password when none was stored in keyring.** Native mode already refused this --
 `teradata.py` and `hs2.py`'s native branches both checked `if not pw: raise ...` before ever calling the

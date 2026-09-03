@@ -128,3 +128,44 @@ def test_source_env_says_which_oracle_field_is_missing(tmp_path, monkeypatch):
     with pytest.raises(C.ConfigError) as ei:
         C.source_env(None, "oracle", "prod")
     assert "no oracle connection configured" in str(ei.value) and "ORA_HOST_PROD" in ei.value.hint
+
+
+def test_merge_defaults_populates_missing_without_overwriting():
+    target = {
+        "pncli": {"config_path": "~/.pncli/config.json"},
+        "sources": {"teradata": {"envs": {"prod": {"host": "my-td.corp", "logmech": "KRB5"}}}},
+        "powerbi": {"tools": {"te2_exe": "C:/Custom/TE.exe"}}
+    }
+    defaults = {
+        "pncli": {"config_path": "/other/path", "keys": {"jira_token": "token_key"}},
+        "sources": {
+            "teradata": {"envs": {"prod": {"host": "team-td.corp", "user": "team_user"}, "uat": {"host": "uat-td.corp"}}},
+            "hive": {"envs": {"prod": {"host": "hive.corp"}}}
+        },
+        "powerbi": {
+            "tools": {"te2_exe": "C:/Team/TE.exe", "dscmd_exe": "C:/Team/dscmd.exe"},
+            "workspaces": [{"name": "Team WS"}]
+        }
+    }
+    C.assert_no_secrets(defaults)
+    C.merge_defaults(target, defaults)
+
+    # Existing values preserved:
+    assert target["pncli"]["config_path"] == "~/.pncli/config.json"
+    assert target["sources"]["teradata"]["envs"]["prod"]["host"] == "my-td.corp"
+    assert target["powerbi"]["tools"]["te2_exe"] == "C:/Custom/TE.exe"
+
+    # Missing values filled in:
+    assert target["pncli"]["keys"] == {"jira_token": "token_key"}
+    assert target["sources"]["teradata"]["envs"]["prod"]["user"] == "team_user"
+    assert target["sources"]["teradata"]["envs"]["uat"]["host"] == "uat-td.corp"
+    assert target["sources"]["hive"]["envs"]["prod"]["host"] == "hive.corp"
+    assert target["powerbi"]["tools"]["dscmd_exe"] == "C:/Team/dscmd.exe"
+    assert target["powerbi"]["workspaces"] == [{"name": "Team WS"}]
+
+
+def test_export_and_import_refuse_secrets():
+    bad_defaults = {"sources": {"teradata": {"envs": {"prod": {"password": "secret_pw"}}}}}
+    with pytest.raises(C.ConfigError):
+        C.assert_no_secrets(bad_defaults)
+

@@ -107,7 +107,8 @@ class PncliStep(Step):
             if got:
                 C.put(cfg, "pncli.exe", got.replace("\\", "/"))
                 found = self.detect(ctx)
-        path = ctx.ask.ask("pncli.config_path", "pncli config file", found["config_path"]) or found["config_path"]
+        path = ctx.ask.ask("pncli.config_path", "pncli config file", found["config_path"],
+                           confident=bool(found["exists"])) or found["config_path"]
         if path != found["config_path"]:
             C.put(cfg, "pncli.config_path", path)
             found = self.detect(ctx)
@@ -129,7 +130,9 @@ class PncliStep(Step):
                   ("jira_email", "key holding your Jira email / username (blank = none)"),
                   ("jira_token", "key holding the Jira API token / PAT"))
         for name, label in labels:
-            ans = ctx.ask.ask(f"pncli.{name}_key", label, keys.get(name) or prop.get(name) or "")
+            cand = keys.get(name) or prop.get(name) or ""
+            is_conf = bool(cand and cand in flat)
+            ans = ctx.ask.ask(f"pncli.{name}_key", label, cand, confident=is_conf)
             if ans and ans not in flat:
                 ctx.add(self.key, name, "fail", f"{ans} is not a key in the pncli config", "ad-setup --only pncli and pick an existing key")
             chosen[name] = ans or None

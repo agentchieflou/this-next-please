@@ -157,6 +157,23 @@ def mask(value: Any) -> str:
     return s[:2] + "*" * (len(s) - 4) + s[-2:]
 
 
+def merge_defaults(target: dict, defaults: dict) -> None:
+    """Recursively populate missing or empty keys in target from defaults.
+    Never overwrites an existing non-empty value in target."""
+    for k, v in defaults.items():
+        if isinstance(v, dict):
+            if k not in target or not isinstance(target[k], dict):
+                target[k] = {}
+            merge_defaults(target[k], v)
+        elif k not in target or target[k] in (None, "", [], {}):
+            if isinstance(v, list):
+                target[k] = list(v)
+            elif isinstance(v, dict):
+                target[k] = dict(v)
+            else:
+                target[k] = v
+
+
 # ---------- verified stamps ----------
 def today() -> str:
     return _dt.date.today().isoformat()

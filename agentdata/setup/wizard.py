@@ -167,7 +167,7 @@ class Prompter:
         self.unanswered: list[str] = []
 
     def ask(self, key: str, text: str, default: str | None = None, choices: list[str] | None = None,
-            secret: bool = False) -> str:
+            secret: bool = False, confident: bool = False) -> str:
         if choices:
             text = f"{text} ({'/'.join(choices)})"
         while True:
@@ -176,14 +176,43 @@ class Prompter:
                 return ans
             eprint(f"  choose one of: {', '.join(choices)}")
 
-    def confirm(self, key: str, text: str, default: bool = False) -> bool:
-        ans = self.ask(key, f"{text} [{'Y/n' if default else 'y/N'}]", None)
+    def confirm(self, key: str, text: str, default: bool = False, confident: bool = False) -> bool:
+        ans = self.ask(key, f"{text} [{'Y/n' if default else 'y/N'}]", None, confident=confident)
         if not ans.strip():
             return default
         return ans.strip().lower() in ("y", "yes", "true", "1")
 
     def say(self, text: str) -> None:
         eprint(text)
+
+
+class QuickPrompter(Prompter):
+    """`ad-setup --quick`: auto-accepts unambiguous detected defaults without prompting stdin.
+    Still prompts for ambiguous cases (multiple choices without a confident flag) and passwords."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.auto_accepted: list[tuple[str, Any]] = []
+        self.asked: list[str] = []
+
+    def ask(self, key: str, text: str, default: str | None = None, choices: list[str] | None = None,
+            secret: bool = False, confident: bool = False) -> str:
+        if secret or not confident or default in (None, ""):
+            self.asked.append(key)
+            return super().ask(key, text, default, choices, secret=secret, confident=confident)
+        val = str(default)
+        eprint(f"  [quick] auto-accepted {key}: {val}")
+        self.auto_accepted.append((key, val))
+        return val
+
+    def confirm(self, key: str, text: str, default: bool = False, confident: bool = False) -> bool:
+        if not confident:
+            self.asked.append(key)
+            return super().confirm(key, text, default, confident=confident)
+        val = bool(default)
+        eprint(f"  [quick] auto-accepted {key}: {'yes' if val else 'no'}")
+        self.auto_accepted.append((key, val))
+        return val
 
 
 class AnswerPrompter(Prompter):
@@ -198,7 +227,7 @@ class AnswerPrompter(Prompter):
                 raise C.ConfigError(f"answers file must not contain a password/token ({k})",
                                     hint="store passwords in keyring first (interactive ad-setup), then re-run")
 
-    def ask(self, key, text, default=None, choices=None, secret=False):
+    def ask(self, key, text, default=None, choices=None, secret=False, confident=False):
         if key in self.answers:
             v = self.answers[key]
             if isinstance(v, bool):
@@ -211,7 +240,7 @@ class AnswerPrompter(Prompter):
             return str(default)
         return choices[0] if choices else ""
 
-    def confirm(self, key, text, default=False):
+    def confirm(self, key, text, default=False, confident=False):
         if key in self.answers:
             v = self.answers[key]
             return v if isinstance(v, bool) else str(v).strip().lower() in ("y", "yes", "true", "1")
@@ -241,19 +270,19 @@ class ScopedPrompter(Prompter):
                 self.inner.say(f"  ! {why}")
                 self.reasons[s] = ""
 
-    def ask(self, key, text, default=None, choices=None, secret=False):
+    def ask(self, key, text, default=None, choices=None, secret=False, confident=False):
         if not self.in_scope(key):
             return str(default) if default not in (None, "") else (choices[0] if choices else "")
         self._why(key)
         self.asked.append(key)
-        return self.inner.ask(key, text, default, choices, secret)
+        return self.inner.ask(key, text, default, choices, secret=secret, confident=confident)
 
-    def confirm(self, key, text, default=False):
+    def confirm(self, key, text, default=False, confident=False):
         if not self.in_scope(key):
             return default
         self._why(key)
         self.asked.append(key)
-        return self.inner.confirm(key, text, default)
+        return self.inner.confirm(key, text, default, confident=confident)
 
     def say(self, text: str) -> None:
         self.inner.say(text)
@@ -365,6 +394,8 @@ def print_checks(ctx: Context, source: str, extra: dict | None = None, quiet: bo
     for key in ("manual", "needs_answers", "asked", "repairing", "skipped"):
         if isinstance(meta.get(key), list) and meta[key]:
             ui.note(f"{key}: " + "; ".join(str(x) for x in meta[key]))
+    if meta.get("auto_accepted"):
+        ui.note(f"auto_accepted: {meta['auto_accepted']} (review with ad-setup --patch)")
     if meta.get("error"):
         ui.problem(str(meta["error"]), str(meta.get("hint") or ""), title=source)
     elif meta.get("hint"):
@@ -529,6 +560,13 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
     ap.add_argument("--set", action="append", metavar="KEY=VALUE", help="answer one prompt key inline, e.g. project.jira_project=RDSD "
                     "(repeatable; true/false for yes-no prompts; wins over --answers)")
     ap.add_argument("--answers", help="JSON file of prompt-key -> answer (never passwords); any encoding PowerShell writes is accepted")
+    ap.add_argument("--quick", action="store_true",
+                    help="quick mode: accept unambiguous detected defaults without prompting; "
+                         "still prompts for ambiguous choices and passwords")
+    ap.add_argument("--export-defaults", metavar="PATH",
+                    help="export current non-secret configuration as shareable team defaults JSON")
+    ap.add_argument("--import", dest="import_defaults", metavar="PATH",
+                    help="load team defaults JSON as starting values (never overwrites existing configuration without asking)")
     ap.add_argument("--offline", action="store_true", help="skip network verification")
     ap.add_argument("--project", metavar="DIR", help="generate/update a project stub (AGENTS.md, .agent/state.json) in DIR")
     ap.add_argument("--quiet", action="store_true")
@@ -537,6 +575,20 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
     a = ap.parse_args(argv)
     utf8_stdout()
     color.set_enabled(None if a.color == "auto" else a.color == "always")
+    if a.export_defaults:
+        cfg = C.load()
+        export_cfg = dict(cfg)
+        export_cfg.pop("verified", None)
+        C.assert_no_secrets(export_cfg)
+        p = C.expand(a.export_defaults)
+        d = os.path.dirname(p)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(export_cfg, f, indent=2, sort_keys=True)
+            f.write("\n")
+        eprint(f"exported non-secret team defaults to {C.display_path(p)}")
+        return 0
     if a.check:
         rest = ["--quiet"] if a.quiet else []
         for o in a.only or []:
@@ -544,8 +596,28 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
         return run_doctor(rest, det)
     try:
         cfg = C.load()
+        if a.import_defaults:
+            imp_path = C.expand(a.import_defaults)
+            if not os.path.isfile(imp_path):
+                raise C.ConfigError(f"import file not found: {a.import_defaults}",
+                                    hint="specify an existing team defaults JSON file")
+            try:
+                imp_data = textio.read_json(imp_path, "team defaults file")
+            except ValueError as e:
+                raise C.ConfigError(str(e), hint="team defaults file must be valid JSON") from None
+            if not isinstance(imp_data, dict):
+                raise C.ConfigError("team defaults file must be a JSON object",
+                                    hint="export with `ad-setup --export-defaults <file>`")
+            imp_data.pop("verified", None)
+            C.assert_no_secrets(imp_data)
+            C.merge_defaults(cfg, imp_data)
         interactive = not a.non_interactive
-        prompter: Prompter = Prompter() if interactive else AnswerPrompter(load_answers(a.answers, a.set))
+        if not interactive:
+            prompter: Prompter = AnswerPrompter(load_answers(a.answers, a.set))
+        elif a.quick:
+            prompter = QuickPrompter()
+        else:
+            prompter = Prompter()
         ctx = Context(cfg=cfg, det=det or Detectors(), ask=prompter, online=not a.offline, interactive=interactive,
                       facts=C.project_facts(), project_dir=a.project)
         only = a.only
@@ -578,6 +650,8 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                 C.save(cfg)
         saved = C.save(cfg)
         extra = {"saved": saved}
+        if getattr(prompter, "auto_accepted", None):
+            extra["auto_accepted"] = len(prompter.auto_accepted)
         if getattr(prompter, "unanswered", None):
             extra["unanswered"] = len(prompter.unanswered)
         return 0 if print_checks(ctx, "ad-setup", extra=extra, quiet=a.quiet) else 1

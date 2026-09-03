@@ -143,13 +143,18 @@ class SourcesStep(Step):
                 else:
                     modes = ([("native")] if found["modules"][s] else []) + (["odbc"] if found["pyodbc"] and found["dsns"] else [])
                     modes = modes or ["native", "odbc"]
-                    mode = ctx.ask.ask(f"sources.{s}.{env}.mode", f"[{tag}] connection mode", e.get("mode") or modes[0], modes) or modes[0]
+                    mode = ctx.ask.ask(f"sources.{s}.{env}.mode", f"[{tag}] connection mode",
+                                       e.get("mode") or modes[0], modes,
+                                       confident=len(modes) == 1) or modes[0]
                 e["mode"] = mode
                 if mode == "odbc":
                     names = list(found["dsns"])
                     for i, d in enumerate(names, 1):
                         ctx.say(f"    {i}. {d} ({found['dsns'][d]})")
-                    ans = ctx.ask.ask(f"sources.{s}.{env}.dsn", f"[{tag}] DSN name or number", e.get("dsn") or "")
+                    single_dsn = names[0] if len(names) == 1 else ""
+                    dsn_default = e.get("dsn") or single_dsn
+                    ans = ctx.ask.ask(f"sources.{s}.{env}.dsn", f"[{tag}] DSN name or number",
+                                       dsn_default, confident=len(names) == 1)
                     if ans.isdigit() and 1 <= int(ans) <= len(names):
                         ans = names[int(ans) - 1]
                     e["dsn"] = ans
@@ -210,7 +215,7 @@ class SourcesStep(Step):
                 if needs_password(s, e):
                     user = ctx.ask.ask(f"sources.{s}.{env}.user", f"[{tag}] user", e.get("user") or det.getuser())
                     e["user"] = user
-                    if det.has_password(s, env, user) and ctx.ask.confirm(f"sources.{s}.{env}.keep_password", f"[{tag}] keep the password already in keyring?", True):
+                    if det.has_password(s, env, user) and ctx.ask.confirm(f"sources.{s}.{env}.keep_password", f"[{tag}] keep the password already in keyring?", True, confident=True):
                         pass
                     elif ctx.interactive:
                         pw = ctx.ask.ask(f"sources.{s}.{env}.password", f"[{tag}] password (stored in keyring only)", secret=True)
@@ -230,26 +235,35 @@ class SourcesStep(Step):
                     envs_cfg.pop(old, None)
 
     def verify(self, ctx: Context) -> None:
+        import concurrent.futures
+        tasks = []
         for s in C.SOURCES:
             for env, e in (C.get(ctx.cfg, f"sources.{s}.envs", {}) or {}).items():
-                tag = f"{s}:{env}"
-                if needs_password(s, e):
-                    user = e.get("user") or ctx.det.getuser()
-                    if not ctx.det.has_password(s, env, user):
-                        # this is what check()/ad-doctor already do; verify() is called directly by ad-setup's
-                        # own wizard right after ask() and had NO such guard, so declining (or losing) the
-                        # password there went straight to smoke() -- a live connection with no credential
-                        _password_row(ctx, self.key, tag, s, env, user)
-                        continue
-                try:
-                    r = ctx.det.smoke(s, env, ctx.cfg)
-                except Exception as ex:  # noqa: BLE001
-                    ctx.add(self.key, tag, "fail", f"{type(ex).__name__}: {str(ex)[:160]}",
-                            getattr(ex, "hint", "") or "check host/DSN, VPN, TGT (klist), keyring password; `ad-setup --patch` re-asks just this env",
-                            (f"sources.{s}.{env}.",))
-                    continue
-                caps = r.get("capabilities", {}) or {}
-                e["capabilities"] = caps
-                C.put(ctx.cfg, f"sources.{s}.envs.{env}", e)
-                C.stamp(ctx.cfg, tag)
-                ctx.add(self.key, tag, "ok", f"SELECT 1 ok in {r.get('elapsed_s')}s · caps {json.dumps(caps, sort_keys=True)}"[:200])
+                tasks.append((s, env, e))
+        if not tasks:
+            return
+
+        def _run_smoke(task):
+            src, env_name, env_cfg = task
+            try:
+                res = ctx.det.smoke(src, env_name, ctx.cfg)
+                return src, env_name, env_cfg, res, None
+            except Exception as ex:  # noqa: BLE001
+                return src, env_name, env_cfg, None, ex
+
+        max_workers = min(8, len(tasks))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            results = list(pool.map(_run_smoke, tasks))
+
+        for s, env, e, r, ex in results:
+            tag = f"{s}:{env}"
+            if ex is not None:
+                ctx.add(self.key, tag, "fail", f"{type(ex).__name__}: {str(ex)[:160]}",
+                        getattr(ex, "hint", "") or "check host/DSN, VPN, TGT (klist), keyring password; `ad-setup --patch` re-asks just this env",
+                        (f"sources.{s}.{env}.",))
+                continue
+            caps = r.get("capabilities", {}) or {}
+            e["capabilities"] = caps
+            C.put(ctx.cfg, f"sources.{s}.envs.{env}", e)
+            C.stamp(ctx.cfg, tag)
+            ctx.add(self.key, tag, "ok", f"SELECT 1 ok in {r.get('elapsed_s')}s · caps {json.dumps(caps, sort_keys=True)}"[:200])
