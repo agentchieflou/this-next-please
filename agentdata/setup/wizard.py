@@ -21,9 +21,18 @@ from .. import textio
 from .. import config as C
 from .. import toon
 from ..console import eprint, prompt as _console_prompt, utf8_stdout
+from .. import color
 from .. import proc
 
 STATUS_ORDER = {"fail": 0, "warn": 1, "skip": 2, "ok": 3}
+
+
+def has_tty() -> bool:
+    """Is there a human to answer? A piped run (Luna's terminal, CI, `< /dev/null`) has nobody."""
+    try:
+        return bool(sys.stdin) and sys.stdin.isatty()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 @dataclass
@@ -33,13 +42,15 @@ class Check:
     status: str  # ok | warn | fail | skip
     detail: str = ""
     hint: str = ""
-    keys: tuple[str, ...] = ()   # prompt keys (or key prefixes) that `ad-setup --patch` re-asks to fix this row
+    keys: tuple[str, ...] = ()   # prompt keys (or prefixes) `ad-setup --patch` re-asks. EMPTY = no answer fixes
+                                 # this row (install a package, create an ODBC DSN, get a TGT): --patch lists it
+                                 # under `manual` with its hint instead of asking pointless questions.
 
     def row(self) -> list:
-        return [self.step, self.name, self.status, self.detail, self.hint]
+        return [self.step, self.name, color.status(self.status), self.detail, self.hint]
 
     def scope(self) -> tuple[str, ...]:
-        return self.keys or (self.step + ".",)
+        return self.keys
 
 
 class Detectors:
@@ -301,8 +312,11 @@ def render_checks(ctx: Context, source: str, extra: dict | None = None, quiet: b
     warned = sum(1 for c in checks if c.status == "warn")
     from ..update import cli_state
     ver = cli_state()
-    meta = {"ok": failed == 0, "source": source, "version": ver["version"], "commit": ver["commit"] or ("checkout" if ver["editable"] else "n/a"),
-            "config": C.display_path(C.path()), "online": ctx.online, "checks": len(checks), "failed": failed, "warned": warned}
+    meta = {"ok": color.status("true" if failed == 0 else "false") if color.enabled() else failed == 0,
+            "source": source, "version": ver["version"], "commit": ver["commit"] or ("checkout" if ver["editable"] else "n/a"),
+            "config": C.display_path(C.path()), "online": ctx.online, "checks": len(checks),
+            "failed": color.paint(str(failed), *(("red", "bold") if failed else ())) if color.enabled() else failed,
+            "warned": color.paint(str(warned), "yellow") if (color.enabled() and warned) else warned}
     if extra:
         meta.update(extra)
     if failed and "hint" not in meta:
@@ -339,10 +353,13 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
     ap = argparse.ArgumentParser(prog="ad-doctor", description="Offline health check of the agentdata setup. "
                                  "Exit 1 when something fails; every row carries the fix in `hint`.")
     ap.add_argument("--online", action="store_true", help="also run network checks (Jira, SELECT 1, XMLA)")
+    ap.add_argument("--color", choices=["auto", "always", "never"], default="auto",
+                    help="colour output (default auto: on for a terminal, off when piped; NO_COLOR / AGENTDATA_COLOR also apply)")
     ap.add_argument("--quiet", action="store_true", help="show only non-ok rows")
     ap.add_argument("--only", action="append", help="step key(s), comma-separated: pncli,sources,powerbi,project")
     a = ap.parse_args(argv)
     utf8_stdout()
+    color.set_enabled(None if a.color == "auto" else a.color == "always")
     try:
         cfg = C.load()
         ctx = Context(cfg=cfg, det=det or Detectors(), ask=AnswerPrompter({}), online=a.online, interactive=False,
@@ -363,35 +380,77 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
 
 
 def run_patch(ctx: Context, steps: list[Step], prompter: Prompter, *, include_warnings: bool = False,
-              quiet: bool = False) -> int:
-    """Repair mode. Check everything first, then re-ask only the settings the failing rows named, so fixing one wrong
-    DSN costs one question instead of the whole wizard. Steps whose rows are all ok are never entered."""
-    found: dict[str, dict] = {}
-    for step in steps:
-        found[step.key] = step.detect(ctx)
-        step.check(ctx, found[step.key])
-    wanted = ("fail", "warn") if include_warnings else ("fail",)
-    broken = [c for c in ctx.checks if c.status in wanted]
-    if not broken:
-        out, _ok = render_checks(ctx, "ad-setup --patch", extra={"repaired": 0,
-                                 "note": "nothing to repair" + ("" if include_warnings else "; --include-warnings covers warn rows too")}, quiet=quiet)
-        print(out)
-        return 0
+              quiet: bool = False, targets: list[str] | None = None) -> int:
+    """Repair mode.
+
+    `ad-setup --patch` checks everything, then re-asks ONLY the settings the failing rows name — fixing one wrong DSN
+    costs that env's questions, not the whole wizard. A row with no keys (a missing package, an ODBC DSN that does not
+    exist, no Kerberos ticket) is reported under `manual` with its hint: no answer fixes it, so it is never asked.
+    `ad-setup --patch sources.oracle` skips the scan and re-asks exactly that area on demand."""
     scope: list[str] = []
     reasons: dict[str, str] = {}
+    manual: list[Check] = []
+    broken: list[Check] = []
+    found: dict[str, dict] = {}
+
+    if targets:
+        known = {s.key for s in steps}
+        bad = [t for t in targets if t.split(".")[0] not in known]
+        if bad:
+            raise C.ConfigError("nothing to repair for: " + ", ".join(bad),
+                                hint="a target starts with a step key: " + ", ".join(sorted(known)) +
+                                     " (e.g. sources.oracle, powerbi.az_exe)")
+        scope = list(dict.fromkeys(targets))
+        todo = [s for s in steps if any(t.split(".")[0] == s.key for t in targets)]
+        for step in todo:
+            found[step.key] = step.detect(ctx)
+    else:
+        for step in steps:
+            found[step.key] = step.detect(ctx)
+            step.check(ctx, found[step.key])
+            if ctx.online:
+                step.verify(ctx)          # a failing SELECT 1 is repairable too; --offline skips this
+        wanted = ("fail", "warn") if include_warnings else ("fail",)
+        hits = [c for c in ctx.checks if c.status in wanted]
+        broken = [c for c in hits if c.keys]
+        manual = [c for c in hits if not c.keys]
+        for c in broken:
+            for key in c.scope():
+                if key not in scope:
+                    scope.append(key)
+                reasons.setdefault(key, f"{c.step}/{c.name}: {c.detail}" + (f" — {c.hint}" if c.hint else ""))
+        todo = [s for s in steps if any(c.step == s.key for c in broken)]
+        if not broken:
+            note = ("nothing to repair by answering a question" if manual else "nothing to repair")
+            if not include_warnings and any(c.status == "warn" for c in ctx.checks):
+                note += "; --include-warnings covers warn rows too"
+            extra = {"repaired": 0, "note": note}
+            if manual:
+                extra["manual"] = [f"{c.step}/{c.name}: {c.detail} -> {c.hint}" for c in manual][:10]
+                extra["hint"] = "these need an install or an action, not an answer; run each hint, then ad-doctor"
+            out, _ok = render_checks(ctx, "ad-setup --patch", extra=extra, quiet=quiet)
+            print(out)
+            return 0 if not manual else 1
+
+    if ctx.interactive and not has_tty():
+        # dying on EOF at the first prompt taught nobody anything; name the keys instead
+        out, _ok = render_checks(ctx, "ad-setup --patch", quiet=quiet, extra={
+            "repaired": 0, "error": "no terminal to ask on", "needs_answers": scope[:20],
+            "hint": "run it in a terminal, or answer inline: " +
+                    " ".join(f"--set {k.rstrip('.')}=<value>" for k in scope[:3]) + " --non-interactive"})
+        print(out)
+        return 2
+    ctx.say(color.paint("\n== repairing ==", "bold"))
     for c in broken:
-        for key in c.scope():
-            if key not in scope:
-                scope.append(key)
-            reasons.setdefault(key, f"{c.step}/{c.name}: {c.detail}" + (f" — {c.hint}" if c.hint else ""))
-    ctx.say("\n== repairing ==")
-    for c in broken:
-        ctx.say(f"  {c.status}: {c.step}/{c.name} · {c.detail}")
+        ctx.say(f"  {color.status(c.status)}: {color.paint(c.step + '/' + c.name, 'cyan')} · {c.detail}")
+    for c in manual:
+        ctx.say(f"  {color.status('skip')}: {c.step}/{c.name} needs an action, not an answer · {c.hint}")
+    if targets:
+        ctx.say("  " + color.paint("asking for: " + ", ".join(scope), "cyan"))
     scoped = ScopedPrompter(prompter, scope, reasons)
     ctx.ask = scoped
-    todo = [s for s in steps if any(c.step == s.key for c in broken)]
     for step in todo:
-        ctx.say(f"\n== {step.title} ==")
+        ctx.say(color.paint(f"\n== {step.title} ==", "bold"))
         step.ask(ctx, found[step.key])
         C.save(ctx.cfg)
     ctx.checks = []                      # report the state AFTER the repair, not the rows that led to it
@@ -401,8 +460,14 @@ def run_patch(ctx: Context, steps: list[Step], prompter: Prompter, *, include_wa
         if ctx.online:
             step.verify(ctx)
     saved = C.save(ctx.cfg)
-    extra = {"saved": saved, "was_failing": len(broken), "repaired": len(scoped.asked), "asked": scoped.asked[:20],
-             "repairing": [f"{c.step}/{c.name}: {c.detail}" for c in broken][:10]}
+    extra = {"saved": saved, "was_failing": len(broken) + len(manual), "repaired": len(scoped.asked),
+             "asked": scoped.asked[:20]}
+    if broken:
+        extra["repairing"] = [f"{c.step}/{c.name}: {c.detail}" for c in broken][:10]
+    if manual:
+        extra["manual"] = [f"{c.step}/{c.name}: {c.detail} -> {c.hint}" for c in manual][:10]
+    if targets and not scoped.asked:
+        extra["hint"] = "no prompt matched those targets; `ad-setup --only <step>` walks the whole step"
     out, ok = render_checks(ctx, "ad-setup --patch", extra=extra, quiet=quiet)
     print(out)
     return 0 if ok else 1
@@ -413,8 +478,10 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                                  "(native or ODBC), Power BI tools and workspaces, project stub. Re-run any time; "
                                  "existing values are the defaults. Secrets go to keyring, never to a file.")
     ap.add_argument("--check", action="store_true", help="doctor mode (no prompts, offline); same as ad-doctor")
-    ap.add_argument("--patch", action="store_true", help="repair mode: run the checks, then re-ask ONLY the settings "
-                    "behind the rows that fail (add --include-warnings for warn rows too)")
+    ap.add_argument("--patch", nargs="*", metavar="KEY", default=None,
+                    help="repair mode: run the checks, then re-ask ONLY the settings behind the rows that fail "
+                         "(--include-warnings covers warn rows). Name targets to skip the scan and re-ask just those, "
+                         "e.g. `--patch sources.oracle` or `--patch powerbi.az_exe`")
     ap.add_argument("--include-warnings", action="store_true", help="with --patch: repair warn rows as well as fail rows")
     ap.add_argument("--only", action="append", help="step key(s), comma-separated: pncli,sources,powerbi,project")
     ap.add_argument("--non-interactive", action="store_true", help="no prompts: defaults + --set / --answers")
@@ -424,8 +491,11 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
     ap.add_argument("--offline", action="store_true", help="skip network verification")
     ap.add_argument("--project", metavar="DIR", help="generate/update a project stub (AGENTS.md, .agent/state.json) in DIR")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--color", choices=["auto", "always", "never"], default="auto",
+                    help="colour output (default auto: on for a terminal, off when piped)")
     a = ap.parse_args(argv)
     utf8_stdout()
+    color.set_enabled(None if a.color == "auto" else a.color == "always")
     if a.check:
         rest = ["--quiet"] if a.quiet else []
         for o in a.only or []:
@@ -440,12 +510,20 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
         only = a.only
         if a.project and not only:
             only = ["project"]
-        ctx.say(f"agentdata setup · config {C.display_path(C.path())} · "
-                f"{'online' if ctx.online else 'offline'} · secrets → keyring only")
-        if a.patch:
-            return run_patch(ctx, _select(registry(), only), prompter, include_warnings=a.include_warnings, quiet=a.quiet)
-        for step in _select(registry(), only):
-            ctx.say(f"\n== {step.title} ==")
+        ctx.say(color.paint("agentdata setup", "bold") + f" · config {C.display_path(C.path())} · "
+                f"{'online' if ctx.online else 'offline'} · " + color.paint("secrets → keyring only", "dim"))
+        if a.patch is not None:
+            return run_patch(ctx, _select(registry(), only), prompter, include_warnings=a.include_warnings,
+                             quiet=a.quiet, targets=a.patch or None)
+        steps = _select(registry(), only)
+        if interactive and not has_tty():
+            print(toon.encode({"meta": {"ok": False, "source": "ad-setup", "error": "no terminal to ask on",
+                                        "steps": [s.key for s in steps],
+                                        "hint": "run it in a terminal, or use --non-interactive with --set key=value "
+                                                "(`ad-doctor` lists what is wrong; `ad-setup --patch` repairs just that)"}}))
+            return 2
+        for step in steps:
+            ctx.say(color.paint(f"\n== {step.title} ==", "bold"))
             found = step.detect(ctx)
             step.ask(ctx, found)
             C.save(cfg)  # persist after every step so an aborted run keeps its progress

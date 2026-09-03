@@ -4,6 +4,25 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.4.3 — 2026-09-03
+
+Three fixes to the setup experience. No new dependencies.
+
+- **Oracle thick mode could not authenticate.** Setting `client_lib` was read as "use external auth", so the wizard
+  never asked for a username or password and the connector always passed `externalauth=True`. Authentication is now
+  its own question (`password` / `kerberos` / `wallet`), independent of thick mode: thick + password works, and
+  kerberos/wallet without a client lib is a named check failure instead of a connect-time error. Existing configs
+  (a `client_lib` and nothing else) still mean Kerberos.
+- **`ad-setup --patch` asked questions no answer could fix.** A row like `teradatasql not installed` carried the
+  env's prompt keys, so --patch walked into that step and — with no terminal — died on the first prompt, which is why
+  it looked like it only printed the doctor output. Rows fixed by an install or an ODBC DSN now carry no keys and are
+  listed under `manual` with their hint. Scopes are also narrower (a missing service name asks one question), you can
+  name a target (`ad-setup --patch sources.oracle.PROD.host`), the scan includes the online checks unless `--offline`,
+  and a run with no terminal prints `needs_answers[]` and the `--set` line instead of failing on EOF.
+- **Colour.** Status words, prompts and headings are coloured for a terminal, including PowerShell 5.1 (VT enabled
+  through the console API — nothing to install), PyCharm and VS Code. Off automatically when piped, so TOON read by an
+  agent is unchanged. `--color always|never`, `AGENTDATA_COLOR`, `NO_COLOR` and `FORCE_COLOR` all work.
+
 ## 0.4.2 — 2026-09-03
 
 Oracle is configured by its parts. No new dependencies; existing Oracle settings keep working.

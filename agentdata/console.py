@@ -3,6 +3,8 @@ from __future__ import annotations
 import getpass
 import sys
 
+from . import color
+
 
 def utf8_stdout() -> None:
     """Windows consoles default to cp1252 while TOON output contains → · ≤. Never raises."""
@@ -22,7 +24,8 @@ def eprint(*args: object) -> None:
 
 def prompt(text: str, default: str | None = None, secret: bool = False) -> str:
     """Ask on stderr, read from stdin. Empty answer -> default. Secrets never echo."""
-    suffix = f" [{default}]" if default not in (None, "") else ""
+    suffix = color.paint(f" [{default}]", "dim") if default not in (None, "") else ""
+    text = color.paint(text, "cyan")
     if secret:
         ans = getpass.getpass(f"{text}{suffix}: ")
     else:

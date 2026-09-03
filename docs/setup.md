@@ -28,11 +28,18 @@ answers.json` still works and is read in any encoding PowerShell produces (UTF-8
 contain passwords — store them once interactively. `ad-setup --offline` skips network verification.
 
 Repair mode: **`ad-setup --patch`** runs the checks first and then re-asks ONLY the settings behind the rows that
-fail — one wrong DSN costs one env's questions, not the whole wizard. Every other answer silently keeps its stored
-value, and steps with no failures are never entered. `--include-warnings` covers `warn` rows too; `--only <step>`
-narrows it further; `--set key=value` / `--answers` make it non-interactive. The output names what it repaired
-(`repairing[]`, `asked[]`) and then the state afterwards. Each check row carries the prompt keys that fix it, so
-`--patch` never guesses.
+fail. A missing Oracle service name is one question; a wrong ODBC DSN is one question. Every other answer silently
+keeps its stored value, and steps with no failing rows are never entered.
+
+- A row that **no answer can fix** — a missing package, an ODBC DSN that does not exist, no Kerberos ticket — carries
+  no prompt keys, so `--patch` lists it under `manual` with its hint instead of asking pointless questions. That is
+  the difference between "run `pip install …`" and a wizard walking you through settings that were already correct.
+- **Name a target to skip the scan**: `ad-setup --patch sources.oracle` re-asks that area on demand,
+  `ad-setup --patch sources.oracle.OIMPROD1_ROSVC.host` re-asks exactly one field. Targets start with a step key.
+- `--include-warnings` covers `warn` rows; `--only <step>` narrows the scan; `--set key=value` / `--answers` make it
+  non-interactive. Without a terminal (a piped run) it does not die on the first prompt: it prints `needs_answers[]`
+  and the `--set` line that would answer them.
+- The scan runs the online checks too unless `--offline`, so a failing `SELECT 1` is repairable.
 
 Session state: `ad-state show` / `ad-state set phase=<phase> active_ticket=<KEY> --artifact <path>=<what> --question "…"`
 is the only writer of `.agent/state.json` (validated keys and phases, `last_updated`, artifacts pruned after 7 days,
@@ -68,7 +75,13 @@ Service name**. `ad-setup` now asks for exactly those:
 They are stored as `host`, `port`, `service_name` (or `sid`) and composed into the connect string at call time:
 `host:port/service` (Easy Connect), or the `(DESCRIPTION=…(SID=…))` form when identified by SID. Choose `tns` instead
 to give a TNS alias or a connect string you already have — that value is used verbatim, and `TNS_ADMIN` points at the
-directory holding `tnsnames.ora`. Every `ad-doctor` run prints the composed target next to the env, so a wrong port or
+directory holding `tnsnames.ora`.
+
+**Authentication is a separate question from thick mode.** `auth` is `password`, `kerberos` or `wallet`;
+`client_lib` (the Instant Client lib dir) turns on thick mode. They are independent: thick mode is also how you reach
+an older server or use a wallet, and it still takes a username and password. Only `kerberos` and `wallet` skip the
+credential prompts — and both require `client_lib`, which the doctor now checks by name. A config written before this
+question existed (a `client_lib` and nothing else) still means Kerberos. Every `ad-doctor` run prints the composed target next to the env, so a wrong port or
 service name is visible without connecting. A host with no service name or SID fails the check by name rather than at
 query time. Oracle never uses the ODBC mode: an ODBC DSN handed to python-oracledb would be read as a TNS alias.
 
@@ -79,6 +92,12 @@ query time. Oracle never uses the ODBC mode: an ODBC DSN handed to python-oracle
 - A 64-bit Python sees only 64-bit ODBC drivers/DSNs; configure them in `C:\Windows\System32\odbcad32.exe`.
 - Kerberos (`KRB5`/`GSSAPI`) needs a ticket (`klist`); impyla on Windows needs `pip install winkerberos`.
 - `az` resolves to `az.cmd`; `ad-setup` offers `az login --allow-no-subscriptions` when not signed in.
+- Colour: on when a human is looking, off when a machine is. `ad-*` output is coloured for a terminal — PowerShell
+  5.1 included (VT sequences are enabled through the console API, so no `colorama` and nothing to install), plus
+  PyCharm's run window and the VS Code terminal, which render ANSI without being TTYs. When stdout is piped — Luna's
+  terminal, a script, a log — colour is off and the TOON is byte-identical to before, so no escape ever reaches an
+  agent's context. Override with `--color always|never`, `AGENTDATA_COLOR=always|never`, or the conventional
+  `NO_COLOR` / `FORCE_COLOR`. Status words are green/yellow/red, prompts cyan, defaults and hints dim.
 - Console encoding: every `ad-*` command switches stdout to UTF-8 (TOON uses `→ · ≤`).
 - File encoding: Windows PowerShell 5.1 writes a BOM with `Set-Content -Encoding utf8` / `Out-File` and UTF-16 with `>`. Every `ad-*` reader (answers, `AGENTS.md`, config, TSV, SQL and DAX files, pncli config, state) sniffs the BOM and accepts the file (`agentdata/textio.py`); the tools themselves write UTF-8 without BOM. When you must write a file from PowerShell use `[IO.File]::WriteAllText($absolutePath, $text)`; for state use `ad-state set`.
 - Power BI XMLA needs Premium/PPU/Fabric capacity with the XMLA endpoint set to Read Write by the capacity admin.
