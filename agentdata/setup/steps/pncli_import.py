@@ -58,40 +58,53 @@ class PncliStep(Step):
         hint = (f"pncli is an npm package: `npm install -g {pkg}` installs it as pncli.cmd (there is no pncli.exe), "
                 "or pin its path with PNCLI_EXE / ad-setup --only pncli. `ad-pncli where` shows what was tried.")
         if not lz.get("found"):
-            ctx.add(k, "pncli launcher", "fail", lz.get("error") or "pncli not found on PATH, PATHEXT or the npm global prefix", hint)
+            ctx.add(k, "pncli launcher", "fail", lz.get("error") or "pncli not found on PATH, PATHEXT or the npm global prefix",
+                    hint, ("pncli.exe",))
         elif lz.get("rc") not in (0, None):
-            ctx.add(k, "pncli launcher", "fail", f"{lz['path']} ({lz.get('kind')}) exits {lz.get('rc')} on --version", hint)
+            ctx.add(k, "pncli launcher", "fail", f"{lz['path']} ({lz.get('kind')}) exits {lz.get('rc')} on --version",
+                    hint, ("pncli.exe",))
         else:
             detail = f"{lz['path']} ({lz.get('kind')})" + (f" · {lz['version']}" if lz.get("version") else "")
             ctx.add(k, "pncli launcher", "ok", detail + (f" · node {lz['node']}" if lz.get("node") else ""))
         p = C.display_path(C.expand(found["config_path"]))
         if not found["exists"]:
-            ctx.add(k, "pncli config", "fail", f"missing {p}", "run `pncli config init`, then `ad-setup --only pncli`")
+            ctx.add(k, "pncli config", "fail", f"missing {p}", "run `pncli config init`, then `ad-setup --patch`", ("pncli.config_path",))
             return
         if found["json_error"]:
-            ctx.add(k, "pncli config", "fail", f"{p}: {found['json_error']}", "pncli config must be JSON; fix it, then ad-setup --only pncli")
+            ctx.add(k, "pncli config", "fail", f"{p}: {found['json_error']}", "pncli config must be JSON; fix it, then `ad-setup --patch`",
+                    ("pncli.config_path",))
             return
         ctx.add(k, "pncli config", "ok", f"{p} ({len(found['flat'])} keys)")
         keys = found["keys"]
         if not keys.get("jira_token"):
-            ctx.add(k, "jira token key", "fail", "no token key chosen", "ad-setup --only pncli")
+            ctx.add(k, "jira token key", "fail", "no token key chosen", "ad-setup --patch", ("pncli.jira_token_key",))
             return
         for name in ("jira_url", "jira_email", "jira_token"):
             kp = keys.get(name)
             if not kp:
-                ctx.add(k, name, "warn" if name == "jira_email" else "fail", "not configured", "ad-setup --only pncli")
+                ctx.add(k, name, "warn" if name == "jira_email" else "fail", "not configured", "ad-setup --patch", (f"pncli.{name}_key",))
             elif found["flat"].get(kp) not in (None, ""):
                 ctx.add(k, name, "ok", f"key {kp}")
             else:
-                ctx.add(k, name, "fail", f"key {kp} missing or empty in pncli config", "ad-setup --only pncli")
+                ctx.add(k, name, "fail", f"key {kp} missing or empty in pncli config", "ad-setup --patch", (f"pncli.{name}_key",))
         v = C.get(ctx.cfg, "verified.jira")
         if v:
             ctx.add(k, "jira auth", "ok", f"verified {v} · {C.get(ctx.cfg, 'jira.flavor')}/{C.get(ctx.cfg, 'jira.auth')} v{C.get(ctx.cfg, 'jira.api')}")
         else:
-            ctx.add(k, "jira auth", "warn", "token never verified", "ad-setup --only pncli (online) or ad-doctor --online")
+            ctx.add(k, "jira auth", "warn", "token never verified", "ad-setup --only pncli (online) or ad-doctor --online",
+                    ("pncli.jira_token_key",))
 
     def ask(self, ctx: Context, found: dict) -> None:
         cfg = ctx.cfg
+        lz0 = found.get("launcher") or {}
+        if not lz0.get("found"):
+            pkg = C.get(cfg, "pncli.npm_package") or NPM_PACKAGE
+            ctx.say(f"  pncli was not found. It is an npm package (`npm install -g {pkg}`) and lands as pncli.cmd, never pncli.exe.")
+            got = ctx.ask.ask("pncli.exe", "full path to the pncli launcher (blank = not installed yet)",
+                              C.get(cfg, "pncli.exe") or "")
+            if got:
+                C.put(cfg, "pncli.exe", got.replace("\\", "/"))
+                found = self.detect(ctx)
         path = ctx.ask.ask("pncli.config_path", "pncli config file", found["config_path"]) or found["config_path"]
         if path != found["config_path"]:
             C.put(cfg, "pncli.config_path", path)
@@ -139,7 +152,7 @@ class PncliStep(Step):
             info = ctx.det.jira_whoami(ctx.cfg, redetect=True)
         except Exception as e:  # noqa: BLE001 - JiraError or network
             ctx.add(self.key, "jira auth", "fail", f"{type(e).__name__}: {str(e)[:160]}",
-                    getattr(e, "hint", "") or "check VPN/proxy; ad-setup --only pncli")
+                    getattr(e, "hint", "") or "check VPN/proxy; ad-setup --patch", ("pncli.jira_token_key", "pncli.config_path"))
             return
         who = info.get("display_name") or info.get("account") or "?"
         ctx.add(self.key, "jira auth", "ok", f"{info['flavor']}/{info['auth']} v{info['api']} as {who} ({info['token_source']})")

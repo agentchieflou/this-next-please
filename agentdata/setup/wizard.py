@@ -33,9 +33,13 @@ class Check:
     status: str  # ok | warn | fail | skip
     detail: str = ""
     hint: str = ""
+    keys: tuple[str, ...] = ()   # prompt keys (or key prefixes) that `ad-setup --patch` re-asks to fix this row
 
     def row(self) -> list:
         return [self.step, self.name, self.status, self.detail, self.hint]
+
+    def scope(self) -> tuple[str, ...]:
+        return self.keys or (self.step + ".",)
 
 
 class Detectors:
@@ -202,6 +206,43 @@ class AnswerPrompter(Prompter):
         self.said.append(text)
 
 
+class ScopedPrompter(Prompter):
+    """`ad-setup --patch`: prompt only for the keys a failing check named. Every other question silently keeps its
+    stored answer (the steps always pass the current value as the default), so one bad setting costs one question."""
+
+    def __init__(self, inner: Prompter, scope, reasons: dict | None = None) -> None:
+        super().__init__()
+        self.inner, self.scope, self.reasons = inner, tuple(scope), dict(reasons or {})
+        self.asked: list[str] = []
+        self.said = getattr(inner, "said", [])
+
+    def in_scope(self, key: str) -> bool:
+        return any(key == s or key.startswith(s) for s in self.scope)
+
+    def _why(self, key: str) -> None:
+        for s, why in list(self.reasons.items()):
+            if why and (key == s or key.startswith(s)):
+                self.inner.say(f"  ! {why}")
+                self.reasons[s] = ""
+
+    def ask(self, key, text, default=None, choices=None, secret=False):
+        if not self.in_scope(key):
+            return str(default) if default not in (None, "") else (choices[0] if choices else "")
+        self._why(key)
+        self.asked.append(key)
+        return self.inner.ask(key, text, default, choices, secret)
+
+    def confirm(self, key, text, default=False):
+        if not self.in_scope(key):
+            return default
+        self._why(key)
+        self.asked.append(key)
+        return self.inner.confirm(key, text, default)
+
+    def say(self, text: str) -> None:
+        self.inner.say(text)
+
+
 @dataclass
 class Context:
     cfg: dict
@@ -213,8 +254,8 @@ class Context:
     checks: list[Check] = field(default_factory=list)
     project_dir: str | None = None
 
-    def add(self, step: str, name: str, status: str, detail: str = "", hint: str = "") -> None:
-        self.checks.append(Check(step, name, status, detail, hint))
+    def add(self, step: str, name: str, status: str, detail: str = "", hint: str = "", keys: tuple[str, ...] = ()) -> None:
+        self.checks.append(Check(step, name, status, detail, hint, keys))
 
     def say(self, text: str) -> None:
         self.ask.say(text)
@@ -261,6 +302,8 @@ def render_checks(ctx: Context, source: str, extra: dict | None = None, quiet: b
             "checks": len(checks), "failed": failed, "warned": warned}
     if extra:
         meta.update(extra)
+    if failed and "hint" not in meta:
+        meta["hint"] = "`ad-setup --patch` re-asks only the settings behind the fail rows (nothing else is touched)"
     shown = [c for c in checks if c.status != "ok"] if quiet else checks
     body = toon.table("checks", ["step", "check", "status", "detail", "hint"], [c.row() for c in shown])
     return "\n".join([toon.encode(meta, key="meta"), body]), failed == 0
@@ -316,11 +359,60 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
         return 2
 
 
+def run_patch(ctx: Context, steps: list[Step], prompter: Prompter, *, include_warnings: bool = False,
+              quiet: bool = False) -> int:
+    """Repair mode. Check everything first, then re-ask only the settings the failing rows named, so fixing one wrong
+    DSN costs one question instead of the whole wizard. Steps whose rows are all ok are never entered."""
+    found: dict[str, dict] = {}
+    for step in steps:
+        found[step.key] = step.detect(ctx)
+        step.check(ctx, found[step.key])
+    wanted = ("fail", "warn") if include_warnings else ("fail",)
+    broken = [c for c in ctx.checks if c.status in wanted]
+    if not broken:
+        out, _ok = render_checks(ctx, "ad-setup --patch", extra={"repaired": 0,
+                                 "note": "nothing to repair" + ("" if include_warnings else "; --include-warnings covers warn rows too")}, quiet=quiet)
+        print(out)
+        return 0
+    scope: list[str] = []
+    reasons: dict[str, str] = {}
+    for c in broken:
+        for key in c.scope():
+            if key not in scope:
+                scope.append(key)
+            reasons.setdefault(key, f"{c.step}/{c.name}: {c.detail}" + (f" — {c.hint}" if c.hint else ""))
+    ctx.say("\n== repairing ==")
+    for c in broken:
+        ctx.say(f"  {c.status}: {c.step}/{c.name} · {c.detail}")
+    scoped = ScopedPrompter(prompter, scope, reasons)
+    ctx.ask = scoped
+    todo = [s for s in steps if any(c.step == s.key for c in broken)]
+    for step in todo:
+        ctx.say(f"\n== {step.title} ==")
+        step.ask(ctx, found[step.key])
+        C.save(ctx.cfg)
+    ctx.checks = []                      # report the state AFTER the repair, not the rows that led to it
+    for step in todo:
+        f = step.detect(ctx)
+        step.check(ctx, f)
+        if ctx.online:
+            step.verify(ctx)
+    saved = C.save(ctx.cfg)
+    extra = {"saved": saved, "was_failing": len(broken), "repaired": len(scoped.asked), "asked": scoped.asked[:20],
+             "repairing": [f"{c.step}/{c.name}: {c.detail}" for c in broken][:10]}
+    out, ok = render_checks(ctx, "ad-setup --patch", extra=extra, quiet=quiet)
+    print(out)
+    return 0 if ok else 1
+
+
 def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> int:
     ap = argparse.ArgumentParser(prog="ad-setup", description="Guided setup: import pncli config, data sources "
                                  "(native or ODBC), Power BI tools and workspaces, project stub. Re-run any time; "
                                  "existing values are the defaults. Secrets go to keyring, never to a file.")
     ap.add_argument("--check", action="store_true", help="doctor mode (no prompts, offline); same as ad-doctor")
+    ap.add_argument("--patch", action="store_true", help="repair mode: run the checks, then re-ask ONLY the settings "
+                    "behind the rows that fail (add --include-warnings for warn rows too)")
+    ap.add_argument("--include-warnings", action="store_true", help="with --patch: repair warn rows as well as fail rows")
     ap.add_argument("--only", action="append", help="step key(s), comma-separated: pncli,sources,powerbi,project")
     ap.add_argument("--non-interactive", action="store_true", help="no prompts: defaults + --set / --answers")
     ap.add_argument("--set", action="append", metavar="KEY=VALUE", help="answer one prompt key inline, e.g. project.jira_project=RDSD "
@@ -347,6 +439,8 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
             only = ["project"]
         ctx.say(f"agentdata setup · config {C.display_path(C.path())} · "
                 f"{'online' if ctx.online else 'offline'} · secrets → keyring only")
+        if a.patch:
+            return run_patch(ctx, _select(registry(), only), prompter, include_warnings=a.include_warnings, quiet=a.quiet)
         for step in _select(registry(), only):
             ctx.say(f"\n== {step.title} ==")
             found = step.detect(ctx)

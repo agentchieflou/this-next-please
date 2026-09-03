@@ -56,9 +56,11 @@ class FakeDet(W.Detectors):
 
     def run(self, args, timeout=120):
         self.runs.append(args)
-        if args[:2] == ["az", "account"]:
+        # the steps pass the RESOLVED path now (C:/az.cmd), because the bare name cannot be started on Windows
+        tool = os.path.basename(str(args[0])).split(".")[0].lower()
+        if [tool, args[1]] == ["az", "account"]:
             return 0, json.dumps({"tenantId": "tenant-1"}), ""
-        if args[:2] == ["az", "rest"]:
+        if [tool, args[1]] == ["az", "rest"]:
             return 0, json.dumps({"value": [{"id": "ws-1", "name": "Sales Workspace"}, {"id": "ws-2", "name": "Ops"}]}), ""
         if args[1:3] == ["csv", "--help"]:
             return 0, "Usage: dscmd csv <output> -s --server -d --database -f --file", ""
@@ -260,3 +262,76 @@ def test_doctor_fails_when_pncli_launcher_is_missing_or_broken(cfg_path, capsys)
     assert "exits 9 on --version" in out
     assert W.run_doctor(["--only", "pncli"], FakeDet()) == 0
     assert "pncli.cmd (npm shim) · pncli/1.4.0" in capsys.readouterr().out
+
+
+def _patch(det, extra=None, cfg=None):
+    if cfg is not None:
+        C.save(cfg)
+    return W.run_setup(["--patch", "--non-interactive", "--offline", *(extra or [])], det)
+
+
+def test_patch_reasks_only_the_failing_setting(cfg_path, capsys):
+    """One wrong DSN must cost one env's questions, not the whole wizard."""
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
+            "verified": {"jira": "2026-09-02", "teradata:prod": "2026-09-02"},
+            "sources": {"teradata": {"envs": {"prod": {"mode": "odbc", "dsn": "TD_PROD", "logmech": "KRB5"},
+                                              "uat": {"mode": "odbc", "dsn": "GONE", "logmech": "KRB5"}}}}})
+    det = FakeDet(modules={"pyodbc", "teradatasql", "keyring"}, dsns={"TD_PROD": "Teradata"})
+    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "sources",
+                      "--set", "sources.teradata.uat.dsn=TD_PROD"], det)
+    out, _err = capsys.readouterr()
+    assert rc == 0, out
+    cfg = json.loads(cfg_path.read_text())
+    envs = cfg["sources"]["teradata"]["envs"]
+    assert envs["uat"]["dsn"] == "TD_PROD"                                          # repaired
+    assert envs["prod"] == {"mode": "odbc", "dsn": "TD_PROD", "logmech": "KRB5"}    # untouched
+    assert cfg["verified"]["teradata:prod"] == "2026-09-02"                         # a working env is not disturbed
+    assert "was_failing: 1" in out
+    asked = out.split("asked[")[1].split("\n")[0]
+    assert "sources.teradata.uat." in asked and "teradata.prod" not in asked
+    assert "GONE" in out and "sources/teradata:uat" in out                          # why it was re-asked, in the output
+
+
+def test_patch_with_nothing_broken_asks_nothing(cfg_path, capsys):
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
+            "verified": {"jira": "2026-09-02"}})
+    assert W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "pncli"], FakeDet()) == 0
+    out = capsys.readouterr().out
+    assert "repaired: 0" in out and "nothing to repair" in out and "--include-warnings" in out
+
+
+def test_patch_repairs_a_missing_pncli_launcher(cfg_path, capsys, tmp_path):
+    """Laptop case: pncli is not on PATH at all (npm shim, no pncli.exe). --patch asks for the one path."""
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
+            "verified": {"jira": "2026-09-02"}})
+    shim = tmp_path / "pncli.cmd"
+    shim.write_text("@echo off\n", encoding="utf-8")
+    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "pncli", "--set", f"pncli.exe={shim}"],
+                     FakeDet(pncli_bin=None))
+    out, _err = capsys.readouterr()
+    assert "pncli/pncli launcher" in out and "not found on PATH" in out
+    assert json.loads(cfg_path.read_text())["pncli"]["exe"] == str(shim).replace("\\", "/")
+    assert rc == 0 and "ok: true" in out and "was_failing: 1" in out
+
+
+def test_patch_repairs_a_wrong_az_path(cfg_path, capsys):
+    """Laptop case: az lives at C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd."""
+    az = "C:/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd"
+    C.save({"powerbi": {"tools": {"az_exe": "C:/wrong/az.cmd"}}})
+    det = FakeDet(tools={"az": None})
+    det.files[C.expand(az)] = "@echo off"
+    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "powerbi", "--set", f"powerbi.az_exe={az}"], det)
+    out, _err = capsys.readouterr()
+    assert "powerbi/az_exe" in out and "C:/wrong/az.cmd" in out
+    assert json.loads(cfg_path.read_text())["powerbi"]["tools"]["az_exe"] == az
+    assert rc == 0 and "was_failing: 1" in out and "asked[1]: powerbi.az_exe" in out
+
+
+def test_scoped_prompter_only_prompts_in_scope():
+    inner = W.AnswerPrompter({"a.x": "asked", "b.y": "asked"})
+    p = W.ScopedPrompter(inner, ["a."], {"a.": "a.x is wrong"})
+    assert p.ask("a.x", "?", "current") == "asked" and p.asked == ["a.x"]
+    assert p.ask("b.y", "?", "current") == "current"          # out of scope keeps the stored value
+    assert p.confirm("b.z", "?", True) is True and p.confirm("b.z", "?", False) is False
+    assert p.ask("b.w", "?", None, ["one", "two"]) == "one"
+    assert p.asked == ["a.x"]

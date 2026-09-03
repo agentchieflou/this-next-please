@@ -21,6 +21,8 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 ## Windows facts learned on the laptop (do not regress)
 - Files written by Windows PowerShell 5.1 carry a UTF-8 BOM (`Set-Content -Encoding utf8`) or are UTF-16 (`>`): read every external file through `agentdata/textio.py`.
 - npm-installed CLIs (pncli, az) exist only as `.cmd` shims. Never hand a bare name to `subprocess`; go through `agentdata/proc.py`.
+- A cmd.exe command line must reach Windows as a STRING. As a list it goes through `list2cmdline`, which backslash-escapes the quotes, and cmd.exe answers "The filename, directory name, or volume label syntax is incorrect".
+- Every failing check names the prompt keys that fix it (`Check.keys`), which is what makes `ad-setup --patch` surgical. Add keys to any new check.
 - A doctor row must prove a tool *starts*, not that a file exists: `which` found `pncli.cmd` while the connector could not launch it.
 
 ## Rules for you

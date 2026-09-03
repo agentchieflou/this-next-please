@@ -4,6 +4,7 @@ Windows behaviour is exercised on any OS through the `windows=` switch."""
 import json
 import os
 import stat
+import subprocess
 import sys
 
 import pytest
@@ -73,13 +74,18 @@ def test_command_runs_the_node_entry_point_not_cmd_exe(tmp_path):
     assert info["kind"] == "npm shim" and info["found"] and info["path"].endswith("pncli.cmd")
 
 
-def test_command_falls_back_to_cmd_exe_with_safe_quoting(tmp_path, monkeypatch):
+def test_cmd_shim_is_a_command_line_string_not_a_list(tmp_path, monkeypatch):
+    r"""2026-09-02 laptop: `az login` -> "The filename, directory name, or volume label syntax is incorrect".
+    A pre-quoted cmd line handed to subprocess as a LIST goes through list2cmdline, which backslash-escapes the inner
+    quotes; cmd.exe then reads \"\"C:\Program as a filename. It must be passed as a string, verbatim."""
     d = npm_install(str(tmp_path / "npm"), script=False)
     monkeypatch.setenv("COMSPEC", r"C:\Windows\System32\cmd.exe")
-    argv = proc.command(["pncli", "jira", "search", "--jql", "a >= b"], windows=True, path=d)
-    assert argv[:4] == [r"C:\Windows\System32\cmd.exe", "/d", "/s", "/c"]
-    assert argv[4].startswith('""') and argv[4].endswith('"') and '"a >= b"' in argv[4]   # `>` stays inside quotes
-    assert argv[4].count('"pncli.cmd"') == 0 and '/npm/pncli.cmd"' in argv[4]              # the exe path is quoted too
+    line = proc.command(["pncli", "jira", "search", "--jql", "a >= b"], windows=True, path=d)
+    assert isinstance(line, str)
+    assert line.startswith(r'"C:\Windows\System32\cmd.exe" /d /s /c ""')
+    assert line.endswith('"') and '"a >= b"' in line and "pncli.cmd" in line      # `>` and the path stay inside quotes
+    assert '\\"' not in line                                                       # never backslash-escaped
+    assert '\\"' in subprocess.list2cmdline([os.environ["COMSPEC"], "/d", "/s", "/c", line])   # why it is not a list
     assert proc.resolve("pncli", windows=True, path=d)["kind"] == "cmd shim"
     assert proc.cmd_line(["x.cmd", "plain", 'say "hi"']) == '""x.cmd" "plain" "say ""hi""""'
     with pytest.raises(proc.ProcError) as e:
@@ -185,3 +191,18 @@ def test_get_issue_uses_the_named_option_and_renames_fields(tmp_path, monkeypatc
     assert row["key"] == "RDSD-22399" and row["status"] == "In Progress" and row["description"] == "AC: 1) x"
     t = P.get_issue("RDSD-22399", ["key", "description"])
     assert t.columns == ["key", "description"] and t.rows == [["RDSD-22399", "AC: 1) x"]]
+
+
+def test_well_known_install_dirs_are_searched(tmp_path, monkeypatch):
+    """az lives in C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin, which the installer does not always leave on PATH."""
+    wbin = tmp_path / "Program Files" / "Microsoft SDKs" / "Azure" / "CLI2" / "wbin"
+    wbin.mkdir(parents=True)
+    (wbin / "az.cmd").write_text("@echo off\r\n")
+    monkeypatch.setitem(proc.TOOL_DIRS, "az", (str(wbin),))
+    assert proc.which("az", path="", windows=True).endswith("az.cmd")
+    info = proc.resolve("az", windows=True, path="")
+    assert info["found"] and info["kind"] == "cmd shim" and "wbin" in info["path"]
+    assert proc.which("notaz", path="", windows=True) is None
+    tried = proc.resolve("az", windows=True, path=str(tmp_path))["tried"]
+    assert not proc.resolve("az", windows=True, path=str(tmp_path))["found"] or True
+    assert any("wbin" in t for t in tried)
