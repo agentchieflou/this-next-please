@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 from . import config as C
+from . import policy, ui
 from . import toon
 from .console import utf8_stdout
 from .model import OUT_DIR, AgentTable
@@ -26,10 +27,24 @@ def cmd_plan(a) -> int:
     pbip = a.pbip or (os.path.dirname(facts["pbip_path"]) if facts.get("pbip_path") else ".")
     window = tuple(a.window.split(",", 1)) if a.window and "," in a.window else None
     res = PL.build(pbip, a.visual, a.ticket or facts.get("jira_project", "UAT"), a.page, a.expected, window, facts)
-    print(toon.encode({"meta": {"ok": True, "source": "ad-uat plan", "visual": res["visual"], "title": res["title"] or "", "page": res["page"],
-                                "key_guess": res["key_guess"], "metrics": res["metrics"], "sources": res["sources"], "sql": res["sql"], "truth_order": res["truth_order"]},
-                       "measures": [{"name": m["name"], "table": m["table"], "deps": ";".join(m["deps"])} for m in res["measures"]],
-                       "steps": res["steps"]}))
+    if policy.pretty():
+        ui.facts([("visual", res["visual"]), ("title", res["title"] or ""), ("page", res["page"]),
+                  ("key_guess", res["key_guess"]), ("metrics", ", ".join(res["metrics"])),
+                  ("sources", ", ".join(res["sources"])), ("truth_order", " -> ".join(res["truth_order"]))],
+                 title="ad-uat plan")
+        if res.get("measures"):
+            ui.table(["name", "table", "deps"],
+                     [[m["name"], m["table"], ";".join(m["deps"])] for m in res["measures"]],
+                     title="measures")
+        if res.get("steps"):
+            ui.table(["tier", "command", "description"],
+                     [[s.get("tier", ""), s.get("command", ""), s.get("description", "")] for s in res["steps"]],
+                     title="steps", wrap=(1, 2))
+    else:
+        print(toon.encode({"meta": {"ok": True, "source": "ad-uat plan", "visual": res["visual"], "title": res["title"] or "", "page": res["page"],
+                                    "key_guess": res["key_guess"], "metrics": res["metrics"], "sources": res["sources"], "sql": res["sql"], "truth_order": res["truth_order"]},
+                           "measures": [{"name": m["name"], "table": m["table"], "deps": ";".join(m["deps"])} for m in res["measures"]],
+                           "steps": res["steps"]}))
     return 0
 
 
@@ -59,33 +74,50 @@ def cmd_reconcile(a) -> int:
         if per_class.get(f["class"], 0) < a.show:
             shown.append(f)
             per_class[f["class"]] = per_class.get(f["class"], 0) + 1
-    print(toon.encode({"meta": meta, "counts": {c: n for c, n in res["counts"].items() if c != "ok"}}))
-    print(toon.table("findings", ["key", "col", "class", "expected", "jira", "hist", "pbi", "truth", "note"],
-                     [[f[c] for c in ("key", "col", "class", "expected", "jira", "hist", "pbi", "truth", "note")] for f in shown]))
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k not in ("ok", "source")] +
+                 [(f"count_{c}", n) for c, n in res["counts"].items() if c != "ok"],
+                 title="ad-uat reconcile")
+        if shown:
+            ui.table(["key", "col", "class", "expected", "jira", "hist", "pbi", "truth", "note"],
+                     [[f[c] for c in ("key", "col", "class", "expected", "jira", "hist", "pbi", "truth", "note")] for f in shown],
+                     title="findings", status_col=2)
+    else:
+        print(toon.encode({"meta": meta, "counts": {c: n for c, n in res["counts"].items() if c != "ok"}}))
+        print(toon.table("findings", ["key", "col", "class", "expected", "jira", "hist", "pbi", "truth", "note"],
+                         [[f[c] for c in ("key", "col", "class", "expected", "jira", "hist", "pbi", "truth", "note")] for f in shown]))
     return 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-uat", description="UAT from a document: expected values, the reproduction recipe per tier, and the reconciliation.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("expect", help="load expected values from csv/tsv/xlsx/docx/md and infer the grain")
     p.add_argument("file"); p.add_argument("--sheet"); p.add_argument("--table-index", type=int, default=0); p.add_argument("--name", default="expected")
-    p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_expect)
+    p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_expect)
     p = sub.add_parser("plan", help="visual -> measures -> tables -> source objects -> commands per tier")
     p.add_argument("pbip", nargs="?"); p.add_argument("--visual", required=True); p.add_argument("--page"); p.add_argument("--ticket")
-    p.add_argument("--expected"); p.add_argument("--window", help="start,end (YYYY-MM-DD)"); p.set_defaults(fn=cmd_plan)
+    p.add_argument("--expected"); p.add_argument("--window", help="start,end (YYYY-MM-DD)")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_plan)
     p = sub.add_parser("reconcile", help="compare tiers and classify every (key, metric)")
     p.add_argument("--expected"); p.add_argument("--jira"); p.add_argument("--hist"); p.add_argument("--pbi")
     p.add_argument("--key", required=True); p.add_argument("--cols", required=True); p.add_argument("--window"); p.add_argument("--hist-coverage")
     p.add_argument("--tol", type=float, default=0.0); p.add_argument("--ticket", default="uat"); p.add_argument("--show", type=int, default=20)
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_reconcile)
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
+    if getattr(a, "pretty", False):
+        os.environ["AGENTDATA_UI"] = "rich"
+        ui.reset_cache()
     try:
-        sys.exit(a.fn(a))
+        return a.fn(a)
     except (X.ExpectError,) as e:
-        print(error(str(e), e.hint, "ad-uat")); sys.exit(2)
+        print(error(str(e), e.hint, "ad-uat")); return 2
     except (ValueError, LookupError, FileNotFoundError) as e:
-        print(error(str(e)[:300], "check the paths, --key and --cols (ad-view <tsv> shows the columns)", "ad-uat")); sys.exit(2)
+        print(error(str(e)[:300], "check the paths, --key and --cols (ad-view <tsv> shows the columns)", "ad-uat")); return 2
     except C.ConfigError as e:
-        print(error(str(e), e.hint, "ad-uat")); sys.exit(2)
+        print(error(str(e), e.hint, "ad-uat")); return 2

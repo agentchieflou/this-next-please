@@ -10,12 +10,17 @@ import os
 import sys
 
 from . import confluence as CF
+from . import policy, ui
 from . import toon
 from .console import utf8_stdout
 from .textio import read_text, write_text
 
 
 def _meta(ok: bool, source: str, **kw) -> str:
+    if policy.pretty():
+        items = [(k, v) for k, v in kw.items() if v not in (None, "", [], {})]
+        ui.facts(items, title=source, subtitle="ok" if ok else "fail")
+        return ""
     return toon.encode({"meta": {"ok": ok, "source": source, **{k: v for k, v in kw.items() if v not in (None, "", [], {})}}})
 
 
@@ -28,15 +33,19 @@ def cmd_html(a) -> int:
         print(html)
         return 0
     write_text(out, html)
-    print(_meta(True, f"ad-confluence html {a.src}", path=out.replace("\\", "/"), title=title, chars=info["chars"],
+    msg = _meta(True, f"ad-confluence html {a.src}", path=out.replace("\\", "/"), title=title, chars=info["chars"],
                 blocks=info["blocks"], warnings=info["warnings"],
-                next=f'ad-pncli raw --body-file {out.replace(os.sep, "/")} confluence create-page --title "{title}" --dry-run'))
+                next=f'ad-pncli raw --body-file {out.replace(os.sep, "/")} confluence create-page --title "{title}" --dry-run')
+    if msg:
+        print(msg)
     return 0
 
 
 def cmd_check(a) -> int:
     CF.validate(read_text(a.path))
-    print(_meta(True, f"ad-confluence check {a.path}", path=a.path.replace("\\", "/"), well_formed=True))
+    msg = _meta(True, f"ad-confluence check {a.path}", path=a.path.replace("\\", "/"), well_formed=True)
+    if msg:
+        print(msg)
     return 0
 
 
@@ -50,18 +59,27 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--title", help="page title (default: the document's first H1, which is then not repeated in the body)")
     p.add_argument("--keep-title", action="store_true", help="keep the first H1 in the body instead of lifting it to the title")
     p.add_argument("--stdout", action="store_true", help="print the body instead of writing it (debugging; not for a skill)")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_html)
     p = sub.add_parser("check", help="is an existing body well-formed enough for Confluence to accept it?")
     p.add_argument("path")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_check)
     a = ap.parse_args(argv)
+    if getattr(a, "pretty", False):
+        os.environ["AGENTDATA_UI"] = "rich"
+        ui.reset_cache()
     try:
         return a.func(a)
     except CF.ConfluenceError as e:
-        print(_meta(False, f"ad-confluence {a.cmd}", error=str(e), hint=e.hint))
+        msg = _meta(False, f"ad-confluence {a.cmd}", error=str(e), hint=e.hint)
+        if msg:
+            print(msg)
         return 2
     except OSError as e:
-        print(_meta(False, f"ad-confluence {a.cmd}", error=str(e), hint="check the path; the source is written by the skill that produced the data"))
+        msg = _meta(False, f"ad-confluence {a.cmd}", error=str(e), hint="check the path; the source is written by the skill that produced the data")
+        if msg:
+            print(msg)
         return 2
 
 

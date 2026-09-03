@@ -156,9 +156,9 @@ same TOON they always did when stdout is piped or captured. The switch is `AGENT
 | `rich` | drawn | drawn |
 | `plain` | TOON | TOON |
 
-Query results are deliberately not drawn under `auto`: nothing can tell Luna's shell from a person's, and a table
+Query results and data commands are deliberately not drawn under `auto`: nothing can tell Luna's shell from a person's, and a table
 in box characters is not TOON. Ask for one when you want to read it — `--pretty` on `ad-td` / `ad-ora` / `ad-hive`
-/ `ad-impala` / `ad-view`, or `AGENTDATA_UI=rich`. Use `AGENTDATA_UI=plain` to paste a report into a ticket, and
+/ `ad-impala` / `ad-view` / `ad-jira` / `ad-pbip` / `ad-uat` / `ad-dpm` / `ad-confluence` / `ad-state`, or `AGENTDATA_UI=rich`. Use `AGENTDATA_UI=plain` to paste a report into a ticket, and
 `AGENTDATA_WIDTH=100` to pin the width for a screenshot. `NO_COLOR`, `FORCE_COLOR` and `AGENTDATA_COLOR` still
 control colour on its own.
 

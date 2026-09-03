@@ -191,3 +191,87 @@ def test_a_data_view_does_not_read_its_own_cells_as_markup(monkeypatch, tmp_path
                       source="ad-pbip refs --visual [chart]")
     out = color.strip(policy.render(many))                      # rule 4: the table
     assert "measures [all]" in out and "DIVIDE([Margin], [Total Sales])" in out and "SUM(f[amount])" in out
+
+
+def test_newly_wired_commands_help_mentions_pretty(capsys):
+    from agentdata import cli_state, cli_confluence, cli_pbip, cli_uat, cli_dpm, cli_jira
+    cases = [
+        (cli_state, ["show", "--help"]),
+        (cli_state, ["set", "--help"]),
+        (cli_confluence, ["html", "--help"]),
+        (cli_confluence, ["check", "--help"]),
+        (cli_pbip, ["check", "--help"]),
+        (cli_pbip, ["project", "--help"]),
+        (cli_pbip, ["lint", "--help"]),
+        (cli_pbip, ["refs", "--help"]),
+        (cli_uat, ["expect", "--help"]),
+        (cli_uat, ["plan", "--help"]),
+        (cli_uat, ["reconcile", "--help"]),
+        (cli_dpm, ["locate", "--help"]),
+        (cli_dpm, ["inspect", "--help"]),
+        (cli_dpm, ["validate", "--help"]),
+        (cli_dpm, ["convert", "--help"]),
+        (cli_dpm, ["lineage", "--help"]),
+        (cli_dpm, ["binding", "--help"]),
+        (cli_jira, ["whoami", "--help"]),
+        (cli_jira, ["fields", "--help"]),
+        (cli_jira, ["statuses", "--help"]),
+        (cli_jira, ["transitions", "--help"]),
+        (cli_jira, ["transition", "--help"]),
+        (cli_jira, ["sprints", "--help"]),
+        (cli_jira, ["changelog", "--help"]),
+        (cli_jira, ["sprint-replay", "--help"]),
+    ]
+    for mod, argv in cases:
+        with pytest.raises(SystemExit) as exc:
+            mod.main(argv)
+        assert exc.value.code == 0, f"{mod.__name__} {argv} exited with {exc.value.code}"
+        out = capsys.readouterr().out
+        assert "--pretty" in out, f"{mod.__name__} {argv} help does not mention --pretty"
+
+
+def test_ad_state_pretty_vs_plain(monkeypatch, capsys, tmp_path):
+    from agentdata import cli_state, state as S
+    st_file = tmp_path / "state.json"
+    S.save({"project": "PROJ", "phase": "idle", "active_ticket": "RDSD-101", "artifacts": []}, str(st_file))
+
+    # Piped / non-terminal without --pretty: raw TOON
+    assert cli_state.main(["--file", str(st_file), "show"]) == 0
+    plain = capsys.readouterr().out
+    assert plain.startswith("meta:") and "phase: idle" in plain and "╭" not in plain
+
+    # With --pretty: rich panel
+    monkeypatch.setenv("AGENTDATA_WIDTH", "100")
+    assert cli_state.main(["--file", str(st_file), "show", "--pretty"]) == 0
+    pretty = color.strip(capsys.readouterr().out)
+    assert "╭" in pretty and "ad-state show" in pretty and "meta:" not in pretty and "phase" in pretty
+
+
+def test_ad_confluence_pretty_vs_plain(monkeypatch, capsys, tmp_path):
+    from agentdata import cli_confluence
+    doc = tmp_path / "page.html"
+    doc.write_text("<p>Hello world</p>", encoding="utf-8")
+
+    assert cli_confluence.main(["check", str(doc)]) == 0
+    plain = capsys.readouterr().out
+    assert plain.startswith("meta:") and "well_formed: true" in plain and "╭" not in plain
+
+    monkeypatch.setenv("AGENTDATA_WIDTH", "100")
+    assert cli_confluence.main(["check", str(doc), "--pretty"]) == 0
+    pretty = color.strip(capsys.readouterr().out)
+    assert "╭" in pretty and "ad-confluence check" in pretty and "meta:" not in pretty
+
+
+def test_ad_pbip_lint_pretty_vs_plain(monkeypatch, capsys, tmp_path):
+    from agentdata import cli_pbip
+    tmdl = tmp_path / "model.tmdl"
+    tmdl.write_text("table Sales\n\tlineageTag: abc\n", encoding="utf-8")
+
+    assert cli_pbip.main(["lint", str(tmdl)]) == 0
+    plain = capsys.readouterr().out
+    assert plain.startswith("meta:") and "╭" not in plain
+
+    monkeypatch.setenv("AGENTDATA_WIDTH", "100")
+    assert cli_pbip.main(["lint", str(tmdl), "--pretty"]) == 0
+    pretty = color.strip(capsys.readouterr().out)
+    assert "╭" in pretty and "ad-pbip lint" in pretty and "meta:" not in pretty
