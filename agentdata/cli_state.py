@@ -63,6 +63,8 @@ def cmd_set(a) -> int:
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-state", description=__doc__)
+    from . import version
+    version.add_version(ap)
     ap.add_argument("--file", default=S.PATH, help="state file (default .agent/state.json)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("show", help="print the state and the one-line summary")

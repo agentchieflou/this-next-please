@@ -435,7 +435,8 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
                     help="colour output (default auto: on for a terminal, off when piped; NO_COLOR / AGENTDATA_COLOR also apply)")
     ap.add_argument("--quiet", action="store_true", help="show only non-ok rows")
     ap.add_argument("--only", action="append", help="step key(s), comma-separated: pncli,sources,powerbi,project")
-    from .. import completion
+    from .. import completion, version
+    version.add_version(ap)
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     utf8_stdout()
@@ -577,7 +578,8 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                     help="colour output (default auto: on for a terminal, off when piped)")
     ap.add_argument("--print-completion", choices=["bash", "zsh", "powershell"],
                     help="print shell tab-completion setup script and exit")
-    from .. import completion
+    from .. import completion, version
+    version.add_version(ap)
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if a.print_completion:

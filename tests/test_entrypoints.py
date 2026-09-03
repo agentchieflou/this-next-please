@@ -66,3 +66,69 @@ def test_docs_only_mention_commands_that_exist(where):
             if cmd not in M.COMMANDS and cmd not in {"--help"}:
                 bad.append(f"{os.path.relpath(f, ROOT)}: python -m agentdata {cmd}")
     assert bad == [], "commands referenced but not installed: " + "; ".join(sorted(set(bad)))
+
+
+def test_every_script_and_module_supports_version(capsys):
+    import importlib
+    from agentdata.version import version_string
+    expected = version_string()
+    assert expected.startswith("agentdata ")
+
+    scripts = _scripts()
+    for name, target in scripts.items():
+        mod_name, func_name = target.split(":")
+        mod = importlib.import_module(mod_name)
+        func = getattr(mod, func_name)
+        rc = None
+        try:
+            try:
+                rc = func(["--version"])
+            except TypeError:
+                old_argv = sys.argv
+                sys.argv = [name, "--version"]
+                try:
+                    rc = func()
+                finally:
+                    sys.argv = old_argv
+        except SystemExit as exc:
+            rc = exc.code
+        assert rc in (0, None), f"{name} --version exited with {rc}"
+        out = capsys.readouterr().out.strip()
+        assert expected in out, f"{name} --version gave {out!r}, expected {expected!r}"
+
+    # Module form --version and -v
+    assert M.main(["--version"]) == 0
+    assert expected in capsys.readouterr().out.strip()
+    assert M.main(["-v"]) == 0
+    assert expected in capsys.readouterr().out.strip()
+
+
+def test_ad_help(capsys):
+    from agentdata import cli_help
+
+    # No args: prints catalog
+    assert cli_help.main([]) == 0
+    out = capsys.readouterr().out
+    assert "usage: python -m agentdata" in out or "agentdata" in out
+    assert "ad-pbip" in out and "ad-jira" in out
+
+    # Command help
+    assert cli_help.main(["pbip"]) == 0
+    out = capsys.readouterr().out
+    assert "ad-pbip" in out
+
+    # Command help with ad- prefix
+    assert cli_help.main(["ad-jira"]) == 0
+    out = capsys.readouterr().out
+    assert "ad-jira" in out
+
+    # Misspelled command: suggestions
+    assert cli_help.main(["pbi"]) == 2
+    err = capsys.readouterr().err
+    assert "Did you mean" in err and "ad-pbip" in err
+
+    # Completely unknown command
+    assert cli_help.main(["nonexistentcommand12345"]) == 2
+    err = capsys.readouterr().err
+    assert "unknown command 'nonexistentcommand12345'" in err
+

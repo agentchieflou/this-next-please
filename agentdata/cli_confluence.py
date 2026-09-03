@@ -54,6 +54,8 @@ def cmd_check(a) -> int:
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-confluence", description=__doc__)
+    from . import version
+    version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("html", help="convert a Markdown file to a Confluence storage-format body")
     p.add_argument("src", help="the Markdown file, e.g. .agent/out/<KEY>-uat-findings.md")

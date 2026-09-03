@@ -94,6 +94,8 @@ def cmd_reconcile(a) -> int:
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-uat", description="UAT from a document: expected values, the reproduction recipe per tier, and the reconciliation.")
+    from . import version
+    version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("expect", help="load expected values from csv/tsv/xlsx/docx/md and infer the grain")
     p.add_argument("file"); p.add_argument("--sheet"); p.add_argument("--table-index", type=int, default=0); p.add_argument("--name", default="expected")

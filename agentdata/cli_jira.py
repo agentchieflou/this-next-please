@@ -259,6 +259,8 @@ def cmd_sprint_replay(a) -> int:
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-jira", description="Jira REST via pncli's token: history the current-state search cannot give.")
+    from . import version
+    version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("whoami", help="detect Cloud/DC flavor and auth; caches it in config")
     p.add_argument("--redetect", action="store_true"); p.add_argument("--raw", action="store_true")

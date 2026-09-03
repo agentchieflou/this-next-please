@@ -151,6 +151,8 @@ def _report(meta: dict, rows: list[dict], cmds: dict, payload: dict, show_comman
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-update", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    from . import version
+    version.add_version(ap)
     ap.add_argument("--check", "--dry-run", action="store_true", dest="check",
                     help="report what is installed and print the commands; run nothing")
     ap.add_argument("--cli", action="store_true", help="update only the ad-* CLI")

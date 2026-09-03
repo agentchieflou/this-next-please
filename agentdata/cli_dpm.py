@@ -264,6 +264,8 @@ def _run_args(p: argparse.ArgumentParser) -> None:
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-dpm", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    from . import version
+    version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("locate", help="find and validate a run root: markers, versions, binding")

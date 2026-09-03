@@ -7,6 +7,7 @@ from .textio import read_text
 from . import completion
 from . import config as C
 from . import toon
+from . import version
 from .console import utf8_stdout
 from .sqlcheck import DIALECTS, check, to_toon
 
@@ -15,6 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-sql-check", description="Lint SQL for a dialect before running it. "
                                  "Exit 2 when an error would make the query fail; warnings exit 0.")
+    version.add_version(ap)
     ap.add_argument("--dialect", required=True, choices=DIALECTS)
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--sql")

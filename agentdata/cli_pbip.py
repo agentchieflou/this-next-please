@@ -274,6 +274,8 @@ def cmd_measure_set(a) -> int:
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-pbip", description="PBIP projection, model<->report validation, TMDL lint and mechanical edits.")
+    from . import version
+    version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("project", help="write the LLM projection (.agent/pbip/<name>/)")
     p.add_argument("pbip", nargs="?"); p.add_argument("--out"); p.add_argument("--force", action="store_true"); p.add_argument("--legacy-ok", action="store_true")
