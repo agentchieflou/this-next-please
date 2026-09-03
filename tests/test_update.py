@@ -105,3 +105,18 @@ def test_changelog_top_version_matches_the_package():
     top = re.search(r"^## (\d+\.\d+\.\d+)", changelog, re.M).group(1)
     assert top == declared, f"CHANGELOG top is {top}, pyproject says {declared}"
     assert "ad-update" in changelog and "start a new Copilot chat" in changelog
+
+
+def test_newest_is_the_newest_skill_not_the_first_alphabetically(tmp_path):
+    """`skills_newest` is the evidence that `gh skill install` landed: it must move when a skill is rewritten."""
+    d = tmp_path / "skills"
+    for name, age in (("aaa-data-adapter", 30), ("zzz-router", 0)):
+        (d / name).mkdir(parents=True)
+        f = d / name / "SKILL.md"
+        f.write_text("x", encoding="utf-8")
+        if age:
+            old = time.time() - age * 86400
+            os.utime(f, (old, old))
+    st = U.skills_state(str(d))
+    assert st["newest"] == time.strftime("%Y-%m-%d %H:%M", time.localtime(st["newest_epoch"]))
+    assert st["newest"] == time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(d / "zzz-router" / "SKILL.md")))

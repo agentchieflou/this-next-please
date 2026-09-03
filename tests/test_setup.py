@@ -335,3 +335,50 @@ def test_scoped_prompter_only_prompts_in_scope():
     assert p.confirm("b.z", "?", True) is True and p.confirm("b.z", "?", False) is False
     assert p.ask("b.w", "?", None, ["one", "two"]) == "one"
     assert p.asked == ["a.x"]
+
+
+def test_launcher_probes_the_pinned_path_not_the_bare_name(tmp_path, monkeypatch):
+    """A pinned launcher is usually NOT on PATH — probing the bare name reported a working pin as broken."""
+    if os.name == "nt":
+        pytest.skip("POSIX stand-in for a pinned launcher")
+    exe = tmp_path / "pncli"
+    exe.write_text("#!/bin/sh\necho pncli/1.4.0\n", encoding="utf-8", newline="\n")
+    os.chmod(exe, 0o755)
+    info = W.Detectors().launcher("pncli", str(exe))
+    assert info["found"] and info["rc"] == 0 and info["version"] == "pncli/1.4.0"
+    assert W.Detectors().launcher("pncli", str(tmp_path / "gone"))["found"] is False
+
+
+def test_pncli_step_honours_PNCLI_EXE(cfg_path, monkeypatch):
+    """ad-pncli honours PNCLI_EXE and the check's own hint recommends it; the doctor must resolve it the same way."""
+    seen = {}
+
+    class Det(FakeDet):
+        def launcher(self, name, exe=None):
+            seen["exe"] = exe
+            return super().launcher(name, exe)
+
+    monkeypatch.setenv("PNCLI_EXE", "C:/tools/pncli/pncli.cmd")
+    ctx = W.Context(cfg=C.load(), det=Det(), ask=W.AnswerPrompter({}), facts={})
+    pncli_import.PncliStep().detect(ctx)
+    assert seen["exe"] == "C:/tools/pncli/pncli.cmd"
+    monkeypatch.delenv("PNCLI_EXE")
+    C.save({"pncli": {"exe": "C:/from/config/pncli.cmd"}})
+    ctx = W.Context(cfg=C.load(), det=Det(), ask=W.AnswerPrompter({}), facts={})
+    pncli_import.PncliStep().detect(ctx)
+    assert seen["exe"] == "C:/from/config/pncli.cmd"
+
+
+def test_patch_repairs_a_launcher_that_is_found_but_will_not_start(cfg_path, capsys, tmp_path):
+    """`exits N on --version` is tagged with pncli.exe, so --patch must actually offer that prompt."""
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "exe": "C:/broken/pncli.cmd",
+                      "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
+            "verified": {"jira": "2026-09-02"}})
+    good = tmp_path / "pncli.cmd"
+    good.write_text("@echo off\n", encoding="utf-8")
+    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "pncli", "--set", f"pncli.exe={good}"],
+                     FakeDet(pncli_rc=9))
+    out = capsys.readouterr().out
+    assert "exits 9 on --version" in out and "asked[1]: pncli.exe" in out
+    assert json.loads(cfg_path.read_text())["pncli"]["exe"] == str(good).replace("\\", "/")
+    assert rc in (0, 1)

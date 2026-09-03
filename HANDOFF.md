@@ -23,6 +23,7 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 - npm-installed CLIs (pncli, az) exist only as `.cmd` shims. Never hand a bare name to `subprocess`; go through `agentdata/proc.py`.
 - A cmd.exe command line must reach Windows as a STRING. As a list it goes through `list2cmdline`, which backslash-escapes the quotes, and cmd.exe answers "The filename, directory name, or volume label syntax is incorrect".
 - Every failing check names the prompt keys that fix it (`Check.keys`), which is what makes `ad-setup --patch` surgical. Add keys to any new check.
+- A new command needs three things or CI fails it: a `[project.scripts]` entry, a row in `__main__.COMMANDS` pointing at the same function, and an int return (never a bare `sys.exit` in the module form's path). `tests/test_entrypoints.py` also refuses any `ad-*` name mentioned in a skill or doc that is not installed.
 - A doctor row must prove a tool *starts*, not that a file exists: `which` found `pncli.cmd` while the connector could not launch it.
 
 ## Rules for you

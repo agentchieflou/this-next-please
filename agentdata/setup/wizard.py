@@ -83,7 +83,8 @@ class Detectors:
         """How `name` resolves, plus `--version` proof that it starts. Faked wholesale in tests."""
         info = proc.resolve(name, exe=exe)
         if info["found"]:
-            rc, out, err = self.run([name, "--version"], timeout=60)
+            # probe the path we resolved: a pinned launcher is usually NOT on PATH, so the bare name would fail
+            rc, out, err = self.run([info["path"], "--version"], timeout=60)
             lines = (out or err).strip().splitlines()
             info["rc"], info["version"] = rc, (lines[0][:60] if lines else "")
         return info

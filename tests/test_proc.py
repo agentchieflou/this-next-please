@@ -206,3 +206,22 @@ def test_well_known_install_dirs_are_searched(tmp_path, monkeypatch):
     tried = proc.resolve("az", windows=True, path=str(tmp_path))["tried"]
     assert not proc.resolve("az", windows=True, path=str(tmp_path))["found"] or True
     assert any("wbin" in t for t in tried)
+
+
+def test_a_pinned_js_entry_point_runs_through_node(tmp_path, monkeypatch):
+    """cmd_line's refusal hint offers `pin the .js entry point` as the escape hatch; it has to actually work."""
+    node_dir = tmp_path / "nodedir"
+    node_dir.mkdir()
+    (node_dir / "node").write_text("#!/bin/sh\n", encoding="utf-8")
+    os.chmod(node_dir / "node", 0o755)
+    monkeypatch.setenv("PATH", str(node_dir) + os.pathsep + os.environ.get("PATH", ""))
+    script = npm_install(str(tmp_path / "npm"))
+    js = os.path.join(script, "node_modules", "@kolatts", "pncli", "bin", "cli.js")
+    info = proc.resolve("pncli", exe=js, windows=True)
+    assert info["kind"] == "node script" and info["script"].endswith("cli.js") and info["node"].endswith("node")
+    argv = proc.command(["pncli", "jira", "search", "--jql", "a % b"], exe=js, windows=True)
+    assert argv[0].endswith("node") and argv[1].endswith("cli.js") and argv[-1] == "a % b"   # `%` is safe here
+    real_which = proc.which                                                       # no node anywhere: say so
+    monkeypatch.setattr(proc, "which", lambda name, **kw: None if name == "node" else real_which(name, **kw))
+    info = proc.resolve("pncli", exe=js, windows=True)
+    assert info["kind"] == "executable" and "no `node` on PATH" in info["error"]

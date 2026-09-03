@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-from .guard import file_sha256
+from .guard import file_sha256, is_within
 from .run import HEX64, Run, Selection
 
 HINTS = {
@@ -18,7 +18,9 @@ HINTS = {
     "loan-mismatch": "selection loan id differs from the canonical loan id; report to DPM",
     "channel-missing": "canonical row has no channel; report to DPM",
     "channel-unknown": "channel not in the allowed set (binding channels.allowed or the channels table); extend the set only with DPM sign-off",
-    "source-missing": "source document path does not resolve to a file under the run root; report to DPM",
+    "source-missing": "source document path does not resolve to a file; report to DPM",
+    "source-outside-root": "the source document lives outside the run root: it is not covered by the run's snapshot and may change under the handoff",
+    "document-id-unsafe": "document id contains a path separator or '..' — it is used to name files; report to DPM",
     "page-count-missing": "no page count (canonical page_count, pages table or text_analysis pages); report to DPM",
     "page-invalid": "selection pages must be positive integers or omitted for all pages",
     "page-out-of-range": "selection page exceeds the document's page count; report to DPM",
@@ -100,6 +102,7 @@ class Result:
     selections: list[Selection]
     channels_source: str
     run_id: str
+    partition: dict          # binding thresholds; counts() needs them, so it is never optional
 
     def counts(self) -> dict:
         native = sum(1 for d in self.docs if d.bucket == "resolved" for p in d.pages if native_reusable(d.page_info.get(p, {}), self.partition))
@@ -111,8 +114,6 @@ class Result:
                 "native_text": native, "ocr": pages - native,
                 "errors": sum(1 for f in self.findings if f.severity == "error"),
                 "warnings": sum(1 for f in self.findings if f.severity == "warning")}
-
-    partition: dict = field(default_factory=dict)
 
 
 def _num(v):
@@ -143,6 +144,11 @@ def ocr_able(doc: Doc, part: dict) -> bool:
         return mime in {m.lower() for m in part.get("ocr_mime", [])}
     ext = os.path.splitext(doc.source_path or "")[1].lower()
     return ext in {e.lower() for e in part.get("ocr_extensions", [])}
+
+
+def unsafe_id(value: str) -> bool:
+    """Ids reach the filesystem (text_analysis/<document_id>.json), so a separator or `..` is never acceptable."""
+    return "/" in value or "\\" in value or ".." in value.split("/") or value.strip() in ("", ".")
 
 
 def _as_page(v) -> int | None:
@@ -210,9 +216,7 @@ def validate(run: Run, *, hash_sources: bool = True) -> Result:
             d = _resolve(run, s, i, item, by_id, by_sha, allowed, pages_tbl, hashes, hash_sources, err)
             d.unresolved = bad_manifest + d.unresolved
             docs.append(d)
-    res = Result(findings, docs, selections, ch_source, run_id)
-    res.partition = part
-    return res
+    return Result(findings, docs, selections, ch_source, run_id, part)
 
 
 def _resolve(run: Run, s: Selection, i: int, item: dict, by_id, by_sha, allowed, pages_tbl, hashes, hash_sources, err) -> Doc:
@@ -233,6 +237,10 @@ def _resolve(run: Run, s: Selection, i: int, item: dict, by_id, by_sha, allowed,
         d.unsupported.append(kind)
         err(kind, d.where, d.label, message, "warning")
 
+    if did is not None and unsafe_id(did):
+        d.unresolved.append("document-id-unsafe")
+        err("document-id-unsafe", d.where, d.label, f"document id {did!r} cannot name a file")
+        return d
     row = by_id.get(did) if did is not None else None
     if row is None and isha:
         cands = by_sha.get(isha, [])
@@ -245,6 +253,10 @@ def _resolve(run: Run, s: Selection, i: int, item: dict, by_id, by_sha, allowed,
         fail("document-unknown", f"document {d.label} is not in the canonical manifest")
         return d
     d.document_id = None if row.get("document_id") is None else str(row["document_id"])
+    if d.document_id and unsafe_id(d.document_id):      # it is interpolated into the text_analysis file name
+        d.unresolved.append("document-id-unsafe")
+        err("document-id-unsafe", d.where, d.label, f"document id {d.document_id!r} cannot name a file")
+        return d
     d.canonical_rowid = row.get("_rowid")
     csha = (str(row.get("sha256") or "")).strip().lower() or None
     if isha and csha and isha != csha:
@@ -273,6 +285,8 @@ def _resolve(run: Run, s: Selection, i: int, item: dict, by_id, by_sha, allowed,
     else:
         abs_path = run.resolve(d.source_path)
         d.source_rel = run.rel(abs_path)
+        if not is_within(abs_path, run.root):
+            err("source-outside-root", d.where, d.label, f"{d.source_rel} is outside the run root", "warning")
         if not os.path.isfile(abs_path):
             fail("source-missing", f"{d.source_rel} not found")
         elif hash_sources and d.sha256 and HEX64.match(d.sha256):

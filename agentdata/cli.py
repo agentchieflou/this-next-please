@@ -73,8 +73,7 @@ def main_pncli() -> None:
     r.add_argument("pargs", nargs=argparse.REMAINDER); r.add_argument("--raw", action="store_true", dest="raw_out")
     sub.add_parser("where", help="how pncli resolves on this machine (path, npm shim, node entry, version)")
     a = ap.parse_args()
-    from . import proc
-    from . import toon
+    from . import proc                 # deferred: only ad-pncli needs them
     from .connectors import pncli as P
     try:
         if a.cmd == "where":

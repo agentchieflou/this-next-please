@@ -3,6 +3,7 @@ this is the tool you run when locate/validate refused, to see what to rebind or 
 from __future__ import annotations
 import glob
 import os
+import sqlite3
 
 from . import DpmError
 from .run import Run, norm_version
@@ -47,20 +48,34 @@ def describe(run: Run) -> dict:
     db_ok = True
     try:
         for t, cols in run.tables().items():
-            tables.append({"table": t, "rows": run.count(t), "columns": ";".join(cols)})
-    except DpmError as e:
+            try:
+                n_rows = run.count(t)
+            except sqlite3.Error as e:            # a view over a dropped table: report it, never traceback
+                n_rows = -1
+                problems.append(f"{t}: {e}")
+            tables.append({"table": t, "rows": n_rows, "columns": ";".join(cols)})
+    except (DpmError, sqlite3.Error) as e:
         db_ok = False
-        problems.append(e.msg)
+        problems.append(getattr(e, "msg", str(e)))
     table_names = [t["table"] for t in tables]
 
     versions: dict = {}
     supported = None
     if db_ok:
         spec = rr.get("run_id") or {}
+        try:
+            observed_run = run.run_id()
+        except sqlite3.Error as e:
+            observed_run = ""
+            problems.append(str(e))
         row("run_root.run_id", f"{spec.get('table')}.{spec.get('column')}", "ok" if run.has(spec.get("table"), spec.get("column")) else "fallback: folder name",
-            observed=run.run_id())
+            observed=observed_run)
         vspec = b["versions"]["orchestrator"]
-        versions = run.versions()
+        try:
+            versions = run.versions()
+        except sqlite3.Error as e:
+            versions = {}
+            problems.append(str(e))
         row("versions.orchestrator", f"user_version | {vspec.get('table')}.{vspec.get('column')}",
             "ok" if any(v is not None for v in versions.values()) else "missing",
             candidates("version", table_names), observed=" ".join(f"{k}={v}" for k, v in versions.items() if v is not None))
@@ -72,7 +87,12 @@ def describe(run: Run) -> dict:
             problems.append(e.msg)
         c = b["canonical"]
         if run.has(c["table"]):
-            row("canonical.table", c["table"], "ok", observed=run.count(c["table"]))
+            try:
+                observed_rows = run.count(c["table"])
+            except sqlite3.Error as e:
+                observed_rows = "?"
+                problems.append(str(e))
+            row("canonical.table", c["table"], "ok", observed=observed_rows)
             cols = run.tables()[c["table"]]
             for concept, col in c["columns"].items():
                 if col in cols:
@@ -90,7 +110,12 @@ def describe(run: Run) -> dict:
         if ch.get("allowed"):
             row("channels", ch["allowed"], "ok (binding list)")
         elif run.has(ch.get("table"), ch.get("column")):
-            row("channels", f"{ch['table']}.{ch['column']}", "ok", observed=run.count(ch["table"]))
+            try:
+                observed_ch = run.count(ch["table"])
+            except sqlite3.Error as e:
+                observed_ch = "?"
+                problems.append(str(e))
+            row("channels", f"{ch['table']}.{ch['column']}", "ok", observed=observed_ch)
         else:
             row("channels", f"{ch.get('table')}.{ch.get('column')}", "unconstrained", candidates("channel", table_names))
 

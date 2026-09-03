@@ -335,3 +335,62 @@ def test_inspect_happy_path_and_facts(run_root, consumer, capsys, monkeypatch):
     assert os.path.isfile(os.path.join(consumer, "handoff", "dpm", RUN_ID, "job-manifest.json"))
     from agentdata.__main__ import COMMANDS
     assert COMMANDS["dpm"][0] == "agentdata.cli_dpm"
+
+
+def test_every_dpm_reader_accepts_what_powershell_writes(run_root, consumer, tmp_path):
+    """`ad-dpm binding --show > dpm-binding.json` in PowerShell 5.1 writes UTF-16: every reader must cope."""
+    b16 = tmp_path / "b16.json"
+    b16.write_bytes(b"\xff\xfe" + json.dumps({"canonical": {"columns": {"sha256": "sha256"}}}).encode("utf-16-le"))
+    assert B.load(str(b16))[0]["canonical"]["columns"]["sha256"] == "sha256"
+    sel = os.path.join(run_root, "selections", "sel-001.json")
+    raw = open(sel, encoding="utf-8").read()
+    open(sel, "wb").write(raw.encode("utf-8-sig"))                       # Set-Content -Encoding utf8
+    ana = os.path.join(run_root, "text_analysis", "D1.json")
+    raw_ana = open(ana, encoding="utf-8").read()
+    open(ana, "wb").write(b"\xff\xfe" + raw_ana.encode("utf-16-le"))          # PowerShell `>` redirection
+    assert V.validate(_run(run_root)).counts() == EXPECTED_COUNTS
+    assert _convert(run_root, consumer) == 0
+    m = os.path.join(consumer, "artifacts", "dpm", RUN_ID, "job-manifest.json")
+    raw_m = open(m, encoding="utf-8").read()
+    open(m, "wb").write(b"\xef\xbb\xbf" + raw_m.encode("utf-8"))
+    assert CV.verify(CV.load_manifest(m))["ok"] is True
+
+
+def test_inspect_never_tracebacks_on_a_damaged_database(run_root, capsys):
+    db = sqlite3.connect(os.path.join(run_root, "orchestrator.db"))
+    db.execute("CREATE TABLE tmp (x TEXT)")
+    db.execute("CREATE VIEW broken AS SELECT * FROM tmp")
+    db.execute("DROP TABLE tmp")
+    db.commit()
+    db.close()
+    rc = cli_dpm.main(["inspect", "--run-root", run_root])              # the command documented as never refusing
+    out = capsys.readouterr().out
+    assert rc in (0, 1) and "problems" in out and "no such table" in out and "broken,-1," in out
+
+
+def test_convert_refuses_an_existing_handoff_before_hashing_anything(run_root, consumer, capsys, monkeypatch):
+    assert _convert(run_root, consumer) == 0
+    capsys.readouterr()
+    monkeypatch.setattr(G, "file_sha256", lambda p: pytest.fail(f"hashed {p} before refusing"))
+    assert _convert(run_root, consumer) == 2
+    assert "refused: artifacts_exist" in capsys.readouterr().out
+
+
+def test_producer_paths_are_checked_for_traversal_and_containment(tmp_path, capsys):
+    root = make_run(str(tmp_path / "r"))
+    outside = tmp_path / "elsewhere.pdf"
+    outside.write_bytes(content("D1"))
+    db = sqlite3.connect(os.path.join(root, "orchestrator.db"))
+    db.execute("UPDATE documents SET source_path = ? WHERE document_id = 'D1'", (str(outside),))
+    db.execute("UPDATE documents SET document_id = '../evil' WHERE document_id = 'D2'")
+    db.commit()
+    db.close()
+    res = V.validate(_run(root))
+    kinds = {(f.object, f.kind) for f in res.findings}
+    assert ("D1", "source-outside-root") in kinds                        # warning: outside the snapshot
+    assert ("../evil", "document-id-unsafe") in kinds                    # error: the id is used to name files
+    d2 = next(d for d in res.docs if d.document_id == "../evil")
+    assert d2.unresolved == ["document-id-unsafe"] and d2.analysis_rel is None
+    assert V.unsafe_id("a/b") and V.unsafe_id("..") and V.unsafe_id("") and not V.unsafe_id("D-1.pdf")
+    d1 = next(d for d in res.docs if d.document_id == "D1" and d.selection_id == "SEL-001")
+    assert d1.bucket == "resolved" and d1.hash_verified                  # still usable, but flagged

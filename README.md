@@ -1,5 +1,7 @@
 # this-next-please — Copilot orchestration for Luna
 
+[![tests](https://github.com/agentchieflou/this-next-please/actions/workflows/tests.yml/badge.svg)](https://github.com/agentchieflou/this-next-please/actions/workflows/tests.yml)
+
 Shared skills + credential-blind data adapter so a cheap Copilot model can run
 several large projects at once without hand-maintained AGENTS.md sprawl.
 

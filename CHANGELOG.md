@@ -4,6 +4,27 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.4.1 — 2026-09-03
+
+Review pass over everything merged in 0.4.0. No new dependencies; the standard update line is enough.
+
+- **`python -m agentdata <cmd>` now exits with the command's code.** It always exited 0, so a refusal from
+  `ad-dpm` or `ad-state` looked like success to any script gating on `$LASTEXITCODE` — on the very form the README
+  recommends when the Scripts folder is off PATH.
+- `ad-doctor` no longer reports a *working* pinned launcher as broken: it probes the path it resolved, not the bare
+  name (a pinned launcher is usually not on PATH). It also honours `PNCLI_EXE`, which `ad-pncli` already did.
+- `ad-setup --patch` can now repair a launcher that is found but will not start, not only a missing one.
+- `ad-update` reports the mtime of the *newest* skill, not the alphabetically first — the evidence that
+  `gh skill install` landed.
+- Every DPM reader goes through `textio`, so a binding or manifest written by PowerShell redirection (UTF-16) loads.
+- `ad-dpm inspect` cannot traceback on a damaged database, and one broken view no longer blinds the whole scan.
+- `ad-dpm convert` refuses an existing handoff *before* hashing every source document.
+- DPM producer paths: a document id that could name a file outside the run root is refused
+  (`document-id-unsafe`), and a source document outside the run root is flagged (`source-outside-root`) instead of
+  being silently accepted by a hint that claimed containment was checked.
+- A pinned `.js` entry point runs through node, which is the escape hatch `proc`'s own refusal hint offers.
+- CI: GitHub Actions runs the suite on Linux (3.10, 3.12) and Windows on every push and PR.
+
 ## 0.4.0 — 2026-09-02
 
 New commands: `ad-update` (reinstall the CLI + skills, report the installed commit), `ad-state` (the only writer of

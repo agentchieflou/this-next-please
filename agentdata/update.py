@@ -80,9 +80,10 @@ def skills_dir(explicit: str | None = None) -> str:
 def skills_state(explicit: str | None = None) -> dict:
     d = skills_dir(explicit)
     files = sorted(glob.glob(os.path.join(d, "*", "SKILL.md")))
-    newest = max((os.path.getmtime(f) for f in files), default=0.0)
-    return {"dir": d.replace("\\", "/"), "installed": len(files), "newest": _stamp(files[0]) if files else "",
-            "newest_epoch": newest, "names": sorted(os.path.basename(os.path.dirname(f)) for f in files)}
+    newest_file = max(files, key=os.path.getmtime) if files else ""
+    return {"dir": d.replace("\\", "/"), "installed": len(files), "newest": _stamp(newest_file) if newest_file else "",
+            "newest_epoch": os.path.getmtime(newest_file) if newest_file else 0.0,
+            "names": sorted(os.path.basename(os.path.dirname(f)) for f in files)}
 
 
 def stale(skills: dict) -> bool:

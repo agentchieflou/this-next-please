@@ -1,0 +1,35 @@
+# Every bug this repo has shipped was a Windows bug (path shims, BOM files, line endings), so Windows is not optional
+# here. The slow marker builds a wheel in a fresh venv; it runs on Linux, where it is the packaging guard.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: ${{ matrix.os }} · python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.10", select: ""}
+          - {os: ubuntu-latest, python: "3.12", select: ""}
+          - {os: windows-latest, python: "3.12", select: -m "not slow"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest -q ${{ matrix.select }}
+      - name: the console scripts and the module form must both work
+        run: |
+          ad-doctor --quiet || true
+          python -m agentdata --help
+          python -m agentdata update --check
