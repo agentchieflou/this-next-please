@@ -249,7 +249,8 @@ def test_raw_body_file_sends_the_page_as_one_argument(tmp_path, monkeypatch, cap
 
 def test_raw_refuses_to_post_markdown_to_confluence(tmp_path, monkeypatch, capsys):
     """The reported bug: the body reached Confluence as Markdown and rendered as `## mismatch`. The last gate is
-    here, because a body only becomes a page at the moment `--body-file` is read."""
+    here, because a body only becomes a page at the moment `--body-file` is read -- and it closes BEFORE pncli is
+    launched, which is why this half of the contract holds on every platform."""
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
     md = tmp_path / "findings.md"
     md.write_text("## Findings\n\n- one\n", encoding="utf-8")
@@ -259,14 +260,23 @@ def test_raw_refuses_to_post_markdown_to_confluence(tmp_path, monkeypatch, capsy
         cli.main_pncli()
     out = capsys.readouterr().out
     assert e.value.code == 2 and "ok: false" in out and "# heading" in out and "ad-confluence html" in out
+    assert "PNCLI_EXE" not in os.environ                              # refused without ever looking for pncli
 
-    html = tmp_path / "findings.html"                                # the converted body goes through
-    html.write_text("<h2>Findings</h2><ul><li>one</li></ul>", encoding="utf-8")
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
+def test_raw_lets_a_converted_body_and_a_jira_comment_through(tmp_path, monkeypatch, capsys):
+    """The other half: the gate is narrow. Storage format passes, and Markdown in a Jira comment is not a page."""
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
     monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, 'printf \'{"ok":true}\''))
+    from agentdata import cli
+    html = tmp_path / "findings.html"
+    html.write_text("<h2>Findings</h2><ul><li>one</li></ul>", encoding="utf-8")
     monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(html), "confluence", "create-page", "--dry-run"])
     cli.main_pncli()
     assert "ok: true" in capsys.readouterr().out
 
+    md = tmp_path / "findings.md"
+    md.write_text("## Findings\n\n- one\n", encoding="utf-8")
     monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(md), "jira", "add-comment", "--key", "X"])
-    cli.main_pncli()                                                 # a Jira comment is not a page: Markdown is fine
+    cli.main_pncli()
     assert "ok: true" in capsys.readouterr().out
