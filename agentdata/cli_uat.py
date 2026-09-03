@@ -1,8 +1,10 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-uat: expect (document -> TSV + grain) · plan (visual -> commands) · reconcile (tiers -> classes + findings.md)."""
 from __future__ import annotations
 import argparse
 import os
 import sys
+from . import completion
 from . import config as C
 from . import policy, ui
 from . import toon
@@ -109,15 +111,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--tol", type=float, default=0.0); p.add_argument("--ticket", default="uat"); p.add_argument("--show", type=int, default=20)
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_reconcile)
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if getattr(a, "pretty", False):
         os.environ["AGENTDATA_UI"] = "rich"
         ui.reset_cache()
     try:
-        return a.fn(a)
+        sys.exit(a.fn(a))
     except (X.ExpectError,) as e:
-        print(error(str(e), e.hint, "ad-uat")); return 2
+        print(error(str(e), e.hint, "ad-uat")); sys.exit(2)
     except (ValueError, LookupError, FileNotFoundError) as e:
-        print(error(str(e)[:300], "check the paths, --key and --cols (ad-view <tsv> shows the columns)", "ad-uat")); return 2
+        print(error(str(e)[:300], "check the paths, --key and --cols (ad-view <tsv> shows the columns)", "ad-uat")); sys.exit(2)
     except C.ConfigError as e:
-        print(error(str(e), e.hint, "ad-uat")); return 2
+        print(error(str(e), e.hint, "ad-uat")); sys.exit(2)

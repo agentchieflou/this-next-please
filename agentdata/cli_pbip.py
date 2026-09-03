@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-pbip: project · check · refs · lint · measure set. The PBIP is the source of truth; outputs are TOON + files."""
 from __future__ import annotations
 import argparse
@@ -5,6 +6,7 @@ import glob
 import os
 import sys
 from .textio import read_text
+from . import completion
 from . import config as C
 from . import toon
 from .console import utf8_stdout
@@ -313,13 +315,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_measure_set)
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if getattr(a, "pretty", False):
         os.environ["AGENTDATA_UI"] = "rich"
         ui.reset_cache()
     try:
-        return a.fn(a)
+        sys.exit(a.fn(a))
     except (FileNotFoundError, ValueError) as e:
-        print(error(str(e)[:300], "pass the folder that contains the .pbip (or set pbip_path in AGENTS.md)", "ad-pbip")); return 2
+        print(error(str(e)[:300], "pass the folder that contains the .pbip (or set pbip_path in AGENTS.md)", "ad-pbip")); sys.exit(2)
     except C.ConfigError as e:
-        print(error(str(e), e.hint, "ad-pbip")); return 2
+        print(error(str(e), e.hint, "ad-pbip")); sys.exit(2)

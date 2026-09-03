@@ -1,9 +1,11 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-* entry points. Every command prints TOON (or JSON with --raw) and nothing else."""
 from __future__ import annotations
 import argparse, os, sys
 from .textio import read_text
 from .model import AgentTable
 from .policy import render, render_nested, error
+from . import completion
 from . import toon
 from .config import ConfigError, capabilities, load as load_config, project_facts
 from .console import utf8_stdout
@@ -23,6 +25,7 @@ def _sql_main(connector: str, prog: str) -> None:
     ap.add_argument("--raw", action="store_true")
     ap.add_argument("--pretty", action="store_true", help="draw the result as a table for a person to read "
                                                           "(same as AGENTDATA_UI=rich); the default is TOON")
+    completion.autocomplete(ap)
     a = ap.parse_args()
     if a.pretty:
         os.environ["AGENTDATA_UI"] = "rich"
@@ -80,6 +83,7 @@ def main_pncli() -> None:
     r.add_argument("--body-arg", default="--body", help="the option the body belongs to (default --body)")
     r.add_argument("pargs", nargs=argparse.REMAINDER); r.add_argument("--raw", action="store_true", dest="raw_out")
     sub.add_parser("where", help="how pncli resolves on this machine (path, npm shim, node entry, version)")
+    completion.autocomplete(ap)
     a = ap.parse_args()
     from . import confluence, proc     # deferred: only ad-pncli needs them
     from .connectors import pncli as P
@@ -134,6 +138,7 @@ def main_view() -> None:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-view"); ap.add_argument("path"); ap.add_argument("--name", default="result")
     ap.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    completion.autocomplete(ap)
     a = ap.parse_args()
     if a.pretty:
         os.environ["AGENTDATA_UI"] = "rich"
@@ -146,6 +151,7 @@ def main_diff() -> None:
     ap.add_argument("left"); ap.add_argument("right"); ap.add_argument("--key", required=True)
     ap.add_argument("--cols", default=None, help="comma list of columns to compare (default: shared)")
     ap.add_argument("--show", type=int, default=20)
+    completion.autocomplete(ap)
     a = ap.parse_args()
     L, R = AgentTable.read_tsv(a.left, "left"), AgentTable.read_tsv(a.right, "right")
     if a.key not in L.columns or a.key not in R.columns:

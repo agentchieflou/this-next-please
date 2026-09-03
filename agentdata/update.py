@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-update: pick up a new version of this repo — the CLI and the skills — and prove which commit you are on.
 
 Two things are installed per laptop and they update separately, which is the whole reason this command exists:
@@ -16,6 +17,7 @@ import os
 import sys
 import time
 
+from . import completion
 from . import config as C
 from . import proc
 from . import toon
@@ -160,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="replace a checkout / editable install with the published git install")
     ap.add_argument("--skills-dir", help="where the skills live (default: skills_dir fact, else ~/.copilot/skills)")
     ap.add_argument("--timeout", type=int, default=600)
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
     both = not (a.cli or a.skills)
     before, skills = cli_state(), skills_state(a.skills_dir)

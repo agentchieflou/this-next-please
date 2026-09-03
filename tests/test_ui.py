@@ -14,12 +14,16 @@ from agentdata.model import AgentTable
 
 @pytest.fixture(autouse=True)
 def fresh(monkeypatch):
+    import os
     for var in ("AGENTDATA_UI", "AGENTDATA_COLOR", "AGENTDATA_WIDTH", "NO_COLOR", "FORCE_COLOR",
                 "PYCHARM_HOSTED", "TERM_PROGRAM", "WT_SESSION"):
         monkeypatch.delenv(var, raising=False)
     ui.reset_cache()
     color.reset_cache()
     yield
+    for var in ("AGENTDATA_UI", "AGENTDATA_COLOR", "AGENTDATA_WIDTH", "NO_COLOR", "FORCE_COLOR",
+                "PYCHARM_HOSTED", "TERM_PROGRAM", "WT_SESSION"):
+        os.environ.pop(var, None)
     ui.reset_cache()
     color.reset_cache()
 
@@ -267,11 +271,16 @@ def test_ad_pbip_lint_pretty_vs_plain(monkeypatch, capsys, tmp_path):
     tmdl = tmp_path / "model.tmdl"
     tmdl.write_text("table Sales\n\tlineageTag: abc\n", encoding="utf-8")
 
-    assert cli_pbip.main(["lint", str(tmdl)]) == 0
+    with pytest.raises(SystemExit) as exc:
+        cli_pbip.main(["lint", str(tmdl)])
+    assert exc.value.code == 0
     plain = capsys.readouterr().out
     assert plain.startswith("meta:") and "╭" not in plain
 
     monkeypatch.setenv("AGENTDATA_WIDTH", "100")
-    assert cli_pbip.main(["lint", str(tmdl), "--pretty"]) == 0
+    with pytest.raises(SystemExit) as exc:
+        cli_pbip.main(["lint", str(tmdl), "--pretty"])
+    assert exc.value.code == 0
     pretty = color.strip(capsys.readouterr().out)
     assert "╭" in pretty and "ad-pbip lint" in pretty and "meta:" not in pretty
+

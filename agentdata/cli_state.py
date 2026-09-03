@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-state: show · set. The only writer of .agent/state.json (skill state-update). Keys and phases are validated, the
 file is written UTF-8 without BOM, so no PowerShell JSON juggling is ever needed."""
 from __future__ import annotations
@@ -5,6 +6,7 @@ import argparse
 import os
 import sys
 
+from . import completion
 from . import policy, ui
 from . import state as S
 from . import toon
@@ -75,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--tool", action="append", metavar="KEY=DATE", help="tools.<key>=<date>: doctor_verified, pncli_verified")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_set)
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if getattr(a, "pretty", False):
         os.environ["AGENTDATA_UI"] = "rich"

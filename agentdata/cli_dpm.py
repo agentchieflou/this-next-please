@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-dpm: locate · inspect · validate · convert · lineage · binding.
 
 The DPM run root is read-only (SQLite opened immutable; a tree fingerprint before and after every command proves nothing
@@ -9,6 +10,7 @@ import argparse
 import os
 import sys
 
+from . import completion
 from . import config as C
 from . import toon
 from .console import utf8_stdout
@@ -306,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_binding)
 
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if getattr(a, "pretty", False):
         os.environ["AGENTDATA_UI"] = "rich"

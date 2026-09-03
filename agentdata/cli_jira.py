@@ -1,8 +1,10 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-jira: Jira REST reusing pncli's token. whoami · fields · statuses · transitions · transition · sprints · changelog · sprint-replay.
 Never shells out to pncli; the token is read from pncli's config file by key name at call time."""
 from __future__ import annotations
 import argparse
 import sys
+from . import completion
 from . import config as C
 from . import toon
 from . import jira_workflow as W
@@ -297,6 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--compare-sprintreport", action="store_true"); p.add_argument("--now"); p.add_argument("--no-bulk", action="store_true")
     p.add_argument("--name"); p.add_argument("--raw", action="store_true")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_sprint_replay)
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if getattr(a, "pretty", False):
         os.environ["AGENTDATA_UI"] = "rich"

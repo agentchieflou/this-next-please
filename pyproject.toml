@@ -27,6 +27,7 @@ keyring = []        # no-op: keyring is a base dependency now. Kept so an existi
 pbi = ["psutil"]
 uat = ["openpyxl", "python-docx"]
 pandas = ["pandas", "pyarrow"]
+completion = ["argcomplete>=3.0.0"]
 dev = ["pytest", "pyyaml"]
 
 [project.scripts]

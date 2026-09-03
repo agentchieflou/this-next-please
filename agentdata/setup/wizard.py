@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 """Step registry + runners for ad-setup / ad-doctor.
 
 A Step has four hooks: detect() gathers machine facts (no prompts), check() turns them into offline
@@ -434,6 +435,8 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
                     help="colour output (default auto: on for a terminal, off when piped; NO_COLOR / AGENTDATA_COLOR also apply)")
     ap.add_argument("--quiet", action="store_true", help="show only non-ok rows")
     ap.add_argument("--only", action="append", help="step key(s), comma-separated: pncli,sources,powerbi,project")
+    from .. import completion
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
     utf8_stdout()
     color.set_enabled(None if a.color == "auto" else a.color == "always")
@@ -572,7 +575,14 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--color", choices=["auto", "always", "never"], default="auto",
                     help="colour output (default auto: on for a terminal, off when piped)")
+    ap.add_argument("--print-completion", choices=["bash", "zsh", "powershell"],
+                    help="print shell tab-completion setup script and exit")
+    from .. import completion
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
+    if a.print_completion:
+        completion.print_completion(a.print_completion)
+        return 0
     utf8_stdout()
     color.set_enabled(None if a.color == "auto" else a.color == "always")
     if a.export_defaults:

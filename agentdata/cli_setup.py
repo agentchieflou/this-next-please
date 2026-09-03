@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 """Entry points: ad-setup (guided wizard) and ad-doctor (offline health check)."""
 from __future__ import annotations
 import sys
