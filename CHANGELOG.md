@@ -4,6 +4,76 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.5.0 — 2026-09-03
+
+**This one needs `pip install`, not just `ad-update --skills`:** `rich` is a new dependency. `ad-update` (or
+`pip install --force-reinstall "agentdata @ git+https://github.com/agentchieflou/this-next-please"`) pulls it in.
+Every command still works without it -- the rendering falls back to the plain text it printed before.
+
+- **The operator commands look like a tool now.** `ad-setup`, `ad-doctor`, `ad-update` and
+  `python -m agentdata` render a rounded panel of facts, a real table with a status glyph (`✓ ok`, `! warn`,
+  `✗ fail`) and word-wrapped hints, one label per group of rows, and section rules between wizard steps. Colour
+  and glyph both carry the status, so a screenshot in black and white still reads.
+- **Nothing an agent parses changed.** The pretty rendering is used only when a person is at the console:
+  `color.enabled()` is already false whenever stdout is piped or captured, and `ui.on()` is false with it. Query
+  results (`ad-td`, `ad-jira`, `ad-pbip`, `ad-uat`, `ad-dpm`, `ad-pncli`, ...) stay TOON even on a terminal,
+  because `auto` cannot tell Luna's shell from a person's.
+- Ask for a drawn result when you want to read one: `--pretty` on the query commands and `ad-view`, or
+  `AGENTDATA_UI=rich` for everything. Numbers right-align, status words are coloured, and the sample size and
+  `path` sit above it. `AGENTDATA_UI=plain` goes the other way -- TOON on a terminal, for pasting into a ticket.
+- `AGENTDATA_WIDTH` pins the render width (screenshots, docs, tests). On a Windows console that cannot do VT,
+  rich draws its ASCII box; everywhere else the Unicode one.
+
+## 0.4.6 — 2026-09-03
+
+- **Confluence pages are built, not written.** The page body was going up as raw Markdown, so a reader got
+  `## mismatch` and `- L-1001` as literal text: Confluence renders Markdown as text, and asking the model to
+  "write HTML" from a Markdown file produced Markdown with tags around it. `ad-confluence html <file.md>` now
+  converts it — headings, nested lists, GFM tables with alignment, code blocks as the `code` macro with a CDATA
+  body, links, autolinked URLs, bold/italic/strike, blockquotes, horizontal rules — escaping `&` `<` `>` and
+  turning named HTML entities into characters, because storage format allows only the five XML ones. Every body
+  is parsed as XML before it is returned, so a page is refused here with the text that broke it rather than by
+  Confluence with a 400. `ad-confluence check <file>` validates a body that already exists.
+- `ad-pncli raw --body-file` **refuses to post Markdown to Confluence**: a body with no markup at all but a
+  `# heading`, a `- bullet` or a ``` fence is rejected, naming the construct and pointing at `ad-confluence html`.
+  Only `confluence` commands are checked — a Jira comment may be plain text.
+- **Jira transitions know that a Task is not a Story.** `bitbucket-pr` moved a ticket with a hard-coded
+  `"In Review"`, which exists in a Story's workflow and often not in a Task's, in a command whose verb was a guess.
+  `ad-jira transitions <KEY>` lists what *that* issue can do (id, name, target status, category, and the screen
+  fields each demands); `ad-jira transition <KEY> --to <intent|name>` resolves an intent — `todo`, `in-progress`,
+  `review`, `blocked`, `done` — against that list. `review` and `blocked` must match by name, so a Task with no
+  review state is refused with what it *can* do instead of being parked in In Progress; `todo`, `in-progress` and
+  `done` may also match by status category, so a workflow that spells them differently still resolves. Ambiguity
+  is reported with the candidates, never broken by picking one.
+- `--dry-run` resolves without moving; an issue already in the target status is a no-op, not a failure;
+  transition screens are reported before the POST (`--resolution`, `--field NAME=VALUE`); the status is read back
+  afterwards, so a post-function that undoes the move is caught; `--comment` is sent as ADF on Cloud and a plain
+  string on Data Center; `--pin` remembers the resolved status per issue type in `jira.workflow.<type>.<intent>`.
+- New skill `jira-transition`, wired into the router; `bitbucket-pr` delegates to it. `confluence-publish` calls
+  `ad-confluence` and keeps its Markdown source as the thing it edits.
+
+## 0.4.5 — 2026-09-03
+
+- **confluence-publish now matches pncli.** The verb is `confluence create-page` and the body is passed **inline**
+  (`--body <html>`), not `--body-file`; the skill still carried a `TODO(pin the verb)` placeholder and a markdown
+  body. It now builds Confluence storage-format HTML and publishes with one pinned command.
+- `ad-pncli raw --body-file <path>` reads a file and appends it as a single `--body <contents>` argument
+  (`--body-arg` renames the option for a verb that calls it something else). No shell is involved, so quotes,
+  newlines, `<`, `>` and `&` in a page survive intact, and a page longer than a command line still works. The echoed
+  command summarises it as `<N chars from <file>>` instead of dumping the page into the agent's context.
+- `--space`, `--parent` and `--title` are still unconfirmed against this pncli build: the skill says to run
+  `pncli confluence create-page --help` once if one is rejected, and to report the names so they can be pinned.
+
+## 0.4.4 — 2026-09-03
+
+- **`ad-update` in a checkout is no longer an error.** It reported
+  `error: this is a checkout / editable install`, `ok: false`, exit 2 — and refused the skills half too, which is
+  independent and always valid. Now it updates the skills, skips only the CLI half (`skipped[1]: cli`), and exits 0:
+  running from a clone is a state, not a failure. `--check` names which one (`git install`, `editable install`,
+  `running from a checkout at <dir>`).
+- `ad-update --pull` runs `git pull --ff-only` in that checkout instead of skipping; `ad-update --from-git` replaces a
+  checkout or editable install with the published git install.
+
 ## 0.4.3 — 2026-09-03
 
 Three fixes to the setup experience. No new dependencies.

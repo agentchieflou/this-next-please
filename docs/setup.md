@@ -45,6 +45,18 @@ Session state: `ad-state show` / `ad-state set phase=<phase> active_ticket=<KEY>
 is the only writer of `.agent/state.json` (validated keys and phases, `last_updated`, artifacts pruned after 7 days,
 UTF-8 without BOM).
 
+Jira transitions: `ad-jira transitions <KEY>` lists what that one issue can move to; `ad-jira transition <KEY> --to
+<intent|name>` runs it. A workflow belongs to the **issue type**, so a Story's `In Review` may not exist on a Task —
+the intents `todo`, `in-progress`, `review`, `blocked`, `done` resolve against the transitions Jira offers, and an
+intent the workflow cannot satisfy is refused with the list of what it can do. `--dry-run` resolves without moving,
+`--resolution` / `--field NAME=VALUE` answer a transition screen, and `--pin` stores the resolved status under
+`jira.workflow.<type>.<intent>` so the next issue of that type resolves exactly.
+
+Confluence pages: `ad-confluence html <file.md>` converts a Markdown file to storage format (Confluence renders
+Markdown as literal text) and refuses a body it cannot parse as XML, which is what Confluence would reject. Publish
+the result with `ad-pncli raw --body-file <file.html> confluence create-page …`; that command refuses a body that is
+still Markdown.
+
 ## Config file
 `~/.agentdata/config.json` (override the path with `AGENTDATA_CONFIG`). It never contains a credential: `save()`
 refuses keys that look like one. Capability probes recorded per source env (used by `ad-sql-check`): Teradata `tmode`
@@ -101,3 +113,23 @@ query time. Oracle never uses the ODBC mode: an ODBC DSN handed to python-oracle
 - Console encoding: every `ad-*` command switches stdout to UTF-8 (TOON uses `→ · ≤`).
 - File encoding: Windows PowerShell 5.1 writes a BOM with `Set-Content -Encoding utf8` / `Out-File` and UTF-16 with `>`. Every `ad-*` reader (answers, `AGENTS.md`, config, TSV, SQL and DAX files, pncli config, state) sniffs the BOM and accepts the file (`agentdata/textio.py`); the tools themselves write UTF-8 without BOM. When you must write a file from PowerShell use `[IO.File]::WriteAllText($absolutePath, $text)`; for state use `ad-state set`.
 - Power BI XMLA needs Premium/PPU/Fabric capacity with the XMLA endpoint set to Read Write by the capacity admin.
+
+## What a person sees, and what Luna sees
+
+`ad-setup`, `ad-doctor`, `ad-update` and `python -m agentdata` render a panel and a table on a terminal, and the
+same TOON they always did when stdout is piped or captured. The switch is `AGENTDATA_UI`:
+
+| value | operator commands | query results |
+|---|---|---|
+| `auto` (default) | drawn on a terminal, TOON when piped | TOON always |
+| `rich` | drawn | drawn |
+| `plain` | TOON | TOON |
+
+Query results are deliberately not drawn under `auto`: nothing can tell Luna's shell from a person's, and a table
+in box characters is not TOON. Ask for one when you want to read it — `--pretty` on `ad-td` / `ad-ora` / `ad-hive`
+/ `ad-impala` / `ad-view`, or `AGENTDATA_UI=rich`. Use `AGENTDATA_UI=plain` to paste a report into a ticket, and
+`AGENTDATA_WIDTH=100` to pin the width for a screenshot. `NO_COLOR`, `FORCE_COLOR` and `AGENTDATA_COLOR` still
+control colour on its own.
+
+The rendering needs `rich` (a dependency since 0.5.0). Without it every command prints exactly what it printed
+before, so an older install is not broken — it is just plainer.

@@ -23,6 +23,7 @@ from .. import toon
 from ..console import eprint, prompt as _console_prompt, utf8_stdout
 from .. import color
 from .. import proc
+from .. import ui
 
 STATUS_ORDER = {"fail": 0, "warn": 1, "skip": 2, "ok": 3}
 
@@ -48,6 +49,9 @@ class Check:
 
     def row(self) -> list:
         return [self.step, self.name, color.status(self.status), self.detail, self.hint]
+
+    def plain_row(self) -> list:
+        return [self.step, self.name, self.status, self.detail, self.hint]
 
     def scope(self) -> tuple[str, ...]:
         return self.keys
@@ -272,6 +276,14 @@ class Context:
     def say(self, text: str) -> None:
         self.ask.say(text)
 
+    def rule(self, title: str) -> None:
+        """A step separator. A rule when a person is watching; the old `== title ==` line otherwise, because a
+        non-interactive run's transcript ends up in a friction log."""
+        if ui.on():
+            ui.rule(title)
+        else:
+            self.say(color.paint(f"\n== {title} ==", "bold"))
+
 
 class Step:
     key = ""
@@ -307,23 +319,57 @@ def _select(steps: list[Step], only: list[str] | None) -> list[Step]:
 
 
 def render_checks(ctx: Context, source: str, extra: dict | None = None, quiet: bool = False) -> tuple[str, bool]:
+    text, _meta, _shown, ok = check_report(ctx, source, extra, quiet)
+    return text, ok
+
+
+def check_report(ctx: Context, source: str, extra: dict | None = None,
+                 quiet: bool = False) -> tuple[str, dict, list[Check], bool]:
+    """One place builds the report, two render it: TOON for whoever is parsing, a table for whoever is reading.
+    `meta` is returned unpainted so the pretty renderer can style it itself."""
     checks = sorted(ctx.checks, key=lambda c: (STATUS_ORDER.get(c.status, 9), c.step))
     failed = sum(1 for c in checks if c.status == "fail")
     warned = sum(1 for c in checks if c.status == "warn")
     from ..update import cli_state
     ver = cli_state()
-    meta = {"ok": color.status("true" if failed == 0 else "false") if color.enabled() else failed == 0,
-            "source": source, "version": ver["version"], "commit": ver["commit"] or ("checkout" if ver["editable"] else "n/a"),
+    meta = {"ok": failed == 0, "source": source, "version": ver["version"],
+            "commit": ver["commit"] or ("checkout" if ver["editable"] else "n/a"),
             "config": C.display_path(C.path()), "online": ctx.online, "checks": len(checks),
-            "failed": color.paint(str(failed), *(("red", "bold") if failed else ())) if color.enabled() else failed,
-            "warned": color.paint(str(warned), "yellow") if (color.enabled() and warned) else warned}
+            "failed": failed, "warned": warned}
     if extra:
         meta.update(extra)
     if failed and "hint" not in meta:
         meta["hint"] = "`ad-setup --patch` re-asks only the settings behind the fail rows (nothing else is touched)"
     shown = [c for c in checks if c.status != "ok"] if quiet else checks
+    painted = dict(meta)
+    if color.enabled():
+        painted["ok"] = color.status("true" if failed == 0 else "false")
+        painted["failed"] = color.paint(str(failed), *(("red", "bold") if failed else ()))
+        painted["warned"] = color.paint(str(warned), "yellow") if warned else warned
     body = toon.table("checks", ["step", "check", "status", "detail", "hint"], [c.row() for c in shown])
-    return "\n".join([toon.encode(meta, key="meta"), body]), failed == 0
+    return "\n".join([toon.encode(painted, key="meta"), body]), meta, shown, failed == 0
+
+
+def print_checks(ctx: Context, source: str, extra: dict | None = None, quiet: bool = False) -> bool:
+    """Print the report the way this audience needs it. -> ok"""
+    text, meta, shown, ok = check_report(ctx, source, extra, quiet)
+    if not ui.on():
+        print(text)
+        return ok
+    scalars = [(k, v) for k, v in meta.items() if k not in ("ok", "source", "error", "hint") and not isinstance(v, (list, dict))]
+    ui.facts([("status", ui.status_text("ok" if ok else "fail")), *scalars], title=meta.get("source", source))
+    if shown:
+        ui.table(["step", "check", "status", "detail", "hint"], [c.plain_row() for c in shown],
+                 title=f"{len(shown)} checks" + (" — failures and warnings only" if quiet else ""),
+                 status_col=2, wrap=(3, 4), group_col=0)
+    for key in ("manual", "needs_answers", "asked", "repairing", "skipped"):
+        if isinstance(meta.get(key), list) and meta[key]:
+            ui.note(f"{key}: " + "; ".join(str(x) for x in meta[key]))
+    if meta.get("error"):
+        ui.problem(str(meta["error"]), str(meta.get("hint") or ""), title=source)
+    elif meta.get("hint"):
+        ui.note(str(meta["hint"]), style="hint")
+    return ok
 
 
 def load_answers(path: str | None, sets: list[str] | None = None) -> dict:
@@ -371,11 +417,10 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
                 step.verify(ctx)
         if a.online:
             C.save(cfg)
-        out, ok = render_checks(ctx, "ad-doctor", quiet=a.quiet)
-        print(out)
-        return 0 if ok else 1
+        return 0 if print_checks(ctx, "ad-doctor", quiet=a.quiet) else 1
     except C.ConfigError as e:
         print(toon.encode({"meta": {"ok": False, "source": "ad-doctor", "error": str(e), "hint": e.hint}}))
+        ui.problem(str(e), e.hint or "", title="ad-doctor")
         return 2
 
 
@@ -428,19 +473,17 @@ def run_patch(ctx: Context, steps: list[Step], prompter: Prompter, *, include_wa
             if manual:
                 extra["manual"] = [f"{c.step}/{c.name}: {c.detail} -> {c.hint}" for c in manual][:10]
                 extra["hint"] = "these need an install or an action, not an answer; run each hint, then ad-doctor"
-            out, _ok = render_checks(ctx, "ad-setup --patch", extra=extra, quiet=quiet)
-            print(out)
+            print_checks(ctx, "ad-setup --patch", extra=extra, quiet=quiet)
             return 0 if not manual else 1
 
     if ctx.interactive and not has_tty():
         # dying on EOF at the first prompt taught nobody anything; name the keys instead
-        out, _ok = render_checks(ctx, "ad-setup --patch", quiet=quiet, extra={
+        print_checks(ctx, "ad-setup --patch", quiet=quiet, extra={
             "repaired": 0, "error": "no terminal to ask on", "needs_answers": scope[:20],
             "hint": "run it in a terminal, or answer inline: " +
                     " ".join(f"--set {k.rstrip('.')}=<value>" for k in scope[:3]) + " --non-interactive"})
-        print(out)
         return 2
-    ctx.say(color.paint("\n== repairing ==", "bold"))
+    ctx.rule("repairing")
     for c in broken:
         ctx.say(f"  {color.status(c.status)}: {color.paint(c.step + '/' + c.name, 'cyan')} · {c.detail}")
     for c in manual:
@@ -450,7 +493,7 @@ def run_patch(ctx: Context, steps: list[Step], prompter: Prompter, *, include_wa
     scoped = ScopedPrompter(prompter, scope, reasons)
     ctx.ask = scoped
     for step in todo:
-        ctx.say(color.paint(f"\n== {step.title} ==", "bold"))
+        ctx.rule(step.title)
         step.ask(ctx, found[step.key])
         C.save(ctx.cfg)
     ctx.checks = []                      # report the state AFTER the repair, not the rows that led to it
@@ -468,9 +511,7 @@ def run_patch(ctx: Context, steps: list[Step], prompter: Prompter, *, include_wa
         extra["manual"] = [f"{c.step}/{c.name}: {c.detail} -> {c.hint}" for c in manual][:10]
     if targets and not scoped.asked:
         extra["hint"] = "no prompt matched those targets; `ad-setup --only <step>` walks the whole step"
-    out, ok = render_checks(ctx, "ad-setup --patch", extra=extra, quiet=quiet)
-    print(out)
-    return 0 if ok else 1
+    return 0 if print_checks(ctx, "ad-setup --patch", extra=extra, quiet=quiet) else 1
 
 
 def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> int:
@@ -510,8 +551,13 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
         only = a.only
         if a.project and not only:
             only = ["project"]
-        ctx.say(color.paint("agentdata setup", "bold") + f" · config {C.display_path(C.path())} · "
-                f"{'online' if ctx.online else 'offline'} · " + color.paint("secrets → keyring only", "dim"))
+        if ui.on() and not a.quiet:
+            ui.facts([("config", C.display_path(C.path())), ("network", "online" if ctx.online else "offline"),
+                      ("secrets", "keyring only — never a file, never this screen"),
+                      ("steps", ", ".join(s.key for s in _select(registry(), only)))], title="agentdata setup")
+        else:
+            ctx.say(color.paint("agentdata setup", "bold") + f" · config {C.display_path(C.path())} · "
+                    f"{'online' if ctx.online else 'offline'} · " + color.paint("secrets → keyring only", "dim"))
         if a.patch is not None:
             return run_patch(ctx, _select(registry(), only), prompter, include_warnings=a.include_warnings,
                              quiet=a.quiet, targets=a.patch or None)
@@ -523,7 +569,7 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                                                 "(`ad-doctor` lists what is wrong; `ad-setup --patch` repairs just that)"}}))
             return 2
         for step in steps:
-            ctx.say(color.paint(f"\n== {step.title} ==", "bold"))
+            ctx.rule(step.title)
             found = step.detect(ctx)
             step.ask(ctx, found)
             C.save(cfg)  # persist after every step so an aborted run keeps its progress
@@ -534,11 +580,10 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
         extra = {"saved": saved}
         if getattr(prompter, "unanswered", None):
             extra["unanswered"] = len(prompter.unanswered)
-        out, ok = render_checks(ctx, "ad-setup", extra=extra, quiet=a.quiet)
-        print(out)
-        return 0 if ok else 1
+        return 0 if print_checks(ctx, "ad-setup", extra=extra, quiet=a.quiet) else 1
     except (C.ConfigError,) as e:
         print(toon.encode({"meta": {"ok": False, "source": "ad-setup", "error": str(e), "hint": e.hint}}))
+        ui.problem(str(e), e.hint or "", title="ad-setup")
         return 2
     except (EOFError, KeyboardInterrupt):
         print(toon.encode({"meta": {"ok": False, "source": "ad-setup", "error": "interrupted",

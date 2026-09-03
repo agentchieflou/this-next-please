@@ -45,6 +45,11 @@ ad-update --check
   so every session shows what it is running.
 - `python` — the interpreter that owns the install. If that is not the Python you type `python` for, that mismatch is
   why an update "did not take": run the update with **that** interpreter, or use `python -m agentdata <command>`.
+- `install` — how this copy got here: a *git install* (what a laptop should have), an *editable install*, or *running
+  from a checkout*. For the last two, `ad-update` updates the skills and **skips the CLI half**: pip must not fight a
+  clone you are editing. That is a skip, not a failure — `skipped[1]: cli`, and the row says what to run.
+  `ad-update --pull` does `git pull --ff-only` in that clone instead; `ad-update --from-git` leaves the clone behind
+  and installs the published version over it.
 - `skills` / `skills_newest` / `stale_skills: true` — the skills are older than the CLI; run the `gh skill install`
   line and start a new chat.
 - `gh skill install` refusing because a skill already exists → delete that folder under the printed `skills_dir` and
@@ -120,6 +125,9 @@ python -m pytest -q
 | `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), pncli, jira_api (Jira REST on pncli's token), keyring wrapper, probes |
 | `agentdata/sqlcheck/` | dialect pre-flight lint (`ad-sql-check`, auto inside the query commands) |
 | `agentdata/pbip/` | PBIP tooling: TMDL parser/lint/editor, PBIR loader, projection, model↔report validator, Desktop discovery, DAX runner (`ad-pbip`) |
+| `agentdata/ui.py` | how the CLI looks to a person: panels, tables and status glyphs via `rich`, and off whenever a machine might be reading |
+| `agentdata/confluence.py` | `ad-confluence`: Markdown → Confluence storage format (XHTML, code macro, entities), XML-validated before it is published |
+| `agentdata/jira_workflow.py` | `ad-jira transition`: resolves "review"/"done" against the transitions Jira offers THIS issue — a Task and a Story have different workflows |
 | `agentdata/uat/` | sprint replay, expected-value loader, tiered reconciliation (`ad-jira sprint-replay`, `ad-uat`) |
 | `agentdata/dpm/` | DPM → consumer handoff contract: read-only run root, reference resolution, versioned refusals, job manifest with lineage (`ad-dpm`) |
 | `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |

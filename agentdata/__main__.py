@@ -16,6 +16,7 @@ COMMANDS = {
     "uat": ("agentdata.cli_uat", "main", "expected values, UAT plan, reconciliation"),
     "dpm": ("agentdata.cli_dpm", "main", "DPM run root -> consumer job manifest (handoff contract)"),
     "state": ("agentdata.cli_state", "main", "show / set .agent/state.json (its only writer)"),
+    "confluence": ("agentdata.cli_confluence", "main", "Markdown -> Confluence storage format (the page body)"),
     "update": ("agentdata.update", "main", "reinstall the CLI + skills from GitHub; --check reports the commit"),
     "pncli": ("agentdata.cli", "main_pncli", "pncli reads through the format policy"),
     "td": ("agentdata.cli", "main_td", "Teradata query"),
@@ -30,10 +31,22 @@ USAGE = ("usage: python -m agentdata <command> [options]\n\nSame commands as the
          + "\n\nExample: python -m agentdata pbip check  (identical to: ad-pbip check)\n")
 
 
+def usage() -> None:
+    """The front door. A table when a person is reading it, the same lines as plain text otherwise."""
+    from . import ui
+    if not ui.on():
+        print(USAGE)
+        return
+    ui.commands([(name, f"ad-{name}", help) for name, (_m, _f, help) in COMMANDS.items()],
+                title="agentdata",
+                footer="usage: python -m agentdata <command> [options] — identical to the ad-* script, and it works "
+                       "when the Scripts directory is not on PATH. Every command prints TOON.")
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help", "help"):
-        print(USAGE)
+        usage()
         return 0
     name, rest = argv[0], argv[1:]
     if name.startswith("ad-"):

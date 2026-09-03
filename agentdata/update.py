@@ -20,6 +20,7 @@ from . import config as C
 from . import proc
 from . import toon
 from .console import utf8_stdout
+from . import ui
 from .install import REPO_URL, editable_cmd, source_checkout
 
 SKILL_SPEC = "agentchieflou/this-next-please"
@@ -52,8 +53,11 @@ def cli_state() -> dict:
     du = direct_url()
     vcs = du.get("vcs_info") or {}
     checkout = source_checkout()
+    editable = bool((du.get("dir_info") or {}).get("editable"))
+    kind = ("editable install" if editable else "running from a checkout" if checkout
+            else "git install" if vcs else "installed")
     return {"version": version(), "commit": (vcs.get("commit_id") or "")[:12], "source": du.get("url") or "",
-            "editable": bool((du.get("dir_info") or {}).get("editable")) or bool(checkout),
+            "editable": editable or bool(checkout), "kind": kind, "checkout_dir": (checkout or "").replace("\\", "/"),
             "path": pkg.replace("\\", "/"), "installed": _stamp(os.path.join(pkg, "__init__.py")),
             "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} ({sys.executable})".replace("\\", "/")}
 
@@ -119,6 +123,29 @@ def _run(name: str, argv: list[str], rows: list[dict], timeout: int) -> bool:
     return rc == 0
 
 
+def _report(meta: dict, rows: list[dict], cmds: dict, payload: dict, show_commands: bool) -> None:
+    """TOON for whoever is parsing, a panel and a table for whoever is reading -- one or the other, never both.
+    `AGENTDATA_UI=plain` gives the TOON on a terminal, for pasting into a friction log."""
+    if not ui.on():
+        print(toon.encode(payload))
+        return
+    ui.facts([("status", ui.status_text("ok" if meta["ok"] else "fail")), ("version", meta["version"]),
+              ("commit", meta["commit"]), ("install", meta["install"]), ("python", meta["python"]),
+              ("skills", f"{meta['skills']} in {meta['skills_dir']}"),
+              ("newest", meta.get("skills_newest") or ""), ("skipped", ", ".join(meta.get("skipped") or []))],
+             title="ad-update")
+    if rows:
+        ui.table(["part", "status", "detail", "hint"],
+                 [[r["part"], "ok" if r["ok"] else "fail", r.get("detail") or "", r.get("hint") or ""] for r in rows],
+                 status_col=1, wrap=(2, 3), group_col=0)
+    if show_commands:
+        ui.table(["", "command"], [[k, v] for k, v in cmds.items()], title="what it runs", wrap=(1,), group_col=0)
+    if meta.get("hint"):
+        ui.note(str(meta["hint"]), style="hint")
+    if meta.get("next"):
+        ui.note(str(meta["next"]), style="muted")
+
+
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-update", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -127,6 +154,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cli", action="store_true", help="update only the ad-* CLI")
     ap.add_argument("--skills", action="store_true", help="update only the skills")
     ap.add_argument("--extras", help="extras to (re)install with the CLI, e.g. teradata,odbc,keyring")
+    ap.add_argument("--pull", action="store_true",
+                    help="in a checkout: `git pull --ff-only` there instead of skipping the CLI half")
+    ap.add_argument("--from-git", action="store_true", dest="from_git",
+                    help="replace a checkout / editable install with the published git install")
     ap.add_argument("--skills-dir", help="where the skills live (default: skills_dir fact, else ~/.copilot/skills)")
     ap.add_argument("--timeout", type=int, default=600)
     a = ap.parse_args(argv)
@@ -134,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     before, skills = cli_state(), skills_state(a.skills_dir)
     unknown = "checkout" if before["editable"] else "n/a"     # same wording ad-doctor prints, so the two agree
     meta = {"ok": True, "source": "ad-update", "version": before["version"], "commit": before["commit"] or unknown,
+            "install": before["kind"] + (f" at {before['checkout_dir']}" if before["checkout_dir"] else ""),
             "editable": before["editable"], "cli_installed": before["installed"], "skills_dir": skills["dir"],
             "skills": skills["installed"], "skills_newest": skills["newest"], "python": before["python"]}
     cmds = {"cli": cli_command_text(a.extras), "skills": " ".join(SKILLS_CMD)}
@@ -142,25 +174,33 @@ def main(argv: list[str] | None = None) -> int:
         meta["stale_skills"] = stale(skills)
         meta["hint"] = ("skills look older than the CLI: run the skills command below, then start a new Copilot chat"
                         if meta["stale_skills"] else "run `ad-update` to apply both commands, then `ad-doctor`")
-        print(toon.encode({"meta": meta, "commands": cmds, "installed_skills": skills["names"]}))
+        _report(meta, [], cmds, {"meta": meta, "commands": cmds, "installed_skills": skills["names"]}, True)
         return 0
-
-    if before["editable"] and (both or a.cli):
-        print(toon.encode({"meta": {**meta, "ok": False, "error": "this is a checkout / editable install",
-                                    "hint": f"update it yourself: {cmds['cli']} — then `ad-update --skills` for the skills"}}))
-        return 2
 
     rows: list[dict] = []
     ok = True
+    skipped: list[str] = []
+    from_checkout = before["editable"] and not a.from_git
     if both or a.cli:
-        ok &= _run("cli", cli_command() if not a.extras else
-                   [sys.executable, "-m", "pip", "install", "--force-reinstall", f"agentdata[{a.extras}] @ git+{REPO_URL}"],
-                   rows, a.timeout)
+        if from_checkout and a.pull and before["checkout_dir"]:
+            ok &= _run("cli", ["git", "-C", before["checkout_dir"], "pull", "--ff-only"], rows, a.timeout)
+        elif from_checkout:
+            # a deliberate skip, not a failure: pip must not fight a checkout you are editing
+            skipped.append("cli")
+            rows.append({"part": "cli", "ok": True, "detail": f"skipped: {before['kind']}"
+                         + (f" at {before['checkout_dir']}" if before["checkout_dir"] else ""),
+                         "hint": f"{cmds['cli']} · or `ad-update --pull` · or `ad-update --from-git` to switch to the published install"})
+        else:
+            ok &= _run("cli", cli_command() if not a.extras else
+                       [sys.executable, "-m", "pip", "install", "--force-reinstall", f"agentdata[{a.extras}] @ git+{REPO_URL}"],
+                       rows, a.timeout)
     if both or a.skills:
         ok &= _run("skills", SKILLS_CMD, rows, a.timeout)
         if not rows[-1]["ok"] and not rows[-1]["hint"]:
             rows[-1]["hint"] = "install GitHub CLI (gh), or copy this repo's skills/ into " + skills["dir"]
     after, skills_after = cli_state(), skills_state(a.skills_dir)
+    if skipped:
+        meta["skipped"] = skipped
     meta.update({"ok": ok, "version": after["version"], "commit": after["commit"] or unknown,
                  "changed": after["commit"] != before["commit"] or after["installed"] != before["installed"],
                  "skills": skills_after["installed"], "skills_newest": skills_after["newest"],
@@ -168,7 +208,10 @@ def main(argv: list[str] | None = None) -> int:
     if not ok:
         meta["hint"] = "one part did not update; the rows say which. Run its command yourself: " + \
                        (cmds["cli"] if any(r["part"] == "cli" and not r["ok"] for r in rows) else cmds["skills"])
-    print(toon.encode({"meta": meta, "parts": rows, "commands": cmds}))
+    elif skipped:
+        meta["hint"] = ("the skills were updated; the CLI half was left alone because you are running a checkout "
+                        "(that is what `commit: checkout` means). `--pull`, `--from-git`, or update it yourself.")
+    _report(meta, rows, cmds, {"meta": meta, "parts": rows, "commands": cmds}, not ok)
     return 0 if ok else 1
 
 

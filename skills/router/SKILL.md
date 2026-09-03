@@ -27,6 +27,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 | sbatch, cluster job, schedule | `slurm-submit` |
 | PR, branch, push, commit | `bitbucket-pr` |
 | Confluence, document, write-up, page | `confluence-publish` |
+| move / transition / close / reopen a ticket, "mark it done", "put it in review" | `jira-transition` |
 | progress saved?, "where was I" | `state-update` |
 
 4. Output one line: `→ <skill>: <reason in ≤ 12 words>`. Then invoke it.

@@ -52,12 +52,43 @@ def test_check_runs_nothing_and_reports_both_parts(tmp_path, capsys, monkeypatch
     assert "stale_skills: false" in out and "installed_skills[2]" in out
 
 
-def test_editable_install_is_never_pip_reinstalled(capsys, monkeypatch):
-    monkeypatch.setattr(proc, "run", lambda *a, **k: pytest.fail("a checkout must not be pip-reinstalled"))
+def test_a_checkout_skips_only_the_cli_half_and_is_not_a_failure(tmp_path, capsys, monkeypatch):
+    """Running from a checkout is a state, not an error: pip must leave it alone, but the skills still update."""
     monkeypatch.setattr(U, "source_checkout", lambda: "/repos/this-next-please")
-    assert U.main([]) == 2
+    calls = []
+
+    def fake_run(argv, **kw):
+        calls.append(argv)
+        return 0, "skills installed", "", 1.0
+
+    monkeypatch.setattr(proc, "run", fake_run)
+    skills_dir = _skills(tmp_path)
+    rc = U.main(["--skills-dir", skills_dir])
     out = capsys.readouterr().out
-    assert "ok: false" in out and "checkout / editable install" in out and "git -C" in out and "ad-update --skills" in out
+    assert rc == 0 and "ok: true" in out                       # nothing failed
+    assert [c[0] for c in calls] == ["gh"]                     # the skills half ran; pip did not
+    assert "skipped[1]: cli" in out and "running from a checkout at /repos/this-next-please" in out
+    assert "--from-git" in out and "--pull" in out
+    calls.clear()
+    U.main(["--pull", "--skills-dir", skills_dir])            # --pull updates the checkout itself
+    assert calls[0][:4] == ["git", "-C", "/repos/this-next-please", "pull"] and "--ff-only" in calls[0]
+    calls.clear()
+    monkeypatch.setattr(U, "direct_url", lambda: {"url": "https://github.com/x.git", "vcs_info": {"commit_id": "b" * 40}})
+    U.main(["--from-git", "--cli"])                            # --from-git leaves the checkout behind
+    assert calls[0][:4] == [sys.executable, "-m", "pip", "install"] and "--force-reinstall" in calls[0]
+
+
+def test_check_names_the_install_kind(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(U, "source_checkout", lambda: "/repos/this-next-please")
+    monkeypatch.setattr(proc, "run", lambda *a, **k: pytest.fail("--check must not run anything"))
+    skills_dir = _skills(tmp_path)
+    assert U.main(["--check", "--skills-dir", skills_dir]) == 0
+    assert "install: running from a checkout at /repos/this-next-please" in capsys.readouterr().out
+    monkeypatch.setattr(U, "source_checkout", lambda: None)
+    monkeypatch.setattr(U, "direct_url", lambda: {"url": "https://x.git", "dir_info": {"editable": True}})
+    assert U.main(["--check", "--skills-dir", skills_dir]) == 0
+    out = capsys.readouterr().out
+    assert "install: editable install" in out and U.cli_state()["kind"] == "editable install"
 
 
 def test_update_runs_both_commands_and_surfaces_a_failure(tmp_path, capsys, monkeypatch):

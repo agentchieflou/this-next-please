@@ -4,6 +4,7 @@ import json
 from .model import AgentTable
 from . import color
 from . import toon
+from . import ui
 
 INLINE_ROWS, INLINE_TOKENS = 50, 1500
 MEDIUM_ROWS, MEDIUM_SAMPLE = 500, 20
@@ -25,6 +26,12 @@ def _meta(t: AgentTable, rule: int, path: str | None, extra: dict | None = None)
     return m
 
 
+def _pretty() -> bool:
+    """Query results are TOON even on a terminal: `auto` cannot tell Luna's shell from a person's. Asking for it
+    (`AGENTDATA_UI=rich`, or `--pretty`) is the only way a table is drawn instead."""
+    return ui.on() and ui.mode() == "rich"
+
+
 def render(t: AgentTable, raw: bool = False, extra: dict | None = None) -> str:
     """Return the exact text to print to the agent's context. `extra` is merged into meta (e.g. warnings)."""
     # rules 1-2: raw JSON for debugging
@@ -40,24 +47,34 @@ def render(t: AgentTable, raw: bool = False, extra: dict | None = None) -> str:
 
     # rule 3: scalar / small record
     if t.shape in ("scalar", "record") and len(t.columns) <= 20:
-        body = toon.encode(dict(zip(t.columns, t.rows[0])))
-        return "\n".join([toon.encode(_meta(t, 3, None, extra), key="meta"), body])
+        meta = _meta(t, 3, None, extra)
+        if _pretty():
+            return ui.record_view(dict(zip(t.columns, t.rows[0])), meta)
+        return "\n".join([toon.encode(meta, key="meta"), toon.encode(dict(zip(t.columns, t.rows[0])))])
 
     # rule 4: small table inline
     full = toon.table(t.name, t.columns, t.rows)
     if t.n <= INLINE_ROWS and est_tokens(full) <= INLINE_TOKENS:
         path = t.write_tsv()
-        return "\n".join([toon.encode(_meta(t, 4, path, extra), key="meta"), full])
+        meta = _meta(t, 4, path, extra)
+        if _pretty():
+            return ui.data_view(t, t.rows, meta)
+        return "\n".join([toon.encode(meta, key="meta"), full])
 
     path = t.write_tsv()
     stats = toon.encode(t.stats(), key="stats")
     # rule 5: medium — header + first 20 + stats
     if t.n <= MEDIUM_ROWS:
+        meta = _meta(t, 5, path, {"shown": min(MEDIUM_SAMPLE, t.n), **(extra or {})})
+        if _pretty():
+            return ui.data_view(t, t.rows[:MEDIUM_SAMPLE], meta, t.stats())
         head = toon.table(t.name, t.columns, t.rows[:MEDIUM_SAMPLE])
-        return "\n".join([toon.encode(_meta(t, 5, path, {"shown": min(MEDIUM_SAMPLE, t.n), **(extra or {})}), key="meta"), head, stats])
+        return "\n".join([toon.encode(meta, key="meta"), head, stats])
     # rule 6: large — schema + 10 sample + stats; instruct to script
-    head = toon.table(t.name, t.columns, t.rows[:LARGE_SAMPLE])
     meta = _meta(t, 6, path, {"shown": LARGE_SAMPLE, "action": "script over path; do not read file", **(extra or {})})
+    if _pretty():
+        return ui.data_view(t, t.rows[:LARGE_SAMPLE], meta, t.stats())
+    head = toon.table(t.name, t.columns, t.rows[:LARGE_SAMPLE])
     return "\n".join([toon.encode(meta, key="meta"), head, stats])
 
 
