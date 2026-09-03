@@ -3,6 +3,7 @@ the Jira token is read from pncli's file at call time (connectors/jira_api.py) a
 from __future__ import annotations
 import re
 from ... import config as C
+from ...connectors.pncli import exe as pncli_exe
 from ..wizard import Context, Step
 
 DEFAULT_PNCLI_CONFIG = "~/.pncli/config.json"
@@ -39,7 +40,7 @@ class PncliStep(Step):
 
     def detect(self, ctx: Context) -> dict:
         cfg_path = C.get(ctx.cfg, "pncli.config_path") or DEFAULT_PNCLI_CONFIG
-        launcher = ctx.det.launcher("pncli", C.get(ctx.cfg, "pncli.exe") or None)
+        launcher = ctx.det.launcher("pncli", pncli_exe(ctx.cfg))   # PNCLI_EXE wins, exactly as ad-pncli resolves it
         found: dict = {"launcher": launcher, "bin": launcher.get("path") or None, "config_path": cfg_path,
                        "exists": ctx.det.exists(cfg_path), "flat": {}, "json_error": None,
                        "keys": dict(C.get(ctx.cfg, "pncli.keys", {}) or {})}
@@ -97,9 +98,10 @@ class PncliStep(Step):
     def ask(self, ctx: Context, found: dict) -> None:
         cfg = ctx.cfg
         lz0 = found.get("launcher") or {}
-        if not lz0.get("found"):
+        if not lz0.get("found") or lz0.get("rc") not in (0, None):   # missing OR present-but-will-not-start
             pkg = C.get(cfg, "pncli.npm_package") or NPM_PACKAGE
-            ctx.say(f"  pncli was not found. It is an npm package (`npm install -g {pkg}`) and lands as pncli.cmd, never pncli.exe.")
+            state = "was not found" if not lz0.get("found") else f"is at {lz0.get('path')} but exits {lz0.get('rc')} on --version"
+            ctx.say(f"  pncli {state}. It is an npm package (`npm install -g {pkg}`) and lands as pncli.cmd, never pncli.exe.")
             got = ctx.ask.ask("pncli.exe", "full path to the pncli launcher (blank = not installed yet)",
                               C.get(cfg, "pncli.exe") or "")
             if got:

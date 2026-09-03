@@ -1,4 +1,4 @@
-"""Starting other programs, correctly, on Windows.
+r"""Starting other programs, correctly, on Windows.
 
 Windows `CreateProcess` only ever appends `.exe`: handing it the bare name of a tool installed by npm
 (`pncli` -> `pncli.cmd`) fails with `[WinError 2] The system cannot find the file specified`, which is what
@@ -34,6 +34,7 @@ TOOL_DIRS = {
 }
 CMD_UNSAFE = "%"          # cmd.exe expands %VAR% even inside quotes; there is no escape on a /c command line
 SHIM_EXTS = (".cmd", ".bat")
+NODE_EXTS = (".js", ".cjs", ".mjs")
 
 
 class ProcError(Exception):
@@ -160,7 +161,13 @@ def resolve(name: str, *, exe: str | None = None, windows: bool | None = None, p
         return {"found": False, "name": name, "tried": tried, "kind": "", "path": ""}
     info = {"found": True, "name": name, "path": p.replace("\\", "/"), "tried": tried, "kind": "executable",
             "node": "", "script": ""}
-    if windows and p.lower().endswith(SHIM_EXTS):
+    if p.lower().endswith(NODE_EXTS):        # a pinned entry point (the escape hatch cmd_line's hint offers)
+        node = which("node", windows=windows)
+        if node:
+            info.update(kind="node script", node=node.replace("\\", "/"), script=info["path"])
+        else:
+            info["error"] = "no `node` on PATH to run " + info["path"]
+    elif windows and p.lower().endswith(SHIM_EXTS):
         info["kind"] = "cmd shim"
         target = unwrap_shim(p, windows=windows)
         if target:
@@ -181,7 +188,7 @@ def prepare(argv: list[str], *, exe: str | None = None, windows: bool | None = N
     if not info["found"]:
         raise ProcError("not_found", info.get("error") or f"{argv[0]}: executable not found",
                         hint or f"install {argv[0]} and put it on PATH", {"tried": info["tried"], "name": argv[0]})
-    if info["kind"] == "npm shim":
+    if info["kind"] in ("npm shim", "node script"):
         return [info["node"], info["script"], *argv[1:]], info
     if info["kind"] == "cmd shim":
         comspec = os.path.normpath(os.environ.get("COMSPEC") or "cmd.exe")

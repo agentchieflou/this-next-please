@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 
+from .. import textio
 from . import DpmError
 
 BINDING_V1: dict = {
@@ -97,11 +98,10 @@ def load(path: str | None) -> tuple[dict, str]:
     if not os.path.isfile(path):
         raise DpmError("binding_missing", f"binding file not found: {path}",
                        "check the dpm_binding fact in AGENTS.md (relative to the consumer root), or drop it to use the builtin binding")
-    with open(path, encoding="utf-8-sig") as f:
-        try:
-            over = json.load(f)
-        except ValueError as e:
-            raise DpmError("binding_invalid", f"{path}: not valid JSON ({e})", "")
+    try:
+        over = textio.read_json(path, "binding")   # PowerShell writes UTF-8 BOM / UTF-16; read what it wrote
+    except ValueError as e:
+        raise DpmError("binding_invalid", str(e), "") from None
     if not isinstance(over, dict):
         raise DpmError("binding_invalid", f"{path}: top level must be an object", "")
     if str(over.get("binding_version", 1)) != "1":

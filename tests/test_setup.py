@@ -6,6 +6,7 @@ from agentdata.setup.steps import pncli_import, powerbi, project
 
 PNCLI = {"jira": {"url": "https://acme.atlassian.net", "email": "me@acme.com", "token": "tok_1234567890abcdef"},
          "bitbucket": {"token": "bb_secret_value_123"}}
+PKG_DIR = os.path.normcase(os.path.dirname(os.path.abspath(__import__("agentdata").__file__)))
 
 
 class FakeDet(W.Detectors):
@@ -34,9 +35,16 @@ class FakeDet(W.Detectors):
                 "script": "C:/Users/me/AppData/Roaming/npm/node_modules/@kolatts/pncli/bin/cli.js"}
 
     def exists(self, p):
+        """Only what a test registered, plus data packaged inside agentdata/ (that ships with the code and is not
+        machine state). Never the rest of the real filesystem: this class stands in for the machine, and a Windows
+        CI runner really does have `C:/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd` — one of the az
+        candidates — so falling through made a tool "found" there and missing everywhere else."""
         p = C.expand(p or "")
-        return p.endswith("config.json") and self.pncli is not None or p in self.tools.values() or p in self.files \
-            or os.path.exists(p)
+        if p.endswith("config.json"):
+            return self.pncli is not None
+        if os.path.normcase(os.path.abspath(p)).startswith(PKG_DIR):
+            return os.path.exists(p)
+        return p in self.tools.values() or p in self.files
 
     def read_json(self, p):
         if self.pncli is None:
@@ -314,15 +322,23 @@ def test_patch_repairs_a_missing_pncli_launcher(cfg_path, capsys, tmp_path):
     assert rc == 0 and "ok: true" in out and "was_failing: 1" in out
 
 
-def test_patch_repairs_a_wrong_az_path(cfg_path, capsys):
-    """Laptop case: az lives at C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd."""
-    az = "C:/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd"
-    C.save({"powerbi": {"tools": {"az_exe": "C:/wrong/az.cmd"}}})
+def test_patch_repairs_a_wrong_az_path(cfg_path, capsys, tmp_path, monkeypatch):
+    """Laptop case: a configured az path that is not there (the real one is
+    C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd).
+
+    The candidate below really exists on this machine, which is the condition that broke this test on the GitHub
+    Windows runner: it ships the Azure CLI at the canonical candidate path, so a FakeDet that fell through to the
+    real filesystem "found" it, the check passed, and --patch had nothing to repair."""
+    installed = tmp_path / "really-installed-az.cmd"
+    installed.write_text("@echo off", encoding="utf-8")
+    monkeypatch.setitem(powerbi.TOOLS, "az_exe", ("az", [str(installed)]))
+    az = str(tmp_path / "Azure" / "CLI2" / "wbin" / "az.cmd").replace("\\", "/")
+    C.save({"powerbi": {"tools": {"az_exe": str(tmp_path / "wrong" / "az.cmd").replace("\\", "/")}}})
     det = FakeDet(tools={"az": None})
     det.files[C.expand(az)] = "@echo off"
     rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "powerbi", "--set", f"powerbi.az_exe={az}"], det)
     out, _err = capsys.readouterr()
-    assert "powerbi/az_exe" in out and "C:/wrong/az.cmd" in out
+    assert "powerbi/az_exe" in out and "wrong/az.cmd" in out
     assert json.loads(cfg_path.read_text())["powerbi"]["tools"]["az_exe"] == az
     assert rc == 0 and "was_failing: 1" in out and "asked[1]: powerbi.az_exe" in out
 
@@ -335,3 +351,104 @@ def test_scoped_prompter_only_prompts_in_scope():
     assert p.confirm("b.z", "?", True) is True and p.confirm("b.z", "?", False) is False
     assert p.ask("b.w", "?", None, ["one", "two"]) == "one"
     assert p.asked == ["a.x"]
+
+
+def test_launcher_probes_the_pinned_path_not_the_bare_name(tmp_path, monkeypatch):
+    """A pinned launcher is usually NOT on PATH — probing the bare name reported a working pin as broken."""
+    if os.name == "nt":
+        pytest.skip("POSIX stand-in for a pinned launcher")
+    exe = tmp_path / "pncli"
+    exe.write_text("#!/bin/sh\necho pncli/1.4.0\n", encoding="utf-8", newline="\n")
+    os.chmod(exe, 0o755)
+    info = W.Detectors().launcher("pncli", str(exe))
+    assert info["found"] and info["rc"] == 0 and info["version"] == "pncli/1.4.0"
+    assert W.Detectors().launcher("pncli", str(tmp_path / "gone"))["found"] is False
+
+
+def test_pncli_step_honours_PNCLI_EXE(cfg_path, monkeypatch):
+    """ad-pncli honours PNCLI_EXE and the check's own hint recommends it; the doctor must resolve it the same way."""
+    seen = {}
+
+    class Det(FakeDet):
+        def launcher(self, name, exe=None):
+            seen["exe"] = exe
+            return super().launcher(name, exe)
+
+    monkeypatch.setenv("PNCLI_EXE", "C:/tools/pncli/pncli.cmd")
+    ctx = W.Context(cfg=C.load(), det=Det(), ask=W.AnswerPrompter({}), facts={})
+    pncli_import.PncliStep().detect(ctx)
+    assert seen["exe"] == "C:/tools/pncli/pncli.cmd"
+    monkeypatch.delenv("PNCLI_EXE")
+    C.save({"pncli": {"exe": "C:/from/config/pncli.cmd"}})
+    ctx = W.Context(cfg=C.load(), det=Det(), ask=W.AnswerPrompter({}), facts={})
+    pncli_import.PncliStep().detect(ctx)
+    assert seen["exe"] == "C:/from/config/pncli.cmd"
+
+
+def test_patch_repairs_a_launcher_that_is_found_but_will_not_start(cfg_path, capsys, tmp_path):
+    """`exits N on --version` is tagged with pncli.exe, so --patch must actually offer that prompt."""
+    C.save({"pncli": {"config_path": "~/.pncli/config.json", "exe": "C:/broken/pncli.cmd",
+                      "keys": {"jira_url": "jira.url", "jira_email": "jira.email", "jira_token": "jira.token"}},
+            "verified": {"jira": "2026-09-02"}})
+    good = tmp_path / "pncli.cmd"
+    good.write_text("@echo off\n", encoding="utf-8")
+    rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "pncli", "--set", f"pncli.exe={good}"],
+                     FakeDet(pncli_rc=9))
+    out = capsys.readouterr().out
+    assert "exits 9 on --version" in out and "asked[1]: pncli.exe" in out
+    assert json.loads(cfg_path.read_text())["pncli"]["exe"] == str(good).replace("\\", "/")
+    assert rc in (0, 1)
+
+
+def test_the_fake_detector_never_consults_the_real_machine(tmp_path):
+    """FakeDet stands in for everything that touches the machine; if it falls through, tests pass or fail by luck."""
+    real = tmp_path / "really-here.exe"
+    real.write_text("x", encoding="utf-8")
+    det = FakeDet()
+    assert det.exists(str(real)) is False
+    det.files[str(real)] = "x"
+    assert det.exists(str(real)) is True
+    for candidate in powerbi.TOOLS["az_exe"][1]:            # the paths a Windows runner may really have
+        assert det.exists(candidate) is False
+    from agentdata.install import templates_dir            # packaged data is the one carve-out
+    assert det.exists(os.path.join(templates_dir(), "AGENTS.md")) is True
+
+
+def test_oracle_setup_asks_for_host_port_service_not_a_hand_built_string(cfg_path, capsys):
+    """SQL Developer's Basic tab: Name, Hostname, Port, Service name. There is no ODBC DSN to point at."""
+    det = FakeDet(modules={"oracledb", "keyring"})
+    det.passwords[("oracle", "OIMPROD1_ROSVC", "luna")] = "pw"
+    answers = {"sources.teradata.use": False, "sources.hive.use": False, "sources.impala.use": False,
+               "sources.oracle.use": True, "sources.oracle.envs": "OIMPROD1_ROSVC",
+               "sources.oracle.OIMPROD1_ROSVC.style": "basic",
+               "sources.oracle.OIMPROD1_ROSVC.host": "exag1301-scan1.example.net",
+               "sources.oracle.OIMPROD1_ROSVC.port": "1521",
+               "sources.oracle.OIMPROD1_ROSVC.identifier": "service",
+               "sources.oracle.OIMPROD1_ROSVC.service_name": "oimprod1_rosvc.prod.example.net",
+               "powerbi.use": False, "project.generate": False}
+    assert W.run_setup(["--only", "sources", "--non-interactive", "--offline",
+                        *sum((["--set", f"{k}={v}"] for k, v in answers.items()), [])], det) == 0
+    e = json.loads(cfg_path.read_text())["sources"]["oracle"]["envs"]["OIMPROD1_ROSVC"]
+    assert e["host"] == "exag1301-scan1.example.net" and e["port"] == 1521
+    assert e["service_name"] == "oimprod1_rosvc.prod.example.net" and "dsn" not in e
+    assert e["mode"] == "native"                       # never ODBC: an ODBC DSN would be read as a TNS alias
+    assert C.oracle_dsn(e) == "exag1301-scan1.example.net:1521/oimprod1_rosvc.prod.example.net"
+    capsys.readouterr()
+    W.run_doctor(["--only", "sources"], det)
+    assert "exag1301-scan1.example.net:1521/oimprod1_rosvc" in capsys.readouterr().out   # visible in every doctor run
+
+
+def test_oracle_tns_style_and_incomplete_connections_are_caught(cfg_path, capsys):
+    det = FakeDet(modules={"oracledb", "keyring"})
+    det.passwords[("oracle", "prod", "luna")] = "pw"
+    sets = ["--set", "sources.teradata.use=false", "--set", "sources.hive.use=false", "--set", "sources.impala.use=false",
+            "--set", "sources.oracle.use=true", "--set", "sources.oracle.envs=prod", "--set", "sources.oracle.prod.style=tns",
+            "--set", "sources.oracle.prod.dsn=MYALIAS", "--set", "powerbi.use=false", "--set", "project.generate=false"]
+    assert W.run_setup(["--only", "sources", "--non-interactive", "--offline", *sets], det) == 0
+    e = json.loads(cfg_path.read_text())["sources"]["oracle"]["envs"]["prod"]
+    assert e["dsn"] == "MYALIAS" and "host" not in e and "service_name" not in e
+    capsys.readouterr()
+    C.save({"sources": {"oracle": {"envs": {"prod": {"mode": "native", "host": "h", "user": "luna"}}}}})
+    assert W.run_doctor(["--only", "sources"], det) == 1
+    out = capsys.readouterr().out
+    assert "incomplete Oracle connection: no service name or SID" in out and "no ODBC DSN" in out

@@ -1,13 +1,13 @@
 """Read-only access to a DPM run root: orchestrator.db (SQLite, opened immutable), selection manifests, text_analysis."""
 from __future__ import annotations
 import glob
-import json
 import os
 import pathlib
 import re
 import sqlite3
 from dataclasses import dataclass
 
+from .. import textio
 from . import DpmError
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -124,7 +124,10 @@ class Run:
             names = [r[0] for r in self.conn().execute(
                 "SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name")]
             for n in names:
-                out[n] = [r[1] for r in self.conn().execute(f"PRAGMA table_info({q(n)})")]
+                try:
+                    out[n] = [r[1] for r in self.conn().execute(f"PRAGMA table_info({q(n)})")]
+                except sqlite3.Error:
+                    out[n] = []          # a view over a dropped table: keep inspecting the rest of the database
             self._tables = out
         return self._tables
 
@@ -255,13 +258,12 @@ class Run:
 
     def _json(self, p: str, what: str):
         try:
-            with open(p, encoding="utf-8-sig") as f:
-                return json.load(f)
+            return textio.read_json(p, what)       # BOM / UTF-16 tolerant, like every other reader
         except ValueError as e:
             raise DpmError("manifest_invalid", f"{self.rel(p)}: {what} is not valid JSON ({e})",
-                           "the producer output is damaged; report to DPM, never repair files in the run root")
+                           "the producer output is damaged; report to DPM, never repair files in the run root") from None
         except OSError as e:
-            raise DpmError("manifest_invalid", f"{self.rel(p)}: cannot read {what} ({e})", "")
+            raise DpmError("manifest_invalid", f"{self.rel(p)}: cannot read {what} ({e})", "") from None
 
     def selection_paths(self) -> list[str]:
         found: set[str] = set()

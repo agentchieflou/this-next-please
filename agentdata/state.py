@@ -66,8 +66,7 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
         for a in artifacts:
             arts.append({"path": a["path"].replace("\\", "/"), "what": a.get("what", ""), "run_id": a.get("run_id", ""), "added": stamp[:10]})
     state["artifacts"] = prune(state.get("artifacts") or [], stamp[:10])
-    if state.get("phase") != "blocked" and not questions and not clear_questions:
-        pass  # open questions persist until explicitly cleared: a blocked phase is left on purpose
+    # open questions persist until --clear-questions: leaving a blocked phase is a deliberate act, never a side effect
     state["last_updated"] = stamp
     return state
 

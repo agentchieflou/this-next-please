@@ -77,6 +77,7 @@ differs from the run's id makes every item of that manifest unresolved (`selecti
 | `sha256-selection-mismatch` / `sha256-malformed` / `sha256-content-mismatch` | selection sha ≠ canonical / not 64 hex / file on disk hashes differently |
 | `loan-missing` / `loan-mismatch` | no canonical loan id / selection loan id ≠ canonical |
 | `channel-missing` / `channel-unknown` | no channel / not in the allowed set |
+| `document-id-unsafe` | the canonical document id contains `/`, `\\` or `..`: it names the text_analysis file |
 | `source-missing` | `source_path` empty or file absent |
 | `page-count-missing` / `page-invalid` / `page-out-of-range` / `page-not-in-canonical` | no page count from any source / non-integer page / page > page_count / no row in `pages` |
 | `analysis-missing` / `analysis-mismatch` / `analysis-page-missing` | no text_analysis file / it names another document / no entry for a selected page |
@@ -84,7 +85,9 @@ differs from the run's id makes every item of that manifest unresolved (`selecti
 | `selection-run-mismatch` / `selection-duplicate-id` / `selection-id-missing` | manifest-level problems; every item of the manifest is unresolved |
 
 Warnings (never block): `document-unsupported-status`, `document-unsupported-analysis`, `document-unsupported-type`
-(unsupported bucket), `channels-unconstrained`, `selection-empty`, `orchestrator-wal-pending`.
+(unsupported bucket), `channels-unconstrained`, `selection-empty`, `orchestrator-wal-pending`, and
+`source-outside-root` — an absolute `source_path` pointing outside the run root still resolves and is hashed, but it
+is not covered by the run's snapshot, so it can change under the handoff.
 
 ## Route buckets (binding `partition`)
 Precedence per selection item: **unresolved** (any error above) > **unsupported** (status / analysis flag / needs OCR

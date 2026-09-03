@@ -44,8 +44,10 @@ def main(argv: list[str] | None = None) -> int:
     module, func, _help = COMMANDS[name]
     __import__(module)
     sys.argv = [f"ad-{name}", *rest]
-    getattr(sys.modules[module], func)()
-    return 0
+    # the command's exit code IS its contract (ad-dpm: 2 refused, 1 failed, 0 ok). Older mains call sys.exit
+    # themselves; newer ones return an int, and returning 0 here would report every refusal as success.
+    rc = getattr(sys.modules[module], func)()
+    return rc if isinstance(rc, int) else 0
 
 
 if __name__ == "__main__":

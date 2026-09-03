@@ -6,6 +6,7 @@ import os
 import re
 from datetime import datetime, timezone
 
+from .. import textio
 from . import DpmError
 from .guard import file_sha256
 from .run import Run
@@ -97,12 +98,22 @@ def _tsv(path: str, cols: list[str], rows: list[list]) -> None:
             w.writerow(["" if v is None else (";".join(map(str, v)) if isinstance(v, list) else v) for v in r])
 
 
-def write(manifest: dict, findings: list[Finding], out_dir: str, *, force: bool, receipt: dict) -> list[dict]:
-    """Write the governed artifacts. Refuses to overwrite a previous handoff for the same run id unless force."""
-    existing = [f for f in FILES if os.path.exists(os.path.join(out_dir, f))]
+def present(out_dir: str) -> list[str]:
+    return [f for f in FILES if os.path.exists(os.path.join(out_dir, f))]
+
+
+def refuse_if_present(out_dir: str, *, force: bool) -> list[str]:
+    """`artifacts_exist` as early as possible: the caller has not hashed anything yet."""
+    existing = present(out_dir)
     if existing and not force:
         raise DpmError("artifacts_exist", f"{out_dir.replace(os.sep, '/')} already holds {', '.join(existing)}",
                        "pass --force to replace the previous handoff for this run id (the receipt records the replacement)")
+    return existing
+
+
+def write(manifest: dict, findings: list[Finding], out_dir: str, *, force: bool, receipt: dict) -> list[dict]:
+    """Write the governed artifacts. Refuses to overwrite a previous handoff for the same run id unless force."""
+    existing = refuse_if_present(out_dir, force=force)
     os.makedirs(out_dir, exist_ok=True)
     p = lambda name: os.path.join(out_dir, name)  # noqa: E731
     with open(p("job-manifest.json"), "w", encoding="utf-8", newline="\n") as f:
@@ -127,10 +138,10 @@ def write(manifest: dict, findings: list[Finding], out_dir: str, *, force: bool,
 
 def load_manifest(path: str) -> dict:
     try:
-        with open(path, encoding="utf-8-sig") as f:
-            m = json.load(f)
+        m = textio.read_json(path, "job manifest")
     except (OSError, ValueError) as e:
-        raise DpmError("manifest_invalid", f"cannot read job manifest {path}: {e}", "pass the job-manifest.json written by ad-dpm convert")
+        raise DpmError("manifest_invalid", f"cannot read job manifest {path}: {e}",
+                       "pass the job-manifest.json written by ad-dpm convert") from None
     if not isinstance(m, dict) or str(m.get("job_manifest_version")) != JOB_MANIFEST_VERSION or "jobs" not in m:
         raise DpmError("unsupported_version", f"{path} is not a job manifest version {JOB_MANIFEST_VERSION}", "only manifests written by ad-dpm convert can be verified")
     return m

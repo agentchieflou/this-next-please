@@ -126,6 +126,8 @@ def cmd_convert(a) -> int:
                     hint="set dpm_artifact_dir in AGENTS.md to the consumer's governed artifact directory (its contribution docs name it); "
                          "if it is undocumented, STOP and ask Michael")
     out_root = G.governed_dir(consumer, art, run.root)
+    out_dir = os.path.join(out_root, CV.safe_name(run.run_id()))
+    CV.refuse_if_present(out_dir, force=a.force)     # before hashing every source document, not after
     before = G.snapshot(run.root)
     res = V.validate(run, hash_sources=not a.no_hash)
     mid = G.snapshot(run.root)
@@ -136,7 +138,6 @@ def cmd_convert(a) -> int:
     if a.strict and counts["errors"]:
         raise DpmError("unresolved_references", f"{counts['errors']} reference error(s); --strict writes nothing",
                        "ad-dpm validate lists them; drop --strict to convert with those documents in the unresolved bucket")
-    out_dir = os.path.join(out_root, CV.safe_name(res.run_id))
     manifest = CV.build(run, res, consumer_root=consumer, artifact_dir=out_root, binding_label=label, binding_sha=bsha,
                         snapshot_sha=before["sha256"], snapshot_files=before["files"])
     run.close()

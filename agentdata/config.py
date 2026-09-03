@@ -28,10 +28,13 @@ _ENV_VARS: dict[str, dict[str, tuple[str, ...]]] = {
              "dsn": ("HIVE_DSN_{ENV}", "HIVE_DSN"), "auth": ("HIVE_AUTH",)},
     "impala": {"host": ("IMPALA_HOST_{ENV}", "IMPALA_HOST"), "port": ("IMPALA_PORT",), "user": ("IMPALA_USER",),
                "dsn": ("IMPALA_DSN_{ENV}", "IMPALA_DSN"), "auth": ("IMPALA_AUTH",)},
-    "oracle": {"dsn": ("ORA_DSN_{ENV}", "ORA_DSN"), "user": ("ORA_USER",), "client_lib": ("ORACLE_CLIENT_LIB",),
+    # Oracle has no DSN registry (no odbcad32 equivalent), so the parts are first-class: host, port, service/SID.
+    "oracle": {"host": ("ORA_HOST_{ENV}", "ORA_HOST"), "port": ("ORA_PORT_{ENV}", "ORA_PORT"),
+               "service_name": ("ORA_SERVICE_{ENV}", "ORA_SERVICE"), "sid": ("ORA_SID_{ENV}", "ORA_SID"),
+               "dsn": ("ORA_DSN_{ENV}", "ORA_DSN"), "user": ("ORA_USER",), "client_lib": ("ORACLE_CLIENT_LIB",),
                "tns_admin": ("TNS_ADMIN",)},
 }
-_PRIMARY_KEY = {"teradata": "host", "hive": "host", "impala": "host", "oracle": "dsn"}
+_PRIMARY_KEY = {"teradata": "host", "hive": "host", "impala": "host", "oracle": "host"}
 
 
 class ConfigError(Exception):
@@ -218,11 +221,42 @@ def source_env(cfg: dict | None, source: str, env: str) -> dict:
                 break
     e.setdefault("mode", "odbc" if e.get("dsn") and not e.get("host") and source != "oracle" else "native")
     e["env"], e["source"] = env, source
+    if source == "oracle":
+        composed = oracle_dsn(e)
+        if composed:
+            e["dsn"] = composed
+        elif e.get("host"):
+            raise ConfigError(f"oracle env '{env}' has a host but no service name or SID",
+                              hint="ad-setup --patch (or set ORA_SERVICE), the way SQL Developer asks for Service name")
     if not (e.get("host") or e.get("dsn")):
         var = _ENV_VARS[source][_PRIMARY_KEY[source]][0].replace("{ENV}", env.upper())
         raise ConfigError(f"no {source} connection configured for env '{env}'",
                           hint=f"ad-setup --only sources (or set {var})")
     return e
+
+
+ORACLE_PORT = 1521
+
+
+def oracle_dsn(e: dict) -> str:
+    """The connect string oracledb wants, from whichever shape was configured.
+
+    Oracle is the source with no ODBC DSN to point at, so a connection is Hostname + Port + Service name (or SID) —
+    the four fields SQL Developer's Basic tab asks for. An explicit `dsn` (a TNS alias, or a connect string someone
+    pasted) always wins; otherwise the parts are composed here so every caller sees one `dsn`."""
+    if e.get("dsn"):
+        return str(e["dsn"]).strip()
+    host = str(e.get("host") or "").strip()
+    if not host:
+        return ""
+    port = int(e.get("port") or ORACLE_PORT)
+    service = str(e.get("service_name") or "").strip()
+    if service:
+        return f"{host}:{port}/{service}"                      # Easy Connect
+    sid = str(e.get("sid") or "").strip()
+    if sid:                                                    # SID has no Easy Connect form; this is makedsn's output
+        return f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={host})(PORT={port}))(CONNECT_DATA=(SID={sid})))"
+    return ""
 
 
 def capabilities(cfg: dict | None, source: str, env: str) -> dict:

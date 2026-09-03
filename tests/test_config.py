@@ -92,3 +92,39 @@ def test_facts_and_config_tolerate_powershell_encodings(tmp_path, monkeypatch):
     with pytest.raises(C.ConfigError) as ei:
         C.load()
     assert "not valid JSON" in str(ei.value)
+
+
+def test_oracle_dsn_is_composed_from_the_parts_sql_developer_asks_for():
+    """Oracle has no ODBC DSN registry: a connection is hostname + port + service name (or SID)."""
+    assert C.oracle_dsn({"host": "exag1301-scan1.example.net", "service_name": "oimprod1_rosvc.prod.example.net"}) == \
+        "exag1301-scan1.example.net:1521/oimprod1_rosvc.prod.example.net"
+    assert C.oracle_dsn({"host": "h", "port": 1522, "service_name": "svc"}) == "h:1522/svc"
+    assert C.oracle_dsn({"host": "h", "port": "1522", "sid": "ORCL"}) == \
+        "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=h)(PORT=1522))(CONNECT_DATA=(SID=ORCL)))"
+    assert C.oracle_dsn({"dsn": " MYALIAS ", "host": "ignored"}) == "MYALIAS"   # an explicit alias always wins
+    assert C.oracle_dsn({"host": "h"}) == "" and C.oracle_dsn({}) == ""         # incomplete stays empty
+
+
+def test_source_env_composes_oracle_and_env_vars_override_each_part(tmp_path, monkeypatch):
+    monkeypatch.setenv(C.CONFIG_ENV, str(tmp_path / "cfg.json"))
+    C.save({"sources": {"oracle": {"envs": {"prod": {"host": "h1", "service_name": "svc1", "user": "me"}}}}})
+    assert C.source_env(None, "oracle", "prod")["dsn"] == "h1:1521/svc1"
+    monkeypatch.setenv("ORA_HOST_PROD", "h2")
+    monkeypatch.setenv("ORA_PORT_PROD", "1600")
+    monkeypatch.setenv("ORA_SERVICE_PROD", "svc2")
+    e = C.source_env(None, "oracle", "prod")
+    assert e["dsn"] == "h2:1600/svc2" and e["mode"] == "native"
+    monkeypatch.setenv("ORA_DSN_PROD", "ALIAS")
+    assert C.source_env(None, "oracle", "prod")["dsn"] == "ALIAS"
+
+
+def test_source_env_says_which_oracle_field_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv(C.CONFIG_ENV, str(tmp_path / "cfg.json"))
+    C.save({"sources": {"oracle": {"envs": {"prod": {"host": "h1"}}}}})       # host but no service name / SID
+    with pytest.raises(C.ConfigError) as ei:
+        C.source_env(None, "oracle", "prod")
+    assert "no service name or SID" in str(ei.value) and "SQL Developer" in ei.value.hint
+    C.save({"sources": {"oracle": {"envs": {"prod": {}}}}})
+    with pytest.raises(C.ConfigError) as ei:
+        C.source_env(None, "oracle", "prod")
+    assert "no oracle connection configured" in str(ei.value) and "ORA_HOST_PROD" in ei.value.hint
