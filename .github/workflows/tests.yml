@@ -20,7 +20,8 @@ jobs:
         include:
           - {os: ubuntu-latest, python: "3.10", select: ""}
           - {os: ubuntu-latest, python: "3.12", select: ""}
-          - {os: windows-latest, python: "3.12", select: -m "not slow"}
+          - {os: ubuntu-latest, python: "3.14", select: ""}
+          - {os: windows-latest, python: "3.14", select: -m "not slow"}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

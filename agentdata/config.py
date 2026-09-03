@@ -180,7 +180,7 @@ def project_facts(agents_md: str = "AGENTS.md") -> dict[str, str]:
         if not m:
             continue
         key, val = m.group(1).lower(), m.group(2)
-        val = re.split(r"\s+#", val, 1)[0].strip().strip("`").strip('"').strip("'")
+        val = re.split(r"\s+#", val, maxsplit=1)[0].strip().strip("`").strip('"').strip("'")
         if not val or (val.startswith("<") and val.endswith(">")):
             continue
         facts[key] = val
