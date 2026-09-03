@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-dpm: locate · inspect · validate · convert · lineage · binding.
 
 The DPM run root is read-only (SQLite opened immutable; a tree fingerprint before and after every command proves nothing
@@ -9,6 +10,7 @@ import argparse
 import os
 import sys
 
+from . import completion
 from . import config as C
 from . import toon
 from .console import utf8_stdout
@@ -20,6 +22,7 @@ from .dpm import guard as G
 from .dpm import validate as V
 from .dpm.run import Run
 from .model import AgentTable
+from . import policy, ui
 from .policy import error, render
 
 SHOW = 50
@@ -60,12 +63,16 @@ def cmd_locate(a) -> int:
     run = _locate(a, b)
     snap = G.snapshot(run.root)
     analysis_files = len(os.listdir(run.analysis_dir))
-    print(toon.encode({"meta": {"ok": True, "source": "ad-dpm locate", "run_root": run.root.replace("\\", "/"), "run_id": run.run_id(),
-                                "orchestrator_db": run.rel(run.db_path), "selection_manifests": len(run.selection_paths()),
-                                "text_analysis_files": analysis_files, "canonical_documents": run.count(b["canonical"]["table"]),
-                                **{k: v for k, v in run.versions().items() if v is not None},
-                                "binding": label, "binding_sha256": _short(bsha), "snapshot_sha256": _short(snap["sha256"]), "snapshot_files": snap["files"],
-                                "next": "ad-dpm validate --run-root <run_root>"}}))
+    meta = {"ok": True, "source": "ad-dpm locate", "run_root": run.root.replace("\\", "/"), "run_id": run.run_id(),
+            "orchestrator_db": run.rel(run.db_path), "selection_manifests": len(run.selection_paths()),
+            "text_analysis_files": analysis_files, "canonical_documents": run.count(b["canonical"]["table"]),
+            **{k: v for k, v in run.versions().items() if v is not None},
+            "binding": label, "binding_sha256": _short(bsha), "snapshot_sha256": _short(snap["sha256"]), "snapshot_files": snap["files"],
+            "next": "ad-dpm validate --run-root <run_root>"}
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k not in ("ok", "source")], title="ad-dpm locate")
+    else:
+        print(toon.encode({"meta": meta}))
     return 0
 
 
@@ -84,7 +91,12 @@ def cmd_inspect(a) -> int:
                         "the candidate, point the dpm_binding fact at the file, re-run. Rebinding is a contract change: show Michael the diff.")
     elif d["supported"] is False:
         meta["hint"] = "the producer version is not supported; hand off to Michael / the DPM owners (see problems)"
-    print(toon.encode({"meta": meta, "tables": d["tables"], "binding": d["binding"], "manifests": d["manifests"], "analysis": d["analysis"]}))
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k not in ("ok", "source")], title="ad-dpm inspect", subtitle="ok" if meta["ok"] else "fail")
+        if d.get("tables"):
+            ui.table(["table", "rows", "status"], [[t.get("name"), t.get("rows"), t.get("status", "ok")] for t in d["tables"]], title="tables", status_col=2)
+    else:
+        print(toon.encode({"meta": meta, "tables": d["tables"], "binding": d["binding"], "manifests": d["manifests"], "analysis": d["analysis"]}))
     return 0 if meta["ok"] else 1
 
 
@@ -161,7 +173,16 @@ def cmd_convert(a) -> int:
     body = {"meta": meta, "files": files,
             "excluded": [{"document_id": x["document_id"], "selection_id": x["selection_id"], "bucket": x["bucket"], "reasons": ";".join(x["reasons"])}
                          for x in manifest["excluded"][:SHOW]]}
-    print(toon.encode(body))
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k not in ("ok", "source")], title="ad-dpm convert", subtitle="ok" if untouched else "fail")
+        if files:
+            ui.table(["file", "path"], list(files.items()), title="files")
+        if body["excluded"]:
+            ui.table(["document_id", "selection_id", "bucket", "reasons"],
+                     [[x["document_id"], x["selection_id"], x["bucket"], x["reasons"]] for x in body["excluded"]],
+                     title="excluded documents", wrap=(3,))
+    else:
+        print(toon.encode(body))
     return 0 if untouched else 1
 
 
@@ -175,15 +196,29 @@ def cmd_lineage(a) -> int:
             return 2
         j = hits[0]
         row = next(r for r in res["rows"] if r["job_id"] == a.job)
-        print(toon.encode({"meta": {"ok": row["status"] == "ok", "source": "ad-dpm lineage", "job_id": a.job, "route": j["route"], "status": row["status"],
-                                    "reason": row["reason"], "run_root": res["run_root"]}, "lineage": j["lineage"]}))
+        if policy.pretty():
+            ui.facts([("job_id", a.job), ("status", ui.status_text(row["status"])), ("route", j["route"]),
+                      ("reason", row["reason"]), ("run_root", res["run_root"])], title=f"ad-dpm lineage {a.job}")
+            if j.get("lineage"):
+                ui.table(["step", "path"], list(j["lineage"].items()), title="lineage")
+        else:
+            print(toon.encode({"meta": {"ok": row["status"] == "ok", "source": "ad-dpm lineage", "job_id": a.job, "route": j["route"], "status": row["status"],
+                                        "reason": row["reason"], "run_root": res["run_root"]}, "lineage": j["lineage"]}))
         return 0 if row["status"] == "ok" else 1
     meta = {"ok": res["ok"], "source": "ad-dpm lineage", "manifest": a.manifest.replace("\\", "/"), "run_root": res["run_root"],
             "run_id": m["producer"]["run_id"], "orchestrator_db_ok": res["orchestrator_db_ok"], "jobs": res["jobs"], "ok_count": res["ok_count"],
             "broken": res["broken"], "rehash": not a.no_hash}
     if not res["ok"]:
         meta["hint"] = "the producer side moved under this manifest; re-run ad-dpm convert --force after DPM confirms the run, do not hand-edit the manifest"
-    print(toon.encode({"meta": meta, "broken": [r for r in res["rows"] if r["status"] == "broken"][:SHOW]}))
+    broken_rows = [r for r in res["rows"] if r["status"] == "broken"][:SHOW]
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k not in ("ok", "source")], title="ad-dpm lineage", subtitle="ok" if res["ok"] else "fail")
+        if broken_rows:
+            ui.table(["job_id", "status", "reason"],
+                     [[r.get("job_id"), r.get("status"), r.get("reason")] for r in broken_rows],
+                     title="broken references", status_col=1, wrap=(2,))
+    else:
+        print(toon.encode({"meta": meta, "broken": broken_rows}))
     return 0 if res["ok"] else 1
 
 
@@ -195,17 +230,25 @@ def cmd_binding(a) -> int:
             raise DpmError("file_exists", f"{path} exists", "pass --force to overwrite it with the builtin binding")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(B.dump(B.builtin()))
-        print(toon.encode({"meta": {"ok": True, "source": "ad-dpm binding", "path": path.replace("\\", "/"), "sha256": _short(B.sha256(B.builtin())),
-                                    "next": "edit only the names DPM uses differently, then set the dpm_binding fact in AGENTS.md to this file"}}))
+        meta = {"ok": True, "source": "ad-dpm binding", "path": path.replace("\\", "/"), "sha256": _short(B.sha256(B.builtin())),
+                "next": "edit only the names DPM uses differently, then set the dpm_binding fact in AGENTS.md to this file"}
+        if policy.pretty():
+            ui.facts([(k, v) for k, v in meta.items() if k not in ("ok", "source")], title="ad-dpm binding")
+        else:
+            print(toon.encode({"meta": meta}))
         return 0
     b, label, bsha = _binding(a, consumer)
     if a.show:
         print(B.dump(b), end="")
         return 0
-    print(toon.encode({"meta": {"ok": True, "source": "ad-dpm binding", "binding": label, "sha256": bsha, "producer": b["producer"], "consumer": b["consumer"],
-                                "supported_orchestrator": b["versions"]["orchestrator"]["supported"],
-                                "supported_selection_manifest": b["versions"]["selection_manifest"]["supported"],
-                                "supported_text_analysis": b["versions"]["text_analysis"]["supported"]}}))
+    meta = {"ok": True, "source": "ad-dpm binding", "binding": label, "sha256": bsha, "producer": b["producer"], "consumer": b["consumer"],
+            "supported_orchestrator": b["versions"]["orchestrator"]["supported"],
+            "supported_selection_manifest": b["versions"]["selection_manifest"]["supported"],
+            "supported_text_analysis": b["versions"]["text_analysis"]["supported"]}
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k not in ("ok", "source")], title="ad-dpm binding")
+    else:
+        print(toon.encode({"meta": meta}))
     return 0
 
 
@@ -221,19 +264,24 @@ def _run_args(p: argparse.ArgumentParser) -> None:
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-dpm", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    from . import version
+    version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("locate", help="find and validate a run root: markers, versions, binding")
     _run_args(p)
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_locate)
 
     p = sub.add_parser("inspect", help="what the run root contains; which bound names resolve (never refuses)")
     _run_args(p)
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_inspect)
 
     p = sub.add_parser("validate", help="resolve every reference (source, sha256, page, channel, loan, selection, text_analysis)")
     _run_args(p)
     p.add_argument("--no-hash", action="store_true", help="skip recomputing source sha256 (faster; hash_verified false)")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_validate)
 
     p = sub.add_parser("convert", help="write the consumer job manifest + lineage beneath the governed artifact dir")
@@ -242,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-hash", action="store_true")
     p.add_argument("--strict", action="store_true", help="write nothing when any reference fails to resolve")
     p.add_argument("--force", action="store_true", help="replace a previous handoff for the same run id")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_convert)
 
     p = sub.add_parser("lineage", help="verify a job manifest's lineage still resolves against the run root")
@@ -249,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--run-root", help="override the run root recorded in the manifest")
     p.add_argument("--job", help="print the full lineage chain of one job id")
     p.add_argument("--no-hash", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_lineage)
 
     p = sub.add_parser("binding", help="show the effective binding, or write the builtin one to edit")
@@ -257,9 +307,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--show", action="store_true", help="print the effective binding as JSON")
     p.add_argument("--write", help="write the builtin binding to this path")
     p.add_argument("--force", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_binding)
 
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
+    if getattr(a, "pretty", False):
+        os.environ["AGENTDATA_UI"] = "rich"
+        ui.reset_cache()
     try:
         return a.func(a)
     except DpmError as e:

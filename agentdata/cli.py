@@ -1,10 +1,14 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-* entry points. Every command prints TOON (or JSON with --raw) and nothing else."""
 from __future__ import annotations
 import argparse, os, sys
 from .textio import read_text
 from .model import AgentTable
 from .policy import render, render_nested, error
+from . import completion
 from . import toon
+from . import ui
+from . import version
 from .config import ConfigError, capabilities, load as load_config, project_facts
 from .console import utf8_stdout
 from .sqlcheck import check as sql_check, to_toon as sql_findings_toon
@@ -13,6 +17,7 @@ from .sqlcheck import check as sql_check, to_toon as sql_findings_toon
 def _sql_main(connector: str, prog: str) -> None:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog=prog)
+    version.add_version(ap)
     ap.add_argument("--env", default=None, help=f"env name (default: `{connector}_env` or `env` fact in AGENTS.md)")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--sql")
@@ -23,6 +28,7 @@ def _sql_main(connector: str, prog: str) -> None:
     ap.add_argument("--raw", action="store_true")
     ap.add_argument("--pretty", action="store_true", help="draw the result as a table for a person to read "
                                                           "(same as AGENTDATA_UI=rich); the default is TOON")
+    completion.autocomplete(ap)
     a = ap.parse_args()
     if a.pretty:
         os.environ["AGENTDATA_UI"] = "rich"
@@ -45,7 +51,8 @@ def _sql_main(connector: str, prog: str) -> None:
         warnings = [f"L{f.line} {f.rule}: {f.message} -> {f.fix}" for f in findings]
     try:
         mod = __import__(f"agentdata.connectors.{connector}", fromlist=["query"])
-        t = mod.query(sql, env, a.max_rows, a.timeout)
+        with ui.progress(f"Running query on {connector} ({env})..."):
+            t = mod.query(sql, env, a.max_rows, a.timeout)
         if a.name:
             t.name = a.name
         print(render(t, raw=a.raw, extra={"warnings": warnings} if warnings else None))
@@ -68,6 +75,7 @@ def main_pncli() -> None:
     ap = argparse.ArgumentParser(prog="ad-pncli",
         description="ad-pncli jira search --jql '<JQL>' | ad-pncli jira get <KEY> | "
                     "ad-pncli raw [--body-file page.html] <pncli args...> | ad-pncli where")
+    version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
     j = sub.add_parser("jira", help="search issues by JQL, or read one issue (pncli's named options are built here)")
     j.add_argument("verb", choices=["search", "get"]); j.add_argument("target", nargs="?", help="issue key for `get`, JQL for `search`")
@@ -80,6 +88,7 @@ def main_pncli() -> None:
     r.add_argument("--body-arg", default="--body", help="the option the body belongs to (default --body)")
     r.add_argument("pargs", nargs=argparse.REMAINDER); r.add_argument("--raw", action="store_true", dest="raw_out")
     sub.add_parser("where", help="how pncli resolves on this machine (path, npm shim, node entry, version)")
+    completion.autocomplete(ap)
     a = ap.parse_args()
     from . import confluence, proc     # deferred: only ad-pncli needs them
     from .connectors import pncli as P
@@ -133,7 +142,9 @@ def main_view() -> None:
     """Re-render a TSV on disk through the policy (e.g., after a script wrote it)."""
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-view"); ap.add_argument("path"); ap.add_argument("--name", default="result")
+    version.add_version(ap)
     ap.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    completion.autocomplete(ap)
     a = ap.parse_args()
     if a.pretty:
         os.environ["AGENTDATA_UI"] = "rich"
@@ -143,9 +154,11 @@ def main_view() -> None:
 def main_diff() -> None:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-diff", description="Compare two TSVs on a key. Output TOON, never in-context math.")
+    version.add_version(ap)
     ap.add_argument("left"); ap.add_argument("right"); ap.add_argument("--key", required=True)
     ap.add_argument("--cols", default=None, help="comma list of columns to compare (default: shared)")
     ap.add_argument("--show", type=int, default=20)
+    completion.autocomplete(ap)
     a = ap.parse_args()
     L, R = AgentTable.read_tsv(a.left, "left"), AgentTable.read_tsv(a.right, "right")
     if a.key not in L.columns or a.key not in R.columns:

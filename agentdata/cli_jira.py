@@ -1,14 +1,17 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-jira: Jira REST reusing pncli's token. whoami · fields · statuses · transitions · transition · sprints · changelog · sprint-replay.
 Never shells out to pncli; the token is read from pncli's config file by key name at call time."""
 from __future__ import annotations
 import argparse
 import sys
+from . import completion
 from . import config as C
 from . import toon
 from . import jira_workflow as W
 from .connectors import jira_api as J
 from .console import utf8_stdout
 from .model import AgentTable
+from . import policy, ui
 from .policy import error, render
 from .uat import sprint as SP
 
@@ -141,7 +144,10 @@ def cmd_transition(a) -> int:
         C.put(cfg, f"jira.workflow.{tkey}.{intent}", t["to_status"] or t["name"])
         C.save(cfg)
         meta["pinned"] = f"jira.workflow.{tkey}.{intent}={t['to_status'] or t['name']}"
-    print(toon.encode({"meta": {k: v for k, v in meta.items() if v is not None}}))
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if v is not None], title=f"ad-jira transition {a.key}")
+    else:
+        print(toon.encode({"meta": {k: v for k, v in meta.items() if v is not None}}))
     return 0 if meta["moved"] else 1
 
 
@@ -241,22 +247,33 @@ def cmd_sprint_replay(a) -> int:
         out["sprintreport_delta"] = SP.sprintreport_delta(j.sprintreport(board, sprint.id), rows, summary)
     name = a.name or f"sprint_{sprint.id}"
     print(render(AgentTable.from_records(rows, name=name, source=f"ad-jira sprint-replay {sprint.id}"), raw=a.raw))
-    print(toon.encode(out))
+    if policy.pretty():
+        ui.facts(list(summary.items()), title=f"sprint-replay {sprint.id} summary")
+        if out.get("sprintreport_delta"):
+            ui.facts(list(out["sprintreport_delta"].items()), title="sprintreport delta")
+    else:
+        print(toon.encode(out))
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-jira", description="Jira REST via pncli's token: history the current-state search cannot give.")
+    from . import version
+    version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("whoami", help="detect Cloud/DC flavor and auth; caches it in config")
-    p.add_argument("--redetect", action="store_true"); p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_whoami)
+    p.add_argument("--redetect", action="store_true"); p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_whoami)
     p = sub.add_parser("fields", help="field name <-> id map; --pin stores Sprint / Story Points ids")
-    p.add_argument("--like"); p.add_argument("--pin", action="store_true"); p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_fields)
+    p.add_argument("--like"); p.add_argument("--pin", action="store_true"); p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_fields)
     p = sub.add_parser("statuses", help="status id, name, category (done|indeterminate|new)")
-    p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_statuses)
+    p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_statuses)
     p = sub.add_parser("transitions", help="what THIS issue can move to (a Task and a Story have different workflows)")
-    p.add_argument("key", metavar="KEY"); p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_transitions)
+    p.add_argument("key", metavar="KEY"); p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_transitions)
     p = sub.add_parser("transition", help='move an issue: --to takes an intent (review, done, in-progress, todo, blocked) '
                                           'or an exact transition/status name')
     p.add_argument("key", metavar="KEY"); p.add_argument("--to", required=True)
@@ -266,21 +283,29 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--comment", help="comment to post with the transition")
     p.add_argument("--pin", action="store_true", help="remember the resolved status for this issue type (jira.workflow.<type>.<intent>)")
     p.add_argument("--force", action="store_true", help="run even if the issue already looks like it is there")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_transition)
     p = sub.add_parser("sprints", help="sprints of a board")
     p.add_argument("--board", type=int, required=True); p.add_argument("--state", choices=["active", "closed", "future"])
-    p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_sprints)
+    p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_sprints)
     p = sub.add_parser("changelog", help="field history rows for issues")
     p.add_argument("keys", nargs="*", metavar="KEY"); p.add_argument("--jql"); p.add_argument("--fields", help='e.g. status,Sprint,"Story Points"')
     p.add_argument("--since"); p.add_argument("--until"); p.add_argument("--no-bulk", action="store_true")
-    p.add_argument("--name"); p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_changelog)
+    p.add_argument("--name"); p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_changelog)
     p = sub.add_parser("sprint-replay", help="committed vs completed points by backward changelog replay")
     p.add_argument("--sprint", required=True, help="sprint id, or name (needs --board)"); p.add_argument("--board", type=int)
     p.add_argument("--jql", help="widen the candidate set, e.g. project = X AND updated >= '<start-1d>' (needed to see punted issues)")
     p.add_argument("--points-at", choices=["commit", "close"], default="close"); p.add_argument("--include-subtasks", action="store_true")
     p.add_argument("--compare-sprintreport", action="store_true"); p.add_argument("--now"); p.add_argument("--no-bulk", action="store_true")
-    p.add_argument("--name"); p.add_argument("--raw", action="store_true"); p.set_defaults(fn=cmd_sprint_replay)
+    p.add_argument("--name"); p.add_argument("--raw", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)"); p.set_defaults(fn=cmd_sprint_replay)
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
+    if getattr(a, "pretty", False):
+        os.environ["AGENTDATA_UI"] = "rich"
+        ui.reset_cache()
     try:
         return a.fn(a)
     except J.JiraError as e:

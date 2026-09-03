@@ -91,6 +91,28 @@ console scripts in a folder Windows does not have on PATH. Either add it —
 works and takes the same arguments: `python -m agentdata update`, `python -m agentdata setup`,
 `python -m agentdata doctor`, `python -m agentdata pbip check`, `python -m agentdata --help`.
 
+### Shell tab-completion (bash / zsh / PowerShell)
+
+Tab-completion for all `ad-*` commands, subcommands, and flags is provided via the optional `completion` extra (`argcomplete`):
+
+```bash
+# 1. Install completion extra
+pip install "agentdata[completion]"
+
+# 2. Activate tab completion in your current shell:
+# Bash:
+eval "$(ad-setup --print-completion bash)"
+
+# Zsh:
+eval "$(ad-setup --print-completion zsh)"
+```
+
+Add the `eval` line to your `~/.bashrc` or `~/.zshrc` for persistent completion across sessions.
+
+> [!NOTE]
+> **PowerShell:** `argcomplete` is designed for bash and zsh environments. On PowerShell, `ad-setup --print-completion powershell` prints standard `Register-ArgumentCompleter` blocks, but full dynamic completion requires a bash or zsh shell.
+
+
 ## Per project
 ```powershell
 cd C:\repos\rdsd-pbi-reporting

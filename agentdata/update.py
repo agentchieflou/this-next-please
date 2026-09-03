@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-update: pick up a new version of this repo — the CLI and the skills — and prove which commit you are on.
 
 Two things are installed per laptop and they update separately, which is the whole reason this command exists:
@@ -16,6 +17,7 @@ import os
 import sys
 import time
 
+from . import completion
 from . import config as C
 from . import proc
 from . import toon
@@ -112,7 +114,7 @@ def cli_command_text(extras: str | None = None) -> str:
 
 def _run(name: str, argv: list[str], rows: list[dict], timeout: int) -> bool:
     try:
-        rc, out, err, el = proc.run(argv, timeout=timeout)
+        rc, out, err, el = proc.run(argv, timeout=timeout, progress=f"Updating {name}...")
     except proc.ProcError as e:
         rows.append({"part": name, "ok": False, "detail": e.msg, "hint": e.hint})
         return False
@@ -149,6 +151,8 @@ def _report(meta: dict, rows: list[dict], cmds: dict, payload: dict, show_comman
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-update", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    from . import version
+    version.add_version(ap)
     ap.add_argument("--check", "--dry-run", action="store_true", dest="check",
                     help="report what is installed and print the commands; run nothing")
     ap.add_argument("--cli", action="store_true", help="update only the ad-* CLI")
@@ -160,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="replace a checkout / editable install with the published git install")
     ap.add_argument("--skills-dir", help="where the skills live (default: skills_dir fact, else ~/.copilot/skills)")
     ap.add_argument("--timeout", type=int, default=600)
+    completion.autocomplete(ap)
     a = ap.parse_args(argv)
     both = not (a.cli or a.skills)
     before, skills = cli_state(), skills_state(a.skills_dir)

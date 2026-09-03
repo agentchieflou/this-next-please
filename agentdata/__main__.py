@@ -25,6 +25,7 @@ COMMANDS = {
     "impala": ("agentdata.cli", "main_impala", "Impala query"),
     "view": ("agentdata.cli", "main_view", "re-render a TSV"),
     "diff": ("agentdata.cli", "main_diff", "compare two TSVs"),
+    "help": ("agentdata.cli_help", "main", "command catalog and per-command help"),
 }
 USAGE = ("usage: python -m agentdata <command> [options]\n\nSame commands as the ad-* console scripts:\n"
          + "\n".join(f"  {name:<10} ad-{name:<10} {help}" for name, (_m, _f, help) in COMMANDS.items())
@@ -45,6 +46,10 @@ def usage() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("-v", "--version"):
+        from .version import version_string
+        print(version_string())
+        return 0
     if not argv or argv[0] in ("-h", "--help", "help"):
         usage()
         return 0

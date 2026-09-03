@@ -32,6 +32,10 @@ def _pretty() -> bool:
     return ui.on() and ui.mode() == "rich"
 
 
+def pretty() -> bool:
+    return _pretty()
+
+
 def render(t: AgentTable, raw: bool = False, extra: dict | None = None) -> str:
     """Return the exact text to print to the agent's context. `extra` is merged into meta (e.g. warnings)."""
     # rules 1-2: raw JSON for debugging

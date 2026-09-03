@@ -14,6 +14,7 @@ characters a legacy PowerShell host can actually draw, and the double-width colu
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 
@@ -300,3 +301,39 @@ def _numberish(s: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+@contextlib.contextmanager
+def progress(description: str):
+    """Show transient progress on sys.stderr for long-running operations.
+    Never emits anything to stdout. No-op when piped, mode is plain, or rich unavailable.
+    """
+    if mode() == "plain":
+        yield
+        return
+    force = os.environ.get("AGENTDATA_PROGRESS", "").lower() in ("1", "true", "always")
+    stderr_is_tty = False
+    try:
+        stderr_is_tty = bool(sys.stderr) and sys.stderr.isatty()
+    except Exception:
+        pass
+    if not force and not (on() and stderr_is_tty):
+        yield
+        return
+    try:
+        from rich.console import Console
+        from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+        stderr_console = Console(stderr=True, force_terminal=True if force else None, highlight=False)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            TimeElapsedColumn(),
+            console=stderr_console,
+            transient=True,
+        ) as prog:
+            prog.add_task(description)
+            prog.refresh()
+            yield prog
+    except Exception:
+        yield
+

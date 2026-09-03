@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 """ad-pbip: project · check · refs · lint · measure set. The PBIP is the source of truth; outputs are TOON + files."""
 from __future__ import annotations
 import argparse
@@ -5,6 +6,7 @@ import glob
 import os
 import sys
 from .textio import read_text
+from . import completion
 from . import config as C
 from . import toon
 from .console import utf8_stdout
@@ -18,6 +20,7 @@ from .pbip import normalize as N
 from .pbip import project as PJ
 from .pbip import tmdl as T
 from .policy import error, render
+from . import policy, ui
 
 
 def _pbip_dir(arg: str | None) -> str:
@@ -42,6 +45,13 @@ def _findings_out(findings, source, extra=None, show=50):
         meta["hint"] = findings[0].hint or findings[0].message
     if extra:
         meta.update(extra)
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k != "ok"], title=source, subtitle="ok" if meta["ok"] else "fail")
+        if findings:
+            ui.table(["severity", "kind", "where", "object", "message", "hint"],
+                     [f.row() for f in findings[:show]],
+                     title="findings", status_col=0, wrap=(4, 5))
+        return 0 if errors == 0 else 1
     body = toon.table("findings", ["severity", "kind", "where", "object", "message", "hint"], [f.row() for f in findings[:show]])
     print("\n".join([toon.encode(meta, key="meta"), body]))
     return 0 if errors == 0 else 1
@@ -57,9 +67,15 @@ def cmd_project(a) -> int:
               "columns": sum(len(t["columns"]) for t in model.tables), "relationships": len(model.relationships),
               "pages": len(report.pages) if report else 0, "visuals": sum(len(p.visuals) for p in report.pages) if report else 0,
               "lint_errors": sum(1 for f in model.lint if f.severity == "error")}
-    print(toon.encode({"meta": {"ok": True, "source": "ad-pbip project", "pbip": pbip.replace("\\", "/"), "skipped": res["skipped"],
-                                "path": res["out_dir"], "read": ["MODEL.md", "REPORT.md", "LINEAGE.md"] if report else ["MODEL.md"], **counts},
-                       "files": res["files"]}))
+    if policy.pretty():
+        ui.facts([("pbip", pbip.replace("\\", "/")), ("path", res["out_dir"]), ("skipped", res["skipped"]),
+                  *[(k, v) for k, v in counts.items()]], title="ad-pbip project")
+        if res.get("files"):
+            ui.table(["file", "path"], [[f, os.path.join(res["out_dir"], f).replace("\\", "/")] for f in res["files"]], title="projected files")
+    else:
+        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip project", "pbip": pbip.replace("\\", "/"), "skipped": res["skipped"],
+                                    "path": res["out_dir"], "read": ["MODEL.md", "REPORT.md", "LINEAGE.md"] if report else ["MODEL.md"], **counts},
+                           "files": res["files"]}))
     return 0
 
 
@@ -103,8 +119,11 @@ def _candidates() -> list[str]:
 def cmd_desktop(a) -> int:
     rows = [i.row() for i in DT.discover(candidates=_candidates())]
     if not rows:
-        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip desktop", "instances": 0,
-                                    "hint": "no running Power BI Desktop instance found; open the .pbip (ad-pbip launch <pbip>)"}}))
+        if policy.pretty():
+            ui.note("no running Power BI Desktop instance found; open the .pbip (ad-pbip launch <pbip>)")
+        else:
+            print(toon.encode({"meta": {"ok": True, "source": "ad-pbip desktop", "instances": 0,
+                                        "hint": "no running Power BI Desktop instance found; open the .pbip (ad-pbip launch <pbip>)"}}))
         return 0
     print(render(AgentTable.from_records(rows, name="desktop", source="ad-pbip desktop"), extra={"instances": len(rows)}))
     return 0
@@ -113,7 +132,10 @@ def cmd_desktop(a) -> int:
 def cmd_launch(a) -> int:
     exe = a.exe or C.get(C.load(), "powerbi.tools.pbi_desktop_exe")
     res = DT.launch(a.path, exe if exe and os.path.exists(exe) else None)
-    print(toon.encode({"meta": {"ok": True, "source": "ad-pbip launch", **res, "next": "wait for Desktop to load, then ad-pbip desktop"}}))
+    if policy.pretty():
+        ui.facts([("path", a.path), *[(k, v) for k, v in res.items()]], title="ad-pbip launch")
+    else:
+        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip launch", **res, "next": "wait for Desktop to load, then ad-pbip desktop"}}))
     return 0
 
 
@@ -134,8 +156,13 @@ def cmd_visual_query(a) -> int:
     with open(dax_path, "w", encoding="utf-8") as f:
         f.write(dax)
     if a.dry_run or not a.server:
-        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip visual-query", "visual": visual.id, "title": visual.title, "page": page.name,
-                                    "dax_path": dax_path, "skipped": notes, "note": "no --server: query written, not executed"}}))
+        if policy.pretty():
+            ui.facts([("visual", visual.id), ("title", visual.title or ""), ("page", page.name),
+                      ("dax_path", dax_path), ("skipped", notes),
+                      ("note", "no --server: query written, not executed")], title="ad-pbip visual-query")
+        else:
+            print(toon.encode({"meta": {"ok": True, "source": "ad-pbip visual-query", "visual": visual.id, "title": visual.title, "page": page.name,
+                                        "dax_path": dax_path, "skipped": notes, "note": "no --server: query written, not executed"}}))
         print(dax)
         return 0
     cfg = C.load()
@@ -218,7 +245,12 @@ def cmd_refs(a) -> int:
         meta["object"] = label or f"table {a.table}"
         meta["sources"] = ";".join(lin["sources"].get(a.table, []))
     t = AgentTable.from_records(rows, name="refs", source="ad-pbip refs")
-    print(render(t, extra={k: v for k, v in meta.items() if k not in ("ok", "source")}) if rows else toon.encode({"meta": {**meta, "rows": 0, "note": "no uses found"}}))
+    if rows:
+        print(render(t, extra={k: v for k, v in meta.items() if k not in ("ok", "source")}))
+    elif policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k not in ("ok", "source")] + [("rows", 0), ("note", "no uses found")], title="ad-pbip refs")
+    else:
+        print(toon.encode({"meta": {**meta, "rows": 0, "note": "no uses found"}}))
     return 0
 
 
@@ -231,33 +263,50 @@ def cmd_measure_set(a) -> int:
                             hidden=True if a.hidden else None, dry_run=a.dry_run)
     except (LookupError, ValueError) as e:
         print(error(str(e), "check the table name (MODEL.md) and the DAX; nothing was written", "ad-pbip")); return 2
-    print(toon.encode({"meta": {"ok": True, "source": "ad-pbip measure set", **res,
-                                "next": "ad-pbip check --te2, then reopen the PBIP in Desktop (it does not hot-reload TMDL)"}}))
+    if policy.pretty():
+        ui.facts([("table", a.table), ("name", a.name), *[(k, v) for k, v in res.items()]], title="ad-pbip measure set")
+    else:
+        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip measure set", **res,
+                                    "next": "ad-pbip check --te2, then reopen the PBIP in Desktop (it does not hot-reload TMDL)"}}))
     return 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-pbip", description="PBIP projection, model<->report validation, TMDL lint and mechanical edits.")
+    from . import version
+    version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("project", help="write the LLM projection (.agent/pbip/<name>/)")
-    p.add_argument("pbip", nargs="?"); p.add_argument("--out"); p.add_argument("--force", action="store_true"); p.add_argument("--legacy-ok", action="store_true"); p.set_defaults(fn=cmd_project)
+    p.add_argument("pbip", nargs="?"); p.add_argument("--out"); p.add_argument("--force", action="store_true"); p.add_argument("--legacy-ok", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_project)
     p = sub.add_parser("check", help="cross-validate report fields against the TMDL model (+ TE2 build)")
     p.add_argument("pbip", nargs="?"); p.add_argument("--te2", action="store_true"); p.add_argument("--te2-exe"); p.add_argument("--bpa", action="store_true")
     p.add_argument("--server", help="localhost:<port> (ad-pbip desktop) or an XMLA URL: evaluate every measure the report uses")
-    p.add_argument("--db"); p.add_argument("--dscmd"); p.add_argument("--legacy-ok", action="store_true"); p.set_defaults(fn=cmd_check)
+    p.add_argument("--db"); p.add_argument("--dscmd"); p.add_argument("--legacy-ok", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_check)
     p = sub.add_parser("desktop", help="list running Power BI Desktop instances (pid, port, file)")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_desktop)
     p = sub.add_parser("launch", help="open a .pbip in Power BI Desktop")
-    p.add_argument("path"); p.add_argument("--exe"); p.set_defaults(fn=cmd_launch)
+    p.add_argument("path"); p.add_argument("--exe")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_launch)
     p = sub.add_parser("visual-query", help="build the visual's DAX (SUMMARIZECOLUMNS) and run it via dscmd")
     p.add_argument("pbip", nargs="?"); p.add_argument("--visual", required=True); p.add_argument("--page"); p.add_argument("--server")
     p.add_argument("--db"); p.add_argument("--dscmd"); p.add_argument("--top", type=int, default=500); p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--name"); p.set_defaults(fn=cmd_visual_query)
+    p.add_argument("--name")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_visual_query)
     p = sub.add_parser("lint", help="TMDL syntax lint for a definition folder or one .tmdl file")
-    p.add_argument("path"); p.set_defaults(fn=cmd_lint)
+    p.add_argument("path")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_lint)
     p = sub.add_parser("refs", help="where is a column/measure used; what feeds a visual or page")
     p.add_argument("pbip", nargs="?"); p.add_argument("--table"); p.add_argument("--column"); p.add_argument("--measure"); p.add_argument("--visual"); p.add_argument("--page")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_refs)
     m = sub.add_parser("measure", help="mechanical measure edits").add_subparsers(dest="mcmd", required=True)
     p = m.add_parser("set", help="add or replace a measure with correct TMDL layout")
@@ -265,8 +314,14 @@ def main() -> None:
     g = p.add_mutually_exclusive_group(required=True); g.add_argument("--expr"); g.add_argument("--expr-file")
     p.add_argument("--format-string"); p.add_argument("--display-folder"); p.add_argument("--description"); p.add_argument("--hidden", action="store_true")
     p.add_argument("--lineage-tag", action="store_true", help="write a new lineageTag (default: none; Desktop assigns on save)")
-    p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_measure_set)
-    a = ap.parse_args()
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_measure_set)
+    completion.autocomplete(ap)
+    a = ap.parse_args(argv)
+    if getattr(a, "pretty", False):
+        os.environ["AGENTDATA_UI"] = "rich"
+        ui.reset_cache()
     try:
         sys.exit(a.fn(a))
     except (FileNotFoundError, ValueError) as e:
