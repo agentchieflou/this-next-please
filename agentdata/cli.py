@@ -62,7 +62,8 @@ def main_impala(): _sql_main("impala", "ad-impala")
 def main_pncli() -> None:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-pncli",
-        description="ad-pncli jira search --jql '<JQL>' | ad-pncli jira get <KEY> | ad-pncli raw <pncli args...> | ad-pncli where")
+        description="ad-pncli jira search --jql '<JQL>' | ad-pncli jira get <KEY> | "
+                    "ad-pncli raw [--body-file page.html] <pncli args...> | ad-pncli where")
     sub = ap.add_subparsers(dest="cmd", required=True)
     j = sub.add_parser("jira", help="search issues by JQL, or read one issue (pncli's named options are built here)")
     j.add_argument("verb", choices=["search", "get"]); j.add_argument("target", nargs="?", help="issue key for `get`, JQL for `search`")
@@ -70,6 +71,9 @@ def main_pncli() -> None:
     j.add_argument("--fields", default=None); j.add_argument("--max-results", type=int, default=500)
     j.add_argument("--raw", action="store_true")
     r = sub.add_parser("raw", help="any pncli command; result list normalized by policy")
+    r.add_argument("--body-file", help="read this file and append it as one argument (default `--body <contents>`): "
+                                       "pncli takes an inline body, and a page of HTML cannot survive shell quoting")
+    r.add_argument("--body-arg", default="--body", help="the option the body belongs to (default --body)")
     r.add_argument("pargs", nargs=argparse.REMAINDER); r.add_argument("--raw", action="store_true", dest="raw_out")
     sub.add_parser("where", help="how pncli resolves on this machine (path, npm shim, node entry, version)")
     a = ap.parse_args()
@@ -97,8 +101,14 @@ def main_pncli() -> None:
         else:
             pargs = [x for x in a.pargs if x != "--raw"]  # REMAINDER swallows a trailing --raw
             raw_out = a.raw_out or len(pargs) != len(a.pargs)
+            shown = list(pargs)
+            if a.body_file:
+                # the body goes across as ONE argv element: no shell, so quotes, newlines and < > in the HTML are safe
+                body = read_text(a.body_file)
+                pargs = [*pargs, a.body_arg, body]
+                shown = [*shown, a.body_arg, f"<{len(body)} chars from {a.body_file}>"]
             payload, el = P.run(pargs)
-            source = "pncli " + " ".join(pargs)
+            source = "pncli " + " ".join(shown)
             if raw_out:
                 print(render(AgentTable(name="pncli", columns=[], rows=[], source=source, raw=payload), raw=True))
             else:

@@ -4,6 +4,18 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.4.5 — 2026-09-03
+
+- **confluence-publish now matches pncli.** The verb is `confluence create-page` and the body is passed **inline**
+  (`--body <html>`), not `--body-file`; the skill still carried a `TODO(pin the verb)` placeholder and a markdown
+  body. It now builds Confluence storage-format HTML and publishes with one pinned command.
+- `ad-pncli raw --body-file <path>` reads a file and appends it as a single `--body <contents>` argument
+  (`--body-arg` renames the option for a verb that calls it something else). No shell is involved, so quotes,
+  newlines, `<`, `>` and `&` in a page survive intact, and a page longer than a command line still works. The echoed
+  command summarises it as `<N chars from <file>>` instead of dumping the page into the agent's context.
+- `--space`, `--parent` and `--title` are still unconfirmed against this pncli build: the skill says to run
+  `pncli confluence create-page --help` once if one is rejected, and to report the names so they can be pinned.
+
 ## 0.4.4 — 2026-09-03
 
 - **`ad-update` in a checkout is no longer an error.** It reported

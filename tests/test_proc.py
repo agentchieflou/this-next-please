@@ -225,3 +225,23 @@ def test_a_pinned_js_entry_point_runs_through_node(tmp_path, monkeypatch):
     monkeypatch.setattr(proc, "which", lambda name, **kw: None if name == "node" else real_which(name, **kw))
     info = proc.resolve("pncli", exe=js, windows=True)
     assert info["kind"] == "executable" and "no `node` on PATH" in info["error"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
+def test_raw_body_file_sends_the_page_as_one_argument(tmp_path, monkeypatch, capsys):
+    """`pncli confluence create-page` takes the body INLINE. A page of HTML cannot survive shell quoting, so it goes
+    across as a single argv element — and is never echoed back into the agent's context."""
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    html = '<h2>Findings</h2>\n<p>A "quoted" &amp; <b>bold</b> line, with > and | in it.</p>\n'
+    page = tmp_path / "page.html"
+    page.write_text(html, encoding="utf-8")
+    body = 'prev=""; n=0\nfor a in "$@"; do\n  if [ "$prev" = "--body" ]; then n=${#a}; fi\n  prev="$a"\ndone\n' \
+           'printf \'{"ok":true,"args":%s,"body":%s}\' "$#" "$n"'
+    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, body))
+    monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(page),
+                                      "confluence", "create-page", "--space", "RDSD", "--title", "T", "--dry-run"])
+    from agentdata import cli
+    cli.main_pncli()
+    out = capsys.readouterr().out
+    assert f"body: {len(html)}" in out and "args: 9" in out          # the whole file, as one trailing argument
+    assert "<h2>" not in out and f"<{len(html)} chars from" in out   # the page is summarised, never echoed
