@@ -16,6 +16,10 @@ def connect(env: str, cfg: dict | None = None, timeout: int | None = None):
     logmech = str(e.get("logmech") or "").upper()
     if e.get("mode") == "odbc":
         pw = secrets.get_password("teradata", env, user) if logmech in PASSWORD_LOGMECH else None
+        if logmech in PASSWORD_LOGMECH and not pw:
+            # native mode below refuses the same gap before dialing out; ODBC must too, or the driver connects
+            # with neither UID nor PWD and is free to hang or show its own native credential prompt
+            raise secrets.missing_password_error("teradata", env, user) from None
         return odbc.connect(odbc.dsn_conn_str(e["dsn"], user if pw else None, pw), timeout)
     try:
         import teradatasql  # optional dep
@@ -31,7 +35,7 @@ def connect(env: str, cfg: dict | None = None, timeout: int | None = None):
     if logmech in PASSWORD_LOGMECH:
         pw = secrets.get_password("teradata", env, user)
         if not pw:
-            raise ConfigError(f"no password in keyring for teradata:{env} user {user}", hint="ad-setup --only sources")
+            raise secrets.missing_password_error("teradata", env, user) from None
         return teradatasql.connect(**kw, user=user, password=pw, logmech=logmech)
     if logmech:
         return teradatasql.connect(**kw, logmech=logmech)

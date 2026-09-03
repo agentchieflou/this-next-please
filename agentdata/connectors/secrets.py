@@ -51,3 +51,14 @@ def backend_name() -> str:
         return type(_guard(lambda: _keyring().get_keyring(), "backend detection")).__name__
     except ConfigError as e:
         return f"unavailable ({e})"
+
+
+def missing_password_error(source: str, env: str, user: str) -> ConfigError:
+    """The one message every connector (native or ODBC) and every caller (ad-td/ad-hive/ad-impala, ad-doctor,
+    ad-setup's own verify step) raises for a password-auth source with nothing in keyring. A password prompt
+    needs a human at a real terminal, so this must fail fast and say so -- never dial out with no credential
+    and let the driver hang or show its own native prompt, and never suggest a command that can be answered
+    non-interactively (a secret can never come from --set; AnswerPrompter refuses one on sight)."""
+    return ConfigError(f"no password in keyring for {source}:{env} user {user}",
+                       hint=f"ad-setup --patch sources.{source}.{env}.password -- a password prompt needs a "
+                            "human at a real terminal; it cannot be answered non-interactively")
