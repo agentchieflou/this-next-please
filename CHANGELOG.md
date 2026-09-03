@@ -4,6 +4,16 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.4.4 — 2026-09-03
+
+- **`ad-update` in a checkout is no longer an error.** It reported
+  `error: this is a checkout / editable install`, `ok: false`, exit 2 — and refused the skills half too, which is
+  independent and always valid. Now it updates the skills, skips only the CLI half (`skipped[1]: cli`), and exits 0:
+  running from a clone is a state, not a failure. `--check` names which one (`git install`, `editable install`,
+  `running from a checkout at <dir>`).
+- `ad-update --pull` runs `git pull --ff-only` in that checkout instead of skipping; `ad-update --from-git` replaces a
+  checkout or editable install with the published git install.
+
 ## 0.4.3 — 2026-09-03
 
 Three fixes to the setup experience. No new dependencies.

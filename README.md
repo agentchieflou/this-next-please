@@ -45,6 +45,11 @@ ad-update --check
   so every session shows what it is running.
 - `python` — the interpreter that owns the install. If that is not the Python you type `python` for, that mismatch is
   why an update "did not take": run the update with **that** interpreter, or use `python -m agentdata <command>`.
+- `install` — how this copy got here: a *git install* (what a laptop should have), an *editable install*, or *running
+  from a checkout*. For the last two, `ad-update` updates the skills and **skips the CLI half**: pip must not fight a
+  clone you are editing. That is a skip, not a failure — `skipped[1]: cli`, and the row says what to run.
+  `ad-update --pull` does `git pull --ff-only` in that clone instead; `ad-update --from-git` leaves the clone behind
+  and installs the published version over it.
 - `skills` / `skills_newest` / `stale_skills: true` — the skills are older than the CLI; run the `gh skill install`
   line and start a new chat.
 - `gh skill install` refusing because a skill already exists → delete that folder under the printed `skills_dir` and
