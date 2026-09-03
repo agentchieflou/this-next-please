@@ -66,7 +66,7 @@ class SourcesStep(Step):
                 kerberos = kerberos or uses_kerberos(s, e)
                 if mode == "odbc":
                     if not found["pyodbc"]:
-                        ctx.add(k, tag, "fail", "mode odbc but pyodbc is missing", install_cmd("odbc"))          # install, not an answer
+                        ctx.add(k, tag, "fail", "mode odbc but pyodbc is missing", install_cmd())          # install, not an answer
                         continue
                     if e.get("dsn") not in found["dsns"]:
                         ctx.add(k, tag, "fail", f"DSN '{e.get('dsn')}' not visible to this {found['bits']}-bit Python",

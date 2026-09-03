@@ -7,9 +7,16 @@ from ..install import install_cmd
 
 def _pyodbc():
     try:
-        import pyodbc  # optional dep
-    except ImportError:
-        raise ConfigError("pyodbc is not installed", hint=install_cmd("odbc")) from None
+        import pyodbc  # a base dependency; this stays defensive for an install that skipped deps, or a Linux
+                        # box with the wheel but no system driver manager (see the ImportError branch below)
+    except ImportError as e:
+        if "no module named" in str(e).lower():
+            raise ConfigError("pyodbc is not installed", hint=install_cmd()) from None
+        # the package imports fine on Windows (its driver manager ships with the OS); this shape of ImportError
+        # is what a missing native ODBC library looks like on Linux, e.g. `libodbc.so.2: cannot open shared ...`
+        raise ConfigError(f"pyodbc is installed but its ODBC driver manager did not load ({e})",
+                          hint="install the system ODBC driver manager, e.g. `apt install unixodbc` (Linux) "
+                               "or `brew install unixodbc` (macOS); Windows ships one, nothing to install") from None
     return pyodbc
 
 

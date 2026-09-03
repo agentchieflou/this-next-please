@@ -6,7 +6,6 @@ Two regressions these tests pin down:
 2. the project stub lived outside the package, so `ad-setup --project` broke on any non-editable install.
 """
 import fnmatch, os, re, subprocess, sys
-import tomllib
 import pytest
 import agentdata
 from agentdata import install as I
@@ -43,18 +42,28 @@ def test_install_cmd_adapts_to_the_install_kind(monkeypatch):
     assert I.install_cmd() == 'pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.git"'
 
 
-def test_keyring_is_a_base_dependency_not_gated_behind_an_extra():
+# Both need to be present no matter which connector extra a user picked: `ad-setup` reaches for keyring on
+# any password-auth source, and offers ODBC as a connection MODE for Teradata/Hive/Impala independent of extras.
+ALWAYS_NEEDED = ("keyring", "pyodbc")
+
+
+def test_setup_time_dependencies_are_base_not_gated_behind_an_extra():
     """The reported bug: `ad-setup` picks a password-auth source, tries to store it, and dies mid-wizard with
     `keyring is not installed` -- but only for whichever install command the user happened to run, since keyring
-    lived in the per-connector extras (`teradata`, `oracle`, ...) instead of the base install. Every source needs
-    it, so it must be unconditional."""
-    with open(os.path.join(ROOT, "pyproject.toml"), "rb") as f:
-        proj = tomllib.load(f)["project"]
-    assert any(re.match(r"keyring(\W|$)", dep) for dep in proj["dependencies"]), \
-        "keyring must be a base dependency: it is needed by every password-auth source, not just one extra's users"
-    for name, deps in proj["optional-dependencies"].items():
-        assert not any(d.lower().startswith("keyring") for d in deps), \
-            f"keyring is redundant in the [{name}] extra now that it is a base dependency"
+    lived in the per-connector extras (`teradata`, `oracle`, ...) instead of the base install. Same shape of gap
+    for `pyodbc`: ODBC is offered as a live choice in the wizard regardless of which extra was installed.
+
+    No TOML parser here: `tomllib` needs 3.11+ and this repo's floor is 3.10 (same reason `_scripts()` in
+    test_entrypoints.py slices pyproject.toml with plain string/regex instead)."""
+    text = open(os.path.join(ROOT, "pyproject.toml"), encoding="utf-8").read()
+    deps = text.split("dependencies = [", 1)[1].split("]", 1)[0]
+    extras = text.split("[project.optional-dependencies]", 1)[1].split("\n[", 1)[0]
+    for pkg in ALWAYS_NEEDED:
+        assert re.search(rf'"{pkg}(\W|")', deps), \
+            f"{pkg} must be a base dependency: ad-setup can reach for it regardless of which extra was installed"
+        for name, body in re.findall(r'^([\w-]+) = \[(.*?)\]\s*(?:#.*)?$', extras, re.M):
+            assert pkg not in body.lower(), \
+                f"{pkg} is redundant in the [{name}] extra now that it is a base dependency"
 
 
 def test_source_checkout_detects_this_clone():

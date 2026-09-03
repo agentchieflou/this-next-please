@@ -6,17 +6,22 @@ Read this before running `ad-update`: it says whether an update needs anything b
 
 ## 0.5.2 — 2026-09-03
 
-**`keyring` is now a base dependency.** It lived in the per-connector extras (`teradata`, `oracle`, `hive`,
-`impala`) and a separate `keyring` extra, so whether it was installed depended on which one a user happened to
-pick -- and `ad-setup` calls it for **any** password-auth source, not just those. Pick ODBC mode, or an install
-command that skipped the right extra, and the wizard died mid-run with `keyring is not installed` on whichever
-step first tried to store a password -- occasional and confusing, because it depended on choices made several
-prompts earlier.
+**`keyring` and `pyodbc` are now base dependencies.** Both lived behind per-connector extras (`teradata`,
+`oracle`, `hive`, `impala`, `odbc`) plus a standalone `keyring` extra, so whether either was installed depended
+on which one a user happened to pick at install time -- and `ad-setup` reaches for both regardless: keyring for
+**any** password-auth source, pyodbc as soon as ODBC is offered as a connection mode for Teradata/Hive/Impala
+(which the wizard can offer even on a bare install, if neither a native driver nor a working ODBC setup is
+present). Pick an install command that skipped the right extra and the wizard died mid-run with `keyring is not
+installed` on whichever step first tried to store a password -- occasional and confusing, because it depended on
+a choice made several prompts earlier. (`pyodbc`'s own failure paths were already exception-guarded down to
+`odbc.py`, so this one was a real gap, not a crash -- but the same "depends on which extra you picked" reasoning
+applies, so it gets the same fix.)
 
-Now it installs with the package every time, regardless of extras. The old `[keyring]` extra is kept as a
-no-op so an existing `pip install agentdata[keyring]` (this repo's own docs used to say to type it) still works
-rather than erroring on an unknown extra. `agentdata/connectors/secrets.py`'s `ImportError` guard stays --
-cheap insurance for a `--no-deps` or stripped install -- but is no longer the expected path.
+Both now install with the package every time, regardless of extras. The old `[keyring]` and `[odbc]` extras are
+kept as no-ops so an existing `pip install agentdata[keyring,odbc,...]` (this repo's own docs used to say to
+type exactly that) still works rather than erroring on an unknown extra. The `ImportError` guards in
+`agentdata/connectors/secrets.py` and `connectors/odbc.py` stay -- cheap insurance for a `--no-deps` or stripped
+install -- but neither is the expected path anymore.
 
 ## 0.5.1 — 2026-09-03
 

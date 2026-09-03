@@ -12,6 +12,8 @@ dependencies = [
     "keyring",      # every source's password path (ad-setup, ad-td, ad-ora, ...), not just the ones with a
                     # connector extra installed -- gating it behind an extra made `ad-setup` fail mid-wizard
                     # depending on which options a user picked, which is exactly the failure mode this avoids
+    "pyodbc",       # same reasoning: `ad-setup` offers ODBC as a connection MODE for Teradata/Hive/Impala
+                    # regardless of which extra was installed, so whether that choice worked depended on it too
 ]
 
 [project.optional-dependencies]
@@ -19,7 +21,7 @@ teradata = ["teradatasql"]
 oracle = ["oracledb"]
 hive = ["impyla"]
 impala = ["impyla"]
-odbc = ["pyodbc"]
+odbc = []           # no-op, same reason as keyring below: pyodbc is a base dependency now
 keyring = []        # no-op: keyring is a base dependency now. Kept so an existing `pip install agentdata[keyring]`
                     # (this repo's own docs used to say to type it) still works instead of erroring on an unknown extra.
 pbi = ["psutil"]
