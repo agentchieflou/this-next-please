@@ -1,4 +1,4 @@
-"""Starting other programs, correctly, on Windows.
+r"""Starting other programs, correctly, on Windows.
 
 Windows `CreateProcess` only ever appends `.exe`: handing it the bare name of a tool installed by npm
 (`pncli` -> `pncli.cmd`) fails with `[WinError 2] The system cannot find the file specified`, which is what

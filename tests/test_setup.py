@@ -314,15 +314,17 @@ def test_patch_repairs_a_missing_pncli_launcher(cfg_path, capsys, tmp_path):
     assert rc == 0 and "ok: true" in out and "was_failing: 1" in out
 
 
-def test_patch_repairs_a_wrong_az_path(cfg_path, capsys):
-    """Laptop case: az lives at C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd."""
-    az = "C:/Program Files/Microsoft SDKs/Azure/CLI2/wbin/az.cmd"
-    C.save({"powerbi": {"tools": {"az_exe": "C:/wrong/az.cmd"}}})
+def test_patch_repairs_a_wrong_az_path(cfg_path, capsys, tmp_path):
+    """Laptop case: a configured az path that is not there (the real one is
+    C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\az.cmd). Both paths are synthetic on purpose: FakeDet.exists
+    falls through to the real filesystem, and the GitHub Windows runner HAS az installed at the canonical location."""
+    az = str(tmp_path / "Azure" / "CLI2" / "wbin" / "az.cmd").replace("\\", "/")
+    C.save({"powerbi": {"tools": {"az_exe": str(tmp_path / "wrong" / "az.cmd").replace("\\", "/")}}})
     det = FakeDet(tools={"az": None})
     det.files[C.expand(az)] = "@echo off"
     rc = W.run_setup(["--patch", "--non-interactive", "--offline", "--only", "powerbi", "--set", f"powerbi.az_exe={az}"], det)
     out, _err = capsys.readouterr()
-    assert "powerbi/az_exe" in out and "C:/wrong/az.cmd" in out
+    assert "powerbi/az_exe" in out and "wrong/az.cmd" in out
     assert json.loads(cfg_path.read_text())["powerbi"]["tools"]["az_exe"] == az
     assert rc == 0 and "was_failing: 1" in out and "asked[1]: powerbi.az_exe" in out
 
