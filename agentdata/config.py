@@ -134,6 +134,32 @@ def put(cfg: dict, dotpath: str, value: Any) -> None:
     cur[parts[-1]] = value
 
 
+def get_leaf(obj: Any, dotpath: str, key: str, default: Any = None) -> Any:
+    """get(), but `key` is looked up as one literal entry under `dotpath` -- never split on '.'. Use this
+    whenever the last segment is a name someone typed rather than a fixed field (a Teradata DSN or hostname
+    used as the env name, an Oracle connection name, a Power BI workspace name, ...): those routinely contain
+    dots, and get(f"{dotpath}.{key}") would silently misread "TPRDDB.pncint.net" as three nested keys."""
+    cur = get(obj, dotpath)
+    return cur.get(key, default) if isinstance(cur, dict) else default
+
+
+def put_leaf(cfg: dict, dotpath: str, key: str, value: Any) -> None:
+    """put()'s counterpart to get_leaf(): walks `dotpath` normally (splitting on '.'), then sets `key` on the
+    dict found there without ever splitting it. Without this, saving an env whose name contains a dot shreds
+    it into nested dicts under the wrong keys -- and ask()'s own "drop envs no longer typed" cleanup then
+    deletes the top-level fragment it left behind, because that fragment doesn't match the full name typed.
+    The net effect is a config that silently ends up with an empty `envs` dict despite a clean, no-error run."""
+    parts = dotpath.split(".")
+    cur = cfg
+    for part in parts:
+        nxt = cur.get(part)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            cur[part] = nxt
+        cur = nxt
+    cur[key] = value
+
+
 def flatten(obj: Any, prefix: str = "") -> dict[str, Any]:
     """dot-path -> leaf value (lists indexed). Used to list which keys a foreign config has."""
     out: dict[str, Any] = {}
@@ -229,7 +255,7 @@ def source_env(cfg: dict | None, source: str, env: str) -> dict:
     if source not in SOURCES:
         raise ConfigError(f"unknown source {source}", hint=f"one of {', '.join(SOURCES)}")
     cfg = cfg if cfg is not None else load()
-    e = dict(get(cfg, f"sources.{source}.envs.{env}", {}) or {})
+    e = dict(get_leaf(cfg, f"sources.{source}.envs", env, {}) or {})
     for key, names in _ENV_VARS[source].items():
         for n in names:
             v = os.environ.get(n.replace("{ENV}", env.upper()))
@@ -278,4 +304,5 @@ def oracle_dsn(e: dict) -> str:
 
 def capabilities(cfg: dict | None, source: str, env: str) -> dict:
     cfg = cfg if cfg is not None else load()
-    return dict(get(cfg, f"sources.{source}.envs.{env}.capabilities", {}) or {})
+    e = get_leaf(cfg, f"sources.{source}.envs", env, {}) or {}
+    return dict(e.get("capabilities", {}) or {})

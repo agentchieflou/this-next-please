@@ -13,6 +13,29 @@ def test_get_put_flatten_mask():
     assert C.looks_secret("jira.api_token") and C.looks_secret("PASSWORD") and not C.looks_secret("jira.url")
 
 
+def test_get_put_leaf_do_not_split_a_dotted_key():
+    """Real bug: a Teradata DSN or hostname used as the env name (`TPRDDB.pncint.net`) routinely contains dots.
+    put(cfg, f"sources.teradata.envs.{env}", e) treats every dot in `env` as a path separator, shredding one
+    env into nested dicts under the wrong keys -- and the caller's own "drop envs no longer typed" cleanup
+    then deletes the leftover top-level fragment because it doesn't match the full name, leaving `envs` empty
+    with no error at all. put_leaf()/get_leaf() use the last segment verbatim, so this must not happen."""
+    cfg = {}
+    C.put(cfg, "sources.teradata.envs.TPRDDB.pncint.net", {"dsn": "x"})
+    assert cfg["sources"]["teradata"]["envs"] == {"TPRDDB": {"pncint": {"net": {"dsn": "x"}}}}   # the bug, pinned
+
+    cfg2 = {}
+    C.put_leaf(cfg2, "sources.teradata.envs", "TPRDDB.pncint.net", {"dsn": "x", "logmech": "LDAP"})
+    assert cfg2["sources"]["teradata"]["envs"] == {"TPRDDB.pncint.net": {"dsn": "x", "logmech": "LDAP"}}
+    assert C.get_leaf(cfg2, "sources.teradata.envs", "TPRDDB.pncint.net") == {"dsn": "x", "logmech": "LDAP"}
+    assert C.get_leaf(cfg2, "sources.teradata.envs", "nope", "default") == "default"
+    assert C.get_leaf(cfg2, "sources.teradata.envs.nope", "x", "default") == "default"   # not a dict at all
+
+    # the cleanup loop in sources.py's ask() compares list(envs_cfg) against the typed names -- with put_leaf
+    # the top-level key IS the full name, so a same-named re-save is a no-op, not a silent deletion
+    envs_cfg = C.get(cfg2, "sources.teradata.envs")
+    assert list(envs_cfg) == ["TPRDDB.pncint.net"]
+
+
 def test_load_missing_and_bad_json(tmp_path, monkeypatch):
     p = tmp_path / "cfg.json"
     monkeypatch.setenv(C.CONFIG_ENV, str(p))
@@ -78,6 +101,20 @@ def test_source_env_and_env_override(monkeypatch):
     assert C.source_env(dsn_only, "hive", "p")["mode"] == "odbc"
     with pytest.raises(C.ConfigError):
         C.source_env(cfg, "spark", "prod")
+
+
+def test_source_env_and_capabilities_with_a_dotted_env_name(monkeypatch):
+    """A DSN or hostname used as the env name (common for Teradata) contains dots. ad-td and friends call
+    source_env() with exactly that string at runtime -- it must find what ad-setup saved, not silently see
+    an unconfigured env because the dots were misread as a nested path."""
+    for v in ("TD_HOST_TPRDDB.PNCINT.NET", "TD_HOST"):
+        monkeypatch.delenv(v, raising=False)
+    cfg = {"sources": {"teradata": {"envs": {"TPRDDB.pncint.net": {
+        "mode": "odbc", "dsn": "TPRDDB.pncint.net", "logmech": "LDAP", "user": "pk40484",
+        "capabilities": {"tmode": "ANSI"}}}}}}
+    e = C.source_env(cfg, "teradata", "TPRDDB.pncint.net")
+    assert e["dsn"] == "TPRDDB.pncint.net" and e["logmech"] == "LDAP" and e["env"] == "TPRDDB.pncint.net"
+    assert C.capabilities(cfg, "teradata", "TPRDDB.pncint.net") == {"tmode": "ANSI"}
 
 
 def test_facts_and_config_tolerate_powershell_encodings(tmp_path, monkeypatch):

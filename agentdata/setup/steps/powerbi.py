@@ -73,7 +73,7 @@ class PowerBIStep(Step):
             ctx.add(k, "workspaces", "warn", "none configured", "ad-setup --patch",
                     ("powerbi.workspaces.configure", "powerbi.workspaces.select"))
         for ws in found["workspaces"]:
-            v = C.get(ctx.cfg, f"verified.powerbi:xmla:{ws.get('name')}")
+            v = C.get_leaf(ctx.cfg, "verified", f"powerbi:xmla:{ws.get('name')}")
             detail = f"{ws.get('xmla')} · models {', '.join(ws.get('models', []))}" + (f" · verified {v}" if v else "")
             ctx.add(k, f"workspace {ws.get('name')}", "ok" if v else "warn", detail,
                     "" if v else "ad-doctor --online (needs te2_exe and a model name)",
