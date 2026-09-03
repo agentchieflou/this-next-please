@@ -27,6 +27,16 @@ answers one prompt key inline (repeatable; `true`/`false` for yes-no prompts; wi
 answers.json` still works and is read in any encoding PowerShell produces (UTF-8 BOM, UTF-16); answers must never
 contain passwords — store them once interactively. `ad-setup --offline` skips network verification.
 
+Quick mode: **`ad-setup --quick`** accepts unambiguous detected defaults (e.g. a single ODBC DSN found for a source,
+tools located at known paths, a single workspace returned by Azure CLI) without prompting stdin. Each auto-accepted value
+is printed to stderr (`[quick] auto-accepted ...`). Anything genuinely ambiguous (multiple ODBC DSNs, multiple workspaces)
+and anything needing credentials (passwords always prompt, `getpass`, never auto-filled) still prompts interactively. The
+final check report notes how many settings were auto-accepted (`auto_accepted: N`).
+
+Parallel verification: Online network verification across multiple sources, environments, and Power BI workspaces runs
+concurrently via bounded worker threads. This substantially reduces wall-clock time for setups with multiple environments,
+while ensuring all verdicts, timestamps, and capabilities are recorded in clean, deterministic order.
+
 Repair mode: **`ad-setup --patch`** runs the checks first and then re-asks ONLY the settings behind the rows that
 fail. A missing Oracle service name is one question; a wrong ODBC DSN is one question. Every other answer silently
 keeps its stored value, and steps with no failing rows are never entered.
@@ -40,6 +50,27 @@ keeps its stored value, and steps with no failing rows are never entered.
   non-interactive. Without a terminal (a piped run) it does not die on the first prompt: it prints `needs_answers[]`
   and the `--set` line that would answer them.
 - The scan runs the online checks too unless `--offline`, so a failing `SELECT 1` is repairable.
+
+## Sharing setup across a team (`--export-defaults` and `--import`)
+
+Everything stored in `~/.agentdata/config.json` is non-secret by design (`save()` rejects credential-shaped keys;
+passwords go to `keyring` and tokens stay in pncli). That makes the configuration safe to share across a team so new
+hires don't re-type hostnames, ports, and workspace names from scratch:
+
+1. **Export defaults**:
+   ```bash
+   ad-setup --export-defaults team-defaults.json
+   ```
+   Writes current non-secret settings without laptop-specific `verified` stamps.
+
+2. **Import defaults**:
+   ```bash
+   ad-setup --import team-defaults.json
+   ```
+   Loads the file as starting defaults for the wizard. It **never overwrites** a setting the target machine already
+   configured differently. Can be combined with `--quick` (`ad-setup --import team-defaults.json --quick`) to accept
+   all team defaults and only prompt for personal credentials and passwords. Can also be layered with `--patch`
+   for existing installs adopting newly published team defaults.
 
 Session state: `ad-state show` / `ad-state set phase=<phase> active_ticket=<KEY> --artifact <path>=<what> --question "…"`
 is the only writer of `.agent/state.json` (validated keys and phases, `last_updated`, artifacts pruned after 7 days,

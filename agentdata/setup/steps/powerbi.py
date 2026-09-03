@@ -84,7 +84,9 @@ class PowerBIStep(Step):
         if not ctx.ask.confirm("powerbi.use", "Use Power BI tooling?", bool(any(found["tools"].values()) or found["workspaces"])):
             return
         for n, (exe, _) in TOOLS.items():
-            p = ctx.ask.ask(f"powerbi.{n}", f"path to {exe} (blank = not installed)", found["tools"][n] or "")
+            tool_path = found["tools"][n] or ""
+            is_conf = bool(tool_path and ctx.det.exists(tool_path))
+            p = ctx.ask.ask(f"powerbi.{n}", f"path to {exe} (blank = not installed)", tool_path, confident=is_conf)
             if p:
                 C.put(cfg, f"powerbi.tools.{n}", p.replace("\\", "/"))
                 if not ctx.det.exists(p):
@@ -92,7 +94,7 @@ class PowerBIStep(Step):
             else:
                 (C.get(cfg, "powerbi.tools") or {}).pop(n, None)
         if not ctx.ask.confirm("powerbi.workspaces.configure", "Configure Power BI Service workspaces (XMLA)?",
-                               bool(found["workspaces"] or found["az"])):
+                                bool(found["workspaces"] or found["az"])):
             return
         groups: list[dict] = []
         if ctx.online and found["az"]:
@@ -125,18 +127,23 @@ class PowerBIStep(Step):
         if groups:
             for i, g in enumerate(groups, 1):
                 ctx.say(f"    {i}. {g['name']}")
-            sel = ctx.ask.ask("powerbi.workspaces.select", "workspaces to use (numbers or names, comma-separated)", ",".join(existing))
+            default_ws = "1" if len(groups) == 1 and not existing else ",".join(existing)
+            sel = ctx.ask.ask("powerbi.workspaces.select", "workspaces to use (numbers or names, comma-separated)",
+                              default_ws, confident=len(groups) == 1)
             names = []
             for tok in [t.strip() for t in sel.split(",") if t.strip()]:
                 names.append(groups[int(tok) - 1]["name"] if tok.isdigit() and 1 <= int(tok) <= len(groups) else tok)
         else:
-            sel = ctx.ask.ask("powerbi.workspaces.select", "workspace names (comma-separated)", ",".join(existing))
+            sel = ctx.ask.ask("powerbi.workspaces.select", "workspace names (comma-separated)",
+                              ",".join(existing), confident=bool(existing and len(existing) == 1))
             names = [t.strip() for t in sel.split(",") if t.strip()]
         by_name = {g["name"]: g for g in groups}
         result = []
         for name in names:
             prev = existing.get(name, {})
-            raw = ctx.ask.ask(f"powerbi.workspace.{name}.models", f"[{name}] semantic model names (comma-separated)", ",".join(prev.get("models", [])))
+            models_default = ",".join(prev.get("models", []))
+            raw = ctx.ask.ask(f"powerbi.workspace.{name}.models", f"[{name}] semantic model names (comma-separated)",
+                              models_default, confident=bool(prev.get("models") and len(prev.get("models")) == 1))
             models = [m.strip() for m in raw.split(",") if m.strip()]
             result.append({"name": name, "id": by_name.get(name, {}).get("id") or prev.get("id"), "xmla": xmla_url(name), "models": models})
         C.put(cfg, "powerbi.workspaces", result)
@@ -150,22 +157,39 @@ class PowerBIStep(Step):
             rc, out, err = ctx.det.run([dscmd, "csv", "--help"], 60)
             text = (out or "") + (err or "")
             C.put(ctx.cfg, "powerbi.tools.dscmd_caps", {"file_flag": ("--file" in text) or (" -f" in text), "help_rc": rc})
-        for ws in C.get(ctx.cfg, "powerbi.workspaces", []) or []:
-            name, tag = ws.get("name"), f"workspace {ws.get('name')}"
-            if not (te2 and ctx.det.exists(te2)):
-                ctx.add(self.key, tag, "skip", "no te2_exe for the XMLA smoke test")
-                continue
-            if not ws.get("models"):
-                ctx.add(self.key, tag, "skip", "no model names to test")
-                continue
+
+        workspaces = list(C.get(ctx.cfg, "powerbi.workspaces", []) or [])
+        if not workspaces:
+            return
+
+        def _run_te2_smoke(ws):
             with tempfile.TemporaryDirectory() as td:
                 csx = os.path.join(td, "ping.csx")
                 with open(csx, "w", encoding="utf-8") as f:
                     f.write(PING_CSX)
                 rc, out, err = ctx.det.run([te2, ws["xmla"], ws["models"][0], "-S", csx], 180)
-            if rc == 0:
-                C.stamp(ctx.cfg, f"powerbi:xmla:{name}")
-                ctx.add(self.key, tag, "ok", f"Tabular Editor connected to {ws['models'][0]}")
-            else:
-                ctx.add(self.key, tag, "fail", ((out or "") + (err or "")).strip()[-200:] or f"exit {rc}",
-                        "XMLA read needs Premium/PPU with the endpoint enabled; check workspace/model names; az login")
+            return ws, rc, out, err
+
+        import concurrent.futures
+        futures = {}
+        max_workers = min(8, max(1, len(workspaces)))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for ws in workspaces:
+                if (te2 and ctx.det.exists(te2)) and ws.get("models"):
+                    futures[ws.get("name")] = pool.submit(_run_te2_smoke, ws)
+
+            for ws in workspaces:
+                name, tag = ws.get("name"), f"workspace {ws.get('name')}"
+                if not (te2 and ctx.det.exists(te2)):
+                    ctx.add(self.key, tag, "skip", "no te2_exe for the XMLA smoke test")
+                    continue
+                if not ws.get("models"):
+                    ctx.add(self.key, tag, "skip", "no model names to test")
+                    continue
+                _ws, rc, out, err = futures[name].result()
+                if rc == 0:
+                    C.stamp(ctx.cfg, f"powerbi:xmla:{name}")
+                    ctx.add(self.key, tag, "ok", f"Tabular Editor connected to {ws['models'][0]}")
+                else:
+                    ctx.add(self.key, tag, "fail", ((out or "") + (err or "")).strip()[-200:] or f"exit {rc}",
+                            "XMLA read needs Premium/PPU with the endpoint enabled; check workspace/model names; az login")

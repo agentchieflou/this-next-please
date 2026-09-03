@@ -575,3 +575,169 @@ def test_a_broken_keyring_backend_does_not_lose_the_rest_of_the_answers(cfg_path
     env = cfg["sources"]["teradata"]["envs"]["prod"]      # everything else still landed
     assert env == {"mode": "native", "host": "tdprod01.corp.example.com", "logmech": "LDAP", "user": "jsmith"}
     assert ("teradata", "prod", "jsmith") not in det.passwords   # the password itself correctly did not land
+
+
+def test_setup_quick_mode_auto_accepts_unambiguous_defaults(cfg_path, capsys, monkeypatch):
+    """ad-setup --quick accepts unambiguous detected facts without prompting stdin,
+    while passwords and ambiguous cases still prompt."""
+    monkeypatch.setattr(W, "has_tty", lambda: True)
+    det = FakeDet(tools={"TabularEditor.exe": "C:/TE/TabularEditor.exe", "az": "C:/az.cmd"},
+                  modules={"pyodbc"}, dsns={"TD_PROD": "Teradata"})
+    det.passwords[("teradata", "prod", "luna")] = "pw"
+
+    # Under quick mode:
+    # 1. Sources: Use Teradata? (confirm) -> yes
+    # 2. envs -> "prod"
+    # 3. mode (only odbc found) -> auto-accepted!
+    # 4. dsn (only 1 DSN TD_PROD) -> auto-accepted!
+    # 5. logmech -> prompts
+    # 6. user -> prompts
+    # 7. keep_password -> auto-accepted!
+    # 8. hive/impala/oracle use -> n, n, n
+    # 9. powerbi use -> y
+    # 10. tools (te2_exe found) -> auto-accepted!
+    prompts_called = []
+
+    def mock_prompt(text, default=None, secret=False):
+        prompts_called.append((text, default, secret))
+        if "Use Teradata" in text:
+            return "y"
+        if "environment names" in text:
+            return "prod"
+        if "logon mechanism" in text:
+            return "KRB5"
+        if "user" in text and "user" not in text.lower()[:4]:  # "user"
+            return "luna"
+        if "Use Hive" in text or "Use Impala" in text or "Use Oracle" in text:
+            return "n"
+        if "Use Power BI" in text:
+            return "y"
+        if "Configure Power BI" in text:
+            return "n"
+        if "Generate or update a project stub" in text:
+            return "n"
+        return default or ""
+
+    monkeypatch.setattr(W, "_console_prompt", mock_prompt)
+    rc = W.run_setup(["--quick", "--offline"], det)
+    out = capsys.readouterr()
+    assert rc == 0, out.out
+    cfg = json.loads(cfg_path.read_text())
+    assert cfg["sources"]["teradata"]["envs"]["prod"]["dsn"] == "TD_PROD"
+    assert cfg["powerbi"]["tools"]["te2_exe"] == "C:/TE/TabularEditor.exe"
+    # Verify auto-accepted lines appeared on stderr
+    assert "[quick] auto-accepted" in out.err
+    # Verify auto_accepted count in output
+    assert "auto_accepted:" in out.out
+
+    # Ambiguous test: when there are 2 DSNs, it must prompt for DSN
+    det2 = FakeDet(modules={"pyodbc"}, dsns={"TD_PROD": "Teradata", "TD_UAT": "Teradata"})
+    prompts_called2 = []
+
+    def mock_prompt2(text, default=None, secret=False):
+        prompts_called2.append(text)
+        if "Use Teradata" in text:
+            return "y"
+        if "environment names" in text:
+            return "prod"
+        if "DSN name" in text:
+            return "TD_PROD"
+        if "logon mechanism" in text:
+            return "KRB5"
+        if "Use Hive" in text or "Use Impala" in text or "Use Oracle" in text:
+            return "n"
+        if "Use Power BI" in text:
+            return "n"
+        if "Generate or update a project stub" in text:
+            return "n"
+        return default or ""
+
+    monkeypatch.setattr(W, "_console_prompt", mock_prompt2)
+    rc2 = W.run_setup(["--quick", "--offline"], det2)
+    assert rc2 == 0
+    # DSN name prompt was asked because 2 DSNs were found
+    assert any("DSN name" in p for p in prompts_called2)
+
+
+def test_export_defaults_and_import_roundtrip(cfg_path, tmp_path, capsys):
+    """ad-setup --export-defaults writes shareable non-secret json without verified stamps,
+    and --import loads it as defaults without overwriting existing settings."""
+    initial_cfg = {
+        "version": 1,
+        "pncli": {"config_path": "~/.pncli/config.json", "keys": {"jira_token": "jira.token", "jira_url": "jira.url"}},
+        "sources": {
+            "teradata": {
+                "envs": {
+                    "prod": {"host": "team-td.corp", "mode": "native", "logmech": "KRB5"}
+                }
+            }
+        },
+        "powerbi": {
+            "tools": {"te2_exe": "C:/Team/TE.exe"},
+            "workspaces": [{"name": "Sales", "models": ["Sales Model"]}]
+        },
+        "verified": {"jira": "2026-09-01", "teradata:prod": "2026-09-01"}
+    }
+    C.save(initial_cfg)
+
+    export_file = tmp_path / "team-defaults.json"
+    rc_export = W.run_setup(["--export-defaults", str(export_file)], FakeDet())
+    assert rc_export == 0
+    exported_text = export_file.read_text(encoding="utf-8")
+    exported = json.loads(exported_text)
+    assert "verified" not in exported
+    assert exported["sources"]["teradata"]["envs"]["prod"]["host"] == "team-td.corp"
+    assert exported["powerbi"]["tools"]["te2_exe"] == "C:/Team/TE.exe"
+
+    # Now import on a fresh machine that already has a custom te2_exe configured
+    fresh_cfg_path = tmp_path / "fresh_agentdata.json"
+    C.save({"powerbi": {"tools": {"te2_exe": "C:/MyCustom/TE.exe"}}}, str(fresh_cfg_path))
+
+    import agentdata.config as CFG
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv(CFG.CONFIG_ENV, str(fresh_cfg_path))
+    try:
+        det = FakeDet(tools={"TabularEditor.exe": "C:/MyCustom/TE.exe"})
+        rc_import = W.run_setup(["--import", str(export_file), "--non-interactive", "--offline"], det)
+        assert rc_import == 0
+        imported_cfg = json.loads(fresh_cfg_path.read_text(encoding="utf-8"))
+        # Custom setting was NOT overwritten:
+        assert imported_cfg["powerbi"]["tools"]["te2_exe"] == "C:/MyCustom/TE.exe"
+        # Shared defaults were imported:
+        assert imported_cfg["sources"]["teradata"]["envs"]["prod"]["host"] == "team-td.corp"
+        assert imported_cfg["pncli"]["keys"]["jira_token"] == "jira.token"
+    finally:
+        monkeypatch.undo()
+
+
+def test_parallel_verification_wall_clock(cfg_path, capsys):
+    """3 sources/environments verify concurrently, completing much faster than sequential sum."""
+    import time
+    C.save({
+        "sources": {
+            "teradata": {
+                "envs": {
+                    "prod": {"host": "td1.corp", "mode": "native"},
+                    "uat": {"host": "td2.corp", "mode": "native"},
+                    "dev": {"host": "td3.corp", "mode": "native"}
+                }
+            }
+        }
+    })
+
+    class SlowDet(FakeDet):
+        def smoke(self, source, env, cfg):
+            time.sleep(0.1)
+            return {"ok": True, "elapsed_s": 0.1, "capabilities": {"trunc_date": True}}
+
+    det = SlowDet(modules={"teradatasql"})
+    t0 = time.perf_counter()
+    rc = W.run_doctor(["--only", "sources", "--online"], det)
+    elapsed = time.perf_counter() - t0
+
+    assert rc == 0
+    # Sequential would take >= 0.3s; parallel should take well under 0.25s
+    assert elapsed < 0.25, f"Expected parallel execution < 0.25s, got {elapsed:.2f}s"
+    out = capsys.readouterr().out
+    assert "teradata:prod" in out and "teradata:uat" in out and "teradata:dev" in out
+

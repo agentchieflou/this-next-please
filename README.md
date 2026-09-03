@@ -68,6 +68,8 @@ pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.g
 
 pncli config init      # if not done (pncli keeps the Jira token; we only borrow it by key name)
 ad-setup               # guided: pncli import, data sources, Power BI tools/workspaces
+#    ad-setup --quick  # fast path: auto-accepts unambiguous detected facts (single DSN, found tools)
+#    ad-setup --export-defaults team.json / ad-setup --import team.json  # share non-secret team defaults
 ad-doctor              # any time: offline health check (session-bootstrap runs it)
 ad-setup --patch       # after any fail row: re-asks ONLY the settings behind it, nothing else
 ```

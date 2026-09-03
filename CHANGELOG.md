@@ -4,6 +4,20 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.5.3 — 2026-09-03
+
+**Setup UX: connect everything as fast as possible (Epic #14, sub-issues #21, #22, #23).**
+- **Quick mode (`ad-setup --quick`, #21)**: middle ground between interactive and non-interactive setup. Accepts
+  unambiguous detected facts (single ODBC DSN, tools found at standard paths, single workspace) without prompting,
+  printing what was accepted to stderr. Passwords and ambiguous choices still prompt interactively. Check report
+  indicates how many settings were auto-accepted.
+- **Shareable team defaults (`ad-setup --export-defaults` / `--import`, #22)**: exports non-secret configuration
+  without machine-specific verified stamps. `--import` loads defaults into the wizard without overwriting existing
+  settings, combinable with `--quick` or `--patch`.
+- **Parallel verification (#23)**: network verifications in `sources` (SELECT 1 + capability probes) and `powerbi`
+  (XMLA smoke tests) now execute concurrently across environments and workspaces using bounded worker threads,
+  substantially reducing wall-clock setup time while preserving exact reporting and deterministic timestamping.
+
 ## 0.5.2 — 2026-09-03
 
 **`keyring` and `pyodbc` are now base dependencies.** Both lived behind per-connector extras (`teradata`,
