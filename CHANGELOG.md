@@ -17,6 +17,10 @@ Read this before running `ad-update`: it says whether an update needs anything b
 - **Parallel verification (#23)**: network verifications in `sources` (SELECT 1 + capability probes) and `powerbi`
   (XMLA smoke tests) now execute concurrently across environments and workspaces using bounded worker threads,
   substantially reducing wall-clock setup time while preserving exact reporting and deterministic timestamping.
+  Parallelizing `sources.verify()` had dropped the password pre-check below (an env with a password-auth
+  logmech/auth and nothing in keyring was handed to the thread pool like any other task); it is restored, so a
+  missing password is still reported as a clean `fail` row instead of a live connection attempt from a worker
+  thread.
 **ODBC connections with a password auth mechanism (Teradata LDAP/TD2, Hive/Impala PLAIN/LDAP) dialed out with
 neither a username nor a password when none was stored in keyring.** Native mode already refused this --
 `teradata.py` and `hs2.py`'s native branches both checked `if not pw: raise ...` before ever calling the

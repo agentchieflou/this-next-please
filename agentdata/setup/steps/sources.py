@@ -239,6 +239,15 @@ class SourcesStep(Step):
         tasks = []
         for s in C.SOURCES:
             for env, e in (C.get(ctx.cfg, f"sources.{s}.envs", {}) or {}).items():
+                tag = f"{s}:{env}"
+                if needs_password(s, e):
+                    user = e.get("user") or ctx.det.getuser()
+                    if not ctx.det.has_password(s, env, user):
+                        # same guard as check()/ad-doctor: verify() is called directly by ad-setup's own wizard
+                        # right after ask(), with no check() in between -- skip the live connection attempt
+                        # instead of dialing out with no credential (hang, a native prompt, a cryptic error).
+                        _password_row(ctx, self.key, tag, s, env, user)
+                        continue
                 tasks.append((s, env, e))
         if not tasks:
             return
