@@ -13,11 +13,12 @@ class FakeDet(W.Detectors):
     """No machine or network access. Tunable per test."""
 
     def __init__(self, pncli=PNCLI, tools=None, modules=(), dsns=None, whoami_error=None, smoke_error=None,
-                 pncli_bin="C:/Users/me/AppData/Roaming/npm/pncli.cmd", pncli_rc=0):
+                 pncli_bin="C:/Users/me/AppData/Roaming/npm/pncli.cmd", pncli_rc=0, set_password_error=None):
         self.pncli, self.tools, self.modules = pncli, tools or {}, set(modules)
         self.pncli_bin, self.pncli_rc = pncli_bin, pncli_rc
         self.dsns = dsns or {}
         self.whoami_error, self.smoke_error = whoami_error, smoke_error
+        self.set_password_error = set_password_error   # simulates a broken keyring backend (see secrets._guard)
         self.passwords: dict = {}
         self.runs: list = []
         self.files: dict = {}
@@ -90,6 +91,8 @@ class FakeDet(W.Detectors):
         return (source, env, user) in self.passwords
 
     def set_password(self, source, env, user, password):
+        if self.set_password_error:
+            raise C.ConfigError(self.set_password_error, hint="ad-doctor's keyring row names the backend")
         self.passwords[(source, env, user)] = password
 
     def smoke(self, source, env, cfg):
@@ -550,3 +553,25 @@ def test_patch_refuses_to_prompt_with_no_terminal(cfg_path, capsys, monkeypatch)
     assert "no terminal to ask on" in out and "needs_answers[" in out and "--set pncli.config_path=<value>" in out
     assert W.run_setup(["--offline", "--only", "pncli"], FakeDet()) == 2
     assert "no terminal to ask on" in capsys.readouterr().out
+
+
+def test_a_broken_keyring_backend_does_not_lose_the_rest_of_the_answers(cfg_path, capsys, monkeypatch):
+    """Real bug, reported as 'the Teradata config is not saving': entering an LDAP/TD2 password crashed the
+    whole step the moment the keyring backend failed for any reason OTHER than being uninstalled -- so host,
+    mode, logmech and everything else just answered for that env was thrown away with it. Reproduced for real
+    against a genuinely broken keyring install (a native-extension ABI panic, which is a BaseException and
+    slips past a bare `except Exception`); this pins the same shape with a fake that raises ConfigError, which
+    is what secrets.py now turns every such failure into before it ever reaches this step."""
+    monkeypatch.setattr(W, "has_tty", lambda: True)
+    answers = iter(["y", "prod", "native", "tdprod01.corp.example.com", "LDAP", "", "jsmith", "hunter2",
+                    "n", "n", "n"])
+    monkeypatch.setattr(W, "_console_prompt", lambda text, default=None, secret=False: next(answers))
+    det = FakeDet(modules={"teradatasql"}, set_password_error="keyring backend failed on write (PanicException)")
+    rc = W.run_setup(["--only", "sources", "--offline"], det)
+    out = capsys.readouterr().out
+    assert rc == 0, out                                  # a warning, same tier as "no keyring entry" -- not a failure
+    assert "keyring backend failed on write" in out and "warn" in out   # named, not swallowed
+    cfg = json.loads(cfg_path.read_text())
+    env = cfg["sources"]["teradata"]["envs"]["prod"]      # everything else still landed
+    assert env == {"mode": "native", "host": "tdprod01.corp.example.com", "logmech": "LDAP", "user": "jsmith"}
+    assert ("teradata", "prod", "jsmith") not in det.passwords   # the password itself correctly did not land

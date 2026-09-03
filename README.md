@@ -33,7 +33,7 @@ gh skill install agentchieflou/this-next-please --all --scope user
 version does not change on every commit, so a plain `pip install` prints *"Requirement already satisfied"* and you
 keep the old code. `--no-deps` stops the update from re-downloading `teradatasql` and friends every time; use the
 extras form instead when the release notes say a new optional dependency is needed:
-`python -m pip install --force-reinstall "agentdata[teradata,odbc,keyring] @ git+https://github.com/agentchieflou/this-next-please.git"`.
+`python -m pip install --force-reinstall "agentdata[teradata] @ git+https://github.com/agentchieflou/this-next-please.git"`.
 
 ### Did the update take?
 
@@ -64,7 +64,7 @@ gh skill install agentchieflou/this-next-please --all --scope user
 # 2. the ad-* CLI  ->  a normal Python tool, installed straight from GitHub (no clone needed)
 pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.git"
 #    with the extras you actually use:
-#    pip install "agentdata[teradata,odbc,impala,oracle,keyring,pbi,uat] @ git+https://github.com/agentchieflou/this-next-please.git"
+#    pip install "agentdata[teradata,impala,oracle,pbi,uat] @ git+https://github.com/agentchieflou/this-next-please.git"
 
 pncli config init      # if not done (pncli keeps the Jira token; we only borrow it by key name)
 ad-setup               # guided: pncli import, data sources, Power BI tools/workspaces

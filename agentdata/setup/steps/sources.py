@@ -66,7 +66,7 @@ class SourcesStep(Step):
                 kerberos = kerberos or uses_kerberos(s, e)
                 if mode == "odbc":
                     if not found["pyodbc"]:
-                        ctx.add(k, tag, "fail", "mode odbc but pyodbc is missing", install_cmd("odbc"))          # install, not an answer
+                        ctx.add(k, tag, "fail", "mode odbc but pyodbc is missing", install_cmd())          # install, not an answer
                         continue
                     if e.get("dsn") not in found["dsns"]:
                         ctx.add(k, tag, "fail", f"DSN '{e.get('dsn')}' not visible to this {found['bits']}-bit Python",
@@ -95,7 +95,7 @@ class SourcesStep(Step):
                     continue
                 if needs_password(s, e):
                     if not found["keyring"]:
-                        ctx.add(k, tag, "fail", "password auth but keyring is missing", install_cmd("keyring"))  # install, not an answer
+                        ctx.add(k, tag, "fail", "password auth but keyring is missing", install_cmd())  # install, not an answer
                         continue
                     user = e.get("user") or ctx.det.getuser()
                     if not ctx.det.has_password(s, env, user):
@@ -205,7 +205,11 @@ class SourcesStep(Step):
                     elif ctx.interactive:
                         pw = ctx.ask.ask(f"sources.{s}.{env}.password", f"[{tag}] password (stored in keyring only)", secret=True)
                         if pw:
-                            det.set_password(s, env, user, pw)
+                            try:
+                                det.set_password(s, env, user, pw)
+                            except C.ConfigError as ex:
+                                # a broken keyring backend must not throw away the rest of this env's answers
+                                ctx.add(self.key, tag, "warn", str(ex), ex.hint)
                     else:
                         ctx.add(self.key, tag, "warn", "password auth configured but no keyring entry",
                                 "run interactive `ad-setup --only sources` once to store it")
