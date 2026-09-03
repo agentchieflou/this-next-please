@@ -4,6 +4,22 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.5.1 — 2026-09-03
+
+Verified against a real Python 3.14.0rc2 interpreter (`uv python install 3.14`, every optional extra installed):
+**246/246 tests pass, zero warnings.** `requires-python = ">=3.10"` needs no upper bound -- nothing in this repo
+depended on anything 3.10-3.14 removed.
+
+- The one thing 3.13+ flags: `re.split(pattern, val, 1)` -- a positional `maxsplit` -- is deprecated in favor of
+  the keyword form. Fixed in `agentdata/config.py` (`AGENTS.md` fact parsing); it was the only call site and the
+  only warning anywhere in the suite.
+- Every compiled dependency (`pyodbc`, `oracledb`, `psutil`, `pandas`, `pyarrow`, `pyyaml`) already ships a cp314
+  wheel; `pure-sasl` (impyla's Kerberos SASL, used by `ad-hive`/`ad-impala`) has no wheel on PyPI but is pure
+  Python, so it builds from sdist in under a second -- no compiler needed, nothing to note for a user.
+- CI now runs Python 3.14 on both Ubuntu and Windows (replacing the 3.12 Windows job -- Windows should track the
+  version actually in use, same reasoning this file already applies to platform coverage), plus 3.10 (the floor)
+  and 3.12 (today's common baseline) on Ubuntu.
+
 ## 0.5.0 — 2026-09-03
 
 **This one needs `pip install`, not just `ad-update --skills`:** `rich` is a new dependency. `ad-update` (or
