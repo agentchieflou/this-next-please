@@ -228,3 +228,18 @@ def test_docs_say_what_ci_proves_per_shell():
     assert "use `[IO.File]::WriteAllText" not in text, "the 5.1-era write instruction should be gone"
     assert "workaround is gone" in text, "and the docs should say so, not just drop it"
     assert "PowerShell 7 (`pwsh`) is the floor" in text
+
+
+def test_shell_scripts_have_pinned_line_endings():
+    """A CRLF .sh dies under Git Bash with `$'': command not found`; cmd.exe wants CRLF.
+
+    Left to whatever core.autocrlf a checkout happens to have, the smoke scripts are a coin flip.
+    """
+    attrs = open(os.path.join(REPO_ROOT, ".gitattributes"), encoding="utf-8").read()
+    for pattern, eol in (("*.sh", "lf"), ("*.ps1", "lf"), ("*.cmd", "crlf"), ("*.bat", "crlf")):
+        assert f"{pattern} text eol={eol}" in attrs, f"{pattern} has no pinned line ending"
+
+    # and the bytes on disk match, so a checkout that ignored the attribute is caught too
+    with open(os.path.join(SCRIPTS, "smoke.sh"), "rb") as f:
+        assert b"
+" not in f.read(), "smoke.sh has CRLF line endings"
