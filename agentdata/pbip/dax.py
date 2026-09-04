@@ -162,7 +162,8 @@ def run_dax(dax: str, server: str, dscmd: str, database: str | None = None, out_
         from .. import ui
         target_desc = f"{server}" + (f"/{database}" if database else "")
         with ui.progress(f"Running DAX query against {target_desc}..."):
-            rc, out, err = run(args, timeout)
+            res = run(args, timeout)
+            rc, out, err = res[0], res[1], res[2]
         if rc != 0 or not os.path.exists(out_csv):
             raise DaxError(((out or "") + "\n" + (err or "")).strip()[-400:] or f"dscmd exit {rc}")
         with open(out_csv, newline="", encoding="utf-8-sig") as f:

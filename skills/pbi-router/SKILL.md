@@ -19,6 +19,7 @@ description: "Domain sub-router for Power BI tasks: reports, models, TMDL, DAX, 
 | publish report, upload to workspace, service copy, rebind | `pbi-publish` |
 | deploy model, publish, XMLA, workspace | `pbi-deploy-te2` |
 | refresh model / dataset | `pbi-refresh-xmla` |
+| verify service parity, compare Desktop with service, deployed measure checks | `pbi-verify-service` |
 | DAX result, vpax, export measures | `dax-studio-export` |
 
 2. Output one line: `→ <skill>: <reason in ≤ 12 words>`. If `.agent/desktop.json` is stale, ask the human to press *External Tools → agentdata* in the window they mean. Then invoke it.

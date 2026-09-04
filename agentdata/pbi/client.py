@@ -52,7 +52,8 @@ class FabricClient:
         cmd = [self.az, "account", "get-access-token", "--resource", FABRIC_RESOURCE, "-o", "json"]
         if t:
             cmd.extend(["--tenant", str(t)])
-        rc, out, err, _ = self.runner(cmd, timeout=60)
+        res = self.runner(cmd, timeout=30)
+        rc, out, err = res[0], res[1], res[2]
         if rc != 0:
             err_msg = (err or out).strip()
             raise FabricError("auth_failed", f"failed to get Fabric access token via az: {err_msg}",
@@ -86,7 +87,8 @@ class FabricClient:
             cmd.extend(["--body", f"@{tmp_body}"])
 
         try:
-            rc, out, err, _ = self.runner(cmd, timeout=timeout)
+            res = self.runner(cmd, timeout=timeout)
+            rc, out, err = res[0], res[1], res[2]
         finally:
             if tmp_body and os.path.exists(tmp_body):
                 try:
