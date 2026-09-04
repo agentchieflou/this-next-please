@@ -35,6 +35,27 @@ Each node carries:
 - **`calls`**: Function calls function/method (statically resolved or `unresolved:<name>`).
 - **`tests`**: Test node tests symbol (derived from name heuristic or coverage contexts).
 
-## Commands
+## Commands and Questions
+
+| Question an agent asks | Command that answers it |
+|---|---|
+| Where does execution start, what is the repo layout, what are the hubs? | `ad-graph summary` |
+| What does this symbol do, where is it defined, what calls it, what does it call? | `ad-graph node <target>` |
+| What breaks if I touch this (blast radius of callers)? | `ad-graph refs <target>` |
+| What does this symbol depend on (transitive callees)? | `ad-graph refs <target> --reverse` |
+| How does an entrypoint reach an I/O operation or target? | `ad-graph path <from> <to>` |
+| Are there circular import or call dependencies? | `ad-graph cycles` |
+| What nodes changed on disk or since a git commit? | `ad-graph changed [--since <ref>]` |
+| How can a human visualize the code graph in Graphviz? | `ad-graph export --format dot --out .agent/graph/export.dot` |
+
+## Commands Reference
 
 - `ad-graph build [<root>] [--out .agent/graph] [--force]`: Extracts deterministic graph into `.agent/graph/`.
+- `ad-graph summary [--top N]`: Bounded TOON summary of directories, entrypoints, top hubs (fan-in/fan-out), cycles, IO nodes, and test statistics.
+- `ad-graph node <target>`: Inspects line location, tags, complexity, LOC, callers, callees, and test linkage.
+- `ad-graph refs <target> [--depth N] [--reverse]`: Transitive blast radius up to specified depth.
+- `ad-graph path <from> <to> [--all] [--max N]`: Shortest call/import route between two nodes.
+- `ad-graph cycles`: Discovers import and call cycles sorted by length.
+- `ad-graph changed [--since <ref>]`: Lists modified nodes based on file fingerprints or git diff.
+- `ad-graph export --format dot|json --out <file>`: Exports graph to Graphviz DOT or JSON under `.agent/graph/`.
+

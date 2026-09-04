@@ -171,6 +171,15 @@ class PythonExtractor(Extractor):
         ) -> tuple[list[Edge], bool]:
             fn_edges: list[Edge] = []
             has_io = False
+            # Track local assignments like p = Processor(...)
+            local_var_types: dict[str, str] = {}
+            for child in ast.walk(fn_node):
+                if isinstance(child, ast.Assign) and isinstance(child.value, ast.Call):
+                    c_func = resolve_call_name(child.value.func)
+                    if c_func in defined_symbols:
+                        for target in child.targets:
+                            if isinstance(target, ast.Name):
+                                local_var_types[target.id] = c_func
 
             # Stack-based AST visitor to track loop depth
             class CallVisitor(ast.NodeVisitor):
@@ -203,6 +212,13 @@ class PythonExtractor(Extractor):
                         if class_name and (cname.startswith("self.") or cname.startswith("cls.")):
                             method = cname.split(".", 1)[1]
                             target_id = f"{norm_path}::{class_name}.{method}"
+                        elif "." in cname and cname.split(".", 1)[0] in local_var_types:
+                            obj, method = cname.split(".", 1)
+                            cls_target = f"{local_var_types[obj]}.{method}"
+                            if cls_target in defined_symbols:
+                                target_id = defined_symbols[cls_target]
+                            else:
+                                target_id = f"unresolved:{cname}"
                         elif cname in defined_symbols:
                             target_id = defined_symbols[cname]
                         elif cname in imports_map:
