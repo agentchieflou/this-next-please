@@ -11,3 +11,8 @@ def main_setup() -> None:
 
 def main_doctor() -> None:
     sys.exit(run_doctor())
+
+
+if __name__ == "__main__":
+    # `ad-setup` is the wizard; the doctor has its own console script and its own module-form row
+    main_setup()

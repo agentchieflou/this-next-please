@@ -312,3 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         print(error(str(e), e.hint or "ad-jira whoami --redetect", "ad-jira")); return 1
     except C.ConfigError as e:
         print(error(str(e), e.hint or "ad-setup --only pncli", "ad-jira")); return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

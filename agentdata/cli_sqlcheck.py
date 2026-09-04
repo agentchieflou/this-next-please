@@ -36,3 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     findings = check(sql, a.dialect, caps)
     print(to_toon(findings, a.dialect, {"env": env or "", "capabilities": len(caps)}))
     sys.exit(2 if any(f.severity == "error" for f in findings) else 0)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

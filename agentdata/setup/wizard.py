@@ -333,8 +333,10 @@ class Step:
 
 
 def registry() -> list[Step]:
-    from .steps import pncli_import, powerbi, project, sources
-    return [pncli_import.PncliStep(), sources.SourcesStep(), powerbi.PowerBIStep(), project.ProjectStep()]
+    from .steps import console, pncli_import, powerbi, project, sources
+    # console first: a report from an unsupported shell should say so before anything it explains
+    return [console.ConsoleStep(), pncli_import.PncliStep(), sources.SourcesStep(), powerbi.PowerBIStep(),
+            project.ProjectStep()]
 
 
 def _select(steps: list[Step], only: list[str] | None) -> list[Step]:

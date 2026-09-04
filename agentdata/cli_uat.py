@@ -126,3 +126,7 @@ def main(argv: list[str] | None = None) -> int:
         print(error(str(e)[:300], "check the paths, --key and --cols (ad-view <tsv> shows the columns)", "ad-uat")); sys.exit(2)
     except C.ConfigError as e:
         print(error(str(e), e.hint, "ad-uat")); sys.exit(2)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
