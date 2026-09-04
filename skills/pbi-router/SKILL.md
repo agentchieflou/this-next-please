@@ -9,6 +9,9 @@ description: "Domain sub-router for Power BI tasks: reports, models, TMDL, DAX, 
 | Request mentions | Invoke |
 |---|---|
 | numbers on a chart/visual are wrong, expected values in a document or CSV, UAT of a report | `uat-report-visual` |
+| new report, dashboard from scratch, which pages, what should it look like | `pbi-report-plan` |
+| layout, chart choice, colours, theme, looks wrong | `pbi-report-design` |
+| add visual, edit visual, add page, remove visual, report authoring | `pbi-report-author` |
 | PBIP, report, visual, page, "what feeds this chart", model overview | `pbip-projection` |
 | add / fix a measure, column, format string, relationship, TMDL edit | `tmdl-edit` |
 | validate the report, broken visual, "does the report still work", before deploy | `pbi-validate` |

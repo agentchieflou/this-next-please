@@ -1,0 +1,43 @@
+{
+  "name": "NeutralBase",
+  "dataColors": [
+    "#1F77B4",
+    "#4B9CD3",
+    "#70A1D7",
+    "#A1C7E0",
+    "#E07A5F",
+    "#3D405B",
+    "#81B29A",
+    "#F2CC8F"
+  ],
+  "background": "#FFFFFF",
+  "foreground": "#212529",
+  "tableAccent": "#1F77B4",
+  "visualStyles": {
+    "*": {
+      "*": {
+        "visualHeader": [{ "show": false }],
+        "background": [{ "show": true, "color": "#FFFFFF", "transparency": 0 }],
+        "border": [{ "show": true, "color": "#E5E7EB", "radius": 4 }],
+        "dropShadow": [{ "show": false }],
+        "padding": [{ "top": 8, "bottom": 8, "left": 8, "right": 8 }]
+      }
+    },
+    "textbox": {
+      "*": {
+        "padding": [{ "top": 12, "bottom": 12, "left": 12, "right": 12 }]
+      }
+    },
+    "cardVisual": {
+      "*": {
+        "padding": [{ "top": 16, "bottom": 16, "left": 16, "right": 16 }],
+        "border": [{ "show": true, "color": "#E5E7EB", "radius": 6 }]
+      }
+    },
+    "tableEx": {
+      "*": {
+        "grid": [{ "gridVertical": false, "gridHorizontal": true, "gridHorizontalColor": "#F3F4F6" }]
+      }
+    }
+  }
+}

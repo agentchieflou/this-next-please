@@ -14,6 +14,7 @@ from .console import utf8_stdout
 from .model import AgentTable
 from .model import OUT_DIR
 from .pbip import author as AU
+from .pbip import brief as BR
 from .pbip import catalog as CAT
 from .pbip import check as CK
 from .pbip import dax as D
@@ -600,6 +601,11 @@ def cmd_preview(a) -> int:
 
 def cmd_page(a) -> int:
     sub_c = getattr(a, "page_cmd", None)
+    if getattr(a, "brief", None):
+        stat = BR.brief_status(a.brief)
+        if stat != "current":
+            print(error(f"brief status is '{stat}'; approve with `ad-pbip brief approve {a.brief}`", "brief approval required", "ad-pbip"))
+            return 2
     try:
         pbip = _pbip_dir(getattr(a, "pbip", None))
         if sub_c == "add":
@@ -624,12 +630,37 @@ def cmd_page(a) -> int:
 
 def cmd_visual(a) -> int:
     sub_c = getattr(a, "visual_cmd", None)
+    if getattr(a, "brief", None):
+        stat = BR.brief_status(a.brief)
+        if stat != "current":
+            print(error(f"brief status is '{stat}'; approve with `ad-pbip brief approve {a.brief}`", "brief approval required", "ad-pbip"))
+            return 2
     try:
         pbip = _pbip_dir(getattr(a, "pbip", None))
         if sub_c == "add":
             pos = None
             if getattr(a, "position", None):
                 pos = tuple(int(x.strip()) for x in a.position.split(","))
+
+            # Validate against brief layout contract if brief is provided
+            if getattr(a, "brief", None):
+                _, brief_data, _ = BR.parse_brief_file(a.brief)
+                matched = False
+                for p in brief_data.get("pages", []):
+                    if p.get("name") == a.page or p.get("title") == a.page:
+                        for pl in (p.get("layout_contract") or {}).get("placements", []):
+                            if pos and pl.get("position"):
+                                ppos = pl["position"]
+                                if (pos[0], pos[1], pos[2], pos[3]) == (ppos.get("x"), ppos.get("y"), ppos.get("width"), ppos.get("height")):
+                                    matched = True
+                                    break
+                            elif not pos and pl.get("type") == a.type:
+                                matched = True
+                                break
+                if not matched:
+                    print(error(f"visual placement does not match approved layout_contract for page '{a.page}'", "use approved placement coordinates", "ad-pbip"))
+                    return 2
+
             res = AU.visual_add(pbip, a.page, a.type, title=getattr(a, "title", None),
                                 fields=getattr(a, "fields", None), position=pos)
         elif sub_c == "set":
@@ -650,6 +681,35 @@ def cmd_visual(a) -> int:
         ui.facts([(k, str(v)) for k, v in res.items()], title=f"ad-pbip visual {sub_c}")
     else:
         print(toon.encode({"meta": {"source": f"ad-pbip visual {sub_c}", **res}}))
+    return 0
+
+
+def cmd_brief(a) -> int:
+    sub_c = getattr(a, "brief_cmd", None)
+    if sub_c == "check":
+        findings = BR.check_brief(a.spec)
+        return _findings_out(findings, f"ad-pbip brief check {a.spec}")
+    if sub_c == "approve":
+        try:
+            res = BR.approve_brief(a.spec)
+        except (RuntimeError, ValueError) as e:
+            print(error(str(e), "run interactively in terminal", "ad-pbip"))
+            return 2
+        if not res.get("approved"):
+            print(error("brief approval aborted by user", "", "ad-pbip"))
+            return 1
+        if policy.pretty():
+            ui.facts([(k, str(v)) for k, v in res.items()], title="ad-pbip brief approve")
+        else:
+            print(toon.encode({"meta": {"source": "ad-pbip brief approve", **res}}))
+        return 0
+    if sub_c == "status":
+        stat = BR.brief_status(a.spec)
+        if policy.pretty():
+            ui.facts([("spec", a.spec), ("status", stat)], title="ad-pbip brief status")
+        else:
+            print(toon.encode({"meta": {"ok": stat == "current", "source": "ad-pbip brief status", "spec": a.spec, "status": stat}}))
+        return 0 if stat == "current" else 1
     return 0
 
 
@@ -911,6 +971,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_pa.add_argument("--after", help="insert after this page id or display name")
     p_pa.add_argument("--width", type=int, default=1280, help="canvas width (default: 1280)")
     p_pa.add_argument("--height", type=int, default=720, help="canvas height (default: 720)")
+    p_pa.add_argument("--brief", help="path to approved report-spec.md (validates approval and layout contract)")
     p_pa.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_pa.set_defaults(fn=cmd_page)
     p_pr = pg_sub.add_parser("remove", help="remove page")
@@ -935,6 +996,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_va.add_argument("--title", help="visual title text")
     p_va.add_argument("--fields", nargs="+", help="fields in format 'Table'[Column] or [Measure]")
     p_va.add_argument("--position", help="position format x,y,width,height (e.g. 20,20,500,300)")
+    p_va.add_argument("--brief", help="path to approved report-spec.md (validates approval and layout contract)")
     p_va.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_va.set_defaults(fn=cmd_visual)
     p_vs = vis_sub.add_parser("set", help="set visual formatting or position property")
@@ -975,6 +1037,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_ba.add_argument("--visuals", help="comma-separated list of visual ids to capture")
     p_ba.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_ba.set_defaults(fn=cmd_bookmark)
+
+    # Brief
+    p_br = sub.add_parser("brief", help="report specification and design brief validation and approval")
+    br_sub = p_br.add_subparsers(dest="brief_cmd", required=True)
+    p_bc = br_sub.add_parser("check", help="validate brief layout_contract, space_audit, and model fields")
+    p_bc.add_argument("spec", help="path to report-spec.md file")
+    p_bc.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_bc.set_defaults(fn=cmd_brief)
+    p_ba_app = br_sub.add_parser("approve", help="terminal-only interactive human approval gate")
+    p_ba_app.add_argument("spec", help="path to report-spec.md file")
+    p_ba_app.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_ba_app.set_defaults(fn=cmd_brief)
+    p_bs = br_sub.add_parser("status", help="check brief approval status (current, stale, missing)")
+    p_bs.add_argument("spec", help="path to report-spec.md file")
+    p_bs.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_bs.set_defaults(fn=cmd_brief)
     return ap
 
 
