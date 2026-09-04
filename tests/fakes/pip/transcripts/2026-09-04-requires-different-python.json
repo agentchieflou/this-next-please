@@ -1,0 +1,17 @@
+{
+  "source": "synthesized",
+  "issue": 66,
+  "note": "the refusal the 3.12 floor introduces; CI's floor-python job proves pip really says this",
+  "argv": [
+    "python",
+    "-m",
+    "pip",
+    "install",
+    "--force-reinstall",
+    "--no-deps",
+    "agentdata @ git+https://github.com/agentchieflou/this-next-please.git"
+  ],
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "ERROR: Package 'agentdata' requires a different Python: 3.11.9 not in '>=3.12'\n"
+}

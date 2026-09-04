@@ -52,8 +52,15 @@ ad-update --check
   and installs the published version over it.
 - `skills` / `skills_newest` / `stale_skills: true` — the skills are older than the CLI; run the `gh skill install`
   line and start a new chat.
-- `gh skill install` refusing because a skill already exists → delete that folder under the printed `skills_dir` and
-  re-run; `ad-update --check` shows the new timestamp.
+- `gh skill install` refusing because a skill is **already installed** → nothing to do by hand. `ad-update` reads the
+  names out of that message, deletes only the folders it recognises as its own (a `SKILL.md` whose frontmatter `name`
+  matches the folder — a skill someone else put there is never touched), and installs once more, reporting
+  `reinstalled`.
+- A failing half now prints the real error, not the last line of pip's chatter, plus a hint for the signature: an
+  all-users install a non-elevated pip cannot uninstall, the `ad-update.exe` launcher locking itself (it re-execs
+  through `python -m agentdata update` to avoid this), a `--user` copy shadowing the all-users one, a `python` below
+  the 3.12 floor, or a proxy. `ad-update --check` lists every installed `agentdata` and every `python` on PATH, so a
+  shadowed install is visible before it wastes an afternoon, and the report says which shell it came from.
 
 ### First install
 

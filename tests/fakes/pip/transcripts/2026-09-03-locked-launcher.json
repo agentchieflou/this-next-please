@@ -1,0 +1,17 @@
+{
+  "source": "synthesized",
+  "issue": 66,
+  "note": "pip cannot replace Scripts/ad-update.exe while that launcher is the running process",
+  "argv": [
+    "python",
+    "-m",
+    "pip",
+    "install",
+    "--force-reinstall",
+    "--no-deps",
+    "agentdata @ git+https://github.com/agentchieflou/this-next-please.git"
+  ],
+  "returncode": 1,
+  "stdout": "Installing collected packages: agentdata\n  Attempting uninstall: agentdata\n    Found existing installation: agentdata 0.6.0\n    Uninstalling agentdata-0.6.0:",
+  "stderr": "ERROR: Could not install packages due to an OSError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Python314\\Scripts\\ad-update.exe'\n"
+}

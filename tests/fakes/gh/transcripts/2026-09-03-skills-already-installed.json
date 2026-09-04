@@ -1,0 +1,17 @@
+{
+  "source": "photographed",
+  "issue": 66,
+  "shell": "bash (MSYSTEM=MINGW64), reproduced identically in PowerShell",
+  "argv": [
+    "gh",
+    "skill",
+    "install",
+    "agentchieflou/this-next-please",
+    "--all",
+    "--scope",
+    "user"
+  ],
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "skills already installed: bitbucket-pr, confluence-publish, data-adapter, dax-studio-export, dpm-consumer-integration, friction-log, hive-query, jira-changelog\n"
+}
