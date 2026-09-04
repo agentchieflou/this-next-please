@@ -1,0 +1,5 @@
+commit: e5b17a0b3c64f9129846de2a97ef1305417df529
+tag: 2.0.0
+upstream: https://github.com/microsoft/powerbi-desktop-samples
+pbir_format_version: 2.0.0
+pbir_definition_version: 4.0

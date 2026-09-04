@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 import glob
+import json
 import os
 import sys
 from .textio import read_text
@@ -12,13 +13,17 @@ from . import toon
 from .console import utf8_stdout
 from .model import AgentTable
 from .model import OUT_DIR
+from .pbip import author as AU
+from .pbip import catalog as CAT
 from .pbip import check as CK
 from .pbip import dax as D
 from .pbip import desktop as DT
 from .pbip import dmv as DMV
 from .pbip import edit as E
+from .pbip import expr as EX
 from .pbip import external_tool as EXT
 from .pbip import normalize as N
+from .pbip import pbir as P
 from .pbip import project as PJ
 from .pbip import screenshot as SC
 from .pbip import tmdl as T
@@ -458,6 +463,239 @@ def cmd_page_cost(a) -> int:
     return 0
 
 
+def cmd_schema(a) -> int:
+    try:
+        res = CAT.schema_update()
+    except Exception as e:
+        print(error(str(e), "run ad-pbip schema update", "ad-pbip"))
+        return 1
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in res.items() if k not in ("visual_types", "formatting_objects")], title="ad-pbip schema update")
+    else:
+        print(toon.encode({"meta": {"source": "ad-pbip schema update", **res}}))
+    return 0
+
+
+def cmd_catalog(a) -> int:
+    sub_c = getattr(a, "catalog_cmd", None)
+    try:
+        if sub_c == "list":
+            t = CAT.list_visuals()
+            print(render(t))
+            return 0
+        if sub_c == "describe":
+            t = CAT.describe_visual(a.type)
+            print(render(t, extra=t.raw))
+            return 0
+        if sub_c == "formatting":
+            t = CAT.formatting_catalog(visual_type=getattr(a, "type", None),
+                                       object_name=getattr(a, "object", None),
+                                       property_name=getattr(a, "property", None),
+                                       search=getattr(a, "search", None))
+            print(render(t))
+            return 0
+    except (KeyError, FileNotFoundError) as e:
+        print(error(str(e), "check visual type with `ad-pbip catalog list`", "ad-pbip"))
+        return 2
+    return 0
+
+
+def cmd_expr(a) -> int:
+    sub_c = getattr(a, "expr_cmd", None)
+    if sub_c == "encode":
+        enc = EX.encode_expr(a.text)
+        if policy.pretty():
+            ui.facts([("input", a.text), ("encoded", json.dumps(enc))], title="ad-pbip expr encode")
+        else:
+            print(json.dumps(enc, indent=2))
+        return 0
+    if sub_c == "decode":
+        dec = EX.decode_expr(a.json)
+        if policy.pretty():
+            ui.facts([("input", a.json), ("decoded", dec)], title="ad-pbip expr decode")
+        else:
+            print(dec)
+        return 0
+    return 0
+
+
+def cmd_theme(a) -> int:
+    sub_c = getattr(a, "theme_cmd", None)
+    if sub_c == "shade":
+        try:
+            shaded = EX.shade_color(a.color, a.pct)
+        except ValueError as e:
+            print(error(str(e), "use format #RRGGBB and pct between -100 and 100", "ad-pbip"))
+            return 2
+        if policy.pretty():
+            ui.facts([("color", a.color), ("pct", a.pct), ("result", shaded)], title="ad-pbip theme shade")
+        else:
+            print(toon.encode({"meta": {"ok": True, "source": "ad-pbip theme shade", "color": a.color, "pct": a.pct, "result": shaded}}))
+        return 0
+    if sub_c == "set":
+        try:
+            pbip = _pbip_dir(getattr(a, "pbip", None))
+            res = AU.theme_set(pbip, a.file)
+        except (FileNotFoundError, ValueError) as e:
+            print(error(str(e), "check theme file path", "ad-pbip"))
+            return 2
+        if policy.pretty():
+            ui.facts([(k, v) for k, v in res.items()], title="ad-pbip theme set")
+        else:
+            print(toon.encode({"meta": {"source": "ad-pbip theme set", **res}}))
+        return 0
+    return 0
+
+
+def cmd_preview(a) -> int:
+    sub_c = getattr(a, "preview_cmd", None)
+    try:
+        pbip = _pbip_dir(getattr(a, "pbip", None))
+        rep = P.load_report(pbip)
+    except Exception as e:
+        print(error(str(e), "provide valid PBIP path", "ad-pbip"))
+        return 2
+
+    if sub_c == "pages":
+        rows = [[p.id, p.name, p.ordinal, getattr(p, "width", 1280), getattr(p, "height", 720), len(p.visuals)] for p in rep.pages]
+        t = AgentTable("preview_pages", ["page_id", "display_name", "ordinal", "width", "height", "visuals_count"], rows, source="ad-pbip preview pages")
+        print(render(t))
+        return 0
+    if sub_c == "visuals":
+        rows = []
+        for p in rep.pages:
+            for v in p.visuals:
+                pos = v.position or {}
+                rows.append([p.name, v.id, v.type or "", v.title or "", pos.get("x", 0), pos.get("y", 0), pos.get("width", 0), pos.get("height", 0), len(v.fields)])
+        t = AgentTable("preview_visuals", ["page", "visual_id", "type", "title", "x", "y", "width", "height", "fields_count"], rows, source="ad-pbip preview visuals")
+        print(render(t))
+        return 0
+    if sub_c == "filters":
+        rows = []
+        for flt in rep.filters:
+            rows.append(["report", "-", "-", flt.get("name", ""), flt.get("type", ""), flt.get("field", "")])
+        for p in rep.pages:
+            for flt in p.filters:
+                rows.append(["page", p.name, "-", flt.get("name", ""), flt.get("type", ""), flt.get("field", "")])
+            for v in p.visuals:
+                for flt in v.filters:
+                    rows.append(["visual", p.name, v.id, flt.get("name", ""), flt.get("type", ""), flt.get("field", "")])
+        t = AgentTable("preview_filters", ["scope", "page", "visual", "filter_name", "type", "field"], rows, source="ad-pbip preview filters")
+        print(render(t))
+        return 0
+    if sub_c == "themes":
+        rj_path = os.path.join(rep.root, "definition", "report.json")
+        tc = {}
+        if os.path.exists(rj_path):
+            tc = (P._load(rj_path) or {}).get("themeCollection") or {}
+        rows = []
+        for k, v in tc.items():
+            if isinstance(v, dict):
+                rows.append([k, v.get("name", ""), v.get("type", ""), v.get("path", "-")])
+        t = AgentTable("preview_themes", ["slot", "name", "type", "path"], rows, source="ad-pbip preview themes")
+        print(render(t))
+        return 0
+    return 0
+
+
+def cmd_page(a) -> int:
+    sub_c = getattr(a, "page_cmd", None)
+    try:
+        pbip = _pbip_dir(getattr(a, "pbip", None))
+        if sub_c == "add":
+            res = AU.page_add(pbip, a.name, after=getattr(a, "after", None),
+                              width=getattr(a, "width", 1280), height=getattr(a, "height", 720))
+        elif sub_c == "remove":
+            res = AU.page_remove(pbip, a.page)
+        elif sub_c == "move":
+            res = AU.page_move(pbip, a.page, after=getattr(a, "after", None))
+        else:
+            return 0
+    except (FileNotFoundError, KeyError, ValueError) as e:
+        print(error(str(e), "check page arguments", "ad-pbip"))
+        return 2
+
+    if policy.pretty():
+        ui.facts([(k, str(v)) for k, v in res.items()], title=f"ad-pbip page {sub_c}")
+    else:
+        print(toon.encode({"meta": {"source": f"ad-pbip page {sub_c}", **res}}))
+    return 0
+
+
+def cmd_visual(a) -> int:
+    sub_c = getattr(a, "visual_cmd", None)
+    try:
+        pbip = _pbip_dir(getattr(a, "pbip", None))
+        if sub_c == "add":
+            pos = None
+            if getattr(a, "position", None):
+                pos = tuple(int(x.strip()) for x in a.position.split(","))
+            res = AU.visual_add(pbip, a.page, a.type, title=getattr(a, "title", None),
+                                fields=getattr(a, "fields", None), position=pos)
+        elif sub_c == "set":
+            if "=" not in a.property:
+                print(error("property must be format <object.property>=<value>", "", "ad-pbip"))
+                return 2
+            prop_path, val = a.property.split("=", 1)
+            res = AU.visual_set(pbip, a.visual, prop_path, val)
+        elif sub_c == "remove":
+            res = AU.visual_remove(pbip, a.visual)
+        else:
+            return 0
+    except (FileNotFoundError, KeyError, ValueError) as e:
+        print(error(str(e), "check visual parameters with `ad-pbip catalog`", "ad-pbip"))
+        return 2
+
+    if policy.pretty():
+        ui.facts([(k, str(v)) for k, v in res.items()], title=f"ad-pbip visual {sub_c}")
+    else:
+        print(toon.encode({"meta": {"source": f"ad-pbip visual {sub_c}", **res}}))
+    return 0
+
+
+def cmd_filter(a) -> int:
+    sub_c = getattr(a, "filter_cmd", None)
+    try:
+        pbip = _pbip_dir(getattr(a, "pbip", None))
+        if sub_c == "set":
+            vals = [v.strip() for v in a.values.split(",")] if getattr(a, "values", None) else None
+            bw = tuple(x.strip() for x in a.between.split(",")) if getattr(a, "between", None) else None
+            res = AU.filter_set(pbip, a.scope, a.field, values=vals, between=bw,
+                                top=getattr(a, "top", None), page=getattr(a, "page", None),
+                                visual_id=getattr(a, "visual", None))
+        else:
+            return 0
+    except (FileNotFoundError, KeyError, ValueError) as e:
+        print(error(str(e), "check filter parameters", "ad-pbip"))
+        return 2
+
+    if policy.pretty():
+        ui.facts([(k, str(v)) for k, v in res.items()], title=f"ad-pbip filter {sub_c}")
+    else:
+        print(toon.encode({"meta": {"source": f"ad-pbip filter {sub_c}", **res}}))
+    return 0
+
+
+def cmd_bookmark(a) -> int:
+    sub_c = getattr(a, "bookmark_cmd", None)
+    try:
+        pbip = _pbip_dir(getattr(a, "pbip", None))
+        if sub_c == "add":
+            v_list = [v.strip() for v in a.visuals.split(",")] if getattr(a, "visuals", None) else None
+            res = AU.bookmark_add(pbip, a.name, a.page, visuals=v_list)
+        else:
+            return 0
+    except (FileNotFoundError, KeyError, ValueError) as e:
+        print(error(str(e), "check bookmark parameters", "ad-pbip"))
+        return 2
+
+    if policy.pretty():
+        ui.facts([(k, str(v)) for k, v in res.items()], title=f"ad-pbip bookmark {sub_c}")
+    else:
+        print(toon.encode({"meta": {"source": f"ad-pbip bookmark {sub_c}", **res}}))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="ad-pbip", description="PBIP projection, model<->report validation, TMDL lint and mechanical edits.")
     from . import version
@@ -603,6 +841,140 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_measure_set)
+
+    # Schema
+    p_sc = sub.add_parser("schema", help="vendored PBIR JSON schema validation and updates")
+    sc_sub = p_sc.add_subparsers(dest="schema_cmd", required=True)
+    p_sc_up = sc_sub.add_parser("update", help="validate and refresh vendored schemas against VERSION metadata")
+    p_sc_up.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_sc_up.set_defaults(fn=cmd_schema)
+
+    # Catalog
+    p_cat = sub.add_parser("catalog", help="schema-driven visual catalog: visual types, roles, and formatting")
+    cat_sub = p_cat.add_subparsers(dest="catalog_cmd", required=True)
+    p_cl = cat_sub.add_parser("list", help="list available visual types, roles, and deprecation status")
+    p_cl.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_cl.set_defaults(fn=cmd_catalog)
+    p_cd = cat_sub.add_parser("describe", help="describe roles and cardinality constraints for visual type")
+    p_cd.add_argument("type", help="visual type name (e.g. columnChart, cardVisual, tableEx)")
+    p_cd.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_cd.set_defaults(fn=cmd_catalog)
+    p_cf = cat_sub.add_parser("formatting", help="inspect formatting objects, properties, and enum values")
+    p_cf.add_argument("type", nargs="?", help="optional visual type name")
+    p_cf.add_argument("--object", help="filter by formatting object name (e.g. title, background)")
+    p_cf.add_argument("--property", help="filter by property name (e.g. text, color)")
+    p_cf.add_argument("--search", help="search formatting descriptions and names")
+    p_cf.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_cf.set_defaults(fn=cmd_catalog)
+
+    # Expr
+    p_ex = sub.add_parser("expr", help="QueryExpressionContainer encoding and decoding")
+    ex_sub = p_ex.add_subparsers(dest="expr_cmd", required=True)
+    p_ee = ex_sub.add_parser("encode", help="encode human field reference into QueryExpressionContainer JSON")
+    p_ee.add_argument("text", help="field reference (e.g. 'Sales'[Amount], [Margin], Sum('Sales'[Qty]))")
+    p_ee.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_ee.set_defaults(fn=cmd_expr)
+    p_ed = ex_sub.add_parser("decode", help="decode QueryExpressionContainer JSON into human field reference")
+    p_ed.add_argument("json", help="QueryExpressionContainer JSON string")
+    p_ed.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_ed.set_defaults(fn=cmd_expr)
+
+    # Theme
+    p_th = sub.add_parser("theme", help="report theme shading and registration")
+    th_sub = p_th.add_subparsers(dest="theme_cmd", required=True)
+    p_ts = th_sub.add_parser("shade", help="shade (darken) or tint (lighten) a hex color")
+    p_ts.add_argument("--color", required=True, help="hex color (e.g. #1F77B4)")
+    p_ts.add_argument("--pct", type=float, required=True, help="percentage to darken (negative) or lighten (positive), e.g. -20")
+    p_ts.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_ts.set_defaults(fn=cmd_theme)
+    p_tset = th_sub.add_parser("set", help="register custom theme in report.json and copy to StaticResources")
+    p_tset.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_tset.add_argument("--file", required=True, help="path to theme.json file")
+    p_tset.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_tset.set_defaults(fn=cmd_theme)
+
+    # Preview
+    p_prev = sub.add_parser("preview", help="preview report structure as tabular views")
+    prev_sub = p_prev.add_subparsers(dest="preview_cmd", required=True)
+    for pslot in ("pages", "visuals", "filters", "themes"):
+        pp = prev_sub.add_parser(pslot, help=f"preview report {pslot}")
+        pp.add_argument("pbip", nargs="?", help="PBIP root path")
+        pp.add_argument("--pretty", action="store_true", help="draw it as a table")
+        pp.set_defaults(fn=cmd_preview)
+
+    # Page
+    p_pg = sub.add_parser("page", help="mechanical page edits (add, remove, move)")
+    pg_sub = p_pg.add_subparsers(dest="page_cmd", required=True)
+    p_pa = pg_sub.add_parser("add", help="add new page")
+    p_pa.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_pa.add_argument("--name", required=True, help="display name of the page")
+    p_pa.add_argument("--after", help="insert after this page id or display name")
+    p_pa.add_argument("--width", type=int, default=1280, help="canvas width (default: 1280)")
+    p_pa.add_argument("--height", type=int, default=720, help="canvas height (default: 720)")
+    p_pa.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_pa.set_defaults(fn=cmd_page)
+    p_pr = pg_sub.add_parser("remove", help="remove page")
+    p_pr.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_pr.add_argument("--page", required=True, help="page id or display name to remove")
+    p_pr.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_pr.set_defaults(fn=cmd_page)
+    p_pm = pg_sub.add_parser("move", help="reorder page in pages.json")
+    p_pm.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_pm.add_argument("--page", required=True, help="page id or display name to move")
+    p_pm.add_argument("--after", help="place after this page id or display name (default: move to first)")
+    p_pm.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_pm.set_defaults(fn=cmd_page)
+
+    # Visual
+    p_vis = sub.add_parser("visual", help="mechanical visual edits (add, set, remove)")
+    vis_sub = p_vis.add_subparsers(dest="visual_cmd", required=True)
+    p_va = vis_sub.add_parser("add", help="add visual with schema validation")
+    p_va.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_va.add_argument("--page", required=True, help="page id or display name")
+    p_va.add_argument("--type", required=True, help="visual type (e.g. columnChart, cardVisual, tableEx)")
+    p_va.add_argument("--title", help="visual title text")
+    p_va.add_argument("--fields", nargs="+", help="fields in format 'Table'[Column] or [Measure]")
+    p_va.add_argument("--position", help="position format x,y,width,height (e.g. 20,20,500,300)")
+    p_va.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_va.set_defaults(fn=cmd_visual)
+    p_vs = vis_sub.add_parser("set", help="set visual formatting or position property")
+    p_vs.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_vs.add_argument("--visual", required=True, help="visual id (20-hex)")
+    p_vs.add_argument("--property", required=True, help="property in format <object.property>=<value> or position.x=10")
+    p_vs.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_vs.set_defaults(fn=cmd_visual)
+    p_vr = vis_sub.add_parser("remove", help="remove visual")
+    p_vr.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_vr.add_argument("--visual", required=True, help="visual id (20-hex) to remove")
+    p_vr.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_vr.set_defaults(fn=cmd_visual)
+
+    # Filter
+    p_flt = sub.add_parser("filter", help="mechanical filter edits")
+    flt_sub = p_flt.add_subparsers(dest="filter_cmd", required=True)
+    p_fs = flt_sub.add_parser("set", help="set report, page, or visual level filter")
+    p_fs.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_fs.add_argument("--scope", required=True, choices=["report", "page", "visual"], help="filter scope")
+    p_fs.add_argument("--page", help="page id or display name (for page scope)")
+    p_fs.add_argument("--visual", help="visual id (for visual scope)")
+    p_fs.add_argument("--field", required=True, help="field reference 'Table'[Column]")
+    g_flt = p_fs.add_mutually_exclusive_group(required=True)
+    g_flt.add_argument("--values", help="comma-separated values for categorical filter (e.g. 2024,2025)")
+    g_flt.add_argument("--between", help="lower,upper bounds for between filter")
+    g_flt.add_argument("--top", type=int, help="top count for TopN filter")
+    p_fs.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_fs.set_defaults(fn=cmd_filter)
+
+    # Bookmark
+    p_bm = sub.add_parser("bookmark", help="mechanical bookmark edits")
+    bm_sub = p_bm.add_subparsers(dest="bookmark_cmd", required=True)
+    p_ba = bm_sub.add_parser("add", help="create new bookmark")
+    p_ba.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_ba.add_argument("--name", required=True, help="bookmark display name")
+    p_ba.add_argument("--page", required=True, help="active page id or display name")
+    p_ba.add_argument("--visuals", help="comma-separated list of visual ids to capture")
+    p_ba.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_ba.set_defaults(fn=cmd_bookmark)
     return ap
 
 
