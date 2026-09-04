@@ -158,3 +158,28 @@ used by `ad-graph findings` (the `covered` column) and `ad-graph guard` (the ref
 A node at or above the threshold is `covered: true`; below it with data present is `false`; with no
 coverage file at all it is `unknown` — and the guard treats `unknown` as `false`, because no data is
 not evidence of safety.
+
+## Characterization tests (`test-cover`)
+
+`ad-graph guard` refuses changes to code no test covers, so the only legal route to optimizing an
+uncovered hub is to cover it first. That is what the `test-cover` skill does, and it writes **test
+files only** — `ad-graph guard --tests-only` proves it mechanically rather than trusting the skill.
+
+A characterization test pins behavior **as it is today**. It is not a claim that the behavior is
+correct; it is a tripwire. So:
+
+- **When one fails, behavior changed.** That is the signal. The first question is "what did I change
+  and did I mean to?", not "is this test wrong?". Only after confirming the new behavior is
+  deliberate should the golden value be updated, and the update belongs in the same commit as the
+  change that caused it, so review sees both halves together.
+- **Expected values are captured, never predicted.** The skill runs the node once through a probe
+  test and pastes what it actually returned. A predicted value that happens to be wrong turns a
+  characterization test into a bug report against working code.
+- **A bug found while characterizing is a ticket, not a side effect.** It goes under
+  `## Open questions` in `.agent/graph/understanding.md`, and the buggy behavior gets pinned as it
+  is. Fixing it inside a coverage commit hides the fix in a diff nobody is reviewing for that.
+
+Per-framework boilerplate — shape, stubbing I/O, the probe pattern, and the pitfalls that have
+actually bitten this repo (time, randomness, dict ordering, float formatting, Windows path
+separators, encodings) — lives in `skills/test-cover/references/characterization.md`, one section
+per runner so the model reads only the one `ad-test detect` reported.

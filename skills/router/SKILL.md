@@ -20,6 +20,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 | Power BI, PBIP, report, visual, model, DAX, measure, TMDL | `pbi-router` |
 | sbatch, cluster job, schedule | `slurm-submit` |
 | map the codebase, how does this repo work, what calls what, unfamiliar code | `codebase-map` |
+| write tests for, cover, characterization test, no tests for | `test-cover` |
 | PR, branch, push, commit | `bitbucket-pr` |
 | Confluence, document, write-up, page | `confluence-publish` |
 | move / transition / close / reopen a ticket, "mark it done", "put it in review" | `jira-transition` |
