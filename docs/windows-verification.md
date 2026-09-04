@@ -179,6 +179,23 @@ ad-pbip model optimize --measure "Margin %" --pid <pid>
 Pass: `model apply` executes declarative ops over the port through TE2 `-S` or falls back to TMDL file editing with no `lineageTag` written; `--save` triggers UIA session save and waits for Desktop-serialised TMDL to settle; `model audit` returns actionable `fix` snippets; `audit --copilot` outputs a scored checklist; `model optimize` verifies results match before keeping rewrites and rolls back on mismatch.
 
 
+## 10. Deploy loop (`ad-pbi deploy` → `refresh` → `verify`)
+```powershell
+# 1. Preview deploy
+ad-pbi deploy "tests/fixtures/sample.pbip/Sample.SemanticModel/definition" --workspace "Sales" --model "Sample" --dry-run
+# 2. Deploy model over XMLA (with clean tree enforcement and deploy stamp)
+ad-pbi deploy "tests/fixtures/sample.pbip/Sample.SemanticModel/definition" --workspace "Sales" --model "Sample"
+# 3. Refresh model and poll progress
+ad-pbi refresh --workspace "Sales" --model "Sample" --scope full --wait 300
+# 4. View recent refresh history
+ad-pbi refresh --workspace "Sales" --model "Sample" --top 5
+# 5. Check partition row counts
+ad-pbi refresh partitions --workspace "Sales" --model "Sample"
+# 6. Verify service parity against running Desktop
+ad-pbi verify --pbip "tests/fixtures/sample.pbip/Sample.Report" --workspace "Sales" --model "Sample"
+```
+Pass: `deploy` creates `.agent/out/deploy-<ts>.xmla` on dry-run and logs output to `.agent/out/deploy-<ts>.log`; `refresh` polls until `status: Completed`; `verify` outputs `parity: ok`.
+
 ## Triage map (where a failure lands)
 | Symptom | Module | Likely fix |
 |---|---|---|

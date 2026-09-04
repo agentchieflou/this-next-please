@@ -257,3 +257,25 @@ class PowerBIStep(Step):
                 else:
                     ctx.add(self.key, tag, "fail", ((out or "") + (err or "")).strip()[-200:] or f"exit {rc}",
                             "XMLA read needs Premium/PPU with the endpoint enabled; check workspace/model names; az login")
+
+            # powerbi/refresh_history online probe
+            az = C.get(ctx.cfg, "powerbi.az_exe") or getattr(ctx.det, "az", None) or "az"
+            if az and workspaces:
+                first_ws = workspaces[0]
+                ws_name = first_ws.get("name")
+                models = first_ws.get("models", [])
+                tag = "powerbi/refresh_history"
+                keys = ("powerbi.workspaces.select", "powerbi.az_login")
+                if models and ws_name:
+                    try:
+                        from ...pbi.client import FabricClient
+                        fc = FabricClient(az_exe=az, runner=ctx.det.run)
+                        ws_id, _ = fc.resolve_workspace(ws_name)
+                        m_id, _ = fc.resolve_item(ws_id, models[0], kind="model")
+                        rc, data, _, _ = fc.rest_call("GET", f"https://api.fabric.microsoft.com/v1/workspaces/{ws_id}/semanticModels/{m_id}/refreshes", check=False)
+                        if rc == 0:
+                            ctx.add(self.key, tag, "ok", f"endpoint readable for {ws_name}/{models[0]}")
+                        else:
+                            ctx.add(self.key, tag, "warn", f"could not read refresh history (exit {rc})", "check permissions or run az login", keys)
+                    except Exception as e:
+                        ctx.add(self.key, tag, "warn", f"refresh history probe failed: {e}", "check permissions or run az login", keys)

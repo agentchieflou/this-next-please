@@ -1,12 +1,23 @@
 ---
 name: pbi-refresh-xmla
-description: "Use to refresh a deployed Power BI semantic model (full, table, or partition) through the XMLA endpoint using a TE2 C# script (TOM RequestRefresh + SaveChanges). Use after deploy or when asked to refresh a model/dataset."
+description: "Use to refresh a deployed Power BI semantic model (full, table, or partition) through the XMLA endpoint and poll completion status."
 ---
-# Refresh via TE2 script
+# Refresh via TE2 script and REST polling
 
-1. Scope: `full` | `table:<name>` | `partition:<table>/<partition>`. User did not say → `full`.
-2. `$env:TE_REFRESH_SCOPE = "<scope>"` then
-   `& "<te2_exe>" "powerbi://api.powerbi.com/v1.0/myorg/<pbi_workspace>" "<pbi_model>" -S "<skills_dir>/pbi-refresh-xmla/scripts/refresh.csx" -E -W`
-3. Exit non-zero → `az account show`. Fails → `az login --allow-no-subscriptions`, retry once. Second failure → `friction-log`.
-4. Verify: `az rest --method get --url "https://api.powerbi.com/v1.0/myorg/groups/<ws_id>/datasets/<ds_id>/refreshes?`$top=1" --resource https://analysis.windows.net/powerbi/api`. Read `status`. `Failed` → `friction-log` with `serviceExceptionJson`.
-5. `state-update` `phase=validating`. Hand off → `dax-studio-export` if the ticket needs value checks, else `router`.
+Refresh a deployed model and poll until completion.
+
+1. **Determine scope**:
+   `full` | `table:<name>` | `partition:<table>/<partition>`. Default: `full`.
+
+2. **Execute refresh with polling**:
+   `ad-pbi refresh --workspace <workspace> --model <model> [--scope <scope>] --wait`
+   - Submits refresh via TOM `refresh.csx` script over XMLA.
+   - Polls refresh history REST endpoint, emitting progress to stderr.
+   - Outputs duration and completion status upon success.
+
+3. **Handle failures**:
+   - If refresh fails, `ad-pbi` extracts `error_code`, `table`, `partition`, `message`, and `hint` from `serviceExceptionJson`.
+   - Invoke `friction-log` with the structured failure row. STOP.
+
+4. **Verify parity**:
+   - Exit 0 → `state-update` `phase=validating`. Hand off → `pbi-verify-service`.

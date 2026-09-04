@@ -11,7 +11,10 @@ import tempfile
 from . import toon
 from .pbi.binding import verify_binding
 from .pbi.client import FabricClient, FabricError
+from .pbi.deploy import deploy_model
 from .pbi.parts import check_vanished_parts, extract_parts_to_disk, load_model_parts, load_report_parts
+from .pbi.refresh import get_refresh_history, get_refresh_partitions, poll_refresh, submit_refresh
+from .pbi.verify import verify_service_parity
 from .version import add_version
 
 
@@ -317,6 +320,96 @@ def cmd_export_png(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_deploy(args: argparse.Namespace) -> int:
+    client = FabricClient(tenant=args.tenant)
+    try:
+        ws_id, ws_name = client.resolve_workspace(args.workspace)
+        res = deploy_model(
+            args.path,
+            workspace=ws_name,
+            model=args.model,
+            dry_run=args.dry_run,
+            roles=args.roles,
+            allow_dirty=args.allow_dirty,
+            force=args.force,
+            runner=client.runner,
+        )
+        print(toon.encode(res))
+        return 0
+    except FabricError as e:
+        print(toon.encode(e.to_dict()), file=sys.stderr)
+        return 1
+
+
+def cmd_refresh(args: argparse.Namespace) -> int:
+    client = FabricClient(tenant=args.tenant)
+    try:
+        ws_id, ws_name = client.resolve_workspace(args.workspace)
+        m_id, m_name = client.resolve_item(ws_id, args.model, kind="model")
+
+        if args.history:
+            history = get_refresh_history(ws_id, m_id, client, top=args.top)
+            rows = [
+                [h.get("id", ""), h.get("refreshType", ""), h.get("startTime", ""), h.get("endTime", ""), h.get("status", "")]
+                for h in history
+            ]
+            print(f"workspace: {ws_name} · model: {m_name}")
+            print(toon.table("refreshes", ["id", "type", "startTime", "endTime", "status"], rows))
+            return 0
+
+        if args.partitions:
+            parts = get_refresh_partitions(ws_name, m_name, runner=client.runner)
+            rows = [
+                [p.get("table", ""), p.get("partition", ""), p.get("rows_count", 0), p.get("last_processed", "")]
+                for p in parts
+            ]
+            print(f"workspace: {ws_name} · model: {m_name}")
+            print(toon.table("partitions", ["table", "partition", "rows", "last_processed"], rows))
+            return 0
+
+        # Submit refresh
+        submit_refresh(ws_name, m_name, scope=args.scope, runner=client.runner)
+        if args.wait > 0:
+            res = poll_refresh(ws_id, m_id, client, wait_timeout=args.wait)
+            res["workspace"] = ws_name
+            res["model"] = m_name
+            print(toon.encode(res))
+        else:
+            print(toon.encode({
+                "ok": True,
+                "status": "Submitted",
+                "workspace": ws_name,
+                "model": m_name,
+                "scope": args.scope,
+            }))
+        return 0
+    except FabricError as e:
+        print(toon.encode(e.to_dict()), file=sys.stderr)
+        return 1
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    client = FabricClient(tenant=args.tenant)
+    try:
+        ws_id, ws_name = client.resolve_workspace(args.workspace)
+        res = verify_service_parity(args.pbip, ws_name, args.model, pid=args.pid, runner=client.runner)
+        print(toon.encode({
+            "ok": res["ok"],
+            "parity": res["parity"],
+            "workspace": ws_name,
+            "model": args.model,
+            "measures_count": res["measures_count"],
+            "tested_desktop": res["tested_desktop"],
+            "hint": res.get("hint", ""),
+        }))
+        if res.get("comparison_rows"):
+            print(toon.table("measures", ["measure", "service", "desktop", "status"], res["comparison_rows"]))
+        return 0 if res["ok"] else 1
+    except FabricError as e:
+        print(toon.encode(e.to_dict()), file=sys.stderr)
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="ad-pbi", description="Fabric REST item-definition transport (reports and semantic models)")
     add_version(p)
@@ -386,6 +479,39 @@ def build_parser() -> argparse.ArgumentParser:
     p_png.add_argument("--out", "-o", help="destination PNG path")
     p_png.add_argument("--tenant", "-t", help="Azure tenant ID")
     p_png.set_defaults(func=cmd_export_png)
+
+    # deploy
+    p_dep = sub.add_parser("deploy", help="deploy TMDL model to workspace over XMLA via Tabular Editor 2")
+    p_dep.add_argument("path", help="path to TMDL definition or .SemanticModel folder")
+    p_dep.add_argument("--workspace", "-w", required=True, help="workspace name or ID")
+    p_dep.add_argument("--model", "-m", required=True, help="target model name")
+    p_dep.add_argument("--dry-run", action="store_true", help="dry-run: generate deploy.xmla script without deploying")
+    p_dep.add_argument("--roles", action="store_true", help="deploy roles and role memberships (-R -M)")
+    p_dep.add_argument("--allow-dirty", action="store_true", help="allow deploying with dirty git working tree")
+    p_dep.add_argument("--force", action="store_true", help="force redeploy even if matching stamp exists")
+    p_dep.add_argument("--tenant", "-t", help="Azure tenant ID")
+    p_dep.set_defaults(func=cmd_deploy)
+
+    # refresh
+    p_ref = sub.add_parser("refresh", help="refresh model on service and poll status")
+    p_ref.add_argument("--workspace", "-w", required=True, help="workspace name or ID")
+    p_ref.add_argument("--model", "-m", required=True, help="model name")
+    p_ref.add_argument("--scope", default="full", help="refresh scope: full | table:<T> | partition:<T>/<P>")
+    p_ref.add_argument("--wait", type=int, default=1800, help="wait timeout in seconds (default: 1800; 0 to skip waiting)")
+    p_ref.add_argument("--history", action="store_true", help="view refresh history")
+    p_ref.add_argument("--partitions", action="store_true", help="view partition status over XMLA")
+    p_ref.add_argument("--top", type=int, default=5, help="number of history entries to return (default: 5)")
+    p_ref.add_argument("--tenant", "-t", help="Azure tenant ID")
+    p_ref.set_defaults(func=cmd_refresh)
+
+    # verify
+    p_ver = sub.add_parser("verify", help="verify report measures on service and compare Desktop-vs-service parity")
+    p_ver.add_argument("--pbip", "-p", required=True, help="path to .pbip file or report folder")
+    p_ver.add_argument("--workspace", "-w", required=True, help="workspace name or ID")
+    p_ver.add_argument("--model", "-m", required=True, help="model name")
+    p_ver.add_argument("--pid", type=int, help="Power BI Desktop process ID to compare against")
+    p_ver.add_argument("--tenant", "-t", help="Azure tenant ID")
+    p_ver.set_defaults(func=cmd_verify)
 
     return p
 
