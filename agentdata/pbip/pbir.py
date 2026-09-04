@@ -110,18 +110,23 @@ def walk_refs(obj: Any, file: str = "", path: str = "$", aliases: dict | None = 
             for src in obj["From"]:
                 if isinstance(src, dict) and src.get("Name"):
                     aliases[src["Name"]] = (src.get("Entity"), src.get("Type", 0))
-        keys = [k for k in REF_KEYS if k in obj]
-        if len(keys) == 1 and isinstance(obj[keys[0]], dict):
-            ref = _decode(keys[0], obj[keys[0]], aliases)
+        matched = []
+        for k in REF_KEYS:
+            if k in obj and isinstance(obj[k], dict):
+                matched.append((k, obj[k]))
+            elif k.lower() in obj and isinstance(obj[k.lower()], dict):
+                matched.append((k, obj[k.lower()]))
+        if len(matched) == 1:
+            ref = _decode(matched[0][0], matched[0][1], aliases)
             if ref is not None:
                 ref.file, ref.path, ref.context = file, path, context
                 yield ref
                 return  # do not descend into a decoded reference
         for k, v in obj.items():
             ctx = context
-            if k == "queryState" and isinstance(v, dict):
+            if k in ("queryState", "projections") and isinstance(v, dict):
                 for role, state in v.items():
-                    yield from walk_refs(state, file, f"{path}.queryState.{role}", aliases, f"projection:{role}")
+                    yield from walk_refs(state, file, f"{path}.{k}.{role}", aliases, f"projection:{role}")
                 continue
             if k in ("filterConfig", "filters") and context == "other":
                 ctx = "filter"

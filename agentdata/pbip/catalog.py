@@ -53,7 +53,7 @@ def list_visuals() -> AgentTable:
     return AgentTable("visual_catalog", cols, rows, source=f"schema {schema_path}")
 
 
-def describe_visual(visual_type: str) -> AgentTable:
+def describe_visual(visual_type: str, report_dir: str | None = None) -> AgentTable:
     """Describe roles, constraints, and data kinds for a visual type."""
     cat = load_catalog()
     visuals = cat.get("visuals", {})
@@ -63,6 +63,36 @@ def describe_visual(visual_type: str) -> AgentTable:
         if matches:
             visual_type = matches[0]
         else:
+            # Check custom visual packages
+            from ..pbiviz import core as PV
+            cap_data = None
+            if report_dir:
+                cap_data = PV.read_visual_capabilities(visual_type, report_dir)
+            if not cap_data:
+                import glob
+                reg_pkgs = glob.glob(f"**/StaticResources/RegisteredResources/{visual_type}*.pbiviz", recursive=True)
+                if reg_pkgs:
+                    cap_data = PV.read_visual_capabilities(visual_type, os.path.dirname(os.path.dirname(os.path.dirname(reg_pkgs[0]))))
+            if not cap_data:
+                v_dir = os.path.join("visuals", visual_type)
+                if os.path.isdir(v_dir) and os.path.exists(os.path.join(v_dir, "capabilities.json")):
+                    with open(os.path.join(v_dir, "capabilities.json"), "r", encoding="utf-8") as f:
+                        cap_data = json.load(f)
+
+            if cap_data:
+                rows = []
+                for r in cap_data.get("dataRoles", []):
+                    rname = r.get("name")
+                    kind = r.get("kind", "Any")
+                    desc = r.get("description", "")
+                    min_c = 1 if r.get("required") else 0
+                    max_c = 1
+                    rows.append([rname, min_c, max_c, kind, desc, f"custom://{visual_type}/roles/{rname}"])
+                cols = ["role", "min", "max", "allowed_kinds", "description", "schema_path"]
+                table = AgentTable(f"visual_{visual_type}", cols, rows, source=f"custom_visual {visual_type}")
+                table.raw = {"visual_type": visual_type, "custom": True}
+                return table
+
             raise KeyError(f"Visual type '{visual_type}' not found in catalog. Run `ad-pbip catalog list` for available types.")
 
     vdata = visuals[visual_type]
