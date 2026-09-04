@@ -16,12 +16,26 @@ from .pbip import check as CK
 from .pbip import dax as D
 from .pbip import desktop as DT
 from .pbip import edit as E
+from .pbip import external_tool as EXT
 from .pbip import normalize as N
 from .pbip import project as PJ
 from .pbip import screenshot as SC
 from .pbip import tmdl as T
 from .policy import error, render
 from . import policy, ui
+
+
+def _resolve_desktop_target(a):
+    """If --server, --pid, or --db are missing, prefer fresh .agent/desktop.json."""
+    handoff = EXT.read_handoff()
+    if handoff:
+        if hasattr(a, "server") and not getattr(a, "server", None) and handoff.get("server"):
+            a.server = handoff["server"]
+        if hasattr(a, "db") and not getattr(a, "db", None) and handoff.get("database"):
+            a.db = handoff["database"]
+        if hasattr(a, "pid") and not getattr(a, "pid", None) and handoff.get("pid"):
+            a.pid = handoff["pid"]
+    return handoff
 
 
 def _pbip_dir(arg: str | None) -> str:
@@ -81,6 +95,7 @@ def cmd_project(a) -> int:
 
 
 def cmd_check(a) -> int:
+    _resolve_desktop_target(a)
     pbip = _pbip_dir(a.pbip)
     model, report, _ = N.load_all(pbip, legacy_ok=a.legacy_ok)
     findings = CK.check_model(model)
@@ -148,6 +163,8 @@ def cmd_desktop(a) -> int:
         return 0 if ok else 1
 
     # Default / status:
+    if not getattr(a, "pid", None):
+        _resolve_desktop_target(a)
     pid = getattr(a, "pid", None)
     rows = [i.row() for i in DT.status(pid=pid, candidates=_candidates())]
     src = "ad-pbip desktop status" if cmd == "status" else "ad-pbip desktop"
@@ -171,6 +188,29 @@ def cmd_capabilities(a) -> int:
     return 0
 
 
+def cmd_handoff(a) -> int:
+    res = EXT.handoff(a.server, a.database, project_dir=getattr(a, "project", None))
+    if policy.pretty():
+        ui.facts([("server", a.server), ("database", a.database), *[(k, v) for k, v in res.items()]], title="ad-pbip handoff")
+    else:
+        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip handoff", **res}}))
+    return 0
+
+
+def cmd_register_tool(a) -> int:
+    ok, dest, hint = EXT.register_tool(target_dir=getattr(a, "target_dir", None),
+                                       python_exe=getattr(a, "python", None),
+                                       project_dir=getattr(a, "project", None))
+    if not ok:
+        print(error(f"failed to register external tool at {dest}", hint or "run with administrator privileges", "ad-pbip"))
+        return 1
+    if policy.pretty():
+        ui.facts([("registered", dest), ("tool", "agentdata.pbitool.json")], title="ad-pbip register-tool")
+    else:
+        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip register-tool", "path": dest, "next": "open Power BI Desktop -> External Tools ribbon -> agentdata"}}))
+    return 0
+
+
 def cmd_screenshot(a) -> int:
     if getattr(a, "compare", None):
         if len(a.compare) != 2:
@@ -184,6 +224,9 @@ def cmd_screenshot(a) -> int:
         else:
             print(toon.encode({"meta": {"ok": True, "source": "ad-pbip screenshot compare", **res}}))
         return 0 if res["verdict"] == "same" else 1
+
+    if not getattr(a, "pid", None):
+        _resolve_desktop_target(a)
 
     if not getattr(a, "pid", None):
         print(error("give --pid <pid> (ad-pbip desktop) or --compare <a.png> <b.png>", "", "ad-pbip"))
@@ -212,6 +255,7 @@ def cmd_launch(a) -> int:
 
 
 def cmd_visual_query(a) -> int:
+    _resolve_desktop_target(a)
     pbip = _pbip_dir(a.pbip)
     model, report, _ = N.load_all(pbip, legacy_ok=True)
     if not report:
@@ -411,6 +455,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_shot.add_argument("--mask", action="append", help="visual id to mask during compare")
     p_shot.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p_shot.set_defaults(fn=cmd_screenshot)
+
+    p_hand = sub.add_parser("handoff", help="IPC callback when human clicks agentdata in Desktop ribbon")
+    p_hand.add_argument("--server", required=True, help="Analysis Services localhost:<port> address from Desktop")
+    p_hand.add_argument("--database", required=True, help="Analysis Services database GUID from Desktop")
+    p_hand.add_argument("--project", help="explicit project folder to write .agent/desktop.json into")
+    p_hand.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_hand.set_defaults(fn=cmd_handoff)
+
+    p_reg = sub.add_parser("register-tool", help="register agentdata as Power BI Desktop External Tool")
+    p_reg.add_argument("--python", help="explicit python executable path (default: sys.executable)")
+    p_reg.add_argument("--target-dir", help="custom destination directory for .pbitool.json (testing/mock)")
+    p_reg.add_argument("--project", help="explicit project directory to bake into tool arguments")
+    p_reg.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_reg.set_defaults(fn=cmd_register_tool)
+
     p = sub.add_parser("launch", help="open a .pbip in Power BI Desktop")
     p.add_argument("path"); p.add_argument("--exe")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
@@ -455,3 +514,7 @@ def main(argv: list[str] | None = None) -> int:
         print(error(str(e)[:300], "pass the folder that contains the .pbip (or set pbip_path in AGENTS.md)", "ad-pbip")); sys.exit(2)
     except C.ConfigError as e:
         print(error(str(e), e.hint, "ad-pbip")); sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

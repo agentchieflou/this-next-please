@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "name": "agentdata",
+  "description": "Antigravity data agent bridge for Power BI Desktop",
+  "path": "{{python_exe}}",
+  "arguments": "-m agentdata pbip handoff --server \"%server%\" --database \"%database%\"",
+  "iconData": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGMQqHH8TwlmGDVg1IBRA4aLAQBRu8wQ68Y02AAAAABJRU5ErkJggg=="
+}

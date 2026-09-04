@@ -107,6 +107,31 @@ class PowerBIStep(Step):
         else:
             ctx.add(k, "desktop/capabilities", "warn", cap_summary, "ad-setup --patch", cap_keys)
 
+        # powerbi/external_tool
+        from ...pbip import external_tool as EXT
+        ext_dir = EXT.external_tools_dir()
+        pbitool_file = os.path.join(ext_dir, "agentdata.pbitool.json")
+        ext_keys = ("powerbi.external_tool",)
+        reg_ok, reg_msg = EXT.is_external_tools_enabled()
+        if not reg_ok:
+            ctx.add(k, "powerbi/external_tool", "warn", reg_msg, "enable registry EnableExternalTools", ext_keys)
+        elif ctx.det.exists(pbitool_file) or os.path.exists(pbitool_file):
+            try:
+                with open(pbitool_file, encoding="utf-8") as f:
+                    tool_json = json.load(f)
+                py_path = tool_json.get("path")
+                if py_path and (ctx.det.exists(py_path) or os.path.exists(py_path)):
+                    ctx.add(k, "powerbi/external_tool", "ok", f"registered · {pbitool_file}")
+                else:
+                    ctx.add(k, "powerbi/external_tool", "fail", f"python path in tool JSON does not exist: {py_path}",
+                            "re-register with `ad-setup --patch powerbi.external_tool` or `ad-pbip register-tool`", ext_keys)
+            except Exception as e:
+                ctx.add(k, "powerbi/external_tool", "fail", f"invalid tool json: {e}",
+                        "re-register with `ad-setup --patch powerbi.external_tool`", ext_keys)
+        else:
+            ctx.add(k, "powerbi/external_tool", "warn", "not registered",
+                    "register via `ad-setup --patch powerbi.external_tool` or `ad-pbip register-tool`", ext_keys)
+
     def ask(self, ctx: Context, found: dict) -> None:
         cfg = ctx.cfg
         if not ctx.ask.confirm("powerbi.use", "Use Power BI tooling?", bool(any(found["tools"].values()) or found["workspaces"])):
@@ -121,6 +146,17 @@ class PowerBIStep(Step):
                     ctx.add(self.key, n, "warn", f"path not found: {p}", "check the path (ad-setup --patch)", (f"powerbi.{n}",))
             else:
                 (C.get(cfg, "powerbi.tools") or {}).pop(n, None)
+
+        dt_found = bool(found["tools"].get("pbi_desktop_exe"))
+        if ctx.ask.confirm("powerbi.external_tool", "Register agentdata as Power BI Desktop External Tool?", dt_found):
+            from ...pbip import external_tool as EXT
+            ok, dest, hint = EXT.register_tool()
+            if ok:
+                ctx.add(self.key, "powerbi/external_tool", "ok", f"registered at {dest}")
+                C.put(cfg, "powerbi.external_tool", True)
+            else:
+                ctx.add(self.key, "powerbi/external_tool", "warn", f"permission error writing {dest}", hint or "run elevated")
+
         if not ctx.ask.confirm("powerbi.workspaces.configure", "Configure Power BI Service workspaces (XMLA)?",
                                 bool(found["workspaces"] or found["az"])):
             return

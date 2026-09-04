@@ -16,5 +16,5 @@ description: "Domain sub-router for Power BI tasks: reports, models, TMDL, DAX, 
 | refresh model / dataset | `pbi-refresh-xmla` |
 | DAX result, vpax, export measures | `dax-studio-export` |
 
-2. Output one line: `→ <skill>: <reason in ≤ 12 words>`. Then invoke it.
+2. Output one line: `→ <skill>: <reason in ≤ 12 words>`. If `.agent/desktop.json` is stale, ask the human to press *External Tools → agentdata* in the window they mean. Then invoke it.
 3. No match after reading the table twice → invoke `friction-log` with type `ambiguity`. STOP.

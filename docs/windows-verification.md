@@ -141,6 +141,16 @@ ad-pbip screenshot --pid <pid> --page "Page 1" --out after.png --compare before.
 ```
 Pass: `screenshot` captures full window or crops to canvas/visual without black screen (using `PrintWindow` with `PW_RENDERFULLCONTENT`); visual regression diff returns `diff_ratio` and generates visual diff image when differences exceed threshold; masked areas are ignored in comparison.
 
+## 14. Desktop External Tool registration and handoff (#53)
+```powershell
+ad-pbip register-tool                                                  # writes agentdata.pbitool.json to %CommonProgramFiles% External Tools
+ad-doctor --only powerbi                                               # checks powerbi/external_tool row: registration, path, and registry
+ad-pbip handoff --server localhost:54321 --database "00000000-0000-0000-0000-000000000000"  # simulated Desktop ribbon click
+ad-pbip desktop status                                                 # automatically picks up handed off server and pid without flags
+type .agent\desktop.json                                               # verify server, database, pid, handed_off_at
+```
+Pass: `register-tool` registers `agentdata.pbitool.json` in Desktop's External Tools folder; `ad-doctor` shows `powerbi/external_tool` ok; Desktop shows `agentdata` in ribbon; clicking ribbon or running `handoff` records `.agent/desktop.json`; downstream verbs prefer handoff when fresh.
+
 ## Triage map (where a failure lands)
 | Symptom | Module | Likely fix |
 |---|---|---|
