@@ -50,6 +50,8 @@ class Visual:
     fields: list[FieldRef] = field(default_factory=list)
     filters: list[dict] = field(default_factory=list)
     schema: str | None = None
+    position: dict = field(default_factory=dict)
+    raw: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -61,6 +63,8 @@ class Page:
     hidden: bool = False
     visuals: list[Visual] = field(default_factory=list)
     filters: list[dict] = field(default_factory=list)
+    width: int = 1280
+    height: int = 720
 
 
 @dataclass
@@ -248,7 +252,8 @@ def _load_pbir(rep: Report, defn: str) -> None:
         d = _load(pj) if os.path.exists(pj) else {}
         page = Page(pid, d.get("displayName") or pid, ordinal.get(pid, 999), _rel(root, pj),
                     hidden=str(d.get("visibility", "")).lower() == "hiddeninviewmode",
-                    filters=_filters(d.get("filterConfig"), _rel(root, pj), "page"))
+                    filters=_filters(d.get("filterConfig"), _rel(root, pj), "page"),
+                    width=d.get("width", 1280), height=d.get("height", 720))
         for vd in sorted(glob.glob(os.path.join(pd, "visuals", "*"))):
             vj = os.path.join(vd, "visual.json")
             if not os.path.exists(vj):
@@ -256,7 +261,8 @@ def _load_pbir(rep: Report, defn: str) -> None:
             v = _load(vj)
             vis = v.get("visual") or {}
             visual = Visual(pid, page.name, v.get("name") or os.path.basename(vd), vis.get("visualType"), _title(vis),
-                            bool(v.get("isHidden", False)), _rel(root, vj), schema=v.get("$schema"))
+                            bool(v.get("isHidden", False)), _rel(root, vj), schema=v.get("$schema"),
+                            position=v.get("position") or {}, raw=v)
             visual.fields = list(walk_refs(v, visual.file))
             visual.filters = _filters(v.get("filterConfig"), visual.file, "visual")
             page.visuals.append(visual)

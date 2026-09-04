@@ -81,6 +81,29 @@ def check_report(report: P.Report, model: Model) -> list[Finding]:
         out.append(Finding("error", "pbir-dataset-path", "definition.pbir", "", f"byPath '{report.dataset_path}' has no definition/model.tmdl", "fix datasetReference.byPath.path (relative, forward slashes)"))
     seen_pages: dict[str, str] = {}
     filter_names: dict[str, str] = {}
+    all_visual_ids: dict[str, str] = {}
+    legacy_types = {"card": "cardVisual", "table": "tableEx", "matrix": "pivotTable", "map": "azureMap"}
+
+    # Anti-pattern: page-not-in-pages-json
+    if report.root:
+        pages_json_path = os.path.join(report.root, "definition", "pages", "pages.json")
+        if os.path.exists(pages_json_path):
+            try:
+                order = list(P._load(pages_json_path).get("pageOrder") or [])
+                disk_pids = {p.id for p in report.pages}
+                for p in report.pages:
+                    if p.id not in order:
+                        out.append(Finding("error", "page-not-in-pages-json", p.file, p.id,
+                                           f"page folder '{p.id}' exists on disk but is not listed in pages.json pageOrder",
+                                           "add page id to pages.json pageOrder"))
+                for pid in order:
+                    if pid not in disk_pids:
+                        out.append(Finding("error", "page-not-in-pages-json", pages_json_path, pid,
+                                           f"pages.json pageOrder lists '{pid}' but folder does not exist",
+                                           "remove page id from pages.json or create page folder"))
+            except Exception:
+                pass
+
     for p in report.pages:
         if p.id in seen_pages:
             out.append(Finding("error", "page-name-dup", p.file, p.id, "page name used twice", "page names must be unique in the report"))
@@ -94,8 +117,41 @@ def check_report(report: P.Report, model: Model) -> list[Finding]:
                     out.append(Finding("warning", "visual-name-format", v.file, v.id, "visual name should be 20 lowercase hex chars", "keep Desktop-generated names; never invent one"))
                 if v.id in seen_visuals:
                     out.append(Finding("error", "visual-name-dup", v.file, v.id, "visual name used twice on the page", "names must be unique per page"))
+                # Anti-pattern: duplicate-visual-id across entire report
+                if v.id in all_visual_ids:
+                    out.append(Finding("error", "duplicate-visual-id", v.file, v.id,
+                                       f"visual id '{v.id}' used more than once in report (also in {all_visual_ids[v.id]})",
+                                       "visual names must be unique across the report; generate fresh 20-hex id"))
+                all_visual_ids[v.id] = v.file
+
                 if not v.schema:
                     out.append(Finding("warning", "schema-missing", v.file, v.id, "visual.json has no $schema", "copy the $schema URL from a sibling visual; never bump the version by hand"))
+
+                # Anti-pattern: legacy-visual-type
+                if v.type and v.type in legacy_types:
+                    out.append(Finding("warning", "legacy-visual-type", v.file, v.id,
+                                       f"visual uses deprecated legacy type '{v.type}'",
+                                       f"replace with modern '{legacy_types[v.type]}'"))
+
+                # Anti-pattern: visualcalc-missing-nativequeryref
+                raw_qs = ((v.raw.get("visual") or {}).get("query") or {}).get("queryState") or {}
+                for role, container in raw_qs.items():
+                    for proj in (container.get("projections") or []):
+                        if "visualCalculation" in proj and "nativeQueryRef" not in proj:
+                            out.append(Finding("warning", "visualcalc-missing-nativequeryref", v.file, v.id,
+                                               f"visual calculation '{proj.get('queryRef')}' missing nativeQueryRef",
+                                               "add nativeQueryRef to visual calculation projection"))
+
+                # Anti-pattern: position-off-canvas
+                pos = v.position or {}
+                vx, vy, vw, vh = pos.get("x"), pos.get("y"), pos.get("width"), pos.get("height")
+                if vx is not None and vy is not None and vw is not None and vh is not None:
+                    pw, ph = p.width or 1280, p.height or 720
+                    if vx < 0 or vy < 0 or (vx + vw > pw) or (vy + vh > ph):
+                        out.append(Finding("warning", "position-off-canvas", v.file, v.id,
+                                           f"visual bounds (x={vx}, y={vy}, w={vw}, h={vh}) extend outside canvas ({pw}x{ph})",
+                                           "adjust position to fit within page canvas"))
+
             seen_visuals.add(v.id)
             for r in v.fields:
                 ok, why = idx.resolve(r)
@@ -106,6 +162,22 @@ def check_report(report: P.Report, model: Model) -> list[Finding]:
                     out.append(Finding("info", "hidden-column-used", f"{v.file} {r.path}", label, f"{r.context}: hidden column '{r.entity}'[{r.prop}] is used directly", "fine for keys/sorts; otherwise unhide or use a measure"))
             for flt in v.filters:
                 _filter_checks(out, flt, idx, filter_names, f"visual {v.id}")
+
+        # Anti-pattern: overlap
+        page_vis = [vis for vis in p.visuals if not vis.hidden and vis.position]
+        for i in range(len(page_vis)):
+            for j in range(i + 1, len(page_vis)):
+                v1, v2 = page_vis[i], page_vis[j]
+                p1, p2 = v1.position, v2.position
+                x1, y1, w1, h1 = p1.get("x", 0), p1.get("y", 0), p1.get("width", 0), p1.get("height", 0)
+                x2, y2, w2, h2 = p2.get("x", 0), p2.get("y", 0), p2.get("width", 0), p2.get("height", 0)
+                ox = max(0, min(x1 + w1, x2 + w2) - max(x1, x2))
+                oy = max(0, min(y1 + h1, y2 + h2) - max(y1, y2))
+                if ox > 0 and oy > 0:
+                    out.append(Finding("warning", "overlap", v1.file, f"{v1.id} & {v2.id}",
+                                       f"visual '{v1.id}' overlaps with '{v2.id}' ({ox}x{oy}px)",
+                                       "adjust visual layout coordinates to eliminate overlap"))
+
     for flt in report.filters:
         _filter_checks(out, flt, idx, filter_names, "report")
     visual_ids = {v.id for v in report.all_visuals()}
@@ -119,14 +191,37 @@ def check_report(report: P.Report, model: Model) -> list[Finding]:
     return out
 
 
+def _has_sourceref_entity(obj: Any) -> bool:
+    if isinstance(obj, dict):
+        if "SourceRef" in obj and isinstance(obj["SourceRef"], dict) and "Entity" in obj["SourceRef"]:
+            return True
+        for v in obj.values():
+            if _has_sourceref_entity(v):
+                return True
+    elif isinstance(obj, list):
+        for item in obj:
+            if _has_sourceref_entity(item):
+                return True
+    return False
+
+
 def _filter_checks(out: list[Finding], flt: dict, idx: ModelIndex, names: dict[str, str], scope: str) -> None:
     name = flt.get("name")
     if name:
         if name in names:
-            out.append(Finding("error", "filter-name-dup", flt["file"], name, f"filter name also used in {names[name]}", "filter names must be unique across the whole report"))
+            out.append(Finding("error", "duplicate-filter-id", flt["file"], name, f"filter name also used in {names[name]}", "filter names must be unique across the whole report"))
         names[name] = scope
         if not P.FILTER_NAME.match(name):
             out.append(Finding("warning", "filter-name-format", flt["file"], name, "filter name should be Filter + 24 lowercase hex chars", "keep Desktop-generated names"))
+
+    # Anti-pattern: filter-entity-vs-source
+    raw = flt.get("raw") or {}
+    where = (raw.get("filter") or {}).get("Where")
+    if where and _has_sourceref_entity(where):
+        out.append(Finding("error", "filter-entity-vs-source", flt["file"], name or scope,
+                           "Filter Where condition uses SourceRef.Entity instead of SourceRef.Source alias",
+                           "Filter conditions must reference the From[] alias via SourceRef: {Source: ...}, not Entity"))
+
     for r in flt.get("refs") or []:
         ok, why = idx.resolve(r)
         if not ok:

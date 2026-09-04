@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Report",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "themeCollection": { "type": "object" },
+    "layoutOptimization": { "type": "string", "enum": ["None", "Custom"] },
+    "filterConfig": { "$ref": "filterConfig.json" },
+    "slowDataSourceSettings": { "type": "object" }
+  },
+  "required": ["$schema"]
+}

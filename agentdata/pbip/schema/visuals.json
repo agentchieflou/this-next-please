@@ -1,0 +1,262 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "version": "2.0.0",
+  "visuals": {
+    "columnChart": {
+      "description": "Clustered column chart",
+      "legacy": false,
+      "roles": {
+        "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "X-axis category field" },
+        "Y": { "min": 1, "max": 10, "kind": "Measure", "description": "Y-axis value field(s)" },
+        "Series": { "min": 0, "max": 1, "kind": "Grouping", "description": "Legend breakdown series" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Additional tooltip fields" }
+      }
+    },
+    "barChart": {
+      "description": "Clustered bar chart (horizontal)",
+      "legacy": false,
+      "roles": {
+        "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "Y-axis category field" },
+        "Y": { "min": 1, "max": 10, "kind": "Measure", "description": "X-axis value field(s)" },
+        "Series": { "min": 0, "max": 1, "kind": "Grouping", "description": "Legend breakdown series" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Additional tooltip fields" }
+      }
+    },
+    "lineChart": {
+      "description": "Line chart for trends over time",
+      "legacy": false,
+      "roles": {
+        "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "X-axis category / time field" },
+        "Y": { "min": 1, "max": 10, "kind": "Measure", "description": "Y-axis value field(s)" },
+        "Series": { "min": 0, "max": 1, "kind": "Grouping", "description": "Legend series" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Additional tooltip fields" }
+      }
+    },
+    "areaChart": {
+      "description": "Area chart",
+      "legacy": false,
+      "roles": {
+        "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "X-axis category field" },
+        "Y": { "min": 1, "max": 10, "kind": "Measure", "description": "Y-axis value field(s)" },
+        "Series": { "min": 0, "max": 1, "kind": "Grouping", "description": "Legend series" }
+      }
+    },
+    "cardVisual": {
+      "description": "Modern KPI / multi-metric card visual",
+      "legacy": false,
+      "roles": {
+        "Data": { "min": 1, "max": 10, "kind": "Measure", "description": "Primary value or measure(s)" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Additional tooltip metrics" }
+      }
+    },
+    "tableEx": {
+      "description": "Modern tabular grid visual",
+      "legacy": false,
+      "roles": {
+        "Values": { "min": 1, "max": 100, "kind": "GroupingOrMeasure", "description": "Columns and measures in grid" }
+      }
+    },
+    "pivotTable": {
+      "description": "Modern matrix / pivot table visual",
+      "legacy": false,
+      "roles": {
+        "Rows": { "min": 0, "max": 20, "kind": "Grouping", "description": "Row grouping hierarchy" },
+        "Columns": { "min": 0, "max": 20, "kind": "Grouping", "description": "Column grouping hierarchy" },
+        "Values": { "min": 1, "max": 50, "kind": "Measure", "description": "Metric values" }
+      }
+    },
+    "slicer": {
+      "description": "Interactive data slicer / filter",
+      "legacy": false,
+      "roles": {
+        "Values": { "min": 1, "max": 1, "kind": "Grouping", "description": "Field to slice by" }
+      }
+    },
+    "pieChart": {
+      "description": "Pie chart for part-to-whole proportions",
+      "legacy": false,
+      "roles": {
+        "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "Slice category" },
+        "Y": { "min": 1, "max": 1, "kind": "Measure", "description": "Slice value measure" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Tooltips" }
+      }
+    },
+    "donutChart": {
+      "description": "Donut chart for part-to-whole proportions",
+      "legacy": false,
+      "roles": {
+        "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "Slice category" },
+        "Y": { "min": 1, "max": 1, "kind": "Measure", "description": "Slice value measure" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Tooltips" }
+      }
+    },
+    "scatterChart": {
+      "description": "Scatter plot for correlation",
+      "legacy": false,
+      "roles": {
+        "Details": { "min": 0, "max": 1, "kind": "Grouping", "description": "Point identity" },
+        "Legend": { "min": 0, "max": 1, "kind": "Grouping", "description": "Color grouping" },
+        "X": { "min": 1, "max": 1, "kind": "Measure", "description": "X position measure" },
+        "Y": { "min": 1, "max": 1, "kind": "Measure", "description": "Y position measure" },
+        "Size": { "min": 0, "max": 1, "kind": "Measure", "description": "Bubble size measure" }
+      }
+    },
+    "gauge": {
+      "description": "Radial gauge visual for targets",
+      "legacy": false,
+      "roles": {
+        "Y": { "min": 1, "max": 1, "kind": "Measure", "description": "Current metric value" },
+        "MinValue": { "min": 0, "max": 1, "kind": "Measure", "description": "Minimum axis value" },
+        "MaxValue": { "min": 0, "max": 1, "kind": "Measure", "description": "Maximum axis value" },
+        "TargetValue": { "min": 0, "max": 1, "kind": "Measure", "description": "Target callout value" }
+      }
+    },
+    "treemap": {
+      "description": "Hierarchical treemap visual",
+      "legacy": false,
+      "roles": {
+        "Group": { "min": 1, "max": 1, "kind": "Grouping", "description": "Main grouping category" },
+        "Details": { "min": 0, "max": 1, "kind": "Grouping", "description": "Sub-grouping category" },
+        "Values": { "min": 1, "max": 1, "kind": "Measure", "description": "Size metric" }
+      }
+    },
+    "azureMap": {
+      "description": "Modern geospatial Azure Map visual",
+      "legacy": false,
+      "roles": {
+        "Location": { "min": 0, "max": 1, "kind": "Grouping", "description": "Geographic location name" },
+        "Latitude": { "min": 0, "max": 1, "kind": "Measure", "description": "Latitude coordinate" },
+        "Longitude": { "min": 0, "max": 1, "kind": "Measure", "description": "Longitude coordinate" },
+        "Size": { "min": 0, "max": 1, "kind": "Measure", "description": "Bubble size metric" }
+      }
+    },
+    "card": {
+      "description": "Legacy single-metric card (deprecated)",
+      "legacy": true,
+      "replacement": "cardVisual",
+      "roles": {
+        "Fields": { "min": 1, "max": 1, "kind": "Measure", "description": "Single metric value" }
+      }
+    },
+    "table": {
+      "description": "Legacy table visual (deprecated)",
+      "legacy": true,
+      "replacement": "tableEx",
+      "roles": {
+        "Values": { "min": 1, "max": 100, "kind": "GroupingOrMeasure", "description": "Columns and measures" }
+      }
+    },
+    "matrix": {
+      "description": "Legacy matrix visual (deprecated)",
+      "legacy": true,
+      "replacement": "pivotTable",
+      "roles": {
+        "Rows": { "min": 0, "max": 20, "kind": "Grouping", "description": "Rows" },
+        "Columns": { "min": 0, "max": 20, "kind": "Grouping", "description": "Columns" },
+        "Values": { "min": 1, "max": 50, "kind": "Measure", "description": "Values" }
+      }
+    },
+    "map": {
+      "description": "Legacy Bing map visual (deprecated)",
+      "legacy": true,
+      "replacement": "azureMap",
+      "roles": {
+        "Location": { "min": 0, "max": 1, "kind": "Grouping", "description": "Location" }
+      }
+    }
+  },
+  "formatting": {
+    "title": {
+      "description": "Visual header title formatting",
+      "properties": {
+        "text": { "type": "string", "description": "Title display text" },
+        "show": { "type": "bool", "description": "Show title container" },
+        "fontSize": { "type": "number", "description": "Title font size in pt" },
+        "fontColor": { "type": "color", "description": "Title font hex color (#RRGGBB)" },
+        "alignment": { "type": "enum", "enum": ["Left", "Center", "Right"], "description": "Title text alignment" }
+      }
+    },
+    "subTitle": {
+      "description": "Visual subtitle formatting",
+      "properties": {
+        "text": { "type": "string", "description": "Subtitle display text" },
+        "show": { "type": "bool", "description": "Show subtitle" },
+        "fontSize": { "type": "number", "description": "Subtitle font size in pt" },
+        "fontColor": { "type": "color", "description": "Subtitle font hex color (#RRGGBB)" }
+      }
+    },
+    "background": {
+      "description": "Container background formatting",
+      "properties": {
+        "show": { "type": "bool", "description": "Enable background fill" },
+        "color": { "type": "color", "description": "Background hex color" },
+        "transparency": { "type": "number", "description": "Background transparency percentage (0-100)" }
+      }
+    },
+    "border": {
+      "description": "Container border formatting",
+      "properties": {
+        "show": { "type": "bool", "description": "Enable visual border" },
+        "color": { "type": "color", "description": "Border hex color" },
+        "radius": { "type": "number", "description": "Border corner radius in px" }
+      }
+    },
+    "dataLabels": {
+      "description": "Data value labels formatting",
+      "properties": {
+        "show": { "type": "bool", "description": "Show data value labels on chart elements" },
+        "fontSize": { "type": "number", "description": "Label font size in pt" },
+        "color": { "type": "color", "description": "Label text color" },
+        "position": { "type": "enum", "enum": ["InsideEnd", "OutsideEnd", "InsideCenter", "InsideBase"], "description": "Placement relative to bar/column" }
+      }
+    },
+    "legend": {
+      "description": "Chart legend formatting",
+      "properties": {
+        "show": { "type": "bool", "description": "Show legend container" },
+        "position": { "type": "enum", "enum": ["Top", "Bottom", "Left", "Right", "TopCenter", "BottomCenter"], "description": "Legend orientation position" }
+      }
+    },
+    "categoryAxis": {
+      "description": "Category (X-axis) formatting",
+      "properties": {
+        "show": { "type": "bool", "description": "Show category axis" },
+        "showTitle": { "type": "bool", "description": "Show axis title text" },
+        "titleText": { "type": "string", "description": "Custom axis title text" }
+      }
+    },
+    "valueAxis": {
+      "description": "Value (Y-axis) formatting",
+      "properties": {
+        "show": { "type": "bool", "description": "Show value axis" },
+        "showTitle": { "type": "bool", "description": "Show value axis title" },
+        "titleText": { "type": "string", "description": "Custom axis title text" },
+        "start": { "type": "number", "description": "Axis minimum bound" },
+        "end": { "type": "number", "description": "Axis maximum bound" }
+      }
+    },
+    "visualHeader": {
+      "description": "Visual top-right action icon bar",
+      "properties": {
+        "show": { "type": "bool", "description": "Show visual action header icons" }
+      }
+    },
+    "padding": {
+      "description": "Inner visual padding",
+      "properties": {
+        "top": { "type": "number", "description": "Top padding px" },
+        "bottom": { "type": "number", "description": "Bottom padding px" },
+        "left": { "type": "number", "description": "Left padding px" },
+        "right": { "type": "number", "description": "Right padding px" }
+      }
+    },
+    "dropShadow": {
+      "description": "Container shadow effect",
+      "properties": {
+        "show": { "type": "bool", "description": "Enable shadow" },
+        "color": { "type": "color", "description": "Shadow color" },
+        "position": { "type": "enum", "enum": ["Outer", "Inner"], "description": "Shadow position" }
+      }
+    }
+  }
+}

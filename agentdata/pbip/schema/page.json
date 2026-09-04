@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Page",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": { "type": "string" },
+    "displayName": { "type": "string" },
+    "displayOption": { "type": "string", "enum": ["FitToPage", "FitToWidth", "ActualSize"] },
+    "height": { "type": "number" },
+    "width": { "type": "number" },
+    "visibility": { "type": "string", "enum": ["Visible", "HiddenInViewMode"] },
+    "filterConfig": { "$ref": "filterConfig.json" }
+  },
+  "required": ["$schema", "name", "displayName"]
+}
