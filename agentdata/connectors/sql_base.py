@@ -3,13 +3,36 @@ from __future__ import annotations
 import re, time
 from ..model import AgentTable
 
-_FORBIDDEN = re.compile(r"^\s*(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|call|exec)\b", re.I | re.M)
+_FORBIDDEN = re.compile(r"\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke|call|exec)\b", re.I)
+_LINE_COMMENT = re.compile(r"--[^\n]*")
+_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+_STRING = re.compile(r"'(?:[^']|'')*'")
+
+
+def _code_only(sql: str) -> str:
+    """The statement with comments and string literals removed.
+
+    Both are places a forbidden keyword can appear harmlessly (`WHERE action = 'delete'`) and, more
+    to the point, places one can be hidden. Removing them first means the keyword search can look
+    at the whole statement rather than only at the start of each line -- which is what let
+    `WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x` through: the DML was mid-line, and the
+    statement opened with a perfectly innocent `WITH`.
+    """
+    without_strings = _STRING.sub("''", sql)
+    without_block = _BLOCK_COMMENT.sub(" ", without_strings)
+    return _LINE_COMMENT.sub(" ", without_block)
 
 
 def assert_readonly(sql: str) -> None:
-    if _FORBIDDEN.search(sql) or ";" in sql.strip().rstrip(";"):
+    code = _code_only(sql)
+    hit = _FORBIDDEN.search(code)
+    if hit:
+        raise PermissionError(
+            f"read-only: `{hit.group(1).upper()}` is not allowed anywhere in the statement, "
+            "including inside a CTE or after a comment")
+    if ";" in code.strip().rstrip(";"):
         raise PermissionError("read-only: single SELECT/WITH statement only")
-    if not re.match(r"^\s*(select|with|show|describe|explain)\b", sql, re.I):
+    if not re.match(r"^\s*(select|with|show|describe|explain)\b", code, re.I):
         raise PermissionError("read-only: statement must start with SELECT/WITH/SHOW/DESCRIBE/EXPLAIN")
 
 

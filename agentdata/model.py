@@ -120,7 +120,12 @@ class AgentTable:
     @staticmethod
     def read_tsv(path: str, name="result") -> "AgentTable":
         r = csv.reader(io.StringIO(read_text(path), newline=""), delimiter="\t")
-        cols = next(r)
+        # An empty file has no header row. `next(r)` raised StopIteration, which reached the caller
+        # as a traceback rather than as a row saying the file is empty -- and a 0-byte TSV is a
+        # perfectly ordinary thing to be handed by a query that matched nothing.
+        cols = next(r, None)
+        if cols is None:
+            return AgentTable(name=name, columns=[], rows=[], source=path)
         rows = [[_coerce(v) for v in row] for row in r]
         return AgentTable(name=name, columns=cols, rows=rows, source=path)
 
