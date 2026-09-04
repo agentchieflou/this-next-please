@@ -260,7 +260,7 @@ def run_guard(
     graph, meta = load_graph(root, graph_dir=graph_dir)
 
     explicit_threshold = min_coverage is not None
-    threshold = (min_coverage if explicit_threshold else config.min_coverage(cfg)) * 100.0
+    threshold = (min_coverage if explicit_threshold else config.min_coverage(cfg, root=root)) * 100.0
     has_coverage = bool((graph.coverage or {}).get("nodes"))
 
     files = collect_diff(root, mode=mode, ref=ref)

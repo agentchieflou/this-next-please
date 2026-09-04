@@ -143,3 +143,18 @@ When `.agent/graph/graph.json` is present, `ad-test` queries the graph for `test
 - **LCOV (`--import lcov <file>`)**: Standard tracefiles produced by Jest/Istanbul, `dotnet-coverage`, and gcov.
 - **Cobertura (`--import cobertura <file>`)**: XML format emitted by `coverlet` and `pytest-cov --cov-report xml`.
 - File paths are normalized to forward-slash relative paths against the repository root; unmatched files are listed in `unmatched[]`.
+
+### The threshold (`graph_min_coverage`)
+
+The per-node coverage a change must clear is read in exactly one place, `agentdata/config.py`, and
+used by `ad-graph findings` (the `covered` column) and `ad-graph guard` (the refusal). Precedence:
+
+1. `- graph_min_coverage: 0.9` in the project's own `AGENTS.md` — the project wins, because the
+   threshold is a property of the codebase being worked on, not of the laptop doing the work.
+   `ad-setup --only project` asks for it and writes it into the stub.
+2. `graph.min_coverage` in `~/.agentdata/config.json`.
+3. `0.8`.
+
+A node at or above the threshold is `covered: true`; below it with data present is `false`; with no
+coverage file at all it is `unknown` — and the guard treats `unknown` as `false`, because no data is
+not evidence of safety.

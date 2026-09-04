@@ -223,3 +223,64 @@ def test_cli_coverage_node_and_diff(tmp_path, capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "delta" in out
+
+
+def test_branch_arcs_reach_ad_graph_findings(tmp_path):
+    """The end of the chain #46 exists for: real branch data makes `uncovered-branch` fire.
+
+    branch_project tests only `check_value(5)`, so the `else` arm has never run. Nothing about this
+    is synthetic -- coverage.py measured it.
+    """
+    from agentdata.graph import findings
+
+    work_dir = tmp_path / "branch_proj"
+    shutil.copytree(os.path.join(FIXTURES, "branch_project"), work_dir)
+    graph_dir = str(work_dir / ".agent" / "graph")
+    builder.build_graph(root=str(work_dir), out_dir=graph_dir)
+
+    assert collect_coverage(str(work_dir), branch=True)["ok"] is True
+
+    rows = findings.collect(root=str(work_dir), graph_dir=graph_dir, kinds=["uncovered-branch"])["findings"]
+    assert rows, "an else-branch no test reaches must be reported"
+    row = rows[0]
+    assert row["node"].endswith("check_value")
+    rel, _, line = row["where"].rpartition(":")
+    assert rel == "src/branchy.py" and int(line) >= 2, "where must land on the branch itself"
+
+
+def test_covered_column_uses_the_measured_data(tmp_path):
+    """`covered` on a findings row comes from real coverage, not the name heuristic."""
+    from agentdata.graph import findings
+
+    work_dir = tmp_path / "graph_proj_cov"
+    shutil.copytree(os.path.join(FIXTURES, "graph_project"), work_dir)
+    graph_dir = str(work_dir / ".agent" / "graph")
+    builder.build_graph(root=str(work_dir), out_dir=graph_dir)
+    assert collect_coverage(str(work_dir))["ok"] is True
+
+    res = findings.collect(root=str(work_dir), graph_dir=graph_dir)
+    assert res["coverage"] == "present"
+    assert {r["covered"] for r in res["findings"]} <= {"true", "false", "unknown"}
+
+
+def test_project_agents_md_sets_the_threshold(tmp_path):
+    """graph_min_coverage is a property of the codebase, so the project's AGENTS.md outranks config."""
+    from agentdata import config
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert config.min_coverage({}, root=str(root)) == config.DEFAULT_MIN_COVERAGE
+
+    (root / "AGENTS.md").write_text("# Project\n- graph_min_coverage: 0.95\n", encoding="utf-8")
+    assert config.min_coverage({}, root=str(root)) == 0.95
+    # a placeholder is not a value
+    (root / "AGENTS.md").write_text("# Project\n- graph_min_coverage: <0.8>\n", encoding="utf-8")
+    assert config.min_coverage({"graph": {"min_coverage": 0.6}}, root=str(root)) == 0.6
+
+
+def test_project_stub_documents_the_threshold():
+    stub = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "agentdata", "templates", "project-stub", "AGENTS.md",
+    )
+    assert "graph_min_coverage" in open(stub, encoding="utf-8").read()

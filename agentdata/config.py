@@ -311,13 +311,20 @@ def capabilities(cfg: dict | None, source: str, env: str) -> dict:
 DEFAULT_MIN_COVERAGE = 0.8
 
 
-def min_coverage(cfg: dict | None = None) -> float:
-    """Read graph.min_coverage threshold (default: 0.8)."""
-    cfg = cfg if cfg is not None else load()
-    val = get(cfg, "graph.min_coverage")
-    if val is not None:
-        try:
-            return float(val)
-        except (ValueError, TypeError):
-            pass
+def min_coverage(cfg: dict | None = None, root: str | None = None) -> float:
+    """The per-node coverage a change must clear, read once here for `ad-graph findings`/`guard`.
+
+    Precedence: the project's own `graph_min_coverage` fact in AGENTS.md, then `graph.min_coverage`
+    in the global config, then 0.8. The project wins because the threshold is a property of the
+    codebase being worked on, not of the laptop doing the work.
+    """
+    for val in (
+        project_facts(os.path.join(root or ".", "AGENTS.md")).get("graph_min_coverage"),
+        get(cfg if cfg is not None else load(), "graph.min_coverage"),
+    ):
+        if val is not None:
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                pass
     return DEFAULT_MIN_COVERAGE

@@ -50,7 +50,7 @@ def collect(
     cfg: dict | None = None,
 ) -> dict[str, Any]:
     graph, meta = load_graph(root, graph_dir=graph_dir)
-    min_coverage = config.min_coverage(cfg)
+    min_coverage = config.min_coverage(cfg, root=root)
     ctx = CheckContext(graph, meta, root, min_coverage=min_coverage)
 
     node_cov = (graph.coverage or {}).get("nodes") or {}
