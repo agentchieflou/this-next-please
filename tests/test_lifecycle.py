@@ -83,7 +83,7 @@ class Venv:
         # reports "running from a checkout" whatever pip put in the venv.
         self.work = os.path.join(os.path.dirname(root), "work")
         os.makedirs(self.work, exist_ok=True)
-        subprocess.run([sys.executable, "-m", "venv", root], check=True, timeout=600)
+        subprocess.run([sys.executable, "-m", "venv", root], check=True, timeout=300)
         # Build isolation creates a throwaway environment and fetches setuptools **per build**, and
         # this module builds the same package six or seven times. On a Windows runner that was the
         # difference between under two minutes and over twelve -- the job was cancelled at its cap
@@ -91,7 +91,7 @@ class Venv:
         # it; `PIP_NO_BUILD_ISOLATION` is an environment setting, so `ad-update`'s own pip calls get
         # it too without the test having to reach into the command it runs.
         subprocess.run([self.python, "-m", "pip", "install", "-q", "setuptools", "wheel"],
-                       check=True, timeout=600, cwd=self.work,
+                       check=True, timeout=300, cwd=self.work,
                        env={**os.environ, "PIP_CACHE_DIR": cache,
                             "PIP_DISABLE_PIP_VERSION_CHECK": "1"})
 
@@ -117,14 +117,14 @@ class Venv:
 
     def pip(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         out = subprocess.run([self.python, "-m", "pip", *args], capture_output=True, text=True,
-                             timeout=900, env=self.env(), cwd=self.work)
+                             timeout=420, env=self.env(), cwd=self.work)
         if check:
             assert out.returncode == 0, f"pip {' '.join(args)}\n{out.stdout[-2000:]}\n{out.stderr[-2000:]}"
         return out
 
     def run(self, *args: str, **env: str) -> subprocess.CompletedProcess:
         return subprocess.run([self.python, "-m", "agentdata", *args], capture_output=True,
-                              text=True, timeout=900, cwd=self.work, env=self.env(**env))
+                              text=True, timeout=300, cwd=self.work, env=self.env(**env))
 
     def check(self) -> tuple[dict, str]:
         """(`meta` from `ad-update --check`, the whole output)."""

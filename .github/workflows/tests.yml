@@ -97,13 +97,20 @@ jobs:
       - run: pip install -e ".[dev]"
         shell: pwsh
 
-      # the suite. The slow marker builds a wheel in a fresh venv: run it on the laptop's Python,
-      # on the OS where packaging actually goes wrong.
+      # the suite. The slow marker builds wheels and venvs: run it on the laptop's Python, on the OS
+      # where packaging actually goes wrong.
       - name: pytest
         shell: pwsh
-        run: |
-          if ("${{ matrix.python }}" -eq "3.14") { python -m pytest -q }
-          else { python -m pytest -q -m "not slow" }
+        run: python -m pytest -q -m "not slow"
+
+      # Split out, verbose, and with its own cap on purpose. A hang inside the slow marker used to
+      # take the whole job down and `-q` never said which test it was in -- the log simply stopped
+      # at a percentage. `-v` names each test as it starts, so the last line printed is the one.
+      - name: pytest · slow
+        if: matrix.python == '3.14'
+        shell: pwsh
+        timeout-minutes: 10
+        run: python -m pytest -m slow -v --durations=0
 
       # one step per shell, so a red job names the shell rather than "Windows"
       - name: smoke · pwsh 7
