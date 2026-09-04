@@ -300,20 +300,61 @@ def clone(tmp_path_factory) -> str:
     _git("init", "--quiet", "--initial-branch", BRANCH, cwd=dst)
     _git("config", "user.email", "lifecycle@test.invalid", cwd=dst)
     _git("config", "user.name", "lifecycle test", cwd=dst)
-    # pip clones over file://, and git refuses a filtered fetch the server has not allowed. Without
-    # this the clone still works but negotiates its way there the long way round.
-    _git("config", "uploadpack.allowFilter", "true", cwd=dst)
+    # Deliberately NOT `uploadpack.allowFilter`. pip clones with `--filter=blob:none`, and allowing
+    # it turns this into a real partial clone with a *promisor* remote -- the machinery the hang was
+    # traced to. Left disallowed, git says "filtering not recognized by server, ignoring" and does a
+    # plain full clone, which for a one-commit origin costs a second and defers nothing.
     _git("add", "-A", cwd=dst)
     _git("commit", "--quiet", "-m", "lifecycle: the working tree as it stands", cwd=dst)
 
-    # The trigger that cost three CI runs. `actions/checkout` clones with `fetch-depth: 1`, so the
-    # checkout is **shallow**; a `git clone` of it inherits that, and pip's
-    # `git clone --filter=blob:none file://<shallow>` then registers a promisor remote that can
-    # never serve the fetches it promises. Building the origin from `git archive` avoids it by
-    # construction -- and this says so, loudly, if anyone puts a clone back.
-    assert _git("rev-parse", "--is-shallow-repository", cwd=dst) == "false", \
-        "the origin is shallow: pip's partial clone will chase a promisor that cannot answer"
+    _assert_pip_can_clone_this(dst)
     return dst
+
+
+def _assert_pip_can_clone_this(origin: str) -> None:
+    """Run the exact clone pip will run, and prove it comes back clean.
+
+    The trigger that cost three CI runs, and it is invisible unless you look for it. `actions/checkout`
+    clones with `fetch-depth: 1`, so a CI checkout is **shallow**; a `git clone` of it inherits that,
+    and pip's `git clone --filter=blob:none file://<shallow>` then registers a *promisor* remote --
+    a remote that has promised to serve objects on demand and cannot. Every later object lookup
+    becomes a fetch that fails and retries, which is how one investigation reached roughly 1360 live
+    git processes reproducing it.
+
+    Building the origin from `git archive` avoids it by construction. This checks that it really did,
+    rather than assuming, and it runs on a **green** run -- so the diagnosis stays settled instead of
+    resting on the fact that the symptom stopped. Two seconds, on both OSes.
+    """
+    import tempfile as _tempfile
+
+    assert _git("rev-parse", "--is-shallow-repository", cwd=origin) == "false", \
+        "the origin is shallow: pip's partial clone will chase a promisor that cannot answer"
+
+    with _tempfile.TemporaryDirectory() as probe_root:
+        probe = os.path.join(probe_root, "probe")
+        started = time.time()
+        _git("clone", "--filter=blob:none", "--quiet", _url(origin), probe, cwd=probe_root)
+        elapsed = time.time() - started
+
+        promisor = run_bounded([GIT, "config", "--get", "remote.origin.promisor"], cwd=probe,
+                               env=dict(os.environ), timeout=60, label="git config promisor")
+
+        # The config key is diagnosis, not the property. git honours `--filter` over the local
+        # transport, so a promisor remote is registered either way; what matters is whether the
+        # thing it promised can actually be delivered. Walking every object forces exactly that --
+        # against a shallow origin it is the fetch that can never be answered, and the loop that
+        # took three CI runs to find. Bounded, so a broken promisor fails here and says so.
+        walked = time.time()
+        run_bounded([GIT, "rev-list", "--objects", "--all"], cwd=probe, env=dict(os.environ),
+                    timeout=120, label="git rev-list --objects --all (forces any deferred fetch)")
+        walk = time.time() - walked
+
+        print(f"[lifecycle] pip-style clone {elapsed:.1f}s, object walk {walk:.1f}s, "
+              f"promisor={promisor.stdout.strip() or 'unset'}, "
+              f"shallow_origin=false", file=sys.stderr, flush=True)
+        assert elapsed < 60, f"the clone pip performs took {elapsed:.0f}s; it should be about one"
+        assert walk < 60, (f"resolving the clone's objects took {walk:.0f}s: the promisor cannot "
+                           f"serve what it promised, which is the unbounded-fetch failure")
 
 
 def _commit(clone: str, text: str) -> str:

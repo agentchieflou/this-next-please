@@ -110,7 +110,7 @@ jobs:
         if: matrix.python == '3.14'
         shell: pwsh
         timeout-minutes: 10
-        run: python -m pytest -m slow -v --durations=0
+        run: python -m pytest -m slow -v --durations=0 --capture=tee-sys
 
       # one step per shell, so a red job names the shell rather than "Windows"
       - name: smoke · pwsh 7

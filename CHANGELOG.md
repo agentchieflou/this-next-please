@@ -31,6 +31,18 @@ vanishing and quietly turning into a skip included. New skills: `test-cover`, `t
 `AGENTS.md` gains stop condition 14: never edit a source file whose `ad-graph guard` verdict is not `ok`, or
 that you have not run it against. `.agent/state.json` gains the phase `optimizing`.
 
+**`ad-test run` could kill your shell when a test run timed out (#78).** `proc.kill_tree` reached
+for `psutil` and, failing that, ran `os.killpg(os.getpgid(pid), SIGKILL)`. psutil is in the `pbi`
+extra, so on an ordinary install it is absent and that fallback always ran -- and a child started
+without `start_new_session` is in **the caller's own process group**, so the line SIGKILLed the
+process that called it, and everything else in the group. `ad-test run --timeout` has had this
+path since it was written. Found when a CI runner's job ended after 46 minutes with no failure, no
+logs and no step conclusion, because nothing was left alive to write them.
+
+`kill_tree` now kills a child's process group only when that group is genuinely the child's own,
+and never signals ours whatever a caller forgets to pass; `proc.run` starts children with
+`start_new_session=True` so the group really is theirs, and their grandchildren go with them.
+
 **Every `ad-*` command that shells out could hang forever on Windows (#78).** `proc.run` captured
 output through pipes, and `subprocess.run(capture_output=True, timeout=N)` is not a real timeout
 there: when it expires it kills the direct child and then waits for the pipe write-ends to close,

@@ -356,3 +356,74 @@ def test_nothing_we_spawn_can_wait_for_a_person(tmp_path):
     assert time.time() - start < 20, "reading stdin blocked"
     assert rc == 0
     assert out.strip() == "''", f"stdin was not empty: {out!r}"
+
+
+@pytest.mark.posix
+@pytest.mark.skipif(os.name == "nt", reason="process groups are a POSIX concept; the Windows kill "
+                                            "path is covered by "
+                                            "test_a_child_that_never_finishes_is_a_timeout_not_a_hang")
+def test_kill_tree_never_signals_its_own_process_group(tmp_path):
+    """The one that killed a CI runner, and would have killed a user's shell.
+
+    `kill_tree`'s POSIX path reached for psutil and, failing that, did
+    `os.killpg(os.getpgid(pid), SIGKILL)`. psutil lives in the `pbi` extra, so on an ordinary install
+    it is absent and the fallback always ran -- and a child started **without**
+    `start_new_session=True` shares its parent's process group. That line therefore SIGKILLed the
+    caller: on a hosted runner it took out pytest and the shell above it, which is why a 46-minute
+    job ended with no failure, no logs and no step conclusion. `ad-test run` has called this on its
+    timeout path since it was written.
+
+    Here the child is deliberately left in *our* group, which is the dangerous shape. If `kill_tree`
+    signals the group, this process dies and the whole suite dies with it -- so reaching the last
+    line is itself the assertion.
+    """
+    sleeper = tmp_path / "sleeper.py"
+    sleeper.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+
+    child = subprocess.Popen([sys.executable, str(sleeper)],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)          # NOT start_new_session
+    assert os.getpgid(child.pid) == os.getpgid(0), "the child must share our group for this to test anything"
+
+    proc.kill_tree(child.pid)
+
+    assert child.wait(timeout=30) is not None, "the child outlived a kill aimed at it"
+    assert os.getpid() > 0, "we are still here, which is the point"
+
+
+@pytest.mark.posix
+@pytest.mark.skipif(os.name == "nt", reason="process groups are a POSIX concept; the Windows tree "
+                                            "kill is covered by "
+                                            "test_a_child_that_never_finishes_is_a_timeout_not_a_hang")
+def test_kill_tree_takes_the_whole_group_when_the_child_leads_one(tmp_path):
+    """And when the child *does* lead its own session, its descendants go with it -- which is the
+    reason `_spawn` passes `start_new_session=True`."""
+    import signal
+
+    script = tmp_path / "parent.py"
+    script.write_text(
+        "import subprocess, sys, time\n"
+        "kid = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "print(kid.pid, flush=True)\n"
+        "time.sleep(60)\n",
+        encoding="utf-8")
+
+    parent = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, text=True,
+                              stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              start_new_session=True)
+    grandchild = int(parent.stdout.readline().strip())
+
+    proc.kill_tree(parent.pid)
+    parent.wait(timeout=30)
+
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            os.kill(grandchild, 0)
+        except OSError:
+            break
+        time.sleep(0.2)
+    else:
+        os.kill(grandchild, signal.SIGKILL)
+        raise AssertionError("the grandchild survived a group kill")
+

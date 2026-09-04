@@ -243,7 +243,12 @@ def _spawn(real: list[str], *, timeout: int, cwd: str | None) -> tuple[int, str,
             tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
         p = subprocess.Popen(real, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
                              cwd=cwd, env=child_env(), text=True,
-                             encoding="utf-8", errors="replace")
+                             encoding="utf-8", errors="replace",
+                             # Its own session on POSIX, so the timeout can kill the child *and its
+                             # descendants* as a group without touching ours. Without this,
+                             # `os.getpgid(child)` is our own group and killing it takes the caller
+                             # with it -- see kill_tree.
+                             start_new_session=(os.name != "nt"))
         try:
             code = p.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -289,7 +294,18 @@ def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: st
 
 
 def kill_tree(pid: int) -> None:
-    """Terminate a process and all its children across platforms."""
+    """Terminate a process and everything it started, without ever touching our own group.
+
+    The POSIX path used to reach for `psutil` and, failing that, do
+    `os.killpg(os.getpgid(pid), SIGKILL)`. psutil is in the `pbi` extra, so on an ordinary install it
+    is absent and the fallback always ran -- and a child started without `start_new_session` is in
+    **our** process group, so that line SIGKILLs the caller. On a CI runner it took out pytest and
+    the shell above it: a 46-minute job that ended with no failure, no logs and no step conclusion,
+    because nothing was left alive to write them. On a laptop it would end the user's session.
+
+    So: kill the child's group only when that group is genuinely its own, and never signal ours,
+    whatever a future caller forgets to pass.
+    """
     if WINDOWS:
         try:
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], check=False, timeout=60,
@@ -297,26 +313,31 @@ def kill_tree(pid: int) -> None:
                            stderr=subprocess.DEVNULL)
         except Exception:  # noqa: BLE001 - a kill that fails must not mask the timeout it serves
             pass
-    else:
+        return
+
+    import signal
+
+    try:
+        group, ours = os.getpgid(pid), os.getpgid(0)
+    except OSError:
+        group, ours = None, os.getpgid(0)
+
+    if group is not None and group != ours:
         try:
-            import psutil
-            parent = psutil.Process(pid)
-            children = parent.children(recursive=True)
-            for child in children:
-                try:
-                    child.kill()
-                except Exception:
-                    pass
-            parent.kill()
-        except Exception:
-            try:
-                import signal
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
-            except Exception:
-                try:
-                    import signal
-                    subprocess.run(["pkill", "-9", "-P", str(pid)], capture_output=True, check=False)
-                    os.kill(pid, signal.SIGKILL)
-                except Exception:
-                    pass
+            os.killpg(group, signal.SIGKILL)
+            return
+        except OSError:
+            pass
+
+    # Not in a group of its own: kill what we can name, and nothing we cannot. `pkill -P` reaches
+    # the direct children; a deeper tree needs the caller to have used `start_new_session=True`.
+    try:
+        subprocess.run(["pkill", "-9", "-P", str(pid)], check=False, timeout=30,
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
 
