@@ -58,7 +58,10 @@ def main(argv: list[str] | None = None) -> int:
         from .version import version_string
         print(version_string())
         return 0
-    if not argv or argv[0] in ("-h", "--help", "help"):
+    # `help` with something after it is the ad-help command, not a synonym for this usage screen:
+    # treating it as one made `python -m agentdata help pbip` print the catalog while `ad-help pbip`
+    # printed pbip's help, so the two forms this project promises are identical were not.
+    if not argv or argv[0] in ("-h", "--help") or (argv[0] == "help" and len(argv) == 1):
         usage()
         return 0
     name, rest = argv[0], argv[1:]

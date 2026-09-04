@@ -30,9 +30,11 @@ AGENTDATA_LAPTOP=1 python -m pytest -m laptop     # the laptop runbook (needs re
 $env:AGENTDATA_LAPTOP = '1'; python -m pytest -m laptop     # the same from pwsh 7
 ```
 
-`pytest -q -m "not slow"` takes **about two minutes** on this laptop (Windows, Python 3.12) and
-rather less on CI's Linux runners. Anything that would push it past that carries `slow` or `laptop`
-and runs in its own job.
+`pytest -q -m "not slow"` takes **just under three minutes** on this laptop (Windows, Python 3.12,
+~900 tests) and comfortably under two on CI's Linux runners — process spawning is the difference, and
+the contract slice spawns one per command per case. The budget is **two minutes on Linux**; the two
+contract cases that run three subprocesses per command carry `slow` for exactly that reason, and
+anything else that would push past it should too.
 
 ## Markers
 
@@ -62,6 +64,42 @@ a machine with a `--user` install. Tests that are about the npm global prefix op
 Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only way to catch a bare
 `sys.exit`, an import-time crash, or an escape sequence that appears only when stdout is a pipe),
 `state_file`, `pbip`, `fakes_dir`, `isolated_path`.
+
+## The black-box contract
+
+`tests/test_contract.py` spawns every `ad-*` command as a **real subprocess**, parametrised over
+`[project.scripts]`. In-process `main()` calls cannot catch what actually goes wrong in the field:
+an import-time crash, a bare `sys.exit`, a traceback on stderr, or an escape sequence that only
+appears when stdout is a pipe.
+
+Per command: `--help` exits 0, `--version` prints something, an unknown flag is a usage error and
+not a crash, no arguments is help or usage and not a crash, and one **canned safe invocation** keeps
+the whole contract — TOON on stdout with a `meta.ok`, a `hint` whenever `ok` is false, no ANSI when
+piped, and output byte-identical under `AGENTDATA_COLOR=never`, `NO_COLOR=1` and the default.
+
+### Adding a case
+
+Every entry in `[project.scripts]` must appear in `tests/contract_cases.py`; a command without one
+fails the suite with a message naming it, so coverage is by construction rather than by memory.
+
+```python
+"mycmd": {"args": ["subcommand", "@tsv"], "needs": ["tsv"], "toon": True},
+```
+
+`@name` is replaced by a fixture from `prepare()`. "Safe" means no network, no writes outside the
+temp directory, and no dependence on an installed tool. A command whose real work needs a network or
+a licensed tool contributes `--help` — which still proves the parser builds, the module imports and
+the exit code is right, which is most of what breaks.
+
+**Two bugs this found on its first run:**
+
+- `ad-help --anything` printed the catalog and exited **0**, so a mistyped flag looked like success.
+- `ad-setup` with no stdin exited **130** — the SIGINT convention — telling a caller a person pressed
+  Ctrl-C when in fact there was simply nothing to read. It is exit 2 now, with a hint naming
+  `--non-interactive --set`.
+- and one divergence: `python -m agentdata help pbip` printed the catalog while `ad-help pbip`
+  printed pbip's help, though the two forms are documented as identical.
+
 
 ## Fakes
 

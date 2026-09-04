@@ -683,7 +683,15 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
         print(toon.encode({"meta": {"ok": False, "source": "ad-setup", "error": str(e), "hint": e.hint}}))
         ui.problem(str(e), e.hint or "", title="ad-setup")
         return 2
-    except (EOFError, KeyboardInterrupt):
+    except EOFError:
+        # not an interrupt: there is simply nothing to read. 130 is the SIGINT convention and would
+        # tell a caller a person pressed Ctrl-C, which is a different thing to act on.
+        print(toon.encode({"meta": {
+            "ok": False, "source": "ad-setup", "error": "no input available on stdin",
+            "hint": "run it in a terminal, or answer inline: "
+                    "`ad-setup --non-interactive --set key=value` (see `ad-setup --help`)"}}))
+        return 2
+    except KeyboardInterrupt:
         print(toon.encode({"meta": {"ok": False, "source": "ad-setup", "error": "interrupted",
                                     "hint": "progress up to the last completed step was saved; re-run ad-setup"}}))
         return 130
