@@ -2,6 +2,7 @@
 """Shell tab-completion for ad-* commands and python -m agentdata."""
 from __future__ import annotations
 import argparse
+import os
 import sys
 
 ALL_COMMANDS = [
@@ -11,12 +12,44 @@ ALL_COMMANDS = [
 ]
 
 
+PARSE_ONLY = "AGENTDATA_PARSE_ONLY"
+
+
+def _parse_only_wrapper(parser: argparse.ArgumentParser) -> None:
+    """With AGENTDATA_PARSE_ONLY=1, stop after parsing and print what was parsed.
+
+    This is how every command line printed in a skill, a doc or the README is checked against the
+    real parser: the arguments are validated, and then nothing is read, launched or written. Wiring
+    it here rather than into each `main()` means a new command cannot forget it -- every parser in
+    this package already calls `autocomplete()` immediately before `parse_args()`.
+    """
+    if os.environ.get(PARSE_ONLY) != "1":
+        return
+    original = parser.parse_args
+
+    def parse_and_stop(args=None, namespace=None):
+        parsed = original(args, namespace)
+        from . import toon
+
+        payload = {k: ("" if v is None else v) for k, v in sorted(vars(parsed).items())
+                   if not callable(v)}
+        print(toon.encode({"meta": {"ok": True, "source": parser.prog, "parse_only": True},
+                           "args": payload}))
+        raise SystemExit(0)
+
+    parser.parse_args = parse_and_stop           # type: ignore[method-assign]
+
+
 def autocomplete(parser: argparse.ArgumentParser) -> None:
-    """Activate argcomplete if installed and completing; inert otherwise."""
+    """Activate argcomplete if installed and completing; inert otherwise.
+
+    Also the single place `AGENTDATA_PARSE_ONLY` is honoured -- see `_parse_only_wrapper`.
+    """
+    _parse_only_wrapper(parser)
     try:
         import argcomplete
         argcomplete.autocomplete(parser)
-    except Exception:
+    except Exception:  # noqa: BLE001  argcomplete is optional and must never break a real run
         pass
 
 

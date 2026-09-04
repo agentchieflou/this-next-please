@@ -93,7 +93,7 @@ the exit code is right, which is most of what breaks.
 
 **Two bugs this found on its first run:**
 
-- `ad-help --anything` printed the catalog and exited **0**, so a mistyped flag looked like success.
+- `ad-help` given a mistyped flag printed the catalog and exited **0**, so the typo looked like success.
 - `ad-setup` with no stdin exited **130** — the SIGINT convention — telling a caller a person pressed
   Ctrl-C when in fact there was simply nothing to read. It is exit 2 now, with a hint naming
   `--non-interactive --set`.

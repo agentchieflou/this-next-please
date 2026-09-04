@@ -517,7 +517,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from . import completion
+
     parser = build_parser()
+    completion.autocomplete(parser)      # tab-completion, and the AGENTDATA_PARSE_ONLY hook
     args = parser.parse_args(argv)
     return args.func(args)
 

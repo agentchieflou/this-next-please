@@ -230,7 +230,7 @@ ad-pbi refresh --workspace "Sales" --model "Sample" --scope full --wait 300
 # 4. View recent refresh history
 ad-pbi refresh --workspace "Sales" --model "Sample" --top 5
 # 5. Check partition row counts
-ad-pbi refresh partitions --workspace "Sales" --model "Sample"
+ad-pbi refresh --partitions --workspace "Sales" --model "Sample"
 # 6. Verify service parity against running Desktop
 ad-pbi verify --pbip "tests/fixtures/sample.pbip/Sample.Report" --workspace "Sales" --model "Sample"
 ```
