@@ -1,0 +1,22 @@
+table Customers
+	lineageTag: 30000000-0000-0000-0000-000000000001
+
+	column CustomerKey
+		dataType: int64
+		isKey
+		lineageTag: 30000000-0000-0000-0000-000000000010
+		summarizeBy: none
+		sourceColumn: CustomerKey
+
+	column CustomerName
+		dataType: string
+		lineageTag: 30000000-0000-0000-0000-000000000011
+		summarizeBy: none
+		sourceColumn: CustomerName
+
+	column Region
+		dataType: string
+		lineageTag: 30000000-0000-0000-0000-000000000012
+		summarizeBy: none
+		sourceColumn: Region
+

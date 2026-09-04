@@ -1,0 +1,39 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/1.0.0/schema.json",
+  "name": "11111111111111111111",
+  "position": {
+    "x": 20,
+    "y": 20,
+    "width": 250,
+    "height": 200
+  },
+  "visual": {
+    "visualType": "slicer",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Dates"
+                    }
+                  },
+                  "Property": "Year"
+                }
+              },
+              "queryRef": "Dates.Year"
+            }
+          ]
+        }
+      }
+    },
+    "syncSlicers": {
+      "group": "YearSyncGroup",
+      "sync": true,
+      "apply": true
+    }
+  }
+}

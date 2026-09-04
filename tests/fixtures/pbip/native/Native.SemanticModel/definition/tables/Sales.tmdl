@@ -1,0 +1,72 @@
+table Sales
+	lineageTag: 10000000-0000-0000-0000-000000000001
+
+	refreshPolicy
+		policyType: basic
+		rollingWindowGranularity: month
+		rollingWindowPeriods: 12
+		incrementalGranularity: month
+		incrementalPeriods: 3
+		sourceDataRange: RangeStart .. RangeEnd
+
+	measure 'Total Sales' = SUMX ( Sales, Sales[Quantity] * Sales[Unit Price] )
+		formatString: $ #,##0
+		lineageTag: 10000000-0000-0000-0000-000000000010
+
+	measure Margin = SUMX ( Sales, Sales[Quantity] * ( Sales[Unit Price] - Sales[Unit Cost] ) )
+		formatString: $ #,##0
+		lineageTag: 10000000-0000-0000-0000-000000000011
+
+	measure 'Sales Delivery Date' = CALCULATE ( [Total Sales], USERELATIONSHIP ( Sales[DeliveryDateKey], Dates[DateKey] ) )
+		formatString: $ #,##0
+		lineageTag: 10000000-0000-0000-0000-000000000012
+
+	measure 'Dynamic Formatted Sales' = [Total Sales]
+		formatStringDefinition = "\$#,##0"
+		lineageTag: 10000000-0000-0000-0000-000000000013
+
+	column Product
+		dataType: string
+		lineageTag: 10000000-0000-0000-0000-000000000020
+		summarizeBy: none
+		sourceColumn: Product
+
+	column OrderDateKey
+		dataType: int64
+		lineageTag: 10000000-0000-0000-0000-000000000021
+		summarizeBy: none
+		sourceColumn: OrderDateKey
+
+	column DeliveryDateKey
+		dataType: int64
+		lineageTag: 10000000-0000-0000-0000-000000000022
+		summarizeBy: none
+		sourceColumn: DeliveryDateKey
+
+	column CustomerKey
+		dataType: int64
+		lineageTag: 10000000-0000-0000-0000-000000000023
+		summarizeBy: none
+		sourceColumn: CustomerKey
+
+	column Quantity
+		dataType: int64
+		formatString: 0
+		lineageTag: 10000000-0000-0000-0000-000000000024
+		summarizeBy: sum
+		sourceColumn: Quantity
+
+	column 'Unit Price'
+		dataType: decimal
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+		lineageTag: 10000000-0000-0000-0000-000000000025
+		summarizeBy: sum
+		sourceColumn: Unit Price
+
+	column 'Unit Cost'
+		dataType: decimal
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+		lineageTag: 10000000-0000-0000-0000-000000000026
+		summarizeBy: sum
+		sourceColumn: Unit Cost
+

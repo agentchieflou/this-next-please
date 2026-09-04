@@ -1,0 +1,9 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/1.0.0/schema.json",
+  "name": "tooltip_page",
+  "displayName": "Product Tooltip",
+  "displayOption": "Tooltip",
+  "pageType": "Tooltip",
+  "height": 240,
+  "width": 320
+}

@@ -65,6 +65,7 @@ class Page:
     filters: list[dict] = field(default_factory=list)
     width: int = 1280
     height: int = 720
+    raw: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -253,7 +254,8 @@ def _load_pbir(rep: Report, defn: str) -> None:
         page = Page(pid, d.get("displayName") or pid, ordinal.get(pid, 999), _rel(root, pj),
                     hidden=str(d.get("visibility", "")).lower() == "hiddeninviewmode",
                     filters=_filters(d.get("filterConfig"), _rel(root, pj), "page"),
-                    width=d.get("width", 1280), height=d.get("height", 720))
+                    width=d.get("width", 1280), height=d.get("height", 720),
+                    raw=d)
         for vd in sorted(glob.glob(os.path.join(pd, "visuals", "*"))):
             vj = os.path.join(vd, "visual.json")
             if not os.path.exists(vj):

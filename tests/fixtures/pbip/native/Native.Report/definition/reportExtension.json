@@ -1,0 +1,15 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/reportExtension/1.0.0/schema.json",
+  "entities": [
+    {
+      "name": "Sales",
+      "measures": [
+        {
+          "name": "Report Level KPI",
+          "expression": "[Total Sales] * 1.1",
+          "formatString": "$ #,##0"
+        }
+      ]
+    }
+  ]
+}

@@ -124,6 +124,22 @@ def cmd_check(a) -> int:
         fs, info = CK.evaluate_live(report, model, a.server, _dscmd(cfg, a.dscmd), a.db, file_flag=_file_flag(cfg))
         findings += fs
         extra.update({"live": a.server, "measures_probed": info.get("measures_probed", 0), "measures_failed": info.get("measures_failed", 0)})
+
+    if getattr(a, "features", False):
+        from .pbip import features as F
+        feats = F.detect_features(model, report)
+        feat_rows = []
+        for f in feats:
+            status = "ok" if f.present else "-"
+            if a.server and f.present:
+                v_res = F.verify_feature_live(f.feature, a.server, a.db or model.name or "Model")
+                status = "ok" if v_res.get("verified") else f"fail: {v_res.get('error', '')}"
+            feat_rows.append([f.feature, "true" if f.present else "false", ", ".join(f.objects) or "-", status])
+        if policy.pretty():
+            ui.table(["feature", "present", "objects", "status"], feat_rows, title="native features")
+        else:
+            print(toon.table("features", ["feature", "present", "objects", "status"], feat_rows))
+
     return _findings_out(findings, "ad-pbip check", extra)
 
 
@@ -959,6 +975,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("pbip", nargs="?"); p.add_argument("--te2", action="store_true"); p.add_argument("--te2-exe"); p.add_argument("--bpa", action="store_true")
     p.add_argument("--server", help="localhost:<port> (ad-pbip desktop) or an XMLA URL: evaluate every measure the report uses")
     p.add_argument("--db"); p.add_argument("--dscmd"); p.add_argument("--legacy-ok", action="store_true")
+    p.add_argument("--features", action="store_true", help="list native feature coverage table and run live checks per used feature")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_check)
     p_dt = sub.add_parser("desktop", help="Power BI Desktop session control: status, open, close, reload")

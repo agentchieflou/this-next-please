@@ -1,0 +1,31 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/1.0.0/schema.json",
+  "themeCollection": {
+    "baseTheme": {
+      "name": "CY24SU02",
+      "reportVersionAtImport": "5.55",
+      "type": "Custom",
+      "customTheme": {
+        "resourcePackage": {
+          "name": "CY24SU02",
+          "type": 1,
+          "items": [
+            {
+              "name": "CY24SU02",
+              "path": "BaseThemes/CY24SU02.json",
+              "type": 202
+            }
+          ]
+        }
+      }
+    }
+  },
+  "visualInteractions": [
+    {
+      "source": "11111111111111111111",
+      "target": "22222222222222222222",
+      "type": "CrossFilter"
+    }
+  ],
+  "layoutOptimization": "None"
+}

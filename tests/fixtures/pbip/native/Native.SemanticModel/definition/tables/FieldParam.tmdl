@@ -1,0 +1,33 @@
+table FieldParam
+	lineageTag: 40000000-0000-0000-0000-000000000001
+
+	column FieldParam
+		dataType: string
+		lineageTag: 40000000-0000-0000-0000-000000000010
+		summarizeBy: none
+		sourceColumn: [Value1]
+		sortByColumn: 'FieldParam Order'
+
+	column 'FieldParam Fields'
+		dataType: string
+		isHidden
+		lineageTag: 40000000-0000-0000-0000-000000000011
+		summarizeBy: none
+		sourceColumn: [Value2]
+		sortByColumn: 'FieldParam Order'
+
+	column 'FieldParam Order'
+		dataType: int64
+		isHidden
+		lineageTag: 40000000-0000-0000-0000-000000000012
+		summarizeBy: sum
+		sourceColumn: [Value3]
+
+	partition FieldParam = calculated
+		mode: import
+		source =
+				{
+				    ("Total Sales", NAMEOF('Sales'[Total Sales]), 0),
+				    ("Margin", NAMEOF('Sales'[Margin]), 1)
+				}
+
