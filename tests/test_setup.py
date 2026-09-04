@@ -787,7 +787,14 @@ def test_export_defaults_and_import_roundtrip(cfg_path, tmp_path, capsys):
 
 
 def test_parallel_verification_wall_clock(cfg_path, capsys):
-    """3 sources/environments verify concurrently, completing much faster than sequential sum."""
+    """3 sources/environments verify concurrently.
+
+    Concurrency is asserted directly -- how many probes were in flight at once -- not through a
+    wall-clock budget. The budget version failed on a loaded Windows runner at 0.32s against a
+    0.25s threshold, which measured the runner rather than the code: the whole margin between
+    "parallel" and "sequential" here is 0.2s, and a shared CI box does not respect that.
+    """
+    import threading
     import time
     C.save({
         "sources": {
@@ -801,19 +808,26 @@ def test_parallel_verification_wall_clock(cfg_path, capsys):
         }
     })
 
+    lock = threading.Lock()
+    live = {"now": 0, "peak": 0}
+
     class SlowDet(FakeDet):
         def smoke(self, source, env, cfg):
+            with lock:
+                live["now"] += 1
+                live["peak"] = max(live["peak"], live["now"])
             time.sleep(0.1)
+            with lock:
+                live["now"] -= 1
             return {"ok": True, "elapsed_s": 0.1, "capabilities": {"trunc_date": True}}
 
     det = SlowDet(modules={"teradatasql"})
-    t0 = time.perf_counter()
     rc = W.run_doctor(["--only", "sources", "--online"], det)
-    elapsed = time.perf_counter() - t0
 
     assert rc == 0
-    # Sequential would take >= 0.3s; parallel should take well under 0.25s
-    assert elapsed < 0.25, f"Expected parallel execution < 0.25s, got {elapsed:.2f}s"
+    assert live["peak"] > 1, (
+        f"the three probes never overlapped (peak in flight: {live['peak']}), so verification ran "
+        f"one environment at a time")
     out = capsys.readouterr().out
     assert "teradata:prod" in out and "teradata:uat" in out and "teradata:dev" in out
 
