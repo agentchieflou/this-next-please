@@ -136,6 +136,10 @@ jobs:
           Write-Host $doc
           if ($doc -notmatch 'PowerShell 7 required') { throw 'ad-doctor did not warn about 5.1' }
           Write-Host 'ad-doctor warned about the unsupported shell'
+          # ad-doctor legitimately exits 1 on a bare runner (no pncli), and GitHub appends
+          # `exit $LASTEXITCODE` to this shell -- so the step would inherit the exit code of a
+          # command whose failure is not what it is asserting. Every assertion above throws.
+          exit 0
 
   floor-python:
     name: floor · pip refuses the wheel on Python 3.11
