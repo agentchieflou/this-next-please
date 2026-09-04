@@ -1,8 +1,9 @@
 """ANSI colour for the human-facing CLI, off whenever a machine is reading.
 
-Windows PowerShell 5.1 is the target console: its host does not enable VT sequences by default, so escapes would be
-printed literally. `enable()` turns them on through the console API (no dependency, nothing to install) and colour
-stays off if that fails. PyCharm's run window and the VS Code terminal are recognised even though they are not TTYs.
+A legacy Windows console does not enable VT sequences by default, so escapes would be printed literally: the
+console API turns them on (no dependency, nothing to install) and colour stays off if that fails. Hosts that render
+ANSI without Python seeing a TTY -- PyCharm's run window, the VS Code terminal, and a standalone mintty window whose
+stdio are pipes to the pty -- are recognised through `console.host()`.
 
 Only the 8 basic colours plus bold/dim are used: they are the ones every Windows console renders correctly on both a
 light and a dark background. TOON data is coloured only in the status column of a table a human is reading — when
@@ -51,14 +52,28 @@ def _detect(stream) -> bool:
         return False
     forced = choice in ("always", "1", "on", "yes") or os.environ.get("FORCE_COLOR") not in (None, "", "0")
     if not forced:
-        # PyCharm's run window and the VS Code terminal render ANSI without being a TTY
-        hosted = os.environ.get("PYCHARM_HOSTED") == "1" or os.environ.get("TERM_PROGRAM") == "vscode"
+        # Some hosts render ANSI without Python being able to see a TTY: PyCharm's run window, the
+        # VS Code terminal, and a standalone mintty window, whose stdio are pipes to the pty.
+        try:
+            from . import console
+            hosted = console.renders_ansi(stream=stream)
+        except Exception:  # noqa: BLE001
+            hosted = os.environ.get("PYCHARM_HOSTED") == "1" or os.environ.get("TERM_PROGRAM") == "vscode"
         try:
             if not (hosted or stream.isatty()):
                 return False
         except Exception:  # noqa: BLE001
             return False
     if os.name == "nt" and os.environ.get("WT_SESSION") is None and os.environ.get("TERM_PROGRAM") != "vscode":
+        # mintty is not a Windows console, so SetConsoleMode has nothing to enable -- and it renders
+        # ANSI regardless. Asking the console API there is what silently turned colour off. Only a
+        # real MSYS pty counts: `> file` in the same shell must stay uncoloured.
+        try:
+            from . import console
+            if console.is_msys_pty(stream):
+                return True
+        except Exception:  # noqa: BLE001
+            pass
         return _windows_vt() or forced
     return True
 

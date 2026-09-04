@@ -148,6 +148,44 @@ query time. Oracle never uses the ODBC mode: an ODBC DSN handed to python-oracle
 - File encoding: **pwsh 7 writes UTF-8 without a BOM** through `>`, `Out-File` and `Set-Content`, so the old `[IO.File]::WriteAllText` workaround is gone — CI asserts it on every run (see below). The 5.1 hazards it existed for (a BOM from `-Encoding utf8`, UTF-16 from `>`) belong to a shell this project no longer supports. Every `ad-*` reader still sniffs a BOM and accepts UTF-16 on **read** (`agentdata/textio.py`) — files arrive from Notepad, from older scripts and from other teams, which is not a shell concern. For state, always use `ad-state set`: it is the only sanctioned writer.
 - Power BI XMLA needs Premium/PPU/Fabric capacity with the XMLA endpoint set to Read Write by the capacity admin.
 
+### Colour and glyphs, per host
+
+`ad-doctor` prints `console/host` and `console/shell` so a pasted report says where it ran.
+
+| Host | Detected by | Colour | Glyphs | Secret prompt |
+|---|---|---|---|---|
+| Windows Terminal | `WT_SESSION` | on | `✓ ✗` (UTF-8) | console, no echo |
+| PyCharm terminal tab | `TERMINAL_EMULATOR=JetBrains-JediTerm` | on | `✓ ✗` | console, no echo |
+| PyCharm run window | `PYCHARM_HOSTED=1` | on (not a TTY, renders ANSI) | `✓ ✗` | not interactive |
+| VS Code terminal | `TERM_PROGRAM=vscode` | on (not a TTY) | `✓ ✗` | console, no echo |
+| conpty / conhost (pwsh 7) | a console handle answers `GetConsoleMode` | on (VT enabled through the console API) | ASCII under code page 437/1252 | console, no echo |
+| standalone mintty (Git Bash) | `MSYSTEM` **and** an MSYS pty handle | on | `✓ ✗` | see below |
+| piped / redirected | none of the above | **off** | n/a | n/a |
+
+Two details that took a while to get right:
+
+- **mintty is not a Windows console.** Python's stdio are pipes, `isatty()` is `False`, and asking
+  the console API to enable VT has nothing to enable — which is why colour used to switch itself off
+  in a window that renders ANSI perfectly well. It is now detected by the *handle name* (an MSYS pty
+  is a named pipe containing `msys-…-pty`), not by `MSYSTEM and not isatty` — because `> file` in
+  the same shell looks identical, and would otherwise collect escape sequences.
+- **Echo cannot be turned off from inside a mintty session.** mintty's pty does the echoing, and
+  Windows Python reaches neither a console handle nor `/dev/tty`. `ad-setup`'s password prompt uses
+  the Windows console (`msvcrt`) or a real controlling terminal (`termios`) where either exists; in
+  a standalone mintty window it prints one line naming the fix — run from Windows Terminal or
+  PyCharm, or prefix the command with `winpty`, which ships with Git for Windows — instead of
+  `getpass`'s vague *"Password input may be echoed"* followed by echoing it.
+
+**Code page.** Under 437/1252 the status glyphs cannot be encoded, so `ui.glyphs()` returns
+`+ ! x -` and rich draws ASCII boxes. The *file* contract is unaffected: piped and redirected output
+is UTF-8 on every host. To get the box drawing in a conhost pwsh window, put
+`[Console]::OutputEncoding = [Text.Encoding]::UTF8` in your `$PROFILE`, or use Windows Terminal.
+
+**Colour precedence**, highest first: `NO_COLOR` (any value) → `AGENTDATA_COLOR=never` → `--color`
+→ `AGENTDATA_COLOR=always` / `FORCE_COLOR` → `TERM=dumb` → the host table above. Piped output is
+byte-identical to `AGENTDATA_COLOR=never`, so no escape ever reaches an agent's context or a log.
+
+
 ### What CI proves per shell
 
 The laptop runbook (`docs/windows-verification.md`) only needs to cover what CI cannot. CI runs

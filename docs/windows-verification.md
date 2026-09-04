@@ -222,3 +222,34 @@ Pass: `deploy` creates `.agent/out/deploy-<ts>.xmla` on dry-run and logs output 
 - 2026-09-02 (data_remediation_foundry_dpm_fork, skill jira-triage): `ad-pncli jira search --jql "key = RDSD-22399"` failed with `[WinError 2] The system cannot find the file specified`, and `ad-doctor` had called pncli "ok" because `shutil.which` found the shim while the connector passed the bare name `pncli` to `subprocess`. pncli is an npm package: on Windows it is `pncli.cmd`, there is no `pncli.exe`. Fix: `agentdata/proc.py` resolves PATHEXT + the npm global prefix and runs the shim's Node entry point directly, the doctor row now proves the launcher starts (`--version`), the resolved shim is pinned in `pncli.exe`, and `ad-pncli where` diagnoses it.
 - 2026-09-02 (data_remediation_foundry_dpm_fork, skill jira-triage): `ad-pncli raw jira get-issue RDSD-22399` returned `ok: false` — pncli wants `--key <issue-key>`, because it is a commander.js CLI where every argument is a named option, and the skill still carried a `TODO(pin the verb)` placeholder. Fix: `ad-pncli jira get <KEY>` builds the confirmed verb `jira get-issue --key <KEY>`; any pncli usage error is turned into the exact re-run (`usage_hint`); the jira-triage step no longer asks the model to assemble a pncli command.
 - 2026-09-02 (data_remediation_foundry_dpm_fork, ad-setup powerbi): `az login` failed with *"The filename, directory name, or volume label syntax is incorrect"*. az is `C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd`, and the cmd.exe command line built for it was handed to `subprocess` as a list, so `list2cmdline` backslash-escaped the inner quotes. Fix: the cmd.exe line is passed to Windows as one string, az is a configurable tool (`powerbi.tools.az_exe`) whose install dirs are searched even when they are off PATH, and `ad-setup --patch` re-asks only the settings that fail.
+
+## Console: one pass per terminal host
+
+CI covers the shells; it cannot open six terminal windows. Run this line in each host below and paste
+the two rows it prints. Anything that disagrees with the table in `docs/setup.md` §Colour and glyphs
+is a bug, not a local quirk.
+
+```bash
+ad-doctor --quiet --only console
+```
+
+| # | Host | Expected `console/host` | Expected `console/shell` | Also check |
+|---|---|---|---|---|
+| 1 | standalone mintty (Git Bash, its own window) | `mintty` | `bash` | colour is **on**; `ad-doctor --quiet > x.toon` has **no** escapes in it |
+| 2 | PyCharm terminal tab, MINGW64 | `pycharm-terminal` | `bash` | box-drawing tables render |
+| 3 | conhost pwsh 7 (no Windows Terminal) | `conhost` or `conpty` | `pwsh` | under `chcp 437` the glyphs are `+ ! x -`, and `chcp 65001` restores `✓ ✗` |
+| 4 | Windows Terminal, pwsh 7 tab | `windows-terminal` | `pwsh` | `ad-doctor --quiet \| Out-File out.toon` is UTF-8 with **no BOM**, and `ad-view out.toon` reads it |
+| 5 | PyCharm run window | `pycharm-run` | whatever launched it | colour is on although it is not a TTY |
+| 6 | VS Code integrated terminal | `vscode` | `pwsh` or `bash` | colour is on |
+| 7 | **Windows PowerShell 5.1**, any window | (any) | `windows-powershell` + warn row | the hint says *PowerShell 7 required* |
+
+Then, in host 1 only, the prompt that started this:
+
+```bash
+ad-setup --only sources
+```
+
+At the password question, type a few characters. **Nothing may appear.** If the characters echo, the
+line above them should be the one naming `winpty` — not `getpass`'s *"Warning: Password input may be
+echoed"*. Paste whichever you get.
+

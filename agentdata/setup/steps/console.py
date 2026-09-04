@@ -17,11 +17,16 @@ class ConsoleStep(Step):
     title = "console (shell, encoding)"
 
     def detect(self, ctx: Context) -> dict:
-        return {"shell": S.check_row(), "encoding": (sys.stdout.encoding or "unknown").lower()}
+        from ... import console as CON
+        return {"shell": S.check_row(), "encoding": (sys.stdout.encoding or "unknown").lower(),
+                "host": CON.host(), "code_page": CON.code_page()}
 
     def check(self, ctx: Context, found: dict) -> None:
         row = found["shell"]
         ctx.add(self.key, "shell", row["status"], row["detail"], row["hint"])
+
+        cp = found["code_page"]
+        ctx.add(self.key, "host", "ok", found["host"] + (f" (code page {cp})" if cp else ""))
 
         enc = found["encoding"]
         unicode_ok = ui.glyphs() is not ui.ASCII_GLYPHS
