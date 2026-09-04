@@ -30,6 +30,7 @@ COMMANDS = {
     "pbiviz": ("agentdata.cli_pbiviz", "main", "Power BI custom visual development loop"),
     "graph": ("agentdata.cli_graph", "main", "code graph extraction, queries, approval, and guard"),
     "test": ("agentdata.cli_test", "main", "repository test runner detection, execution, and normalization"),
+    "fleet": ("agentdata.cli_fleet", "main", "run several headless Copilot agents, one per repository"),
     "argv": ("agentdata.cli_argv", "main", "print the argv Python received, and the shell it came from"),
     "_complete": ("agentdata.complete", "main", "shell tab-completion candidates, one per line"),
 }
