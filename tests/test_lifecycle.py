@@ -11,14 +11,17 @@ create the interesting transitions at all. So the working tree is cloned into a 
 `AGENTDATA_REPO_URL` points at it as a `file://` URL: the same code path, the same `pip`, the same
 `--force-reinstall --no-deps`, and a repository the test can commit to between steps.
 
-**One test, not seven.** The cases are transitions -- git install to git install, editable to git
-install -- so they are one function with the steps in order rather than seven functions sharing a
-fixture. Seven would pass only in collection order, and CI deliberately runs the suite shuffled.
-Each assertion names its step, so a failure still says which transition broke.
+**One test, one venv.** The cases are transitions -- git install to git install, editable to git
+install -- so they are one function with the steps in order rather than several sharing a fixture.
+Several would pass only in collection order, and CI deliberately runs the suite shuffled. Each
+assertion names its step, so a failure still says which transition broke.
+
+It is also what makes this affordable. Creating a venv and installing into it is the entire cost,
+and on a Windows runner that is minutes rather than seconds: four venvs took the Windows job past
+its timeout, one does not.
 
 Adding a case: put it in the sequence where its starting state already exists, and label the
-assertion `(x)`. If it needs a *different* starting state it wants its own venv and its own test,
-the way the shadowing case does.
+assertion `(x)`. A case that needs no venv at all -- `store_alias`, say -- belongs outside.
 """
 from __future__ import annotations
 import os
@@ -184,10 +187,16 @@ def _scripts() -> list[str]:
         return sorted(tomllib.load(f)["project"]["scripts"])
 
 
-# --------------------------------------------------------------------------- (a) .. (g), in order
+# --------------------------------------------------------------------------- (a) .. (h), in order
 
 
 def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
+    """Every case, in one environment, because every case is a transition out of the last one.
+
+    One venv is also what keeps this affordable: creating a venv and installing into it is the whole
+    cost, and on a Windows runner it is minutes rather than seconds. Four venvs took the Windows job
+    past its timeout; one does not.
+    """
     v = Venv(str(tmp_path_factory.mktemp("venv") / "v"), _url(clone), cache)
 
     # (a) a fresh git install knows the commit it came from
@@ -213,31 +222,63 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
             broken.append(f"{name}: exit {out.returncode}, stdout {out.stdout[:60]!r}, {tail[:140]}")
     assert not broken, "(a) console scripts:\n  " + "\n  ".join(broken)
 
-    # (b) a new commit upstream is picked up
-    new_head = _commit(clone, "first")
-    out = v.run("update", "--cli", "--no-reexec")
-    assert out.returncode == 0, f"(b) {out.stdout}{out.stderr}"
-    meta, _out = v.check()
-    assert meta["commit"] == new_head[:12], f"(b) still on {meta['commit']}"
+    # (a) `'ad-setup' is not recognized` reads like a failed install; it is almost always PATH. The
+    # venv's Scripts directory is deliberately not on this process's PATH, which is exactly the
+    # `pip install --user` situation on a managed laptop.
+    assert meta.get("scripts_on_path") == "false", f"(a) {meta.get('scripts_on_path')}"
+    assert meta.get("scripts_dir"), "(a) the report did not say where the scripts are"
+    assert "not on PATH" in meta.get("hint", ""), f"(a) {meta.get('hint')}"
+    assert "python -m agentdata" in meta.get("hint", ""), "(a) the hint must name the form that works"
 
-    # (c) the same commit again is a success, not a silent no-op failure. pip will not reinstall a
+    # (b) a second copy earlier on sys.path is the failure an update cannot see: it succeeds and
+    # changes nothing. PYTHONPATH puts one there without a --user install, which a venv refuses.
+    shadow = _shadow_copy(tmp_path_factory)
+    out = v.run("update", "--check", PYTHONPATH=shadow)
+    shadowed, rows = toon_read.meta(out.stdout), toon_read.table(out.stdout, "installs")
+    assert len(rows) >= 2, f"(b) only one install seen: {rows}"
+    assert shadowed.get("shadowed") == "true", f"(b) {shadowed}"
+    assert "uninstall" in shadowed.get("hint", "").lower(), f"(b) {shadowed.get('hint')}"
+    imported = subprocess.run(
+        [v.python, "-c", "import agentdata, os; print(os.path.dirname(agentdata.__file__))"],
+        capture_output=True, text=True, timeout=180, cwd=v.work, env=v.env(PYTHONPATH=shadow))
+    assert imported.returncode == 0, imported.stderr
+    assert shadow.replace("\\", "/") in imported.stdout.strip().replace("\\", "/"), \
+        "(b) the shadow copy should be the one imported, or this proves nothing"
+    doctor = v.run("doctor", "--quiet", PYTHONPATH=shadow)
+    assert toon_read.meta(doctor.stdout).get("version") == "0.0.1", \
+        f"(b) ad-doctor reported {toon_read.meta(doctor.stdout).get('version')}, not the imported copy"
+
+    # (c) a new commit, picked up **through the console-script launcher**. On Windows that launcher
+    # cannot be replaced while it is the running process, so `ad-update` re-execs; running the
+    # module form here would test everything except the part that breaks.
+    new_head = _commit(clone, "first")
+    launcher = v.script("ad-update")
+    assert os.path.isfile(launcher), "(c) the ad-update launcher was not installed"
+    out = subprocess.run([launcher, "--cli"], capture_output=True, text=True, timeout=900,
+                         cwd=v.work, env=v.env())
+    assert out.returncode == 0, f"(c) {out.stdout}{out.stderr}"
+    assert os.path.isfile(launcher), "(c) the launcher was removed rather than replaced"
+    meta, _out = v.check()
+    assert meta["commit"] == new_head[:12], f"(c) still on {meta['commit']}"
+
+    # (d) the same commit again is a success, not a silent no-op failure. pip will not reinstall a
     # git URL whose *version* is unchanged, which is exactly why the real command forces it.
     out = v.run("update", "--cli", "--no-reexec")
-    assert out.returncode == 0, f"(c) {out.stdout}{out.stderr}"
+    assert out.returncode == 0, f"(d) {out.stdout}{out.stderr}"
     meta, _out = v.check()
-    assert meta["commit"] == new_head[:12], f"(c) {meta['commit']}"
+    assert meta["commit"] == new_head[:12], f"(d) {meta['commit']}"
 
-    # (d) an editable checkout is reported as one, and the CLI half is skipped rather than failed:
+    # (e) an editable checkout is reported as one, and the CLI half is skipped rather than failed:
     # reinstalling from git over a checkout would throw away someone's local work.
     v.pip("install", "--no-deps", "-e", clone)
     meta, _out = v.check()
-    assert "editable" in meta["install"], f"(d) {meta['install']}"
-    assert meta["editable"] == "true", "(d)"
+    assert "editable" in meta["install"], f"(e) {meta['install']}"
+    assert meta["editable"] == "true", "(e)"
     out = v.run("update", "--cli", "--no-reexec")
-    assert out.returncode == 0, f"(d) {out.stdout}{out.stderr}"
-    assert "skip" in out.stdout.lower(), f"(d) the skip was not reported: {out.stdout}"
+    assert out.returncode == 0, f"(e) {out.stdout}{out.stderr}"
+    assert "skip" in out.stdout.lower(), f"(e) the skip was not reported: {out.stdout}"
 
-    # (e) --pull is the checkout's version of an update: git pull --ff-only where it lives
+    # (f) --pull is the checkout's version of an update: git pull --ff-only where it lives
     parent = os.path.dirname(clone)
     bare, work = os.path.join(parent, "upstream.git"), os.path.join(parent, "work-tree")
     _git("clone", "--quiet", "--bare", clone, bare, cwd=parent)
@@ -249,43 +290,31 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     before = _git("rev-parse", "HEAD", cwd=work)
     v.pip("install", "--no-deps", "-e", work)
     out = v.run("update", "--cli", "--pull", "--no-reexec")
-    assert out.returncode == 0, f"(e) {out.stdout}{out.stderr}"
-    assert _git("rev-parse", "HEAD", cwd=work) != before, "(e) the checkout was not moved"
-
-    # (f) --from-git replaces a checkout with the published install
-    out = v.run("update", "--cli", "--from-git", "--no-reexec")
     assert out.returncode == 0, f"(f) {out.stdout}{out.stderr}"
-    meta, _out = v.check()
-    assert meta["install"] == "git install", f"(f) {meta['install']}"
-    assert meta["editable"] == "false", "(f)"
+    assert _git("rev-parse", "HEAD", cwd=work) != before, "(f) the checkout was not moved"
 
-    # (g) uninstall leaves nothing behind. A leftover ad-pbip.exe pointing at a package that is
+    # (g) --from-git replaces a checkout with the published install
+    out = v.run("update", "--cli", "--from-git", "--no-reexec")
+    assert out.returncode == 0, f"(g) {out.stdout}{out.stderr}"
+    meta, _out = v.check()
+    assert meta["install"] == "git install", f"(g) {meta['install']}"
+    assert meta["editable"] == "false", "(g)"
+
+    # (h) uninstall leaves nothing behind. A leftover ad-pbip.exe pointing at a package that is
     # gone is a confusing way to fail.
     v.pip("uninstall", "-y", "agentdata")
     left = [n for n in _scripts() if os.path.isfile(v.script(n))]
-    assert not left, f"(g) still installed after uninstall: {', '.join(left)}"
+    assert not left, f"(h) still installed after uninstall: {', '.join(left)}"
     out = v.run("--help")
-    assert out.returncode != 0, "(g) python -m agentdata still worked after uninstall"
-    assert "No module named" in (out.stderr + out.stdout), f"(g) {out.stderr[-300:]}"
+    assert out.returncode != 0, "(h) python -m agentdata still worked after uninstall"
+    assert "No module named" in (out.stderr + out.stdout), f"(h) {out.stderr[-300:]}"
 
 
-# -------------------------------------------------------------------------------- shadowing
-
-
-def test_two_installs_are_reported_as_shadowed(tmp_path_factory, clone, cache):
-    """The failure an update cannot see: it succeeds and changes nothing, because a second copy
-    earlier on the path is the one Python imports.
-
-    Its own venv, so it cannot disturb the sequence above. A second dist-info earlier on `sys.path`
-    is what shadowing *is*; `PYTHONPATH` puts one there without needing a `--user` install, which a
-    venv refuses anyway.
-    """
-    v = Venv(str(tmp_path_factory.mktemp("venv2") / "v"), _url(clone), cache)
-    v.pip("install", "--no-deps", f"git+{v.repo_url}")
-
-    extra = str(tmp_path_factory.mktemp("shadow"))
+def _shadow_copy(tmp_path_factory) -> str:
+    """A second `agentdata` with its own dist-info, for `PYTHONPATH` to put earlier on sys.path."""
     import agentdata
 
+    extra = str(tmp_path_factory.mktemp("shadow"))
     shutil.copytree(os.path.dirname(os.path.abspath(agentdata.__file__)),
                     os.path.join(extra, "agentdata"),
                     ignore=shutil.ignore_patterns("__pycache__", ".agent"))
@@ -295,50 +324,10 @@ def test_two_installs_are_reported_as_shadowed(tmp_path_factory, clone, cache):
         f.write("Metadata-Version: 2.1\nName: agentdata\nVersion: 0.0.1\n")
     with open(os.path.join(dist, "RECORD"), "w", encoding="utf-8") as f:
         f.write("")
-
-    out = v.run("update", "--check", PYTHONPATH=extra)
-    meta = toon_read.meta(out.stdout)
-    rows = toon_read.table(out.stdout, "installs")
-    assert len(rows) >= 2, f"only one install seen: {rows}\n{out.stdout}"
-    assert meta.get("shadowed") == "true", meta
-    assert meta.get("hint"), "shadowing was reported without a hint"
-    assert "uninstall" in meta["hint"].lower(), meta["hint"]
-
-    # The version reported has to be the one Python actually imports, not the newest one found --
-    # reporting the copy that is *not* winning is how a successful-looking update hides itself.
-    doctor = v.run("doctor", "--quiet", PYTHONPATH=extra)
-    imported = subprocess.run(
-        [v.python, "-c", "import agentdata, os; print(os.path.dirname(agentdata.__file__))"],
-        capture_output=True, text=True, timeout=180, cwd=v.work, env=v.env(PYTHONPATH=extra))
-    assert imported.returncode == 0, imported.stderr
-    assert extra.replace("\\", "/") in imported.stdout.strip().replace("\\", "/"), \
-        "the shadow copy should be the one imported, or this test proves nothing"
-    assert toon_read.meta(doctor.stdout).get("version") == "0.0.1", \
-        f"ad-doctor reported {toon_read.meta(doctor.stdout).get('version')}, not the imported copy"
+    return extra
 
 
-# ---------------------------------------------------------------------------- Windows specifics
-
-
-@pytest.mark.windows
-@pytest.mark.skipif(os.name != "nt", reason="the .exe launcher only exists on Windows")
-def test_the_exe_launcher_updates_itself(tmp_path_factory, clone, cache):
-    """`ad-update.exe` cannot be replaced by pip while it is the running process, so it re-execs
-    through `python -m`. Without that, the update succeeds and the launcher stays on the old copy.
-    """
-    v = Venv(str(tmp_path_factory.mktemp("venv3") / "v"), _url(clone), cache)
-    v.pip("install", "--no-deps", f"git+{v.repo_url}")
-
-    launcher = v.script("ad-update")
-    assert os.path.isfile(launcher), "ad-update.exe was not installed"
-    _commit(clone, "for the launcher")
-
-    out = subprocess.run([launcher, "--cli"], capture_output=True, text=True, timeout=900,
-                         cwd=v.work, env=v.env())
-    assert out.returncode == 0, out.stdout + out.stderr
-    assert os.path.isfile(launcher), "the launcher was removed rather than replaced"
-    assert toon_read.meta(v.check()[1]).get("commit") == \
-        _git("rev-parse", "HEAD", cwd=clone)[:12], "the .exe path did not pick up the new commit"
+# ------------------------------------------------------------- Windows, without needing a venv
 
 
 @pytest.mark.windows
@@ -359,22 +348,6 @@ def test_a_store_alias_on_the_path_is_named(tmp_path):
     real.write_bytes(b"MZ" + b"\x00" * 100)
     assert U.store_alias(str(real)) is False, "a real interpreter under WindowsApps is not an alias"
     assert U.store_alias(str(tmp_path / "python.exe")) is False, "a 0-byte file elsewhere is not one"
-
-
-def test_the_scripts_directory_is_reported_when_it_is_not_on_the_path(tmp_path_factory, clone, cache):
-    """`'ad-setup' is not recognized` reads like a failed install; it is almost always PATH.
-
-    The venv's Scripts directory is deliberately not on this process's PATH, which is exactly the
-    `pip install --user` situation on a managed laptop.
-    """
-    v = Venv(str(tmp_path_factory.mktemp("venv4") / "v"), _url(clone), cache)
-    v.pip("install", "--no-deps", f"git+{v.repo_url}")
-
-    meta, _out = v.check()
-    assert meta.get("scripts_on_path") == "false", meta.get("scripts_on_path")
-    assert meta.get("scripts_dir"), "the report did not say where the scripts are"
-    assert "not on PATH" in meta.get("hint", ""), meta.get("hint")
-    assert "python -m agentdata" in meta.get("hint", ""), "the hint must name the form that works"
 
 
 # ----------------------------------------------------------- what ran, as data for the release

@@ -263,12 +263,14 @@ untracked-but-not-ignored files are copied over it and committed on top.
 
 ### Adding a case
 
-The cases are transitions, so they are **one test function with the steps in order**, not seven
-functions sharing a fixture -- seven would pass only in collection order, and CI runs the suite
-shuffled on purpose. Put a new case where its starting state already exists and label the assertion
-`(x)`. If it needs a different starting state it wants its own venv and its own test, the way the
-shadowing case does. One pip cache is shared across the module: venv creation and the first wheel
-build are the whole cost.
+The cases are transitions, so they are **one test function with the steps in order**, not several
+sharing a fixture — several would pass only in collection order, and CI runs the suite shuffled on
+purpose. Put a new case where its starting state already exists and label the assertion `(x)`; a
+case that needs no venv at all (`store_alias`) belongs outside.
+
+**One venv, not one per case**, and one shared pip cache. Creating a venv and installing into it is
+the entire cost, and on a Windows runner that is minutes rather than seconds: four venvs took the
+Windows job past an 18-minute cap, one runs in under two minutes locally.
 
 ### What it found on its first run
 

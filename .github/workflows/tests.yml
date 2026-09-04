@@ -73,10 +73,11 @@ jobs:
   windows:
     name: windows · python ${{ matrix.python }}
     runs-on: windows-latest
-    # The 3.14 leg runs the `slow` marker, which now includes the install/update lifecycle: four
-    # venvs and a real `pip install` from a `git+file://` clone, about three minutes. Venv creation
-    # is the whole cost, and the module shares one pip cache so the wheel is built once.
-    timeout-minutes: 18
+    # The 3.14 leg runs the `slow` marker, which includes the install/update lifecycle: a real venv
+    # and a real `pip install` from a `git+file://` clone. Venv creation is the entire cost and it
+    # is minutes on a Windows runner -- four venvs blew straight through an 18-minute cap, so the
+    # lifecycle is one venv stepped through, and the module shares one pip cache.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
