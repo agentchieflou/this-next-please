@@ -131,7 +131,9 @@ jobs:
           if ($rc -eq 0) { throw 'smoke.ps1 ran under Windows PowerShell 5.1; #Requires -Version 7.0 is not doing its job' }
           if ($out -notmatch '7\.0') { throw "the refusal did not mention the required version" }
           Write-Host 'refused as expected'
-          cmd /c "ad-doctor --quiet > doctor51.toon 2>nul"
+          # called straight from PowerShell, deliberately: the shell row reports the *immediate*
+          # parent, so wrapping this in `cmd /c` would correctly report cmd and prove nothing
+          ad-doctor --quiet > doctor51.toon 2>$null
           $doc = Get-Content doctor51.toon -Raw
           Write-Host $doc
           if ($doc -notmatch 'PowerShell 7 required') { throw 'ad-doctor did not warn about 5.1' }
