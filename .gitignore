@@ -6,3 +6,6 @@ __pycache__/
 !tests/fixtures/**/.agent/graph/**
 build/
 dist/
+
+.coverage
+coverage.json

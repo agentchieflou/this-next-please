@@ -1,0 +1,9 @@
+{
+  "agentdata/color.py": 80,
+  "agentdata/config.py": 95,
+  "agentdata/console.py": 55,
+  "agentdata/proc.py": 80,
+  "agentdata/state.py": 95,
+  "agentdata/textio.py": 80,
+  "agentdata/update.py": 80
+}

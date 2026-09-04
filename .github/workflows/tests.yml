@@ -230,3 +230,40 @@ jobs:
           python -m pytest -q --collect-only -m laptop | tee collected.txt
           grep -q "no tests ran\|0 tests collected\|deselected" collected.txt || \
             { echo "the laptop suite was collected on CI"; exit 1; }
+
+  coverage:
+    name: coverage · per-module floors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: run the suite under coverage
+        run: |
+          python -m coverage run -m pytest -q -ra --durations=10
+          python -m coverage json -o coverage.json
+          python -m coverage report --skip-covered | tail -20
+      # No repo-wide number: a single percentage invites padding and says nothing about the modules
+      # that actually break on Windows. Floors are per module and ratchet up only.
+      - run: python .github/scripts/coverage_floors.py --coverage-json coverage.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.json
+
+  order-independence:
+    name: suite · shuffled
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      # A fixture that leaks state shows up here rather than three months later as
+      # "works on my machine". Two seeds, because one shuffle proves very little.
+      - run: python -m pytest -q -p no:cacheprovider --shuffle-seed 1
+      - run: python -m pytest -q -p no:cacheprovider --shuffle-seed 20260904
