@@ -60,7 +60,21 @@ $$\text{Plan} \longrightarrow \text{Design} \xrightarrow{\text{Gate 1: Brief App
 - Live DAX measure probe against Analysis Services server or XMLA endpoint.
 - Human signs off on diffs before publishing.
 
-### §5. Publish (`pbi-deploy-te2` & `pbi-refresh-xmla`)
-- Deploy model to Microsoft Fabric / Power BI Premium workspace via XMLA endpoint.
+### §5. Publish (`pbi-publish`, `pbi-deploy-te2` & `pbi-refresh-xmla`)
+- Deploy report and model definitions to Microsoft Fabric / Power BI Premium workspace via `ad-pbi` (REST item definitions) or `pbi-deploy-te2` (XMLA endpoint).
 - Trigger model refresh and monitor completion.
 - Reconcile live DMV dependencies against PBIP files.
+
+#### Fabric Item-Definition Traps Table
+The Fabric REST item-definition API (`/v1/workspaces/{ws}/reports`, `/getDefinition`, `/updateDefinition`) contains traps that make it agent-hostile without mechanical CLI protection. `ad-pbi` enforces these rules automatically:
+
+| Trap / Hazard | Failure Mode | Mechanical Rule Enforced by `ad-pbi` |
+|---|---|---|
+| Missing `?format=PBIR` on `getDefinition` | Service returns `PBIR-Legacy` (monolithic `report.json`), breaking folder-based tooling. | `getDefinition` always appends `?format=PBIR` (reports) or `?format=TMDL` (models); refuses legacy formats with an actionable hint. |
+| Incomplete parts on `updateDefinition` | `updateDefinition` replaces the entire definition. Any part not sent is permanently deleted on the service. | `ad-pbi publish` enumerates and transmits **all** parts from the `.Report` folder, warning if any part from a previous definition vanished. |
+| Retrying `POST` after HTTP 202 | Service creates duplicate reports/models if create `POST` is repeated. | Never retry a create after 202. The operation ID is recorded to `.agent/out/pbi-ops/<op-id>.json` *before* polling begins so a crash never re-POSTs; `ad-pbi ops` resumes safely. |
+| Backslash path separators | API rejects payloads with backslashes with `MissingDefinitionParts`. | Every part path is normalized to forward slashes (`/`) regardless of local OS conventions. |
+| Local `byPath` semantic model reference | Service reports cannot use local relative paths (`byPath`); visual rendering fails. | `definition.pbir` is dynamically rewritten in memory to `byConnection` referencing the cloud model ID; the file on disk stays `byPath`. |
+| Out-of-sync model entities | If a table or column was renamed in the target model, visual fields break silently upon publish. | Binding verification diff: `ad-pbi` fetches the target model TMDL and diffs PBIR field references against `ModelIndex` before publishing. Unbound references halt publish unless `--allow-unbound`. |
+| Credential leakage in logs/traces | Bearer tokens exposed in CLI output, logs, or error traces. | Tokens obtained through `az account get-access-token` are held in memory only, never printed to stdout/stderr, and scrubbed from error output. |
+
