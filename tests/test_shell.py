@@ -231,7 +231,8 @@ def test_docs_say_what_ci_proves_per_shell():
 
 
 def test_shell_scripts_have_pinned_line_endings():
-    """A CRLF .sh dies under Git Bash with `$'': command not found`; cmd.exe wants CRLF.
+    """A CRLF .sh dies under Git Bash with `$'
+': command not found`; cmd.exe wants CRLF.
 
     Left to whatever core.autocrlf a checkout happens to have, the smoke scripts are a coin flip.
     """
@@ -242,3 +243,24 @@ def test_shell_scripts_have_pinned_line_endings():
     # and the bytes on disk match, so a checkout that ignored the attribute is caught too
     with open(os.path.join(SCRIPTS, "smoke.sh"), "rb") as f:
         assert b"\r\n" not in f.read(), "smoke.sh has CRLF line endings"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the snapshot walk is Windows-only")
+def test_shell_detection_launches_nothing(monkeypatch):
+    """Regression: `ad-update --check` is a dry run, and detection used to shell out to PowerShell.
+
+    It passed on a Git Bash laptop for the wrong reason -- MSYSTEM short-circuits before the walk --
+    and only went red on CI's Windows runner.
+    """
+    monkeypatch.setattr(shell.proc, "run", lambda *a, **k: pytest.fail("detection must not spawn"))
+    monkeypatch.delenv("MSYSTEM", raising=False)
+    monkeypatch.delenv("SHELL", raising=False)
+    assert shell.detect() in ("pwsh", "windows-powershell", "bash", "cmd", "zsh", "unknown")
+    assert shell.check_row()["status"] in ("ok", "warn")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the snapshot walk is Windows-only")
+def test_the_snapshot_walk_finds_real_ancestors():
+    names = shell.parent_names()
+    assert names, "the process snapshot returned no ancestors"
+    assert all(isinstance(n, str) and n for n in names)
