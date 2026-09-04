@@ -97,6 +97,20 @@ def test_the_complete_verb_prints_one_candidate_per_line():
     assert not out.stderr.strip(), "a keypress must never print to stderr"
 
 
+def test_a_candidate_is_lf_terminated_with_no_carriage_return():
+    """Compared as bytes, because text mode is exactly what hid this.
+
+    On Windows `print()` writes CRLF and bash's `mapfile -t` strips only the newline, so every
+    candidate arrived as `check\\r` and the shell would insert the carriage return into the command
+    line. Windows CI caught it as `got: check` failing a comparison against `check`, which is the
+    kind of thing no amount of reading the generated script can find.
+    """
+    out = subprocess.run([sys.executable, "-m", "agentdata", "_complete",
+                          "--line", "ad-pbip ch", "--cursor", "10"],
+                         capture_output=True, cwd=REPO_ROOT)
+    assert out.stdout == b"check\n", out.stdout
+
+
 def test_the_complete_verb_reads_the_bash_protocol():
     """`complete -F` exports COMP_LINE and COMP_POINT and reads stdout."""
     env = {**os.environ, "COMP_LINE": "ad-pbip ch", "COMP_POINT": "10"}
@@ -138,7 +152,11 @@ def _drive_bash(line: str, point: int) -> list[str]:
     )
     out = subprocess.run([BASH, "-c", script], capture_output=True, text=True, cwd=REPO_ROOT)
     assert out.returncode == 0, out.stderr
-    return [ln for ln in out.stdout.splitlines() if ln.strip()]
+    got = [ln for ln in out.stdout.splitlines() if ln.strip()]
+    # Not stripped: a candidate the shell would insert with a stray carriage return is a failure,
+    # and stripping here would have hidden the one Windows CI found.
+    assert all(ln == ln.strip() for ln in got), f"whitespace on a candidate: {got!r}"
+    return got
 
 
 @bash_only

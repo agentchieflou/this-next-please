@@ -212,8 +212,18 @@ def main(argv: list[str] | None = None) -> int:
         if partial == "":
             line += " "
 
+    # LF, always. On Windows `print()` writes CRLF, and bash's `mapfile -t` strips only the newline
+    # -- so every candidate came back as `check\r` and the shell would have inserted the carriage
+    # return into the command line. CI caught it with `got: check` failing a comparison against
+    # "check", which is exactly the kind of thing a string test on the script cannot see.
+    rc = getattr(sys.stdout, "reconfigure", None)
+    if rc is not None:
+        try:
+            rc(newline="\n")
+        except Exception:  # noqa: BLE001 - a keypress must never traceback
+            pass
     for item in complete(line, cursor):
-        print(item)
+        sys.stdout.write(item + "\n")
     return 0
 
 
