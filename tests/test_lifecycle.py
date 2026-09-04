@@ -32,6 +32,7 @@ import toon_read
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GIT = shutil.which("git")
+BRANCH = "lifecycle"
 
 pytestmark = [pytest.mark.slow,
               pytest.mark.skipif(not GIT, reason="git is needed to build the local clone")]
@@ -143,6 +144,11 @@ def clone(tmp_path_factory) -> str:
     # An identity, so committing here does not depend on the developer's git config.
     _git("config", "user.email", "lifecycle@test.invalid", cwd=dst)
     _git("config", "user.name", "lifecycle test", cwd=dst)
+    # A named branch, always. `actions/checkout` leaves a detached HEAD, and a clone of a detached
+    # repository is detached too -- so `rev-parse --abbrev-ref HEAD` answered "HEAD" and the push
+    # in step (e) failed with "not a full refname". Green locally, red on CI, for a reason that has
+    # nothing to do with what the test is about.
+    _git("checkout", "--quiet", "-B", BRANCH, cwd=dst)
 
     changed = _git("ls-files", "--modified", "--others", "--exclude-standard", cwd=REPO_ROOT)
     deleted = set(_git("ls-files", "--deleted", cwd=REPO_ROOT).splitlines())
@@ -239,8 +245,7 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     _git("config", "user.email", "lifecycle@test.invalid", cwd=work)
     _git("config", "user.name", "lifecycle test", cwd=work)
     _commit(clone, "for the pull")
-    branch = _git("rev-parse", "--abbrev-ref", "HEAD", cwd=clone)
-    _git("push", "--quiet", bare, f"HEAD:{branch}", cwd=clone)
+    _git("push", "--quiet", bare, f"HEAD:refs/heads/{BRANCH}", cwd=clone)
     before = _git("rev-parse", "HEAD", cwd=work)
     v.pip("install", "--no-deps", "-e", work)
     out = v.run("update", "--cli", "--pull", "--no-reexec")

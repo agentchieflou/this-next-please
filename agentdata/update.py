@@ -240,7 +240,10 @@ def scripts_dir() -> str:
     """Where this interpreter puts console scripts -- the directory `ad-*` lives in."""
     import sysconfig
 
-    for scheme in ("nt_user", "nt") if os.name == "nt" else ("posix_user", "posix_prefix"):
+    # This interpreter's own scheme first, the per-user one second: inside a venv the default is
+    # the venv's `bin`, and a `~/.local/bin` that happens to hold an `ad-*` from some other install
+    # is not where *this* one put its scripts.
+    for scheme in ("nt", "nt_user") if os.name == "nt" else ("posix_prefix", "posix_user"):
         try:
             path = sysconfig.get_path("scripts", scheme)
         except (KeyError, ValueError):
@@ -251,15 +254,23 @@ def scripts_dir() -> str:
 
 
 def scripts_on_path() -> bool:
-    """Whether a shell would actually find `ad-*`.
+    """Whether a shell would find **this install's** `ad-*`.
 
     Asked of the shell rather than computed from `sysconfig`: `pip install --user` -- the default
     when site-packages is not writeable, which is normal on a managed Windows laptop -- puts the
     console scripts in a directory Windows does not add to PATH, and the symptom is
     `'ad-setup' is not recognized`, which reads like a failed install rather than a PATH problem.
     The README has always said how to fix it; nothing checked it.
+
+    "This install's" is the load-bearing part. Finding *an* `ad-doctor` is not the question -- on a
+    machine with two copies it is precisely the wrong one that is found, which is the shadowing
+    failure wearing a different hat.
     """
-    return bool(shutil.which("ad-doctor"))
+    found = shutil.which("ad-doctor")
+    if not found:
+        return False
+    return os.path.normcase(os.path.dirname(os.path.abspath(found))) == \
+        os.path.normcase(os.path.abspath(scripts_dir()))
 
 
 def environment() -> dict:
