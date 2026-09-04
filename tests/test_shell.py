@@ -241,5 +241,4 @@ def test_shell_scripts_have_pinned_line_endings():
 
     # and the bytes on disk match, so a checkout that ignored the attribute is caught too
     with open(os.path.join(SCRIPTS, "smoke.sh"), "rb") as f:
-        assert b"
-" not in f.read(), "smoke.sh has CRLF line endings"
+        assert b"\r\n" not in f.read(), "smoke.sh has CRLF line endings"
