@@ -31,8 +31,18 @@ from .install import cli_spec, editable_cmd, repo_url, source_checkout
 from . import textio
 
 SKILL_SPEC = "agentchieflou/this-next-please"
-SKILLS_CMD = ["gh", "skill", "install", SKILL_SPEC, "--all", "--scope", "user"]
-SKILL_DIRS = ("~/.copilot/skills", "~/.config/copilot/skills", "~/.claude/skills")
+# `--agent` pinned, not left to the default. `gh skill install` picks a destination from the agent,
+# and the default is only `github-copilot` "when running non-interactively" -- so an interactive run
+# could put the skills somewhere the CLI never reads.
+SKILLS_CMD = ["gh", "skill", "install", SKILL_SPEC, "--all", "--scope", "user",
+              "--agent", "github-copilot"]
+# Where an agent actually reads user-scope skills. `~/.agents/skills` is FIRST because it is where
+# Copilot CLI 1.0.81 looks and where `gh skill install --scope user --agent github-copilot` writes --
+# measured on the laptop for the #92 spike, and none of the three directories this tuple used to hold
+# were it. The symptom was silent: `ad-update --check` reported `skills: 0` against
+# `~/.copilot/skills`, the staleness check could never fire, and a headless agent that tried to
+# invoke `session-bootstrap` got "failure" because the skill was not installed anywhere it looks.
+SKILL_DIRS = ("~/.agents/skills", "~/.copilot/skills", "~/.config/copilot/skills", "~/.claude/skills")
 STALE_DAYS = 1.0
 TAIL_LINES = 15
 # `gh skill install` exits 1 when any skill already exists and names them on one line
