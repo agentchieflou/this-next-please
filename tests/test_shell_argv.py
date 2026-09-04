@@ -25,9 +25,11 @@ def _argv_via(shell: str, inner: str) -> list[str]:
     py = sys.executable.replace("\\", "/")
     command = f'"{py}" -m agentdata argv --raw -- {inner}'
     if shell == "bash":
-        argv = ["bash", "-c", command]
+        argv = [_bash(), "-c", command]
     elif shell == "pwsh":
-        argv = ["pwsh", "-NoProfile", "-Command", command]
+        # `& ` is not decoration: a pwsh line starting with a quoted string is a string expression,
+        # not a command, and errors with ParserError. It is the rule docs/shells.md states.
+        argv = ["pwsh", "-NoProfile", "-Command", f"& {command}"]
     elif shell == "cmd":
         # a STRING, not a list: through list2cmdline the inner quotes get backslash-escaped and
         # cmd.exe answers "is not recognized" (HANDOFF.md documents this; proc.py does the same)
@@ -40,7 +42,29 @@ def _argv_via(shell: str, inner: str) -> list[str]:
     return p.stdout.replace("\r\n", "\n").split("\n")[:-1]
 
 
+def _bash() -> str:
+    """A real bash, never the WSL launcher.
+
+    On GitHub's windows-latest `shutil.which("bash")` finds C:/Windows/System32/bash.exe -- the
+    Windows Subsystem for Linux stub, which answers "has no installed distributions" in UTF-16 and
+    exits 1. Git Bash is the one this project supports.
+    """
+    for candidate in (
+        os.environ.get("GIT_BASH"),
+        os.path.join("C:" + os.sep, "Program Files", "Git", "bin", "bash.exe"),
+        os.path.join("C:" + os.sep, "Program Files (x86)", "Git", "bin", "bash.exe"),
+    ):
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    found = shutil.which("bash")
+    return found or "bash"
+
+
 def _have(shell: str) -> bool:
+    if shell == "bash":
+        path = _bash()
+        # the WSL stub lives in System32 and is not a shell we support
+        return os.path.isfile(path) and "system32" not in path.lower()
     return shutil.which(shell) is not None
 
 
@@ -66,7 +90,7 @@ def test_bash_keeps_a_dollar_literal_in_single_quotes():
 def test_bash_expands_a_dollar_in_double_quotes():
     assert _argv_via("bash", 'KEY=RDSD; "$0" >/dev/null 2>&1; echo') != []   # keep the shell honest
     out = subprocess.run(
-        ["bash", "-c", f'KEY=RDSD; "{sys.executable}" -m agentdata argv --raw -- "project = $KEY"'],
+        [_bash(), "-c", f'KEY=RDSD; "{sys.executable}" -m agentdata argv --raw -- "project = $KEY"'],
         capture_output=True, text=True, cwd=REPO_ROOT)
     assert out.stdout.strip() == "project = RDSD"
 
@@ -93,7 +117,7 @@ def test_msys_rewrites_a_posix_looking_argument():
 @pytest.mark.skipif(not (WINDOWS and _have("bash")), reason="MSYS path conversion is a Git Bash on Windows thing")
 def test_msys_no_pathconv_is_the_escape_hatch():
     out = subprocess.run(
-        ["bash", "-c", f'MSYS_NO_PATHCONV=1 "{sys.executable}" -m agentdata argv --raw -- -s /nope'],
+        [_bash(), "-c", f'MSYS_NO_PATHCONV=1 "{sys.executable}" -m agentdata argv --raw -- -s /nope'],
         capture_output=True, text=True, cwd=REPO_ROOT)
     assert out.stdout.replace("\r\n", "\n").split("\n")[:-1] == ["-s", "/nope"]
 
