@@ -214,6 +214,50 @@ def cmd_capabilities(a) -> int:
     return 0
 
 
+def cmd_bridge(a) -> int:
+    from .pbip import bridge as BR
+    bcmd = getattr(a, "bridge_cmd", "probe")
+    if bcmd == "probe":
+        pid = getattr(a, "pid", None)
+        res = BR.probe_bridge(pid=pid)
+        ops = res.get("operations", [])
+        t = AgentTable.from_records(
+            [{"operation": op, "status": "declared"} for op in ops],
+            name="bridge_operations",
+            source="ad-pbip bridge probe",
+        )
+        meta = {
+            "ok": True,
+            "source": "ad-pbip bridge probe",
+            "pipe_present": res.get("pipe_present", False),
+            "pid": res.get("pid"),
+            "rtt_ms": res.get("rtt_ms", 0),
+            "version": res.get("version", "unknown"),
+            "drift": res.get("drift", "unknown"),
+            "drift_summary": res.get("drift_summary", ""),
+        }
+        if not res.get("pipe_present"):
+            meta["hint"] = res.get("reason") or "bridge pipe not active (toggle preview feature or launch Desktop)"
+        print(render(t, extra=meta))
+        return 0
+
+    if bcmd == "record":
+        pid = getattr(a, "pid", None)
+        if not pid:
+            print(error("--pid is required to record bridge transcript", "pass --pid <pid>", "ad-pbip bridge record"))
+            return 1
+        try:
+            out_file = BR.record_transcript(pid=pid, out_dir=getattr(a, "out", None))
+            t = AgentTable.from_records([{"path": out_file, "status": "recorded"}], name="record", source="ad-pbip bridge record")
+            print(render(t, extra={"ok": True, "source": "ad-pbip bridge record", "pid": pid, "out": out_file}))
+            return 0
+        except Exception as e:
+            print(error(f"failed to record bridge transcript: {e}", "ensure Desktop bridge is running on pipe", "ad-pbip bridge record"))
+            return 1
+
+    return 0
+
+
 def cmd_handoff(a) -> int:
     res = EXT.handoff(a.server, a.database, project_dir=getattr(a, "project", None))
     if policy.pretty():
@@ -1017,6 +1061,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_cap.add_argument("--pid", type=int, help="evaluate capabilities for a specific Desktop pid")
     p_cap.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p_cap.set_defaults(fn=cmd_capabilities)
+
+    # Bridge
+    p_brg = sub.add_parser("bridge", help="Desktop bridge wire adapter probe and record")
+    brg_sub = p_brg.add_subparsers(dest="bridge_cmd", required=True)
+    p_bp = brg_sub.add_parser("probe", help="probe bridge pipe presence, manifest, RTT, and transcript drift")
+    p_bp.add_argument("--pid", type=int, help="Power BI Desktop PID")
+    p_bp.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_bp.set_defaults(fn=cmd_bridge)
+    p_br_rec = brg_sub.add_parser("record", help="record golden transcript from live bridge pipe")
+    p_br_rec.add_argument("--pid", type=int, required=True, help="Power BI Desktop PID")
+    p_br_rec.add_argument("--out", help="output directory for transcript (default: tests/fixtures/bridge/<ver>)")
+    p_br_rec.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_br_rec.set_defaults(fn=cmd_bridge)
 
     p_shot = sub.add_parser("screenshot", help="capture page or visual screenshots, or compare before/after images")
     p_shot.add_argument("--pid", type=int, help="running Desktop process id to capture")

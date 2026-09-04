@@ -129,9 +129,9 @@ def test_capabilities_probes(tmp_path):
     ws = make_ws(tmp_path, port=54321)
     runner = fake_runner_session(str(ws), ppid=1234)
     caps = DT.capabilities(pid=1234, run=runner)
-    assert len(caps) == 8
+    assert len(caps) == 9
     names = [c["capability"] for c in caps]
-    assert names == ["as_port", "xmla_local", "external_tools", "uia", "printwindow", "bridge_pipe", "developer_visual", "pbiviz"]
+    assert names == ["as_port", "xmla_local", "external_tools", "uia", "printwindow", "bridge_pipe", "bridge_manifest", "developer_visual", "pbiviz"]
     as_port_cap = next(c for c in caps if c["capability"] == "as_port")
     assert as_port_cap["available"] is True
     assert "54321" in as_port_cap["evidence"]

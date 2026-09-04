@@ -257,6 +257,23 @@ class PowerBIStep(Step):
                 except Exception as e:
                     ctx.add(self.key, "powerbi/feature_decay", "warn", f"decay check failed: {e}")
 
+        # powerbi/bridge_drift check (warn-only)
+        try:
+            from ...pbip import bridge as BR
+            b_probe = BR.probe_bridge()
+            if b_probe.get("pipe_present"):
+                if b_probe.get("drift") != "none":
+                    ctx.add(self.key, "powerbi/bridge_drift", "warn",
+                            f"Bridge manifest drift detected: {b_probe.get('drift_summary')}",
+                            "run `ad-pbip bridge record --pid <pid>` to update baseline transcript")
+                else:
+                    ctx.add(self.key, "powerbi/bridge_drift", "ok",
+                            f"Bridge manifest matches baseline ({len(b_probe.get('operations', []))} ops, rtt {b_probe.get('rtt_ms')}ms)")
+            else:
+                ctx.add(self.key, "powerbi/bridge_drift", "ok", "no active bridge pipe (optional preview transport)")
+        except Exception as e:
+            ctx.add(self.key, "powerbi/bridge_drift", "warn", f"bridge probe failed: {e}")
+
         workspaces = list(C.get(ctx.cfg, "powerbi.workspaces", []) or [])
         if not workspaces:
             return

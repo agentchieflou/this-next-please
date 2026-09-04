@@ -275,23 +275,61 @@ def screenshot_session(pid: int, page: str | None = None, all_pages: bool = Fals
     page_rows = []
     visual_rows = []
 
+    # Check Bridge capability
+    from . import bridge as BR
+    b_client, b_man, _ = BR.get_bridge_manifest(pid=pid)
+    use_bridge = False
+    if b_client:
+        if "screenshot" in b_man.get("operations", []):
+            use_bridge = True
+        else:
+            b_client.close()
+            b_client = None
+
     for p in to_capture:
         p_id = p["id"]
         p_name = p.get("displayName", p_id)
-        # Navigate if needed
-        navigate_page(pid, p_name, run=run)
-        if settle_s > 0:
-            time.sleep(settle_s)
-
         out_path = os.path.join(out_dir, f"{p_id}.png").replace("\\", "/")
-        t0 = time.perf_counter()
-        cap_res = capture_window(pid, out_path, scale=scale, run=run)
-        elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
-        w = cap_res.get("width", 1280)
-        h = cap_res.get("height", 720)
-        dpi = cap_res.get("dpi", 96)
-        via = cap_res.get("via", "printwindow")
+        captured_via_bridge = False
+        if use_bridge and b_client:
+            try:
+                t0 = time.perf_counter()
+                b_res = b_client.screenshot(page=p_id)
+                elapsed_ms = int((time.perf_counter() - t0) * 1000)
+                if "image_base64" in b_res:
+                    import base64
+                    with open(out_path, "wb") as f:
+                        f.write(base64.b64decode(b_res["image_base64"]))
+                    w = b_res.get("width", 1280)
+                    h = b_res.get("height", 720)
+                    dpi = b_res.get("dpi", 96)
+                    via = "bridge"
+                    captured_via_bridge = True
+                elif "path" in b_res and os.path.exists(b_res["path"]):
+                    shutil.copyfile(b_res["path"], out_path)
+                    w = b_res.get("width", 1280)
+                    h = b_res.get("height", 720)
+                    dpi = b_res.get("dpi", 96)
+                    via = "bridge"
+                    captured_via_bridge = True
+            except Exception:
+                captured_via_bridge = False
+
+        if not captured_via_bridge:
+            # Navigate if needed
+            navigate_page(pid, p_name, run=run)
+            if settle_s > 0:
+                time.sleep(settle_s)
+
+            t0 = time.perf_counter()
+            cap_res = capture_window(pid, out_path, scale=scale, run=run)
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+            w = cap_res.get("width", 1280)
+            h = cap_res.get("height", 720)
+            dpi = cap_res.get("dpi", 96)
+            via = cap_res.get("via", "printwindow")
 
         page_rows.append({
             "pid": pid,
@@ -310,26 +348,29 @@ def screenshot_session(pid: int, page: str | None = None, all_pages: bool = Fals
             target_file = inst.file or inst.matched
             p_info, v_info = find_visual_in_pbir(target_file, visual, page_needle=p_id)
             if p_info and v_info:
-                    pos = v_info["position"]
-                    page_w = p_info["width"]
-                    page_h = p_info["height"]
-                    scale_x = w / page_w
-                    scale_y = h / page_h
-                    cx = int(pos.get("x", 0) * scale_x)
-                    cy = int(pos.get("y", 0) * scale_y)
-                    cw = int(pos.get("width", 100) * scale_x)
-                    ch = int(pos.get("height", 100) * scale_y)
+                pos = v_info["position"]
+                page_w = p_info["width"]
+                page_h = p_info["height"]
+                scale_x = w / page_w
+                scale_y = h / page_h
+                cx = int(pos.get("x", 0) * scale_x)
+                cy = int(pos.get("y", 0) * scale_y)
+                cw = int(pos.get("width", 100) * scale_x)
+                ch = int(pos.get("height", 100) * scale_y)
 
-                    crop_path = os.path.join(out_dir, f"{v_info['id']}.png").replace("\\", "/")
-                    crop_image(out_path, crop_path, cx, cy, cw, ch, run=run)
-                    visual_rows.append({
-                        "visual_id": v_info["id"],
-                        "title": v_info["title"],
-                        "type": v_info["type"],
-                        "page": p_id,
-                        "bbox": f"[{cx},{cy},{cx+cw},{cy+ch}]",
-                        "path": crop_path,
-                    })
+                crop_path = os.path.join(out_dir, f"{v_info['id']}.png").replace("\\", "/")
+                crop_image(out_path, crop_path, cx, cy, cw, ch, run=run)
+                visual_rows.append({
+                    "visual_id": v_info["id"],
+                    "title": v_info["title"],
+                    "type": v_info["type"],
+                    "page": p_id,
+                    "bbox": f"[{cx},{cy},{cx+cw},{cy+ch}]",
+                    "path": crop_path,
+                })
+
+    if b_client:
+        b_client.close()
 
     if visual_rows:
         tsv_path = os.path.join(out_dir, "visuals.tsv")
