@@ -28,6 +28,7 @@ COMMANDS = {
     "diff": ("agentdata.cli", "main_diff", "compare two TSVs"),
     "help": ("agentdata.cli_help", "main", "command catalog and per-command help"),
     "pbiviz": ("agentdata.cli_pbiviz", "main", "Power BI custom visual development loop"),
+    "graph": ("agentdata.cli_graph", "main", "code graph extraction, queries, approval, and guard"),
 }
 USAGE = ("usage: python -m agentdata <command> [options]\n\nSame commands as the ad-* console scripts:\n"
          + "\n".join(f"  {name:<10} ad-{name:<10} {help}" for name, (_m, _f, help) in COMMANDS.items())
