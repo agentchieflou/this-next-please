@@ -6,6 +6,7 @@ the first time someone adds a fixture, and a coverage floor becomes a number nob
 from __future__ import annotations
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -135,7 +136,8 @@ def test_the_suite_is_documented():
     for needle in ("## Markers", "## Isolation", "## Coverage floors",
                    "## The regression convention", "## What CI runs"):
         assert needle in text
-    assert "about two minutes" in text, "record how long the suite takes"
+    assert re.search(r"takes \*\*[^*]+\*\*", text), "record how long the suite actually takes"
+    assert "budget" in text, "and what the budget is"
 
 
 def test_shuffling_is_available_and_wired_into_ci():
