@@ -1,4 +1,4 @@
-"""Per-module coverage floors for the files the laptop keeps breaking.
+r"""Per-module coverage floors for the files the laptop keeps breaking.
 
 There is deliberately **no repo-wide number**. A single percentage invites padding -- a test that
 imports a module and asserts nothing raises the figure without proving anything -- and it says
@@ -12,8 +12,13 @@ nothing about the modules that actually go wrong on Windows. These seven do:
     state.py    the only writer of state.json
     config.py   where every setting comes from
 
-Floors ratchet: `--update` writes the current numbers back, rounded down to the nearest 5, and the
-file is committed. They never go down without someone editing it deliberately.
+Floors are **per platform**, because these modules are exactly the ones whose Windows branches are
+unreachable on Linux: the console API through ctypes, `msvcrt`, the `\?\` long-path prefix, the MSYS
+pty probe. A single set of numbers measured on Windows fails on Linux for no fault of anyone's, which
+is how a floor becomes a thing people disable.
+
+Floors ratchet: `--update` writes the current platform's numbers back, rounded down to the nearest 5.
+They never go down without someone editing the file deliberately.
 """
 from __future__ import annotations
 import argparse
@@ -26,11 +31,22 @@ MODULES = ["agentdata/proc.py", "agentdata/textio.py", "agentdata/update.py",
            "agentdata/console.py", "agentdata/color.py", "agentdata/state.py", "agentdata/config.py"]
 
 
-def load_floors() -> dict[str, int]:
+def platform_key() -> str:
+    return "windows" if sys.platform.startswith("win") else "posix"
+
+
+def load_all() -> dict[str, dict[str, int]]:
     if not os.path.isfile(FLOORS_PATH):
-        return {m: 0 for m in MODULES}
+        return {"windows": {}, "posix": {}}
     with open(FLOORS_PATH, encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    if data and all(isinstance(v, (int, float)) for v in data.values()):
+        return {"windows": dict(data), "posix": {}}      # the pre-split format
+    return {"windows": data.get("windows", {}), "posix": data.get("posix", {})}
+
+
+def load_floors() -> dict[str, int]:
+    return load_all().get(platform_key(), {})
 
 
 def measured(coverage_json: str) -> dict[str, float]:
@@ -62,14 +78,18 @@ def main() -> int:
         return 2
 
     if a.update:
+        everything = load_all()
         ratcheted = {m: max(floors.get(m, 0), int(now[m] // 5) * 5) for m in MODULES}
+        everything[platform_key()] = ratcheted
         with open(FLOORS_PATH, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(ratcheted, f, indent=2, sort_keys=True)
+            json.dump(everything, f, indent=2, sort_keys=True)
             f.write("\n")
+        print(f"platform: {platform_key()}")
         for m in MODULES:
             print(f"{m:24} {now[m]:5.1f}%  floor {ratcheted[m]}%")
         return 0
 
+    print(f"platform: {platform_key()}")
     failures = []
     for module in MODULES:
         floor = floors.get(module, 0)

@@ -65,9 +65,14 @@ Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only w
 
 ## Coverage floors
 
-Per module, never repo-wide. A single percentage invites padding and says nothing about the files
-that actually go wrong on Windows. The seven that do are in
+Per module, never repo-wide, and **per platform**. A single percentage invites padding and says
+nothing about the files that actually go wrong on Windows. The seven that do are in
 `.github/scripts/coverage-floors.json`; CI checks them with `.github/scripts/coverage_floors.py`.
+
+The platform split is not bookkeeping: these are precisely the modules whose Windows branches — the
+console API through ctypes, `msvcrt`, the long-path prefix, the MSYS pty probe — cannot execute on
+Linux. `color.py` measures 84% on Windows and 62% on Linux for the same tests. One set of numbers
+would fail on the other OS for nobody's fault, which is how a floor becomes a thing people turn off.
 
 Floors **ratchet up only**. After adding tests:
 

@@ -90,11 +90,16 @@ def test_the_laptop_suite_does_not_execute_without_the_flag():
 def test_the_floors_cover_the_modules_the_laptop_keeps_breaking():
     with open(FLOORS, encoding="utf-8") as f:
         floors = json.load(f)
-    for module in ("agentdata/proc.py", "agentdata/textio.py", "agentdata/update.py",
-                   "agentdata/console.py", "agentdata/color.py", "agentdata/state.py",
-                   "agentdata/config.py"):
-        assert module in floors, f"{module} has no coverage floor"
-        assert 0 < floors[module] <= 100
+    # Per platform: these modules' Windows branches (the console API through ctypes, msvcrt, the
+    # long-path prefix, the MSYS pty probe) are unreachable on Linux, so one set of numbers would
+    # fail on the other OS for nobody's fault -- which is how a floor becomes a thing people disable.
+    assert set(floors) == {"windows", "posix"}
+    for platform, per_module in floors.items():
+        for module in ("agentdata/proc.py", "agentdata/textio.py", "agentdata/update.py",
+                       "agentdata/console.py", "agentdata/color.py", "agentdata/state.py",
+                       "agentdata/config.py"):
+            assert module in per_module, f"{module} has no {platform} coverage floor"
+            assert 0 < per_module[module] <= 100
 
 
 def test_there_is_no_repo_wide_floor():
