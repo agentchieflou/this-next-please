@@ -231,3 +231,36 @@ def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: st
         raise ProcError("exit_code", f"{argv[0]} exited {p.returncode}: " + (tail[-1][:200] if tail else "no output"),
                         hint, {"exit_code": p.returncode, "executable": launched})
     return p.returncode, p.stdout, p.stderr, el
+
+
+def kill_tree(pid: int) -> None:
+    """Terminate a process and all its children across platforms."""
+    if WINDOWS:
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                           capture_output=True, check=False)
+        except Exception:
+            pass
+    else:
+        try:
+            import psutil
+            parent = psutil.Process(pid)
+            children = parent.children(recursive=True)
+            for child in children:
+                try:
+                    child.kill()
+                except Exception:
+                    pass
+            parent.kill()
+        except Exception:
+            try:
+                import signal
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            except Exception:
+                try:
+                    import signal
+                    subprocess.run(["pkill", "-9", "-P", str(pid)], capture_output=True, check=False)
+                    os.kill(pid, signal.SIGKILL)
+                except Exception:
+                    pass
+
