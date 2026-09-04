@@ -53,8 +53,9 @@ def test_setup_time_dependencies_are_base_not_gated_behind_an_extra():
     lived in the per-connector extras (`teradata`, `oracle`, ...) instead of the base install. Same shape of gap
     for `pyodbc`: ODBC is offered as a live choice in the wizard regardless of which extra was installed.
 
-    No TOML parser here: `tomllib` needs 3.11+ and this repo's floor is 3.10 (same reason `_scripts()` in
-    test_entrypoints.py slices pyproject.toml with plain string/regex instead)."""
+    No TOML parser here: this test slices pyproject.toml with plain string/regex, like `_scripts()` in
+    test_entrypoints.py, so the two stay in step. `tomllib` (3.11+) is available now that the floor is 3.12;
+    if one of them switches, both should."""
     text = open(os.path.join(ROOT, "pyproject.toml"), encoding="utf-8").read()
     deps = text.split("dependencies = [", 1)[1].split("]", 1)[0]
     extras = text.split("[project.optional-dependencies]", 1)[1].split("\n[", 1)[0]

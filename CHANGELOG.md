@@ -4,6 +4,20 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.6.0 — 2026-09-04
+
+**The Python floor is now 3.12** (`requires-python = ">=3.12"`; it was 3.10). Nothing in the code changed for
+this -- the suite passes unmodified on 3.12 and 3.14 -- so a laptop already on 3.12+ needs only the two standard
+`ad-update` commands. What changes: pip now **refuses** to install this version on 3.10 or 3.11 (*"requires a
+different Python"*) instead of installing something that would later miss a dependency. `ad-update --check`
+prints the `python` that owns the install; if it is older than 3.12, run the install line with the newer
+interpreter (the corporate laptops run 3.14, which is why there is no reason to keep the older floors alive).
+
+Why now: the agent-fleet roadmap (epic #91) wants the GitHub Copilot SDK (`github-copilot-sdk`, Python ≥ 3.11)
+as at least an optional dependency, and the 3.10-only workarounds the repo carried (`d4082bc`, the f-string
+backslash; `tomllib`-free TOML slicing in the tests) were cost with no user behind them.
+CI drops the 3.10 job and keeps 3.12 (the floor) and 3.14 (the laptop) on Ubuntu, 3.14 on Windows.
+
 ## 0.5.3 — 2026-09-03
 
 **A Teradata (or Hive/Impala/Oracle) env named after its DSN or hostname silently vanished from config.json.**

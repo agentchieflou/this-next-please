@@ -57,6 +57,9 @@ ad-update --check
 
 ### First install
 
+The CLI needs **Python 3.12 or newer** (`python --version`; the laptops run 3.14). On an older interpreter pip
+refuses the install with *"requires a different Python"* -- run the command below with the newer `python`.
+
 ```powershell
 # 1. the skills  ->  ~/.copilot/skills, for every repo you work in
 gh skill install agentchieflou/this-next-please --all --scope user
