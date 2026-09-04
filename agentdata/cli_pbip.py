@@ -117,15 +117,56 @@ def _candidates() -> list[str]:
 
 
 def cmd_desktop(a) -> int:
-    rows = [i.row() for i in DT.discover(candidates=_candidates())]
+    cmd = getattr(a, "desktop_cmd", None)
+    if cmd == "open":
+        exe = getattr(a, "exe", None) or C.get(C.load(), "powerbi.tools.pbi_desktop_exe")
+        res = DT.open_and_wait(a.path, wait_secs=getattr(a, "wait", 180), exe=exe)
+        ok = res.get("ok", False)
+        if policy.pretty():
+            ui.facts([(k, v) for k, v in res.items() if k != "ok"], title="ad-pbip desktop open", subtitle="ok" if ok else "fail")
+        else:
+            print(toon.encode({"meta": res}))
+        return 0 if ok else 1
+
+    if cmd == "close":
+        res = DT.close(a.pid, save=getattr(a, "save", False), discard=getattr(a, "discard", False))
+        ok = res.get("ok", False)
+        if policy.pretty():
+            ui.facts([(k, v) for k, v in res.items() if k != "ok"], title="ad-pbip desktop close", subtitle="ok" if ok else "fail")
+        else:
+            print(toon.encode({"meta": res}))
+        return 0 if ok else 1
+
+    if cmd == "reload":
+        res = DT.reload(a.pid, save=getattr(a, "save", False), discard=getattr(a, "discard", False), candidates=_candidates())
+        ok = res.get("ok", False)
+        if policy.pretty():
+            ui.facts([(k, v) for k, v in res.items() if k != "ok"], title="ad-pbip desktop reload", subtitle="ok" if ok else "fail")
+        else:
+            print(toon.encode({"meta": res}))
+        return 0 if ok else 1
+
+    # Default / status:
+    pid = getattr(a, "pid", None)
+    rows = [i.row() for i in DT.status(pid=pid, candidates=_candidates())]
+    src = "ad-pbip desktop status" if cmd == "status" else "ad-pbip desktop"
     if not rows:
         if policy.pretty():
             ui.note("no running Power BI Desktop instance found; open the .pbip (ad-pbip launch <pbip>)")
         else:
-            print(toon.encode({"meta": {"ok": True, "source": "ad-pbip desktop", "instances": 0,
+            print(toon.encode({"meta": {"ok": True, "source": src, "instances": 0,
                                         "hint": "no running Power BI Desktop instance found; open the .pbip (ad-pbip launch <pbip>)"}}))
         return 0
-    print(render(AgentTable.from_records(rows, name="desktop", source="ad-pbip desktop"), extra={"instances": len(rows)}))
+    print(render(AgentTable.from_records(rows, name="desktop", source=src), extra={"instances": len(rows)}))
+    return 0
+
+
+def cmd_capabilities(a) -> int:
+    pid = getattr(a, "pid", None)
+    caps = DT.capabilities(pid=pid)
+    avail = sum(1 for c in caps if c.get("available"))
+    t = AgentTable.from_records(caps, name="capabilities", source="ad-pbip capabilities")
+    print(render(t, extra={"available": avail, "total": len(caps)}))
     return 0
 
 
@@ -287,9 +328,45 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--db"); p.add_argument("--dscmd"); p.add_argument("--legacy-ok", action="store_true")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_check)
-    p = sub.add_parser("desktop", help="list running Power BI Desktop instances (pid, port, file)")
-    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
-    p.set_defaults(fn=cmd_desktop)
+    p_dt = sub.add_parser("desktop", help="Power BI Desktop session control: status, open, close, reload")
+    p_dt.add_argument("--pid", type=int, help="filter by process id (status)")
+    p_dt.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    dt_sub = p_dt.add_subparsers(dest="desktop_cmd", required=False)
+
+    p_stat = dt_sub.add_parser("status", help="list running Desktop instances (pid, port, pages, unsaved, version)")
+    p_stat.add_argument("--pid", type=int, help="filter by process id")
+    p_stat.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_stat.set_defaults(fn=cmd_desktop)
+
+    p_open = dt_sub.add_parser("open", help="open a .pbip/.pbix in Desktop and wait until ready")
+    p_open.add_argument("path", help="path to .pbip or .pbix")
+    p_open.add_argument("--wait", type=int, default=180, help="seconds to wait for Desktop readiness (default: 180; 0=fire-and-forget)")
+    p_open.add_argument("--exe", help="explicit path to PBIDesktop.exe")
+    p_open.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_open.set_defaults(fn=cmd_desktop)
+
+    p_close = dt_sub.add_parser("close", help="close a running Desktop instance cleanly via WM_CLOSE")
+    p_close.add_argument("--pid", type=int, required=True, help="process id to close")
+    g_close = p_close.add_mutually_exclusive_group()
+    g_close.add_argument("--save", action="store_true", help="save changes if prompted")
+    g_close.add_argument("--discard", action="store_true", help="discard changes if prompted")
+    p_close.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_close.set_defaults(fn=cmd_desktop)
+
+    p_reload = dt_sub.add_parser("reload", help="reload a running Desktop instance after file edits")
+    p_reload.add_argument("--pid", type=int, required=True, help="process id to reload")
+    g_rel = p_reload.add_mutually_exclusive_group()
+    g_rel.add_argument("--save", action="store_true", help="save changes before reload if prompted")
+    g_rel.add_argument("--discard", action="store_true", help="discard changes before reload if prompted")
+    p_reload.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_reload.set_defaults(fn=cmd_desktop)
+
+    p_dt.set_defaults(fn=cmd_desktop)
+
+    p_cap = sub.add_parser("capabilities", help="probe Power BI Desktop and toolchain capabilities table")
+    p_cap.add_argument("--pid", type=int, help="evaluate capabilities for a specific Desktop pid")
+    p_cap.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p_cap.set_defaults(fn=cmd_capabilities)
     p = sub.add_parser("launch", help="open a .pbip in Power BI Desktop")
     p.add_argument("path"); p.add_argument("--exe")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")

@@ -817,3 +817,14 @@ def test_parallel_verification_wall_clock(cfg_path, capsys):
     out = capsys.readouterr().out
     assert "teradata:prod" in out and "teradata:uat" in out and "teradata:dev" in out
 
+
+def test_powerbi_doctor_desktop_version_and_capabilities(cfg_path, capsys):
+    """Doctor powerbi step asserts desktop/version and desktop/capabilities (issue #50)."""
+    C.save({"powerbi": {"tools": {"pbi_desktop_exe": "C:/Program Files/Microsoft Power BI Desktop/bin/PBIDesktop.exe"}}})
+    det = FakeDet(tools={"PBIDesktop.exe": "C:/Program Files/Microsoft Power BI Desktop/bin/PBIDesktop.exe"})
+    rc = W.run_doctor(["--only", "powerbi"], det)
+    out = capsys.readouterr().out
+    assert "desktop/version" in out
+    assert "desktop/capabilities" in out
+    assert "capabilities available" in out
+

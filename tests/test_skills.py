@@ -47,3 +47,24 @@ def test_referenced_reference_files_exist():
         text = open(path, encoding="utf-8").read()
         for ref in re.findall(r"`references/([\w\-./]+)`", text):
             assert os.path.exists(os.path.join(os.path.dirname(path), "references", ref)), f"{path}: missing references/{ref}"
+
+
+def test_pbi_router_and_two_level_resolution():
+    """Two-level router split (issue #50 & #26): router -> pbi-router -> domain leaf skills."""
+    pbi_text = open(os.path.join(ROOT, "skills", "pbi-router", "SKILL.md"), encoding="utf-8").read()
+    folders = {os.path.basename(os.path.dirname(p)) for p in SKILLS}
+    pbi_rows = re.findall(r"^\|[^|]*\|\s*`([a-z0-9\-]+)`\s*\|$", pbi_text, re.M)
+    assert pbi_rows, "pbi-router table not found"
+    for skill in pbi_rows:
+        assert skill in folders, f"pbi-router points at missing skill {skill}"
+        assert skill != "pbi-router", "pbi-router cannot route to itself"
+    # Ensure router contains pbi-router
+    router_text = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
+    assert "`pbi-router`" in router_text
+
+
+def test_router_early_warning_threshold():
+    """Early-warning guardrail from #26: router must remain compact with two-level domain split."""
+    text = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
+    lines = text.count("\n") + (0 if text.endswith("\n") else 1)
+    assert lines < 60, f"router/SKILL.md is {lines} lines (early warning limit: 60; split further into domain sub-routers)"
