@@ -12,7 +12,11 @@ from . import ui
 from .console import utf8_stdout
 from .model import AgentTable
 from .policy import error, render
-from .testing import collect_coverage, diff_coverage, detect_all, detect_runner, run_tests
+from . import config
+from .testing import (
+    bench_node, collect_coverage, compare_bench, compare_runs, detect_all, detect_runner,
+    diff_coverage, run_tests, snapshot_run,
+)
 from .version import version_string
 
 
@@ -52,6 +56,35 @@ def cmd_detect(a: argparse.Namespace) -> int:
 
 def cmd_run(a: argparse.Namespace) -> int:
     root = a.root or "."
+
+    if getattr(a, "compare", None):
+        before, after = a.compare
+        for pth in (before, after):
+            if not os.path.isfile(pth):
+                print(error(f"snapshot not found: {pth}", "run `ad-test run --snapshot <label>` first",
+                            "ad-test run --compare"))
+                return 1
+        res = compare_runs(before, after)
+        t = AgentTable.from_records(res["rows"], name="run_compare", source="ad-test run --compare",
+                                    fields=["test", "before", "after", "status"])
+        print(render(t, extra={
+            "ok": res["ok"], "source": "ad-test run --compare",
+            "regressions": res["regressions"], "added": res["added"],
+            "before_total": res["before_total"], "after_total": res["after_total"],
+        }))
+        return 0 if res["ok"] else 1
+
+    if getattr(a, "snapshot", None):
+        res = snapshot_run(root, label=a.snapshot, timeout=a.timeout, runner_name=a.runner,
+                           selectors=a.select)
+        if "error" in res:
+            print(error(res["error"], res["hint"], "ad-test run --snapshot"))
+            return 1
+        rows = [{"property": k, "value": str(v)} for k, v in res.items() if k not in ("ok", "source")]
+        t = AgentTable.from_records(rows, name="snapshot", source="ad-test run --snapshot")
+        print(render(t, extra={"ok": res["ok"], "source": "ad-test run --snapshot", "path": res["path"]}))
+        return 0 if res["ok"] else 1
+
     res = run_tests(
         root=root,
         runner_name=a.runner,
@@ -203,6 +236,44 @@ def cmd_coverage(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bench(a: argparse.Namespace) -> int:
+    root = a.root
+    if a.compare:
+        before, after = a.compare
+        for pth in (before, after):
+            if not os.path.isfile(pth):
+                print(error(f"bench file not found: {pth}", "run `ad-test bench --node <id> --label <name>` first",
+                            "ad-test bench --compare"))
+                return 1
+        res = compare_bench(before, after, min_speedup=config.min_speedup(root=root))
+        if not res["ok"]:
+            print(error(res["error"], res["hint"], "ad-test bench --compare"))
+            return 1
+        row = res["row"]
+        t = AgentTable.from_records([row], name="bench_compare", source="ad-test bench --compare")
+        print(render(t, extra={"ok": True, "source": "ad-test bench --compare",
+                               "verdict": row["verdict"], "speedup": row["speedup"],
+                               "min_speedup": res["min_speedup"]}))
+        return 0
+
+    if not a.node:
+        print(error("--node is required", "ad-test bench --node <node-id> [--runs N]", "ad-test bench"))
+        return 2
+
+    res = bench_node(root, node=a.node, runs=a.runs, warmup=a.warmup, label=a.label,
+                     timeout=a.timeout, runner_name=a.runner)
+    if not res["ok"]:
+        print(error(res["error"], res["hint"], "ad-test bench"))
+        return 1
+    t = AgentTable.from_records([res["row"]], name="bench", source="ad-test bench")
+    extra = {"ok": True, "source": "ad-test bench", "path": res["path"],
+             "test_source": res["test_source"], "profiled": res["profiled"]}
+    if res["warnings"]:
+        extra["warnings"] = res["warnings"]
+    print(render(t, extra=extra))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="ad-test",
@@ -228,6 +299,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--select", action="append", default=[], help="node id, test id, or path to run")
     p_run.add_argument("--junit", help="write JUnit XML output to this path")
     p_run.add_argument("--test-cmd", help="override test command")
+    p_run.add_argument("--snapshot", metavar="LABEL", help="save the per-test result table for later --compare")
+    p_run.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"), help="diff two snapshots for regressions")
     p_run.set_defaults(fn=cmd_run)
 
     # coverage
@@ -241,6 +314,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_cov.add_argument("--diff", help="compare coverage with a base coverage.json file")
     p_cov.add_argument("--test-cmd", help="override test command")
     p_cov.set_defaults(fn=cmd_coverage)
+
+    # bench
+    p_bench = sub.add_parser("bench", help="time a node through the tests that exercise it")
+    p_bench.add_argument("root", nargs="?", default=".", help="project root directory (default: .)")
+    p_bench.add_argument("--node", help="graph node id to benchmark")
+    p_bench.add_argument("--runs", type=int, default=5, help="timed runs (default: 5)")
+    p_bench.add_argument("--warmup", type=int, default=1, help="untimed warmup runs (default: 1)")
+    p_bench.add_argument("--label", default="bench", help="label for the output file (e.g. before, after)")
+    p_bench.add_argument("--runner", help="explicit runner name")
+    p_bench.add_argument("--timeout", type=int, default=600, help="timeout in seconds (default: 600)")
+    p_bench.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"), help="compare two bench files")
+    p_bench.set_defaults(fn=cmd_bench)
 
     completion.autocomplete(p)
     return p

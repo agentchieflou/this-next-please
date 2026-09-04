@@ -143,6 +143,41 @@ def parse_junit_xml(xml_path: str, root: str = ".") -> tuple[int, int, int, int,
     return passed, total_failures, total_skipped, total_errors, failures
 
 
+def parse_junit_cases(xml_path: str) -> list[dict[str, Any]]:
+    """Every test case with its outcome, for `ad-test run --snapshot` / `--compare`.
+
+    `parse_junit_xml` returns counts and failures, which cannot answer "did this test vanish" or
+    "did this one go from passed to skipped" -- both of which are regressions.
+    """
+    xml_root = ET.parse(xml_path).getroot()
+    suites: list[ET.Element] = []
+    if xml_root.tag == "testsuites":
+        suites.extend(xml_root.findall("testsuite")) or suites.append(xml_root)
+    else:
+        suites.append(xml_root)
+
+    cases: list[dict[str, Any]] = []
+    for suite in suites:
+        for tc in suite.findall("testcase"):
+            name, cls = tc.get("name", ""), tc.get("classname", "")
+            test_id = f"{cls}::{name}" if cls and name else (name or cls or "test")
+            if tc.find("skipped") is not None:
+                outcome = "skipped"
+            elif tc.find("error") is not None:
+                outcome = "error"
+            elif tc.find("failure") is not None:
+                outcome = "failed"
+            else:
+                outcome = "passed"
+            try:
+                seconds = float(tc.get("time") or 0.0)
+            except ValueError:
+                seconds = 0.0
+            cases.append({"test": test_id, "outcome": outcome, "time_ms": round(seconds * 1000.0, 3)})
+    cases.sort(key=lambda c: c["test"])
+    return cases
+
+
 def parse_text_fallback(text: str, returncode: int, root: str = ".") -> tuple[Any, Any, int, int, list[dict[str, str]]]:
     """Parse textual test output (unittest, npm, etc.) when machine formats are unavailable."""
     failures: list[dict[str, str]] = []

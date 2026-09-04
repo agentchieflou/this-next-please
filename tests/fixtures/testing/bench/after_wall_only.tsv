@@ -1,0 +1,2 @@
+node	label	runs	median_ms	min_ms	p90_ms	node_cum_ms	tests	runner
+src/hot.py::f	after	5	60.0	58.0	63.0	n/a	1	npm

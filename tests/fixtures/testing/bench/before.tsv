@@ -1,0 +1,2 @@
+node	label	runs	median_ms	min_ms	p90_ms	node_cum_ms	tests	runner
+src/hot.py::f	before	5	100.0	98.0	104.0	40.0	1	pytest
