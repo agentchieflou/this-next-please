@@ -222,6 +222,41 @@ class PowerBIStep(Step):
             text = (out or "") + (err or "")
             C.put(ctx.cfg, "powerbi.tools.dscmd_caps", {"file_flag": ("--file" in text) or (" -f" in text), "help_rc": rc})
 
+        # powerbi/feature_decay check
+        if ctx.online:
+            features_md = os.path.join("docs", "power-bi-features.md")
+            if os.path.exists(features_md):
+                try:
+                    import datetime
+                    recheck_days = int(C.get(ctx.cfg, "powerbi.feature_recheck_days", 30) or 30)
+                    now = datetime.datetime.now(datetime.timezone.utc).date()
+                    decayed = []
+                    checked = 0
+                    with open(features_md, encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line.startswith("| `"):
+                                parts = [p.strip() for p in line.split("|")[1:-1]]
+                                if len(parts) >= 5:
+                                    feat_name = parts[0].strip("`")
+                                    v_date_str = parts[4]
+                                    try:
+                                        v_date = datetime.date.fromisoformat(v_date_str)
+                                        days = (now - v_date).days
+                                        checked += 1
+                                        if days > recheck_days:
+                                            decayed.append(f"{feat_name} ({days}d > {recheck_days}d)")
+                                    except ValueError:
+                                        pass
+                    if decayed:
+                        ctx.add(self.key, "powerbi/feature_decay", "warn",
+                                f"{len(decayed)} features have decayed verifications: {', '.join(decayed[:3])}",
+                                "re-verify features with `ad-pbip check --server ... --features` and update docs/power-bi-features.md")
+                    else:
+                        ctx.add(self.key, "powerbi/feature_decay", "ok", f"all {checked} features verified within {recheck_days}d")
+                except Exception as e:
+                    ctx.add(self.key, "powerbi/feature_decay", "warn", f"decay check failed: {e}")
+
         workspaces = list(C.get(ctx.cfg, "powerbi.workspaces", []) or [])
         if not workspaces:
             return

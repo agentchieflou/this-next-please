@@ -1,0 +1,26 @@
+table TimeIntelligence
+	lineageTag: 50000000-0000-0000-0000-000000000001
+
+	calculationGroup
+		precedence: 1
+
+		calculationItem YTD = CALCULATE(SELECTEDMEASURE(), DATESYTD('Dates'[DateKey]))
+			formatStringDefinition = SELECTEDMEASUREFORMATSTRING()
+
+		calculationItem 'Prior Year' = CALCULATE(SELECTEDMEASURE(), SAMEPERIODLASTYEAR('Dates'[DateKey]))
+			formatStringDefinition = SELECTEDMEASUREFORMATSTRING()
+
+	column 'Calculation Item'
+		dataType: string
+		lineageTag: 50000000-0000-0000-0000-000000000010
+		summarizeBy: none
+		sourceColumn: Name
+		sortByColumn: Ordinal
+
+	column Ordinal
+		dataType: int64
+		isHidden
+		lineageTag: 50000000-0000-0000-0000-000000000011
+		summarizeBy: sum
+		sourceColumn: Ordinal
+

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/1.0.0/schema.json",
+  "name": "33333333333333333333",
+  "position": {
+    "x": 20,
+    "y": 240,
+    "width": 150,
+    "height": 50
+  },
+  "visual": {
+    "visualType": "actionButton",
+    "objects": {
+      "action": [
+        {
+          "properties": {
+            "actionType": {
+              "expr": {
+                "Literal": {
+                  "Value": "'PageNavigation'"
+                }
+              }
+            },
+            "destination": {
+              "expr": {
+                "Literal": {
+                  "Value": "'drillthrough_page'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

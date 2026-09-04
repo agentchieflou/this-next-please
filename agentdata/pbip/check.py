@@ -69,6 +69,8 @@ def check_model(model: Model) -> list[Finding]:
             out.append(Finding("error", "ref-table-missing", "model.tmdl", f"table {t['name']}", f"tables/{t['name']}.tmdl exists but model.tmdl has no `ref table {T.quote_name(t['name'])}`", f"add `ref table {T.quote_name(t['name'])}` to model.tmdl"))
     for rt in ref_tables - table_names:
         out.append(Finding("error", "ref-table-dangling", "model.tmdl", f"ref table {rt}", "model.tmdl references a table with no tables/*.tmdl file", "remove the ref or add the table file"))
+    from .features import check_model_features
+    out.extend(check_model_features(model))
     return out
 
 
@@ -188,6 +190,8 @@ def check_report(report: P.Report, model: Model) -> list[Finding]:
     for em in report.extension_measures:
         if em["entity"] not in idx.tables or em["entity"] not in {t["name"] for t in model.tables}:
             out.append(Finding("error", "extension-entity-missing", em["file"], f"[{em['name']}]", f"report-level measure targets table '{em['entity']}' which is not in the model", "fix the entity or move the measure into TMDL"))
+    from .features import check_report_features
+    out.extend(check_report_features(model, report))
     return out
 
 

@@ -1,0 +1,13 @@
+relationship AutoDetected_Dates_Sales_Order
+	fromColumn: Sales.OrderDateKey
+	toColumn: Dates.DateKey
+
+relationship AutoDetected_Dates_Sales_Delivery
+	isActive: false
+	fromColumn: Sales.DeliveryDateKey
+	toColumn: Dates.DateKey
+
+relationship AutoDetected_Customers_Sales
+	fromColumn: Sales.CustomerKey
+	toColumn: Customers.CustomerKey
+

@@ -1,0 +1,5 @@
+role SalesManager
+	modelPermission: read
+
+	tablePermission Customers = [Region] == "North"
+

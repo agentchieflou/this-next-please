@@ -1,0 +1,50 @@
+table Dates
+	lineageTag: 20000000-0000-0000-0000-000000000001
+
+	column DateKey
+		dataType: int64
+		isKey
+		lineageTag: 20000000-0000-0000-0000-000000000010
+		summarizeBy: none
+		sourceColumn: DateKey
+
+	column Year
+		dataType: int64
+		lineageTag: 20000000-0000-0000-0000-000000000011
+		summarizeBy: none
+		sourceColumn: Year
+
+	column Quarter
+		dataType: string
+		lineageTag: 20000000-0000-0000-0000-000000000012
+		summarizeBy: none
+		sourceColumn: Quarter
+
+	column MonthName
+		dataType: string
+		sortByColumn: MonthNumber
+		lineageTag: 20000000-0000-0000-0000-000000000013
+		summarizeBy: none
+		sourceColumn: MonthName
+
+	column MonthNumber
+		dataType: int64
+		lineageTag: 20000000-0000-0000-0000-000000000014
+		summarizeBy: none
+		sourceColumn: MonthNumber
+
+	hierarchy CalendarHierarchy
+		lineageTag: 20000000-0000-0000-0000-000000000020
+
+		level Year
+			lineageTag: 20000000-0000-0000-0000-000000000021
+			column: Year
+
+		level Quarter
+			lineageTag: 20000000-0000-0000-0000-000000000022
+			column: Quarter
+
+		level Month
+			lineageTag: 20000000-0000-0000-0000-000000000023
+			column: MonthName
+

@@ -1,0 +1,23 @@
+table SalesAgg
+	isHidden
+	lineageTag: 60000000-0000-0000-0000-000000000001
+
+	column Product
+		dataType: string
+		lineageTag: 60000000-0000-0000-0000-000000000010
+		summarizeBy: none
+		sourceColumn: Product
+
+	column Year
+		dataType: int64
+		lineageTag: 60000000-0000-0000-0000-000000000011
+		summarizeBy: none
+		sourceColumn: Year
+
+	column 'Agg Total Sales'
+		dataType: decimal
+		formatString: $ #,##0
+		lineageTag: 60000000-0000-0000-0000-000000000012
+		summarizeBy: sum
+		sourceColumn: Agg Total Sales
+

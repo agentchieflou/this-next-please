@@ -1,0 +1,20 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/1.0.0/schema.json",
+  "name": "overview",
+  "displayName": "Overview",
+  "displayOption": "FitToPage",
+  "height": 720,
+  "width": 1280,
+  "mobileState": {
+    "visualContainers": {
+      "22222222222222222222": {
+        "position": {
+          "x": 0,
+          "y": 0,
+          "width": 320,
+          "height": 400
+        }
+      }
+    }
+  }
+}
