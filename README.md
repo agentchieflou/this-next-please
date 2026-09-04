@@ -104,27 +104,42 @@ console scripts in a folder Windows does not have on PATH. Either add it —
 works and takes the same arguments: `python -m agentdata update`, `python -m agentdata setup`,
 `python -m agentdata doctor`, `python -m agentdata pbip check`, `python -m agentdata --help`.
 
-### Shell tab-completion (bash / zsh / PowerShell)
+### Shell tab-completion (Git Bash / zsh / PowerShell 7 / Windows PowerShell 5.1)
 
-Tab-completion for all `ad-*` commands, subcommands, and flags is provided via the optional `completion` extra (`argcomplete`):
+Subcommands, flags, and the values of flags that take a fixed set. **No extra to install** and
+nothing has to be on PATH: the script bakes in the interpreter that generated it, and asks it for
+the candidates. One line per shell, once:
 
 ```bash
-# 1. Install completion extra
-pip install "agentdata[completion]"
-
-# 2. Activate tab completion in your current shell:
-# Bash:
-eval "$(ad-setup --print-completion bash)"
-
-# Zsh:
-eval "$(ad-setup --print-completion zsh)"
+ad-setup --print-completion bash --install        # adds one line to ~/.bashrc
 ```
 
-Add the `eval` line to your `~/.bashrc` or `~/.zshrc` for persistent completion across sessions.
+```powershell
+ad-setup --print-completion powershell --install  # adds one line to your $PROFILE
+```
 
-> [!NOTE]
-> **PowerShell:** `argcomplete` is designed for bash and zsh environments. On PowerShell, `ad-setup --print-completion powershell` prints standard `Register-ArgumentCompleter` blocks, but full dynamic completion requires a bash or zsh shell.
+Open a new shell and press Tab. `--install` is idempotent — run it again after moving Python and
+it replaces the line rather than adding a second. To see the script instead of installing it, drop
+`--install`; to load it for this session only, `eval "$(ad-setup --print-completion bash)"` or
+`ad-setup --print-completion powershell | Out-String | Invoke-Expression`.
 
+`ad-doctor` has a `console/completion` row saying which startup files carry the line.
+
+| Shell | Works | Proven by |
+|---|---|---|
+| Git Bash (bash 4.4+) | yes | CI drives `_agentdata_complete` with `COMP_LINE`/`COMP_POINT` |
+| bash on Linux | yes | the same step on the Ubuntu jobs |
+| zsh | yes, through `bashcompinit` | `zsh -n` where the runner has zsh |
+| PowerShell 7 (`pwsh`) | yes | CI calls `TabExpansion2`, which is what a Tab press calls |
+| Windows PowerShell 5.1 | yes | the same, in the one 5.1 step |
+
+Two honest limits. PowerShell does not invoke a native argument completer for a bare `--`, so type
+at least `--s` before Tab; and a value that would need the network (a workspace name) is not
+completed, only the fixed choices a flag declares.
+
+> Windows PowerShell 5.1 is **not a supported shell for running `ad-*`** — see `docs/shells.md`.
+> Completion is written in 5.1-compatible syntax anyway, because it costs nothing and somebody on a
+> locked-down laptop still gets Tab.
 
 ## Per project
 ```powershell

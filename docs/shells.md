@@ -18,6 +18,34 @@ so. Install pwsh (`winget install Microsoft.PowerShell`) or use Git Bash.
 | `pip install …` | the shell whose `python` you mean, and it must be **3.12 or newer** (0.6.0 refuses older with *"requires a different Python"*). `ad-update --check` lists every `python` on PATH with its version |
 | `/plugin`, `/skill`, `/agent`, `/model` | **the Copilot chat window only.** A terminal answers `bash: /plugin: No such file or directory`, which reads like a missing tool rather than a wrong window. `ad-help /plugin` says so |
 
+## Tab-completion
+
+One line per shell, once, and nothing extra to install:
+
+```bash
+ad-setup --print-completion bash --install          # ~/.bashrc
+```
+```powershell
+ad-setup --print-completion powershell --install    # $PROFILE
+```
+
+The generated script bakes in the interpreter that produced it and asks
+`python -m agentdata _complete` for candidates, so it keeps working when `ad-*` is not on PATH --
+the case this whole document exists for. `ad-doctor`'s `console/completion` row says which startup
+files carry the line.
+
+| Shell | Completion |
+|---|---|
+| pwsh 7 | yes |
+| Git Bash 4.4+ | yes |
+| zsh | yes, through `bashcompinit` |
+| Windows PowerShell 5.1 | yes -- the one thing that works in a shell the commands are not supported in |
+| cmd.exe | no. cmd has no completion protocol to hook |
+
+**The one that bites here.** PowerShell does not call a native argument completer for a bare `--`,
+so `ad-test run --<TAB>` offers nothing while `ad-test run --s<TAB>` completes. That is PowerShell,
+not this package; bash completes both.
+
 ## Quoting and variables
 
 | | pwsh 7 | Git Bash 4.4 | cmd.exe |

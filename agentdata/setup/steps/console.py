@@ -19,9 +19,11 @@ class ConsoleStep(Step):
 
     def detect(self, ctx: Context) -> dict:
         from ... import console as CON
+        from ... import completion
         return {"shell": S.check_row(), "encoding": (sys.stdout.encoding or "unknown").lower(),
                 "host": CON.host(), "code_page": CON.code_page(),
-                "long_paths": textio.long_paths_enabled()}
+                "long_paths": textio.long_paths_enabled(),
+                "completion": completion.where_installed()}
 
     def check(self, ctx: Context, found: dict) -> None:
         row = found["shell"]
@@ -37,6 +39,17 @@ class ConsoleStep(Step):
                     r"(HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled) to remove the need")
         elif lp is True:
             ctx.add(self.key, "long_paths", "ok", "enabled")
+
+        # Probed, never assumed: the row reports the startup files that actually carry the line,
+        # and says nothing about whether the *current* shell has sourced it -- a child process
+        # cannot see its parent's completer table, and a row that guessed would be worse than none.
+        where = found["completion"]
+        if where:
+            ctx.add(self.key, "completion", "ok",
+                    ", ".join(f"{shell}: {path}" for shell, path in where))
+        else:
+            ctx.add(self.key, "completion", "warn", "tab-completion is not installed in any startup file",
+                    "ad-setup --print-completion bash --install   (or powershell), then open a new shell")
 
         enc = found["encoding"]
         unicode_ok = ui.glyphs() is not ui.ASCII_GLYPHS

@@ -590,13 +590,26 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                     help="colour output (default auto: on for a terminal, off when piped)")
     ap.add_argument("--print-completion", choices=["bash", "zsh", "powershell"],
                     help="print shell tab-completion setup script and exit")
+    ap.add_argument("--install", action="store_true",
+                    help="with --print-completion: add one line to that shell's startup file instead "
+                         "of printing (idempotent; re-run after moving Python and it replaces the line)")
     from .. import completion, version
     version.add_version(ap)
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if a.print_completion:
+        if a.install:
+            done = completion.install(a.print_completion)
+            print(toon.encode({"meta": {"ok": True, "source": f"ad-setup --print-completion {a.print_completion} --install",
+                                        **done,
+                                        "next": "open a new shell, or source the file, for it to take effect"}}))
+            return 0
         completion.print_completion(a.print_completion)
         return 0
+    if a.install:
+        sys.stderr.write("--install only means something with --print-completion, "
+                         "e.g. `ad-setup --print-completion bash --install`\n")
+        return 2
     utf8_stdout()
     color.set_enabled(None if a.color == "auto" else a.color == "always")
     if a.export_defaults:

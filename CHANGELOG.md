@@ -31,6 +31,25 @@ vanishing and quietly turning into a skip included. New skills: `test-cover`, `t
 `AGENTS.md` gains stop condition 14: never edit a source file whose `ad-graph guard` verdict is not `ok`, or
 that you have not run it against. `.agent/state.json` gains the phase `optimizing`.
 
+**Tab-completion actually completes (#76).** It never did. The bash script was wrapped in
+`if command -v register-python-argcomplete`, which ships into the same `Scripts` directory whose
+absence from PATH is the reason `python -m agentdata` exists -- so on Windows it was a no-op that
+looked installed. The PowerShell script registered a completer whose body was a comment. Both are
+real now, driven by a new hidden verb (`python -m agentdata _complete`) that walks the argparse
+tree, so there is **nothing extra to install** -- the `completion` extra is no longer needed for
+completion to work, and `argcomplete` is still honoured if it happens to be there. Subcommands,
+flags and the values of flags with fixed choices, in Git Bash, zsh, pwsh 7 and Windows PowerShell
+5.1. Install it with one line:
+
+```
+ad-setup --print-completion bash --install          # or: powershell
+```
+
+`--install` is idempotent and replaces a stale line if Python moved. `ad-doctor` gains a
+`console/completion` row saying which startup files carry it. Four commands (`ad-pbi`, `ad-pbiviz`,
+`ad-graph`, `ad-test`) were missing from the hand-kept command list and now come from the
+dispatcher, so adding a command is enough.
+
 **Two smaller fixes, both found by property tests (#75).** `python -m agentdata.csv2toon` now reads whichever
 encoding dscmd wrote (UTF-8, with or without a BOM, or UTF-16) and reduces `Table[Column]` result headers to
 the bare column name, so it agrees with `ad-pbip`'s own DAX path instead of producing a different TSV header
