@@ -4,6 +4,33 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.6.1 — 2026-09-04
+
+**Run `ad-setup --patch` after updating.** This release adds three project facts the new code-graph and
+testing commands read, and `--patch` re-asks only for those: `test_cmd` (blank auto-detects the runner),
+`graph_min_coverage` (default `0.8` — the per-node coverage `ad-graph guard` requires before it will let a
+change through) and `graph_min_speedup` (default `1.10` — the speedup `test-regress` requires before a change
+counts as an optimisation). Existing projects keep working on the defaults; patching only makes the
+thresholds explicit and per-project, which is where they belong.
+
+Two epics landed together, because they only work as one loop:
+
+**Code graph (#37).** `ad-graph explain` writes an understanding document from graph facts; `ad-graph approve`
+is human-only and refuses without a terminal, with no `--yes` flag to add later; `ad-graph status` reports
+whether that approval still matches the code. `ad-graph findings` runs ten named checks and ranks them
+covered-first. `ad-graph guard` refuses a diff that touches an unapproved graph, an uncovered node, a changed
+line no test executes, or a weakened test — and `--install-hook` puts the same check in `pre-commit`.
+New skills: `codebase-map`, `perf-optimize`.
+
+**Testing (#38).** `ad-test coverage` replaces the `test_foo` ↔ `foo` name guess with measured test→symbol
+edges. `ad-test bench` times a node through the tests that exercise it and, for pytest, reports the node's own
+cProfile cost — which is what the comparison uses, because runner startup drowns out the node in wall-clock
+time. `ad-test run --snapshot/--compare` treats a test that stopped passing *in any way* as a regression,
+vanishing and quietly turning into a skip included. New skills: `test-cover`, `test-regress`.
+
+`AGENTS.md` gains stop condition 14: never edit a source file whose `ad-graph guard` verdict is not `ok`, or
+that you have not run it against. `.agent/state.json` gains the phase `optimizing`.
+
 ## 0.6.0 — 2026-09-04
 
 **The Python floor is now 3.12** (`requires-python = ">=3.12"`; it was 3.10). Nothing in the code changed for

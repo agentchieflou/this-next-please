@@ -51,6 +51,40 @@ Each node carries:
 | Write down what this repo does, in a form a human can review | `ad-graph explain` |
 | Has a human approved that understanding, and does it still match the code? | `ad-graph status` |
 
+## Workflow: from an unseen repository to a proven speedup
+
+The order is the point, and every step is a command that can say no.
+
+1. **Map.** `ad-graph build` extracts the graph into `.agent/graph/`, and nowhere else.
+2. **Explain, then stop.** The `codebase-map` skill runs `ad-graph explain`, writes one sentence per
+   module and hub between the `<!-- model -->` markers, lists everything unresolved under
+   `## Open questions`, and stops.
+   *The human sees:* `blocked -- review .agent/graph/understanding.md, then run ad-graph approve`
+3. **A human approves.** They read the document and run `ad-graph approve` themselves. The command
+   refuses without a terminal, so an agent cannot grant this.
+   *The human sees:* the section headings, the graph sha, and `Approve this understanding for graph
+   <sha8>? [y/N]`
+4. **Measure.** `ad-test run` must be green, then `ad-test coverage` replaces the `test_foo` ↔ `foo`
+   name guess with measured test→symbol edges.
+5. **Find.** `ad-graph findings --covered-only --top 5` ranks by leverage. An empty list is not a
+   dead end -- it means the work is `test-cover`, not optimisation.
+   *The human sees:* the chosen row, with its `hint` naming the fix pattern.
+6. **Baseline.** `ad-test bench --node <id> --label before`.
+7. **Change one node.** The smallest edit that removes the pattern the `hint` names. No public
+   signature changes, no second node "while here".
+8. **Guard.** `ad-graph guard` refuses an unapproved or stale graph, an uncovered node, a changed
+   line no test executes, and any weakened test.
+   *The human sees, on refusal:* the node, its coverage, and a hint naming `test-cover`.
+9. **Prove it.** `test-regress` compares test results, coverage and timings before and after. It
+   must print `regress: ok`. `same` is inside the noise floor -- a no-op, not a win.
+   *The human sees:* `regress: ok speedup=1.8x tests=142/142`, or `regress: FAIL <reason>`.
+10. **Commit, or revert.** `perf: <KEY> <node> <what> (<before>-><after>)`. Anything unproven is
+    reverted, not argued for.
+
+Nothing in steps 5-10 can run before step 3, and nothing in steps 7-10 can touch code step 4 did not
+measure. Those are the two properties the whole area exists to guarantee, and both are enforced by a
+non-zero exit rather than by a sentence in a SKILL.md.
+
 ## Checks
 
 `ad-graph findings` runs every check below and stamps each row with `covered` and `leverage`

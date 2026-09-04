@@ -28,6 +28,7 @@ State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 - dpm_runs_dir: <\\share\dpm\runs>            # ad-dpm --run-id / --latest picks under this folder
 - dpm_artifact_dir: <artifacts/dpm>            # consumer's governed artifact directory, relative to this repo; ad-dpm writes only here
 - dpm_binding: <dpm-binding.json>               # optional: names DPM uses differently (ad-dpm binding --write)
+- test_cmd: <pytest -q>                      # ad-test: blank = auto-detect the runner
 - graph_min_coverage: <0.8>                 # ad-graph findings/guard: per-node coverage a change must clear
 - graph_min_speedup: <1.10>                 # test-regress: speedup a change must clear to count
 - skills_dir: <~/.copilot/skills>
