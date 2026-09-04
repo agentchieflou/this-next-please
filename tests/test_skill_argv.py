@@ -172,6 +172,33 @@ def to_argv(command: str) -> list[str] | None:
         return None
 
 
+def parse_in_process(argv: list[str]) -> tuple[int, str]:
+    """Parse one command line without spawning a process.
+
+    There are ~150 of these; a subprocess each added a minute and a half to the suite for no extra
+    signal, because parse-only mode never gets past `parse_args` anyway. stdout and stderr are
+    captured so argparse's message is what the failure shows.
+    """
+    import contextlib
+    import io
+
+    from agentdata import __main__ as M
+
+    out, err = io.StringIO(), io.StringIO()
+    os.environ["AGENTDATA_PARSE_ONLY"] = "1"
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                code = M.main(argv)
+            except SystemExit as e:
+                code = e.code if isinstance(e.code, int) else 0
+            except Exception as e:      # an import error is a defect too, and must be reported
+                return 1, f"{type(e).__name__}: {e}"
+    finally:
+        os.environ.pop("AGENTDATA_PARSE_ONLY", None)
+    return code or 0, (err.getvalue() or out.getvalue()).strip()
+
+
 def test_there_are_command_lines_to_check():
     assert len(CASES) > 40, f"only {len(CASES)} command lines found; the extractor may be broken"
 
@@ -189,13 +216,10 @@ def test_every_documented_command_line_parses(rel, line_no, command):
     if argv is None or not argv:
         pytest.skip(f"not a parseable command line: {command!r}")
 
-    p = subprocess.run([sys.executable, "-m", "agentdata", *argv],
-                       capture_output=True, text=True, cwd=REPO_ROOT,
-                       env={**os.environ, "AGENTDATA_PARSE_ONLY": "1"}, timeout=120)
-    if p.returncode == 0:
+    code, message = parse_in_process(argv)
+    if code == 0:
         return
 
-    message = (p.stderr or p.stdout).strip()
     if any(needle in message for needle in NAMING_A_COMMAND):
         pytest.skip("names a command rather than invoking it")
 
