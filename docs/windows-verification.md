@@ -133,6 +133,14 @@ ad-pbip desktop close --pid <pid> --discard                            # closes 
 ```
 Pass: `capabilities` outputs 8 rows with available state and evidence; `status` reports `pages`, `unsaved`, `loaded`, `desktop_version`, `install`; `open --wait` returns instance row once loaded; `reload` returns `reloaded_via: native`; `close` cleanly exits.
 
+## 13. Desktop screenshots and visual regression (#51)
+```powershell
+ad-pbip screenshot --pid <pid> --page "Page 1" --out page1.png
+ad-pbip screenshot --pid <pid> --visual "Visual Title" --out visual.png
+ad-pbip screenshot --pid <pid> --page "Page 1" --out after.png --compare before.png --threshold 0.005 --mask "10,10,100,50"
+```
+Pass: `screenshot` captures full window or crops to canvas/visual without black screen (using `PrintWindow` with `PW_RENDERFULLCONTENT`); visual regression diff returns `diff_ratio` and generates visual diff image when differences exceed threshold; masked areas are ignored in comparison.
+
 ## Triage map (where a failure lands)
 | Symptom | Module | Likely fix |
 |---|---|---|
