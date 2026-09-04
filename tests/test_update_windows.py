@@ -13,6 +13,7 @@ import os
 import pytest
 
 from agentdata import proc, update
+from toon_read import meta as _meta, table as _table
 from agentdata.textio import write_text
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -113,6 +114,49 @@ def test_launcher_kind_reads_argv0():
     assert update.launcher_kind(r"C:\tools\ad-update.cmd") == "cmd"
     assert update.launcher_kind("/usr/bin/python") == "module"
     assert update.launcher_kind("") == "module"
+
+
+def test_every_problem_gets_a_row_not_just_the_last_one_found():
+    """`meta.hint` was one slot each check overwrote.
+
+    A laptop with two installs *and* a PATH problem reported only whichever check happened to run
+    last, and the one it dropped was usually the one that mattered. `hint` is the most blocking
+    problem now, and `problems` carries all of them.
+    """
+    import subprocess
+    import sys
+
+    out = subprocess.run([sys.executable, "-m", "agentdata", "update", "--check"],
+                         capture_output=True, text=True,
+                         cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert out.returncode == 0, out.stderr
+    meta = _meta(out.stdout)
+    rows = _table(out.stdout, "problems")
+    assert "problems" in meta, "the count is part of the contract"
+    assert len(rows) == int(meta["problems"])
+    if rows:
+        assert meta["hint"] == rows[0]["hint"], "the hint must be the first problem, not a random one"
+    for row in rows:
+        assert row["problem"] and row["hint"], row
+
+
+@pytest.mark.windows
+@pytest.mark.skipif(os.name != "nt", reason="the console-script launcher is a Windows thing")
+def test_launcher_kind_sees_the_launcher_that_strips_its_own_extension(tmp_path):
+    """The one that mattered, and the one the extension check missed for the whole of #63.
+
+    A console-script `.exe` hands control over with `sys.argv[0]` **already stripped** of `.exe`:
+    `...\\Scripts\\ad-update.exe` at interpreter start, `...\\Scripts\\ad-update` by the time our
+    code runs. So `launcher_kind()` answered `module`, the re-exec never fired, and the self-update
+    still died with WinError 32 -- silently, because the fallback hint reads like advice rather than
+    like a bug.
+    """
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir()
+    (scripts / "ad-update.exe").write_bytes(b"MZ")
+    assert update.launcher_kind(str(scripts / "ad-update")) == "exe"
+    # ...and nothing else looks like that: no sibling .exe means it really was the module form
+    assert update.launcher_kind(str(scripts / "python")) == "module"
 
 
 def test_the_reexec_command_uses_the_module_form():
@@ -243,3 +287,39 @@ def test_the_transcripts_record_their_provenance():
         assert t.get("source") in ("photographed", "synthesized", "captured"), path
         for key in ("argv", "returncode", "stdout", "stderr"):
             assert key in t, f"{path} has no {key}"
+
+
+# ------------------------------------------------------ the skills half, driven through a fake gh
+
+
+def test_the_skills_half_runs_end_to_end_through_a_fake_gh(tmp_path, monkeypatch, capsys):
+    """The skills half of the lifecycle, with `gh` replayed rather than invented.
+
+    Two outcomes, both real: a clean install succeeds, and a second one comes back "already
+    installed" -- which is this command being run twice, not a failure of it. `ad-update` removes
+    only its own copies before retrying, so skills that belong to someone else are named and left
+    alone, and the exit code says the part did not complete rather than pretending it did.
+    """
+    import fakes
+
+    skills = tmp_path / "skills"
+    (skills / "codebase-map").mkdir(parents=True)
+    (skills / "codebase-map" / "SKILL.md").write_text(
+        "---\nname: codebase-map\n---\n", encoding="utf-8")
+
+    fakes.apply(monkeypatch, tmp_path, ["gh"], case="skill_install_ok")
+    assert update.main(["--skills", "--skills-dir", str(skills), "--no-reexec"]) == 0
+    capsys.readouterr()
+
+    fakes.apply(monkeypatch, tmp_path, ["gh"], case="2026-09-03-skills-already-installed")
+    rc = update.main(["--skills", "--skills-dir", str(skills), "--no-reexec"])
+    second = capsys.readouterr().out
+    assert rc == 1, "a part that did not complete must say so in the exit code"
+    assert "already installed" in second
+    assert "not ours" in second, "someone else's skills have to be named, not deleted"
+    assert "Traceback" not in second
+
+    assert update.main(["--check", "--skills-dir", str(skills)]) == 0
+    report = capsys.readouterr().out
+    assert _meta(report)["stale_skills"] == "false", report
+    assert _meta(report)["skills"] == "1", report

@@ -35,7 +35,7 @@ def parse_lcov(text: str, graph_root: str, known_files: set[str]) -> tuple[dict[
         if not current_file:
             return
 
-        norm_file = current_file.replace("\\", "/")
+        norm_file = textio.norm_path(current_file)
         matched_path = None
 
         if norm_file in known_files:
@@ -121,7 +121,7 @@ def parse_cobertura(xml_text: str, graph_root: str, known_files: set[str]) -> tu
         if not fname:
             continue
 
-        norm_file = fname.replace("\\", "/")
+        norm_file = textio.norm_path(fname)
         matched_path = None
 
         if norm_file in known_files:
@@ -199,7 +199,7 @@ def map_coverage_to_nodes(
         if node.kind not in ("function", "test", "class", "file"):
             continue
 
-        file_key = node.path.replace("\\", "/")
+        file_key = textio.norm_path(node.path)
         fcov = files_cov.get(file_key)
         if not fcov:
             for fk in files_cov:
@@ -299,7 +299,7 @@ def collect_coverage(
             "hint": "run ad-graph build",
         }
 
-    known_files = {n.path.replace("\\", "/") for n in graph.nodes.values()}
+    known_files = {textio.norm_path(n.path) for n in graph.nodes.values()}
 
     files_cov: dict[str, Any] = {}
     unmatched: list[str] = []

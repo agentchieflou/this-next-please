@@ -63,6 +63,13 @@ def main(argv: list[str] | None = None) -> int:
               "  ad-help jira     # show help for ad-jira\n")
         return 0
 
+    if target.startswith("-"):
+        # a mistyped flag used to print the catalogue and exit 0, so a typo looked like success
+        sys.stderr.write(
+            f"unknown option {target!r}. `ad-help` takes a command name, not a flag.\n"
+            "Run 'ad-help' for the catalog, or 'ad-help --help' for its own usage.\n")
+        return 2
+
     # Strip optional ad- prefix if user typed e.g. ad-pbip
     cmd_name = target[3:] if target.startswith("ad-") else target
 

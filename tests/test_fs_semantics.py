@@ -155,7 +155,8 @@ def test_a_locked_target_falls_back_in_place_and_leaves_no_tmp(tmp_path):
 def test_no_tmp_survives_a_normal_write(tmp_path):
     path = str(tmp_path / "x.txt")
     textio.write_text(path, "hello\n")
-    assert os.listdir(tmp_path) == ["x.txt"]
+    assert [n for n in os.listdir(tmp_path) if n.endswith(".tmp")] == []
+    assert "x.txt" in os.listdir(tmp_path)
 
 
 def test_the_retry_is_bounded(monkeypatch, tmp_path):

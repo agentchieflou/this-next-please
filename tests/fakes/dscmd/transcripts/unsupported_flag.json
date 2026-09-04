@@ -1,0 +1,18 @@
+{
+  "source": "synthesized",
+  "note": "an older dscmd without -f",
+  "match": [
+    "csv"
+  ],
+  "argv": [
+    "dscmd.exe",
+    "csv",
+    "out.csv",
+    "-f",
+    "q.dax"
+  ],
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Unrecognized option '-f'\n",
+  "captured": "2026-09-04"
+}

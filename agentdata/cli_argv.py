@@ -18,6 +18,7 @@ from . import console as CON
 from . import toon
 from .console import utf8_stdout
 from .version import add_version, version_string
+from . import textio
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             "shell": CON.shell(),
             "host": CON.host(),
             "code_page": CON.code_page(),
-            "executable": sys.executable.replace("\\", "/"),
+            "executable": textio.norm_path(sys.executable),
         },
         "argv": values,
     }

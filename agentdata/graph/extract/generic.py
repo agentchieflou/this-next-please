@@ -7,6 +7,7 @@ from typing import Any
 
 from . import Extractor
 from ..model import Edge, Node
+from ... import textio
 
 # Regex tables per language/extension
 RE_JS_TS_IMPORT = re.compile(r"""(?:import\s+.*?from\s+['"]([^'"]+)['"]|require\(['"]([^'"]+)['"]\))""")
@@ -23,7 +24,7 @@ class GenericExtractor(Extractor):
         lines = text.splitlines()
         loc = max(1, len(lines))
         file_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        norm_path = relpath.replace("\\", "/")
+        norm_path = textio.norm_path(relpath)
         file_name = os.path.basename(norm_path)
 
         file_node = Node(

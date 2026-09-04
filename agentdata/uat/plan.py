@@ -8,6 +8,7 @@ from .. import config as C
 from ..pbip import normalize as N
 from ..pbip import tmdl as T
 from .expect import normalize_header
+from .. import textio
 
 HIST_SQL = """-- {ticket}: Jira history as of the window end (one row per issue key). Adapt column names to {hist_table}.
 SELECT h.ISSUE_KEY AS "key",
@@ -68,8 +69,8 @@ def build(pbip_dir: str, visual: str, ticket: str, page: str | None = None, expe
     hist_table = facts.get("jira_hist_table", "<jira_hist_table>")
     project = facts.get("jira_project", "<PROJECT_KEY>")
     os.makedirs(sql_dir, exist_ok=True)
-    hist_sql = os.path.join(sql_dir, f"{ticket}-uat-hist.sql").replace("\\", "/")
-    cov_sql = os.path.join(sql_dir, f"{ticket}-uat-cov.sql").replace("\\", "/")
+    hist_sql = textio.norm_path(os.path.join(sql_dir, f"{ticket}-uat-hist.sql"))
+    cov_sql = textio.norm_path(os.path.join(sql_dir, f"{ticket}-uat-cov.sql"))
     with open(hist_sql, "w", encoding="utf-8") as f:
         f.write(HIST_SQL.format(ticket=ticket, hist_table=hist_table, project=project, end=end))
     with open(cov_sql, "w", encoding="utf-8") as f:

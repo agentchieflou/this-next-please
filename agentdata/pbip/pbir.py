@@ -15,6 +15,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterator
+from .. import textio
 
 REF_KEYS = ("Column", "Measure", "Aggregation", "Hierarchy", "HierarchyLevel", "PropertyVariationSource", "Min", "Max", "Percentile")
 AGG = {0: "Sum", 1: "Avg", 2: "DistinctCount", 3: "Min", 4: "Max", 5: "Count", 6: "Median", 7: "StdDev", 8: "Var"}
@@ -98,7 +99,7 @@ def _load(path: str) -> Any:
 
 
 def _rel(root: str, p: str) -> str:
-    return os.path.relpath(p, root).replace("\\", "/")
+    return textio.norm_path(os.path.relpath(p, root))
 
 
 # ---------- reference walk ----------

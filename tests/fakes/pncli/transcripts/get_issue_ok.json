@@ -1,0 +1,19 @@
+{
+  "source": "synthesized",
+  "note": "the named-option form that works",
+  "match": [
+    "jira",
+    "get-issue"
+  ],
+  "argv": [
+    "pncli",
+    "jira",
+    "get-issue",
+    "--key",
+    "RDSD-22399"
+  ],
+  "returncode": 0,
+  "stdout": "{\"key\":\"RDSD-22399\",\"fields\":{\"summary\":\"Trace points\",\"description\":\"AC: 1) x\",\"status\":{\"name\":\"In Progress\"}}}",
+  "stderr": " \n",
+  "captured": "2026-09-04"
+}

@@ -16,6 +16,7 @@ from . import screenshot as SC
 from . import trace as TR
 from .. import config as C
 from ..model import AgentTable
+from .. import textio
 
 Runner = Callable[[list[str], int], tuple[int, str, str]]
 
@@ -58,7 +59,7 @@ def run_dmv_te2(server: str, sql: str, te2_exe: str, database: str | None = None
     """Execute DMV query using Tabular Editor 2 script."""
     run = run or DT.default_run
     with tempfile.TemporaryDirectory() as td:
-        out_csv = os.path.join(td, "dmv.csv").replace("\\", "/")
+        out_csv = textio.norm_path(os.path.join(td, "dmv.csv"))
         csx = os.path.join(td, "dmv.csx")
         escaped_sql = sql.replace('"', '""')
         script = f'''

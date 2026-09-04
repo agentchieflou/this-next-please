@@ -13,5 +13,10 @@
   ],
   "returncode": 1,
   "stdout": "",
-  "stderr": "skills already installed: bitbucket-pr, confluence-publish, data-adapter, dax-studio-export, dpm-consumer-integration, friction-log, hive-query, jira-changelog\n"
+  "stderr": "skills already installed: bitbucket-pr, confluence-publish, data-adapter, dax-studio-export, dpm-consumer-integration, friction-log, hive-query, jira-changelog\n",
+  "captured": "2026-09-03",
+  "match": [
+    "skill",
+    "install"
+  ]
 }

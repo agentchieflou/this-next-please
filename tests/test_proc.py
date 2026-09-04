@@ -6,6 +6,7 @@ import os
 import stat
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -126,73 +127,88 @@ def test_run_returns_streams_and_reports_start_failure(tmp_path):
 
 
 def _fake_pncli(tmp_path, body: str) -> str:
+    """A stand-in pncli that runs `body`.
+
+    On Windows it is a `.cmd` running the same logic through Python, so the tests that use it are
+    not skipped on the one OS this module exists for. `tests/fakes/` is the transcript-driven
+    harness; this is the simpler shape for tests that only need "print this, exit with that".
+    """
+    if os.name == "nt":
+        script = tmp_path / "pncli-fake.py"
+        script.write_text(_body_as_python(body), encoding="utf-8", newline="\n")
+        p = tmp_path / "pncli-fake.cmd"
+        p.write_text(f'@ECHO OFF\r\n"{sys.executable}" "{script}" %*\r\n',
+                     encoding="utf-8", newline="")
+        return str(p)
     p = tmp_path / "pncli-fake"
     p.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8", newline="\n")
     os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return str(p)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
-def test_pncli_run_surfaces_exit_code_and_errors(tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, 'echo \'{"issues": [{"key": "RDSD-1"}]}\''))
-    payload, el = P.run(["jira", "search", "--jql", "key = RDSD-1"])
-    assert payload["issues"][0]["key"] == "RDSD-1" and el >= 0
-    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, 'echo "not json"; exit 3'))
-    with pytest.raises(proc.ProcError) as e:
-        P.run(["jira", "search"])
-    assert e.value.code == "bad_output" and e.value.detail["exit_code"] == 3 and "not json" in e.value.msg
-    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, 'echo \'{"ok": false, "error": "bad JQL"}\''))
-    with pytest.raises(proc.ProcError) as e:
-        P.run(["jira", "search"])
-    assert e.value.code == "pncli_error" and e.value.msg == "bad JQL"
-    monkeypatch.setenv("PNCLI_EXE", str(tmp_path / "gone.cmd"))
-    with pytest.raises(proc.ProcError) as e:
-        P.run(["jira", "search"])
-    assert e.value.code == "not_found" and "npm install -g @kolatts/pncli" in e.value.hint and "no pncli.exe" not in e.value.hint
+def _body_as_python(body: str) -> str:
+    """Translate the handful of `sh` one-liners these tests use into Python.
+
+    Deliberately tiny and deliberately explicit: anything more elaborate belongs in a transcript
+    under `tests/fakes/`, not in a translator nobody can read.
+    """
+    out = ["import sys"]
+    for statement in body.split(";"):
+        statement = statement.strip()
+        if not statement:
+            continue
+        if statement.startswith("printf "):
+            payload = statement[len("printf "):].strip().strip("'\"")
+            out.append(f"sys.stdout.write({payload!r})")
+        elif statement.startswith("echo ") and statement.endswith(">&2"):
+            payload = statement[len("echo "):-3].strip().strip("'\"")
+            out.append(f"sys.stderr.write({payload!r} + chr(10))")
+        elif statement.startswith("echo "):
+            payload = statement[len("echo "):].strip().strip("'\"")
+            out.append(f"sys.stdout.write({payload!r} + chr(10))")
+        elif statement.startswith("exit "):
+            out.append(f"sys.exit({int(statement.split()[1])})")
+        elif statement.startswith("cat "):
+            path = statement[len("cat "):].strip().strip("'\"")
+            out.append(f"sys.stdout.write(open({path!r}, encoding='utf-8').read())")
+        else:
+            out.append(f"raise SystemExit('unsupported fake body: {statement}')")
+    return chr(10).join(out) + chr(10)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
-def test_pncli_where_and_install_hint(tmp_path, monkeypatch):
+def test_install_hint_names_the_configured_package(tmp_path, monkeypatch):
+    """`where` itself is exercised against a fake in tests/test_fakes.py; this is the config half."""
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, 'echo "pncli/1.4.0"'))
-    info = P.where()
-    assert info["found"] and info["rc"] == 0 and info["version"] == "pncli/1.4.0" and info["kind"] == "executable"
-    monkeypatch.delenv("PNCLI_EXE")
+    monkeypatch.delenv("PNCLI_EXE", raising=False)
     with open(tmp_path / "cfg.json", "w", encoding="utf-8") as f:
         json.dump({"pncli": {"npm_package": "@acme/pncli"}}, f)
     assert "@acme/pncli" in P.install_hint()
+def test_usage_errors_become_the_exact_fix():
+    """2026-09-02 laptop friction: `jira get-issue RDSD-22399` -> pncli wants a NAMED option, --key.
 
-
-@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
-def test_usage_errors_become_the_exact_fix(tmp_path, monkeypatch):
-    """2026-09-02 laptop friction: `jira get-issue RDSD-22399` -> pncli wants a NAMED option, --key."""
+    Pure string work, so it needs no shell at all; the end-to-end half runs against a fake in
+    tests/test_fakes.py on every OS.
+    """
     assert P.usage_hint("error: required option '--key <issue-key>' not specified", ["jira", "get-issue", "RDSD-22399"]) == (
         "pncli options are named, never positional (you passed 'RDSD-22399' positionally): re-run with "
         "`--key RDSD-22399`, e.g. `ad-pncli raw jira get-issue --key RDSD-22399`")
     assert "--key <issue-key>" in P.usage_hint("required option '--key <issue-key>' not specified", ["jira", "get-issue"])
     assert "run `pncli jira --help` once" in P.usage_hint("error: unknown command 'fetch'", ["jira", "fetch", "X"])
     assert P.usage_hint("Traceback: connection reset", ["jira", "search"]) == ""
-    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    monkeypatch.setenv("PNCLI_EXE", _fake_pncli(tmp_path, "echo \"error: required option '--key <issue-key>' not specified\" >&2; exit 1"))
-    with pytest.raises(proc.ProcError) as e:
-        P.run(["jira", "get-issue", "RDSD-22399"])
-    assert e.value.code == "bad_output" and "--key RDSD-22399" in e.value.hint and e.value.detail["exit_code"] == 1
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
-def test_get_issue_uses_the_named_option_and_renames_fields(tmp_path, monkeypatch):
+def test_get_issue_renames_and_selects_fields(monkeypatch, tmp_path):
+    """The field mapping is pure; the subprocess half lives in tests/test_fakes.py, where it runs
+    on Windows too rather than being skipped there."""
+    import fakes
+
+    fakes.apply(monkeypatch, tmp_path, ["pncli"], case="get_issue_ok")
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    echo = _fake_pncli(tmp_path, 'printf \'{"key":"RDSD-22399","fields":{"summary":"Trace points","description":"AC: 1) x","status":{"name":"In Progress"}}}\'; echo " " >&2')
-    monkeypatch.setenv("PNCLI_EXE", echo)
-    t = P.get_issue("RDSD-22399")
-    assert t.source == "pncli jira get-issue --key RDSD-22399"
-    row = dict(zip(t.columns, t.rows[0]))
-    assert row["key"] == "RDSD-22399" and row["status"] == "In Progress" and row["description"] == "AC: 1) x"
+    monkeypatch.setenv("PNCLI_EXE", os.path.join(str(tmp_path), "fakebin",
+                                                 "pncli.cmd" if os.name == "nt" else "pncli"))
     t = P.get_issue("RDSD-22399", ["key", "description"])
-    assert t.columns == ["key", "description"] and t.rows == [["RDSD-22399", "AC: 1) x"]]
-
-
+    assert t.columns == ["key", "description"]
+    assert t.rows == [["RDSD-22399", "AC: 1) x"]]
 def test_well_known_install_dirs_are_searched(tmp_path, monkeypatch):
     """az lives in C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin, which the installer does not always leave on PATH."""
     wbin = tmp_path / "Program Files" / "Microsoft SDKs" / "Azure" / "CLI2" / "wbin"
@@ -227,7 +243,7 @@ def test_a_pinned_js_entry_point_runs_through_node(tmp_path, monkeypatch):
     assert info["kind"] == "executable" and "no `node` on PATH" in info["error"]
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
+@pytest.mark.skipif(os.name == "nt", reason="the stand-in is a shell loop; Windows is covered by test_a_multiline_body_is_refused_through_a_cmd_shim")
 def test_raw_body_file_sends_the_page_as_one_argument(tmp_path, monkeypatch, capsys):
     """`pncli confluence create-page` takes the body INLINE. A page of HTML cannot survive shell quoting, so it goes
     across as a single argv element — and is never echoed back into the agent's context."""
@@ -263,7 +279,7 @@ def test_raw_refuses_to_post_markdown_to_confluence(tmp_path, monkeypatch, capsy
     assert "PNCLI_EXE" not in os.environ                              # refused without ever looking for pncli
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX shell stand-in for pncli")
+@pytest.mark.skipif(os.name == "nt", reason="the stand-in is a shell loop; Windows is covered by test_a_multiline_body_is_refused_through_a_cmd_shim")
 def test_raw_lets_a_converted_body_and_a_jira_comment_through(tmp_path, monkeypatch, capsys):
     """The other half: the gate is narrow. Storage format passes, and Markdown in a Jira comment is not a page."""
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
@@ -280,3 +296,134 @@ def test_raw_lets_a_converted_body_and_a_jira_comment_through(tmp_path, monkeypa
     monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(md), "jira", "add-comment", "--key", "X"])
     cli.main_pncli()
     assert "ok: true" in capsys.readouterr().out
+
+
+# --------------------------------------------- the timeout has to be a timeout, grandchildren or not
+
+
+def test_a_surviving_grandchild_does_not_hold_the_call_open(tmp_path):
+    """The Windows failure this exists for, reproduced on every OS.
+
+    `subprocess.run(capture_output=True, ...)` waits for the pipe write-ends to close, and a
+    grandchild that inherited them keeps them open long after the child has exited. `ad-update`
+    spawns pip, pip spawns git, git spawns upload-pack -- and a CI runner sat in exactly that state
+    for ten minutes with a 600-second timeout set, because the timeout could not fire either.
+
+    Here the child spawns a grandchild that sleeps for two minutes, then exits at once. The call
+    must come back with the child, not with the grandchild.
+    """
+    child = tmp_path / "child.py"
+    child.write_text(
+        "import subprocess, sys\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+        "print('done')\n",
+        encoding="utf-8")
+
+    start = time.time()
+    rc, out, _err, _el = proc.run([sys.executable, str(child)], timeout=90)
+    elapsed = time.time() - start
+
+    assert rc == 0, out
+    assert "done" in out
+    assert elapsed < 30, f"took {elapsed:.0f}s: the grandchild held the call open"
+
+
+def test_a_child_that_never_finishes_is_a_timeout_not_a_hang(tmp_path):
+    """And the timeout itself has to fire, with the tree killed behind it."""
+    child = tmp_path / "sleeper.py"
+    child.write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
+
+    start = time.time()
+    with pytest.raises(proc.ProcError) as caught:
+        proc.run([sys.executable, str(child)], timeout=5)
+    elapsed = time.time() - start
+
+    assert caught.value.code == "timeout", caught.value.msg
+    assert elapsed < 60, f"a 5s timeout took {elapsed:.0f}s to fire"
+
+
+def test_nothing_we_spawn_can_wait_for_a_person(tmp_path):
+    """stdin is /dev/null, so a child that reads it gets EOF rather than a wait nobody will end.
+
+    git reaching for a credential helper is the usual way this happens, and on a machine with no
+    console attached it waits forever instead of failing.
+    """
+    reader = tmp_path / "reader.py"
+    reader.write_text("import sys\nprint(repr(sys.stdin.read()))\n", encoding="utf-8")
+
+    start = time.time()
+    rc, out, _err, _el = proc.run([sys.executable, str(reader)], timeout=20)
+    assert time.time() - start < 20, "reading stdin blocked"
+    assert rc == 0
+    assert out.strip() == "''", f"stdin was not empty: {out!r}"
+
+
+@pytest.mark.posix
+@pytest.mark.skipif(os.name == "nt", reason="process groups are a POSIX concept; the Windows kill "
+                                            "path is covered by "
+                                            "test_a_child_that_never_finishes_is_a_timeout_not_a_hang")
+def test_kill_tree_never_signals_its_own_process_group(tmp_path):
+    """The one that killed a CI runner, and would have killed a user's shell.
+
+    `kill_tree`'s POSIX path reached for psutil and, failing that, did
+    `os.killpg(os.getpgid(pid), SIGKILL)`. psutil lives in the `pbi` extra, so on an ordinary install
+    it is absent and the fallback always ran -- and a child started **without**
+    `start_new_session=True` shares its parent's process group. That line therefore SIGKILLed the
+    caller: on a hosted runner it took out pytest and the shell above it, which is why a 46-minute
+    job ended with no failure, no logs and no step conclusion. `ad-test run` has called this on its
+    timeout path since it was written.
+
+    Here the child is deliberately left in *our* group, which is the dangerous shape. If `kill_tree`
+    signals the group, this process dies and the whole suite dies with it -- so reaching the last
+    line is itself the assertion.
+    """
+    sleeper = tmp_path / "sleeper.py"
+    sleeper.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+
+    child = subprocess.Popen([sys.executable, str(sleeper)],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)          # NOT start_new_session
+    assert os.getpgid(child.pid) == os.getpgid(0), "the child must share our group for this to test anything"
+
+    proc.kill_tree(child.pid)
+
+    assert child.wait(timeout=30) is not None, "the child outlived a kill aimed at it"
+    assert os.getpid() > 0, "we are still here, which is the point"
+
+
+@pytest.mark.posix
+@pytest.mark.skipif(os.name == "nt", reason="process groups are a POSIX concept; the Windows tree "
+                                            "kill is covered by "
+                                            "test_a_child_that_never_finishes_is_a_timeout_not_a_hang")
+def test_kill_tree_takes_the_whole_group_when_the_child_leads_one(tmp_path):
+    """And when the child *does* lead its own session, its descendants go with it -- which is the
+    reason `_spawn` passes `start_new_session=True`."""
+    import signal
+
+    script = tmp_path / "parent.py"
+    script.write_text(
+        "import subprocess, sys, time\n"
+        "kid = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "print(kid.pid, flush=True)\n"
+        "time.sleep(60)\n",
+        encoding="utf-8")
+
+    parent = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, text=True,
+                              stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              start_new_session=True)
+    grandchild = int(parent.stdout.readline().strip())
+
+    proc.kill_tree(parent.pid)
+    parent.wait(timeout=30)
+
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            os.kill(grandchild, 0)
+        except OSError:
+            break
+        time.sleep(0.2)
+    else:
+        os.kill(grandchild, signal.SIGKILL)
+        raise AssertionError("the grandchild survived a group kill")
+

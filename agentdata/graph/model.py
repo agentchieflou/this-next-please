@@ -26,8 +26,8 @@ class Node:
     @property
     def path(self) -> str:
         if self.where and ":" in self.where:
-            return self.where.split(":", 1)[0].replace("\\", "/")
-        return self.id.split("::", 1)[0].replace("\\", "/")
+            return textio.norm_path(self.where.split(":", 1)[0])
+        return textio.norm_path(self.id.split("::", 1)[0])
 
     @property
     def line_start(self) -> int:

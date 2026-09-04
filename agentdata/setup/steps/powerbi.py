@@ -8,6 +8,7 @@ import tempfile
 import urllib.parse
 from ... import config as C
 from ..wizard import Context, Step
+from ... import textio
 
 TOOLS = {
     "te2_exe": ("TabularEditor.exe", ["C:/Program Files (x86)/Tabular Editor/TabularEditor.exe",
@@ -44,11 +45,11 @@ class PowerBIStep(Step):
             return configured
         w = ctx.det.which(exe)
         if w:
-            return w.replace("\\", "/")
+            return textio.norm_path(w)
         for c in candidates:
             p = C.expand(c)
             if ctx.det.exists(p):
-                return p.replace("\\", "/")
+                return textio.norm_path(p)
         return configured  # configured but missing: check() flags it
 
     def detect(self, ctx: Context) -> dict:
@@ -141,7 +142,7 @@ class PowerBIStep(Step):
             is_conf = bool(tool_path and ctx.det.exists(tool_path))
             p = ctx.ask.ask(f"powerbi.{n}", f"path to {exe} (blank = not installed)", tool_path, confident=is_conf)
             if p:
-                C.put(cfg, f"powerbi.tools.{n}", p.replace("\\", "/"))
+                C.put(cfg, f"powerbi.tools.{n}", textio.norm_path(p))
                 if not ctx.det.exists(p):
                     ctx.add(self.key, n, "warn", f"path not found: {p}", "check the path (ad-setup --patch)", (f"powerbi.{n}",))
             else:

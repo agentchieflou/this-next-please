@@ -31,9 +31,11 @@ COMMANDS = {
     "graph": ("agentdata.cli_graph", "main", "code graph extraction, queries, approval, and guard"),
     "test": ("agentdata.cli_test", "main", "repository test runner detection, execution, and normalization"),
     "argv": ("agentdata.cli_argv", "main", "print the argv Python received, and the shell it came from"),
+    "_complete": ("agentdata.complete", "main", "shell tab-completion candidates, one per line"),
 }
-# diagnostics: real commands, deliberately absent from the catalog a person reads
-HIDDEN = {"argv"}
+# diagnostics and shell plumbing: real commands, deliberately absent from the catalog a person
+# reads. `_complete` runs on a keypress, so it must never look like something to type.
+HIDDEN = {"argv", "_complete"}
 USAGE = ("usage: python -m agentdata <command> [options]\n\nSame commands as the ad-* console scripts:\n"
          + "\n".join(f"  {name:<10} ad-{name:<10} {help}"
                      for name, (_m, _f, help) in COMMANDS.items() if name not in HIDDEN)
@@ -58,7 +60,10 @@ def main(argv: list[str] | None = None) -> int:
         from .version import version_string
         print(version_string())
         return 0
-    if not argv or argv[0] in ("-h", "--help", "help"):
+    # `help` with something after it is the ad-help command, not a synonym for this usage screen:
+    # treating it as one made `python -m agentdata help pbip` print the catalog while `ad-help pbip`
+    # printed pbip's help, so the two forms this project promises are identical were not.
+    if not argv or argv[0] in ("-h", "--help") or (argv[0] == "help" and len(argv) == 1):
         usage()
         return 0
     name, rest = argv[0], argv[1:]

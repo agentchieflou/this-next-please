@@ -1,0 +1,20 @@
+{
+  "posix": {
+    "agentdata/color.py": 60,
+    "agentdata/config.py": 95,
+    "agentdata/console.py": 35,
+    "agentdata/proc.py": 80,
+    "agentdata/state.py": 95,
+    "agentdata/textio.py": 75,
+    "agentdata/update.py": 80
+  },
+  "windows": {
+    "agentdata/color.py": 80,
+    "agentdata/config.py": 95,
+    "agentdata/console.py": 55,
+    "agentdata/proc.py": 80,
+    "agentdata/state.py": 95,
+    "agentdata/textio.py": 80,
+    "agentdata/update.py": 80
+  }
+}
