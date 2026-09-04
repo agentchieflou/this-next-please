@@ -18,6 +18,7 @@ from .pbip import desktop as DT
 from .pbip import edit as E
 from .pbip import normalize as N
 from .pbip import project as PJ
+from .pbip import screenshot as SC
 from .pbip import tmdl as T
 from .policy import error, render
 from . import policy, ui
@@ -170,6 +171,36 @@ def cmd_capabilities(a) -> int:
     return 0
 
 
+def cmd_screenshot(a) -> int:
+    if getattr(a, "compare", None):
+        if len(a.compare) != 2:
+            print(error("--compare requires exactly 2 image paths", "pass: --compare <a.png> <b.png>", "ad-pbip"))
+            return 2
+        img_a, img_b = a.compare
+        masks = []
+        res = SC.compare_images(img_a, img_b, threshold=getattr(a, "threshold", 0.5), masks=masks)
+        if policy.pretty():
+            ui.facts([(k, v) for k, v in res.items()], title="ad-pbip screenshot compare", subtitle=res["verdict"])
+        else:
+            print(toon.encode({"meta": {"ok": True, "source": "ad-pbip screenshot compare", **res}}))
+        return 0 if res["verdict"] == "same" else 1
+
+    if not getattr(a, "pid", None):
+        print(error("give --pid <pid> (ad-pbip desktop) or --compare <a.png> <b.png>", "", "ad-pbip"))
+        return 2
+
+    pages, visuals = SC.screenshot_session(a.pid, page=getattr(a, "page", None), all_pages=getattr(a, "all", False),
+                                           scale=getattr(a, "scale", 1), visual=getattr(a, "visual", None),
+                                           settle_s=getattr(a, "settle", 0.5), out_dir=getattr(a, "out", None))
+    if not pages:
+        print(error("no pages captured", "check --pid and that Desktop window is open", "ad-pbip"))
+        return 1
+
+    t = AgentTable.from_records(pages, name="screenshots", source="ad-pbip screenshot")
+    print(render(t, extra={"pages": len(pages), "visuals": len(visuals)}))
+    return 0
+
+
 def cmd_launch(a) -> int:
     exe = a.exe or C.get(C.load(), "powerbi.tools.pbi_desktop_exe")
     res = DT.launch(a.path, exe if exe and os.path.exists(exe) else None)
@@ -312,8 +343,7 @@ def cmd_measure_set(a) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    utf8_stdout()
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="ad-pbip", description="PBIP projection, model<->report validation, TMDL lint and mechanical edits.")
     from . import version
     version.add_version(ap)
@@ -367,6 +397,20 @@ def main(argv: list[str] | None = None) -> int:
     p_cap.add_argument("--pid", type=int, help="evaluate capabilities for a specific Desktop pid")
     p_cap.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p_cap.set_defaults(fn=cmd_capabilities)
+
+    p_shot = sub.add_parser("screenshot", help="capture page or visual screenshots, or compare before/after images")
+    p_shot.add_argument("--pid", type=int, help="running Desktop process id to capture")
+    p_shot.add_argument("--page", help="page id or displayName to capture")
+    p_shot.add_argument("--all", action="store_true", help="capture all pages")
+    p_shot.add_argument("--scale", type=int, default=1, choices=[1, 2, 3], help="rendering scale multiplier (default: 1)")
+    p_shot.add_argument("--visual", help="visual title or id to crop from page")
+    p_shot.add_argument("--settle", type=float, default=0.5, help="seconds to wait for render settle (default: 0.5)")
+    p_shot.add_argument("--out", help="output directory for captured images (default: .agent/out/shots/<ts>/)")
+    p_shot.add_argument("--compare", nargs=2, metavar=("A", "B"), help="compare two images: --compare <a.png> <b.png>")
+    p_shot.add_argument("--threshold", type=float, default=0.5, help="change ratio threshold for verdict (default: 0.5)")
+    p_shot.add_argument("--mask", action="append", help="visual id to mask during compare")
+    p_shot.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p_shot.set_defaults(fn=cmd_screenshot)
     p = sub.add_parser("launch", help="open a .pbip in Power BI Desktop")
     p.add_argument("path"); p.add_argument("--exe")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
@@ -394,6 +438,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_measure_set)
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    utf8_stdout()
+    ap = build_parser()
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if getattr(a, "pretty", False):
