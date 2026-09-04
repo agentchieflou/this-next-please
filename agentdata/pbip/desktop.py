@@ -560,3 +560,41 @@ def capabilities(pid: int | None = None, run: Runner | None = None) -> list[dict
     })
 
     return out
+
+
+def save(pid: int | None = None, run: Runner | None = None, timeout: int = 15) -> dict[str, Any]:
+    """Trigger Save on Power BI Desktop via UIAutomation / SendKeys (Ctrl+S)."""
+    run_fn = run or default_run
+    target_pid = pid
+    if target_pid is None:
+        insts = status(run=run_fn)
+        if insts and insts[0].pid:
+            target_pid = insts[0].pid
+    if not target_pid:
+        return {"ok": False, "error": "no running Power BI Desktop instance found"}
+
+    ps_script = f"""
+    try {{
+        Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Windows.Forms -ErrorAction SilentlyContinue
+        $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, {target_pid})
+        $win = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
+        if ($win) {{
+            $win.SetFocus()
+            [System.Windows.Forms.SendKeys]::SendWait("^s")
+            [PSCustomObject]@{{ ok = $true; pid = {target_pid}; method = "sendkeys" }} | ConvertTo-Json -Compress
+            exit 0
+        }}
+        [PSCustomObject]@{{ ok = $false; error = "window for pid {target_pid} not found" }} | ConvertTo-Json -Compress
+        exit 1
+    }} catch {{
+        [PSCustomObject]@{{ ok = $false; error = $_.Exception.Message }} | ConvertTo-Json -Compress
+        exit 1
+    }}
+    """
+    rc, out, err = run_fn(PS + [ps_script], timeout)
+    if rc == 0 and out.strip():
+        try:
+            return json.loads(out.strip())
+        except Exception:
+            pass
+    return {"ok": False, "error": err or out or "save failed"}

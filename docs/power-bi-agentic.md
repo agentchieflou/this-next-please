@@ -35,6 +35,14 @@ $$\text{Plan} \longrightarrow \text{Design} \xrightarrow{\text{Gate 1: Brief App
   - `ad-pbip theme set`
 - **Verification Loop**: After edits, reload running Desktop (`ad-pbip desktop reload --pid <pid>`) and verify via screenshot (`ad-pbip screenshot --pid <pid> --page <p>`).
 
+### §3b. Model Authoring, Audit & Optimization (`tmdl-edit` & `pbi-model-audit`)
+- **Tier 1 (Live TOM)**: `ad-pbip model apply --server <host:port>|--pid <pid> --ops <ops.json> [--save]` modifies the live model over port via Tabular Editor 2 `-S apply.csx`. Exact TOM errors are returned per op. When `--save`, session save triggers via UIA (`Ctrl+S`) and waits for Desktop-serialised TMDL to settle.
+- **Tier 2 (TMDL Writer)**: `ad-pbip model apply --model <definition> --ops <ops.json>` applies the same declarative op list directly to TMDL files with mechanical formatting and automatic lint validation.
+- **`lineageTag` Policy**: We never emit `lineageTag` or `annotation PBI_*` on newly created objects; Desktop generates lineageTags on save.
+- **Best-Practice Audit**: `ad-pbip model audit` evaluates 8+ canonical rules, emitting TOON rows with actionable `fix` snippets.
+- **Copilot AI Readiness**: `ad-pbip model audit --copilot` scores the model (0-100%) on descriptions, technical key hiding hygiene, and synonyms.
+- **DAX Optimization**: `ad-pbip model optimize --measure <M> --pid <pid>` benchmarks before/after trace evidence, applies provable rewrites (variables, `KEEPFILTERS`, `CALCULATE`, `DIVIDE`), and strictly rolls back if evaluation results differ.
+
 ### §4. Validate (`pbi-validate`)
 - Cross-validate PBIR reports and TMDL models (`ad-pbip check <pbip>`).
 - Run anti-pattern linting:

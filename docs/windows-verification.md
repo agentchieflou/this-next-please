@@ -162,6 +162,23 @@ ad-pbip trace report .agent/out/trace.jsonl                            # aggrega
 ```
 Pass: `dmv deps` and `segments` return formatted tables; `refs --live` shows synced/live-only status; `page-cost` navigates page and computes per-visual and total query time; `trace report` correlates query hashes to visual projections.
 
+## 16. Model authoring, audit, and optimization (#58)
+### §Model apply
+```powershell
+# Tier 1: Live TOM edits directly to running Power BI Desktop instance with session save
+ad-pbip model apply --pid <pid> --ops .agent/ops.json --save
+# Tier 2: TMDL file writer fallback
+ad-pbip model apply --model <definition> --ops .agent/ops.json
+# Model best practice audit (8+ rules with fixes)
+ad-pbip model audit <definition> [--bpa]
+# Copilot AI readiness scored checklist
+ad-pbip model audit <definition> --copilot
+# Measure optimization with trace evidence and regression protection
+ad-pbip model optimize --measure "Margin %" --pid <pid>
+```
+Pass: `model apply` executes declarative ops over the port through TE2 `-S` or falls back to TMDL file editing with no `lineageTag` written; `--save` triggers UIA session save and waits for Desktop-serialised TMDL to settle; `model audit` returns actionable `fix` snippets; `audit --copilot` outputs a scored checklist; `model optimize` verifies results match before keeping rewrites and rolls back on mismatch.
+
+
 ## Triage map (where a failure lands)
 | Symptom | Module | Likely fix |
 |---|---|---|

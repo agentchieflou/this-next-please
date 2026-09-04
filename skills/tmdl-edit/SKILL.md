@@ -6,11 +6,30 @@ description: "Use for any change to a Power BI semantic model stored as TMDL —
 
 Inputs: `pbip_path` / `tmdl_path` facts. Prereq: `pbip-projection` ran this session (you know table, object names and where they are used).
 
-1. Impact first: `ad-pbip refs --table <T> --column <C>` (or `--measure <M>`). Every visual, filter, measure, relationship, sort-by and hierarchy listed there breaks if you rename or remove the object. Renames: change the TMDL **and** every listed `visual.json`/filter, or stop and `friction-log` type `ambiguity`.
-2. Measures → never hand-write the block. `ad-pbip measure set --table <T> --name "<Measure>" --expr-file .agent/dax/<KEY>-<measure>.dax [--format-string "#,##0"] [--display-folder KPIs] [--description "..."]`. It inserts/replaces with Desktop layout (fenced ``` body, properties one level under, no lineageTag — Desktop assigns one on save) and refuses edits that would leave the file invalid.
-3. Other edits (columns, relationships, hierarchies, partitions): follow `references/tmdl-syntax.md` exactly — one TAB per level, `key: value` properties, bare keywords for true booleans, single quotes around names with spaces or `. = : '` (also in `sortByColumn: 'Week Day (#)'`, `fromColumn: Sales.'Order Date'`), multi-line expressions in a ``` block indented two levels under the declaration, `///` descriptions above the object, no `//` comments, new tables need `ref table` in `model.tmdl`. Then `ad-pbip lint <definition folder>`; fix every `error` row.
+Tool tiers:
+- **Tier 1 (Live TOM)**: `ad-pbip model apply --pid <pid>|--server <host:port> --ops <ops.json> [--save]` writes changes directly into the running Desktop model through TOM; `--save` triggers session save and waits for TMDL to settle.
+- **Tier 2 (TMDL writer)**: `ad-pbip model apply --model <definition> --ops <ops.json>` applies the same declarative op list directly to TMDL files with mechanical indentation and runs `ad-pbip lint`.
+- No third tier: if both fail, log `friction-log` type `contract`.
+
+1. Impact first: `ad-pbip refs --table <T> --column <C>` (or `--measure <M>`). Every visual, filter, measure, relationship, sort-by and hierarchy listed there breaks if you rename or remove the object. Renames: change the model **and** every listed `visual.json`/filter, or stop and `friction-log` type `ambiguity`.
+2. Measures: `ad-pbip measure set --table <T> --name "<Measure>" --expr-file .agent/dax/<KEY>-<measure>.dax [--format-string "#,##0"] [--display-folder KPIs] [--description "..."]` (thin alias of `model apply`). Never hand-write the block. It inserts/replaces with Desktop layout (fenced ``` body, properties one level under, no lineageTag — Desktop assigns one on save) and refuses edits that would leave the file invalid.
+3. Model edits (columns, relationships, hierarchies, calc groups, partitions, roles): run `ad-pbip model apply --ops <ops.json>` using supported op types:
+   - `measure.set`: `{op: "measure.set", table, name, expression, formatString, displayFolder, description, isHidden}`
+   - `column.calc.set`: `{op: "column.calc.set", table, name, expression, dataType, formatString, isHidden, description}`
+   - `relationship.set`: `{op: "relationship.set", fromTable, fromColumn, toTable, toColumn, cardinality, crossFilteringBehavior, isActive}`
+   - `hierarchy.set`: `{op: "hierarchy.set", table, name, levels: [{name, column}], isHidden, description}`
+   - `calcgroup.set`: `{op: "calcgroup.set", table, name, precedence, items: [{name, expression, formatStringExpression, ordinal}]}`
+   - `fieldparam.set`: `{op: "fieldparam.set", table, name, fields: [ref1, ref2, ...]}`
+   - `role.set`: `{op: "role.set", name, modelPermission, tablePermissions: [{table, filterExpression}]}`
+   - `partition.set`: `{op: "partition.set", table, name, mode, source: {type, query}}`
+   - `perspective.set`: `{op: "perspective.set", name, tables: [...]}`
+   - `object.describe`: `{op: "object.describe", table, objectType, name, description}`
+   - `object.hide`: `{op: "object.hide", table, objectType, name, isHidden}`
+   - `object.delete`: `{op: "object.delete", table, objectType, name}`
+   The syntax reference in `references/tmdl-syntax.md` is for review and verification, not manual authoring.
 4. `ad-pbip check` (structure) — must be `ok: true`. Then `ad-pbip project --force` so the projection matches the edit.
 5. Commit the TMDL change on the ticket branch (`bitbucket-pr` step 3 style commit message: `feat: <KEY> <what>`). Do not open Desktop before committing; its save rewrites files.
 6. Hand off → `pbi-validate` (mandatory; it runs Tabular Editor for real DAX errors and evaluates the affected visuals). Never skip it, never deploy from here.
 
 Reference: `references/tmdl-syntax.md` (syntax rules, Desktop conventions, worked examples for each edit type, pitfalls).
+
