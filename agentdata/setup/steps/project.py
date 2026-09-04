@@ -7,6 +7,7 @@ project repo needs nothing installed: it holds PBIP folders and TMDL, not Python
 from __future__ import annotations
 import os
 import re
+import sys
 from ... import config as C
 from ...install import install_cmd, templates_dir
 from ..wizard import Context, Step
@@ -60,7 +61,43 @@ class ProjectStep(Step):
 
     def detect(self, ctx: Context) -> dict:
         td = template_dir()
-        return {"template": td, "template_ok": ctx.det.exists(os.path.join(td, "AGENTS.md")), "dir": ctx.project_dir}
+        d = ctx.project_dir or "."
+        from ...testing import detect as test_detect
+        runner_info = test_detect.detect_runner(d, det=ctx.det)
+        runner_ok = False
+        runner_err = ""
+        runner_hint = ""
+        if runner_info:
+            cmd_parts = runner_info.cmd.split()
+            first_cmd = cmd_parts[0] if cmd_parts else ""
+            if first_cmd == "python":
+                first_cmd = sys.executable
+            info = ctx.det.launcher(first_cmd)
+            if info.get("found"):
+                if "rc" in info:
+                    runner_ok = (info["rc"] == 0)
+                else:
+                    rc, out, err = ctx.det.run([info["path"], "--version"])
+                    runner_ok = (rc == 0)
+                    if not runner_ok:
+                        rc2, out2, err2 = ctx.det.run([info["path"], "--help"])
+                        runner_ok = (rc2 == 0)
+                if not runner_ok:
+                    runner_err = f"runner failed to start ({runner_info.cmd})"
+                    runner_hint = f"check {runner_info.runner} installation or set project.test_cmd in AGENTS.md"
+            else:
+                runner_err = f"{first_cmd}: executable not found"
+                runner_hint = f"install {runner_info.runner} and put it on PATH"
+        return {
+            "template": td,
+            "template_ok": ctx.det.exists(os.path.join(td, "AGENTS.md")),
+            "dir": ctx.project_dir,
+            "runner": runner_info.runner if runner_info else None,
+            "runner_cmd": runner_info.cmd if runner_info else None,
+            "runner_ok": runner_ok,
+            "runner_err": runner_err,
+            "runner_hint": runner_hint,
+        }
 
     def check(self, ctx: Context, found: dict) -> None:
         if found["template_ok"]:
@@ -75,6 +112,18 @@ class ProjectStep(Step):
                 ctx.add(self.key, rel.replace(os.sep, "/"), "ok" if ok else "warn", C.display_path(p),
                         "" if ok else f"ad-setup --project {found['dir']}")
 
+        if found.get("runner_ok"):
+            ctx.add(self.key, "tests/runner", "ok", f"{found['runner']}: {found['runner_cmd']}",
+                    keys=("project.test_cmd",))
+        elif found.get("runner"):
+            ctx.add(self.key, "tests/runner", "fail",
+                    found.get("runner_err") or f"cannot start test runner ({found['runner_cmd']})",
+                    found.get("runner_hint") or f"install {found['runner']} or set project.test_cmd in AGENTS.md",
+                    keys=("project.test_cmd",))
+        else:
+            ctx.add(self.key, "tests/runner", "warn", "no test runner detected",
+                    "set test_cmd in AGENTS.md", keys=("project.test_cmd",))
+
     def ask(self, ctx: Context, found: dict) -> None:
         d = ctx.project_dir
         if not d:
@@ -88,6 +137,7 @@ class ProjectStep(Step):
         facts["jira_project"] = ctx.ask.ask("project.jira_project", "Jira project key", ctx.facts.get("jira_project") or "")
         facts["confluence_space"] = ctx.ask.ask("project.confluence_space", "Confluence space key (blank = later)", ctx.facts.get("confluence_space") or "")
         facts["confluence_parent"] = ctx.ask.ask("project.confluence_parent", "Confluence parent page id (blank = later)", ctx.facts.get("confluence_parent") or "")
+        facts["test_cmd"] = ctx.ask.ask("project.test_cmd", "Test command (blank = auto-detect)", ctx.facts.get("test_cmd") or "")
         pbips = [p for p in ctx.det.glob("**/*.pbip", d) if ".agent" not in p]
         if pbips:
             facts["pbip_path"] = os.path.relpath(pbips[0], d).replace("\\", "/")

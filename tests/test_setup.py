@@ -1,4 +1,4 @@
-import json, os
+import json, os, sys
 import pytest
 from agentdata import config as C
 from agentdata.setup import wizard as W
@@ -827,4 +827,23 @@ def test_powerbi_doctor_desktop_version_and_capabilities(cfg_path, capsys):
     assert "desktop/version" in out
     assert "desktop/capabilities" in out
     assert "capabilities available" in out
+
+
+def test_project_step_tests_runner_check(capsys, tmp_path):
+    """Doctor project step includes tests/runner check row (issue #45)."""
+    # 1. When no runner detected: status is warn
+    det_empty = FakeDet()
+    rc = W.run_doctor(["--only", "project"], det_empty)
+    out = capsys.readouterr().out
+    assert "tests/runner" in out
+    assert "warn" in out
+    assert "no test runner detected" in out
+
+    # 2. When runner detected and runnable: status is ok
+    det_pytest = FakeDet(tools={"python": sys.executable})
+    det_pytest.files[os.path.abspath("pyproject.toml")] = "[tool.pytest.ini_options]\n"
+    rc = W.run_doctor(["--only", "project"], det_pytest)
+    out = capsys.readouterr().out
+    assert "tests/runner" in out
+    assert "ok" in out
 

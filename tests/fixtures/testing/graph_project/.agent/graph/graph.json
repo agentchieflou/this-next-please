@@ -1,0 +1,49 @@
+{
+  "root": ".",
+  "nodes": [
+    {
+      "id": "src/calculator.py::add",
+      "path": "src/calculator.py",
+      "name": "add",
+      "kind": "function",
+      "line_start": 1,
+      "line_end": 2
+    },
+    {
+      "id": "src/calculator.py::subtract",
+      "path": "src/calculator.py",
+      "name": "subtract",
+      "kind": "function",
+      "line_start": 5,
+      "line_end": 6
+    },
+    {
+      "id": "tests/test_calculator.py::test_add",
+      "path": "tests/test_calculator.py",
+      "name": "test_add",
+      "kind": "function",
+      "line_start": 8,
+      "line_end": 9
+    },
+    {
+      "id": "tests/test_calculator.py::test_subtract",
+      "path": "tests/test_calculator.py",
+      "name": "test_subtract",
+      "kind": "function",
+      "line_start": 12,
+      "line_end": 13
+    }
+  ],
+  "edges": [
+    {
+      "source": "tests/test_calculator.py::test_add",
+      "target": "src/calculator.py::add",
+      "kind": "tests"
+    },
+    {
+      "source": "tests/test_calculator.py::test_subtract",
+      "target": "src/calculator.py::subtract",
+      "kind": "tests"
+    }
+  ]
+}
