@@ -253,3 +253,30 @@ At the password question, type a few characters. **Nothing may appear.** If the 
 line above them should be the one naming `winpty` — not `getpass`'s *"Warning: Password input may be
 echoed"*. Paste whichever you get.
 
+## Arguments: the argv table, per shell
+
+CI runs this on GitHub's bash 5.x; the laptop's **bash 4.4** is the floor and only you can prove it.
+Run each line and paste what it prints.
+
+```bash
+python -m agentdata argv --raw -- -s /nope
+python -m agentdata argv --raw -- /c/Users
+MSYS_NO_PATHCONV=1 python -m agentdata argv --raw -- -s /nope
+python -m agentdata argv --raw -- 'a >= b' 'literal $KEY' '' 'e-acute and an arrow'
+```
+
+Expected: `/nope` becomes `C:/Program Files/Git/nope`; `/c/Users` becomes `C:/Users`;
+`MSYS_NO_PATHCONV=1` leaves `/nope` alone; the last line round-trips exactly, empty argument included.
+
+Then the same in **pwsh 7**:
+
+```powershell
+$KEY = 'RDSD'
+python -m agentdata argv --raw -- "project = $KEY"      # expands
+python -m agentdata argv --raw -- 'project = $KEY'      # literal
+python -m agentdata argv --raw -- 'say "hi"'            # quotes survive on 7.3+
+python -m agentdata argv --raw -- '%PATH%'              # literal; only cmd expands it
+$PSNativeCommandArgumentPassing                          # paste this too
+```
+
+Anything that disagrees with `docs/shells.md` is a bug in the doc, not a local quirk.

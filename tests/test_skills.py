@@ -68,3 +68,39 @@ def test_router_early_warning_threshold():
     text = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
     lines = text.count("\n") + (0 if text.endswith("\n") else 1)
     assert lines < 60, f"router/SKILL.md is {lines} lines (early warning limit: 60; split further into domain sub-routers)"
+
+
+# Lines that are genuinely one-shell, with the reason. Kept explicit and short: an entry here is a
+# promise that the other shell has no equivalent, not a place to park work.
+ONE_SHELL_ALLOWED = {
+    # sbatch scripts are POSIX by definition -- the cluster runs Linux
+    ("slurm-submit", "export "),
+}
+
+
+def test_shell_specific_commands_show_both_forms():
+    """`& "<exe>"` is pwsh's call operator and is a syntax error in bash; bash needs no `&`.
+
+    A skill that shows only one form sends half its readers to a broken command line, which is what
+    docs/shells.md exists to stop. Either write it shell-neutral (`ad-*`, `python -m agentdata`) or
+    show both.
+    """
+    problems = []
+    for path in SKILLS:
+        name = os.path.basename(os.path.dirname(path))
+        text = open(path, encoding="utf-8").read()
+        for n, line in enumerate(text.splitlines(), 1):
+            # `export ` on its own matches prose ("export measures"); only the assignment form is a
+            # shell command
+            markers = [m for m in ('& "', "$env:") if m in line]
+            if re.search(r"\bexport [A-Za-z_]\w*=", line):
+                markers.append("export ")
+            for marker in markers:
+                if any(name == skill and marker == m for skill, m in ONE_SHELL_ALLOWED):
+                    continue
+                # the counterpart may be on this line or the next one
+                window = "\n".join(text.splitlines()[n - 1:n + 1])
+                has_pair = ("pwsh" in window and "bash" in window)
+                if not has_pair:
+                    problems.append(f"{name}/SKILL.md:{n}: {marker!r} with no counterpart shown")
+    assert not problems, ("shell-specific command lines need both forms:\n  " + "\n  ".join(problems))

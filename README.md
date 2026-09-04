@@ -62,6 +62,9 @@ ad-update --check
   the 3.12 floor, or a proxy. `ad-update --check` lists every installed `agentdata` and every `python` on PATH, so a
   shadowed install is visible before it wastes an afternoon, and the report says which shell it came from.
 
+See `docs/shells.md` for which command runs in which shell (and which belong to the Copilot chat
+window rather than a terminal), and how to quote arguments in pwsh 7, Git Bash and cmd.
+
 ### First install
 
 The CLI needs **Python 3.12 or newer** (`python --version`; the laptops run 3.14). On an older interpreter pip
