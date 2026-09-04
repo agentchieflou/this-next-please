@@ -9,6 +9,35 @@ from .console import utf8_stdout
 from .version import version_string
 
 
+# commands that belong to the Copilot chat window, not to a shell. The first word is what people
+# actually type; the value says what it is for.
+CHAT_COMMANDS = {
+    "plugin": "manage Copilot plugins and marketplaces (`/plugin marketplace add <owner>/<repo>`)",
+    "skill": "list or invoke a Copilot skill",
+    "agent": "switch the Copilot agent",
+    "clear": "clear the Copilot conversation",
+    "model": "switch the Copilot model",
+}
+
+
+def _chat_surface(target: str, args: list[str]) -> str:
+    """A one-screen answer for a Copilot-chat command typed into a terminal, or ""."""
+    word = target.lstrip("/").split()[0].lower() if target.strip() else ""
+    if word not in CHAT_COMMANDS:
+        return ""
+    rest = " ".join(args[1:])
+    typed = f"/{word}" + (f" {rest}" if rest else "")
+    return (
+        f"`{typed}` is a Copilot chat command, not a shell command.\n\n"
+        f"  what it does   {CHAT_COMMANDS[word]}\n"
+        f"  where to type  the Copilot chat window (PyCharm, VS Code, or the CLI's chat), never a terminal\n\n"
+        "A terminal answers `bash: /plugin: No such file or directory` or "
+        "`'/plugin' is not recognized`, which reads like a missing tool rather than a wrong window.\n"
+        "Everything this package installs is an `ad-*` command or `python -m agentdata <command>`, "
+        "and those run in any shell -- see docs/shells.md for which command belongs where."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     args = list(sys.argv[1:] if argv is None else argv)
@@ -55,6 +84,15 @@ def main(argv: list[str] | None = None) -> int:
             return rc if isinstance(rc, int) else 0
         except SystemExit as e:
             return e.code if isinstance(e.code, int) else 0
+
+    # Not a shell command at all: a Copilot-chat slash command typed into a terminal. This has
+    # actually happened (`/plugin marketplace add ...` in a MINGW64 tab, answered with
+    # "bash: /plugin: No such file or directory"), so say where it belongs instead of guessing at
+    # a near-miss among the ad-* names.
+    chat = _chat_surface(target, args)
+    if chat:
+        print(chat)
+        return 0
 
     # Command not found: look for close matches
     candidates = list(commands.keys()) + [f"ad-{k}" for k in commands.keys()]

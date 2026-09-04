@@ -52,8 +52,18 @@ ad-update --check
   and installs the published version over it.
 - `skills` / `skills_newest` / `stale_skills: true` — the skills are older than the CLI; run the `gh skill install`
   line and start a new chat.
-- `gh skill install` refusing because a skill already exists → delete that folder under the printed `skills_dir` and
-  re-run; `ad-update --check` shows the new timestamp.
+- `gh skill install` refusing because a skill is **already installed** → nothing to do by hand. `ad-update` reads the
+  names out of that message, deletes only the folders it recognises as its own (a `SKILL.md` whose frontmatter `name`
+  matches the folder — a skill someone else put there is never touched), and installs once more, reporting
+  `reinstalled`.
+- A failing half now prints the real error, not the last line of pip's chatter, plus a hint for the signature: an
+  all-users install a non-elevated pip cannot uninstall, the `ad-update.exe` launcher locking itself (it re-execs
+  through `python -m agentdata update` to avoid this), a `--user` copy shadowing the all-users one, a `python` below
+  the 3.12 floor, or a proxy. `ad-update --check` lists every installed `agentdata` and every `python` on PATH, so a
+  shadowed install is visible before it wastes an afternoon, and the report says which shell it came from.
+
+See `docs/shells.md` for which command runs in which shell (and which belong to the Copilot chat
+window rather than a terminal), and how to quote arguments in pwsh 7, Git Bash and cmd.
 
 ### First install
 
@@ -143,7 +153,7 @@ python -m pytest -q
 | `skills/*/SKILL.md` | one job each; router dispatches to exactly one. `skills/*/references/` hold the long reference docs. |
 | `agentdata/` | connector adapter: sources -> AgentTable -> TOON / TSV / JSON |
 | `agentdata/config.py` | global config + project facts; every CLI resolves settings flag → env var → config → AGENTS.md |
-| `agentdata/textio.py` | reads files other tools wrote (UTF-8 BOM, UTF-16, cp1252 — what Windows PowerShell and Notepad produce); writes UTF-8 without BOM |
+| `agentdata/textio.py` | reads files other tools wrote (BOM, UTF-16, cp1252, cmd's OEM code page — Notepad, other teams, older scripts); writes UTF-8 without BOM, LF, atomically, and copes with a locked target, a >260-character path and a reserved filename |
 | `agentdata/proc.py` | starts other programs on Windows: PATHEXT + npm global prefix resolution, npm `.cmd` shims run as `node <script>` (no cmd.exe re-parsing) |
 | `agentdata/update.py` | `ad-update`: reinstall the CLI + skills, and report the exact commit installed |
 | `CHANGELOG.md` | what each version changed, and whether picking it up needs more than the two update commands |

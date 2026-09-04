@@ -2,3 +2,11 @@
 *.tmdl -text
 tests/fixtures/** -text
 *.dax -text
+
+# Shell scripts are executed, not just read: a CRLF .sh dies under Git Bash with `$'\r': command
+# not found`, and cmd.exe wants CRLF for multi-line blocks. Pin both rather than leaving it to
+# whatever core.autocrlf a checkout happens to have.
+*.sh text eol=lf
+*.ps1 text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf

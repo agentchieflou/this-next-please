@@ -9,7 +9,23 @@ from . import config as C
 from . import toon
 from . import version
 from .console import utf8_stdout
+from .policy import error
 from .sqlcheck import DIALECTS, check, to_toon
+
+import re
+
+# a variable the shell was supposed to expand and did not: the SQL will be wrong in a way the
+# database reports as a syntax error a hundred lines later
+_UNEXPANDED = re.compile(r"(\$env:[A-Za-z_][\w]*|%[A-Za-z_][\w]*%|\$\{[A-Za-z_][\w]*\})")
+SHELL_QUOTING_HINT = {
+    "$": "pwsh expands $x inside double quotes only: use \"...$env:X...\" to interpolate, or single quotes to keep it literal",
+    "%": "cmd expands %X% only when the variable is set; in pwsh and bash %X% is literal text -- use the shell's own syntax",
+}
+
+
+def unexpanded_variable(sql: str) -> str:
+    m = _UNEXPANDED.search(sql or "")
+    return m.group(1) if m else ""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -25,6 +41,13 @@ def main(argv: list[str] | None = None) -> int:
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     sql = a.sql if a.sql is not None else read_text(a.file)
+
+    if a.sql is not None:
+        leaked = unexpanded_variable(a.sql)
+        if leaked:
+            print(error(f"--sql still contains {leaked!r}: your shell did not expand it",
+                        SHELL_QUOTING_HINT[leaked[:1]], "ad-sql-check"))
+            return 2
     facts = C.project_facts()
     env = a.env or facts.get(f"{a.dialect}_env") or (facts.get("env") if a.dialect == "teradata" else None)
     caps = {}
@@ -36,3 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     findings = check(sql, a.dialect, caps)
     print(to_toon(findings, a.dialect, {"env": env or "", "capabilities": len(caps)}))
     sys.exit(2 if any(f.severity == "error" for f in findings) else 0)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

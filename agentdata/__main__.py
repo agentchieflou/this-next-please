@@ -30,9 +30,13 @@ COMMANDS = {
     "pbiviz": ("agentdata.cli_pbiviz", "main", "Power BI custom visual development loop"),
     "graph": ("agentdata.cli_graph", "main", "code graph extraction, queries, approval, and guard"),
     "test": ("agentdata.cli_test", "main", "repository test runner detection, execution, and normalization"),
+    "argv": ("agentdata.cli_argv", "main", "print the argv Python received, and the shell it came from"),
 }
+# diagnostics: real commands, deliberately absent from the catalog a person reads
+HIDDEN = {"argv"}
 USAGE = ("usage: python -m agentdata <command> [options]\n\nSame commands as the ad-* console scripts:\n"
-         + "\n".join(f"  {name:<10} ad-{name:<10} {help}" for name, (_m, _f, help) in COMMANDS.items())
+         + "\n".join(f"  {name:<10} ad-{name:<10} {help}"
+                     for name, (_m, _f, help) in COMMANDS.items() if name not in HIDDEN)
          + "\n\nExample: python -m agentdata pbip check  (identical to: ad-pbip check)\n")
 
 

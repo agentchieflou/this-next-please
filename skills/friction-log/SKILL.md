@@ -4,7 +4,7 @@ description: "Use the moment you second-guess yourself, repeat a tool call, hit 
 ---
 # Friction log (then stop)
 
-1. Create `.agent/friction/<UTC yyyymmddTHHMM>-<skill>.md` with exactly this template. Use your file-editing tool; from PowerShell write it with `[IO.File]::WriteAllText((Join-Path $PWD '.agent\friction\<name>.md'), $text)` (UTF-8 without BOM). Never `Set-Content -Encoding utf8`, `Out-File` or `>`: Windows PowerShell adds a BOM or writes UTF-16.
+1. Create `.agent/friction/<UTC yyyymmddTHHMM>-<skill>.md` with exactly this template. Use your file-editing tool, or your shell's ordinary write -- pwsh `Set-Content` / `Out-File` / `>` and bash `printf > f` all produce UTF-8 without a BOM.
 
 ```markdown
 ---

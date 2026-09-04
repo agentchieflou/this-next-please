@@ -362,3 +362,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 os.environ["AGENTDATA_UI"] = old_ui
             ui.reset_cache()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

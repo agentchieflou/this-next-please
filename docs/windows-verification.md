@@ -8,6 +8,46 @@ each failure becomes a fix with a reproducing test.
 
 Conventions: run in PowerShell inside the project checkout; every `ad-*` command prints TOON; **paste the whole TOON block** (it never contains a token or password) plus any Python traceback. Where a step says "paste", paste even on success for the first run so expectations can be calibrated. Stop at the first failing step inside a section and continue with the next section (sections are independent).
 
+> **Shells:** this runbook is for **PowerShell 7 (`pwsh`)** and **Git Bash**. Windows PowerShell 5.1
+> is unsupported — close that window first; `tests/laptop/test_00_baseline.py` stops there anyway,
+> with the hint to install pwsh.
+
+## How to run it
+
+Each section below is a module in `tests/laptop/`, and the suite writes machine-readable evidence
+instead of asking you to paste a screenshot. Run one section:
+
+```bash
+AGENTDATA_LAPTOP=1 python -m pytest -m laptop -k 00_baseline      # Git Bash
+```
+
+```powershell
+$env:AGENTDATA_LAPTOP = '1'; python -m pytest -m laptop -k 00_baseline   # pwsh 7
+```
+
+or all of it with `-m laptop` and no `-k`. An ordinary `pytest -q` collects none of it: the tests
+are marked `laptop` and gated on `AGENTDATA_LAPTOP`.
+
+Every step appends a record to **`.agent/out/verification-<ts>.toon`** — the section, the command,
+its exit code, how long it took, and the fields this runbook used to ask you to paste. That file is
+what goes into an issue. It also opens with an environment bundle (the same one
+`ad-doctor --report` prints): OS build, which shell and host, the code page, every `python` on PATH
+with its version, every installed `agentdata`, `core.autocrlf`, `LongPathsEnabled`, and which shell
+PyCharm / Windows Terminal / VS Code open by default — with a `warn` if any of them is still 5.1.
+
+A step that needs a person (open the PBIP in Desktop, `az login`) prompts and waits; answer `skip`
+to move on.
+
+Before anything else:
+
+```bash
+python -m agentdata doctor --report      # paste this if you file anything
+```
+
+**A failing step becomes a regression test.** File it with the verification file attached, add
+`tests/regressions/test_<section>_<short>.py` reproducing it with fakes, fix it, and the laptop step
+passes again. That was always this runbook's rule; now it is mechanical.
+
 ## 0. Baseline
 ```powershell
 ad-update --check                                                      # version + commit you are on now
@@ -17,10 +57,10 @@ pip install "agentdata[pbi,uat,teradata,impala,oracle] @ git+https://github.com/
 #   developing the repo instead? clone it and `pip install -e ".[dev]"` THERE, never in a report repo
 ad-doctor    # if "not recognized": the Scripts dir is not on PATH -> use `python -m agentdata doctor` everywhere below
 gh skill install agentchieflou/this-next-please --all --scope user   # --all avoids the picker; --scope user applies to every repo
-python -m pytest -q     # only in a clone of this-next-please; expect: 96 passed
+python -m pytest -q     # only in a clone of this-next-please; expect the count CI printed for this commit
 chcp 65001 | Out-Null                                                  # UTF-8 console so → · ≤ render (cosmetic)
 ```
-Pass: `96 passed`. Paste: any failing test names and their assertion text (likely candidates: CRLF fixture if `core.autocrlf=true`, path separators).
+Pass: no failures. Paste: any failing test names and their assertion text (likely candidates: CRLF fixture if `core.autocrlf=true`, path separators).
 
 ## 1. Doctor before setup
 ```powershell
@@ -94,7 +134,7 @@ Pass: `desktop` lists the instance with `port`, `title` and `matched` file; `che
 ## 8. Mechanical measure edit round trip (on a scratch copy of the PBIP)
 ```powershell
 Copy-Item -Recurse <report repo> <scratch dir>; cd <scratch dir>
-[IO.File]::WriteAllText("$PWD\margin.dax", "DIVIDE ( [Margin], [Total Sales] )")   # UTF-8 without BOM; Set-Content -Encoding utf8 would add one (tolerated, but do not teach Luna that)
+Set-Content -Path "$PWD\margin.dax" -Value "DIVIDE ( [Margin], [Total Sales] )"   # pwsh 7: UTF-8, no BOM
 ad-pbip measure set --table <Table> --name "Verify Pct" --expr-file margin.dax --format-string "0.0%" --display-folder Verify
 ad-pbip lint <Name>.SemanticModel\definition
 ad-pbip check --te2
@@ -222,3 +262,82 @@ Pass: `deploy` creates `.agent/out/deploy-<ts>.xmla` on dry-run and logs output 
 - 2026-09-02 (data_remediation_foundry_dpm_fork, skill jira-triage): `ad-pncli jira search --jql "key = RDSD-22399"` failed with `[WinError 2] The system cannot find the file specified`, and `ad-doctor` had called pncli "ok" because `shutil.which` found the shim while the connector passed the bare name `pncli` to `subprocess`. pncli is an npm package: on Windows it is `pncli.cmd`, there is no `pncli.exe`. Fix: `agentdata/proc.py` resolves PATHEXT + the npm global prefix and runs the shim's Node entry point directly, the doctor row now proves the launcher starts (`--version`), the resolved shim is pinned in `pncli.exe`, and `ad-pncli where` diagnoses it.
 - 2026-09-02 (data_remediation_foundry_dpm_fork, skill jira-triage): `ad-pncli raw jira get-issue RDSD-22399` returned `ok: false` — pncli wants `--key <issue-key>`, because it is a commander.js CLI where every argument is a named option, and the skill still carried a `TODO(pin the verb)` placeholder. Fix: `ad-pncli jira get <KEY>` builds the confirmed verb `jira get-issue --key <KEY>`; any pncli usage error is turned into the exact re-run (`usage_hint`); the jira-triage step no longer asks the model to assemble a pncli command.
 - 2026-09-02 (data_remediation_foundry_dpm_fork, ad-setup powerbi): `az login` failed with *"The filename, directory name, or volume label syntax is incorrect"*. az is `C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd`, and the cmd.exe command line built for it was handed to `subprocess` as a list, so `list2cmdline` backslash-escaped the inner quotes. Fix: the cmd.exe line is passed to Windows as one string, az is a configurable tool (`powerbi.tools.az_exe`) whose install dirs are searched even when they are off PATH, and `ad-setup --patch` re-asks only the settings that fail.
+
+## Console: one pass per terminal host
+
+CI covers the shells; it cannot open six terminal windows. Run this line in each host below and paste
+the two rows it prints. Anything that disagrees with the table in `docs/setup.md` §Colour and glyphs
+is a bug, not a local quirk.
+
+```bash
+ad-doctor --quiet --only console
+```
+
+| # | Host | Expected `console/host` | Expected `console/shell` | Also check |
+|---|---|---|---|---|
+| 1 | standalone mintty (Git Bash, its own window) | `mintty` | `bash` | colour is **on**; `ad-doctor --quiet > x.toon` has **no** escapes in it |
+| 2 | PyCharm terminal tab, MINGW64 | `pycharm-terminal` | `bash` | box-drawing tables render |
+| 3 | conhost pwsh 7 (no Windows Terminal) | `conhost` or `conpty` | `pwsh` | under `chcp 437` the glyphs are `+ ! x -`, and `chcp 65001` restores `✓ ✗` |
+| 4 | Windows Terminal, pwsh 7 tab | `windows-terminal` | `pwsh` | `ad-doctor --quiet \| Out-File out.toon` is UTF-8 with **no BOM**, and `ad-view out.toon` reads it |
+| 5 | PyCharm run window | `pycharm-run` | whatever launched it | colour is on although it is not a TTY |
+| 6 | VS Code integrated terminal | `vscode` | `pwsh` or `bash` | colour is on |
+| 7 | **Windows PowerShell 5.1**, any window | (any) | `windows-powershell` + warn row | the hint says *PowerShell 7 required* |
+
+Then, in host 1 only, the prompt that started this:
+
+```bash
+ad-setup --only sources
+```
+
+At the password question, type a few characters. **Nothing may appear.** If the characters echo, the
+line above them should be the one naming `winpty` — not `getpass`'s *"Warning: Password input may be
+echoed"*. Paste whichever you get.
+
+## Arguments: the argv table, per shell
+
+CI runs this on GitHub's bash 5.x; the laptop's **bash 4.4** is the floor and only you can prove it.
+Run each line and paste what it prints.
+
+```bash
+python -m agentdata argv --raw -- -s /nope
+python -m agentdata argv --raw -- /c/Users
+MSYS_NO_PATHCONV=1 python -m agentdata argv --raw -- -s /nope
+python -m agentdata argv --raw -- 'a >= b' 'literal $KEY' '' 'e-acute and an arrow'
+```
+
+Expected: `/nope` becomes `C:/Program Files/Git/nope`; `/c/Users` becomes `C:/Users`;
+`MSYS_NO_PATHCONV=1` leaves `/nope` alone; the last line round-trips exactly, empty argument included.
+
+Then the same in **pwsh 7**:
+
+```powershell
+$KEY = 'RDSD'
+python -m agentdata argv --raw -- "project = $KEY"      # expands
+python -m agentdata argv --raw -- 'project = $KEY'      # literal
+python -m agentdata argv --raw -- 'say "hi"'            # quotes survive on 7.3+
+python -m agentdata argv --raw -- '%PATH%'              # literal; only cmd expands it
+$PSNativeCommandArgumentPassing                          # paste this too
+```
+
+Anything that disagrees with `docs/shells.md` is a bug in the doc, not a local quirk.
+
+## Files: locks, and a pwsh round trip
+
+CI can hold a file open with a second process; it cannot open PyCharm or Power BI Desktop.
+
+1. **State while PyCharm holds it.** Open `.agent/state.json` in PyCharm's editor, then run
+   `ad-state set phase=querying`. It must succeed. Paste the row. Check `.agent/` for a leftover
+   `state.json.tmp` — there must not be one.
+2. **TMDL while Desktop holds it.** Open the PBIP in Power BI Desktop, then run
+   `ad-pbip measure set ...` on a measure in that model. Same expectations.
+3. **A pwsh file read back.** In pwsh 7:
+
+   ```powershell
+   "é → ≤" | Out-File .agent/out/roundtrip.txt
+   ad-view .agent/out/roundtrip.txt        # must show the three characters
+   Format-Hex .agent/out/roundtrip.txt -Count 4   # must NOT start EF BB BF
+   ```
+
+4. **A deep path.** Create `.agent/out/` nested until the full path passes 260 characters, write a
+   TSV there through any `ad-*` command, and read it back. If it fails, paste
+   `ad-doctor --quiet --only console` — the `long_paths` row says whether the policy is on.

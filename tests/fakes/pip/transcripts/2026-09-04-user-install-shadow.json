@@ -1,0 +1,17 @@
+{
+  "source": "synthesized",
+  "issue": 66,
+  "note": "pip falls back to --user and leaves a second, shadowing copy",
+  "argv": [
+    "python",
+    "-m",
+    "pip",
+    "install",
+    "--force-reinstall",
+    "--no-deps",
+    "agentdata @ git+https://github.com/agentchieflou/this-next-please.git"
+  ],
+  "returncode": 1,
+  "stdout": "Defaulting to user installation because normal site-packages is not writeable\nInstalling collected packages: agentdata\n",
+  "stderr": "ERROR: pip's dependency resolver does not currently take into account all the packages that are installed.\n"
+}

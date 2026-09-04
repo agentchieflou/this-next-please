@@ -7,6 +7,8 @@ Nested:    key:\n  sub: value
 Values containing , : " or newline are double-quoted with "" escaping.
 """
 from __future__ import annotations
+import re
+import sys
 from typing import Any
 
 _NEEDS_QUOTE = set(',:"\n\r')
@@ -55,3 +57,103 @@ def encode(obj: Any, indent: int = 0, key: str | None = None) -> str:
             return "\n".join(lines)
         return f"{pad}{key or 'items'}[{len(obj)}]: " + ",".join(_v(x) for x in obj)
     return f"{pad}{key}: {_v(obj)}" if key is not None else f"{pad}{_v(obj)}"
+
+
+# --------------------------------------------------------------------------------- validation
+
+_ANSI = re.compile(r"\x1b\[")
+_SCALAR = re.compile(r"^(\s*)([A-Za-z_][\w.\-]*): ?(.*)$")
+_BLOCK = re.compile(r"^(\s*)([A-Za-z_][\w.\-]*):$")
+_TABLE = re.compile(r"^(\s*)([A-Za-z_][\w.\-]*)\[(\d+)\]\{([^}]*)\}:$")
+_LIST = re.compile(r"^(\s*)([A-Za-z_][\w.\-]*)\[(\d+)\]: ?(.*)$")
+
+
+def validate(text: str) -> list[str]:
+    """Problems with `text` as TOON, empty when it is fine.
+
+    This exists so CI can assert that a command's stdout is the format the docs promise, from every
+    shell -- a traceback, a `pip` warning, or an ANSI-coloured table piped into a file all read as
+    "output" to a shell script and are caught here instead.
+    """
+    problems: list[str] = []
+    if not text.strip():
+        return ["empty output"]
+    if _ANSI.search(text):
+        problems.append("ANSI escape sequences in piped output")
+
+    lines = text.splitlines()
+    if any(ln.startswith("Traceback (most recent call last)") for ln in lines):
+        problems.append("a Python traceback reached stdout")
+
+    expect_rows, cols, seen_rows, table_name = 0, 0, 0, ""
+    for n, raw in enumerate(lines, 1):
+        if not raw.strip():
+            continue
+        if expect_rows and seen_rows < expect_rows and not (_TABLE.match(raw) or _BLOCK.match(raw)):
+            fields = _split_row(raw.strip())
+            if len(fields) != cols:
+                problems.append(f"line {n}: {table_name} row has {len(fields)} fields, header declares {cols}")
+            seen_rows += 1
+            continue
+        m = _TABLE.match(raw)
+        if m:
+            if expect_rows and seen_rows != expect_rows:
+                problems.append(f"line {n}: {table_name} declared {expect_rows} rows, found {seen_rows}")
+            table_name, expect_rows = m.group(2), int(m.group(3))
+            cols, seen_rows = len([c for c in m.group(4).split(",") if c]), 0
+            continue
+        lm = _LIST.match(raw)
+        if lm:
+            declared, items = int(lm.group(3)), _split_row(lm.group(4))
+            if lm.group(4).strip() and len(items) != declared:
+                problems.append(f"line {n}: {lm.group(2)} declares {declared} items, found {len(items)}")
+            continue
+        if _BLOCK.match(raw) or _SCALAR.match(raw):
+            continue
+        problems.append(f"line {n}: not a TOON scalar, block or table header: {raw.strip()[:60]!r}")
+
+    if expect_rows and seen_rows != expect_rows:
+        problems.append(f"{table_name} declared {expect_rows} rows, found {seen_rows}")
+    return problems
+
+
+def _split_row(row: str) -> list[str]:
+    """Split a data row on commas that are not inside double quotes."""
+    out, cur, quoted = [], [], False
+    for ch in row:
+        if ch == '"':
+            quoted = not quoted
+            cur.append(ch)
+        elif ch == "," and not quoted:
+            out.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    out.append("".join(cur))
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="python -m agentdata.toon",
+                                 description="Validate that text is the TOON this repo emits.")
+    ap.add_argument("--validate", metavar="FILE", required=True, help="file to check, or - for stdin")
+    a = ap.parse_args(argv)
+
+    if a.validate == "-":
+        text = sys.stdin.read()
+    else:
+        from . import textio
+        text = textio.read_text(a.validate)
+
+    problems = validate(text)
+    if problems:
+        for p in problems:
+            print(f"not TOON: {p}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

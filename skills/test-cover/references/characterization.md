@@ -67,7 +67,7 @@ delete the probe.
 - **Floats**: `assert x == 0.30000000000000004` is a trap. Use `pytest.approx`.
 - **Windows paths**: a golden string containing `\\` passes on the laptop and fails on CI. Normalize
   with `.replace("\\", "/")` on both sides, the way `agentdata` does everywhere.
-- **Encoding**: a fixture written by PowerShell 5.1 carries a UTF-8 BOM or is UTF-16. Read it through
+- **Encoding**: a fixture may arrive from Notepad or another team with a BOM or in UTF-16. Read it through
   `agentdata/textio.py`, never bare `open()`.
 
 ---

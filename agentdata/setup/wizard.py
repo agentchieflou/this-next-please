@@ -333,8 +333,10 @@ class Step:
 
 
 def registry() -> list[Step]:
-    from .steps import pncli_import, powerbi, project, sources
-    return [pncli_import.PncliStep(), sources.SourcesStep(), powerbi.PowerBIStep(), project.ProjectStep()]
+    from .steps import console, pncli_import, powerbi, project, sources
+    # console first: a report from an unsupported shell should say so before anything it explains
+    return [console.ConsoleStep(), pncli_import.PncliStep(), sources.SourcesStep(), powerbi.PowerBIStep(),
+            project.ProjectStep()]
 
 
 def _select(steps: list[Step], only: list[str] | None) -> list[Step]:
@@ -414,8 +416,7 @@ def load_answers(path: str | None, sets: list[str] | None = None) -> dict:
         try:
             data = textio.read_json(p, "answers file")
         except ValueError as e:
-            raise C.ConfigError(str(e), hint="use --set key=value instead of a file, or write the file with "
-                                "[IO.File]::WriteAllText (UTF-8 without BOM)") from None
+            raise C.ConfigError(str(e), hint="use --set key=value instead: it answers the prompts inline and needs no file at all") from None
         if not isinstance(data, dict):
             raise C.ConfigError("answers file must be a JSON object", hint='{"project.jira_project": "RDSD"}')
     for item in sets or []:
@@ -434,6 +435,8 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
     ap.add_argument("--color", choices=["auto", "always", "never"], default="auto",
                     help="colour output (default auto: on for a terminal, off when piped; NO_COLOR / AGENTDATA_COLOR also apply)")
     ap.add_argument("--quiet", action="store_true", help="show only non-ok rows")
+    ap.add_argument("--report", action="store_true",
+                    help="print the environment bundle (shells, pythons, tools, IDE default shells) and exit")
     ap.add_argument("--only", action="append", help="step key(s), comma-separated: pncli,sources,powerbi,project")
     from .. import completion, version
     version.add_version(ap)
@@ -441,6 +444,15 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
     a = ap.parse_args(argv)
     utf8_stdout()
     color.set_enabled(None if a.color == "auto" else a.color == "always")
+
+    if a.report:
+        # what a pasted bug report needs before anyone can read the rows: which shell, which
+        # python, which of several installs, and whether the IDE opens an unsupported window
+        from .. import verification
+        print(toon.encode({"meta": {"ok": True, "source": "ad-doctor --report"},
+                           "environment": verification.environment_bundle()}))
+        return 0
+
     try:
         cfg = C.load()
         ctx = Context(cfg=cfg, det=det or Detectors(), ask=AnswerPrompter({}), online=a.online, interactive=False,

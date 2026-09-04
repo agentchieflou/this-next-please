@@ -54,6 +54,7 @@ ad-help = "agentdata.cli_help:main"
 ad-pbiviz = "agentdata.cli_pbiviz:main"
 ad-graph = "agentdata.cli_graph:main"
 ad-test = "agentdata.cli_test:main"
+ad-argv = "agentdata.cli_argv:main"
 
 [tool.setuptools.packages.find]
 include = ["agentdata*"]
@@ -64,4 +65,11 @@ agentdata = ["templates/project-stub/*", "templates/external-tool/*", "pbip/*.ps
 
 [tool.pytest.ini_options]
 norecursedirs = ["tests/fixtures", "fixtures", ".*", "build", "dist"]
-markers = ["slow: builds a wheel and a venv (deselect with -m 'not slow')"]
+markers = [
+    "slow: builds a wheel and a venv (deselect with -m 'not slow')",
+    "laptop: the laptop verification suite; needs AGENTDATA_LAPTOP=1 and a real machine",
+]
+# an unregistered marker is a typo that silently selects nothing. No `-m` here: a second `-m` on
+# the command line replaces it rather than combining, and the laptop suite gates itself on
+# AGENTDATA_LAPTOP in tests/laptop/conftest.py.
+addopts = "--strict-markers"

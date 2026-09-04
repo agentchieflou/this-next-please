@@ -201,6 +201,20 @@ def command(argv: list[str], **kw) -> list[str] | str:
     return prepare(argv, **kw)[0]
 
 
+def child_env(base: dict | None = None) -> dict:
+    """The environment for a child we spawn, with MSYS argument mangling turned off.
+
+    Git Bash rewrites any argument that looks like a POSIX path before the child sees it, so
+    `-s /nope` reaches a tool as `C:/Program Files/Git/nope`. That is a convenience when a person
+    types it; when *we* build an argv it is corruption of data we already know is not a path.
+    """
+    env = dict(os.environ if base is None else base)
+    if os.name == "nt":
+        env.setdefault("MSYS_NO_PATHCONV", "1")
+        env.setdefault("MSYS2_ARG_CONV_EXCL", "*")
+    return env
+
+
 def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: str = "", check: bool = False,
         cwd: str | None = None, progress: str | None = None) -> tuple[int, str, str, float]:
     """(returncode, stdout, stderr, elapsed). Raises ProcError for start failures and, with check, for exit != 0."""
@@ -212,10 +226,10 @@ def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: st
             from . import ui
             with ui.progress(progress):
                 p = subprocess.run(real, capture_output=True, text=True, timeout=timeout, cwd=cwd,
-                                   encoding="utf-8", errors="replace")
+                                   encoding="utf-8", errors="replace", env=child_env())
         else:
             p = subprocess.run(real, capture_output=True, text=True, timeout=timeout, cwd=cwd,
-                               encoding="utf-8", errors="replace")
+                               encoding="utf-8", errors="replace", env=child_env())
     except FileNotFoundError as e:      # resolved, then vanished, or a broken shim target
         raise ProcError("start_failed", f"{argv[0]}: cannot start {launched} ({e.strerror or e})",
                         hint or "re-run `ad-setup --patch`", {"executable": launched, "kind": info["kind"]}) from None

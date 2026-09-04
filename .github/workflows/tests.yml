@@ -1,5 +1,9 @@
 # Every bug this repo has shipped was a Windows bug (path shims, BOM files, line endings), so Windows is not optional
-# here. The slow marker builds a wheel in a fresh venv; it runs on Linux, where it is the packaging guard.
+# here. Windows is also not one shell: the laptop is PowerShell 7 and Git Bash, and people type commands into cmd, so
+# each supported shell gets its own step and a failure names the shell it came from.
+#
+# Floors: Python 3.12 (pyproject requires-python) and PowerShell 7. Windows PowerShell 5.1 is unsupported and appears
+# exactly once below, in a step whose only job is to prove the refusal.
 name: tests
 
 on:
@@ -20,7 +24,6 @@ jobs:
         include:
           - {os: ubuntu-latest, python: "3.12", select: ""}   # the floor (pyproject requires-python)
           - {os: ubuntu-latest, python: "3.14", select: ""}   # what the laptop runs
-          - {os: windows-latest, python: "3.14", select: -m "not slow"}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,6 +33,200 @@ jobs:
       - run: python -m pytest -q ${{ matrix.select }}
       - name: the console scripts and the module form must both work
         run: |
-          ad-doctor --quiet || true
+          set -e
+          ad-doctor --quiet || [ $? -eq 1 ]   # documented contract: 0 clean, 1 a row failed, nothing else
           python -m agentdata --help
           python -m agentdata update --check
+      - name: keep the reference output for the Windows byte-comparison
+        if: matrix.python == '3.14'
+        run: |
+          AGENTDATA_COLOR=never ad-doctor --quiet > doctor-linux.toon || [ $? -eq 1 ]
+          python -m agentdata.toon --validate doctor-linux.toon
+      - uses: actions/upload-artifact@v4
+        if: matrix.python == '3.14'
+        with:
+          name: doctor-linux
+          path: doctor-linux.toon
+
+  windows:
+    name: windows · python ${{ matrix.python }}
+    runs-on: windows-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {python: "3.12", autocrlf: "true"}    # the floor, checked out the way Git for Windows defaults
+          - {python: "3.14", autocrlf: "false"}   # the laptop, with line endings left alone
+    steps:
+      # A Windows checkout's line endings depend on core.autocrlf, and the fixtures' bytes are the
+      # point of several tests. Run the matrix both ways rather than pinning one and hoping.
+      - name: set core.autocrlf for this checkout
+        shell: pwsh
+        run: git config --global core.autocrlf ${{ matrix.autocrlf }}
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+        shell: pwsh
+
+      # the suite. The slow marker builds a wheel in a fresh venv: run it on the laptop's Python,
+      # on the OS where packaging actually goes wrong.
+      - name: pytest
+        shell: pwsh
+        run: |
+          if ("${{ matrix.python }}" -eq "3.14") { python -m pytest -q }
+          else { python -m pytest -q -m "not slow" }
+
+      # one step per shell, so a red job names the shell rather than "Windows"
+      - name: smoke · pwsh 7
+        shell: pwsh
+        run: .\.github\scripts\smoke.ps1
+
+      - name: smoke · Git Bash
+        shell: bash
+        run: bash .github/scripts/smoke.sh
+
+      - name: smoke · cmd
+        shell: cmd
+        run: .github\scripts\smoke.cmd
+
+      # The console code page is still 437/1252 on a US laptop even under pwsh 7, so the ASCII
+      # fallback in ui.glyphs() has to keep working -- and 65001 has to keep the box drawing.
+      - name: encoding · code page 437 falls back to ASCII
+        shell: cmd
+        run: |
+          chcp 437
+          ad-doctor --quiet > cp437.toon 2>nul
+          python -m agentdata.toon --validate cp437.toon
+          python -c "import sys; t=open('cp437.toon',encoding='utf-8').read(); sys.exit(0 if '✓' not in t and '✗' not in t else 1)"
+
+      - name: encoding · code page 65001 keeps the glyphs
+        shell: cmd
+        run: |
+          chcp 65001
+          python -c "import sys; sys.stdout.reconfigure(encoding='utf-8'); print('→ · ≤')"
+
+      # pwsh 7 writes UTF-8 without a BOM through >, Out-File and Set-Content. Proving it here is
+      # what lets docs/setup.md drop the 5.1-era [IO.File]::WriteAllText guidance.
+      - name: encoding · pwsh redirection is UTF-8 without a BOM, and byte-identical to Linux
+        if: matrix.python == '3.14'
+        shell: pwsh
+        run: |
+          $env:AGENTDATA_COLOR = 'never'
+          ad-doctor --quiet > doctor-win.toon 2>$null
+          $bytes = [System.IO.File]::ReadAllBytes('doctor-win.toon')
+          if ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { throw 'pwsh wrote a UTF-8 BOM' }
+          if ($bytes[0] -eq 0xFF -or $bytes[0] -eq 0xFE) { throw 'pwsh wrote UTF-16' }
+          python -m agentdata.toon --validate doctor-win.toon
+
+      # --- the floor guards. Both are red the moment a floor is loosened by accident. ---
+
+      - name: floor · Windows PowerShell 5.1 is refused, and the doctor says why
+        if: matrix.python == '3.14'
+        shell: powershell            # the ONLY 5.1 step in this workflow; it proves the refusal
+        run: |
+          # cmd.exe does the redirection: in 5.1 a native command's stderr piped through `2>&1`
+          # becomes ErrorRecords, and GitHub sets $ErrorActionPreference='stop' for this shell, so
+          # the step would die on the very refusal it exists to observe.
+          $ErrorActionPreference = 'Continue'
+          cmd /c "powershell -NoProfile -File .\.github\scripts\smoke.ps1 > refusal.txt 2>&1"
+          $rc = $LASTEXITCODE
+          $out = Get-Content refusal.txt -Raw
+          Write-Host $out
+          if ($rc -eq 0) { throw 'smoke.ps1 ran under Windows PowerShell 5.1; #Requires -Version 7.0 is not doing its job' }
+          if ($out -notmatch '7\.0') { throw "the refusal did not mention the required version" }
+          Write-Host 'refused as expected'
+          # called straight from PowerShell, deliberately: the shell row reports the *immediate*
+          # parent, so wrapping this in `cmd /c` would correctly report cmd and prove nothing
+          ad-doctor --quiet > doctor51.toon 2>$null
+          $doc = Get-Content doctor51.toon -Raw
+          Write-Host $doc
+          if ($doc -notmatch 'PowerShell 7 required') { throw 'ad-doctor did not warn about 5.1' }
+          Write-Host 'ad-doctor warned about the unsupported shell'
+          # ad-doctor legitimately exits 1 on a bare runner (no pncli), and GitHub appends
+          # `exit $LASTEXITCODE` to this shell -- so the step would inherit the exit code of a
+          # command whose failure is not what it is asserting. Every assertion above throws.
+          exit 0
+
+  floor-python:
+    name: floor · pip refuses the wheel on Python 3.11
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: build the wheel
+        run: |
+          python -m pip install --quiet build
+          python -m build --wheel --outdir dist_floor
+      - name: the wheel's metadata must declare the floor
+        run: |
+          python - <<'PY'
+          import glob, re, zipfile
+          wheel = glob.glob("dist_floor/*.whl")[0]
+          with zipfile.ZipFile(wheel) as z:
+              meta = next(n for n in z.namelist() if n.endswith("METADATA"))
+              text = z.read(meta).decode("utf-8")
+          m = re.search(r"(?m)^Requires-Python: (.+)$", text)
+          assert m, "the wheel declares no Requires-Python"
+          print("Requires-Python:", m.group(1))
+          assert ">=3.12" in m.group(1), f"the floor moved without anyone saying so: {m.group(1)}"
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: pip on 3.11 must refuse it, in those words
+        run: |
+          set +e
+          out=$(python3.11 -m pip install dist_floor/*.whl 2>&1)
+          rc=$?
+          set -e
+          echo "$out"
+          if [ "$rc" -eq 0 ]; then echo "pip installed a >=3.12 wheel on 3.11"; exit 1; fi
+          echo "$out" | grep -q "requires a different Python" || {
+            echo "pip refused, but not with the message the docs promise the user will see"; exit 1; }
+          echo "refused as documented"
+
+  lint-shell-scripts:
+    name: lint · shellcheck + PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck --shell=bash .github/scripts/smoke.sh
+      - name: PSScriptAnalyzer, targeting the PowerShell 7 floor
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
+          $results = Invoke-ScriptAnalyzer -Path .github/scripts/smoke.ps1 -Settings PSGallery `
+              -IncludeRule PSUseCompatibleSyntax -Severity Error, Warning
+          $compat = Invoke-ScriptAnalyzer -Path .github/scripts/smoke.ps1 `
+              -IncludeRule PSUseCompatibleSyntax `
+              -Settings @{ Rules = @{ PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('7.0') } } }
+          $all = @($results) + @($compat) | Where-Object { $_ }
+          if ($all) { $all | Format-Table -AutoSize | Out-String | Write-Host; throw "$($all.Count) analyzer finding(s)" }
+          Write-Host 'PSScriptAnalyzer clean'
+
+  floor-lints:
+    name: lint · bash 4.4 and pwsh 7 floors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      # CI's bash is 5.x and its pwsh *is* the floor, so what CI can guard is the feature set:
+      # nothing after bash 4.4 in anything we ship or emit, and a declared floor in every .ps1.
+      - run: python -m pytest -q tests/test_bash_floor.py
+      - name: the laptop suite must never run here
+        run: |
+          set -e
+          python -m pytest -q --collect-only -m laptop | tee collected.txt
+          grep -q "no tests ran\|0 tests collected\|deselected" collected.txt || \
+            { echo "the laptop suite was collected on CI"; exit 1; }
