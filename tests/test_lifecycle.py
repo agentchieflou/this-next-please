@@ -84,6 +84,16 @@ class Venv:
         self.work = os.path.join(os.path.dirname(root), "work")
         os.makedirs(self.work, exist_ok=True)
         subprocess.run([sys.executable, "-m", "venv", root], check=True, timeout=600)
+        # Build isolation creates a throwaway environment and fetches setuptools **per build**, and
+        # this module builds the same package six or seven times. On a Windows runner that was the
+        # difference between under two minutes and over twelve -- the job was cancelled at its cap
+        # with one test still running. setuptools goes in once instead, and every later build reuses
+        # it; `PIP_NO_BUILD_ISOLATION` is an environment setting, so `ad-update`'s own pip calls get
+        # it too without the test having to reach into the command it runs.
+        subprocess.run([self.python, "-m", "pip", "install", "-q", "setuptools", "wheel"],
+                       check=True, timeout=600, cwd=self.work,
+                       env={**os.environ, "PIP_CACHE_DIR": cache,
+                            "PIP_DISABLE_PIP_VERSION_CHECK": "1"})
 
     @property
     def bin(self) -> str:
@@ -100,7 +110,8 @@ class Venv:
         # A shared pip cache is what keeps this inside the Windows job's budget: the wheel is built
         # once and every later install in the run reuses it.
         base = {**os.environ, "AGENTDATA_REPO_URL": self.repo_url, "PIP_CACHE_DIR": self.cache,
-                "PIP_DISABLE_PIP_VERSION_CHECK": "1", "NO_COLOR": "1", "AGENTDATA_UI": "plain"}
+                "PIP_DISABLE_PIP_VERSION_CHECK": "1", "PIP_NO_BUILD_ISOLATION": "1",
+                "NO_COLOR": "1", "AGENTDATA_UI": "plain"}
         base.update(extra)
         return base
 
@@ -248,16 +259,29 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     assert toon_read.meta(doctor.stdout).get("version") == "0.0.1", \
         f"(b) ad-doctor reported {toon_read.meta(doctor.stdout).get('version')}, not the imported copy"
 
-    # (c) a new commit, picked up **through the console-script launcher**. On Windows that launcher
-    # cannot be replaced while it is the running process, so `ad-update` re-execs; running the
-    # module form here would test everything except the part that breaks.
+    # (c) the launcher refuses the CLI half, and says what to run instead. pip has to replace
+    # Scripts/ad-update.exe, and Windows will not let it while that launcher is the running
+    # process -- a refusal is synchronous, has an exit code, and cannot half-succeed, which
+    # neither shape of re-exec manages.
     new_head = _commit(clone, "first")
     launcher = v.script("ad-update")
     assert os.path.isfile(launcher), "(c) the ad-update launcher was not installed"
-    out = subprocess.run([launcher, "--cli"], capture_output=True, text=True, timeout=900,
-                         cwd=v.work, env=v.env())
+    if os.name == "nt":
+        out = subprocess.run([launcher, "--cli"], capture_output=True, text=True, timeout=300,
+                             cwd=v.work, env=v.env())
+        refusal = toon_read.meta(out.stdout)
+        assert out.returncode == 2, f"(c) exit {out.returncode}: {out.stdout}{out.stderr}"
+        assert refusal.get("refused") == "true", f"(c) {refusal}"
+        assert "-m agentdata update" in refusal.get("hint", ""), f"(c) {refusal.get('hint')}"
+        assert os.path.isfile(launcher), "(c) the launcher was touched by a command that refused"
+        # ...and the half that goes nowhere near the launcher still works from it
+        out = subprocess.run([launcher, "--check"], capture_output=True, text=True, timeout=300,
+                             cwd=v.work, env=v.env())
+        assert out.returncode == 0, f"(c) --check from the launcher: {out.stdout}{out.stderr}"
+
+    # (c) the module form does the work the launcher declined to do
+    out = v.run("update", "--cli", "--no-reexec")
     assert out.returncode == 0, f"(c) {out.stdout}{out.stderr}"
-    assert os.path.isfile(launcher), "(c) the launcher was removed rather than replaced"
     meta, _out = v.check()
     assert meta["commit"] == new_head[:12], f"(c) still on {meta['commit']}"
 

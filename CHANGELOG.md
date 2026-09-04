@@ -42,10 +42,14 @@ it found, all of which shipped:
   included -- died with `ModuleNotFoundError: No module named 'yaml'`. It is a base dependency now,
   and the import is lazy as well, because `ad-update --cli` installs with `--no-deps` and an
   upgrade from an older version would otherwise still arrive without it.
-- **`ad-update` never re-execed itself on Windows**, so a self-update started as `ad-update.exe`
-  kept failing with WinError 32. A console-script launcher strips its own `.exe` before handing
-  over, so the check for it was never true; and once it was, spawning a child still held the
-  launcher open, so the re-exec is `os.execv` now.
+- **`ad-update` started as `ad-update.exe` now refuses the CLI half** instead of failing deep
+  inside pip with WinError 32. pip has to replace `Scripts/ad-update.exe`, and Windows will not let
+  it while that launcher is the running process. The re-exec that was supposed to handle this never
+  fired at all -- a console-script launcher strips its own `.exe` before handing over, so the check
+  for it was never true -- and neither shape of re-exec can work: spawning a child leaves the
+  launcher open, and `os.execv` on Windows starts a new process and exits, handing the shell its
+  prompt back mid-update and losing the exit code. The refusal is synchronous, exits 2, and names
+  the command to run. `--check` and `--skills` still work from the launcher; neither touches it.
 - **`ad-update --check` reported one problem at a time.** `hint` was a single slot each check
   overwrote, so a laptop with two installs *and* a PATH problem heard about only one of them.
   There is a `problems` table now; `hint` is the most blocking entry in it.

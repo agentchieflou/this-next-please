@@ -43,6 +43,7 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Setup | no input on stdin and not `--non-interactive` | exit 2, hint naming `--set` | `test_contract.py::test_no_arguments_is_help_or_usage_never_a_crash` |
 | Help | an unknown flag rather than a command name | exit 2 | `test_contract.py::test_an_unknown_flag_is_a_usage_error_not_a_crash` |
 | Update | the skills half would delete a folder that is not ours | left alone, reported | `test_update_windows.py::test_only_our_own_skills_are_removed` |
+| Update | the CLI half is asked for through the `ad-update` launcher on Windows | `refused`, exit 2, naming the module form | `test_lifecycle.py::test_the_install_and_update_lifecycle` |
 | DPM | the artifact directory is outside the governed tree | `error`, exit 2 | `test_dpm.py::test_convert_refuses_paths_outside_governed_dir` |
 | Install | a hint would tell a project repo to `pip install -e` | refused at the source | `test_install.py::test_runtime_hints_never_tell_a_project_repo_to_pip_install_dash_e` |
 

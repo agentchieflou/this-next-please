@@ -281,11 +281,13 @@ Windows job past an 18-minute cap, one runs in under two minutes locally.
   without it.
 - **The `.exe` re-exec never fired.** A console-script launcher strips its own extension before
   handing over, so `sys.argv[0]` is `Scripts/ad-update` with no extension and `launcher_kind()` said
-  `module`. The self-update kept dying with WinError 32, and the fallback hint reads like advice
-  rather than like a bug.
-- **...and once it fired, it still did not work.** `subprocess.run` leaves the `.exe` running, and
-  a running executable's image file is locked, so pip hit the same error one level down. It is
-  `os.execv` now: the process ends, and the lock goes with it.
+  `module`. The self-update kept dying with WinError 32, behind a hint that reads like advice rather
+  than like a bug.
+- **...and re-execing could not have worked either way round.** `subprocess.run` leaves the `.exe`
+  running and a running executable's image is locked, so pip hits the same error one level down;
+  `os.execv` on Windows does not overlay the process, it starts a new one and exits, so the shell
+  gets its prompt back mid-update and the exit code is lost. It is a **refusal** now — exit 2,
+  naming the module form — which is synchronous and cannot half-succeed.
 - **`meta.hint` was one slot each check overwrote**, so a laptop with two installs *and* a PATH
   problem reported only whichever check ran last. There is a `problems` table now, and `hint` is
   the most blocking of them.

@@ -467,25 +467,27 @@ def main(argv: list[str] | None = None) -> int:
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
 
-    # pip cannot replace the Scripts\ad-update.exe launcher while that launcher is the running
-    # process, so a self-update started that way fails with WinError 32. The module form holds
-    # nothing open: re-exec through it and hand back its exit code.
-    if not a.check and not a.no_reexec and launcher_kind() in ("exe", "cmd") and argv is None:
-        cmd = reexec_argv(sys.argv[1:])
-        print(toon.encode({"meta": {"ok": True, "source": "ad-update", "launcher": "exe → module",
-                                    "note": "re-executed through `python -m agentdata update`; the .exe launcher "
-                                            "cannot replace itself", "cmd": " ".join(cmd)}}), flush=True)
-        # `os.execv`, not `subprocess.run`. Spawning a child leaves this `.exe` running, and a
-        # running executable's image file is locked -- so pip still hit WinError 32 replacing the
-        # launcher, one level down, which is the whole failure this re-exec exists to avoid. execv
-        # ends this process, and the lock goes with it.
-        try:
-            os.execv(cmd[0], cmd)
-        except OSError:            # no execv here (rare, and not worth failing over): spawn instead
-            import subprocess
-            return subprocess.run(cmd).returncode
-
     both = not (a.cli or a.skills)
+
+    # pip replaces Scripts\ad-update.exe, and Windows will not let it while that launcher is the
+    # running process. A refusal, not a re-exec: re-execing cannot work either way round. Spawning
+    # a child leaves this .exe alive and still holding the lock, and `os.execv` on Windows does not
+    # overlay the process -- it starts a new one and exits, so the shell gets its prompt back while
+    # the update is still going and the exit code is lost. A refusal with the command to run is
+    # synchronous, has an exit code, and cannot half-succeed.
+    #
+    # `--check` and `--skills` are untouched: neither goes near the launcher.
+    if (both or a.cli) and not a.check and not a.no_reexec and launcher_kind() in ("exe", "cmd") and argv is None:
+        cmd = " ".join(reexec_argv(sys.argv[1:]))
+        print(toon.encode({"meta": {
+            "ok": False, "source": "ad-update", "launcher": launcher_kind(), "refused": True,
+            "error": "the CLI half cannot be updated from the ad-update launcher",
+            "why": "pip replaces Scripts/ad-update.exe, and Windows will not let it while that "
+                   "launcher is the running process (WinError 32)",
+            "hint": f"run the same thing through the module form, which holds nothing open: {cmd}",
+        }}))
+        return 2
+
     before, skills = cli_state(), skills_state(a.skills_dir)
     unknown = "checkout" if before["editable"] else "n/a"     # same wording ad-doctor prints, so the two agree
     meta = {"ok": True, "source": "ad-update", "version": before["version"], "commit": before["commit"] or unknown,
