@@ -1,6 +1,6 @@
 __pycache__/
 *.egg-info/
 .pytest_cache/
-.agent/out/
+.agent/
 build/
 dist/

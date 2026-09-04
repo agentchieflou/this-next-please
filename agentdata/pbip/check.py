@@ -192,7 +192,108 @@ def check_report(report: P.Report, model: Model) -> list[Finding]:
             out.append(Finding("error", "extension-entity-missing", em["file"], f"[{em['name']}]", f"report-level measure targets table '{em['entity']}' which is not in the model", "fix the entity or move the measure into TMDL"))
     from .features import check_report_features
     out.extend(check_report_features(model, report))
+    _check_custom_visuals(out, report, model, idx)
     return out
+
+
+def _check_custom_visuals(out: list[Finding], report: P.Report, model: Model, idx: ModelIndex) -> None:
+    from .catalog import load_catalog
+    from ..pbiviz import core as PV
+    standard_types = set(load_catalog().get("visuals", {}).keys()) | {
+        "actionButton", "textbox", "image", "shape", "basicShape", "group", "kpi",
+        "waterfallChart", "funnel", "filledMap", "shapeMap", "decompositionTreeVisual",
+        "keyDriversVisual", "qnaVisual", "smartNarrative", "paginatedReportBearer",
+        "rScript", "pythonVisual", "scriptVisual"
+    }
+
+    rj_path = os.path.join(report.root, "definition", "report.json") if report.root else None
+    rj_data = {}
+    if rj_path and os.path.exists(rj_path):
+        try:
+            with open(rj_path, "r", encoding="utf-8") as f:
+                rj_data = json.load(f)
+        except Exception:
+            pass
+
+    public_cvs = set()
+    for item in rj_data.get("publicCustomVisuals", []):
+        if isinstance(item, str):
+            public_cvs.add(item)
+        elif isinstance(item, dict) and item.get("name"):
+            public_cvs.add(item["name"])
+
+    resource_pkgs = {rp.get("name"): rp for rp in rj_data.get("resourcePackages", []) if isinstance(rp, dict)}
+
+    for v in report.all_visuals():
+        vtype = v.type
+        if not vtype or vtype in standard_types:
+            continue
+
+        # 1. custom-visual-guid-unregistered
+        if vtype not in public_cvs:
+            out.append(Finding(
+                "error", "custom-visual-guid-unregistered", v.file, v.id,
+                f"custom visual type '{vtype}' is not registered in report.json publicCustomVisuals",
+                "register custom visual GUID in report.json or import with `ad-pbiviz import`",
+            ))
+
+        # 2. custom-visual-package-missing
+        reg_dir = os.path.join(report.root, "StaticResources", "RegisteredResources") if report.root else ""
+        pkg_file = os.path.join(reg_dir, f"{vtype}.pbiviz") if reg_dir else ""
+        has_pkg = (vtype in resource_pkgs) or (os.path.exists(pkg_file))
+        if not has_pkg:
+            out.append(Finding(
+                "error", "custom-visual-package-missing", v.file, v.id,
+                f"custom visual package for '{vtype}' is missing from report.json resourcePackages and disk",
+                "import package with `ad-pbiviz import` or place .pbiviz in StaticResources/RegisteredResources/",
+            ))
+
+        # Read capabilities
+        caps = PV.read_visual_capabilities(vtype, report.root) if report.root else None
+        if not caps:
+            v_dir = os.path.join("visuals", vtype)
+            if os.path.isdir(v_dir) and os.path.exists(os.path.join(v_dir, "capabilities.json")):
+                try:
+                    with open(os.path.join(v_dir, "capabilities.json"), "r", encoding="utf-8") as f:
+                        caps = json.load(f)
+                except Exception:
+                    pass
+
+        if caps:
+            roles = {r.get("name"): r for r in caps.get("dataRoles", [])}
+            raw_v = v.raw.get("visual") or {}
+            raw_proj = raw_v.get("projections") or {}
+            raw_qs = (raw_v.get("query") or {}).get("queryState") or {}
+            filled_roles = set(raw_proj.keys()) | set(raw_qs.keys())
+
+            # 3. custom-visual-role-unfilled
+            for rname, rinfo in roles.items():
+                if rinfo.get("required") and rname not in filled_roles:
+                    out.append(Finding(
+                        "error", "custom-visual-role-unfilled", v.file, v.id,
+                        f"required dataRole '{rname}' in custom visual '{vtype}' is unfilled",
+                        f"bind fields to role '{rname}' in visual projections",
+                    ))
+
+            # 4. custom-visual-role-kind-mismatch
+            for ref in v.fields:
+                if ref.context.startswith("projection:"):
+                    role_name = ref.context.split(":", 1)[1]
+                    rinfo = roles.get(role_name)
+                    if rinfo:
+                        expected_kind = rinfo.get("kind")
+                        if expected_kind == "Grouping" and (ref.kind == "measure" or ref.agg):
+                            out.append(Finding(
+                                "error", "custom-visual-role-kind-mismatch", v.file, v.id,
+                                f"role '{role_name}' expects Grouping column, but projected field '{ref.label()}' is a measure/aggregation",
+                                "project an unaggregated column into Grouping roles",
+                            ))
+                        elif expected_kind == "Measure" and ref.kind == "column" and not ref.agg:
+                            out.append(Finding(
+                                "error", "custom-visual-role-kind-mismatch", v.file, v.id,
+                                f"role '{role_name}' expects Measure/aggregation, but projected field '{ref.label()}' is an unaggregated column",
+                                "project a measure or aggregated column into Measure roles",
+                            ))
 
 
 def _has_sourceref_entity(obj: Any) -> bool:

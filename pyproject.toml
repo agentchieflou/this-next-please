@@ -50,6 +50,7 @@ ad-state = "agentdata.cli_state:main"
 ad-confluence = "agentdata.cli_confluence:main"
 ad-update = "agentdata.update:main"
 ad-help = "agentdata.cli_help:main"
+ad-pbiviz = "agentdata.cli_pbiviz:main"
 
 [tool.setuptools.packages.find]
 include = ["agentdata*"]

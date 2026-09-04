@@ -109,4 +109,38 @@ In all fallback scenarios, the operation succeeds with `via: native` (or `reload
 | `ad-pbip desktop reload` | In-place JSON-RPC `reload` preserving AS port and live instance | Native `close` + `open_and_wait` with PBIP path | No pipe, undeclared `reload`, timeout, error |
 | `ad-pbip screenshot` | Desktop internal renderer screenshot via JSON-RPC `screenshot` | Native `user32!PrintWindow` / UIAutomation window capture | No pipe, undeclared `screenshot`, timeout, error |
 
+---
+
+## 3. Custom Visuals (`pbiviz`)
+
+The development loop for Power BI custom visualizations connects custom TypeScript/D3 rendering with live semantic model DAX measures.
+
+### The Loop
+1. **Scaffold**: `ad-pbiviz new <name>` creates `visuals/<name>/` with standard `pbiviz.json`, `capabilities.json` (`dataRoles`, `dataViewMappings`), and `src/visual.ts`.
+2. **Inspect & Bind**:
+   - `ad-pbiviz roles <name>` reviews declared `dataRoles` and their kinds (`Grouping` vs. `Measure`).
+   - `ad-pbiviz bind <name> --pbip <dir> --role category='Sales'[Product] --role measure=[Total Sales]` validates kinds against the projected model:
+     - `Grouping` roles require a bare column reference `'Table'[Column]`.
+     - `Measure` roles require a measure `[Measure]` or aggregated column `Sum('Table'[Column])`.
+     - Refuses invalid bindings and records `.agent/pbiviz/<name>.binding.json`.
+3. **Local Dev Server**: `ad-pbiviz dev <name>` starts `pbiviz start` on `https://localhost:8080/webpack-dev-server/`.
+4. **Desktop Live Developer Visual**:
+   - In Power BI Desktop: *Format -> Report settings -> Develop a visual: ON*.
+   - Add Developer Visual to the canvas to view real-time changes served from localhost.
+5. **Verify & Audit**:
+   - `ad-pbip visual-query --visual <custom_id>` executes `SUMMARIZECOLUMNS` over the visual's bound roles.
+   - `ad-pbip screenshot --visual <name>` captures cropped visual render.
+6. **Package & Import**:
+   - `ad-pbiviz package <name> [--bump patch|minor]` bundles `dist/<guid>.<version>.pbiviz`.
+   - `ad-pbiviz import <name> --pbip <dir> --page <page_name>` registers the package in `report.json` (`publicCustomVisuals`, `resourcePackages`), copies the `.pbiviz` into `StaticResources/RegisteredResources/`, and instantiates the visual container on the target page.
+7. **Validation**:
+   - `ad-pbip check` enforces custom visual rules: `custom-visual-guid-unregistered`, `custom-visual-package-missing`, `custom-visual-role-unfilled`, `custom-visual-role-kind-mismatch`.
+   - `ad-pbip catalog describe <guid>` inspects capabilities directly from the imported package.
+
+### What Stays Manual
+- **Develop a visual toggle**: Desktop requires enabling *Format -> Report settings -> Develop a visual* once per report file.
+- **Localhost Certificate**: Running `pbiviz --install-cert` once in an administrative terminal to trust the development certificate.
+- **AppSource / Org Visuals**: Publishing to the Microsoft 365 / Power BI admin center for tenant-wide deployment.
+
+
 
