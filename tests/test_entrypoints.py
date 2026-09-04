@@ -122,10 +122,15 @@ def test_ad_help(capsys):
     out = capsys.readouterr().out
     assert "ad-jira" in out
 
+    # Command help for pbi
+    assert cli_help.main(["pbi"]) == 0
+    out = capsys.readouterr().out
+    assert "ad-pbi" in out
+
     # Misspelled command: suggestions
-    assert cli_help.main(["pbi"]) == 2
+    assert cli_help.main(["pbix"]) == 2
     err = capsys.readouterr().err
-    assert "Did you mean" in err and "ad-pbip" in err
+    assert "Did you mean" in err and ("ad-pbip" in err or "ad-pbi" in err)
 
     # Completely unknown command
     assert cli_help.main(["nonexistentcommand12345"]) == 2
