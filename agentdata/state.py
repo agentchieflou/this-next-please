@@ -8,9 +8,9 @@ from datetime import datetime, timedelta, timezone
 from . import textio
 
 PATH = os.path.join(".agent", "state.json")
-PHASES = ("idle", "triaged", "querying", "validating", "documenting", "pr_open", "blocked", "done")
+PHASES = ("idle", "triaged", "querying", "optimizing", "validating", "documenting", "pr_open", "blocked", "done")
 STRING_KEYS = ("active_ticket", "branch", "pr_url", "confluence_url", "project")
-TOOL_KEYS = ("doctor_verified", "pncli_verified")
+TOOL_KEYS = ("doctor_verified", "pncli_verified", "graph_approved")
 ARTIFACT_DAYS = 7
 NULLS = ("null", "none", "")
 

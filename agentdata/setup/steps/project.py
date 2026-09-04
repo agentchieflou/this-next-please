@@ -138,6 +138,9 @@ class ProjectStep(Step):
         facts["confluence_space"] = ctx.ask.ask("project.confluence_space", "Confluence space key (blank = later)", ctx.facts.get("confluence_space") or "")
         facts["confluence_parent"] = ctx.ask.ask("project.confluence_parent", "Confluence parent page id (blank = later)", ctx.facts.get("confluence_parent") or "")
         facts["test_cmd"] = ctx.ask.ask("project.test_cmd", "Test command (blank = auto-detect)", ctx.facts.get("test_cmd") or "")
+        facts["graph_min_coverage"] = ctx.ask.ask(
+            "project.graph_min_coverage", "Per-node coverage ad-graph guard requires (blank = 0.8)",
+            ctx.facts.get("graph_min_coverage") or "")
         pbips = [p for p in ctx.det.glob("**/*.pbip", d) if ".agent" not in p]
         if pbips:
             facts["pbip_path"] = os.path.relpath(pbips[0], d).replace("\\", "/")

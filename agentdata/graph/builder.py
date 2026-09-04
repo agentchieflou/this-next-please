@@ -319,6 +319,9 @@ def build_graph(
         "sha256": graph_sha256,
         "wall_time_s": wall_time,
         "extractors": extractor_counts,
+        # per file, not just the totals: `ad-graph explain` reports the extractor for each module row and
+        # has to name the files a generic pass only guessed at under "## Open questions"
+        "file_extractors": dict(sorted(file_extractors.items())),
         "fingerprints": {rel: list(fp) for rel, fp in file_fingerprints.items()},
     }
     written_meta = textio.write_text(meta_json_path, json.dumps(meta_data, indent=2, sort_keys=True))

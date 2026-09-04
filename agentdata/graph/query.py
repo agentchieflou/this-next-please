@@ -408,9 +408,11 @@ def get_changed(
 
     if since_ref:
         try:
-            r = proc.run(["git", "diff", "--name-only", since_ref], cwd=norm_root, timeout=10)
-            if r.ok:
-                diff_files = {line.strip().replace("\\", "/") for line in r.stdout.splitlines() if line.strip()}
+            # proc.run returns a tuple, not a record: unpacking it is the difference between this
+            # working and the AttributeError below silently making --since match nothing
+            rc, out, _err, _el = proc.run(["git", "diff", "--name-only", since_ref], cwd=norm_root, timeout=10)
+            if rc == 0:
+                diff_files = {line.strip().replace("\\", "/") for line in out.splitlines() if line.strip()}
         except Exception:
             pass
 

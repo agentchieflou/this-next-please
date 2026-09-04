@@ -143,3 +143,93 @@ When `.agent/graph/graph.json` is present, `ad-test` queries the graph for `test
 - **LCOV (`--import lcov <file>`)**: Standard tracefiles produced by Jest/Istanbul, `dotnet-coverage`, and gcov.
 - **Cobertura (`--import cobertura <file>`)**: XML format emitted by `coverlet` and `pytest-cov --cov-report xml`.
 - File paths are normalized to forward-slash relative paths against the repository root; unmatched files are listed in `unmatched[]`.
+
+### The threshold (`graph_min_coverage`)
+
+The per-node coverage a change must clear is read in exactly one place, `agentdata/config.py`, and
+used by `ad-graph findings` (the `covered` column) and `ad-graph guard` (the refusal). Precedence:
+
+1. `- graph_min_coverage: 0.9` in the project's own `AGENTS.md` — the project wins, because the
+   threshold is a property of the codebase being worked on, not of the laptop doing the work.
+   `ad-setup --only project` asks for it and writes it into the stub.
+2. `graph.min_coverage` in `~/.agentdata/config.json`.
+3. `0.8`.
+
+A node at or above the threshold is `covered: true`; below it with data present is `false`; with no
+coverage file at all it is `unknown` — and the guard treats `unknown` as `false`, because no data is
+not evidence of safety.
+
+## Characterization tests (`test-cover`)
+
+`ad-graph guard` refuses changes to code no test covers, so the only legal route to optimizing an
+uncovered hub is to cover it first. That is what the `test-cover` skill does, and it writes **test
+files only** — `ad-graph guard --tests-only` proves it mechanically rather than trusting the skill.
+
+A characterization test pins behavior **as it is today**. It is not a claim that the behavior is
+correct; it is a tripwire. So:
+
+- **When one fails, behavior changed.** That is the signal. The first question is "what did I change
+  and did I mean to?", not "is this test wrong?". Only after confirming the new behavior is
+  deliberate should the golden value be updated, and the update belongs in the same commit as the
+  change that caused it, so review sees both halves together.
+- **Expected values are captured, never predicted.** The skill runs the node once through a probe
+  test and pastes what it actually returned. A predicted value that happens to be wrong turns a
+  characterization test into a bug report against working code.
+- **A bug found while characterizing is a ticket, not a side effect.** It goes under
+  `## Open questions` in `.agent/graph/understanding.md`, and the buggy behavior gets pinned as it
+  is. Fixing it inside a coverage commit hides the fix in a diff nobody is reviewing for that.
+
+Per-framework boilerplate — shape, stubbing I/O, the probe pattern, and the pitfalls that have
+actually bitten this repo (time, randomness, dict ordering, float formatting, Windows path
+separators, encodings) — lives in `skills/test-cover/references/characterization.md`, one section
+per runner so the model reads only the one `ad-test detect` reported.
+
+## Benchmarks (`ad-test bench`)
+
+`ad-test bench --node <id>` times a node **through the tests that already exercise it** — no
+hand-written harness, no invented inputs. A node with no linked tests is an error naming
+`test-cover`, not a benchmark of nothing.
+
+Each timed run is a fresh process, so `median_ms` includes runner startup. For pytest the command
+also profiles the run with `cProfile` and reports `node_cum_ms`: the cumulative time inside the node
+itself. **That is the number the comparison uses**, because startup dominates the wall clock — on
+the `bench_project` fixture a genuine 5× speedup inside the node moves suite wall time by about 2%,
+which would be reported as "no change" and would fail every optimisation that ever worked. Runners
+with no profiler report `node_cum_ms: n/a` and are compared on wall time, which they say in `basis`.
+
+`tests` edges come from coverage where they exist. Where they do not, the fallback is
+`ad-graph build`'s `test_foo` ↔ `foo` name guess, and the command says so in a `warnings` row rather
+than passing the guess off as measurement — run `ad-test coverage --contexts` for real edges.
+
+### The noise floor
+
+`ad-test bench --compare <before> <after>` calls a change `same` unless it clears
+
+> **max(5%, 2 × the before run's own min-to-median spread)**
+
+Five percent because two runs of identical code differ by more than that on any laptop. Twice the
+observed spread because a benchmark that was unstable to begin with has to clear a higher bar: if
+the baseline's own runs varied by 20%, a 25% "improvement" is not distinguishable from that noise.
+The rule is written here so nobody has to argue about a 3% win — 3% is `same`.
+
+`verdict` is `faster` / `same` / `slower`; `meets_min_speedup` additionally requires `speedup ≥
+graph_min_speedup` (project `AGENTS.md`, then `graph.min_speedup` in config, default `1.10`).
+
+## Regression gate (`test-regress`)
+
+`ad-test run --snapshot <label>` writes every test's outcome, and `--compare <before> <after>`
+diffs two snapshots. A test is a **regression** if it stopped passing *in any way* — failed, errored,
+turned into a skip, or vanished from the run entirely. Deleting a failing test is not a fix, and a
+quiet `@skip` is the same regression wearing a different hat. New passing tests are `added` and do
+not fail the gate.
+
+The `test-regress` skill runs three gates in order and prints one line:
+
+1. `ad-test run --compare` is `ok: true` — no regression rows.
+2. `ad-test coverage --diff` shows no node's `pct` dropped.
+3. `ad-test bench --compare` is `faster` **and** meets `graph_min_speedup`. A `same` verdict is not
+   a win; it is a no-op, and the change should be reverted rather than argued for.
+
+`regress: ok speedup=1.8x tests=142/142`, or `regress: FAIL <reason>`. The skill never edits
+anything and never re-runs a step to see if it passes this time — the same command twice with the
+same arguments is `AGENTS.md` rule 11, a stop condition, not a retry.

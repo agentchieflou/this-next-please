@@ -22,6 +22,7 @@ Scope: every project that installs these skills. Do not restate these in project
 11. You issued the same tool call twice with the same args.
 12. You are about to write anything outside the current branch or `.agent/`.
 13. A tool returned `"ok": false` twice in a row.
+14. You are about to edit a source file whose `ad-graph guard` verdict is not `ok` -- or you have not run it.
 
 ## Style
 14. Short answers. No preamble. State the next skill you will invoke and why (one line).
