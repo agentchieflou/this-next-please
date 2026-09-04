@@ -76,8 +76,30 @@ Two things are already handled for you:
 `é`, `→` and an empty `''` survive all three shells (asserted per shell). Output encoding is a
 separate matter — see `docs/setup.md` §Colour and glyphs, per host.
 
-## Writing files
+## Files: what each shell writes
 
-That is its own table, per shell, in `docs/setup.md` §Windows notes. In short: under pwsh 7, `>`,
-`Out-File` and `Set-Content` all produce UTF-8 without a BOM, and for `.agent/state.json` always use
-`ad-state set`, which is its only sanctioned writer.
+| Shell | Idiom | Result |
+|---|---|---|
+| pwsh 7 | `Set-Content -Path f -Value $v` | UTF-8, no BOM |
+| pwsh 7 | `Set-Content ... -Encoding utf8` | UTF-8, no BOM (`utf8` means `utf8NoBOM` in 7) |
+| pwsh 7 | `$v | Out-File f` | UTF-8, no BOM |
+| pwsh 7 | `$v > f` | UTF-8, no BOM |
+| Git Bash | `printf '%s' "$v" > f`, here-doc | UTF-8 |
+| cmd.exe | `echo %v% > f` | **the console's OEM code page** (437 on a US laptop), not UTF-8 |
+
+CI asserts all four pwsh idioms are BOM-free on every run, which is why the old
+`[IO.File]::WriteAllText` advice is gone: it existed for Windows PowerShell 5.1, where
+`-Encoding utf8` added a BOM and `>` wrote UTF-16. That shell is unsupported.
+
+**cmd is the exception.** `echo` writes whatever the console code page is, so `é` is one byte that
+is neither UTF-8 nor cp1252. `agentdata/textio.py` decodes it anyway — the decoder tries UTF-8, the
+locale's preferred encoding, cp1252, then cp437/cp850 — but if you are writing a file for a tool to
+read, use pwsh or bash, or `chcp 65001` first.
+
+Reading stays tolerant of everything, on purpose: files arrive from Notepad, from other teams, and
+from scripts written years ago. That is about where a file came from, not about which shell you type
+in.
+
+**`.agent/state.json` is written only by `ad-state`** — not for encoding reasons, but because it
+validates the phase and every key and rejects one it does not recognise. A hand-edited state file
+reaches the next skill as a phase nothing understands.

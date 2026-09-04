@@ -94,7 +94,7 @@ Pass: `desktop` lists the instance with `port`, `title` and `matched` file; `che
 ## 8. Mechanical measure edit round trip (on a scratch copy of the PBIP)
 ```powershell
 Copy-Item -Recurse <report repo> <scratch dir>; cd <scratch dir>
-[IO.File]::WriteAllText("$PWD\margin.dax", "DIVIDE ( [Margin], [Total Sales] )")   # UTF-8 without BOM; Set-Content -Encoding utf8 would add one (tolerated, but do not teach Luna that)
+Set-Content -Path "$PWD\margin.dax" -Value "DIVIDE ( [Margin], [Total Sales] )"   # pwsh 7: UTF-8, no BOM
 ad-pbip measure set --table <Table> --name "Verify Pct" --expr-file margin.dax --format-string "0.0%" --display-folder Verify
 ad-pbip lint <Name>.SemanticModel\definition
 ad-pbip check --te2
@@ -280,3 +280,24 @@ $PSNativeCommandArgumentPassing                          # paste this too
 ```
 
 Anything that disagrees with `docs/shells.md` is a bug in the doc, not a local quirk.
+
+## Files: locks, and a pwsh round trip
+
+CI can hold a file open with a second process; it cannot open PyCharm or Power BI Desktop.
+
+1. **State while PyCharm holds it.** Open `.agent/state.json` in PyCharm's editor, then run
+   `ad-state set phase=querying`. It must succeed. Paste the row. Check `.agent/` for a leftover
+   `state.json.tmp` — there must not be one.
+2. **TMDL while Desktop holds it.** Open the PBIP in Power BI Desktop, then run
+   `ad-pbip measure set ...` on a measure in that model. Same expectations.
+3. **A pwsh file read back.** In pwsh 7:
+
+   ```powershell
+   "é → ≤" | Out-File .agent/out/roundtrip.txt
+   ad-view .agent/out/roundtrip.txt        # must show the three characters
+   Format-Hex .agent/out/roundtrip.txt -Count 4   # must NOT start EF BB BF
+   ```
+
+4. **A deep path.** Create `.agent/out/` nested until the full path passes 260 characters, write a
+   TSV there through any `ad-*` command, and read it back. If it fails, paste
+   `ad-doctor --quiet --only console` — the `long_paths` row says whether the policy is on.

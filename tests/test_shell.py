@@ -180,7 +180,11 @@ def test_the_workflow_runs_all_three_shells_and_swallows_nothing():
     win = wf["jobs"]["windows"]
     shells = {s.get("shell") for s in win["steps"] if isinstance(s, dict)}
     assert {"pwsh", "bash", "cmd", "powershell"} <= shells, f"missing a shell: {shells}"
-    assert win["strategy"]["matrix"]["python"] == ["3.12", "3.14"]
+    rows = win["strategy"]["matrix"]["include"]
+    assert [r["python"] for r in rows] == ["3.12", "3.14"], "the floor and the laptop"
+    # a Windows checkout's line endings depend on core.autocrlf, and fixture bytes are the point of
+    # several tests, so the matrix runs it both ways rather than pinning one
+    assert {r["autocrlf"] for r in rows} == {"true", "false"}
     assert win["strategy"]["fail-fast"] is False
 
     # the 5.1 step exists only to prove the refusal

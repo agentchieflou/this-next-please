@@ -24,7 +24,7 @@ interactive picker (its first row is a search box that swallows Enter, so paging
 Non-interactive (Copilot terminals have no stdin for prompts):
 `ad-setup --only project --non-interactive --offline --project . --set project.jira_project=RDSD`. `--set key=value`
 answers one prompt key inline (repeatable; `true`/`false` for yes-no prompts; wins over `--answers`). `--answers
-answers.json` still works and is read in any encoding PowerShell produces (UTF-8 BOM, UTF-16); answers must never
+answers.json` still works, and is read in any encoding another tool produced; answers must never
 contain passwords — store them once interactively. `ad-setup --offline` skips network verification.
 
 Quick mode: **`ad-setup --quick`** accepts unambiguous detected defaults (e.g. a single ODBC DSN found for a source,

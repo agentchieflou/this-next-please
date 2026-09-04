@@ -99,7 +99,7 @@ def load(path: str | None) -> tuple[dict, str]:
         raise DpmError("binding_missing", f"binding file not found: {path}",
                        "check the dpm_binding fact in AGENTS.md (relative to the consumer root), or drop it to use the builtin binding")
     try:
-        over = textio.read_json(path, "binding")   # PowerShell writes UTF-8 BOM / UTF-16; read what it wrote
+        over = textio.read_json(path, "binding")   # a binding file may come from any tool; read what it wrote
     except ValueError as e:
         raise DpmError("binding_invalid", str(e), "") from None
     if not isinstance(over, dict):

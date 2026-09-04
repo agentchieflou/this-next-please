@@ -153,7 +153,7 @@ python -m pytest -q
 | `skills/*/SKILL.md` | one job each; router dispatches to exactly one. `skills/*/references/` hold the long reference docs. |
 | `agentdata/` | connector adapter: sources -> AgentTable -> TOON / TSV / JSON |
 | `agentdata/config.py` | global config + project facts; every CLI resolves settings flag → env var → config → AGENTS.md |
-| `agentdata/textio.py` | reads files other tools wrote (UTF-8 BOM, UTF-16, cp1252 — what Windows PowerShell and Notepad produce); writes UTF-8 without BOM |
+| `agentdata/textio.py` | reads files other tools wrote (BOM, UTF-16, cp1252, cmd's OEM code page — Notepad, other teams, older scripts); writes UTF-8 without BOM, LF, atomically, and copes with a locked target, a >260-character path and a reserved filename |
 | `agentdata/proc.py` | starts other programs on Windows: PATHEXT + npm global prefix resolution, npm `.cmd` shims run as `node <script>` (no cmd.exe re-parsing) |
 | `agentdata/update.py` | `ad-update`: reinstall the CLI + skills, and report the exact commit installed |
 | `CHANGELOG.md` | what each version changed, and whether picking it up needs more than the two update commands |

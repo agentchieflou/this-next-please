@@ -55,8 +55,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.12", "3.14"]     # the floor, and the laptop
+        include:
+          - {python: "3.12", autocrlf: "true"}    # the floor, checked out the way Git for Windows defaults
+          - {python: "3.14", autocrlf: "false"}   # the laptop, with line endings left alone
     steps:
+      # A Windows checkout's line endings depend on core.autocrlf, and the fixtures' bytes are the
+      # point of several tests. Run the matrix both ways rather than pinning one and hoping.
+      - name: set core.autocrlf for this checkout
+        shell: pwsh
+        run: git config --global core.autocrlf ${{ matrix.autocrlf }}
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:

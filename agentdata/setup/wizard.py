@@ -416,8 +416,7 @@ def load_answers(path: str | None, sets: list[str] | None = None) -> dict:
         try:
             data = textio.read_json(p, "answers file")
         except ValueError as e:
-            raise C.ConfigError(str(e), hint="use --set key=value instead of a file, or write the file with "
-                                "[IO.File]::WriteAllText (UTF-8 without BOM)") from None
+            raise C.ConfigError(str(e), hint="use --set key=value instead: it answers the prompts inline and needs no file at all") from None
         if not isinstance(data, dict):
             raise C.ConfigError("answers file must be a JSON object", hint='{"project.jira_project": "RDSD"}')
     for item in sets or []:

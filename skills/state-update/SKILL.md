@@ -12,5 +12,5 @@ description: "Use immediately after any skill finishes a step, to record progres
    - `--question "<what would unblock me>"` together with `phase=blocked`; `--clear-questions` once unblocked
    - `--tool doctor_verified=<date>` / `--tool pncli_verified=<date>`
    The command validates keys and phases, stamps `last_updated`, drops artifacts older than 7 days and writes UTF-8 without BOM.
-3. `ok: false` → fix the key or value the `hint` names and re-run. Never write `.agent/state.json` any other way: no editor, no `Set-Content`, `Out-File`, `>` or `ConvertTo-Json` (Windows PowerShell adds a BOM or writes UTF-16).
+3. `ok: false` → fix the key or value the `hint` names and re-run. Never write `.agent/state.json` any other way -- no editor, no `Set-Content`, no `ConvertTo-Json`. `ad-state` validates the phase and every key, and rejects one it does not know; a hand-written file reaches the next skill as a phase nothing understands.
 4. Print the `state:` line the command printed. Return to `router`.
