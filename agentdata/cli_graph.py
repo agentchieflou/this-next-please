@@ -10,7 +10,9 @@ from . import completion
 from . import policy
 from . import ui
 from .console import utf8_stdout
+from .graph import approval
 from .graph import builder
+from .graph import explain
 from .graph import query
 from .model import AgentTable
 from .policy import error, render
@@ -200,6 +202,103 @@ def cmd_export(a: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_explain(a: argparse.Namespace) -> int:
+    try:
+        res = explain.explain_graph(
+            root=_get_root(a),
+            out_file=getattr(a, "out", None),
+            graph_dir=a.graph_dir or ".agent/graph",
+        )
+        records = [{"section": s} for s in res["sections"]]
+        t = AgentTable.from_records(records, name="explain", source="ad-graph explain")
+        extra = {
+            "ok": True,
+            "source": "ad-graph explain",
+            "path": res["rel_path"],
+            "graph_sha256": res["graph_sha256"],
+        }
+        print(render(t, extra=extra))
+        return 0
+    except query.GraphError as e:
+        print(error(str(e), e.hint, "ad-graph explain"))
+        return 1
+    except Exception as e:
+        print(error(str(e), "check directory path or permissions", "ad-graph explain"))
+        return 1
+
+
+def cmd_approve(a: argparse.Namespace) -> int:
+    try:
+        res = approval.approve_graph(
+            root=_get_root(a),
+            graph_dir=a.graph_dir or ".agent/graph",
+        )
+        if not res.get("ok"):
+            if res.get("cancelled"):
+                print(error(res["error"], res["hint"], "ad-graph approve"))
+                return 0
+            print(error(res["error"], res["hint"], "ad-graph approve"))
+            return res.get("exit_code", 3)
+
+        records = [
+            {"property": "approved", "value": "true"},
+            {"property": "graph_sha256", "value": res["graph_sha256"]},
+            {"property": "understanding_sha256", "value": res["understanding_sha256"]},
+            {"property": "approved_by", "value": res["approved_by"]},
+            {"property": "approved_at", "value": res["approved_at"]},
+        ]
+        t = AgentTable.from_records(records, name="approve", source="ad-graph approve")
+        extra = {
+            "ok": True,
+            "source": "ad-graph approve",
+            "approved": True,
+            "graph_sha256": res["graph_sha256"],
+        }
+        print(render(t, extra=extra))
+        return 0
+    except query.GraphError as e:
+        print(error(str(e), e.hint, "ad-graph approve"))
+        return 1
+    except Exception as e:
+        print(error(str(e), "unexpected error during approval", "ad-graph approve"))
+        return 1
+
+
+def cmd_status(a: argparse.Namespace) -> int:
+    try:
+        res = approval.check_approval_status(
+            root=_get_root(a),
+            graph_dir=a.graph_dir or ".agent/graph",
+        )
+        records = [
+            {"property": "status", "value": res["status"]},
+            {"property": "approved", "value": str(res["approved"]).lower()},
+            {"property": "graph_sha256", "value": res["graph_sha256"] or "none"},
+            {"property": "approved_graph_sha256", "value": res.get("approved_graph_sha256") or "none"},
+            {"property": "understanding_sha256", "value": res.get("understanding_sha256") or "none"},
+            {"property": "approved_understanding_sha256", "value": res.get("approved_understanding_sha256") or "none"},
+            {"property": "changed_nodes", "value": str(res.get("changed_nodes", 0))},
+            {"property": "approved_at", "value": res.get("approved_at") or "none"},
+            {"property": "approved_by", "value": res.get("approved_by") or "none"},
+        ]
+        t = AgentTable.from_records(records, name="status", source="ad-graph status")
+        extra = {
+            "ok": True,
+            "source": "ad-graph status",
+            "status": res["status"],
+            "approved": res["approved"],
+            "changed_nodes": res.get("changed_nodes", 0),
+        }
+        print(render(t, extra=extra))
+        return 0
+    except query.GraphError as e:
+        print(error(str(e), e.hint, "ad-graph status"))
+        return 1
+    except Exception as e:
+        print(error(str(e), "unexpected error checking status", "ad-graph status"))
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="ad-graph",
@@ -287,6 +386,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_e.add_argument("--root", dest="root_flag", help="project root directory")
     p_e.add_argument("--graph-dir", default=".agent/graph", help="graph directory (default: .agent/graph)")
     p_e.set_defaults(fn=cmd_export)
+
+    # explain
+    p_exp = sub.add_parser("explain", help="generate deterministic codebase understanding document")
+    p_exp.add_argument("root", nargs="?", default=".", help="project root directory (default: .)")
+    p_exp.add_argument("--root", dest="root_flag", help="project root directory")
+    p_exp.add_argument("--out", default=None, help="output markdown file (default: .agent/graph/understanding.md)")
+    p_exp.add_argument("--graph-dir", default=".agent/graph", help="graph directory (default: .agent/graph)")
+    p_exp.add_argument("--pretty", action="store_true", help="render rich table")
+    p_exp.set_defaults(fn=cmd_explain)
+
+    # approve
+    p_app = sub.add_parser("approve", help="interactively approve understanding document in a terminal (human only)")
+    p_app.add_argument("root", nargs="?", default=".", help="project root directory (default: .)")
+    p_app.add_argument("--root", dest="root_flag", help="project root directory")
+    p_app.add_argument("--graph-dir", default=".agent/graph", help="graph directory (default: .agent/graph)")
+    p_app.add_argument("--pretty", action="store_true", help="render rich table")
+    p_app.set_defaults(fn=cmd_approve)
+
+    # status
+    p_st = sub.add_parser("status", help="check graph approval and freshness status")
+    p_st.add_argument("root", nargs="?", default=".", help="project root directory (default: .)")
+    p_st.add_argument("--root", dest="root_flag", help="project root directory")
+    p_st.add_argument("--graph-dir", default=".agent/graph", help="graph directory (default: .agent/graph)")
+    p_st.add_argument("--pretty", action="store_true", help="render rich table")
+    p_st.set_defaults(fn=cmd_status)
 
     return ap
 

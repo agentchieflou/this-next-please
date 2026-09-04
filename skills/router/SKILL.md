@@ -19,6 +19,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 | DPM run, hand back / handoff, orchestrator.db, selection manifest, text_analysis, job manifest, OCR routing, native text | `dpm-consumer-integration` |
 | Power BI, PBIP, report, visual, model, DAX, measure, TMDL | `pbi-router` |
 | sbatch, cluster job, schedule | `slurm-submit` |
+| map the codebase, how does this repo work, what calls what, unfamiliar code | `codebase-map` |
 | PR, branch, push, commit | `bitbucket-pr` |
 | Confluence, document, write-up, page | `confluence-publish` |
 | move / transition / close / reopen a ticket, "mark it done", "put it in review" | `jira-transition` |
