@@ -51,6 +51,34 @@ Each node carries:
 | Write down what this repo does, in a form a human can review | `ad-graph explain` |
 | Has a human approved that understanding, and does it still match the code? | `ad-graph status` |
 
+## Checks
+
+`ad-graph findings` runs every check below and stamps each row with `covered` and `leverage`
+(fan-in × complexity). Rows are ranked **covered first**, then by leverage — a finding on code no
+test executes cannot be acted on, because `ad-graph guard` refuses the edit. Those rows are not
+noise; they are `test-cover` targets.
+
+| Kind | Severity | Confidence | What it means | Fix pattern |
+|---|---|---|---|---|
+| `io-in-loop` | perf | high | A loop body calls an `io`-tagged node, directly or one hop away — the N+1 shape. | Hoist the I/O above the loop, or batch it into one call. |
+| `repeated-call` | perf | med | The same callee with the same literal/name arguments twice in one body, with no rebinding in between. | Hoist to a local, or memoize. |
+| `quadratic-scan` | perf | med | `in` against a list/tuple local inside a loop, or an inner loop over a collection the outer loop is still filling. | Build a set once before the loop; index instead of re-walking. |
+| `hot-hub-complexity` | perf | med | Fan-in in the top decile *and* complexity above 5 — where a speedup pays off. | Profile with `ad-test bench` first, then optimise the branch the profile names. |
+| `dead-code` | hygiene | high (python) / low (generic) | Zero fan-in, not an entrypoint, not a test, and no unresolved edge or string literal that could name it dynamically. | Delete it, or add the caller the graph is missing. |
+| `import-cycle` | hygiene | high | A ring of imports, from `ad-graph cycles`. | Extract the shared names into a third module, or defer one import. |
+| `swallowed-exception` | logic | high | A bare `except:` / `except Exception:` whose body is only `pass` or a log — failures vanish there. | Catch the specific exception, or return something the caller can check. |
+| `recursion-no-guard` | logic | low | A self-call with no conditional return or raise anywhere in the body. | Confirm the base case; say so in the docstring if the bound is the caller's job. |
+| `untested-hub` | logic | high | Top-decile fan-in and coverage below `graph.min_coverage`. Silent without coverage data. | Run `test-cover` here before anything else. |
+| `uncovered-branch` | logic | med | Lines are covered but branch arcs are not — logic the suite has never taken. `where` points at the branch. | Add the case that takes the other arm. |
+
+`covered` is `true` when the node's coverage reaches `graph.min_coverage` (default `0.8`), `false`
+when coverage data exists and it does not, and `unknown` when there is no coverage file at all. The
+guard treats `unknown` as `false`: no data is not evidence of safety.
+
+Every check module under `agentdata/graph/checks/` states its pattern, its known false positive, and
+its confidence in its docstring. A check with no stated false positive fails the test suite — a check
+nobody can name a failure mode for is a check nobody has thought about.
+
 ## The approval gate: why the command needs a terminal
 
 Nothing downstream of the graph — findings, guarded edits, performance work — may run until a human has
@@ -87,4 +115,5 @@ understanding document, and `ad-graph status` reports `approved: stale` with the
 - `ad-graph explain [--out .agent/graph/understanding.md]`: Writes the understanding skeleton from graph facts only — seven sections, every fact line ending in the node id that `ad-graph node` resolves. Re-running preserves anything written between `<!-- model -->` and `<!-- /model -->` and refreshes the facts around it.
 - `ad-graph approve`: Human-only. Refuses with exit 3 unless stdin and stdout are both a TTY; see "The approval gate" above.
 - `ad-graph status`: Reports `approved: none | current | stale`, both sides of each sha256, and the changed-node count when the approval has gone stale.
+- `ad-graph findings [--kind a,b] [--min-confidence low|med|high] [--covered-only] [--top N] [--baseline <tsv>]`: Runs the checks above. `--baseline` takes an earlier findings TSV and tags every row `new` / `same` / `fixed` — the before-and-after evidence a PR description needs.
 

@@ -12,7 +12,9 @@ from . import ui
 from .console import utf8_stdout
 from .graph import approval
 from .graph import builder
+from .graph import checks
 from .graph import explain
+from .graph import findings
 from .graph import query
 from .model import AgentTable
 from .policy import error, render
@@ -299,6 +301,64 @@ def cmd_status(a: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_findings(a: argparse.Namespace) -> int:
+    try:
+        kinds = [k.strip() for k in a.kind.split(",") if k.strip()] if a.kind else None
+        if kinds:
+            unknown = sorted(set(kinds) - set(checks.kinds()))
+            if unknown:
+                print(error(
+                    f"unknown check kind(s): {', '.join(unknown)}",
+                    "one of " + ", ".join(checks.kinds()),
+                    "ad-graph findings",
+                ))
+                return 2
+
+        res = findings.collect(
+            root=_get_root(a),
+            graph_dir=a.graph_dir or ".agent/graph",
+            kinds=kinds,
+            min_confidence=a.min_confidence,
+            covered_only=a.covered_only,
+            top=a.top,
+        )
+        records = res["findings"]
+        extra = {
+            "ok": True,
+            "source": "ad-graph findings",
+            "total": res["total"],
+            "coverage": res["coverage"],
+            "min_coverage": res["min_coverage"],
+            "by_kind": res["by_kind"],
+        }
+
+        if a.baseline:
+            records = findings.diff_baseline(records, a.baseline)
+            counts: dict[str, int] = {}
+            for r in records:
+                counts[r["status"]] = counts.get(r["status"], 0) + 1
+            extra["baseline"] = a.baseline
+            extra["status_counts"] = counts
+            t = AgentTable.from_records(
+                records, name="findings", source="ad-graph findings",
+                fields=["status"] + findings.COLUMNS,
+            )
+        else:
+            t = findings.to_table(records)
+
+        print(render(t, extra=extra))
+        return 0
+    except query.GraphError as e:
+        print(error(str(e), e.hint, "ad-graph findings"))
+        return 1
+    except FileNotFoundError as e:
+        print(error(str(e), "check the --baseline path", "ad-graph findings"))
+        return 1
+    except Exception as e:
+        print(error(str(e), "check directory path or permissions", "ad-graph findings"))
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="ad-graph",
@@ -403,6 +463,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_app.add_argument("--graph-dir", default=".agent/graph", help="graph directory (default: .agent/graph)")
     p_app.add_argument("--pretty", action="store_true", help="render rich table")
     p_app.set_defaults(fn=cmd_approve)
+
+    # findings
+    p_f = sub.add_parser("findings", help="graph-derived performance holes and logic gaps, ranked covered-first")
+    p_f.add_argument("root", nargs="?", default=".", help="project root directory (default: .)")
+    p_f.add_argument("--root", dest="root_flag", help="project root directory")
+    p_f.add_argument("--graph-dir", default=".agent/graph", help="graph directory (default: .agent/graph)")
+    p_f.add_argument("--kind", default=None, help="comma list of check kinds: " + ", ".join(checks.kinds()))
+    p_f.add_argument("--min-confidence", choices=["low", "med", "high"], default="low",
+                     help="drop rows below this confidence (default: low, i.e. keep everything)")
+    p_f.add_argument("--covered-only", action="store_true",
+                     help="only findings on code tests cover -- the only ones the guard will let you change")
+    p_f.add_argument("--top", type=int, default=None, help="keep only the top N rows after ranking")
+    p_f.add_argument("--baseline", default=None, help="an earlier findings TSV; adds new/same/fixed per row")
+    p_f.add_argument("--pretty", action="store_true", help="render rich table")
+    p_f.set_defaults(fn=cmd_findings)
 
     # status
     p_st = sub.add_parser("status", help="check graph approval and freshness status")
