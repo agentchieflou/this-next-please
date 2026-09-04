@@ -79,6 +79,41 @@ Every check module under `agentdata/graph/checks/` states its pattern, its known
 its confidence in its docstring. A check with no stated false positive fails the test suite — a check
 nobody can name a failure mode for is a check nobody has thought about.
 
+## The guard: what it refuses and how a human overrides it
+
+`ad-graph guard` maps a diff onto graph nodes and exits non-zero if any changed node is one you are
+not allowed to touch. Every code-changing skill runs it before committing, and
+`ad-graph guard --install-hook` writes a `pre-commit` hook running `guard --staged`, so the
+protection survives a skill being skipped.
+
+It refuses when:
+
+| Condition | Hint names |
+|---|---|
+| No `approval.json` | `codebase-map`, then a human running `ad-graph approve` |
+| The graph moved in a file the diff does not touch (`approved: stale`) | rebuild, re-read, re-approve |
+| A changed node is `covered: false` or `unknown` | `test-cover` for that node |
+| A changed **line** has never executed, inside an otherwise covered node | the specific line numbers |
+| A test node was deleted, renamed, or shrank | "never remove or weaken a test to pass the guard" |
+| `--tests-only` and a non-test file is in the diff | that this run may touch tests and nothing else |
+
+Two things are deliberately *not* refusals. Test files are exempt from the coverage rule, because
+`test-cover` has to be able to add coverage before anything else can happen. And drift in a file the
+diff touches is expected — editing code is supposed to move its own nodes, so staleness is judged on
+drift *elsewhere*, not on the graph sha alone. Judging it on the sha would make the guard refuse
+every edit it exists to check.
+
+Everything under `.agent/` is ignored: it is the agent's workspace (`AGENTS.md` rule 12), and without
+that exclusion the guard reads the graph it just wrote as an uncovered change and refuses itself.
+
+**The override is a human's.** `ad-graph guard --allow <node-id>` requires an interactive terminal
+for the same reason `ad-graph approve` does, and records `{node, by, at}` under `allowed` in
+`approval.json` so the exemption is visible in review rather than implicit in a skill's behaviour.
+Skills never pass `--allow`. `--min-coverage` lowers the bar for one run and waives the changed-line
+check; it is for a human deciding a threshold is wrong, not for getting a commit through.
+
+Exit codes: `0` pass, `1` refused, `2` usage, `3` no graph or no coverage data.
+
 ## The approval gate: why the command needs a terminal
 
 Nothing downstream of the graph — findings, guarded edits, performance work — may run until a human has

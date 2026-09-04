@@ -15,6 +15,7 @@ from .graph import builder
 from .graph import checks
 from .graph import explain
 from .graph import findings
+from .graph import guard
 from .graph import query
 from .model import AgentTable
 from .policy import error, render
@@ -359,6 +360,65 @@ def cmd_findings(a: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_guard(a: argparse.Namespace) -> int:
+    root = _get_root(a)
+    graph_dir = a.graph_dir or ".agent/graph"
+    try:
+        if a.install_hook or a.uninstall_hook:
+            res = guard.install_hook(root) if a.install_hook else guard.uninstall_hook(root)
+            if not res["ok"]:
+                print(error(res["error"], res["hint"], "ad-graph guard"))
+                return res["exit_code"]
+            records = [{"property": k, "value": str(v)} for k, v in res.items() if k not in ("ok", "exit_code")]
+            t = AgentTable.from_records(records, name="hook", source="ad-graph guard")
+            print(render(t, extra={"ok": True, "source": "ad-graph guard"}))
+            return 0
+
+        if a.allow:
+            res = guard.allow_node(root, graph_dir, a.allow)
+            if not res["ok"]:
+                print(error(res["error"], res["hint"], "ad-graph guard"))
+                return res["exit_code"]
+            records = [{"node": n, "by": res["by"], "at": res["at"]} for n in res["allowed"]]
+            t = AgentTable.from_records(records, name="allowed", source="ad-graph guard")
+            print(render(t, extra={"ok": True, "source": "ad-graph guard", "allowed": len(records)}))
+            return 0
+
+        mode = "staged" if a.staged else ("ref" if a.diff else "worktree")
+        res = guard.run_guard(
+            root=root, graph_dir=graph_dir, mode=mode, ref=a.diff,
+            tests_only=a.tests_only, min_coverage=a.min_coverage,
+        )
+        extra = {
+            "ok": res["ok"],
+            "source": "ad-graph guard",
+            "approved": res["approved"],
+            "refused": res["refused"],
+            "mode": res["mode"],
+            "coverage": res["coverage"],
+        }
+        if res.get("unexplained_drift"):
+            extra["unexplained_drift"] = res["unexplained_drift"]
+        if res.get("empty_diff"):
+            extra["note"] = "empty diff: nothing to check"
+
+        t = AgentTable.from_records(
+            res["rows"], name="guard", source="ad-graph guard",
+            fields=["node", "where", "changed_lines", "covered", "coverage_pct", "verdict", "hint"],
+        )
+        print(render(t, extra=extra))
+        return guard.EXIT_OK if res["ok"] else guard.EXIT_REFUSED
+    except guard.GuardError as e:
+        print(error(str(e), e.hint, "ad-graph guard"))
+        return e.exit_code
+    except query.GraphError as e:
+        print(error(str(e), e.hint, "ad-graph guard"))
+        return guard.EXIT_NO_DATA
+    except Exception as e:
+        print(error(str(e), "check directory path or permissions", "ad-graph guard"))
+        return guard.EXIT_NO_DATA
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="ad-graph",
@@ -478,6 +538,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_f.add_argument("--baseline", default=None, help="an earlier findings TSV; adds new/same/fixed per row")
     p_f.add_argument("--pretty", action="store_true", help="render rich table")
     p_f.set_defaults(fn=cmd_findings)
+
+    # guard
+    p_g = sub.add_parser("guard", help="refuse a diff that touches uncovered code or an unapproved graph")
+    p_g.add_argument("root", nargs="?", default=".", help="project root directory (default: .)")
+    p_g.add_argument("--root", dest="root_flag", help="project root directory")
+    p_g.add_argument("--graph-dir", default=".agent/graph", help="graph directory (default: .agent/graph)")
+    g_mode = p_g.add_mutually_exclusive_group()
+    g_mode.add_argument("--worktree", action="store_true", help="check the working tree against HEAD (default)")
+    g_mode.add_argument("--staged", action="store_true", help="check only what is staged (what the git hook runs)")
+    g_mode.add_argument("--diff", metavar="REF", default=None, help="check the diff against a git ref")
+    p_g.add_argument("--tests-only", action="store_true",
+                     help="also refuse any non-test file in the diff (what test-cover runs)")
+    p_g.add_argument("--min-coverage", type=float, default=None,
+                     help="override graph.min_coverage for this run; also waives the changed-line check")
+    p_g.add_argument("--allow", action="append", metavar="NODE",
+                     help="record a human override for a node (needs a terminal, like ad-graph approve)")
+    p_g.add_argument("--install-hook", action="store_true", help="write a pre-commit hook running `guard --staged`")
+    p_g.add_argument("--uninstall-hook", action="store_true", help="remove a pre-commit hook this command wrote")
+    p_g.add_argument("--pretty", action="store_true", help="render rich table")
+    p_g.set_defaults(fn=cmd_guard)
 
     # status
     p_st = sub.add_parser("status", help="check graph approval and freshness status")

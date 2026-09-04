@@ -25,17 +25,33 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def node_shas(graph: Graph) -> dict[str, str]:
-    return {nid: n.sha for nid, n in sorted(graph.nodes.items())}
+def node_shas(graph: Graph) -> dict[str, dict[str, Any]]:
+    """{node id: {sha, loc, kind}}. `loc` and `kind` are what lets the guard notice a test that
+    still exists but has been hollowed out."""
+    return {
+        nid: {"sha": n.sha, "loc": n.loc, "kind": n.kind}
+        for nid, n in sorted(graph.nodes.items())
+    }
 
 
-def drift_from_snapshot(graph: Graph, snapshot: dict[str, str]) -> int:
+def snapshot_sha(entry: Any) -> str:
+    """The sha out of a snapshot entry, tolerating the flat {id: sha} form written by earlier runs."""
+    if isinstance(entry, dict):
+        return str(entry.get("sha", ""))
+    return str(entry or "")
+
+
+def drifted_nodes(graph: Graph, snapshot: dict[str, Any]) -> set[str]:
     """Nodes added, removed, or whose source changed since the snapshot was taken."""
     current = node_shas(graph)
-    return len({
+    return {
         nid for nid in set(current) | set(snapshot)
-        if current.get(nid) != snapshot.get(nid)
-    })
+        if snapshot_sha(current.get(nid)) != snapshot_sha(snapshot.get(nid))
+    }
+
+
+def drift_from_snapshot(graph: Graph, snapshot: dict[str, Any]) -> int:
+    return len(drifted_nodes(graph, snapshot))
 
 
 def get_git_user_name() -> str:
