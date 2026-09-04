@@ -34,6 +34,15 @@ EXTRACTOR_VERSIONS = {
 }
 
 
+def safe_relpath(path: str, start: str = ".") -> str:
+    """Computes relative path with graceful fallback for Windows cross-drive paths."""
+    try:
+        rel = os.path.relpath(path, start).replace("\\", "/")
+        return rel or "."
+    except ValueError:
+        return os.path.abspath(path).replace("\\", "/")
+
+
 def find_entrypoints_from_pyproject(root: str) -> set[str]:
     """Inspects pyproject.toml for console scripts and maps them to node IDs."""
     pyproject = os.path.join(root, "pyproject.toml")
@@ -304,7 +313,7 @@ def build_graph(
 
     return {
         "ok": True,
-        "root": os.path.relpath(norm_root, os.getcwd()).replace("\\", "/") or ".",
+        "root": safe_relpath(norm_root, os.getcwd()),
         "files": len(files),
         "nodes": len(graph.nodes),
         "edges": len(graph.edges),
