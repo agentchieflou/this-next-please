@@ -78,3 +78,35 @@ The Fabric REST item-definition API (`/v1/workspaces/{ws}/reports`, `/getDefinit
 | Out-of-sync model entities | If a table or column was renamed in the target model, visual fields break silently upon publish. | Binding verification diff: `ad-pbi` fetches the target model TMDL and diffs PBIR field references against `ModelIndex` before publishing. Unbound references halt publish unless `--allow-unbound`. |
 | Credential leakage in logs/traces | Bearer tokens exposed in CLI output, logs, or error traces. | Tokens obtained through `az account get-access-token` are held in memory only, never printed to stdout/stderr, and scrubbed from error output. |
 
+---
+
+## 2. Version-Drift Policy
+
+We track Power BI Desktop and the Desktop Bridge through **capability probes** and **manifest-driven transcripts**, never by pinning fragile version numbers.
+
+### Desktop Capability Probes (`ad-pbip capabilities`)
+Power BI Desktop capabilities (Analysis Services port, local XMLA tooling, external tools directory, UIAutomation, user32!PrintWindow, Bridge named pipe, Bridge manifest) are probed dynamically on every session. We never assume an environment capability based on a Windows build number or Power BI Desktop version string.
+
+### Bridge Manifest + Recorded Transcripts
+The Bridge is an optional JSON-RPC 2.0 transport operating over `\\.\pipe\pbi-desktop-bridge-<pid>`. We negotiate capabilities at runtime via the `manifest` call:
+- Operations are only invoked if explicitly declared in the advertised manifest (`manifest.operations`).
+- Baseline transcripts (`tests/fixtures/bridge/<desktop-version>/*.jsonl`) capture golden request/response frames from live sessions.
+- When Power BI Desktop updates on its monthly release train:
+  1. `ad-pbip bridge probe --pid <pid>` checks for added or removed operations (`drift`).
+  2. `ad-pbip bridge record --pid <pid>` records a new golden transcript under `tests/fixtures/bridge/<new-version>/transcript.jsonl`.
+  3. Adding support for newly declared operations is a simple method mapping without code breaks or version bumps.
+
+### Graceful Degrade to Native
+Every Bridge-backed verb MUST gracefully fall back to its native equivalent if:
+- The named pipe is absent (`pipe_present: false`)
+- The requested operation is not declared in the manifest
+- A frame is malformed, times out, or returns a transport error
+
+In all fallback scenarios, the operation succeeds with `via: native` (or `reloaded_via: native`) and logs an informative warning. **Skills never see a Bridge error.**
+
+| Verb | Bridge Path (`via: bridge`) | Native Degrade Path (`via: native` / `via: printwindow`) | Degrade Trigger |
+|---|---|---|---|
+| `ad-pbip desktop reload` | In-place JSON-RPC `reload` preserving AS port and live instance | Native `close` + `open_and_wait` with PBIP path | No pipe, undeclared `reload`, timeout, error |
+| `ad-pbip screenshot` | Desktop internal renderer screenshot via JSON-RPC `screenshot` | Native `user32!PrintWindow` / UIAutomation window capture | No pipe, undeclared `screenshot`, timeout, error |
+
+

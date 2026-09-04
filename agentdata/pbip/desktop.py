@@ -415,10 +415,32 @@ def close(pid: int, save: bool = False, discard: bool = False, run: Runner | Non
 
 
 def reload(pid: int, save: bool = False, discard: bool = False, candidates: list[str] | None = None, run: Runner | None = None) -> dict:
-    """Reload instance: native close + open, preserving active page, or bridge pipe when available."""
-    pipe_name = rf"\\.\pipe\pbi-desktop-bridge-{pid}"
-    if os.path.exists(pipe_name):
-        pass
+    """Reload instance: bridge pipe when available and negotiated, else native close + open."""
+    from . import bridge as BR
+    b_client, b_man, b_reason = BR.get_bridge_manifest(pid=pid)
+    warn_reason = None
+    if b_client:
+        try:
+            if "reload" in b_man.get("operations", []):
+                res = b_client.reload()
+                b_client.close()
+                return {
+                    "ok": True,
+                    "source": "ad-pbip desktop reload",
+                    "pid": pid,
+                    "reloaded": True,
+                    "reloaded_via": "bridge",
+                    "via": "bridge",
+                    "elapsed_ms": res.get("elapsed_ms", 0),
+                }
+            else:
+                warn_reason = "operation 'reload' not declared in bridge manifest"
+        except Exception as e:
+            warn_reason = f"bridge reload failed: {e}"
+        finally:
+            b_client.close()
+    else:
+        warn_reason = f"bridge not connected ({b_reason})"
 
     insts = status(pid=pid, candidates=candidates, run=run)
     if not insts:
@@ -436,7 +458,7 @@ def reload(pid: int, save: bool = False, discard: bool = False, candidates: list
     if not o_res.get("ok"):
         return o_res
 
-    return {**o_res, "reloaded_via": "native"}
+    return {**o_res, "reloaded_via": "native", "via": "native", "bridge_fallback": warn_reason}
 
 
 def capabilities(pid: int | None = None, run: Runner | None = None) -> list[dict]:
@@ -535,7 +557,28 @@ def capabilities(pid: int | None = None, run: Runner | None = None) -> list[dict
         "evidence": pipe_ev,
     })
 
-    # 7. developer_visual
+    # 7. bridge_manifest
+    from . import bridge as BR
+    b_client, b_man, b_reason = BR.get_bridge_manifest(pid=pid)
+    if b_client and b_man:
+        ops_str = ", ".join(b_man.get("operations", []))
+        ver = b_man.get("version", "unknown")
+        out.append({
+            "capability": "bridge_manifest",
+            "available": True,
+            "via": "named_pipe",
+            "evidence": f"operations: {ops_str} (v{ver})",
+        })
+        b_client.close()
+    else:
+        out.append({
+            "capability": "bridge_manifest",
+            "available": False,
+            "via": "named_pipe",
+            "evidence": f"manifest unavailable ({b_reason})",
+        })
+
+    # 8. developer_visual
     dev_avail = False
     dev_ev = "developer visual setting not detected"
     if sys.platform == "win32":
@@ -550,7 +593,7 @@ def capabilities(pid: int | None = None, run: Runner | None = None) -> list[dict
         "evidence": dev_ev,
     })
 
-    # 8. pbiviz
+    # 9. pbiviz
     pbiviz_path = shutil.which("pbiviz") or shutil.which("pbiviz.cmd")
     out.append({
         "capability": "pbiviz",
