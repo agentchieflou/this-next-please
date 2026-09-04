@@ -123,6 +123,16 @@ Pass: `AGENTS.md` facts filled (env names, tool paths, workspace, model, `pbi_xm
 ## 11. Luna dry run (optional but the real test)
 In PyCharm with the skills installed (`gh skill install agentchieflou/this-next-please --all --scope user` — `--all` skips the interactive picker, whose search row swallows Enter), ask Luna: "add a measure `<X>` to `<Table>` that does `<Y>` and make sure the report still works". Pass: it runs `pbip-projection` → `tmdl-edit` (`ad-pbip measure set`) → `pbi-validate` (`check --te2`, `desktop`, `visual-query`) without hand-editing TMDL. Paste: the friction log if it stops (`.agent\friction\*.md`).
 
+## 12. Desktop session control and capabilities (#50)
+```powershell
+ad-pbip capabilities                                                   # probe 8 capabilities (as_port, xmla_local, uia, etc.)
+ad-pbip desktop status                                                 # lists instances with pid, port, pages, unsaved, desktop_version, install
+ad-pbip desktop open <path-to.pbip> --wait 180                         # launches and polls until Analysis Services and UI are ready
+ad-pbip desktop reload --pid <pid>                                     # cleanly closes and reopens, restoring active page
+ad-pbip desktop close --pid <pid> --discard                            # closes via WM_CLOSE, discarding unsaved changes
+```
+Pass: `capabilities` outputs 8 rows with available state and evidence; `status` reports `pages`, `unsaved`, `loaded`, `desktop_version`, `install`; `open --wait` returns instance row once loaded; `reload` returns `reloaded_via: native`; `close` cleanly exits.
+
 ## Triage map (where a failure lands)
 | Symptom | Module | Likely fix |
 |---|---|---|

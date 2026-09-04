@@ -79,6 +79,34 @@ class PowerBIStep(Step):
                     "" if v else "ad-doctor --online (needs te2_exe and a model name)",
                     ("powerbi.te2_exe", f"powerbi.workspace.{ws.get('name')}.models"))
 
+        # desktop/version
+        dt_exe = found["tools"].get("pbi_desktop_exe")
+        dt_keys = ("powerbi.pbi_desktop_exe", "powerbi.tools.pbi_desktop_exe")
+        if dt_exe and ctx.det.exists(dt_exe):
+            ver = None
+            if hasattr(ctx.det, "version"):
+                ver = ctx.det.version("PBIDesktop.exe")
+            if not ver:
+                from ...pbip import desktop as DT
+                ver, _ = DT.probe_desktop_version(None, {"Path": dt_exe})
+            ver_text = f"PBIDesktop.exe · {ver}" if ver else "PBIDesktop.exe"
+            ctx.add(k, "desktop/version", "ok", ver_text)
+        else:
+            ctx.add(k, "desktop/version", "warn", "PBIDesktop.exe not found or not executable",
+                    "install Power BI Desktop or set powerbi.tools.pbi_desktop_exe (ad-setup --patch)", dt_keys)
+
+        # desktop/capabilities
+        from ...pbip import desktop as DT
+        caps = DT.capabilities()
+        avail = sum(1 for c in caps if c.get("available"))
+        total = len(caps)
+        cap_summary = f"{avail}/{total} capabilities available"
+        cap_keys = ("powerbi.tools.dscmd_exe", "powerbi.tools.te2_exe", "powerbi.tools.pbi_desktop_exe")
+        if avail >= 2:
+            ctx.add(k, "desktop/capabilities", "ok", cap_summary)
+        else:
+            ctx.add(k, "desktop/capabilities", "warn", cap_summary, "ad-setup --patch", cap_keys)
+
     def ask(self, ctx: Context, found: dict) -> None:
         cfg = ctx.cfg
         if not ctx.ask.confirm("powerbi.use", "Use Power BI tooling?", bool(any(found["tools"].values()) or found["workspaces"])):
