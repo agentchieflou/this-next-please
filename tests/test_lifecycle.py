@@ -28,6 +28,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -41,12 +42,79 @@ pytestmark = [pytest.mark.slow,
               pytest.mark.skipif(not GIT, reason="git is needed to build the local clone")]
 
 
+# ------------------------------------------------------- running a command that cannot hang us
+
+
+class Ran:
+    """What a command did. `stdout` holds stdout and stderr together, in order."""
+
+    def __init__(self, returncode: int, stdout: str):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = ""          # merged into stdout; kept so callers can read either
+
+    @property
+    def output(self) -> str:
+        return self.stdout
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill the process **and everything it started**.
+
+    `Popen.kill()` ends one process. Windows has no process groups by default, so pip's `git`, and
+    git's `upload-pack`, outlive it -- and they are the ones holding the handles we are waiting on.
+    """
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], timeout=120,
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        proc.kill()
+    try:
+        proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def run_bounded(argv: list[str], *, cwd: str, env: dict, timeout: int, label: str = "") -> Ran:
+    """Run a command so that it cannot take the whole job with it.
+
+    Three deliberate differences from `subprocess.run(capture_output=True, timeout=...)`, each of
+    which the Windows runner earned:
+
+    * **stdin is /dev/null.** Anything that decides it wants to ask a question gets EOF instead of a
+      wait nobody will end. pip shells out to git, and git can reach for a credential helper.
+    * **output goes to a real file, not a pipe.** `capture_output` is not an escape hatch: when the
+      timeout fires, `run()` kills the direct child and then waits for the pipe write-ends to close
+      -- and a grandchild that inherited them keeps them open, so it blocks *past its own timeout*,
+      indefinitely. A file has no reader thread to block on. This is why a test with a 420-second
+      timeout was still running after 571 seconds with no `TimeoutExpired` in sight.
+    * **the timeout kills the tree**, not the process.
+
+    Returns stdout and stderr merged in the order they were written, which is also what a person
+    pasting a failure would have seen.
+    """
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as sink:
+        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                stdout=sink, stderr=subprocess.STDOUT, text=True)
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_tree(proc)
+            sink.seek(0)
+            tail = sink.read()[-4000:]
+            raise AssertionError(
+                f"{label or argv[0]} did not finish within {timeout}s and was killed.\n"
+                f"command: {' '.join(argv)}\ncwd: {cwd}\n--- output so far ---\n{tail}") from None
+        sink.seek(0)
+        return Ran(code, sink.read())
+
 # ------------------------------------------------------------------------------------ the world
 
 
 def _git(*args: str, cwd: str) -> str:
-    out = subprocess.run([GIT, *args], cwd=cwd, capture_output=True, text=True, timeout=180)
-    assert out.returncode == 0, f"git {' '.join(args)}: {out.stderr}"
+    out = run_bounded([GIT, *args], cwd=cwd, env=dict(os.environ, GIT_TERMINAL_PROMPT="0"),
+                      timeout=180, label="git " + " ".join(args))
+    assert out.returncode == 0, f"git {' '.join(args)}: {out.stdout}"
     return out.stdout.strip()
 
 
@@ -83,17 +151,20 @@ class Venv:
         # reports "running from a checkout" whatever pip put in the venv.
         self.work = os.path.join(os.path.dirname(root), "work")
         os.makedirs(self.work, exist_ok=True)
-        subprocess.run([sys.executable, "-m", "venv", root], check=True, timeout=300)
+        seed = run_bounded([sys.executable, "-m", "venv", root], cwd=self.work,
+                           env=dict(os.environ), timeout=300, label="python -m venv")
+        assert seed.returncode == 0, seed.stdout[-2000:]
         # Build isolation creates a throwaway environment and fetches setuptools **per build**, and
         # this module builds the same package six or seven times. On a Windows runner that was the
         # difference between under two minutes and over twelve -- the job was cancelled at its cap
         # with one test still running. setuptools goes in once instead, and every later build reuses
         # it; `PIP_NO_BUILD_ISOLATION` is an environment setting, so `ad-update`'s own pip calls get
         # it too without the test having to reach into the command it runs.
-        subprocess.run([self.python, "-m", "pip", "install", "-q", "setuptools", "wheel"],
-                       check=True, timeout=300, cwd=self.work,
-                       env={**os.environ, "PIP_CACHE_DIR": cache,
-                            "PIP_DISABLE_PIP_VERSION_CHECK": "1"})
+        tools = run_bounded([self.python, "-m", "pip", "install", "-q", "setuptools", "wheel"],
+                            cwd=self.work, timeout=300, label="pip install setuptools wheel",
+                            env={**os.environ, "PIP_CACHE_DIR": cache,
+                                 "PIP_DISABLE_PIP_VERSION_CHECK": "1", "PIP_NO_INPUT": "1"})
+        assert tools.returncode == 0, tools.stdout[-2000:]
 
     @property
     def bin(self) -> str:
@@ -111,25 +182,30 @@ class Venv:
         # once and every later install in the run reuses it.
         base = {**os.environ, "AGENTDATA_REPO_URL": self.repo_url, "PIP_CACHE_DIR": self.cache,
                 "PIP_DISABLE_PIP_VERSION_CHECK": "1", "PIP_NO_BUILD_ISOLATION": "1",
-                "NO_COLOR": "1", "AGENTDATA_UI": "plain"}
+                "PIP_NO_INPUT": "1", "NO_COLOR": "1", "AGENTDATA_UI": "plain",
+                # Nothing here may ever wait for a person. pip shells out to git, and git that
+                # decides it wants credentials blocks on a prompt no one will answer -- which on a
+                # runner looks exactly like a slow test until the job is cancelled.
+                "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
         base.update(extra)
         return base
 
-    def pip(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-        out = subprocess.run([self.python, "-m", "pip", *args], capture_output=True, text=True,
-                             timeout=420, env=self.env(), cwd=self.work)
+    def pip(self, *args: str, check: bool = True) -> Ran:
+        out = run_bounded([self.python, "-m", "pip", *args], cwd=self.work, env=self.env(),
+                          timeout=420, label="pip " + " ".join(args))
         if check:
-            assert out.returncode == 0, f"pip {' '.join(args)}\n{out.stdout[-2000:]}\n{out.stderr[-2000:]}"
+            assert out.returncode == 0, f"pip {' '.join(args)}\n{out.stdout[-3000:]}"
         return out
 
-    def run(self, *args: str, **env: str) -> subprocess.CompletedProcess:
-        return subprocess.run([self.python, "-m", "agentdata", *args], capture_output=True,
-                              text=True, timeout=300, cwd=self.work, env=self.env(**env))
+    def run(self, *args: str, **env: str) -> Ran:
+        return run_bounded([self.python, "-m", "agentdata", *args], cwd=self.work,
+                           env=self.env(**env), timeout=300,
+                           label="python -m agentdata " + " ".join(args))
 
     def check(self) -> tuple[dict, str]:
         """(`meta` from `ad-update --check`, the whole output)."""
         out = self.run("update", "--check")
-        assert out.returncode in (0, 1), out.stdout + out.stderr
+        assert out.returncode in (0, 1), out.stdout
         return toon_read.meta(out.stdout), out.stdout
 
 
@@ -226,11 +302,11 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
         if not os.path.isfile(path):
             broken.append(f"{name}: not installed")
             continue
-        out = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=180,
-                             env=v.env(), cwd=v.work)
+        out = run_bounded([path, "--version"], cwd=v.work, env=v.env(), timeout=180,
+                          label=name + " --version")
         if out.returncode != 0 or not out.stdout.strip():
-            tail = out.stderr.strip().splitlines()[-1] if out.stderr.strip() else ""
-            broken.append(f"{name}: exit {out.returncode}, stdout {out.stdout[:60]!r}, {tail[:140]}")
+            lines = out.stdout.strip().splitlines()
+            broken.append(f"{name}: exit {out.returncode}, {lines[-1][:160] if lines else 'no output'}")
     assert not broken, "(a) console scripts:\n  " + "\n  ".join(broken)
 
     # (a) `'ad-setup' is not recognized` reads like a failed install; it is almost always PATH. The
@@ -249,10 +325,10 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     assert len(rows) >= 2, f"(b) only one install seen: {rows}"
     assert shadowed.get("shadowed") == "true", f"(b) {shadowed}"
     assert "uninstall" in shadowed.get("hint", "").lower(), f"(b) {shadowed.get('hint')}"
-    imported = subprocess.run(
+    imported = run_bounded(
         [v.python, "-c", "import agentdata, os; print(os.path.dirname(agentdata.__file__))"],
-        capture_output=True, text=True, timeout=180, cwd=v.work, env=v.env(PYTHONPATH=shadow))
-    assert imported.returncode == 0, imported.stderr
+        cwd=v.work, env=v.env(PYTHONPATH=shadow), timeout=180, label="import agentdata")
+    assert imported.returncode == 0, imported.stdout
     assert shadow.replace("\\", "/") in imported.stdout.strip().replace("\\", "/"), \
         "(b) the shadow copy should be the one imported, or this proves nothing"
     doctor = v.run("doctor", "--quiet", PYTHONPATH=shadow)
@@ -267,28 +343,28 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     launcher = v.script("ad-update")
     assert os.path.isfile(launcher), "(c) the ad-update launcher was not installed"
     if os.name == "nt":
-        out = subprocess.run([launcher, "--cli"], capture_output=True, text=True, timeout=300,
-                             cwd=v.work, env=v.env())
+        out = run_bounded([launcher, "--cli"], cwd=v.work, env=v.env(), timeout=300,
+                          label="ad-update.exe --cli")
         refusal = toon_read.meta(out.stdout)
-        assert out.returncode == 2, f"(c) exit {out.returncode}: {out.stdout}{out.stderr}"
+        assert out.returncode == 2, f"(c) exit {out.returncode}: {out.stdout}"
         assert refusal.get("refused") == "true", f"(c) {refusal}"
         assert "-m agentdata update" in refusal.get("hint", ""), f"(c) {refusal.get('hint')}"
         assert os.path.isfile(launcher), "(c) the launcher was touched by a command that refused"
         # ...and the half that goes nowhere near the launcher still works from it
-        out = subprocess.run([launcher, "--check"], capture_output=True, text=True, timeout=300,
-                             cwd=v.work, env=v.env())
-        assert out.returncode == 0, f"(c) --check from the launcher: {out.stdout}{out.stderr}"
+        out = run_bounded([launcher, "--check"], cwd=v.work, env=v.env(), timeout=300,
+                          label="ad-update.exe --check")
+        assert out.returncode == 0, f"(c) --check from the launcher: {out.stdout}"
 
     # (c) the module form does the work the launcher declined to do
     out = v.run("update", "--cli", "--no-reexec")
-    assert out.returncode == 0, f"(c) {out.stdout}{out.stderr}"
+    assert out.returncode == 0, f"(c) {out.stdout}"
     meta, _out = v.check()
     assert meta["commit"] == new_head[:12], f"(c) still on {meta['commit']}"
 
     # (d) the same commit again is a success, not a silent no-op failure. pip will not reinstall a
     # git URL whose *version* is unchanged, which is exactly why the real command forces it.
     out = v.run("update", "--cli", "--no-reexec")
-    assert out.returncode == 0, f"(d) {out.stdout}{out.stderr}"
+    assert out.returncode == 0, f"(d) {out.stdout}"
     meta, _out = v.check()
     assert meta["commit"] == new_head[:12], f"(d) {meta['commit']}"
 
@@ -299,7 +375,7 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     assert "editable" in meta["install"], f"(e) {meta['install']}"
     assert meta["editable"] == "true", "(e)"
     out = v.run("update", "--cli", "--no-reexec")
-    assert out.returncode == 0, f"(e) {out.stdout}{out.stderr}"
+    assert out.returncode == 0, f"(e) {out.stdout}"
     assert "skip" in out.stdout.lower(), f"(e) the skip was not reported: {out.stdout}"
 
     # (f) --pull is the checkout's version of an update: git pull --ff-only where it lives
@@ -314,12 +390,12 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     before = _git("rev-parse", "HEAD", cwd=work)
     v.pip("install", "--no-deps", "-e", work)
     out = v.run("update", "--cli", "--pull", "--no-reexec")
-    assert out.returncode == 0, f"(f) {out.stdout}{out.stderr}"
+    assert out.returncode == 0, f"(f) {out.stdout}"
     assert _git("rev-parse", "HEAD", cwd=work) != before, "(f) the checkout was not moved"
 
     # (g) --from-git replaces a checkout with the published install
     out = v.run("update", "--cli", "--from-git", "--no-reexec")
-    assert out.returncode == 0, f"(g) {out.stdout}{out.stderr}"
+    assert out.returncode == 0, f"(g) {out.stdout}"
     meta, _out = v.check()
     assert meta["install"] == "git install", f"(g) {meta['install']}"
     assert meta["editable"] == "false", "(g)"
@@ -331,7 +407,7 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     assert not left, f"(h) still installed after uninstall: {', '.join(left)}"
     out = v.run("--help")
     assert out.returncode != 0, "(h) python -m agentdata still worked after uninstall"
-    assert "No module named" in (out.stderr + out.stdout), f"(h) {out.stderr[-300:]}"
+    assert "No module named" in out.stdout, f"(h) {out.stdout[-300:]}"
 
 
 def _shadow_copy(tmp_path_factory) -> str:
