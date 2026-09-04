@@ -3,7 +3,8 @@
 #
 # The bash floor is 4.4 (the laptop's MINGW64), so nothing here may use a later feature:
 # no ${var@Q}, no EPOCHSECONDS, no `wait -n`, no `${var,,}` beyond what 4.4 has.
-# shellcheck --shell=bash runs over this file in CI.
+# CI lints this file with `shellcheck --shell=bash` (a comment may not start with the tool's
+# name followed by a space, or shellcheck reads it as a directive and fails to parse it).
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

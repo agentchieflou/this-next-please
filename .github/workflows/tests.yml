@@ -120,14 +120,21 @@ jobs:
         if: matrix.python == '3.14'
         shell: powershell            # the ONLY 5.1 step in this workflow; it proves the refusal
         run: |
-          $out = powershell -NoProfile -File .\.github\scripts\smoke.ps1 2>&1 | Out-String
-          if ($LASTEXITCODE -eq 0) { throw 'smoke.ps1 ran under Windows PowerShell 5.1; #Requires -Version 7.0 is not doing its job' }
-          if ($out -notmatch '7\.0') { throw "the refusal did not mention the required version:`n$out" }
-          Write-Host 'refused as expected:'
+          # cmd.exe does the redirection: in 5.1 a native command's stderr piped through `2>&1`
+          # becomes ErrorRecords, and GitHub sets $ErrorActionPreference='stop' for this shell, so
+          # the step would die on the very refusal it exists to observe.
+          $ErrorActionPreference = 'Continue'
+          cmd /c "powershell -NoProfile -File .\.github\scripts\smoke.ps1 > refusal.txt 2>&1"
+          $rc = $LASTEXITCODE
+          $out = Get-Content refusal.txt -Raw
           Write-Host $out
-          ad-doctor --quiet > doctor51.toon 2>$null
+          if ($rc -eq 0) { throw 'smoke.ps1 ran under Windows PowerShell 5.1; #Requires -Version 7.0 is not doing its job' }
+          if ($out -notmatch '7\.0') { throw "the refusal did not mention the required version" }
+          Write-Host 'refused as expected'
+          cmd /c "ad-doctor --quiet > doctor51.toon 2>nul"
           $doc = Get-Content doctor51.toon -Raw
-          if ($doc -notmatch 'PowerShell 7 required') { throw "ad-doctor did not warn about 5.1:`n$doc" }
+          Write-Host $doc
+          if ($doc -notmatch 'PowerShell 7 required') { throw 'ad-doctor did not warn about 5.1' }
           Write-Host 'ad-doctor warned about the unsupported shell'
 
   floor-python:
