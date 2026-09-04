@@ -31,6 +31,31 @@ vanishing and quietly turning into a skip included. New skills: `test-cover`, `t
 `AGENTS.md` gains stop condition 14: never edit a source file whose `ad-graph guard` verdict is not `ok`, or
 that you have not run it against. `.agent/state.json` gains the phase `optimizing`.
 
+**The install/update lifecycle is tested end to end, and it was broken in three places (#78).**
+A new `slow` slice drives the real `pip` and the real `ad-update` through real venvs against a
+`git+file://` clone -- fresh git install, update to a new commit, update to the same commit,
+editable checkout, `--pull`, `--from-git`, uninstall, and a shadowed second install. Three things
+it found, all of which shipped:
+
+- **`ad-pbip` did not run on any real install.** `pyyaml` was in the `dev` extra only, and
+  `cli_pbip` imports the module that imports it, so every subcommand -- `ad-pbip --version`
+  included -- died with `ModuleNotFoundError: No module named 'yaml'`. It is a base dependency now,
+  and the import is lazy as well, because `ad-update --cli` installs with `--no-deps` and an
+  upgrade from an older version would otherwise still arrive without it.
+- **`ad-update` never re-execed itself on Windows**, so a self-update started as `ad-update.exe`
+  kept failing with WinError 32. A console-script launcher strips its own `.exe` before handing
+  over, so the check for it was never true; and once it was, spawning a child still held the
+  launcher open, so the re-exec is `os.execv` now.
+- **`ad-update --check` reported one problem at a time.** `hint` was a single slot each check
+  overwrote, so a laptop with two installs *and* a PATH problem heard about only one of them.
+  There is a `problems` table now; `hint` is the most blocking entry in it.
+
+`--check` also gained `scripts_dir` / `scripts_on_path` (the `'ad-setup' is not recognized` case
+the README has always described and nothing checked) and flags a Microsoft Store
+`python.exe` App Execution Alias sitting earlier on PATH. `ad-doctor` gains a matching
+`console/scripts` row. `AGENTDATA_REPO_URL` now overrides where `ad-update` installs from, for a
+fork or an internal mirror.
+
 **Tab-completion actually completes (#76).** It never did. The bash script was wrapped in
 `if command -v register-python-argcomplete`, which ships into the same `Scripts` directory whose
 absence from PATH is the reason `python -m agentdata` exists -- so on Windows it was a no-op that

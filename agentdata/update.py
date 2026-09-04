@@ -27,7 +27,7 @@ from . import toon
 from .console import utf8_stdout
 from . import ui
 from . import shell as SH
-from .install import REPO_URL, editable_cmd, source_checkout
+from .install import cli_spec, editable_cmd, repo_url, source_checkout
 from . import textio
 
 SKILL_SPEC = "agentchieflou/this-next-please"
@@ -109,14 +109,14 @@ def stale(skills: dict) -> bool:
 
 
 def cli_command() -> list[str]:
-    return [sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-deps", f"agentdata @ git+{REPO_URL}"]
+    return [sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-deps", cli_spec()]
 
 
 def cli_command_text(extras: str | None = None) -> str:
     root = source_checkout()
     if root:
         return f'git -C "{textio.norm_path(root)}" pull && {editable_cmd()}'
-    spec = f"agentdata{f'[{extras}]' if extras else ''} @ git+{REPO_URL}"
+    spec = cli_spec(extras)
     tail = "" if extras else " --no-deps"
     return f'python -m pip install --force-reinstall{tail} "{spec}"'
 
@@ -125,12 +125,24 @@ def cli_command_text(extras: str | None = None) -> str:
 
 
 def launcher_kind(argv0: str | None = None) -> str:
-    """`exe` when started through Scripts\\ad-update.exe, `cmd` through a shim, else `module`."""
-    name = os.path.basename(argv0 if argv0 is not None else (sys.argv[0] or "")).lower()
+    """`exe` when started through Scripts\\ad-update.exe, `cmd` through a shim, else `module`.
+
+    The extension check alone was never true in the field. A console-script `.exe` is a launcher
+    that **strips its own extension** before handing control over: `sys.argv[0]` is
+    `...\\Scripts\\ad-update.exe` at interpreter start and `...\\Scripts\\ad-update` by the time this
+    runs. So `ad-update` never re-execed, and the self-update it was written to survive still died
+    with WinError 32 -- the launcher cannot be replaced while it is the running process.
+
+    An extension-less argv0 with a sibling `.exe` is that launcher, and nothing else looks like it.
+    """
+    raw = argv0 if argv0 is not None else (sys.argv[0] or "")
+    name = os.path.basename(raw).lower()
     if name.endswith(".exe"):
         return "exe"
     if name.endswith((".cmd", ".bat")):
         return "cmd"
+    if os.name == "nt" and raw and not os.path.splitext(name)[1] and os.path.isfile(raw + ".exe"):
+        return "exe"
     return "module"
 
 
@@ -200,8 +212,54 @@ def pythons_on_path() -> list[dict]:
             too_old = bool(ver) and tuple(int(x) for x in ver.split(".")[:2]) < (3, 12)
         except ValueError:
             too_old = False
-        seen.append({"path": textio.norm_path(path), "version": ver, "version_from": how, "too_old": too_old})
+        seen.append({"path": textio.norm_path(path), "version": ver, "version_from": how,
+                     "too_old": too_old, "store_alias": store_alias(path)})
     return seen
+
+
+def store_alias(path: str) -> bool:
+    """A Windows App Execution Alias rather than an interpreter.
+
+    `%LOCALAPPDATA%\\Microsoft\\WindowsApps\\python.exe` is a zero-byte stub that opens the Microsoft
+    Store. It ships enabled, it sits early on PATH, and when it wins the symptom is that `python`
+    "does nothing" and every `pip install` went somewhere else -- with nothing in any output saying
+    so. Both halves are checked because a real interpreter could live under that directory, and a
+    0-byte file elsewhere is not an alias.
+    """
+    if os.name != "nt" or not path:
+        return False
+    if "windowsapps" not in textio.norm_path(path).lower():
+        return False
+    try:
+        return os.path.getsize(path) == 0
+    except OSError:
+        return False
+
+
+def scripts_dir() -> str:
+    """Where this interpreter puts console scripts -- the directory `ad-*` lives in."""
+    import sysconfig
+
+    for scheme in ("nt_user", "nt") if os.name == "nt" else ("posix_user", "posix_prefix"):
+        try:
+            path = sysconfig.get_path("scripts", scheme)
+        except (KeyError, ValueError):
+            continue
+        if path and os.path.isdir(path) and glob.glob(os.path.join(path, "ad-*")):
+            return path
+    return sysconfig.get_path("scripts")
+
+
+def scripts_on_path() -> bool:
+    """Whether a shell would actually find `ad-*`.
+
+    Asked of the shell rather than computed from `sysconfig`: `pip install --user` -- the default
+    when site-packages is not writeable, which is normal on a managed Windows laptop -- puts the
+    console scripts in a directory Windows does not add to PATH, and the symptom is
+    `'ad-setup' is not recognized`, which reads like a failed install rather than a PATH problem.
+    The README has always said how to fix it; nothing checked it.
+    """
+    return bool(shutil.which("ad-doctor"))
 
 
 def environment() -> dict:
@@ -402,12 +460,19 @@ def main(argv: list[str] | None = None) -> int:
     # process, so a self-update started that way fails with WinError 32. The module form holds
     # nothing open: re-exec through it and hand back its exit code.
     if not a.check and not a.no_reexec and launcher_kind() in ("exe", "cmd") and argv is None:
-        import subprocess
         cmd = reexec_argv(sys.argv[1:])
         print(toon.encode({"meta": {"ok": True, "source": "ad-update", "launcher": "exe → module",
                                     "note": "re-executed through `python -m agentdata update`; the .exe launcher "
-                                            "cannot replace itself", "cmd": " ".join(cmd)}}))
-        return subprocess.run(cmd).returncode
+                                            "cannot replace itself", "cmd": " ".join(cmd)}}), flush=True)
+        # `os.execv`, not `subprocess.run`. Spawning a child leaves this `.exe` running, and a
+        # running executable's image file is locked -- so pip still hit WinError 32 replacing the
+        # launcher, one level down, which is the whole failure this re-exec exists to avoid. execv
+        # ends this process, and the lock goes with it.
+        try:
+            os.execv(cmd[0], cmd)
+        except OSError:            # no execv here (rare, and not worth failing over): spawn instead
+            import subprocess
+            return subprocess.run(cmd).returncode
 
     both = not (a.cli or a.skills)
     before, skills = cli_state(), skills_state(a.skills_dir)
@@ -423,20 +488,48 @@ def main(argv: list[str] | None = None) -> int:
         dists, pythons = installed_distributions(), pythons_on_path()
         meta.update(environment())
         meta["shadowed"] = len(dists) > 1
-        meta["hint"] = ("skills look older than the CLI: run the skills command below, then start a new Copilot chat"
-                        if meta["stale_skills"] else "run `ad-update` to apply both commands, then `ad-doctor`")
+        meta["scripts_dir"] = textio.norm_path(scripts_dir())
+        meta["scripts_on_path"] = scripts_on_path()
+
+        # Every problem gets a row. `meta.hint` used to be one slot that each check overwrote, so
+        # a laptop with two installs *and* a PATH problem reported only whichever check ran last --
+        # and the one it dropped was usually the one that mattered. `hint` is now the first row in
+        # this order, which is most-blocking first, and `problems` carries the rest.
+        problems: list[dict] = []
         if meta["shadowed"]:
             keep = next((d for d in dists if d["location"] and d["location"] in textio.norm_path(sys.executable)), None)
-            meta["hint"] = ("two agentdata installs are on this path and the first one wins: uninstall the one you "
-                            "are not using (`python -m pip uninstall agentdata`, once per copy) then re-run "
-                            "`ad-update`" + (f"; this interpreter loads {keep['location']}" if keep else ""))
+            problems.append({"problem": "shadowed",
+                             "hint": "two agentdata installs are on this path and the first one wins: uninstall the "
+                                     "one you are not using (`python -m pip uninstall agentdata`, once per copy) then "
+                                     "re-run `ad-update`"
+                                     + (f"; this interpreter loads {keep['location']}" if keep else "")})
+        alias = [p for p in pythons if p.get("store_alias")]
+        if alias:
+            problems.append({"problem": "store_alias",
+                             "hint": f"{alias[0]['path']} is the Microsoft Store App Execution Alias, not an "
+                                     f"interpreter: it opens the Store and installs nothing. Turn it off in "
+                                     f"Settings > Apps > Advanced app settings > App execution aliases, or put a "
+                                     f"real Python earlier on PATH"})
         too_old = [p for p in pythons if p.get("too_old")]
         if too_old:
-            meta["hint"] = (f"{too_old[0]['path']} is Python {too_old[0]['version']}, below the 3.12 floor, and is on "
-                            f"PATH: run the install with a 3.12+ interpreter or the `ad-*` commands will keep "
-                            f"resolving to the old one")
+            problems.append({"problem": "python_too_old",
+                             "hint": f"{too_old[0]['path']} is Python {too_old[0]['version']}, below the 3.12 floor, "
+                                     f"and is on PATH: run the install with a 3.12+ interpreter or the `ad-*` "
+                                     f"commands will keep resolving to the old one"})
+        if not meta["scripts_on_path"]:
+            problems.append({"problem": "scripts_not_on_path",
+                             "hint": f"the console scripts are in {meta['scripts_dir']}, which is not on PATH, so "
+                                     f"`ad-*` answers \"not recognized\": add that directory, or use "
+                                     f"`python -m agentdata <command>`, which always works"})
+        if meta["stale_skills"]:
+            problems.append({"problem": "stale_skills",
+                             "hint": "skills look older than the CLI: run the skills command below, then start a "
+                                     "new Copilot chat"})
+
+        meta["problems"] = len(problems)
+        meta["hint"] = problems[0]["hint"] if problems else "run `ad-update` to apply both commands, then `ad-doctor`"
         _report(meta, [], cmds, {"meta": meta, "commands": cmds, "installed_skills": skills["names"],
-                                 "installs": dists, "pythons": pythons}, True)
+                                 "installs": dists, "pythons": pythons, "problems": problems}, True)
         return 0
 
     rows: list[dict] = []
@@ -454,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
                          "hint": f"{cmds['cli']} · or `ad-update --pull` · or `ad-update --from-git` to switch to the published install"})
         else:
             ok &= _run("cli", cli_command() if not a.extras else
-                       [sys.executable, "-m", "pip", "install", "--force-reinstall", f"agentdata[{a.extras}] @ git+{REPO_URL}"],
+                       [sys.executable, "-m", "pip", "install", "--force-reinstall", f"agentdata[{a.extras}] @ git+{repo_url()}"],
                        rows, a.timeout)
     if both or a.skills:
         ok &= _run("skills", SKILLS_CMD, rows, a.timeout)

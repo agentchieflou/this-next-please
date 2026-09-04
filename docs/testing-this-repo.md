@@ -12,6 +12,7 @@ point of everything below is that the next one is found by CI.
 |---|---|
 | `tests/` | the ordinary suite: units, seams, and the static guards |
 | `tests/test_props_*.py` | the generated inputs; hypothesis, from the `dev` extra |
+| `tests/test_lifecycle.py` | install, update, shadow, uninstall, in real venvs (`slow`) |
 | `tests/conftest.py` | isolation and the shared fixtures |
 | `tests/fixtures/` | inputs, byte-exact (`-text` in `.gitattributes`) |
 | `tests/fakes/<tool>/transcripts/` | real tool output, captured, replayed by tests |
@@ -229,6 +230,64 @@ the aim is to replace `synthesized` entries with `captured` ones as the real fai
   its shape is compared with the transcript, so a fake cannot quietly stop resembling the tool.
 
 
+## The install and update lifecycle
+
+`tests/test_lifecycle.py` (`slow`) is the only slice that proves how this package *reaches* a
+laptop. Everything else about it is asserted from strings -- `install_cmd()` returns the right
+text, `cli_command_text()` composes the right line -- and none of that shows whether `pip` did what
+the text says.
+
+### The `git+file://` trick
+
+`ad-update` installs from `install.repo_url()`, which is GitHub. A test that used it would need the
+network, would install whatever `main` happens to be, and could not create the interesting
+transitions at all. So the working tree is cloned into a temp directory and `AGENTDATA_REPO_URL`
+points at it as a `file://` URL. Same code path, same `pip`, same `--force-reinstall --no-deps`,
+and a repository the test can commit to between steps. `AGENTDATA_REPO_URL` is not a test hook --
+it is what a team running an internal mirror needs, and this is the first thing that used it.
+
+Three details, each of which cost a run to find:
+
+| Spelling | What breaks |
+|---|---|
+| `file://localhost/C:/...` | the only form PEP 508 accepts for a Windows path, and git reads `localhost` as a UNC host |
+| `file:///C:/...` | git handles it -- until `MSYS_NO_PATHCONV=1`, which `proc.child_env()` sets for every child, stops Git for Windows folding `/C:/` back to `C:/` |
+| `file://C:/...` | works in both, and on POSIX the same expression yields the standard `file:///path` |
+
+PEP 508 still refuses the POSIX form (no authority), so `install.cli_spec()` falls back to a bare
+URL for any URL without one -- which is also what an air-gapped mirror needs.
+
+The clone carries **uncommitted work**: `git clone` copies HEAD, so a clone alone would test the
+code you are about to change rather than the code you just changed. Modified and
+untracked-but-not-ignored files are copied over it and committed on top.
+
+### Adding a case
+
+The cases are transitions, so they are **one test function with the steps in order**, not seven
+functions sharing a fixture -- seven would pass only in collection order, and CI runs the suite
+shuffled on purpose. Put a new case where its starting state already exists and label the assertion
+`(x)`. If it needs a different starting state it wants its own venv and its own test, the way the
+shadowing case does. One pip cache is shared across the module: venv creation and the first wheel
+build are the whole cost.
+
+### What it found on its first run
+
+- **`ad-pbip` was dead on every real install.** `pyyaml` was in the `dev` extra, `cli_pbip` imports
+  the module that imports it, so every subcommand -- `--version` included -- died with
+  `ModuleNotFoundError: No module named 'yaml'`. It is a base dependency now *and* the import is
+  lazy, because `ad-update --cli` installs with `--no-deps` and an upgrade would still arrive
+  without it.
+- **The `.exe` re-exec never fired.** A console-script launcher strips its own extension before
+  handing over, so `sys.argv[0]` is `Scripts/ad-update` with no extension and `launcher_kind()` said
+  `module`. The self-update kept dying with WinError 32, and the fallback hint reads like advice
+  rather than like a bug.
+- **...and once it fired, it still did not work.** `subprocess.run` leaves the `.exe` running, and
+  a running executable's image file is locked, so pip hit the same error one level down. It is
+  `os.execv` now: the process ends, and the lock goes with it.
+- **`meta.hint` was one slot each check overwrote**, so a laptop with two installs *and* a PATH
+  problem reported only whichever check ran last. There is a `problems` table now, and `hint` is
+  the most blocking of them.
+
 ## Coverage floors
 
 Per module, never repo-wide, and **per platform**. A single percentage invites padding and says
@@ -287,4 +346,5 @@ one that invents output is worth less than no test.
 | `lint · bash 4.4 and pwsh 7 floors` | no post-4.4 construct in anything we ship or emit; the laptop suite never executes here |
 | `coverage · per-module floors` | the seven Windows-critical modules stay covered; report uploaded as an artifact |
 | `suite · shuffled` | two seeded shuffles, to catch fixture leakage |
+| `windows · 3.14` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
 | every job | `HYPOTHESIS_PROFILE=ci`, so the property tests search 200 examples rather than 50 |

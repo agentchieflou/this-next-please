@@ -20,7 +20,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-import yaml
+
 
 from . import catalog as CAT
 from . import expr as EX
@@ -29,6 +29,25 @@ from . import pbir as P
 from .check import Finding
 from ..model import AgentTable
 from .. import textio
+
+
+def _yaml():
+    """PyYAML, or a refusal that names the fix.
+
+    Imported here rather than at module scope because `cli_pbip` imports this module, so a
+    module-level `import yaml` made **every** `ad-pbip` subcommand -- `--version` included -- die
+    with `ModuleNotFoundError: No module named 'yaml'` on any install that did not happen to have
+    it. It is a base dependency now, but `ad-update --cli` installs with `--no-deps`, so an
+    upgrade from a version that predates that still arrives without it. One command failing with
+    a hint beats the whole CLI being dead.
+    """
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - exercised by tests/test_lifecycle.py
+        raise RuntimeError(
+            "ad-pbip brief needs PyYAML, which this install does not have. "
+            "Fix it with: python -m pip install pyyaml") from None
+    return yaml
 
 
 def compute_file_sha256(path: str | Path) -> str:
@@ -65,7 +84,7 @@ def parse_brief_file(spec_path: str | Path) -> tuple[dict[str, Any], dict[str, A
         parts = content.split("---", 2)
         if len(parts) >= 3:
             try:
-                frontmatter = yaml.safe_load(parts[1]) or {}
+                frontmatter = _yaml().safe_load(parts[1]) or {}
                 body = parts[2]
             except Exception:
                 pass
@@ -80,7 +99,7 @@ def parse_brief_file(spec_path: str | Path) -> tuple[dict[str, Any], dict[str, A
         m = re.search(r"(?:##\s*Design Brief[^\n]*\n+)?```(?:yaml|yml)\s*\n(.*?)```", body, re.DOTALL | re.I)
         if m:
             try:
-                parsed = yaml.safe_load(m.group(1))
+                parsed = _yaml().safe_load(m.group(1))
                 if isinstance(parsed, dict):
                     design_brief = parsed.get("design_brief") or parsed
             except Exception:

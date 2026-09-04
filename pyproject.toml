@@ -14,6 +14,9 @@ dependencies = [
                     # depending on which options a user picked, which is exactly the failure mode this avoids
     "pyodbc",       # same reasoning: `ad-setup` offers ODBC as a connection MODE for Teradata/Hive/Impala
                     # regardless of which extra was installed, so whether that choice worked depended on it too
+    "pyyaml",       # `ad-pbip brief` reads the design brief. It was in the `dev` extra only, and `cli_pbip`
+                    # imports the module that imports it -- so on a real install EVERY ad-pbip subcommand,
+                    # `--version` included, died with "No module named 'yaml'". Found by tests/test_lifecycle.py
 ]
 
 [project.optional-dependencies]
