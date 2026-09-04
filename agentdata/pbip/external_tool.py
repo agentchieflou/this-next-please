@@ -82,7 +82,8 @@ def render_tool_json(python_exe: str | None = None, project_dir: str | None = No
     else:
         args = data.get("arguments", '-m agentdata pbip handoff --server "%server%" --database "%database%"')
         if project_dir and "--project" not in args:
-            args = f'{args} --project "{project_dir.replace("\\", "/")}"'
+            clean_proj = project_dir.replace("\\", "/")
+            args = f'{args} --project "{clean_proj}"'
         data["path"] = py
         data["arguments"] = args
 
