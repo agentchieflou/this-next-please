@@ -23,6 +23,36 @@ class Node:
     coverage_pct: float | None = None
     tests: list[str] = field(default_factory=list)
 
+    @property
+    def path(self) -> str:
+        if self.where and ":" in self.where:
+            return self.where.split(":", 1)[0].replace("\\", "/")
+        return self.id.split("::", 1)[0].replace("\\", "/")
+
+    @property
+    def line_start(self) -> int:
+        if self.where and ":" in self.where:
+            part = self.where.split(":", 1)[1]
+            start_str = part.split("-")[0]
+            try:
+                return int(start_str)
+            except ValueError:
+                return 1
+        return 1
+
+    @property
+    def line_end(self) -> int:
+        if self.where and ":" in self.where:
+            part = self.where.split(":", 1)[1]
+            if "-" in part:
+                end_str = part.split("-")[1]
+                try:
+                    return int(end_str)
+                except ValueError:
+                    return self.line_start
+            return self.line_start
+        return self.line_start
+
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
             "id": self.id,

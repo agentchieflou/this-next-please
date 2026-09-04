@@ -217,10 +217,13 @@ def get_summary(graph: Graph, meta: dict[str, Any], top: int = 20) -> list[dict[
 
     # 7. Test coverage ratio
     fn_nodes = [n for n in graph.nodes.values() if n.kind == "function"]
-    tested_functions = set()
-    for e in graph.edges:
-        if e.kind == "tests" and e.target in graph.nodes:
-            tested_functions.add(e.target)
+    if graph.coverage:
+        tested_functions = {n.id for n in fn_nodes if n.covered or (n.coverage_pct is not None and n.coverage_pct > 0)}
+    else:
+        tested_functions = set()
+        for e in graph.edges:
+            if e.kind == "tests" and e.target in graph.nodes:
+                tested_functions.add(e.target)
 
     test_count = len([n for n in graph.nodes.values() if n.kind == "test"])
     tested_ratio = (len(tested_functions) / max(1, len(fn_nodes))) if fn_nodes else 0.0

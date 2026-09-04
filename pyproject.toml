@@ -28,7 +28,8 @@ pbi = ["psutil"]
 uat = ["openpyxl", "python-docx"]
 pandas = ["pandas", "pyarrow"]
 completion = ["argcomplete>=3.0.0"]
-dev = ["pytest", "pyyaml"]
+test = ["coverage>=7"]
+dev = ["pytest", "pyyaml", "coverage>=7"]
 
 [project.scripts]
 ad-pncli = "agentdata.cli:main_pncli"

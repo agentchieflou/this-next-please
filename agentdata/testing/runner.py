@@ -263,7 +263,7 @@ def run_tests(
         cmd_str = info.cmd
 
     # 2. Check executable resolution
-    cmd_parts = shlex.split(cmd_str)
+    cmd_parts = shlex.split(cmd_str, posix=(os.name != "nt"))
     first_bin = cmd_parts[0] if cmd_parts else ""
     if first_bin == "python":
         first_bin = sys.executable
@@ -343,6 +343,8 @@ def run_tests(
     rc = 0
 
     try:
+        run_env = os.environ.copy()
+        run_env["PYTHONDONTWRITEBYTECODE"] = "1"
         with ui.progress(f"Running tests ({runner})..."):
             p = subprocess.Popen(
                 real,
@@ -353,6 +355,7 @@ def run_tests(
                 errors="replace",
                 cwd=root,
                 start_new_session=(os.name != "nt"),
+                env=run_env,
             )
             try:
                 stdout, stderr = p.communicate(timeout=timeout)

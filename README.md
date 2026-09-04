@@ -67,7 +67,7 @@ gh skill install agentchieflou/this-next-please --all --scope user
 # 2. the ad-* CLI  ->  a normal Python tool, installed straight from GitHub (no clone needed)
 pip install "agentdata @ git+https://github.com/agentchieflou/this-next-please.git"
 #    with the extras you actually use:
-#    pip install "agentdata[teradata,impala,oracle,pbi,uat] @ git+https://github.com/agentchieflou/this-next-please.git"
+#    pip install "agentdata[teradata,impala,oracle,pbi,uat,test] @ git+https://github.com/agentchieflou/this-next-please.git"
 
 pncli config init      # if not done (pncli keeps the Jira token; we only borrow it by key name)
 ad-setup               # guided: pncli import, data sources, Power BI tools/workspaces
