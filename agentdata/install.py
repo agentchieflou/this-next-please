@@ -7,6 +7,7 @@ report repo holds PBIP folders and TMDL, not Python, and `pip install -e .` ther
 from __future__ import annotations
 import os
 import agentdata
+from . import textio
 
 REPO_URL = "https://github.com/agentchieflou/this-next-please.git"
 
@@ -22,7 +23,7 @@ def install_cmd(extras: str | None = None) -> str:
     suffix = f"[{extras}]" if extras else ""
     root = source_checkout()
     if root:
-        return f'pip install -e ".{suffix}"  (in the this-next-please checkout, {root.replace(os.sep, "/")})'
+        return f'pip install -e ".{suffix}"  (in the this-next-please checkout, {textio.norm_path(root)})'
     return f'pip install "agentdata{suffix} @ git+{REPO_URL}"'
 
 

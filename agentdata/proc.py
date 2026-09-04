@@ -93,7 +93,7 @@ def _script_from(text: str) -> str | None:
     for rx in (r'"%~?dp0%?[\\/]+([^"]+?\.[cm]?js)"', r'"\$basedir/([^"]+?\.[cm]?js)"', r'%~?dp0%?[\\/]+(\S+?\.[cm]?js)'):
         m = re.search(rx, text, re.I)
         if m:
-            return m.group(1).replace("\\", "/")
+            return textio.norm_path(m.group(1))
     return None
 
 
@@ -159,23 +159,23 @@ def resolve(name: str, *, exe: str | None = None, windows: bool | None = None, p
             tried.append("npm global prefix (%APPDATA%\\npm, %ProgramFiles%\\nodejs)" if not extra else "; ".join(extra))
     if not p:
         return {"found": False, "name": name, "tried": tried, "kind": "", "path": ""}
-    info = {"found": True, "name": name, "path": p.replace("\\", "/"), "tried": tried, "kind": "executable",
+    info = {"found": True, "name": name, "path": textio.norm_path(p), "tried": tried, "kind": "executable",
             "node": "", "script": ""}
     if p.lower().endswith(NODE_EXTS):        # a pinned entry point (the escape hatch cmd_line's hint offers)
         node = which("node", windows=windows)
         if node:
-            info.update(kind="node script", node=node.replace("\\", "/"), script=info["path"])
+            info.update(kind="node script", node=textio.norm_path(node), script=info["path"])
         else:
             info["error"] = "no `node` on PATH to run " + info["path"]
     elif windows and p.lower().endswith(SHIM_EXTS):
         info["kind"] = "cmd shim"
         target = unwrap_shim(p, windows=windows)
         if target:
-            info.update(kind="npm shim", node=target[0].replace("\\", "/"), script=target[1].replace("\\", "/"))
+            info.update(kind="npm shim", node=textio.norm_path(target[0]), script=textio.norm_path(target[1]))
     elif not windows and os.path.splitext(p)[1] == "":
         target = unwrap_shim(p, windows=windows)
         if target:
-            info.update(kind="npm shim", node=target[0].replace("\\", "/"), script=target[1].replace("\\", "/"))
+            info.update(kind="npm shim", node=textio.norm_path(target[0]), script=textio.norm_path(target[1]))
     return info
 
 

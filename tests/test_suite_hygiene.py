@@ -36,6 +36,23 @@ def test_writing_the_config_lands_in_the_temporary_home(isolated_home):
         f"a test wrote to {written}, outside its temporary home"
 
 
+def test_pip_caches_outside_the_repository(isolated_home):
+    """The slow tests really run `pip wheel` and `pip install`.
+
+    Redirecting the profile without setting this makes pip fall back to a *relative* cache
+    directory, so those runs wrote 3.8 MB of HTTP cache into `<repo>/pip/cache` -- inside the
+    repository under test, staged by the next `git add -A`. Found when it very nearly was.
+    """
+    cache = os.environ.get("PIP_CACHE_DIR", "")
+    assert cache.startswith(str(isolated_home)), f"pip would cache to {cache!r}"
+    out = subprocess.run([sys.executable, "-m", "pip", "cache", "dir"],
+                         capture_output=True, text=True, cwd=REPO_ROOT)
+    if out.returncode == 0:
+        resolved = os.path.realpath(out.stdout.strip())
+        assert not resolved.startswith(os.path.realpath(REPO_ROOT)), \
+            f"pip resolves its cache to {resolved}, inside the checkout"
+
+
 @pytest.mark.real_home
 def test_the_escape_hatch_gives_back_the_real_home():
     """`real_home` exists for the few tests that are about this checkout, not about a temp dir."""

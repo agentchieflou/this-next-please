@@ -24,6 +24,7 @@ from .dpm.run import Run
 from .model import AgentTable
 from . import policy, ui
 from .policy import error, render
+from . import textio
 
 SHOW = 50
 
@@ -63,7 +64,7 @@ def cmd_locate(a) -> int:
     run = _locate(a, b)
     snap = G.snapshot(run.root)
     analysis_files = len(os.listdir(run.analysis_dir))
-    meta = {"ok": True, "source": "ad-dpm locate", "run_root": run.root.replace("\\", "/"), "run_id": run.run_id(),
+    meta = {"ok": True, "source": "ad-dpm locate", "run_root": textio.norm_path(run.root), "run_id": run.run_id(),
             "orchestrator_db": run.rel(run.db_path), "selection_manifests": len(run.selection_paths()),
             "text_analysis_files": analysis_files, "canonical_documents": run.count(b["canonical"]["table"]),
             **{k: v for k, v in run.versions().items() if v is not None},
@@ -81,7 +82,7 @@ def cmd_inspect(a) -> int:
     b, label, bsha = _binding(a, consumer)
     run = _locate(a, b, check=False)
     d = DS.describe(run)
-    meta = {"ok": d["binding_ok"] and bool(d["supported"]), "source": "ad-dpm inspect", "run_root": run.root.replace("\\", "/"),
+    meta = {"ok": d["binding_ok"] and bool(d["supported"]), "source": "ad-dpm inspect", "run_root": textio.norm_path(run.root),
             "binding": label, "binding_sha256": _short(bsha), "binding_ok": d["binding_ok"], "supported_version": d["supported"],
             "tables": len(d["tables"]), "selection_manifests": len(d["manifests"]), "text_analysis_files": d["analysis"]["files"]}
     if d["problems"]:
@@ -115,7 +116,7 @@ def cmd_validate(a) -> int:
     untouched = before["sha256"] == after["sha256"]
     counts = res.counts()
     ok = counts["errors"] == 0 and untouched
-    meta = {"ok": ok, "run_root": run.root.replace("\\", "/"), "run_id": res.run_id, **counts, "channels": res.channels_source,
+    meta = {"ok": ok, "run_root": textio.norm_path(run.root), "run_id": res.run_id, **counts, "channels": res.channels_source,
             "hash_verified": not a.no_hash, "binding": label, "binding_sha256": _short(bsha), "run_root_untouched": untouched}
     if not untouched:
         meta["changed"] = G.diff(before, after)[:20]
@@ -161,7 +162,7 @@ def cmd_convert(a) -> int:
     after = G.snapshot(run.root)
     untouched = before["sha256"] == after["sha256"]
     meta = {"ok": untouched, "source": "ad-dpm convert", "run_id": res.run_id, "run_root": manifest["producer"]["run_root"],
-            "path": out_dir.replace("\\", "/"), "manifest": os.path.join(out_dir, "job-manifest.json").replace("\\", "/"), **manifest["counts"],
+            "path": textio.norm_path(out_dir), "manifest": textio.norm_path(os.path.join(out_dir, "job-manifest.json")), **manifest["counts"],
             "binding": label, "binding_sha256": _short(bsha), "run_root_untouched": untouched, "replaced": bool(a.force)}
     if not untouched:
         meta["changed"] = G.diff(before, after)[:20]
@@ -205,7 +206,7 @@ def cmd_lineage(a) -> int:
             print(toon.encode({"meta": {"ok": row["status"] == "ok", "source": "ad-dpm lineage", "job_id": a.job, "route": j["route"], "status": row["status"],
                                         "reason": row["reason"], "run_root": res["run_root"]}, "lineage": j["lineage"]}))
         return 0 if row["status"] == "ok" else 1
-    meta = {"ok": res["ok"], "source": "ad-dpm lineage", "manifest": a.manifest.replace("\\", "/"), "run_root": res["run_root"],
+    meta = {"ok": res["ok"], "source": "ad-dpm lineage", "manifest": textio.norm_path(a.manifest), "run_root": res["run_root"],
             "run_id": m["producer"]["run_id"], "orchestrator_db_ok": res["orchestrator_db_ok"], "jobs": res["jobs"], "ok_count": res["ok_count"],
             "broken": res["broken"], "rehash": not a.no_hash}
     if not res["ok"]:
@@ -230,7 +231,7 @@ def cmd_binding(a) -> int:
             raise DpmError("file_exists", f"{path} exists", "pass --force to overwrite it with the builtin binding")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(B.dump(B.builtin()))
-        meta = {"ok": True, "source": "ad-dpm binding", "path": path.replace("\\", "/"), "sha256": _short(B.sha256(B.builtin())),
+        meta = {"ok": True, "source": "ad-dpm binding", "path": textio.norm_path(path), "sha256": _short(B.sha256(B.builtin())),
                 "next": "edit only the names DPM uses differently, then set the dpm_binding fact in AGENTS.md to this file"}
         if policy.pretty():
             ui.facts([(k, v) for k, v in meta.items() if k not in ("ok", "source")], title="ad-dpm binding")

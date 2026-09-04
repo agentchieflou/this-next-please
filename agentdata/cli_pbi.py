@@ -16,6 +16,7 @@ from .pbi.parts import check_vanished_parts, extract_parts_to_disk, load_model_p
 from .pbi.refresh import get_refresh_history, get_refresh_partitions, poll_refresh, submit_refresh
 from .pbi.verify import verify_service_parity
 from .version import add_version
+from . import textio
 
 
 def _locate_report_folder(path: str) -> tuple[str, str]:
@@ -89,7 +90,7 @@ def cmd_get(args: argparse.Namespace) -> int:
             "item_id": item_id,
             "name": item_name,
             "kind": kind,
-            "out": os.path.abspath(out_dir).replace("\\", "/"),
+            "out": textio.norm_path(os.path.abspath(out_dir)),
             "parts_count": count,
             "total_bytes": total_bytes,
         }))
@@ -312,7 +313,7 @@ def cmd_export_png(args: argparse.Namespace) -> int:
             "report_id": rep_id,
             "report_name": rep_name,
             "page": args.page,
-            "out": os.path.abspath(out_path).replace("\\", "/"),
+            "out": textio.norm_path(os.path.abspath(out_path)),
         }))
         return 0
     except FabricError as e:

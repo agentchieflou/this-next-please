@@ -28,6 +28,7 @@ from . import normalize as N
 from . import pbir as P
 from .check import Finding
 from ..model import AgentTable
+from .. import textio
 
 
 def compute_file_sha256(path: str | Path) -> str:
@@ -92,7 +93,7 @@ def check_brief(spec_path: str | Path, model_override: N.Model | None = None) ->
     """Validate report spec and design brief YAML against layout and model rules."""
     findings: list[Finding] = []
     fm, brief, _ = parse_brief_file(spec_path)
-    spec_str = str(spec_path).replace("\\", "/")
+    spec_str = textio.norm_path(str(spec_path))
 
     if not brief:
         findings.append(Finding("error", "brief-missing", spec_str, "",
@@ -340,7 +341,7 @@ def approve_brief(spec_path: str | Path, model_override: N.Model | None = None,
     user = getpass.getuser()
     now_iso = datetime.now(timezone.utc).isoformat()
     approval_data = {
-        "spec_file": str(spec_path).replace("\\", "/"),
+        "spec_file": textio.norm_path(str(spec_path)),
         "spec_sha256": spec_sha,
         "model_sha": model_sha,
         "by": user,
@@ -355,7 +356,7 @@ def approve_brief(spec_path: str | Path, model_override: N.Model | None = None,
     return {
         "ok": True,
         "approved": True,
-        "approval_file": str(app_file).replace("\\", "/"),
+        "approval_file": textio.norm_path(str(app_file)),
         "spec_sha256": spec_sha,
         "by": user,
         "at": now_iso,

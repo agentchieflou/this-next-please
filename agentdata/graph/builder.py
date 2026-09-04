@@ -37,10 +37,10 @@ EXTRACTOR_VERSIONS = {
 def safe_relpath(path: str, start: str = ".") -> str:
     """Computes relative path with graceful fallback for Windows cross-drive paths."""
     try:
-        rel = os.path.relpath(path, start).replace("\\", "/")
+        rel = textio.norm_path(os.path.relpath(path, start))
         return rel or "."
     except ValueError:
-        return os.path.abspath(path).replace("\\", "/")
+        return textio.norm_path(os.path.abspath(path))
 
 
 def find_entrypoints_from_pyproject(root: str) -> set[str]:
@@ -90,7 +90,7 @@ def collect_files(
         try:
             r = proc.run(["git", "ls-files", "--cached", "--others", "--exclude-standard"], cwd=norm_root, timeout=10)
             if r.ok:
-                git_files = [line.strip().replace("\\", "/") for line in r.stdout.splitlines() if line.strip()]
+                git_files = [textio.norm_path(line.strip()) for line in r.stdout.splitlines() if line.strip()]
         except Exception:
             git_files = None
 
@@ -110,7 +110,7 @@ def collect_files(
     else:
         for dirpath, dirnames, filenames in os.walk(norm_root):
             # Prune excluded directories
-            rel_dir = os.path.relpath(dirpath, norm_root).replace("\\", "/")
+            rel_dir = textio.norm_path(os.path.relpath(dirpath, norm_root))
             dirnames[:] = [
                 d for d in dirnames
                 if not any(fnmatch.fnmatch(d, pat) for pat in exclude_patterns)
@@ -119,7 +119,7 @@ def collect_files(
                 if any(fnmatch.fnmatch(fn, pat) for pat in exclude_patterns):
                     continue
                 abs_p = os.path.join(dirpath, fn)
-                rel = os.path.relpath(abs_p, norm_root).replace("\\", "/")
+                rel = textio.norm_path(os.path.relpath(abs_p, norm_root))
                 if include and not any(fnmatch.fnmatch(rel, inc) for inc in include):
                     continue
                 files.append(rel)
@@ -313,7 +313,7 @@ def build_graph(
 
     # Meta
     meta_data = {
-        "root": os.path.relpath(norm_root, norm_root).replace("\\", "/") or ".",
+        "root": textio.norm_path(os.path.relpath(norm_root, norm_root)) or ".",
         "extractor_versions": EXTRACTOR_VERSIONS,
         "file_count": len(files),
         "sha256": graph_sha256,

@@ -18,6 +18,7 @@ from typing import Any
 from .runner import parse_junit_cases, resolve_selectors, run_tests
 from .. import proc
 from ..model import OUT_DIR, AgentTable
+from .. import textio
 
 BENCH_COLUMNS = ["node", "label", "runs", "median_ms", "min_ms", "p90_ms", "node_cum_ms", "tests", "runner"]
 SNAPSHOT_COLUMNS = ["test", "outcome", "time_ms"]
@@ -121,12 +122,12 @@ def _profile_node_ms(root: str, selectors: list[str], node_path: str, node_name:
             pass
 
     leaf = node_name.rsplit(".", 1)[-1]
-    want_file = node_path.replace("\\", "/")
+    want_file = textio.norm_path(node_path)
     total = 0.0
     for (fname, _lineno, func), values in stats.items():
         if func != leaf:
             continue
-        if not str(fname).replace("\\", "/").endswith(want_file):
+        if not textio.norm_path(str(fname)).endswith(want_file):
             continue
         total += float(values[3])  # cumulative seconds
     return round(total * 1000.0, 3) if total else None
@@ -205,7 +206,7 @@ def bench_node(
         "ok": True,
         "source": "ad-test bench",
         "row": row,
-        "path": os.path.relpath(path, root).replace("\\", "/"),
+        "path": textio.norm_path(os.path.relpath(path, root)),
         "test_source": source,
         "warnings": warnings,
         "profiled": node_cum is not None,
@@ -303,7 +304,7 @@ def snapshot_run(root: str = ".", *, label: str, timeout: int = 600, runner_name
     return {
         "ok": bool(res.get("ok")),
         "source": "ad-test run --snapshot",
-        "path": os.path.relpath(path, root).replace("\\", "/"),
+        "path": textio.norm_path(os.path.relpath(path, root)),
         "cases": len(cases),
         "passed": sum(1 for c in cases if c["outcome"] == "passed"),
         "label": label,

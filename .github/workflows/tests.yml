@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # The property tests run 200 examples per property here and 50 on a laptop, so a run is still a
+  # few seconds locally while CI does the searching. `--hypothesis-seed` replays any failure.
+  HYPOTHESIS_PROFILE: ci
+
 jobs:
   pytest:
     name: ${{ matrix.os }} · python ${{ matrix.python }}

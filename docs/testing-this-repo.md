@@ -11,6 +11,7 @@ point of everything below is that the next one is found by CI.
 | Path | What lives there |
 |---|---|
 | `tests/` | the ordinary suite: units, seams, and the static guards |
+| `tests/test_props_*.py` | the generated inputs; hypothesis, from the `dev` extra |
 | `tests/conftest.py` | isolation and the shared fixtures |
 | `tests/fixtures/` | inputs, byte-exact (`-text` in `.gitattributes`) |
 | `tests/fakes/<tool>/transcripts/` | real tool output, captured, replayed by tests |
@@ -23,6 +24,7 @@ point of everything below is that the next one is found by CI.
 python -m pytest -q                       # the whole suite; laptop tests skip themselves
 python -m pytest -q -m "not slow"         # skip the wheel/venv build
 python -m pytest -q --shuffle-seed 1      # catch order dependence
+HYPOTHESIS_PROFILE=ci python -m pytest -q # the property tests at CI's example count
 AGENTDATA_LAPTOP=1 python -m pytest -m laptop     # the laptop runbook (needs real tools)
 ```
 
@@ -55,6 +57,11 @@ silently selecting nothing.
 `AGENTDATA_CONFIG`, `NO_COLOR=1` and `AGENTDATA_UI=plain`. A test that happens to pass because the
 developer has pncli installed is not a test, and one that writes to the developer's own config is
 worse.
+
+`PIP_CACHE_DIR` points into that temporary home too. Without it, redirecting the profile makes pip
+fall back to a *relative* cache directory, and the slow tests -- which really do run `pip wheel` and
+`pip install` -- wrote 3.8 MB of HTTP cache into `<repo>/pip/cache`, inside the checkout under test,
+where the next `git add -A` would have committed it.
 
 **`APPDATA` and `LOCALAPPDATA` are deliberately left alone.** On Windows they hold per-user
 *installed packages*, so redirecting them makes every subprocess answer `No module named pytest` on
@@ -100,6 +107,73 @@ the exit code is right, which is most of what breaks.
 - and one divergence: `python -m agentdata help pbip` printed the catalog while `ad-help pbip`
   printed pbip's help, though the two forms are documented as identical.
 
+
+## Property tests
+
+`tests/test_props_*.py` generate inputs with [hypothesis] rather than listing them. They cover the
+seams that lose data *silently* — a byte decoded as the wrong character, a cell that swallows its
+own delimiter, a path that stops matching itself — where an example-based test only ever proves the
+examples someone already thought of.
+
+```bash
+python -m pytest -q tests/test_props_textio.py             # 50 examples per property
+HYPOTHESIS_PROFILE=ci python -m pytest -q                  # 200, what CI runs
+python -m pytest -q --hypothesis-seed 12345                # replay a reported failure exactly
+```
+
+| Module | Seam |
+|---|---|
+| `test_props_textio.py` | decoding any bytes, writing atomically, output file names |
+| `test_props_toon.py` | the wire format: any table, any cell, any stdout code page, `csv2toon` |
+| `test_props_paths.py` | `textio.norm_path()`, and the guard that keeps it the only canonicaliser |
+| `test_props_tmdl_pbir.py` | TMDL parse -> serialise as a fixed point; the PBIR reference walk |
+
+Two profiles, shared through `tests/props_profiles.py`: `dev` (50 examples, the default) keeps a
+local run to a couple of seconds, `ci` (200)
+does the searching. Deadlines are off — Windows runners are slow enough that a per-example deadline
+produces flakes rather than findings. hypothesis is in the `dev` extra, and the module
+`importorskip`s it so a bare checkout still runs everything else.
+
+**A counter-example worth keeping is pinned with `@example`**, so it runs first on every future run
+instead of waiting for the generator to rediscover it.
+
+Two rules the generator will find for you if you break them:
+
+- Pass strategies **by keyword** — `@given(text=TEXT)`, not `@given(TEXT)`. Positional strategies
+  fill the *rightmost* parameters, so with a `tmp_path` on the end the text goes to the fixture and
+  pytest then fails looking for a `text` fixture.
+- **Do not `@given` a test that patches through a function-scoped fixture.** `monkeypatch` is not
+  undone between examples, so a patch made by example one is still in force during example two's
+  setup. A fixed list of inputs wants `parametrize` anyway.
+
+### What it found on the first run
+
+- A **form feed** in a cell was left unquoted. `str.splitlines()` breaks on `\v \f \x1c \x1d \x1e
+  \x85 U+2028 U+2029` as well as `\n` and `\r`, so a one-line value became two rows to every reader
+  downstream. `toon.LINE_BREAKS` is now the full set, and a test scans the BMP to keep it that way.
+- **Keys, column names and table names were never quoted** — a key of `:` encoded as `:: 0` and a
+  column of `"` broke the header. They go through `toon._name()` now, and the validator accepts a
+  quoted name.
+- A **quoted value containing a newline** — which the encoder has always emitted — was rejected by
+  `toon.validate()`, which read line by line. It re-joins quoted runs first.
+- A one-column row holding a **null** encodes as an indented empty line, and the validator was
+  skipping it as blank and then reporting the row count as short.
+- `import agentdata.csv2toon` **raised IndexError**: the module read `sys.argv[1]` at import time,
+  so any importer hit it, and `python -m agentdata.csv2toon` with no file printed a traceback
+  instead of usage. It also skipped the `Table[Column]` header transform that `ad-pbip`'s own DAX
+  path applies, so the same query gave two different TSV headers depending on which command wrote
+  it. `test_every_module_imports_without_doing_anything` is the general form of the first half.
+
+### One canonicaliser
+
+`.replace("\\", "/")` was written out by hand in **142 places**. It is correct in all 142 -- until
+one of them forgets, and then two `meta.path` values for the same file stop comparing equal, on
+Windows only, in output an agent is supposed to be able to diff. They all call `textio.norm_path()`
+now, which also folds `/c/Users` and the drive-letter case, and
+`test_no_hand_written_path_canonicaliser` fails on the 143rd. It parses rather than greps, so it can
+tell the call from the sentence about the call in `norm_path`'s own docstring.
+
+[hypothesis]: https://hypothesis.readthedocs.io/
 
 ## Fakes
 
@@ -213,3 +287,4 @@ one that invents output is worth less than no test.
 | `lint · bash 4.4 and pwsh 7 floors` | no post-4.4 construct in anything we ship or emit; the laptop suite never executes here |
 | `coverage · per-module floors` | the seven Windows-critical modules stay covered; report uploaded as an artifact |
 | `suite · shuffled` | two seeded shuffles, to catch fixture leakage |
+| every job | `HYPOTHESIS_PROFILE=ci`, so the property tests search 200 examples rather than 50 |

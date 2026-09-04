@@ -60,6 +60,13 @@ def isolated_home(tmp_path, monkeypatch, request):
         monkeypatch.setenv(var, str(home))
     monkeypatch.setenv("AGENTDATA_CONFIG", str(home / ".agentdata" / "config.json"))
 
+    # Redirecting the profile without this makes pip fall back to a *relative* cache directory, so
+    # the slow tests -- which really do run `pip wheel` and `pip install` -- wrote 3.8 MB of HTTP
+    # cache into `<repo>/pip/cache`, in the repository under test, where `git add -A` would have
+    # committed it. PIP_CACHE_DIR is the supported knob and works on every OS; LOCALAPPDATA stays
+    # untouched for the reason above.
+    monkeypatch.setenv("PIP_CACHE_DIR", str(home / "pip-cache"))
+
     # a machine is reading: no colour, no rich, and UTF-8 whatever the console is
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setenv("AGENTDATA_UI", "plain")

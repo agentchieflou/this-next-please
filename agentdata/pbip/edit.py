@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from . import tmdl as T
 from .normalize import Model
+from .. import textio
 
 
 def measure_set(model: Model, table: str, name: str, expr: str, format_string: str | None = None, display_folder: str | None = None,
@@ -40,5 +41,5 @@ def measure_set(model: Model, table: str, name: str, expr: str, format_string: s
         raise ValueError("edit would leave the file invalid: " + "; ".join(f"L{f.line} {f.rule}: {f.message}" for f in new_errors[:3]))
     if not dry_run:
         T.write_file(tf)
-    return {"action": action, "file": os.path.relpath(tf.path, model.definition_dir).replace("\\", "/"), "line": line,
+    return {"action": action, "file": textio.norm_path(os.path.relpath(tf.path, model.definition_dir)), "line": line,
             "table": table, "measure": name, "lines_changed": len(tf.lines) - len(before), "dry_run": dry_run}

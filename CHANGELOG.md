@@ -31,6 +31,14 @@ vanishing and quietly turning into a skip included. New skills: `test-cover`, `t
 `AGENTS.md` gains stop condition 14: never edit a source file whose `ad-graph guard` verdict is not `ok`, or
 that you have not run it against. `.agent/state.json` gains the phase `optimizing`.
 
+**Two smaller fixes, both found by property tests (#75).** `python -m agentdata.csv2toon` now reads whichever
+encoding dscmd wrote (UTF-8, with or without a BOM, or UTF-16) and reduces `Table[Column]` result headers to
+the bare column name, so it agrees with `ad-pbip`'s own DAX path instead of producing a different TSV header
+for the same query; with no file it prints usage and exits 2 rather than a traceback, and importing it no
+longer runs it. And every path in `meta` output now goes through one canonicaliser (`textio.norm_path`)
+instead of 142 hand-written separator replacements, so two spellings of the same file compare equal on
+Windows -- a drive letter is upper-case and `/c/Users` resolves, wherever the path came from.
+
 ## 0.6.0 — 2026-09-04
 
 **The Python floor is now 3.12** (`requires-python = ">=3.12"`; it was 3.10). Nothing in the code changed for

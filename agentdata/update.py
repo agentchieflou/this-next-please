@@ -28,6 +28,7 @@ from .console import utf8_stdout
 from . import ui
 from . import shell as SH
 from .install import REPO_URL, editable_cmd, source_checkout
+from . import textio
 
 SKILL_SPEC = "agentchieflou/this-next-please"
 SKILLS_CMD = ["gh", "skill", "install", SKILL_SPEC, "--all", "--scope", "user"]
@@ -66,9 +67,10 @@ def cli_state() -> dict:
     kind = ("editable install" if editable else "running from a checkout" if checkout
             else "git install" if vcs else "installed")
     return {"version": version(), "commit": (vcs.get("commit_id") or "")[:12], "source": du.get("url") or "",
-            "editable": editable or bool(checkout), "kind": kind, "checkout_dir": (checkout or "").replace("\\", "/"),
-            "path": pkg.replace("\\", "/"), "installed": _stamp(os.path.join(pkg, "__init__.py")),
-            "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} ({sys.executable})".replace("\\", "/")}
+            "editable": editable or bool(checkout), "kind": kind, "checkout_dir": textio.norm_path(checkout or ""),
+            "path": textio.norm_path(pkg), "installed": _stamp(os.path.join(pkg, "__init__.py")),
+            "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+                      f" ({textio.norm_path(sys.executable)})"}
 
 
 def _stamp(path: str) -> str:
@@ -94,7 +96,7 @@ def skills_state(explicit: str | None = None) -> dict:
     d = skills_dir(explicit)
     files = sorted(glob.glob(os.path.join(d, "*", "SKILL.md")))
     newest_file = max(files, key=os.path.getmtime) if files else ""
-    return {"dir": d.replace("\\", "/"), "installed": len(files), "newest": _stamp(newest_file) if newest_file else "",
+    return {"dir": textio.norm_path(d), "installed": len(files), "newest": _stamp(newest_file) if newest_file else "",
             "newest_epoch": os.path.getmtime(newest_file) if newest_file else 0.0,
             "names": sorted(os.path.basename(os.path.dirname(f)) for f in files)}
 
@@ -113,7 +115,7 @@ def cli_command() -> list[str]:
 def cli_command_text(extras: str | None = None) -> str:
     root = source_checkout()
     if root:
-        return f'git -C "{root.replace(os.sep, "/")}" pull && {editable_cmd()}'
+        return f'git -C "{textio.norm_path(root)}" pull && {editable_cmd()}'
     spec = f"agentdata{f'[{extras}]' if extras else ''} @ git+{REPO_URL}"
     tail = "" if extras else " --no-deps"
     return f'python -m pip install --force-reinstall{tail} "{spec}"'
@@ -150,7 +152,7 @@ def installed_distributions() -> list[dict]:
                 continue
             location = ""
             try:
-                location = str(dist.locate_file("")).replace("\\", "/")
+                location = textio.norm_path(str(dist.locate_file("")))
             except Exception:  # noqa: BLE001
                 pass
             out.append({"name": "agentdata", "version": dist.version, "location": location})
@@ -171,7 +173,7 @@ def _version_from_path(path: str) -> tuple[str, str]:
     """
     if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(sys.executable)):
         return platform.python_version(), "running"
-    m = _VER_IN_PATH.search(path.replace("\\", "/"))
+    m = _VER_IN_PATH.search(textio.norm_path(path))
     return (f"{m.group(1)}.{m.group(2)}", "from the path") if m else ("", "unknown")
 
 
@@ -198,7 +200,7 @@ def pythons_on_path() -> list[dict]:
             too_old = bool(ver) and tuple(int(x) for x in ver.split(".")[:2]) < (3, 12)
         except ValueError:
             too_old = False
-        seen.append({"path": path.replace("\\", "/"), "version": ver, "version_from": how, "too_old": too_old})
+        seen.append({"path": textio.norm_path(path), "version": ver, "version_from": how, "too_old": too_old})
     return seen
 
 
@@ -260,7 +262,6 @@ def owned_by_us(folder: str) -> bool:
     if not os.path.isfile(path):
         return False
     try:
-        from . import textio
         text = textio.read_text(path)
     except Exception:  # noqa: BLE001
         return False
@@ -425,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
         meta["hint"] = ("skills look older than the CLI: run the skills command below, then start a new Copilot chat"
                         if meta["stale_skills"] else "run `ad-update` to apply both commands, then `ad-doctor`")
         if meta["shadowed"]:
-            keep = next((d for d in dists if d["location"] and d["location"] in sys.executable.replace("\\", "/")), None)
+            keep = next((d for d in dists if d["location"] and d["location"] in textio.norm_path(sys.executable)), None)
             meta["hint"] = ("two agentdata installs are on this path and the first one wins: uninstall the one you "
                             "are not using (`python -m pip uninstall agentdata`, once per copy) then re-run "
                             "`ad-update`" + (f"; this interpreter loads {keep['location']}" if keep else ""))
