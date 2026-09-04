@@ -90,3 +90,56 @@ The `--select` flag accepts test node IDs, file paths, or code graph node IDs:
 ad-test run --select agentdata/cli_graph.py::cmd_build
 ```
 When `.agent/graph/graph.json` is present, `ad-test` queries the graph for `tests` edges and maps the code symbol to its corresponding test IDs before running the test runner.
+
+## Coverage collection and import (`ad-test coverage`)
+
+`ad-test coverage` measures or imports test execution coverage and attaches line and branch coverage to code graph nodes.
+
+### Commands
+
+| Command | Purpose |
+|---|---|
+| `ad-test coverage [<root>] [--branch] [--contexts]` | Run suite under coverage.py and attach results to code graph |
+| `ad-test coverage [<root>] --import <lcov\|cobertura> <file>` | Import external coverage file into the code graph |
+| `ad-test coverage [<root>] --node <node-id>` | Show statement and branch coverage details for a single node |
+| `ad-test coverage [<root>] --diff <base-coverage.json>` | Compare node-by-node coverage changes against a baseline |
+
+### Output file format (`.agent/graph/coverage.json`)
+
+```json
+{
+  "graph_sha256": "4a1b...",
+  "source": "coverage.py",
+  "collected_at": "2026-09-04T00:00:00.000000",
+  "files": {
+    "src/calculator.py": {
+      "lines_executed": [1, 2, 5],
+      "lines_missing": [6],
+      "branches": {
+        "branch_executed": [[2, 3]],
+        "branch_missing": [[2, 5]]
+      }
+    }
+  },
+  "nodes": {
+    "src/calculator.py::add": {
+      "pct": 100.0,
+      "executed": [2],
+      "missing": [],
+      "branch_pct": 100.0,
+      "tests": ["test_calculator.test_add"]
+    }
+  },
+  "unmatched": []
+}
+```
+
+### Staleness and graph integrity
+
+`coverage.json` records `graph_sha256`. If the code graph is rebuilt and its hash changes, `ad-graph status` and `ad-graph guard` flag coverage data as stale, requiring `ad-test coverage` to be re-run.
+
+### Import formats
+
+- **LCOV (`--import lcov <file>`)**: Standard tracefiles produced by Jest/Istanbul, `dotnet-coverage`, and gcov.
+- **Cobertura (`--import cobertura <file>`)**: XML format emitted by `coverlet` and `pytest-cov --cov-report xml`.
+- File paths are normalized to forward-slash relative paths against the repository root; unmatched files are listed in `unmatched[]`.

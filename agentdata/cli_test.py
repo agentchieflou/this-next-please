@@ -12,7 +12,7 @@ from . import ui
 from .console import utf8_stdout
 from .model import AgentTable
 from .policy import error, render
-from .testing import detect_all, detect_runner, run_tests
+from .testing import collect_coverage, diff_coverage, detect_all, detect_runner, run_tests
 from .version import version_string
 
 
@@ -93,6 +93,116 @@ def cmd_run(a: argparse.Namespace) -> int:
     return 0 if res["ok"] else 1
 
 
+def cmd_coverage(a: argparse.Namespace) -> int:
+    root = a.root or "."
+    root = os.path.abspath(root)
+
+    # 1. Handle --diff
+    if a.diff:
+        cur_cov_path = os.path.join(root, ".agent", "graph", "coverage.json")
+        if not os.path.exists(cur_cov_path):
+            print(error("current coverage.json not found", "run ad-test coverage first", "ad-test coverage --diff"))
+            return 1
+        base_path = a.diff if os.path.isabs(a.diff) else os.path.join(root, a.diff)
+        if not os.path.exists(base_path):
+            print(error(f"base coverage file not found: {a.diff}", "check base file path", "ad-test coverage --diff"))
+            return 1
+        try:
+            import json
+            from . import textio
+            cur_cov = json.loads(textio.read_text(cur_cov_path))
+            base_cov = json.loads(textio.read_text(base_path))
+            rows = diff_coverage(cur_cov, base_cov)
+            t = AgentTable.from_records(rows, name="coverage_diff", source="ad-test coverage --diff")
+            extra = {"ok": True, "source": "ad-test coverage --diff", "count": len(rows)}
+            print(render(t, extra=extra))
+            return 0
+        except Exception as e:
+            print(error(f"failed to compare coverage: {e}", "", "ad-test coverage --diff"))
+            return 1
+
+    # 2. Handle --node
+    if a.node:
+        cov_path = os.path.join(root, ".agent", "graph", "coverage.json")
+        if not os.path.exists(cov_path):
+            print(error("coverage.json not found", "run ad-test coverage first", "ad-test coverage --node"))
+            return 1
+        try:
+            import json
+            from . import textio
+            cov_data = json.loads(textio.read_text(cov_path))
+            nodes_cov = cov_data.get("nodes", {})
+            ncov = nodes_cov.get(a.node)
+            if not ncov:
+                for nid, val in nodes_cov.items():
+                    if nid.endswith(a.node) or a.node.endswith(nid):
+                        ncov = val
+                        break
+            if not ncov:
+                print(error(f"node not found in coverage: {a.node}", "run ad-test coverage or check node id", "ad-test coverage --node"))
+                return 1
+
+            rows = [
+                {"metric": "node", "value": a.node},
+                {"metric": "pct", "value": f"{ncov.get('pct', 0.0)}%"},
+                {"metric": "branch_pct", "value": f"{ncov.get('branch_pct', 100.0)}%"},
+                {"metric": "executed_lines", "value": ",".join(str(x) for x in ncov.get("executed", []))},
+                {"metric": "missing_lines", "value": ",".join(str(x) for x in ncov.get("missing", []))},
+                {"metric": "tests", "value": ", ".join(ncov.get("tests", []))},
+            ]
+            t = AgentTable.from_records(rows, name="node_coverage", source="ad-test coverage --node")
+            extra = {"ok": True, "source": "ad-test coverage --node", "node": a.node, "pct": ncov.get("pct")}
+            print(render(t, extra=extra))
+            return 0
+        except Exception as e:
+            print(error(f"failed to read node coverage: {e}", "", "ad-test coverage --node"))
+            return 1
+
+    # 3. Collect / Import coverage
+    import_fmt = None
+    import_file = None
+    if getattr(a, "import_cov", None):
+        import_fmt, import_file = a.import_cov
+
+    res = collect_coverage(
+        root=root,
+        runner_name=a.runner,
+        import_format=import_fmt,
+        import_file=import_file,
+        branch=a.branch,
+        contexts=a.contexts,
+        flag_cmd=getattr(a, "test_cmd", None),
+    )
+
+    if not res.get("ok"):
+        print(error(res.get("error", "coverage collection failed"), res.get("hint", ""), "ad-test coverage"))
+        return 1
+
+    rows = [
+        {"metric": "graph_sha256", "value": str(res.get("graph_sha256", ""))},
+        {"metric": "source", "value": str(res.get("data", {}).get("source", ""))},
+        {"metric": "collected_at", "value": str(res.get("data", {}).get("collected_at", ""))},
+        {"metric": "files_covered", "value": str(res.get("files_covered", 0))},
+        {"metric": "nodes_covered", "value": str(res.get("nodes_covered", 0))},
+        {"metric": "coverage_json", "value": str(res.get("path", ""))},
+    ]
+    unmatched = res.get("data", {}).get("unmatched", [])
+    if unmatched:
+        rows.append({"metric": "unmatched_files", "value": ", ".join(unmatched)})
+
+    t = AgentTable.from_records(rows, name="coverage_summary", source="ad-test coverage")
+    extra = {
+        "ok": True,
+        "source": "ad-test coverage",
+        "graph_sha256": res.get("graph_sha256", ""),
+        "files_covered": res.get("files_covered", 0),
+        "nodes_covered": res.get("nodes_covered", 0),
+        "coverage_json": res.get("path", ""),
+    }
+    print(render(t, extra=extra))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="ad-test",
@@ -119,6 +229,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--junit", help="write JUnit XML output to this path")
     p_run.add_argument("--test-cmd", help="override test command")
     p_run.set_defaults(fn=cmd_run)
+
+    # coverage
+    p_cov = sub.add_parser("coverage", help="collect or import line and branch coverage")
+    p_cov.add_argument("root", nargs="?", default=".", help="project root directory (default: .)")
+    p_cov.add_argument("--runner", help="explicit runner name (pytest, unittest)")
+    p_cov.add_argument("--import", dest="import_cov", nargs=2, metavar=("FORMAT", "FILE"), help="import coverage file (lcov or cobertura)")
+    p_cov.add_argument("--branch", action="store_true", help="measure branch coverage")
+    p_cov.add_argument("--contexts", action="store_true", help="record test context for each line")
+    p_cov.add_argument("--node", help="show coverage details for a specific node id")
+    p_cov.add_argument("--diff", help="compare coverage with a base coverage.json file")
+    p_cov.add_argument("--test-cmd", help="override test command")
+    p_cov.set_defaults(fn=cmd_coverage)
 
     completion.autocomplete(p)
     return p

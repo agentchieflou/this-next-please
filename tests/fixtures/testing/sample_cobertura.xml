@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<coverage line-rate="0.75" branch-rate="1.0" version="1.9">
+  <packages>
+    <package name="src">
+      <classes>
+        <class name="calculator" filename="src\calculator.py" line-rate="0.75" branch-rate="1.0">
+          <lines>
+            <line number="1" hits="1" branch="false"/>
+            <line number="2" hits="1" branch="false"/>
+            <line number="5" hits="1" branch="false"/>
+            <line number="6" hits="0" branch="false"/>
+          </lines>
+        </class>
+        <class name="unknown" filename="C:\windows\path\unknown_module.cs" line-rate="0.5" branch-rate="1.0">
+          <lines>
+            <line number="1" hits="1" branch="false"/>
+            <line number="2" hits="0" branch="false"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

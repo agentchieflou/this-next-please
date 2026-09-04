@@ -230,23 +230,43 @@ def build_graph(
     updated_edges: list[Edge] = []
     unresolved_calls = 0
 
+    cov_path = os.path.join(out_dir, "coverage.json")
+    coverage_tested_nodes: set[str] = set()
+    if os.path.isfile(cov_path):
+        try:
+            cov = textio.read_json(cov_path, what="coverage")
+            for nid, ncov in cov.get("nodes", {}).items():
+                for tid in ncov.get("tests", []):
+                    coverage_tested_nodes.add(nid)
+                    updated_edges.append(
+                        Edge(
+                            source=tid,
+                            target=nid,
+                            kind="tests",
+                            source_type="coverage",
+                        )
+                    )
+        except Exception:
+            pass
+
     for edge in graph.edges:
         if edge.kind == "tests" and edge.target.startswith("name:"):
             target_name = edge.target[5:]
             if target_name in symbol_name_to_ids:
-                # Resolve to first matching in-repo symbol (or prefer tested module)
                 matches = symbol_name_to_ids[target_name]
                 matched_id = matches[0]
-                updated_edges.append(
-                    Edge(
-                        source=edge.source,
-                        target=matched_id,
-                        kind="tests",
-                        source_type="name",
-                        where=edge.where,
-                        context=edge.context,
+                # Prefer coverage-derived edges over name-derived ones
+                if matched_id not in coverage_tested_nodes:
+                    updated_edges.append(
+                        Edge(
+                            source=edge.source,
+                            target=matched_id,
+                            kind="tests",
+                            source_type="name",
+                            where=edge.where,
+                            context=edge.context,
+                        )
                     )
-                )
             else:
                 updated_edges.append(edge)
         elif edge.kind == "imports" and edge.target.startswith("ext:"):

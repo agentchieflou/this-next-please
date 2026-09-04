@@ -306,3 +306,18 @@ def capabilities(cfg: dict | None, source: str, env: str) -> dict:
     cfg = cfg if cfg is not None else load()
     e = get_leaf(cfg, f"sources.{source}.envs", env, {}) or {}
     return dict(e.get("capabilities", {}) or {})
+
+
+DEFAULT_MIN_COVERAGE = 0.8
+
+
+def min_coverage(cfg: dict | None = None) -> float:
+    """Read graph.min_coverage threshold (default: 0.8)."""
+    cfg = cfg if cfg is not None else load()
+    val = get(cfg, "graph.min_coverage")
+    if val is not None:
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            pass
+    return DEFAULT_MIN_COVERAGE
