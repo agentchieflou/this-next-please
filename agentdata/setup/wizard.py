@@ -435,6 +435,8 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
     ap.add_argument("--color", choices=["auto", "always", "never"], default="auto",
                     help="colour output (default auto: on for a terminal, off when piped; NO_COLOR / AGENTDATA_COLOR also apply)")
     ap.add_argument("--quiet", action="store_true", help="show only non-ok rows")
+    ap.add_argument("--report", action="store_true",
+                    help="print the environment bundle (shells, pythons, tools, IDE default shells) and exit")
     ap.add_argument("--only", action="append", help="step key(s), comma-separated: pncli,sources,powerbi,project")
     from .. import completion, version
     version.add_version(ap)
@@ -442,6 +444,15 @@ def run_doctor(argv: list[str] | None = None, det: Detectors | None = None) -> i
     a = ap.parse_args(argv)
     utf8_stdout()
     color.set_enabled(None if a.color == "auto" else a.color == "always")
+
+    if a.report:
+        # what a pasted bug report needs before anyone can read the rows: which shell, which
+        # python, which of several installs, and whether the IDE opens an unsupported window
+        from .. import verification
+        print(toon.encode({"meta": {"ok": True, "source": "ad-doctor --report"},
+                           "environment": verification.environment_bundle()}))
+        return 0
+
     try:
         cfg = C.load()
         ctx = Context(cfg=cfg, det=det or Detectors(), ask=AnswerPrompter({}), online=a.online, interactive=False,

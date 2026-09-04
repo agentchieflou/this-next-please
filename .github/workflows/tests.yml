@@ -211,3 +211,22 @@ jobs:
           $all = @($results) + @($compat) | Where-Object { $_ }
           if ($all) { $all | Format-Table -AutoSize | Out-String | Write-Host; throw "$($all.Count) analyzer finding(s)" }
           Write-Host 'PSScriptAnalyzer clean'
+
+  floor-lints:
+    name: lint · bash 4.4 and pwsh 7 floors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      # CI's bash is 5.x and its pwsh *is* the floor, so what CI can guard is the feature set:
+      # nothing after bash 4.4 in anything we ship or emit, and a declared floor in every .ps1.
+      - run: python -m pytest -q tests/test_bash_floor.py
+      - name: the laptop suite must never run here
+        run: |
+          set -e
+          python -m pytest -q --collect-only -m laptop | tee collected.txt
+          grep -q "no tests ran\|0 tests collected\|deselected" collected.txt || \
+            { echo "the laptop suite was collected on CI"; exit 1; }

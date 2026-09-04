@@ -8,6 +8,46 @@ each failure becomes a fix with a reproducing test.
 
 Conventions: run in PowerShell inside the project checkout; every `ad-*` command prints TOON; **paste the whole TOON block** (it never contains a token or password) plus any Python traceback. Where a step says "paste", paste even on success for the first run so expectations can be calibrated. Stop at the first failing step inside a section and continue with the next section (sections are independent).
 
+> **Shells:** this runbook is for **PowerShell 7 (`pwsh`)** and **Git Bash**. Windows PowerShell 5.1
+> is unsupported — close that window first; `tests/laptop/test_00_baseline.py` stops there anyway,
+> with the hint to install pwsh.
+
+## How to run it
+
+Each section below is a module in `tests/laptop/`, and the suite writes machine-readable evidence
+instead of asking you to paste a screenshot. Run one section:
+
+```bash
+AGENTDATA_LAPTOP=1 python -m pytest -m laptop -k 00_baseline      # Git Bash
+```
+
+```powershell
+$env:AGENTDATA_LAPTOP = '1'; python -m pytest -m laptop -k 00_baseline   # pwsh 7
+```
+
+or all of it with `-m laptop` and no `-k`. An ordinary `pytest -q` collects none of it: the tests
+are marked `laptop` and gated on `AGENTDATA_LAPTOP`.
+
+Every step appends a record to **`.agent/out/verification-<ts>.toon`** — the section, the command,
+its exit code, how long it took, and the fields this runbook used to ask you to paste. That file is
+what goes into an issue. It also opens with an environment bundle (the same one
+`ad-doctor --report` prints): OS build, which shell and host, the code page, every `python` on PATH
+with its version, every installed `agentdata`, `core.autocrlf`, `LongPathsEnabled`, and which shell
+PyCharm / Windows Terminal / VS Code open by default — with a `warn` if any of them is still 5.1.
+
+A step that needs a person (open the PBIP in Desktop, `az login`) prompts and waits; answer `skip`
+to move on.
+
+Before anything else:
+
+```bash
+python -m agentdata doctor --report      # paste this if you file anything
+```
+
+**A failing step becomes a regression test.** File it with the verification file attached, add
+`tests/regressions/test_<section>_<short>.py` reproducing it with fakes, fix it, and the laptop step
+passes again. That was always this runbook's rule; now it is mechanical.
+
 ## 0. Baseline
 ```powershell
 ad-update --check                                                      # version + commit you are on now
@@ -17,10 +57,10 @@ pip install "agentdata[pbi,uat,teradata,impala,oracle] @ git+https://github.com/
 #   developing the repo instead? clone it and `pip install -e ".[dev]"` THERE, never in a report repo
 ad-doctor    # if "not recognized": the Scripts dir is not on PATH -> use `python -m agentdata doctor` everywhere below
 gh skill install agentchieflou/this-next-please --all --scope user   # --all avoids the picker; --scope user applies to every repo
-python -m pytest -q     # only in a clone of this-next-please; expect: 96 passed
+python -m pytest -q     # only in a clone of this-next-please; expect the count CI printed for this commit
 chcp 65001 | Out-Null                                                  # UTF-8 console so → · ≤ render (cosmetic)
 ```
-Pass: `96 passed`. Paste: any failing test names and their assertion text (likely candidates: CRLF fixture if `core.autocrlf=true`, path separators).
+Pass: no failures. Paste: any failing test names and their assertion text (likely candidates: CRLF fixture if `core.autocrlf=true`, path separators).
 
 ## 1. Doctor before setup
 ```powershell
