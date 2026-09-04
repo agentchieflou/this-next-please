@@ -263,6 +263,33 @@ untracked-but-not-ignored files are copied over it and committed on top.
 
 ### Adding a case
 
+### Nothing here may hang
+
+Three CI runs were killed at their step cap with no failure and no timeline. Two things compounded:
+
+- **A call that structurally could not time out.** On Windows `subprocess.run(capture_output=True,
+  timeout=N)` kills the direct child and then re-joins the pipe reader thread *without* a timeout, so
+  a surviving grandchild holds it open indefinitely. Measured: a middle process spawning a 40-second
+  grandchild, run with `timeout=3`, raised after **40.2 seconds** — the grandchild's lifetime, not
+  the timeout. `run_bounded` writes to real files instead, and `agentdata/proc.py` had the identical
+  bug in shipped code.
+- **A shallow origin repository.** `actions/checkout` clones with `fetch-depth: 1`, a `git clone` of
+  the checkout inherits that, and pip's `git clone --filter=blob:none file://<shallow>` then
+  registers a promisor remote that can never serve the fetches it promises. The origin is built from
+  `git archive` now, and the fixture asserts `--is-shallow-repository` is false so a future clone
+  says why instead of hanging.
+
+Three rules follow, and they are what keep it impossible rather than unlikely:
+
+1. **One wall-clock budget, not a timeout per command.** The per-call timeouts sum to hours against a
+   ten-minute step, so bounding each call individually could never bound the test. `AGENTDATA_LIFECYCLE_BUDGET_S`
+   (default 540) makes the test lose to itself, with a named command, before it can lose to CI.
+2. **Every command announces itself before it waits**, on stderr, flushed. Printed afterwards it says
+   nothing about the one command that never returned.
+3. **The inner timeout must be smaller than the outer one.** `ad-update`'s own `--timeout` defaulted
+   to 600 inside a 420-second bound, so the product's timeout path could never fire; the test passes
+   240.
+
 ### What runs where
 
 The full sequence runs on **Linux only**, and Windows runs a shorter, Windows-shaped sibling. That is

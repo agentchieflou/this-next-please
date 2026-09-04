@@ -17,8 +17,16 @@ Several would pass only in collection order, and CI deliberately runs the suite 
 assertion names its step, so a failure still says which transition broke.
 
 It is also what makes this affordable. Creating a venv and installing into it is the entire cost,
-and on a Windows runner that is minutes rather than seconds: four venvs took the Windows job past
-its timeout, one does not.
+and on a hosted Windows runner that is minutes rather than seconds -- so the long sequence runs on
+Linux and Windows runs `test_the_windows_launcher_and_scripts`, which keeps the parts that are
+actually about Windows at two installs instead of six.
+
+**Nothing here may hang.** Three CI runs were killed at their step cap with no failure and no
+timeline, and the cause turned out to be two things compounding: a call that structurally could not
+time out (see `run_bounded`), and a shallow origin repository that sent pip's partial clone chasing
+a promisor remote that could never answer (see the `clone` fixture). Both are closed by
+construction now, and a shared wall-clock budget means the test loses to itself -- with a named
+command -- before it can ever lose to CI again.
 
 Adding a case: put it in the sequence where its starting state already exists, and label the
 assertion `(x)`. A case that needs no venv at all -- `store_alias`, say -- belongs outside.
@@ -77,6 +85,25 @@ def _kill_tree(proc: subprocess.Popen) -> None:
         pass
 
 
+BUDGET_ENV = "AGENTDATA_LIFECYCLE_BUDGET_S"
+_deadline: float | None = None
+
+
+@pytest.fixture(autouse=True)
+def _budget():
+    """One wall-clock budget for the whole test, not a timeout per command.
+
+    The per-call timeouts in this module sum to several hours against a ten-minute CI step, so
+    bounding each call individually can never bound the test -- and a test that loses to the step
+    cap is killed blind, with no failure and no timeline. With a shared deadline the test always
+    loses to itself first, naming the command it was in.
+    """
+    global _deadline
+    _deadline = time.monotonic() + int(os.environ.get(BUDGET_ENV, "540"))
+    yield
+    _deadline = None
+
+
 def run_bounded(argv: list[str], *, cwd: str, env: dict, timeout: int, label: str = "") -> Ran:
     """Run a command so that it cannot take the whole job with it.
 
@@ -95,6 +122,18 @@ def run_bounded(argv: list[str], *, cwd: str, env: dict, timeout: int, label: st
     Returns stdout and stderr merged in the order they were written, which is also what a person
     pasting a failure would have seen.
     """
+    what = label or argv[0]
+    if _deadline is not None:
+        left = _deadline - time.monotonic()
+        if left <= 5:
+            raise AssertionError(
+                f"the lifecycle budget ran out before {what}. Raise {BUDGET_ENV} if the machine is "
+                f"simply slow; otherwise the timeline above says which command ate it.")
+        timeout = min(timeout, int(left))
+
+    # Announced *before* the wait, on stderr, flushed: printed afterwards it says nothing at all
+    # about the command that never returned, which is exactly the one worth naming.
+    print(f"[lifecycle] {time.strftime('%H:%M:%S')} >>> {what}", file=sys.stderr, flush=True)
     started = time.time()
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as sink:
         proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
@@ -108,9 +147,8 @@ def run_bounded(argv: list[str], *, cwd: str, env: dict, timeout: int, label: st
             raise AssertionError(
                 f"{label or argv[0]} did not finish within {timeout}s and was killed.\n"
                 f"command: {' '.join(argv)}\ncwd: {cwd}\n--- output so far ---\n{tail}") from None
-        # Printed, not logged: pytest shows captured stdout when a test fails, so this is the
-        # timeline of everything that already ran -- which is what says "slow" rather than "stuck".
-        print(f"[lifecycle] {time.time() - started:6.1f}s  {label or argv[0]}")
+        print(f"[lifecycle] {time.strftime('%H:%M:%S')} <<< {what}  {time.time() - started:.1f}s "
+              f"rc={code}", file=sys.stderr, flush=True)
         sink.seek(0)
         return Ran(code, sink.read())
 
@@ -267,6 +305,14 @@ def clone(tmp_path_factory) -> str:
     _git("config", "uploadpack.allowFilter", "true", cwd=dst)
     _git("add", "-A", cwd=dst)
     _git("commit", "--quiet", "-m", "lifecycle: the working tree as it stands", cwd=dst)
+
+    # The trigger that cost three CI runs. `actions/checkout` clones with `fetch-depth: 1`, so the
+    # checkout is **shallow**; a `git clone` of it inherits that, and pip's
+    # `git clone --filter=blob:none file://<shallow>` then registers a promisor remote that can
+    # never serve the fetches it promises. Building the origin from `git archive` avoids it by
+    # construction -- and this says so, loudly, if anyone puts a clone back.
+    assert _git("rev-parse", "--is-shallow-repository", cwd=dst) == "false", \
+        "the origin is shallow: pip's partial clone will chase a promisor that cannot answer"
     return dst
 
 
@@ -356,14 +402,14 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     # refusing the CLI half, because pip cannot replace a launcher that is the running process --
     # is Windows-only and lives in test_the_windows_launcher_and_scripts.
     new_head = _commit(clone, "first")
-    out = v.run("update", "--cli", "--no-reexec")
+    out = v.run("update", "--cli", "--no-reexec", "--timeout", "240")
     assert out.returncode == 0, f"(c) {out.stdout}"
     meta, _out = v.check()
     assert meta["commit"] == new_head[:12], f"(c) still on {meta['commit']}"
 
     # (d) the same commit again is a success, not a silent no-op failure. pip will not reinstall a
     # git URL whose *version* is unchanged, which is exactly why the real command forces it.
-    out = v.run("update", "--cli", "--no-reexec")
+    out = v.run("update", "--cli", "--no-reexec", "--timeout", "240")
     assert out.returncode == 0, f"(d) {out.stdout}"
     meta, _out = v.check()
     assert meta["commit"] == new_head[:12], f"(d) {meta['commit']}"
@@ -374,7 +420,7 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     meta, _out = v.check()
     assert "editable" in meta["install"], f"(e) {meta['install']}"
     assert meta["editable"] == "true", "(e)"
-    out = v.run("update", "--cli", "--no-reexec")
+    out = v.run("update", "--cli", "--no-reexec", "--timeout", "240")
     assert out.returncode == 0, f"(e) {out.stdout}"
     assert "skip" in out.stdout.lower(), f"(e) the skip was not reported: {out.stdout}"
 
@@ -389,12 +435,12 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     _git("push", "--quiet", bare, f"HEAD:refs/heads/{BRANCH}", cwd=clone)
     before = _git("rev-parse", "HEAD", cwd=work)
     v.pip("install", "--no-deps", "-e", work)
-    out = v.run("update", "--cli", "--pull", "--no-reexec")
+    out = v.run("update", "--cli", "--pull", "--no-reexec", "--timeout", "240")
     assert out.returncode == 0, f"(f) {out.stdout}"
     assert _git("rev-parse", "HEAD", cwd=work) != before, "(f) the checkout was not moved"
 
     # (g) --from-git replaces a checkout with the published install
-    out = v.run("update", "--cli", "--from-git", "--no-reexec")
+    out = v.run("update", "--cli", "--from-git", "--no-reexec", "--timeout", "240")
     assert out.returncode == 0, f"(g) {out.stdout}"
     meta, _out = v.check()
     assert meta["install"] == "git install", f"(g) {meta['install']}"
