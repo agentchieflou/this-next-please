@@ -18,9 +18,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-latest, python: "3.10", select: ""}
-          - {os: ubuntu-latest, python: "3.12", select: ""}
-          - {os: ubuntu-latest, python: "3.14", select: ""}
+          - {os: ubuntu-latest, python: "3.12", select: ""}   # the floor (pyproject requires-python)
+          - {os: ubuntu-latest, python: "3.14", select: ""}   # what the laptop runs
           - {os: windows-latest, python: "3.14", select: -m "not slow"}
     steps:
       - uses: actions/checkout@v4
