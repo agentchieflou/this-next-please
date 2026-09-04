@@ -15,7 +15,7 @@ from agentdata.pbip import tmdl as T
 from agentdata.pbip import tom as TOM
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sample.pbip"
-DEFN_DIR = FIXTURE_DIR / "sample.SemanticModel" / "definition"
+DEFN_DIR = FIXTURE_DIR / "Sample.SemanticModel" / "definition"
 
 SAMPLE_OPS = [
     {
@@ -164,7 +164,7 @@ def test_tmdl_writer_tier2_fallback(tmp_path):
     """Test op list applied directly to TMDL files in Tier 2 fallback."""
     target_pbip = tmp_path / "sample.pbip"
     shutil.copytree(FIXTURE_DIR, target_pbip)
-    defn = target_pbip / "sample.SemanticModel" / "definition"
+    defn = target_pbip / "Sample.SemanticModel" / "definition"
 
     res = TOM.apply_tmdl(str(defn), SAMPLE_OPS)
     # Assert every op succeeded
@@ -191,7 +191,7 @@ def test_no_lineagetag_in_writer_output(tmp_path):
     """CRITICAL Grep test: assert lineageTag never appears in newly authored objects."""
     target_pbip = tmp_path / "sample.pbip"
     shutil.copytree(FIXTURE_DIR, target_pbip)
-    defn = target_pbip / "sample.SemanticModel" / "definition"
+    defn = target_pbip / "Sample.SemanticModel" / "definition"
 
     TOM.apply_tmdl(str(defn), SAMPLE_OPS)
 
@@ -336,7 +336,7 @@ def test_cli_model_apply_tmdl(tmp_path, capsys):
     """Test CLI model apply with ops file."""
     target_pbip = tmp_path / "sample.pbip"
     shutil.copytree(FIXTURE_DIR, target_pbip)
-    defn = target_pbip / "sample.SemanticModel" / "definition"
+    defn = target_pbip / "Sample.SemanticModel" / "definition"
 
     ops = [
         {"op": "measure.set", "table": "Sales", "name": "CLI Measure", "expression": "100"}
