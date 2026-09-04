@@ -13,10 +13,12 @@ from . import toon
 from .console import utf8_stdout
 from .model import AgentTable
 from .model import OUT_DIR
+from .pbip import audit as ADT
 from .pbip import author as AU
 from .pbip import brief as BR
 from .pbip import catalog as CAT
 from .pbip import check as CK
+from .pbip import tom as TOM
 from .pbip import dax as D
 from .pbip import desktop as DT
 from .pbip import dmv as DMV
@@ -389,17 +391,42 @@ def cmd_refs(a) -> int:
 
 def cmd_measure_set(a) -> int:
     pbip = _pbip_dir(a.pbip)
-    model, _report, _ = N.load_all(pbip, legacy_ok=True)
+    defn = N.find_model_dir(pbip)
     expr = a.expr if a.expr is not None else read_text(a.expr_file)
+    op = {
+        "op": "measure.set",
+        "table": a.table,
+        "name": a.name,
+        "expression": expr,
+        "formatString": a.format_string,
+        "displayFolder": a.display_folder,
+        "description": a.description,
+        "isHidden": True if a.hidden else None,
+    }
     try:
-        res = E.measure_set(model, a.table, a.name, expr, a.format_string, a.display_folder, a.description, a.lineage_tag,
-                            hidden=True if a.hidden else None, dry_run=a.dry_run)
+        res = TOM.model_apply([op], definition_dir=defn, dry_run=a.dry_run)
     except (LookupError, ValueError) as e:
-        print(error(str(e), "check the table name (MODEL.md) and the DAX; nothing was written", "ad-pbip")); return 2
+        print(error(str(e), "check the table name (MODEL.md) and the DAX; nothing was written", "ad-pbip"))
+        return 2
+
+    results = res.get("results", [])
+    if results and results[0].get("status") == "fail":
+        print(error(results[0].get("error", "apply failed"), "check DAX and table", "ad-pbip"))
+        return 2
+
+    apply_res = results[0] if results else {}
+    fact_dict = {
+        "action": apply_res.get("action", "applied"),
+        "table": a.table,
+        "measure": a.name,
+        "file": f"tables/{a.table}.tmdl",
+        "line": apply_res.get("line", 1),
+        "dry_run": a.dry_run,
+    }
     if policy.pretty():
-        ui.facts([("table", a.table), ("name", a.name), *[(k, v) for k, v in res.items()]], title="ad-pbip measure set")
+        ui.facts([("table", a.table), ("name", a.name), *[(k, v) for k, v in fact_dict.items()]], title="ad-pbip measure set")
     else:
-        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip measure set", **res,
+        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip measure set", **fact_dict,
                                     "next": "ad-pbip check --te2, then reopen the PBIP in Desktop (it does not hot-reload TMDL)"}}))
     return 0
 
@@ -710,6 +737,169 @@ def cmd_brief(a) -> int:
         else:
             print(toon.encode({"meta": {"ok": stat == "current", "source": "ad-pbip brief status", "spec": a.spec, "status": stat}}))
         return 0 if stat == "current" else 1
+    return 0
+
+
+def cmd_model(a) -> int:
+    cmd = getattr(a, "model_cmd", None)
+    if cmd == "apply":
+        _resolve_desktop_target(a)
+        ops_raw = a.ops.strip()
+        if os.path.exists(ops_raw):
+            with open(ops_raw, "r", encoding="utf-8") as f:
+                ops = json.load(f)
+        else:
+            try:
+                ops = json.loads(ops_raw)
+            except Exception as e:
+                print(error(f"Failed to parse --ops: {e}", "provide valid path to JSON file or JSON array", "ad-pbip"))
+                return 2
+
+        server = getattr(a, "server", None)
+        pid = getattr(a, "pid", None)
+        model_dir = getattr(a, "model", None)
+        pbip_dir = getattr(a, "pbip", None)
+
+        if not server and not pid and not model_dir:
+            if pbip_dir:
+                model_dir = N.find_model_dir(pbip_dir)
+            else:
+                try:
+                    cands = PJ.find_pbip(os.getcwd())
+                    if cands:
+                        model_dir = N.find_model_dir(cands[0])
+                        pbip_dir = cands[0]
+                except Exception:
+                    pass
+
+        try:
+            res = TOM.model_apply(
+                ops,
+                server=server,
+                pid=pid,
+                database=getattr(a, "db", None),
+                definition_dir=model_dir,
+                save=getattr(a, "save", False),
+                pbip_dir=pbip_dir,
+                dry_run=getattr(a, "dry_run", False),
+            )
+        except Exception as e:
+            print(error(str(e), "check ops definition and model state", "ad-pbip"))
+            return 2
+
+        tier = res.get("tier")
+        results = res.get("results", [])
+        has_fails = any(r.get("status") == "fail" for r in results)
+
+        if policy.pretty():
+            ui.facts([("tier", tier), ("ops", len(ops)), ("status", "fail" if has_fails else "ok")], title=f"ad-pbip model apply ({tier})")
+            rows = []
+            for r in results:
+                rows.append([r.get("op", ""), r.get("status", ""), r.get("action", ""), r.get("object", ""), r.get("error", "")])
+            t = AgentTable(["op", "status", "action", "object", "error"], rows, name="apply_results", source="ad-pbip model apply")
+            print(render(t))
+        else:
+            print(toon.encode({"meta": {"ok": not has_fails, "source": "ad-pbip model apply", **res}}))
+        return 2 if has_fails else 0
+
+    elif cmd == "audit":
+        _resolve_desktop_target(a)
+        target = getattr(a, "definition", None)
+        pbip = None
+        defn = None
+        if target:
+            if os.path.exists(os.path.join(target, "model.tmdl")):
+                defn = target
+            else:
+                try:
+                    pbip = _pbip_dir(target)
+                    defn = N.find_model_dir(pbip)
+                except Exception:
+                    defn = target
+        else:
+            try:
+                cands = PJ.find_pbip(os.getcwd())
+                if cands:
+                    pbip = cands[0]
+                    defn = N.find_model_dir(pbip)
+            except Exception:
+                pass
+
+        if not defn or not os.path.isdir(defn):
+            print(error("Could not find SemanticModel definition folder", "pass definition folder or PBIP path", "ad-pbip"))
+            return 2
+
+        model, report, _ = N.load_all(defn if not pbip else pbip, legacy_ok=True)
+
+        if getattr(a, "copilot", False):
+            copilot_res = ADT.audit_copilot(model)
+            summary = copilot_res.summary()
+            if policy.pretty():
+                ui.facts([("score", f"{summary['score']}%"), ("passed", summary["passed"]), ("failed", summary["failed"])],
+                         title="Copilot AI Readiness Audit")
+                rows = [[it["category"], it["target"], it["status"], it["detail"]] for it in summary["items"]]
+                t = AgentTable(["category", "target", "status", "detail"], rows, name="copilot_audit", source="ad-pbip model audit --copilot")
+                print(render(t))
+            else:
+                print(toon.encode({"meta": {"ok": True, "source": "ad-pbip model audit --copilot", **summary}}))
+            return 0
+
+        findings = ADT.audit_model(model, report=report)
+        if getattr(a, "bpa", False):
+            cfg = C.load()
+            te2_exe = C.get(cfg, "powerbi.tools.te2_exe") or C.project_facts().get("te2_exe")
+            if te2_exe and os.path.exists(te2_exe):
+                te2_findings, _ = CK.run_te2(defn, te2_exe, bpa=True)
+                for tf in te2_findings:
+                    findings.append(ADT.AuditFinding(
+                        rule_id=f"te2-bpa:{tf.rule}",
+                        severity=tf.severity,
+                        what=tf.message,
+                        why="Tabular Editor Best Practice Analyzer rule violation",
+                        obj=tf.where,
+                        where=tf.where,
+                    ))
+
+        rows = [f.row() for f in findings]
+        errors = [f for f in findings if f.severity == "error"]
+        if policy.pretty():
+            ui.facts([("rules_evaluated", "8+"), ("findings", len(findings)), ("errors", len(errors))], title="Model Audit")
+            t_rows = [[f.severity, f.rule_id, f.obj, f.what, json.dumps(f.fix) if f.fix else ""] for f in findings]
+            t = AgentTable(["severity", "rule", "object", "what", "fix"], t_rows, name="audit_findings", source="ad-pbip model audit")
+            print(render(t))
+        else:
+            print(toon.encode({
+                "meta": {"ok": len(errors) == 0, "source": "ad-pbip model audit", "findings": len(findings), "errors": len(errors)},
+                "rows": rows,
+            }))
+        return 2 if errors else 0
+
+    elif cmd == "optimize":
+        _resolve_desktop_target(a)
+        server = getattr(a, "server", None)
+        pid = getattr(a, "pid", None)
+        if not server and not pid:
+            print(error("give --pid <pid> or --server localhost:<port>", "model optimize runs against live instance", "ad-pbip"))
+            return 2
+        try:
+            res = TOM.model_optimize(
+                measure=a.measure,
+                pid=pid,
+                server=server,
+                pbip_dir=getattr(a, "pbip", None),
+                database=getattr(a, "db", None),
+            )
+        except Exception as e:
+            print(error(str(e), "optimization failed or regressed", "ad-pbip"))
+            return 2
+
+        if policy.pretty():
+            facts = [(k, str(v)) for k, v in res.items() if not k.endswith("_expression")]
+            ui.facts(facts, title=f"DAX Optimization: [{a.measure}]")
+        else:
+            print(toon.encode({"meta": {"ok": True, "source": "ad-pbip model optimize", **res}}))
+        return 0
+
     return 0
 
 
@@ -1053,6 +1243,44 @@ def build_parser() -> argparse.ArgumentParser:
     p_bs.add_argument("spec", help="path to report-spec.md file")
     p_bs.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_bs.set_defaults(fn=cmd_brief)
+
+    # Model
+    p_mod = sub.add_parser("model", help="semantic model live TOM authoring, audit, and optimization")
+    mod_sub = p_mod.add_subparsers(dest="model_cmd", required=True)
+
+    # model apply
+    p_ma = mod_sub.add_parser("apply", help="apply declarative op list to live TOM model or TMDL files")
+    p_ma.add_argument("--ops", required=True, help="path to ops JSON file or raw JSON string")
+    p_ma.add_argument("--server", help="Analysis Services server (localhost:<port>)")
+    p_ma.add_argument("--pid", type=int, help="Power BI Desktop PID")
+    p_ma.add_argument("--db", help="database name")
+    p_ma.add_argument("--model", help="path to SemanticModel definition folder (Tier 2 fallback)")
+    p_ma.add_argument("--pbip", help="PBIP root folder (for settle wait on --save)")
+    p_ma.add_argument("--save", action="store_true", help="trigger Desktop save via UIA/Ctrl+S after apply")
+    p_ma.add_argument("--dry-run", action="store_true", help="validate without writing changes")
+    p_ma.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_ma.set_defaults(fn=cmd_model)
+
+    # model audit
+    p_mau = mod_sub.add_parser("audit", help="audit semantic model for best practices and anti-patterns")
+    p_mau.add_argument("definition", nargs="?", help="path to SemanticModel definition folder or PBIP")
+    p_mau.add_argument("--server", help="Analysis Services server (localhost:<port>)")
+    p_mau.add_argument("--pid", type=int, help="Power BI Desktop PID")
+    p_mau.add_argument("--db", help="database name")
+    p_mau.add_argument("--bpa", action="store_true", help="include Tabular Editor BPA rules")
+    p_mau.add_argument("--copilot", action="store_true", help="evaluate Copilot AI readiness scored checklist")
+    p_mau.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_mau.set_defaults(fn=cmd_model)
+
+    # model optimize
+    p_mo = mod_sub.add_parser("optimize", help="optimize slow DAX measure with before/after trace evidence")
+    p_mo.add_argument("--measure", required=True, help="measure name to optimize")
+    p_mo.add_argument("--server", help="Analysis Services server (localhost:<port>)")
+    p_mo.add_argument("--pid", type=int, help="Power BI Desktop PID")
+    p_mo.add_argument("--db", help="database name")
+    p_mo.add_argument("--pbip", help="PBIP root folder")
+    p_mo.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_mo.set_defaults(fn=cmd_model)
     return ap
 
 
