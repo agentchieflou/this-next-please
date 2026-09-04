@@ -31,6 +31,20 @@ vanishing and quietly turning into a skip included. New skills: `test-cover`, `t
 `AGENTS.md` gains stop condition 14: never edit a source file whose `ad-graph guard` verdict is not `ok`, or
 that you have not run it against. `.agent/state.json` gains the phase `optimizing`.
 
+**Every `ad-*` command that shells out could hang forever on Windows (#78).** `proc.run` captured
+output through pipes, and `subprocess.run(capture_output=True, timeout=N)` is not a real timeout
+there: when it expires it kills the direct child and then waits for the pipe write-ends to close,
+and a grandchild that inherited them keeps them open. `ad-update` spawns pip, pip spawns git, git
+spawns `upload-pack` -- so killing pip left two processes holding the handles, and the call blocked
+*past its own timeout*, indefinitely. The user saw a command that never returned and no way to say
+why. Found when a CI runner sat in exactly that state for ten minutes with `--timeout 600` set.
+
+`proc.run` now writes to temporary files rather than pipes, so the timeout fires when it says it
+will; the timeout kills the whole process **tree** (Windows has no process groups, and the
+grandchildren are the problem); and children get `stdin` from `/dev/null`, because nothing this
+package spawns should ever wait for a person -- git reaching for a credential helper is the usual
+way that happens, and with no console attached it waits forever instead of failing.
+
 **The install/update lifecycle is tested end to end, and it was broken in three places (#78).**
 A new `slow` slice drives the real `pip` and the real `ad-update` through real venvs against a
 `git+file://` clone -- fresh git install, update to a new commit, update to the same commit,

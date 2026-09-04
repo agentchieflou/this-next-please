@@ -6,6 +6,7 @@ import os
 import stat
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -295,3 +296,63 @@ def test_raw_lets_a_converted_body_and_a_jira_comment_through(tmp_path, monkeypa
     monkeypatch.setattr(sys, "argv", ["ad-pncli", "raw", "--body-file", str(md), "jira", "add-comment", "--key", "X"])
     cli.main_pncli()
     assert "ok: true" in capsys.readouterr().out
+
+
+# --------------------------------------------- the timeout has to be a timeout, grandchildren or not
+
+
+def test_a_surviving_grandchild_does_not_hold_the_call_open(tmp_path):
+    """The Windows failure this exists for, reproduced on every OS.
+
+    `subprocess.run(capture_output=True, ...)` waits for the pipe write-ends to close, and a
+    grandchild that inherited them keeps them open long after the child has exited. `ad-update`
+    spawns pip, pip spawns git, git spawns upload-pack -- and a CI runner sat in exactly that state
+    for ten minutes with a 600-second timeout set, because the timeout could not fire either.
+
+    Here the child spawns a grandchild that sleeps for two minutes, then exits at once. The call
+    must come back with the child, not with the grandchild.
+    """
+    child = tmp_path / "child.py"
+    child.write_text(
+        "import subprocess, sys\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+        "print('done')\n",
+        encoding="utf-8")
+
+    start = time.time()
+    rc, out, _err, _el = proc.run([sys.executable, str(child)], timeout=90)
+    elapsed = time.time() - start
+
+    assert rc == 0, out
+    assert "done" in out
+    assert elapsed < 30, f"took {elapsed:.0f}s: the grandchild held the call open"
+
+
+def test_a_child_that_never_finishes_is_a_timeout_not_a_hang(tmp_path):
+    """And the timeout itself has to fire, with the tree killed behind it."""
+    child = tmp_path / "sleeper.py"
+    child.write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
+
+    start = time.time()
+    with pytest.raises(proc.ProcError) as caught:
+        proc.run([sys.executable, str(child)], timeout=5)
+    elapsed = time.time() - start
+
+    assert caught.value.code == "timeout", caught.value.msg
+    assert elapsed < 60, f"a 5s timeout took {elapsed:.0f}s to fire"
+
+
+def test_nothing_we_spawn_can_wait_for_a_person(tmp_path):
+    """stdin is /dev/null, so a child that reads it gets EOF rather than a wait nobody will end.
+
+    git reaching for a credential helper is the usual way this happens, and on a machine with no
+    console attached it waits forever instead of failing.
+    """
+    reader = tmp_path / "reader.py"
+    reader.write_text("import sys\nprint(repr(sys.stdin.read()))\n", encoding="utf-8")
+
+    start = time.time()
+    rc, out, _err, _el = proc.run([sys.executable, str(reader)], timeout=20)
+    assert time.time() - start < 20, "reading stdin blocked"
+    assert rc == 0
+    assert out.strip() == "''", f"stdin was not empty: {out!r}"
