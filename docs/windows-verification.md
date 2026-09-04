@@ -151,6 +151,17 @@ type .agent\desktop.json                                               # verify 
 ```
 Pass: `register-tool` registers `agentdata.pbitool.json` in Desktop's External Tools folder; `ad-doctor` shows `powerbi/external_tool` ok; Desktop shows `agentdata` in ribbon; clicking ribbon or running `handoff` records `.agent/desktop.json`; downstream verbs prefer handoff when fresh.
 
+## 15. Observe live model via traces, DMVs, and page-cost (#54)
+```powershell
+ad-pbip dmv deps --server localhost:<port>                             # query DISCOVER_CALC_DEPENDENCY
+ad-pbip dmv segments --server localhost:<port>                         # query DISCOVER_STORAGE_TABLE_COLUMN_SEGMENTS
+ad-pbip refs --live --server localhost:<port>                          # reconcile live graph against TMDL/PBIR files
+ad-pbip page-cost --pid <pid> --page "Page 1" --seconds 15             # benchmark page render and visual query latency
+ad-pbip trace start --pid <pid> --seconds 60 --out .agent/out/trace.jsonl  # start named-pipe listener and TE2 trace
+ad-pbip trace report .agent/out/trace.jsonl                            # aggregate query latencies and correlate to visuals
+```
+Pass: `dmv deps` and `segments` return formatted tables; `refs --live` shows synced/live-only status; `page-cost` navigates page and computes per-visual and total query time; `trace report` correlates query hashes to visual projections.
+
 ## Triage map (where a failure lands)
 | Symptom | Module | Likely fix |
 |---|---|---|

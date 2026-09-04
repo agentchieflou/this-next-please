@@ -15,12 +15,14 @@ from .model import OUT_DIR
 from .pbip import check as CK
 from .pbip import dax as D
 from .pbip import desktop as DT
+from .pbip import dmv as DMV
 from .pbip import edit as E
 from .pbip import external_tool as EXT
 from .pbip import normalize as N
 from .pbip import project as PJ
 from .pbip import screenshot as SC
 from .pbip import tmdl as T
+from .pbip import trace as TR
 from .policy import error, render
 from . import policy, ui
 
@@ -305,6 +307,15 @@ def cmd_lint(a) -> int:
 
 def cmd_refs(a) -> int:
     pbip = _pbip_dir(a.pbip)
+    if getattr(a, "live", False):
+        _resolve_desktop_target(a)
+        if not getattr(a, "server", None):
+            print(error("refs --live requires --server localhost:<port>", "pass --server or use Desktop External Tools", "ad-pbip"))
+            return 2
+        t = DMV.refs_live(pbip, a.server, database=getattr(a, "db", None))
+        print(render(t, extra={"server": a.server, "live": True}))
+        return 0
+
     model, report, norm = N.load_all(pbip, legacy_ok=True)
     lin = norm["lineage"]
     rows: list[dict] = []
@@ -384,6 +395,66 @@ def cmd_measure_set(a) -> int:
     else:
         print(toon.encode({"meta": {"ok": True, "source": "ad-pbip measure set", **res,
                                     "next": "ad-pbip check --te2, then reopen the PBIP in Desktop (it does not hot-reload TMDL)"}}))
+    return 0
+
+
+def cmd_trace(a) -> int:
+    trace_cmd = getattr(a, "trace_cmd", None)
+    if trace_cmd == "start":
+        _resolve_desktop_target(a)
+        if not getattr(a, "server", None) and not getattr(a, "pid", None):
+            print(error("give --pid <pid> or --server localhost:<port>", "", "ad-pbip"))
+            return 2
+        server = a.server or f"localhost:{a.pid}"
+        listener, out_file, meta = TR.start_trace(server, pid=getattr(a, "pid", None), seconds=getattr(a, "seconds", 60),
+                                                  out_path=getattr(a, "out", None), database=getattr(a, "db", None))
+        if policy.pretty():
+            ui.facts([(k, v) for k, v in meta.items()], title="ad-pbip trace started")
+        else:
+            print(toon.encode({"meta": {"ok": True, "source": "ad-pbip trace start", **meta, "next": f"run actions, then ad-pbip trace report {out_file}"}}))
+        return 0
+
+    if trace_cmd == "report":
+        pbip = None
+        try:
+            pbip = _pbip_dir(getattr(a, "pbip", None))
+        except Exception:
+            pass
+        t = TR.report_trace(a.file, report_dir=pbip)
+        print(render(t, extra={"events_file": a.file}))
+        return 0
+
+    return 0
+
+
+def cmd_dmv(a) -> int:
+    _resolve_desktop_target(a)
+    if not getattr(a, "server", None):
+        print(error("give --server localhost:<port> (or press External Tools -> agentdata in Desktop)", "", "ad-pbip"))
+        return 2
+    try:
+        t = DMV.run_dmv(a.server, a.query, database=getattr(a, "db", None))
+        if a.query.strip().lower() == "segments":
+            t = DMV.normalize_segments(t)
+    except Exception as e:
+        print(error(str(e)[:300], "verify server address and that Desktop Analysis Services is running", "ad-pbip"))
+        return 1
+    print(render(t, extra={"server": a.server, "query": a.query}))
+    return 0
+
+
+def cmd_page_cost(a) -> int:
+    _resolve_desktop_target(a)
+    if not getattr(a, "pid", None):
+        print(error("give --pid <pid> (ad-pbip desktop)", "", "ad-pbip"))
+        return 2
+    pbip = None
+    try:
+        pbip = _pbip_dir(getattr(a, "pbip", None))
+    except Exception:
+        pass
+    t = DMV.page_cost(a.pid, a.page, pbip_dir=pbip, seconds=getattr(a, "seconds", 15))
+    print(render(t, extra=t.raw or {}))
     return 0
 
 
@@ -486,8 +557,43 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_lint)
     p = sub.add_parser("refs", help="where is a column/measure used; what feeds a visual or page")
     p.add_argument("pbip", nargs="?"); p.add_argument("--table"); p.add_argument("--column"); p.add_argument("--measure"); p.add_argument("--visual"); p.add_argument("--page")
+    p.add_argument("--live", action="store_true", help="reconcile against live DISCOVER_CALC_DEPENDENCY from server")
+    p.add_argument("--server", help="Analysis Services server for --live")
+    p.add_argument("--db", help="database name for --live")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_refs)
+
+    p_dmv = sub.add_parser("dmv", help="run Analysis Services DMV query or shortcut (deps, segments, sessions, schema)")
+    p_dmv.add_argument("query", help="DMV SQL query or shortcut name (deps, segments, sessions, schema)")
+    p_dmv.add_argument("--server", help="localhost:<port> address")
+    p_dmv.add_argument("--db", help="database name")
+    p_dmv.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_dmv.set_defaults(fn=cmd_dmv)
+
+    p_cost = sub.add_parser("page-cost", help="navigate to page and benchmark visual query latencies via trace")
+    p_cost.add_argument("pbip", nargs="?")
+    p_cost.add_argument("--pid", type=int, help="running Desktop process id")
+    p_cost.add_argument("--page", required=True, help="page id or displayName to evaluate")
+    p_cost.add_argument("--seconds", type=int, default=15, help="trace duration in seconds (default: 15)")
+    p_cost.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_cost.set_defaults(fn=cmd_page_cost)
+
+    p_tr = sub.add_parser("trace", help="Analysis Services trace control and aggregation")
+    tr_sub = p_tr.add_subparsers(dest="trace_cmd", required=True)
+    p_ts = tr_sub.add_parser("start", help="start trace listener and launch TE2 trace script")
+    p_ts.add_argument("--pid", type=int, help="running Desktop process id")
+    p_ts.add_argument("--server", help="localhost:<port> address")
+    p_ts.add_argument("--db", help="database name")
+    p_ts.add_argument("--seconds", type=int, default=60, help="duration in seconds (default: 60)")
+    p_ts.add_argument("--out", help="output .jsonl file path (default: .agent/out/trace-<ts>.jsonl)")
+    p_ts.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_ts.set_defaults(fn=cmd_trace)
+
+    p_tr_rep = tr_sub.add_parser("report", help="aggregate and correlate trace .jsonl events to visuals")
+    p_tr_rep.add_argument("file", help="path to trace .jsonl file")
+    p_tr_rep.add_argument("pbip", nargs="?", help="optional PBIP path to correlate visual names")
+    p_tr_rep.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_tr_rep.set_defaults(fn=cmd_trace)
     m = sub.add_parser("measure", help="mechanical measure edits").add_subparsers(dest="mcmd", required=True)
     p = m.add_parser("set", help="add or replace a measure with correct TMDL layout")
     p.add_argument("pbip", nargs="?"); p.add_argument("--table", required=True); p.add_argument("--name", required=True)
