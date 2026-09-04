@@ -28,7 +28,9 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
+import time
 
 import pytest
 
@@ -93,6 +95,7 @@ def run_bounded(argv: list[str], *, cwd: str, env: dict, timeout: int, label: st
     Returns stdout and stderr merged in the order they were written, which is also what a person
     pasting a failure would have seen.
     """
+    started = time.time()
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as sink:
         proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                 stdout=sink, stderr=subprocess.STDOUT, text=True)
@@ -105,6 +108,9 @@ def run_bounded(argv: list[str], *, cwd: str, env: dict, timeout: int, label: st
             raise AssertionError(
                 f"{label or argv[0]} did not finish within {timeout}s and was killed.\n"
                 f"command: {' '.join(argv)}\ncwd: {cwd}\n--- output so far ---\n{tail}") from None
+        # Printed, not logged: pytest shows captured stdout when a test fails, so this is the
+        # timeline of everything that already ran -- which is what says "slow" rather than "stuck".
+        print(f"[lifecycle] {time.time() - started:6.1f}s  {label or argv[0]}")
         sink.seek(0)
         return Ran(code, sink.read())
 
@@ -199,7 +205,7 @@ class Venv:
 
     def run(self, *args: str, **env: str) -> Ran:
         return run_bounded([self.python, "-m", "agentdata", *args], cwd=self.work,
-                           env=self.env(**env), timeout=300,
+                           env=self.env(**env), timeout=420,
                            label="python -m agentdata " + " ".join(args))
 
     def check(self) -> tuple[dict, str]:
@@ -222,39 +228,45 @@ def cache(tmp_path_factory) -> str:
 
 @pytest.fixture(scope="module")
 def clone(tmp_path_factory) -> str:
-    """A git clone of this checkout **including uncommitted work**, for `AGENTDATA_REPO_URL`.
+    """A one-commit repository holding this checkout, **including uncommitted work**.
 
-    `git clone` copies HEAD, so a clone alone would install the last commit and quietly test the
-    code you are about to change rather than the code you just changed -- which is the opposite of
-    what a pre-commit test is for. The working tree's modified and untracked-but-not-ignored files
-    are copied over the clone and committed on top.
+    Not `git clone` of the real repo. pip re-clones this seven times over the sequence, and cloning
+    a repository with history is most of what those seven cost -- on a CI runner it was the
+    difference between a couple of minutes and hitting the job's cap. `git archive HEAD` is the
+    tree with no history at all, and the working tree's own changes go on top: what pip installs is
+    then the code you are about to commit, not the code you last committed, which is the point of
+    running this before a commit.
     """
     dst = str(tmp_path_factory.mktemp("origin") / "this-next-please")
-    _git("clone", "--quiet", "--no-hardlinks", REPO_ROOT, dst, cwd=REPO_ROOT)
-    # An identity, so committing here does not depend on the developer's git config.
-    _git("config", "user.email", "lifecycle@test.invalid", cwd=dst)
-    _git("config", "user.name", "lifecycle test", cwd=dst)
-    # A named branch, always. `actions/checkout` leaves a detached HEAD, and a clone of a detached
-    # repository is detached too -- so `rev-parse --abbrev-ref HEAD` answered "HEAD" and the push
-    # in step (e) failed with "not a full refname". Green locally, red on CI, for a reason that has
-    # nothing to do with what the test is about.
-    _git("checkout", "--quiet", "-B", BRANCH, cwd=dst)
+    os.makedirs(dst, exist_ok=True)
 
-    changed = _git("ls-files", "--modified", "--others", "--exclude-standard", cwd=REPO_ROOT)
+    bundle = os.path.join(os.path.dirname(dst), "head.tar")
+    _git("archive", "--format=tar", "-o", bundle, "HEAD", cwd=REPO_ROOT)
+    with tarfile.open(bundle) as tar:
+        tar.extractall(dst, filter="data")
+    os.remove(bundle)
+
+    # the working tree on top: modified and untracked-but-not-ignored, minus anything deleted
     deleted = set(_git("ls-files", "--deleted", cwd=REPO_ROOT).splitlines())
-    for rel in changed.splitlines():
+    for rel in _git("ls-files", "--modified", "--others", "--exclude-standard", cwd=REPO_ROOT).splitlines():
         if not rel.strip() or rel in deleted:
             continue
-        src, target = os.path.join(REPO_ROOT, rel), os.path.join(dst, rel)
+        target = os.path.join(dst, rel)
         os.makedirs(os.path.dirname(target) or dst, exist_ok=True)
-        shutil.copy2(src, target)
+        shutil.copy2(os.path.join(REPO_ROOT, rel), target)
     for rel in deleted:
         target = os.path.join(dst, rel)
         if rel.strip() and os.path.isfile(target):
             os.remove(target)
-    if _git("status", "--porcelain", cwd=dst):
-        _git("add", "-A", cwd=dst)
-        _git("commit", "--quiet", "-m", "lifecycle: the working tree as it stands", cwd=dst)
+
+    _git("init", "--quiet", "--initial-branch", BRANCH, cwd=dst)
+    _git("config", "user.email", "lifecycle@test.invalid", cwd=dst)
+    _git("config", "user.name", "lifecycle test", cwd=dst)
+    # pip clones over file://, and git refuses a filtered fetch the server has not allowed. Without
+    # this the clone still works but negotiates its way there the long way round.
+    _git("config", "uploadpack.allowFilter", "true", cwd=dst)
+    _git("add", "-A", cwd=dst)
+    _git("commit", "--quiet", "-m", "lifecycle: the working tree as it stands", cwd=dst)
     return dst
 
 
@@ -277,12 +289,17 @@ def _scripts() -> list[str]:
 # --------------------------------------------------------------------------- (a) .. (h), in order
 
 
+@pytest.mark.posix
+@pytest.mark.skipif(os.name == "nt", reason="six pip builds do not fit a Windows runner; the "
+                                            "Windows-shaped half is test_the_windows_launcher_and_scripts")
 def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
-    """Every case, in one environment, because every case is a transition out of the last one.
+    """Every transition, in one environment, because every case is a transition out of the last one.
 
-    One venv is also what keeps this affordable: creating a venv and installing into it is the whole
-    cost, and on a Windows runner it is minutes rather than seconds. Four venvs took the Windows job
-    past its timeout; one does not.
+    One venv is what keeps this affordable: creating a venv and installing into it is the whole cost.
+    Six pip builds is about ninety seconds here and roughly six times that on a hosted runner, which
+    is why Windows runs the shorter, Windows-shaped sibling instead of this. Nothing between (c) and
+    (g) is platform-specific -- an editable install, a `--pull`, a `--from-git` and a shadowing copy
+    behave the same everywhere, and proving them twice buys nothing but runner minutes.
     """
     v = Venv(str(tmp_path_factory.mktemp("venv") / "v"), _url(clone), cache)
 
@@ -335,27 +352,10 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
     assert toon_read.meta(doctor.stdout).get("version") == "0.0.1", \
         f"(b) ad-doctor reported {toon_read.meta(doctor.stdout).get('version')}, not the imported copy"
 
-    # (c) the launcher refuses the CLI half, and says what to run instead. pip has to replace
-    # Scripts/ad-update.exe, and Windows will not let it while that launcher is the running
-    # process -- a refusal is synchronous, has an exit code, and cannot half-succeed, which
-    # neither shape of re-exec manages.
+    # (c) a new commit upstream is picked up. The console-script launcher's own behaviour --
+    # refusing the CLI half, because pip cannot replace a launcher that is the running process --
+    # is Windows-only and lives in test_the_windows_launcher_and_scripts.
     new_head = _commit(clone, "first")
-    launcher = v.script("ad-update")
-    assert os.path.isfile(launcher), "(c) the ad-update launcher was not installed"
-    if os.name == "nt":
-        out = run_bounded([launcher, "--cli"], cwd=v.work, env=v.env(), timeout=300,
-                          label="ad-update.exe --cli")
-        refusal = toon_read.meta(out.stdout)
-        assert out.returncode == 2, f"(c) exit {out.returncode}: {out.stdout}"
-        assert refusal.get("refused") == "true", f"(c) {refusal}"
-        assert "-m agentdata update" in refusal.get("hint", ""), f"(c) {refusal.get('hint')}"
-        assert os.path.isfile(launcher), "(c) the launcher was touched by a command that refused"
-        # ...and the half that goes nowhere near the launcher still works from it
-        out = run_bounded([launcher, "--check"], cwd=v.work, env=v.env(), timeout=300,
-                          label="ad-update.exe --check")
-        assert out.returncode == 0, f"(c) --check from the launcher: {out.stdout}"
-
-    # (c) the module form does the work the launcher declined to do
     out = v.run("update", "--cli", "--no-reexec")
     assert out.returncode == 0, f"(c) {out.stdout}"
     meta, _out = v.check()
@@ -425,6 +425,70 @@ def _shadow_copy(tmp_path_factory) -> str:
     with open(os.path.join(dist, "RECORD"), "w", encoding="utf-8") as f:
         f.write("")
     return extra
+
+
+@pytest.mark.windows
+@pytest.mark.skipif(os.name != "nt", reason="these are the Windows-shaped halves of the lifecycle")
+def test_the_windows_launcher_and_scripts(tmp_path_factory, clone, cache):
+    """The parts of the lifecycle that are about Windows, and only those.
+
+    Two installs rather than six, because a hosted Windows runner charges minutes for each and the
+    rest of the sequence -- editable, --pull, --from-git, shadowing -- is platform-independent and
+    proven by `test_the_install_and_update_lifecycle` on Linux. What is left here cannot be proven
+    anywhere else:
+
+    * the console scripts are real `.exe` launchers, and they start;
+    * `ad-update.exe` refuses the CLI half, because pip cannot replace a launcher that is the
+      running process, and still serves the halves that do not touch it;
+    * uninstall takes the `.exe` files with it.
+    """
+    v = Venv(str(tmp_path_factory.mktemp("winvenv") / "v"), _url(clone), cache)
+    head = _git("rev-parse", "HEAD", cwd=clone)
+    v.pip("install", "--no-deps", f"git+{v.repo_url}")
+
+    meta, _out = v.check()
+    assert meta["install"] == "git install", meta["install"]
+    assert meta["commit"] == head[:12], f"reported {meta['commit']}, clone is at {head[:12]}"
+
+    broken = []
+    for name in _scripts():
+        path = v.script(name)
+        if not os.path.isfile(path):
+            broken.append(f"{name}: not installed")
+            continue
+        out = run_bounded([path, "--version"], cwd=v.work, env=v.env(), timeout=180,
+                          label=name + " --version")
+        if out.returncode != 0 or not out.stdout.strip():
+            lines = out.stdout.strip().splitlines()
+            broken.append(f"{name}: exit {out.returncode}, {lines[-1][:160] if lines else 'no output'}")
+    assert not broken, "console scripts:\n  " + "\n  ".join(broken)
+
+    # the scripts are in the venv, which is deliberately not on this process's PATH -- the
+    # `pip install --user` situation on a managed laptop
+    assert meta.get("scripts_on_path") == "false", meta.get("scripts_on_path")
+    assert "not on PATH" in meta.get("hint", ""), meta.get("hint")
+    assert "python -m agentdata" in meta.get("hint", ""), "the hint must name the form that works"
+
+    # the launcher refuses the CLI half, and says what to run instead
+    launcher = v.script("ad-update")
+    assert os.path.isfile(launcher), "the ad-update launcher was not installed"
+    out = run_bounded([launcher, "--cli"], cwd=v.work, env=v.env(), timeout=300,
+                      label="ad-update.exe --cli")
+    refusal = toon_read.meta(out.stdout)
+    assert out.returncode == 2, f"exit {out.returncode}: {out.stdout}"
+    assert refusal.get("refused") == "true", refusal
+    assert "-m agentdata update" in refusal.get("hint", ""), refusal.get("hint")
+    assert os.path.isfile(launcher), "the launcher was touched by a command that refused"
+
+    # ...and the half that goes nowhere near the launcher still works from it
+    out = run_bounded([launcher, "--check"], cwd=v.work, env=v.env(), timeout=300,
+                      label="ad-update.exe --check")
+    assert out.returncode == 0, f"--check from the launcher: {out.stdout}"
+
+    # uninstall takes the launchers with it
+    v.pip("uninstall", "-y", "agentdata")
+    left = [n for n in _scripts() if os.path.isfile(v.script(n))]
+    assert not left, f"still installed after uninstall: {', '.join(left)}"
 
 
 # ------------------------------------------------------------- Windows, without needing a venv

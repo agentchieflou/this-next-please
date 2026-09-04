@@ -263,6 +263,22 @@ untracked-but-not-ignored files are copied over it and committed on top.
 
 ### Adding a case
 
+### What runs where
+
+The full sequence runs on **Linux only**, and Windows runs a shorter, Windows-shaped sibling. That is
+a budget decision made honestly: six pip builds is about ninety seconds on a laptop and roughly six
+times that on a hosted Windows runner, which is more than the whole job's cap. Nothing between (c)
+and (g) is platform-specific — an editable install, a `--pull`, a `--from-git` and a shadowing copy
+behave the same everywhere, and proving them twice buys nothing but runner minutes.
+
+`test_the_windows_launcher_and_scripts` keeps the parts that *cannot* be proven anywhere else, at two
+installs rather than six: the console scripts are real `.exe` launchers and they start;
+`ad-update.exe` refuses the CLI half and still serves `--check`; uninstall takes the `.exe` files with
+it. The skip on the long test names that sibling, which
+`test_a_windows_skip_must_name_the_test_that_covers_windows` enforces.
+
+### Adding a case, continued
+
 The cases are transitions, so they are **one test function with the steps in order**, not several
 sharing a fixture — several would pass only in collection order, and CI runs the suite shuffled on
 purpose. Put a new case where its starting state already exists and label the assertion `(x)`; a
