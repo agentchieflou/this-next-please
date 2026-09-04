@@ -1,0 +1,17 @@
+{
+  "source": "synthesized",
+  "note": "an az rest call returning a group list",
+  "match": [
+    "rest"
+  ],
+  "argv": [
+    "az",
+    "rest",
+    "--method",
+    "get"
+  ],
+  "returncode": 0,
+  "stdout": "{\"value\": [{\"id\": \"g1\", \"displayName\": \"Analysts\"}]}\n",
+  "stderr": "",
+  "captured": "2026-09-04"
+}

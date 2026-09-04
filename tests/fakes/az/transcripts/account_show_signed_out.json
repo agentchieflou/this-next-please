@@ -1,0 +1,17 @@
+{
+  "source": "synthesized",
+  "note": "az installed but not signed in",
+  "match": [
+    "account",
+    "show"
+  ],
+  "argv": [
+    "az",
+    "account",
+    "show"
+  ],
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "ERROR: Please run 'az login' to setup account.\n",
+  "captured": "2026-09-04"
+}

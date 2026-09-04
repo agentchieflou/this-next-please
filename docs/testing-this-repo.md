@@ -63,6 +63,60 @@ Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only w
 `sys.exit`, an import-time crash, or an escape sequence that appears only when stdout is a pipe),
 `state_file`, `pbip`, `fakes_dir`, `isolated_path`.
 
+## Fakes
+
+`tests/fakes/` holds stand-ins for the external tools: pncli, pip, gh, az, TabularEditor, dscmd and
+powershell. They exist because six tests in `test_proc.py` were `skipif(os.name == "nt")` with the
+reason "POSIX shell stand-in" — so the Windows behaviour of the module that exists *because of*
+Windows was skipped on Windows, which is where it breaks.
+
+A fake materialises as an **npm-style `.cmd` shim** on Windows (the shape `proc.py` has to unwrap)
+plus an extension-less `sh` shim, and as the `sh` shim alone on POSIX. Both run the same
+`tests/fakes/runner.py`, so a test cannot pass on one OS for a reason that does not exist on the
+other.
+
+```python
+import fakes
+
+def test_something(monkeypatch, tmp_path):
+    fakes.apply(monkeypatch, tmp_path, ["pncli"], case="positional_option")
+    ...
+```
+
+### Transcripts
+
+A fake replays real output. `tests/fakes/<tool>/transcripts/<case>.json` records `argv`, `match`,
+`returncode`, `stdout`, `stderr`, when it was captured, and a `source`:
+
+| `source` | Meaning |
+|---|---|
+| `captured` | a real run, recorded with `tests/fakes/record.py` |
+| `photographed` | transcribed from a failure someone photographed or pasted |
+| `synthesized` | written to pin one code path; real in shape, not captured |
+
+Capture a new one on the machine where the interesting thing happens:
+
+```bash
+python tests/fakes/record.py pip --case winerror5 --note "all-users install" -- install --force-reinstall agentdata
+```
+
+**A fake that invents output is worth less than no fake** — it proves the code handles a shape
+nobody has ever seen. The `source` field exists so a reader can tell which they are looking at, and
+the aim is to replace `synthesized` entries with `captured` ones as the real failures turn up.
+
+### Rules
+
+- A fake never touches the network and never reads the real config.
+- An argv no transcript matches exits **99** and echoes the argv. A silent zero would let a test
+  pass while the code sent something quite different.
+- **A Windows skip must name the test that covers Windows**, and that test must exist — enforced by
+  `test_a_windows_skip_must_name_the_test_that_covers_windows`. The rule is not "never skip": a
+  POSIX shell loop is sometimes the clearest way to write the POSIX half. The rule is that the gap
+  cannot be left open by accident.
+- The `powershell` transcript has a **drift detector**: on Windows CI the real CIM query runs and
+  its shape is compared with the transcript, so a fake cannot quietly stop resembling the tool.
+
+
 ## Coverage floors
 
 Per module, never repo-wide, and **per platform**. A single percentage invites padding and says
