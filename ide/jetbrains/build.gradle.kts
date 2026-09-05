@@ -28,6 +28,12 @@ kotlin {
 }
 
 intellijPlatform {
+    // Bytecode instrumentation exists for `@NotNull` checks and for compiling GUI Designer `.form`
+    // files. This plugin is Kotlin with no forms, so it buys nothing -- and turning it on drags in
+    // a Java compiler dependency and IntelliJ's Ant taskdef, which is what the build actually
+    // failed on: "No Java Compiler dependency found" / InstrumentIdeaExtensions not found.
+    instrumentCode = false
+
     pluginConfiguration {
         ideaVersion {
             // 232 is PyCharm 2023.2, the oldest version this was checked against by hand.
