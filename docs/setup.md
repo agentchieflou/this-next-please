@@ -93,6 +93,24 @@ still Markdown.
 refuses keys that look like one. Capability probes recorded per source env (used by `ad-sql-check`): Teradata `tmode`
 (ANSI vs TERA decides whether `=` is case-sensitive), `trunc_date`, `to_char`, `listagg`; Hive/Impala `version`/`major`.
 
+## Usage metrics (off by default, local, opt-in)
+
+`~/.agentdata/config.json` can also turn on a local record of what the format policy decided:
+
+```json
+{"metrics": {"enabled": true}}
+```
+
+Then `ad-metrics summary` reports how often each rule fired and what it cost. `ad-metrics path` says
+where the file is; `ad-metrics clear --yes` deletes it. `metrics.path` overrides the default
+`~/.agentdata/metrics.tsv`.
+
+It is off until that edit is made — deliberately a file somebody can see afterwards rather than an
+environment variable that vanishes with the shell. Each line holds only timestamp, command, rule,
+shape, rows, cols and est_tokens: no cell value, no query text, no path, and the command reduced to
+its `ad-<name>`. Nothing in this repository transmits the file. Details and the reason it exists:
+`docs/data-format-policy.md` §Measuring the thresholds instead of guessing them.
+
 ## Precedence for every setting
 CLI flag → environment variable → `~/.agentdata/config.json` → project `AGENTS.md` fact → error with a hint.
 Env overrides keep working: `TD_HOST_<ENV>`/`TD_HOST`, `TD_USER`, `TD_LOGMECH`, `HIVE_HOST_<ENV>`, `HIVE_PORT`,

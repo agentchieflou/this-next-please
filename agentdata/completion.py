@@ -7,7 +7,7 @@ import sys
 ALL_COMMANDS = [
     "ad-pncli", "ad-td", "ad-ora", "ad-hive", "ad-impala", "ad-diff", "ad-view",
     "ad-setup", "ad-doctor", "ad-sql-check", "ad-jira", "ad-pbip", "ad-uat",
-    "ad-dpm", "ad-state", "ad-confluence", "ad-update", "ad-help",
+    "ad-dpm", "ad-state", "ad-confluence", "ad-metrics", "ad-update", "ad-help",
 ]
 
 
