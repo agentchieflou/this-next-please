@@ -454,8 +454,11 @@ def test_rotating_the_raw_log_rewinds_the_cursor(fleet_home, tmp_path, monkeypat
     E.refresh("a", repo)
     assert E.read_cursor("a")["raw_lines"] == len(RAW_TURN)
 
-    monkeypatch.setattr(supervisor, "MAX_LOG_BYTES", 1)
-    supervisor._rotate("a")
+    # Over the configured megabyte, so the real threshold is what rolls it rather than a patched
+    # constant -- the size check moved into `lifecycle.rotate` with #101.
+    with open(os.path.join(registry.agent_dir("a"), "events.jsonl"), "a", encoding="utf-8") as f:
+        f.write("#" + "x" * (1024 * 1024) + "\n")
+    supervisor._rotate("a", {"fleet": {"log_mb": 1, "log_keep": 3}})
     assert E.read_cursor("a")["raw_lines"] == 0
 
     _write_raw("a", RAW_TURN)                       # the new log, from line one

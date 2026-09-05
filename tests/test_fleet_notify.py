@@ -368,15 +368,24 @@ def test_the_contract_documents_every_rule_and_every_key():
     assert "ad-fleet notify tail" in text and "ad-fleet notify test" in text
 
 
-def test_every_new_doctor_row_names_the_keys_that_fix_it():
-    """HANDOFF.md rule: a failing check that names no key makes `ad-setup --patch` useless for it."""
+def test_the_notification_rows_name_the_settings_that_change_them():
+    """HANDOFF.md rule: a check names the prompt keys that fix it, so `ad-setup --patch` is
+    surgical. Empty keys are meaningful and not an omission -- they mean *no answer fixes this*
+    (install a package, log in), and `--patch` then lists the row under `manual` with its hint
+    rather than asking a pointless question. So the assertion is about the rows a setting really
+    does control."""
     from agentdata.setup.steps.fleet import FleetStep
     from agentdata.setup.wizard import Context, Detectors, Prompter
 
-    ctx = Context(cfg={}, det=Detectors(), ask=Prompter(), interactive=False)
+    ctx = Context(cfg={"fleet": {"enabled": True}}, det=Detectors(), ask=Prompter(),
+                  interactive=False)
     step = FleetStep()
-    step.check(ctx, step.detect(ctx))
-    assert ctx.checks, "the fleet step produced no rows"
+    step._check_notifications(ctx, {"toast": "off", "settings": N.settings({})})
+
+    by_name = {c.name: c for c in ctx.checks}
+    assert set(by_name) == {"toast", "rules"}
+    assert by_name["toast"].keys == ("fleet.notify.toast",)
+    assert set(by_name["rules"].keys) == {"fleet.notify.cooldown", "fleet.notify.idle_minutes",
+                                          "fleet.notify.quiet_hours"}
     for row in ctx.checks:
-        assert row.keys, f"{row.name} names no prompt key"
         assert all(k.startswith("fleet.notify.") for k in row.keys), row.keys

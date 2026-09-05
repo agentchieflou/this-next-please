@@ -14,7 +14,7 @@ import time
 
 from .. import proc
 from .. import textio
-from .events import reset_raw_cursor
+from . import lifecycle
 from .launch import child_env, launch_command, prompt_for
 from .registry import Registry, Repo, RegistryError, agent_dir, fleet_dir
 
@@ -22,7 +22,6 @@ LOCK = "agent.json"
 EVENTS = "events.jsonl"
 STDERR = "stderr.log"
 USAGE = "usage.json"
-MAX_LOG_BYTES = 8 << 20      # rotate at 8 MB; a long session is chatty and the disk is not ours
 TERMINAL_PHASES = ("", "idle", "done", "closed", "merged")
 DONE_CATEGORIES = ("done",)     # Jira's statusCategory key, not a status name: names vary per project
 
@@ -106,21 +105,13 @@ def events_path(name: str) -> str:
     return os.path.join(agent_dir(name), EVENTS)
 
 
-def _rotate(name: str) -> None:
-    """Rename the event log if it has grown too big -- only when no agent is writing to it.
+def _rotate(name: str, cfg: dict | None = None) -> list[str]:
+    """Roll whichever of this agent's logs have grown -- only when no agent is writing to them.
 
     On Windows a rename of an open file fails, and on POSIX it would succeed and silently strand a
     live child writing to an unlinked inode. Both are avoided by only ever rotating between turns.
     """
-    path = events_path(name)
-    if live(name):
-        return
-    try:
-        if os.path.getsize(path) > MAX_LOG_BYTES:
-            os.replace(path, path + ".1")
-            reset_raw_cursor(name)
-    except OSError:
-        pass
+    return lifecycle.rotate_all(name, cfg=cfg)
 
 
 def read_events(name: str, *, raw: bool = False, limit: int = 200) -> list[dict]:
@@ -383,7 +374,7 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
             f"{key or 'a new prompt'} anyway")
 
     text = prompt_for(key, prompt, cfg, summary=summary)
-    _rotate(name)
+    _rotate(name, cfg)
     directory = agent_dir(name)
 
     argv = launch_command("copilot", repo.path, text,
@@ -400,13 +391,23 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
 
 
 def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry | None = None,
-         exe: str | None = None) -> dict:
+         exe: str | None = None, force: bool = False) -> dict:
     reg = registry or Registry()
     repo = reg.get(name)
 
     if live(name):
         raise SupervisorError(f"{name} is mid-turn",
                               "wait for the turn to finish, or `ad-fleet stop` it first")
+
+    # Before the turn, never during one: stopping an agent halfway through a thought leaves the
+    # repository in whatever state it had reached, and the money is spent either way.
+    over, used, budget = lifecycle.over_budget(name, cfg=cfg)
+    if over and not force:
+        raise SupervisorError(
+            f"{name} has spent {used:g} of its {budget:g} premium-request budget",
+            f"raise `fleet.budget_per_agent`, or pass --force for this one turn. "
+            f"`ad-fleet history` shows where it went")
+
     session = session_id(name)
     if not session:
         raise SupervisorError(f"{name} has no session to continue",
@@ -424,6 +425,60 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
     write_lock(name, lock)
     _emit_started(name, lock, resumed=True)
     return lock
+
+
+def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = None,
+            exe: str | None = None, force: bool = False) -> dict:
+    """Bring an agent back on the session it was already having.
+
+    `--resume <session>` and not a fresh start: the agent has read the ticket, made a plan and
+    possibly edited files, and beginning again would repeat all of it -- at full price, and with a
+    second set of edits over the first.
+
+    Bounded by `fleet.max_restarts` per session. An agent that dies twice for the same reason will
+    die a third time, and an unbounded restart loop on a laptop is how a budget disappears
+    overnight; the count is per session, so a human click always gets one more.
+    """
+    reg = registry or Registry()
+    repo = reg.get(name)
+
+    # Read the lock BEFORE reaping. Reaping clears it -- that is its job, since a lock naming a
+    # dead pid is what makes the fleet report a corpse as running -- but the restart count and the
+    # ticket live in it, and losing them would make `max_restarts` unenforceable and hand the
+    # resumed agent no ticket.
+    lock = read_lock(name) or {}
+    lifecycle.reap(name, cfg=cfg)
+
+    if live(name):
+        raise SupervisorError(f"{name} is already running (pid {read_lock(name).get('pid')})",
+                              f"`ad-fleet stop {name}` first if it is stuck")
+
+    session = session_id(name)
+    if not session:
+        raise SupervisorError(f"{name} has no session to resume",
+                              f"start one with `ad-fleet start {name} <TICKET>`")
+
+    limit = lifecycle.settings(cfg)["max_restarts"]
+    done = int(lock.get("restarts") or 0)
+    if not force and limit and done >= limit:
+        raise SupervisorError(
+            f"{name} has already been restarted {done} time(s) on session {session}",
+            "an agent that fails twice the same way will fail a third time. Read "
+            f"`ad-fleet logs {name}`, then pass --force if it is worth another turn")
+
+    directory = agent_dir(name)
+    text = lifecycle.RESUME_PROMPT
+    argv = launch_command("copilot", repo.path, text,
+                          log_dir=os.path.join(directory, "logs"), session=session, cfg=cfg,
+                          usage_file=os.path.join(directory, USAGE))
+    child = _spawn(repo, name, argv, exe)
+    fresh = {"pid": child.pid, "repo": name, "path": repo.path, "session": session,
+             "ticket": lock.get("ticket", ""), "summary": lock.get("summary", ""),
+             "prompt": text, "restarts": done + 1, "started": time.time(),
+             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
+    write_lock(name, fresh)
+    _emit_started(name, fresh, resumed=True)
+    return fresh
 
 
 def stop(name: str, *, wait: float = 10.0, registry: Registry | None = None) -> dict:
@@ -457,6 +512,9 @@ def stop(name: str, *, wait: float = 10.0, registry: Registry | None = None) -> 
 
 def status(registry: Registry | None = None) -> list[dict]:
     reg = registry or Registry()
+    # Notice the dead before reporting on them: a killed process leaves a lock behind, and a row
+    # that said "running" about a pid that is gone is the one lie the whole fleet turns on.
+    lifecycle.reap_all(registry=reg)
     rows = []
     for repo in reg.sorted():
         row = {"repo": repo.name, "path": repo.path, "jira_project": repo.jira_project}

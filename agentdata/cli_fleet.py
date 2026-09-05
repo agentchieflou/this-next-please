@@ -24,8 +24,8 @@ from . import config as C
 from . import toon
 from . import ui
 from .console import utf8_stdout
-from .fleet import (agentstate, approval, board as B, events as E, launch, notify as N,
-                    opener as O, serve as S, supervisor)
+from .fleet import (agentstate, approval, board as B, events as E, launch,
+                    lifecycle as L, notify as N, opener as O, serve as S, supervisor)
 from .fleet.registry import Registry, RegistryError, fleet_dir
 from .version import add_version, version_string
 
@@ -94,9 +94,46 @@ def cmd_start(a) -> int:
                                     "next": f"ad-fleet status --repo {a.repo}"})
 
 
+def cmd_restart(a) -> int:
+    """Bring an agent back on the session it was already having, not on a fresh reading of the
+    ticket -- it has a plan and possibly edits, and starting over repeats both at full price."""
+    try:
+        lock = supervisor.restart(a.repo, cfg=C.load(), force=a.force)
+    except (RegistryError, supervisor.SupervisorError, launch.LaunchError) as e:
+        return _refuse("ad-fleet restart", e)
+    return _emit("ad-fleet restart", {"repo": a.repo, "pid": lock["pid"],
+                                      "session": lock.get("session", ""),
+                                      "ticket": lock.get("ticket", ""),
+                                      "restarts": lock.get("restarts", 1)})
+
+
+def cmd_gc(a) -> int:
+    result = L.gc(a.days)
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet gc", "days": a.days,
+                                "removed": len(result["removed"]),
+                                "left_alone": ", ".join(result["kept_running"]) or "none",
+                                "note": "rotated logs and answered approvals only; a live "
+                                        "`events.norm.jsonl` is what `ad-fleet history` reads"}}))
+    print(toon.table("removed", ["path"], [[p] for p in result["removed"]]))
+    return EXIT_OK
+
+
+def cmd_doctor(a) -> int:
+    """`ad-fleet doctor` is `ad-doctor --only fleet`, so an operator who lives in `ad-fleet` does
+    not have to know that the checks live somewhere else."""
+    from .setup.wizard import run_doctor
+
+    if a.pretty:
+        import os
+
+        os.environ["AGENTDATA_UI"] = "rich"
+        ui.reset_cache()
+    return run_doctor(["--only", "fleet"])
+
+
 def cmd_send(a) -> int:
     try:
-        lock = supervisor.send(a.repo, a.message, cfg=C.load())
+        lock = supervisor.send(a.repo, a.message, cfg=C.load(), force=a.force)
     except (RegistryError, supervisor.SupervisorError, launch.LaunchError) as e:
         return _refuse("ad-fleet send", e)
     return _emit("ad-fleet send", {"repo": a.repo, "pid": lock["pid"],
@@ -125,8 +162,8 @@ def cmd_stop(a) -> int:
     return EXIT_OK
 
 
-COLUMNS = ["repo", "agent", "ticket", "phase", "turns", "premium_requests", "denied_tools",
-           "last_event", "pid"]
+COLUMNS = ["repo", "agent", "ticket", "phase", "turns", "premium_requests", "budget",
+           "denied_tools", "last_event", "pid"]
 
 
 def cmd_status(a) -> int:
@@ -154,14 +191,38 @@ def cmd_status(a) -> int:
                 print(toon.table(f"launch_{row['repo']}", ["arg"], [[x] for x in lock["launch"]]))
         return EXIT_OK
 
+    budget = L.settings(cfg)["budget_per_agent"] if (cfg := C.load()) else 0.0
+    for row in rows:
+        row["budget"] = f"{budget:g}" if budget else "-"
     table = [[r.get(c, "") for c in COLUMNS] for r in rows]
     if ui.on():
         ui.table(COLUMNS, table, title="fleet")
         return EXIT_OK
+    spent_today = round(sum(float(r.get("premium_requests") or 0) for r in rows), 2)
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet status", "agents": len(rows),
-                                "fleet_dir": fleet_dir(), "toast": N.toast_status(C.load())}}))
+                                "fleet_dir": fleet_dir(), "toast": N.toast_status(cfg),
+                                "premium_requests": spent_today,
+                                "skills": _skills_warning()}}))
     print(toon.table("agents", COLUMNS, table))
     return EXIT_OK
+
+
+def _skills_warning() -> str:
+    """Skills load at session start, so an agent that was running when `ad-update` ran is still
+    holding last week's instructions -- and nothing about its behaviour would say so."""
+    try:
+        from . import update as U
+
+        skills = U.skills_state()
+        if not U.stale(skills):
+            return ""
+        live = [r["repo"] for r in supervisor.status() if r.get("pid")]
+        if not live:
+            return ""
+        return (f"the installed skills are older than the CLI, and {', '.join(live)} loaded them "
+                f"at session start: `ad-update --skills`, then `ad-fleet restart <repo>`")
+    except Exception:                        # noqa: BLE001 - a status row must never fail the command
+        return ""
 
 
 def cmd_logs(a) -> int:
@@ -464,7 +525,23 @@ def build_parser() -> argparse.ArgumentParser:
     send = sub.add_parser("send", help="continue an agent's session with another message")
     send.add_argument("repo")
     send.add_argument("message")
+    send.add_argument("--force", action="store_true", help="send even if the agent is over budget")
     send.set_defaults(fn=cmd_send)
+
+    again = sub.add_parser("restart", help="resume a stopped agent on its own session")
+    again.add_argument("repo")
+    again.add_argument("--force", action="store_true",
+                       help="restart past `fleet.max_restarts`")
+    again.set_defaults(fn=cmd_restart)
+
+    collect = sub.add_parser("gc", help="prune rotated logs and answered approvals")
+    collect.add_argument("--days", type=int, default=L.DEFAULT_GC_DAYS,
+                         help=f"keep anything newer than this (default {L.DEFAULT_GC_DAYS})")
+    collect.set_defaults(fn=cmd_gc)
+
+    doc = sub.add_parser("doctor", help="the fleet's rows from ad-doctor")
+    doc.add_argument("--pretty", action="store_true", help="draw it for a person to read")
+    doc.set_defaults(fn=cmd_doctor)
 
     stop = sub.add_parser("stop", help="stop an agent and everything it started")
     stop.add_argument("repo", nargs="?")
