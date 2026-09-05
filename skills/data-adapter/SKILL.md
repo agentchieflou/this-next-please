@@ -26,8 +26,8 @@ description: "How to read and produce data in this workspace. Use whenever you n
 1. Never `--raw` except when debugging a pncli payload shape.
 2. Never compute totals/diffs by reading rows. Write a ≤10-line Python script using `agentdata.AgentTable.read_tsv` and print via `agentdata.render`.
 3. Read-only SQL only; the adapter rejects DML/DDL and there is no bypass for the linter.
-4. Write SQL for the engine you are on: `references/sql-dialects.md` is the side-by-side; each query skill's `references/` has the full dialect guide.
-5. `ok: false` → fix once from `hint`; second failure → `friction-log` type `tool-error`.
+4. Write SQL for the engine you are on: `references/sql-dialects.md` §The side-by-side is the one-row-per-operation comparison; each query skill's `references/` has the full dialect guide.
+5. `ok: false` → fix once from `hint`; second failure → `friction-log` type `tool-error`. What a lint row means before you act on it: `references/sql-dialects.md` §Lint outcomes you will see.
 6. `refused: bad_output` whose hint names a `required option` → you passed a value positionally; re-run exactly as the hint says. Unknown verb → run `pncli <group> --help` ONCE, use a listed verb, and report the working command so it can be wrapped in `ad-pncli`. Never guess a second time.
 7. `refused: not_found` from `ad-pncli` → pncli is not installed or not resolvable (it is an npm package: `pncli.cmd`, never `pncli.exe`). Print `meta.hint` and the `tried` list verbatim, `friction-log` type `tool-error`, STOP. Never install software, change PATH, or substitute another Jira client.
 8. Record every `path` via `state-update` so the next session can `ad-view` it.

@@ -49,6 +49,111 @@ def test_referenced_reference_files_exist():
             assert os.path.exists(os.path.join(os.path.dirname(path), "references", ref)), f"{path}: missing references/{ref}"
 
 
+# A pointer at a whole reference file, with the reason. An entry here is a promise that the file
+# genuinely has no sections to point at -- not a place to park a pointer somebody did not scope.
+WHOLE_FILE_ALLOWED = {
+    # a Power BI theme file: JSON, not prose. It has no headings, and it is loaded whole or not at all.
+    ("pbi-report-design", "theme-base.json"),
+}
+
+
+def test_every_reference_pointer_names_a_section():
+    """A skill that says "read `references/X.md`" makes Luna load the whole file.
+
+    `dpm-contract.md` is 160 lines and a given step needs one part of it. The four query skills
+    already pointed at a section (`references/teradata-sql.md` §Row limiting) and the rest did not,
+    so this is the existing convention made enforceable rather than a new rule.
+
+    The precision is deliberately "somewhere on the same line": a step is one line in every skill
+    here, and a looser rule (anywhere in the file) would pass a file with one § in it and nine
+    unscoped pointers.
+    """
+    problems = []
+    for path in SKILLS:
+        name = os.path.basename(os.path.dirname(path))
+        for n, line in enumerate(open(path, encoding="utf-8").read().splitlines(), 1):
+            for ref in re.findall(r"references/([\w\-./]+\.md)", line):
+                if (name, ref) in WHOLE_FILE_ALLOWED or "§" in line:
+                    continue
+                problems.append(f"{name}/SKILL.md:{n}: points at references/{ref} with no §section")
+    assert not problems, (
+        "point at the section, not the file (or add it to WHOLE_FILE_ALLOWED with the reason):\n  "
+        + "\n  ".join(problems))
+
+
+# `§Heading` names a section; `§ ` with a space introduces prose about one ("§ When a lint error is
+# not obvious: ... §Pitfalls checklist"). That is how the four query skills already wrote it, and it
+# is what lets this test tell a claim about a heading from a sentence.
+SECTION = re.compile(r"§(?![\s<])([^§]*)")
+WORDS = re.compile(r"[a-z0-9]+")
+
+
+def _words(text):
+    """A heading's name, as words. Truncated at the parenthetical: `## Rebinding (what may change
+    without a contract discussion)` is pointed at as §Rebinding, and should be."""
+    return WORDS.findall(re.split(r"[(—:]", text.lower(), maxsplit=1)[0])
+
+
+def test_a_section_pointer_names_a_heading_that_exists():
+    """A §section nobody can find is worse than no pointer: it costs a read and then a search.
+
+    A pointer is followed by the sentence it sits in, so this matches on a leading run of words
+    rather than equality — two words of a heading, or all of it when the heading is one word.
+    `§<that archetype>` is a placeholder telling the reader to pick one, and is skipped by the
+    pattern rather than by an exception list.
+    """
+    problems = []
+    for path in SKILLS:
+        folder = os.path.dirname(path)
+        name = os.path.basename(folder)
+        for n, line in enumerate(open(path, encoding="utf-8").read().splitlines(), 1):
+            refs = re.findall(r"references/([\w\-./]+\.md)", line)
+            if not refs:
+                continue
+            headings = []
+            for ref in refs:
+                ref_path = os.path.join(folder, "references", ref)
+                if os.path.exists(ref_path):
+                    body = open(ref_path, encoding="utf-8").read()
+                    headings += [_words(h) for h in re.findall(r"^#{2,3}\s*(.+)$", body, re.M)]
+            for section in SECTION.findall(line):
+                wanted = WORDS.findall(section.lower())
+                if not wanted:
+                    continue
+                matched = 0
+                for heading in headings:
+                    same = 0
+                    while same < min(len(wanted), len(heading)) and wanted[same] == heading[same]:
+                        same += 1
+                    if same and (same == len(heading) or same >= 2):
+                        matched = same
+                        break
+                if not matched:
+                    problems.append(f"{name}/SKILL.md:{n}: §{' '.join(wanted[:4])}… "
+                                    f"matches no heading in {refs}")
+    assert not problems, "\n  ".join([""] + problems)
+
+
+def test_the_router_does_not_re_read_state_session_bootstrap_just_read():
+    """`session-bootstrap` step 1 read `.agent/state.json`; its last step invokes `router`, whose
+    step 1 used to read the same file again in the same turn.
+
+    Both halves are asserted, because either alone is wrong: the router must still read the file on
+    every later task in the session, since a skill has run since and state does change.
+    """
+    boot = open(os.path.join(ROOT, "skills", "session-bootstrap", "SKILL.md"), encoding="utf-8").read()
+    router = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
+
+    hand_off = next(ln for ln in boot.splitlines() if "`router`" in ln and "nvoke" in ln)
+    for key in ("phase", "active_ticket", "open_questions"):
+        assert key in hand_off, f"session-bootstrap hands the router no {key}"
+
+    step_one = router.splitlines()[router.splitlines().index("# Router") + 2]
+    assert "session-bootstrap" in step_one, "the router does not say where the handed-in state comes from"
+    assert "same turn" in step_one, "the router must scope the hand-off to the turn it happened in"
+    assert ".agent/state.json" in step_one, "the router must still read state on every later task"
+
+
 def test_pbi_router_and_two_level_resolution():
     """Two-level router split (issue #50 & #26): router -> pbi-router -> domain leaf skills."""
     pbi_text = open(os.path.join(ROOT, "skills", "pbi-router", "SKILL.md"), encoding="utf-8").read()

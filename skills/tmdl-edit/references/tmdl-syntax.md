@@ -42,6 +42,8 @@ lines inside DAX/M). `ad-pbip measure set` always writes the fenced form. Proper
 `extendedProperty X =`) follow the same rule: body two levels under the object.
 
 ## Objects Desktop writes
+
+### Columns and calculated columns
 ```tmdl
 	column CustomerKey
 		dataType: int64
@@ -59,13 +61,19 @@ lines inside DAX/M). `ad-pbip measure set` always writes the fenced form. Proper
 	column 'Story Points Rounded' = ROUND ( Sales[Quantity], 0 )     -- calculated column: no sourceColumn
 		dataType: int64
 		summarizeBy: sum
+```
 
+### Hierarchies
+```tmdl
 	hierarchy 'Geography Hierarchy'
 		level Continent
 			column: Continent
 		level Country
 			column: Country
+```
 
+### Partitions
+```tmdl
 	partition Customer = m                     -- import from M
 		mode: import
 		source =
@@ -80,6 +88,8 @@ lines inside DAX/M). `ad-pbip measure set` always writes the fenced form. Proper
 		source =
 				{ ("Customer", NAMEOF('Customer'[Customer]), 0) }
 ```
+
+### Relationships
 `relationships.tmdl` (top level, ids are GUIDs; `fromColumn` = many side, `toColumn` = one side):
 ```tmdl
 relationship d4e6dc5a-6f46-443d-ab94-4cc0e10323c6
@@ -91,6 +101,7 @@ relationship 21bd108e-527d-4566-be7d-9e474c858ee0
 	fromColumn: Sales.'Delivery Date'
 	toColumn: Calendar.Date
 ```
+### model.tmdl and refs
 `model.tmdl` ends with `ref table Sales`, `ref culture en-US` (Desktop) / `ref cultureInfo en-US` (docs) … — ⚑ a new table
 file needs its `ref table` line, and `database.tmdl` must start with `database`.
 
