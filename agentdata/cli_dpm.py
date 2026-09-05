@@ -18,6 +18,8 @@ from .dpm import DpmError
 from .dpm import binding as B
 from .dpm import convert as CV
 from .dpm import describe as DS
+from .dpm import extract as EX
+from . import textio
 from .dpm import guard as G
 from .dpm import validate as V
 from .dpm.run import Run
@@ -186,6 +188,61 @@ def cmd_convert(a) -> int:
     return 0 if untouched else 1
 
 
+def cmd_extract_fields(a) -> int:
+    """Named values out of the text `convert` already routed, with the field list supplied per job.
+
+    Nothing here names a business field: the schema is an input, the way `ad-uat expect` treats an
+    expected-values document as a claim to test rather than a schema to assume.
+    """
+    manifest = EX.read_manifest(a.manifest)
+    schema = EX.load_schema(a.schema)
+    run_root = a.run_root or (manifest.get("producer") or {}).get("run_root")
+
+    # Only options a person actually gave: an engine's own default is a decision it documents, and
+    # passing None over it would quietly make this file the one that chose.
+    engine_options = {k: v for k, v in (("analyzer", a.analyzer),
+                                        ("min_confidence", a.min_confidence)) if v is not None}
+    result = EX.extract(manifest=manifest, schema=schema, engine_name=a.engine,
+                        engine_options=engine_options,
+                        run_root=run_root if run_root and os.path.isdir(run_root) else None)
+
+    run_id = (manifest.get("producer") or {}).get("run_id") or "dpm"
+    written = ""
+    if not a.no_review:
+        out_dir = a.out_dir or os.path.join(".agent", "out")
+        os.makedirs(out_dir, exist_ok=True)
+        written = textio.write_text(os.path.join(out_dir, f"{EX.safe(run_id)}-field-extraction.md"),
+                                    EX.review_md(result, run_id))
+
+    counts = result["counts"]
+    missing = result["missing_required"]
+    # `--strict` is about *required* fields, not about ambiguity: an ambiguous match is a thing a
+    # reviewer resolves, while a required field nobody found is a job that cannot proceed.
+    ok = not (a.strict and missing)
+    meta = {"ok": ok, "source": "ad-dpm extract-fields", "run_id": run_id, "engine": result["engine"],
+            "documents": result["documents"], "fields": ",".join(result["fields"]),
+            **{k: v for k, v in counts.items() if v},
+            "review": written}
+    if missing:
+        meta["missing_required"] = ",".join(m["field"] for m in missing)
+        meta["hint"] = ("a required field no document yielded: check the hint against the real "
+                        "text before concluding the documents lack it")
+    if counts.get("needs_ocr_review"):
+        meta["note"] = ("OCR-routed documents were NOT extracted from: their text quality is "
+                        "unverified. Verify the OCR or use an engine that reads the image.")
+
+    rows = [[r[c] for c in EX.RESULT_COLS] for r in result["rows"][:SHOW]]
+    if policy.pretty():
+        ui.facts([(k, str(v)) for k, v in meta.items() if k not in ("ok", "source")],
+                 title="ad-dpm extract-fields", subtitle="ok" if ok else "fail")
+        if rows:
+            ui.table(EX.RESULT_COLS, rows, title="fields", status_col=2)
+    else:
+        print(toon.encode({"meta": meta}))
+        print(toon.table("fields", EX.RESULT_COLS, rows))
+    return 0 if ok else 1
+
+
 def cmd_lineage(a) -> int:
     m = CV.load_manifest(a.manifest)
     res = CV.verify(m, run_root=a.run_root, rehash=not a.no_hash)
@@ -292,6 +349,30 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--force", action="store_true", help="replace a previous handoff for the same run id")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_convert)
+
+    p = sub.add_parser("extract-fields",
+                       help="pull named field values out of the native text a job manifest routed, "
+                            "using a per-job field schema")
+    p.add_argument("--manifest", required=True, help="job-manifest.json from `ad-dpm convert`")
+    p.add_argument("--schema", required=True,
+                   help="the per-job field schema: {\"fields\": [{\"name\", \"hint\", \"required\"}]}")
+    p.add_argument("--engine", default="simple", choices=EX.names(),
+                   help="how to find each field (default simple: text search near the hint; "
+                        "azure-content-understanding sends the text to a Foundry analyzer, which "
+                        "holds its own field schema and ignores the job schema's hints)")
+    p.add_argument("--analyzer", help="[azure-content-understanding] the analyzer id "
+                                      "(default: content_understanding.analyzer)")
+    p.add_argument("--min-confidence", dest="min_confidence", type=float,
+                   help="[azure-content-understanding] below this a value is reported `ambiguous` "
+                        "rather than `found`, so a reviewer confirms it (default 0.7)")
+    p.add_argument("--run-root", help="verify the run root is untouched (default: from the manifest)")
+    p.add_argument("--out-dir", dest="out_dir", help="where the review file goes (default .agent/out)")
+    p.add_argument("--no-review", action="store_true", dest="no_review",
+                   help="print the rows and write no review file")
+    p.add_argument("--strict", action="store_true",
+                   help="exit 1 when a required field was found in no document")
+    p.add_argument("--pretty", action="store_true", help="draw it for a person to read")
+    p.set_defaults(func=cmd_extract_fields)
 
     p = sub.add_parser("lineage", help="verify a job manifest's lineage still resolves against the run root")
     p.add_argument("--manifest", required=True, help="path to job-manifest.json")

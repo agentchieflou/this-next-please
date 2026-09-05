@@ -158,8 +158,8 @@ python -m pytest -q
 | `agentdata/update.py` | `ad-update`: reinstall the CLI + skills, and report the exact commit installed |
 | `CHANGELOG.md` | what each version changed, and whether picking it up needs more than the two update commands |
 | `agentdata/state.py` | `ad-state`: the only writer of `.agent/state.json` (validated keys and phases, clean encoding) |
-| `agentdata/setup/` | `ad-setup` wizard and `ad-doctor` (step registry: pncli, sources, powerbi, project) |
-| `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), pncli, jira_api (Jira REST on pncli's token), keyring wrapper, probes |
+| `agentdata/setup/` | `ad-setup` wizard and `ad-doctor` (step registry: pncli, sources, powerbi, content_understanding, project) |
+| `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), pncli, jira_api (Jira REST on pncli's token), content_understanding (Azure AI / Microsoft Foundry document field extraction, `ad-foundry`), keyring wrapper, probes |
 | `agentdata/sqlcheck/` | dialect pre-flight lint (`ad-sql-check`, auto inside the query commands) |
 | `agentdata/pbip/` | PBIP tooling: TMDL parser/lint/editor, PBIR loader, projection, model↔report validator, Desktop discovery, DAX runner (`ad-pbip`) |
 | `agentdata/ui.py` | how the CLI looks to a person: panels, tables and status glyphs via `rich`, and off whenever a machine might be reading |
@@ -168,6 +168,7 @@ python -m pytest -q
 | `agentdata/uat/` | sprint replay, expected-value loader, tiered reconciliation (`ad-jira sprint-replay`, `ad-uat`) |
 | `agentdata/dpm/` | DPM → consumer handoff contract: read-only run root, reference resolution, versioned refusals, job manifest with lineage (`ad-dpm`) |
 | `agentdata/graph/` | code graph extraction, queries, human-approval gate, findings, and guard (`ad-graph`) |
+| `agentdata/dpm/extract.py` | field extraction over DPM-routed text: the field list is an input, and the engine is a seam (`simple` label matching, or an Azure Content Understanding analyzer) that downstream output does not see |
 | `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |
 | `docs/data-format-policy.md` | the determinant: which format, when |
 | `docs/setup.md` | what the wizard configures, env overrides, Windows notes |

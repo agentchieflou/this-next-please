@@ -127,7 +127,7 @@ Changed:
 - `session-bootstrap` step 3 — `ad-doctor --quiet`; fail → print its hint (`ad-setup --only <step>`), STOP.
 - `teradata-query` / `hive-query` / `oracle-query` — step 0 "read `references/<dialect>-sql.md` §limit/§dates before writing"; step 3 reads `meta.warnings`; `hive-query` gains Impala (`ad-impala`) and the `||` warning.
 - `data-adapter` — new commands in the table; `references/sql-dialects.md` side-by-side.
-- `uat-jira-vs-teradata` — add "sprint/points questions → `uat-report-visual`".
+- `uat-jira-vs-source` — add "sprint/points questions → `uat-report-visual`".
 - `dax-studio-export` — `localhost:<port>` server option via `ad-pbip desktop`.
 - `pbi-deploy-te2` / `pbi-refresh-xmla` — `tmdl_path` is the `<Model>.SemanticModel/definition` folder (must contain `model.tmdl`); workspace name in the XMLA URL must be percent-encoded (use `pbi_xmla` fact written by the wizard instead of interpolating `<pbi_workspace>`).
 
