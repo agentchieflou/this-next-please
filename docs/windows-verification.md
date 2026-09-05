@@ -341,3 +341,84 @@ CI can hold a file open with a second process; it cannot open PyCharm or Power B
 4. **A deep path.** Create `.agent/out/` nested until the full path passes 260 characters, write a
    TSV there through any `ad-*` command, and read it back. If it fails, paste
    `ad-doctor --quiet --only console` — the `long_paths` row says whether the policy is on.
+
+## Power BI: one ticket, end to end
+
+The chain from a ticket key to a ticket in review runs on **this laptop and nowhere else** —
+Desktop, TE2 and XMLA are Windows, and Linux CI can prove the graph is connected but not that the
+tools are. `tests/test_skill_handoffs.py` covers the first half; this covers the second.
+
+Run it once from **PowerShell 7** and once from **Git Bash**. Each step says what a good answer
+looks like; if yours differs, paste it back and it becomes a regression test or a fix.
+
+Pick a **low-stakes model change** on a real ticket — a format string, a description, a measure
+nobody depends on.
+
+### 0. Before anything
+
+```
+ad-doctor --only powerbi
+ad-doctor --only project
+```
+
+> **Expect** `desktop/version`, `te2`, `dscmd` and `pbip_path` rows that are `ok`. A `warn` on
+> `powerbi/external_tool` is fine unless you mean to launch from Desktop.
+> **Paste back** any `fail`.
+
+### 1. Triage the ticket
+
+Ask Luna to work the ticket by key. It should invoke `jira-triage`, print six lines and a branch,
+and — for a `model-change` — hand off to **`pbip-projection`**, not to a deploy.
+
+> **This is the link this section exists to prove.** If it hands to `pbi-deploy-te2` or
+> `tmdl-edit` directly, stop and paste the line: the chain has regressed and
+> `tests/test_skill_handoffs.py` should have caught it.
+
+### 2. Projection, then the edit
+
+`pbip-projection` reads the model and tells `tmdl-edit` what exists. The edit follows without a new
+prompt.
+
+> **Expect** a projection path in `state-update`, then a TMDL change committed by `tmdl-edit`.
+> **Paste back** if Luna asks you what to do next between these two — that is a broken hand-off,
+> not a judgement call.
+
+### 3. Validate before deploying
+
+`tmdl-edit` hands to `pbi-validate`, which refuses if the working tree is dirty.
+
+> **Expect** `ok: true`, and a refusal naming `git status --porcelain` if you leave a stray file.
+> **Try the refusal deliberately once** — an uncommitted edit is the common case and the message is
+> what an operator will actually read.
+
+### 4. Deploy, refresh, verify
+
+`pbi-validate` → `pbi-deploy-te2` → `pbi-refresh-xmla` → `pbi-verify-service`, no prompts between.
+
+> **Expect** a deploy stamp, a refresh that polls to completion, and a parity check between Desktop
+> and the service.
+> **Paste back** the first step that needed you to say "carry on".
+
+### 5. Document, PR, move the ticket
+
+`confluence-publish` → `bitbucket-pr` → `jira-transition`.
+
+> **Expect** a Confluence URL, a PR URL, and the ticket moved to review with the PR link in the
+> comment. `jira-transition` asks Jira what *this issue type* can do — a Task and a Story do not
+> share a workflow, so a hard-coded status name here is a bug.
+> **Expect it to STOP after the PR.** A human merges. If anything merges a PR or closes a ticket,
+> that is the most serious thing on this page — paste it back immediately.
+
+### 6. Count the prompts
+
+The whole point. Write down how many times you had to type something after the first request.
+
+> **Expect: one.** Approvals for writes (Jira, Confluence, Bitbucket) are clicks, not prompts, and
+> they are supposed to stop the agent — that is the gate working.
+> **Paste back** every extra prompt with the step that needed it. Each one is either a missing
+> hand-off or a judgement that genuinely belongs to a person, and the two are worth telling apart.
+
+### What to attach
+
+The `ad-doctor` rows, the ticket key, the PR URL, the count from step 6, and any step where Luna
+stopped and asked instead of continuing.
