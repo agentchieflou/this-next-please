@@ -48,6 +48,10 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Fleet | a repository already has a live agent | `refused`, exit 2, naming the running ticket | `test_fleet.py::test_a_second_start_is_refused_while_an_agent_is_live` |
 | Fleet | the repository is mid-ticket in a non-terminal phase | `refused`, exit 2, naming the ticket and phase | `test_fleet.py::test_starting_a_different_ticket_mid_ticket_is_refused_without_force` |
 | Fleet | configuration asks for `--allow-all` or `--yolo` | `refused`, exit 2, naming the pattern | `test_fleet.py::test_a_config_that_asks_for_blanket_permission_is_refused_by_name` |
+| Approval gate | an operator denied the write | `refused: approval_denied`, exit 2, quoting the reason | `test_fleet_approval.py::test_ad_jira_transition_refuses_on_a_denial_and_never_posts` |
+| Approval gate | nobody answered within `fleet.approval_timeout` | `refused: approval_timeout`, exit 2, naming `ad-fleet approve <id>` | `test_fleet_approval.py::test_a_timeout_says_how_to_release_it_and_that_re_running_is_safe` |
+| Approval gate | the request could not be recorded, so it fails closed | `refused: approval_unavailable`, exit 2, nothing sent | `test_fleet_approval.py::test_the_gate_fails_closed_when_it_cannot_record_the_request` |
+| Approval gate | a denial carries no reason, or an approval is answered twice | `ApprovalError`, exit 2 | `test_fleet_approval.py::test_a_denial_without_a_reason_is_refused` |
 | DPM | the artifact directory is outside the governed tree | `error`, exit 2 | `test_dpm.py::test_convert_refuses_paths_outside_governed_dir` |
 | Install | a hint would tell a project repo to `pip install -e` | refused at the source | `test_install.py::test_runtime_hints_never_tell_a_project_repo_to_pip_install_dash_e` |
 

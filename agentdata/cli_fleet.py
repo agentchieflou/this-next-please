@@ -24,7 +24,7 @@ from . import config as C
 from . import toon
 from . import ui
 from .console import utf8_stdout
-from .fleet import agentstate, events as E, launch, supervisor
+from .fleet import agentstate, approval, events as E, launch, supervisor
 from .fleet.registry import Registry, RegistryError, fleet_dir
 from .version import add_version, version_string
 
@@ -215,6 +215,71 @@ def cmd_events(a) -> int:
     return EXIT_OK
 
 
+def cmd_approvals(a) -> int:
+    waiting = approval.pending()
+    if a.raw:
+        import json
+
+        for record in waiting:
+            print(json.dumps(record, ensure_ascii=False))
+        return EXIT_OK
+    rows = [[r.get("id"), r.get("repo"), r.get("ticket") or "", r.get("kind"),
+             _mins(r.get("waiting_s", 0)), str(r.get("summary") or "")[:90]] for r in waiting]
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet approvals",
+                                "pending": len(waiting),
+                                "note": "each one is an agent blocked at a write, waiting for you"
+                                        if waiting else "nothing is waiting"}}))
+    print(toon.table("approvals", ["id", "repo", "ticket", "kind", "waiting", "summary"], rows))
+    return EXIT_OK
+
+
+def cmd_approval_show(a) -> int:
+    record = approval.read_request(a.id)
+    if not record:
+        return _refuse("ad-fleet approval", approval.ApprovalError(
+            f"no approval called {a.id!r}", "`ad-fleet approvals` lists what is waiting"))
+    decided = approval.read_decision(a.id)
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet approval", "id": a.id,
+                                "repo": record.get("repo"), "ticket": record.get("ticket") or "",
+                                "kind": record.get("kind"), "summary": record.get("summary"),
+                                "created": record.get("created"),
+                                "decision": decided.get("decision") or "waiting"},
+                       "payload": record.get("payload") or {}}))
+    return EXIT_OK
+
+
+def _decide(a, state: str, reason: str = "") -> int:
+    source = "ad-fleet approve" if state == approval.APPROVED else "ad-fleet deny"
+    try:
+        done = approval.decide(a.id, state, reason=reason)
+    except approval.ApprovalError as e:
+        return _refuse(source, e)
+    return _emit(source,
+                 {"id": done["id"], "repo": done.get("repo"), "kind": done.get("kind"),
+                  "decision": done["decision"], "by": done["by"],
+                  "note": "the agent is released and will run the command it showed you"
+                          if state == approval.APPROVED else
+                          "the agent will log friction with your reason and stop"})
+
+
+def cmd_approve(a) -> int:
+    return _decide(a, approval.APPROVED, a.comment or "")
+
+
+def cmd_deny(a) -> int:
+    return _decide(a, approval.DENIED, a.reason or "")
+
+
+def _mins(seconds) -> str:
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return ""
+    if seconds < 90:
+        return f"{seconds}s"
+    return f"{seconds // 60}m" if seconds < 5400 else f"{seconds // 3600}h{(seconds % 3600) // 60:02d}"
+
+
 def _summarize(ev: dict) -> str:
     """One line a person can read. The full payload is always there under --raw."""
     data = ev.get("data") or {}
@@ -276,6 +341,24 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--limit", type=int, default=60, help="how many events (0 = all)")
     ev.add_argument("--raw", action="store_true", help="the normalized JSON, one object per line")
     ev.set_defaults(fn=cmd_events)
+
+    ap = sub.add_parser("approvals", help="writes waiting for a click, oldest first")
+    ap.add_argument("--raw", action="store_true", help="one JSON object per pending approval")
+    ap.set_defaults(fn=cmd_approvals)
+
+    show = sub.add_parser("approval", help="one approval in full, including the dry-run payload")
+    show.add_argument("id")
+    show.set_defaults(fn=cmd_approval_show)
+
+    ok = sub.add_parser("approve", help="release a waiting write")
+    ok.add_argument("id")
+    ok.add_argument("--comment", help="a note the agent can quote")
+    ok.set_defaults(fn=cmd_approve)
+
+    no = sub.add_parser("deny", help="refuse a waiting write; the agent logs friction and stops")
+    no.add_argument("id")
+    no.add_argument("--reason", required=True, help="why. The agent quotes this, so write it for whoever picks the ticket up")
+    no.set_defaults(fn=cmd_deny)
 
     logs = sub.add_parser("logs", help="the raw Copilot event stream, unnormalized")
     logs.add_argument("repo")

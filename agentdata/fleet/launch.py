@@ -81,6 +81,16 @@ DEFAULT_DENY = [
     "shell(npm install)",
     "shell(rm)",
     "shell(del)",
+    # Anything that could reach Jira, Confluence or Bitbucket without passing the approval gate
+    # (#95). None of these is on the allow-list, so this is the second line and not the boundary --
+    # but the boundary here is a model's own classifier, which the spike measured letting a .NET
+    # file-write through after refusing three plainer spellings of the same act.
+    "shell(pncli)",                  # AGENTS.md rule 4 already forbids it; the gate is in ad-pncli
+    "shell(curl)",
+    "shell(wget)",
+    "shell(Invoke-RestMethod)",
+    "shell(Invoke-WebRequest)",
+    "shell(iwr)", "shell(irm)",      # the PowerShell aliases, which are a different command string
 ]
 
 # Never acceptable in config, whatever a hurry says. These are the flags that turn an approval gate
