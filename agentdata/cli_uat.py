@@ -13,6 +13,8 @@ from .model import OUT_DIR, AgentTable
 from .policy import error, render
 from .uat import expect as X
 from .uat import plan as PL
+from .uat import jira_sql as JQ
+from .uat import jira_vs_source as JV
 from .uat import reconcile as R
 
 
@@ -91,6 +93,49 @@ def cmd_reconcile(a) -> int:
     return 0
 
 
+def cmd_jira_vs_source(a) -> int:
+    """Live Jira against Jira history in a warehouse, in one call.
+
+    The nine mechanical steps the skill used to spell out -- pull, generate, lint, run, diff,
+    count, exemplify, write -- with the two judgements left where they belong: the window and the
+    scope come from the ticket, and what the differences *mean* is read off the findings file.
+    """
+    window = tuple(a.window.split(",", 1)) if a.window and "," in a.window else None
+    if not window:
+        print(error("no window", "--window <start>,<end> in YYYY-MM-DD; the ticket's acceptance "
+                                 "criteria have to name one", "ad-uat"))
+        return 2
+    fields = [f.strip() for f in (a.fields or "status,assignee").split(",") if f.strip()]
+    res = JV.run(ticket=a.ticket, source=a.source, jql=a.jql, window=window, fields=fields,
+                 sql_dir=a.sql_dir, plan_only=a.plan_only, max_results=a.max_results)
+
+    if a.plan_only:
+        return _emit_uat({"ok": True, "source": "ad-uat jira-vs-source", "plan_only": True,
+                          "ticket": res["ticket"], "engine": res["source"], "sql": res["sql"],
+                          "coverage_sql": res["coverage_sql"], "warnings": res["warnings"],
+                          "next": res["next"]})
+
+    meta = {"ok": True, "source": "ad-uat jira-vs-source", "ticket": res["ticket"],
+            "engine": res["source"], "window": res["window"], "sql": res["sql"],
+            "live_rows": res["live_rows"], "history_rows": res["history_rows"],
+            "matched": res["matched"], "only_live": res["only_live"],
+            "only_history": res["only_history"], "changed": res["changed"],
+            "compared": ",".join(res["compared"]), "findings": res["findings"]}
+    if res["truncation_warning"]:
+        meta["warning"] = res["truncation_warning"]
+    if res["warnings"]:
+        meta["sql_warnings"] = res["warnings"]
+    return _emit_uat(meta)
+
+
+def _emit_uat(meta: dict) -> int:
+    if policy.pretty():
+        ui.facts([(k, str(v)) for k, v in meta.items()], title="ad-uat jira-vs-source")
+    else:
+        print(toon.encode({"meta": meta}))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-uat", description="UAT from a document: expected values, the reproduction recipe per tier, and the reconciliation.")
@@ -113,6 +158,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--tol", type=float, default=0.0); p.add_argument("--ticket", default="uat"); p.add_argument("--show", type=int, default=20)
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_reconcile)
+    p = sub.add_parser("jira-vs-source",
+                       help="live Jira vs Jira history in a warehouse: generate the SQL, run both "
+                            "sides, diff, and write the findings")
+    p.add_argument("--source", required=True, choices=list(JQ.DIALECTS),
+                   help="which warehouse holds the Jira history")
+    p.add_argument("--ticket", required=True, help="the ticket this UAT is for")
+    p.add_argument("--jql", required=True, help="the live scope, from the ticket's criteria")
+    p.add_argument("--window", required=True, help="start,end (YYYY-MM-DD)")
+    p.add_argument("--fields", default="status,assignee",
+                   help="columns to compare on both sides (default status,assignee)")
+    p.add_argument("--max-results", type=int, default=2000, dest="max_results")
+    p.add_argument("--sql-dir", default=os.path.join(".agent", "sql"), dest="sql_dir")
+    p.add_argument("--plan-only", action="store_true", dest="plan_only",
+                   help="write and lint the SQL, run nothing -- for checking the column names first")
+    p.add_argument("--pretty", action="store_true", help="draw it for a person to read")
+    p.set_defaults(fn=cmd_jira_vs_source)
+
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if getattr(a, "pretty", False):
@@ -120,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         ui.reset_cache()
     try:
         sys.exit(a.fn(a))
-    except (X.ExpectError,) as e:
+    except (X.ExpectError, JV.UatError) as e:
         print(error(str(e), e.hint, "ad-uat")); sys.exit(2)
     except (ValueError, LookupError, FileNotFoundError) as e:
         print(error(str(e)[:300], "check the paths, --key and --cols (ad-view <tsv> shows the columns)", "ad-uat")); sys.exit(2)
