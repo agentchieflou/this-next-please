@@ -24,6 +24,7 @@ STDERR = "stderr.log"
 USAGE = "usage.json"
 MAX_LOG_BYTES = 8 << 20      # rotate at 8 MB; a long session is chatty and the disk is not ours
 TERMINAL_PHASES = ("", "idle", "done", "closed", "merged")
+DONE_CATEGORIES = ("done",)     # Jira's statusCategory key, not a status name: names vary per project
 
 
 class SupervisorError(Exception):
@@ -304,6 +305,7 @@ def _emit_started(name: str, lock: dict, *, resumed: bool = False) -> None:
 
         E.append(name, [E.event(name, "started",
                                 {"pid": lock.get("pid"), "prompt": (lock.get("prompt") or "")[:400],
+                                 "summary": lock.get("summary", ""),
                                  "resumed": resumed, "session": lock.get("session", "")},
                                 ticket=lock.get("ticket", ""))])
     except Exception:  # noqa: BLE001 - a missing breadcrumb must never fail a launch
@@ -312,10 +314,49 @@ def _emit_started(name: str, lock: dict, *, resumed: bool = False) -> None:
         debug_exc("fleet started event")
 
 
+def check_ticket(repo: Repo, key: str, *, cross_project: bool = False, board_rows=None,
+                 force: bool = False) -> str:
+    """Is this ticket one this repository should be started on? Returns its summary, or "".
+
+    Two guard rails, and both exist because the failure they prevent is expensive and quiet:
+
+    * **Wrong project.** Starting the RDSD checkout on a DATAENG ticket produces an agent that
+      branches, reads and edits the wrong repository for twenty minutes before anyone notices.
+    * **A finished ticket.** An agent given a Done ticket has nothing to do and will invent
+      something, because "there is nothing here" is not an answer a router is built to give.
+
+    The board is consulted only when the fleet already has it -- being unable to reach Jira must not
+    stop an operator starting an agent, which is why `board_rows` is passed in rather than fetched.
+    """
+    from .board import find, project_of
+
+    key = (key or "").strip().upper()
+    project = project_of(key)
+    declared = (repo.jira_project or "").upper()
+    if project and declared and project != declared and not cross_project:
+        raise SupervisorError(
+            f"{key} is a {project} ticket and {repo.name} declares jira_project {declared}",
+            f"start it on the {project} checkout, or pass --cross-project if this is deliberate")
+
+    row = find(board_rows or [], key)
+    if not row:
+        return ""
+    if row.get("category") in DONE_CATEGORIES and not force:
+        raise SupervisorError(
+            f"{key} is already {row.get('status') or 'Done'}",
+            "an agent given a finished ticket has nothing to do and will invent something; "
+            "pass --force if you mean to re-open the work")
+    return str(row.get("summary") or "")
+
+
 def start(name: str, *, key: str | None = None, prompt: str | None = None, force: bool = False,
-          cfg: dict | None = None, registry: Registry | None = None, exe: str | None = None) -> dict:
+          cfg: dict | None = None, registry: Registry | None = None, exe: str | None = None,
+          cross_project: bool = False, board_rows=None, summary: str = "") -> dict:
     reg = registry or Registry()
     repo = reg.get(name)
+    if key:
+        summary = summary or check_ticket(repo, key, cross_project=cross_project,
+                                          board_rows=board_rows, force=force)
 
     lock = live(name)
     if lock:
@@ -341,7 +382,7 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
             f"finish or park it first, or pass --force to start "
             f"{key or 'a new prompt'} anyway")
 
-    text = prompt_for(key, prompt, cfg)
+    text = prompt_for(key, prompt, cfg, summary=summary)
     _rotate(name)
     directory = agent_dir(name)
 
@@ -351,7 +392,7 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
     child = _spawn(repo, name, argv, exe)
 
     lock = {"pid": child.pid, "repo": name, "path": repo.path, "ticket": key or "",
-            "prompt": text, "started": time.time(),
+            "summary": summary, "prompt": text, "started": time.time(),
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
     write_lock(name, lock)
     _emit_started(name, lock)

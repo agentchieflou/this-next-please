@@ -98,7 +98,22 @@ DEFAULT_DENY = [
 FORBIDDEN_FLAGS = ("--allow-all", "--allow-all-tools", "--allow-all-paths", "--allow-all-urls",
                    "--yolo")
 
-DEFAULT_PROMPT = "Ticket {key}. Invoke skill session-bootstrap, then router."
+# `{summary}` is filled from the board when the fleet knows it and left empty otherwise, so the
+# template works either way. Deliberately nothing more than the key and one line: `jira-triage` does
+# the reading through `ad-pncli`, as its SKILL.md says, and a fleet that pasted acceptance criteria
+# into the prompt would be a second, staler copy of the ticket for the agent to trust.
+DEFAULT_PROMPT = "Ticket {key}{summary}. Invoke skill session-bootstrap, then router."
+
+
+class _Blanks(dict):
+    """`{whatever}` a template asks for and we do not have becomes empty rather than an exception.
+
+    A `fleet.prompt_template` written before `{summary}` existed must keep working, and so must one
+    with a typo in a field name -- the agent starting matters more than the operator's exact wording.
+    """
+
+    def __missing__(self, key):        # noqa: D105 - the class docstring says it
+        return ""
 
 
 class LaunchError(Exception):
@@ -158,11 +173,21 @@ def check_no_blanket_permission(patterns: list[str]) -> None:
                     "may run as `shell(<prefix>)` patterns in `fleet.allow_tools` instead")
 
 
-def prompt_for(key: str | None, prompt: str | None, cfg: dict | None = None) -> str:
+def prompt_for(key: str | None, prompt: str | None, cfg: dict | None = None,
+               summary: str = "") -> str:
+    """The one turn's prompt. An explicit `--prompt` always wins; otherwise the template."""
     if prompt:
         return prompt
     template = C.get(cfg or {}, "fleet.prompt_template") or DEFAULT_PROMPT
-    return template.format(key=key or "")
+    tidy = " ".join((summary or "").split())[:200]
+    fields = _Blanks(key=key or "", summary=f": {tidy}" if tidy else "")
+    try:
+        return template.format_map(fields)
+    except (IndexError, ValueError):
+        # A positional `{}` or a malformed brace in a configured template. Falling back to the
+        # default keeps the agent starting: refusing to launch over a config file somebody wrote
+        # three months ago is a much larger harm than losing their wording for one turn.
+        return DEFAULT_PROMPT.format_map(fields)
 
 
 def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,

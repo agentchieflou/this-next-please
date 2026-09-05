@@ -32,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .. import textio
-from . import agentstate, approval, events as E, notify as N, supervisor
+from . import agentstate, approval, board as B, events as E, notify as N, supervisor
 from .registry import Registry, RegistryError, fleet_dir
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -96,8 +96,11 @@ def act(what: str, body: dict) -> dict:
 
         lock = supervisor.start(repo, key=body.get("ticket") or None,
                                 prompt=body.get("prompt") or None,
-                                force=bool(body.get("force")), cfg=C.load())
-        return {"repo": repo, "pid": lock["pid"], "ticket": lock.get("ticket", "")}
+                                force=bool(body.get("force")), cfg=C.load(),
+                                cross_project=bool(body.get("cross_project")),
+                                board_rows=(B.read_cache() or {}).get("rows") or [])
+        return {"repo": repo, "pid": lock["pid"], "ticket": lock.get("ticket", ""),
+                "summary": lock.get("summary", "")}
     if what == "send":
         from .. import config as C
 
@@ -244,6 +247,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, **fleet_snapshot()})
         if route == "/api/themes":
             return self._json({"ok": True, "themes": themes()})
+        if route == "/api/board":
+            from .. import config as C
+
+            force = (query.get("refresh") or [""])[0] in ("1", "true", "yes")
+            try:
+                data = B.board(cfg=C.load(), force=force)
+            except B.BoardError as e:
+                # 200 with ok:false, not a 5xx: the panel has to render the reason, and a bad JQL
+                # is the operator's typo rather than a server fault.
+                return self._json({"ok": False, "error": e.msg, "hint": e.hint, "rows": []})
+            return self._json({"ok": True, "jql": data["jql"], "cached": data["cached"],
+                               "age_s": data["age_s"],
+                               "rows": B.with_suggestions(data["rows"])})
+        if route == "/api/history":
+            since = (query.get("since") or ["7d"])[0]
+            return self._json({"ok": True, "since": since,
+                               "runs": B.history(since=B.since_seconds(since))})
         if route == "/api/notifications":
             try:
                 limit = int((query.get("limit") or ["50"])[0])

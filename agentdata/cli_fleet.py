@@ -24,7 +24,8 @@ from . import config as C
 from . import toon
 from . import ui
 from .console import utf8_stdout
-from .fleet import agentstate, approval, events as E, launch, notify as N, serve as S, supervisor
+from .fleet import (agentstate, approval, board as B, events as E, launch, notify as N,
+                    serve as S, supervisor)
 from .fleet.registry import Registry, RegistryError, fleet_dir
 from .version import add_version, version_string
 
@@ -78,11 +79,17 @@ def cmd_repo_list(a) -> int:
 
 
 def cmd_start(a) -> int:
+    cfg = C.load()
+    # The board is consulted only if it is already cached. Being unable to reach Jira must never
+    # stop an operator starting an agent -- the guard rails it feeds are a courtesy, not a gate.
+    rows = (B.read_cache() or {}).get("rows") or []
     try:
-        lock = supervisor.start(a.repo, key=a.ticket, prompt=a.prompt, force=a.force, cfg=C.load())
+        lock = supervisor.start(a.repo, key=a.ticket, prompt=a.prompt, force=a.force, cfg=cfg,
+                                cross_project=a.cross_project, board_rows=rows)
     except (RegistryError, supervisor.SupervisorError, launch.LaunchError) as e:
         return _refuse("ad-fleet start", e)
     return _emit("ad-fleet start", {"repo": a.repo, "ticket": lock.get("ticket", ""),
+                                    "summary": lock.get("summary", ""),
                                     "pid": lock["pid"], "prompt": lock["prompt"],
                                     "next": f"ad-fleet status --repo {a.repo}"})
 
@@ -217,6 +224,41 @@ def cmd_events(a) -> int:
     rows = [[e.get("seq"), str(e.get("ts", ""))[11:19], e.get("kind"),
              _summarize(e).replace("\n", " ")[:120]] for e in stream]
     print(toon.table("events", ["seq", "at", "kind", "detail"], rows))
+    return EXIT_OK
+
+
+def cmd_board(a) -> int:
+    """The operator's own tickets, and where each one probably belongs.
+
+    Read-only, always: only agents write to Jira, and only through the approval gate (#95).
+    """
+    try:
+        data = B.board(cfg=C.load(), force=a.refresh)
+    except B.BoardError as e:
+        return _refuse("ad-fleet board", e)
+    rows = B.with_suggestions(data["rows"])
+    if a.project:
+        rows = [r for r in rows if r["project"] == a.project.upper()]
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet board", "tickets": len(rows),
+                                "jql": data["jql"],
+                                "from": f"cache, {data['age_s']}s old" if data["cached"] else "jira"}}))
+    print(toon.table("board", ["key", "status", "type", "summary", "repo", "why"],
+                     [[r["key"], r["status"], r["type"], r["summary"][:70],
+                       r["suggested"]["repo"] or "-",
+                       r["suggested"]["hint"] or r["suggested"]["why"]] for r in rows]))
+    return EXIT_OK
+
+
+def cmd_history(a) -> int:
+    rows = B.history(since=B.since_seconds(a.since))
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet history", "runs": len(rows),
+                                "since": a.since,
+                                "premium_requests": round(sum(r["premium_requests"] for r in rows), 2)}}))
+    print(toon.table("history", ["started", "repo", "ticket", "summary", "state", "phase",
+                                 "turns", "premium_requests"],
+                     [[str(r["started"])[:16], r["repo"], r["ticket"] or "-", r["summary"][:50],
+                       r["state"], r["phase"] or "-", r["turns"], r["premium_requests"]]
+                      for r in rows]))
     return EXIT_OK
 
 
@@ -389,6 +431,8 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("repo")
     start.add_argument("ticket", nargs="?", help="the ticket key the agent should work")
     start.add_argument("--prompt", help="an explicit prompt instead of the ticket template")
+    start.add_argument("--cross-project", action="store_true", dest="cross_project",
+                       help="start a ticket whose project is not this repo's jira_project")
     start.add_argument("--force", action="store_true",
                        help="start even if the repo is mid-ticket or holds a stale lock")
     start.set_defaults(fn=cmd_start)
@@ -434,6 +478,15 @@ def build_parser() -> argparse.ArgumentParser:
     no.add_argument("id")
     no.add_argument("--reason", required=True, help="why. The agent quotes this, so write it for whoever picks the ticket up")
     no.set_defaults(fn=cmd_deny)
+
+    brd = sub.add_parser("board", help="your Jira tickets, and which repo each one belongs to")
+    brd.add_argument("--refresh", action="store_true", help="ask Jira now instead of using the cache")
+    brd.add_argument("--project", help="only this Jira project")
+    brd.set_defaults(fn=cmd_board)
+
+    hist = sub.add_parser("history", help="what was dispatched, how it ended, what it cost")
+    hist.add_argument("--since", default="7d", help="7d | 12h | 90m (default 7d)")
+    hist.set_defaults(fn=cmd_history)
 
     note = sub.add_parser("notify", help="what the fleet would tell you, and what it has")
     note.add_argument("what", nargs="?", default="list", choices=["list", "test", "tail"],

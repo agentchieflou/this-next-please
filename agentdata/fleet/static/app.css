@@ -187,3 +187,38 @@ body.focused .tile.is-focused { max-height: none; }
 #notes .t { display: block; }
 #notes .b, #notes .when { color: var(--muted); font: 11px var(--mono); }
 #nonotes { padding: 8px 0; }
+
+/* ------------------------------------------------------------------------ the Jira board (#98) */
+
+#board {
+  position: fixed; top: 0; left: 0; bottom: 0; width: min(460px, 94vw); z-index: 20;
+  background: var(--panel); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 8px 10px;
+  box-shadow: 8px 0 24px rgba(0, 0, 0, .18);
+}
+#boardsearch { margin: 4px 0 6px; }
+#tickets { flex: 1 1 auto; overflow: auto; margin: 0; padding: 0; list-style: none; }
+#tickets li {
+  padding: 6px 0; border-bottom: 1px solid var(--line); cursor: grab;
+}
+#tickets li:hover { background: var(--select); }
+#tickets li.dragging { opacity: .5; }
+#tickets .key { font: 12px var(--mono); font-weight: 600; }
+#tickets .st {
+  font: 10px var(--mono); border-radius: 9px; padding: 0 6px; margin-left: 6px;
+  background: var(--select); color: var(--text);
+}
+#tickets .st.done { background: var(--done); color: #fff; }
+#tickets .st.indeterminate { background: var(--running); color: #fff; }
+#tickets .sum { display: block; margin: 2px 0; }
+#tickets .to { color: var(--muted); font: 11px var(--mono); }
+#tickets .go { font: 11px var(--ui); padding: 1px 6px; margin-left: 6px; }
+
+.tile.drop-target { outline: 2px dashed var(--accent); outline-offset: -4px; }
+
+#history { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; max-height: 34%; overflow: auto; }
+#history summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+#history table { width: 100%; border-collapse: collapse; font: 11px var(--mono); }
+#history td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
+#history td.state-done { color: var(--done); }
+#history td.state-error, #history td.state-blocked, #history td.state-needs_human { color: var(--human); }

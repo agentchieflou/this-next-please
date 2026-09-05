@@ -14,6 +14,7 @@
   <label for="theme" class="sr">theme</label>
   <select id="theme" title="page theme"><option value="">system</option></select>
   <button id="chime" aria-pressed="false" title="sound on a notification">chime off</button>
+  <button id="boardtoggle" title="your Jira tickets"><kbd>b</kbd> board</button>
   <button id="bell" title="notifications"><span id="bellcount">0</span> new</button>
   <button id="unfocus" hidden>back to grid <kbd>Esc</kbd></button>
 </header>
@@ -30,6 +31,24 @@
   <p id="nonotes" class="muted">Nothing yet. Only state changes are announced &mdash; never a tool call.</p>
 </aside>
 
+<aside id="board" hidden aria-label="Jira board">
+  <div class="drawer-head">
+    <strong>board</strong>
+    <span id="boardage" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="boardrefresh" title="ask Jira now instead of using the cache">refresh</button>
+    <button id="closeboard">close <kbd>b</kbd></button>
+  </div>
+  <input id="boardsearch" type="search" placeholder="filter by key, summary or status">
+  <p id="boarderr" class="muted" hidden></p>
+  <ol id="tickets"></ol>
+  <p id="noboard" class="muted">Drag a ticket onto a tile, or click <em>start</em>.</p>
+  <details id="history">
+    <summary>what I dispatched (7 days)</summary>
+    <table><tbody id="runs"></tbody></table>
+  </details>
+</aside>
+
 <main id="grid" aria-live="polite"></main>
 
 <p id="empty" hidden>
@@ -39,7 +58,7 @@
 <footer>
   <span id="counts"></span>
   <span class="spacer"></span>
-  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus a tile · <kbd>a</kbd> approve · <kbd>n</kbd> notifications · <kbd>Esc</kbd> grid</span>
+  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus a tile · <kbd>a</kbd> approve · <kbd>b</kbd> board · <kbd>n</kbd> notifications · <kbd>Esc</kbd> grid</span>
 </footer>
 
 <template id="tile">

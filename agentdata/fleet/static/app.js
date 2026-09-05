@@ -97,6 +97,22 @@ function makeTile(row, index) {
   el.querySelector(".repo").addEventListener("click", function () { focus(row.repo); });
   el.addEventListener("dblclick", function () { focus(row.repo); });
 
+  // A ticket dropped on a tile is a dispatch. `preventDefault` on dragover is what makes an
+  // element a drop target at all -- without it the browser refuses the drop and nothing happens,
+  // silently, which looks exactly like a broken feature.
+  el.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    el.classList.add("drop-target");
+  });
+  el.addEventListener("dragleave", function () { el.classList.remove("drop-target"); });
+  el.addEventListener("drop", function (e) {
+    e.preventDefault();
+    el.classList.remove("drop-target");
+    var key = (e.dataTransfer.getData("text/plain") || "").trim();
+    if (key) dispatch(key, row.repo);
+  });
+
   var say = el.querySelector(".say");
   el.querySelector(".send").addEventListener("click", function () {
     action(el, "send", { repo: row.repo, message: say.value }).then(function () { say.value = ""; });
@@ -276,6 +292,7 @@ document.addEventListener("keydown", function (e) {
     return;
   }
   if (e.key === "n") { drawer(); return; }
+  if (e.key === "b") { boardPanel(); return; }
   if (e.key === "a") {
     var entry = focused ? tiles.get(focused) : null;
     if (entry && entry.el.dataset.approval && !entry.el.querySelector(".approval").hidden) {
@@ -443,3 +460,143 @@ document.getElementById("chime").addEventListener("click", function () {
 try { chimeOn = localStorage.getItem("fleet.chime") === "1"; } catch (e) { chimeOn = false; }
 document.getElementById("chime").setAttribute("aria-pressed", String(chimeOn));
 text(document.getElementById("chime"), chimeOn ? "chime on" : "chime off");
+
+/* --------------------------------------------------------------------------- the Jira board (#98) */
+
+/* Dispatching a ticket should not mean copying a key out of a browser. The panel is a view of the
+   operator's own JQL; a ticket goes to an agent by being dragged onto its tile, or by clicking the
+   button on the row when the repository is unambiguous.
+
+   The suggestion is the server's, from each repo's declared `jira_project`. Three answers, and the
+   panel shows all three honestly: one repo (drag has an obvious home), several (pick one — guessing
+   would eventually start the wrong checkout), none (the repo is not registered, which is a one-line
+   fix worth naming rather than a silent blank). */
+
+var board = [];
+
+function statusClass(row) {
+  return "st " + (row.category || "");
+}
+
+function ticketRow(row) {
+  var li = document.createElement("li");
+  li.draggable = true;
+  li.dataset.key = row.key;
+
+  var head = document.createElement("div");
+  var key = document.createElement("span");
+  key.className = "key";
+  text(key, row.key);
+  var st = document.createElement("span");
+  st.className = statusClass(row);
+  text(st, row.status);
+  head.appendChild(key);
+  head.appendChild(st);
+
+  var sum = document.createElement("span");
+  sum.className = "sum";
+  text(sum, row.summary);
+
+  var to = document.createElement("span");
+  to.className = "to";
+  var s = row.suggested || {};
+  text(to, s.repo ? "→ " + s.repo : (s.hint || s.why || ""));
+  head.appendChild(document.createTextNode(" "));
+
+  li.appendChild(head);
+  li.appendChild(sum);
+  li.appendChild(to);
+
+  (s.repo ? [s.repo] : (s.candidates || [])).forEach(function (name) {
+    var go = document.createElement("button");
+    go.className = "go";
+    text(go, "start on " + name);
+    go.addEventListener("click", function (e) {
+      e.stopPropagation();
+      dispatch(row.key, name);
+    });
+    li.appendChild(go);
+  });
+
+  li.addEventListener("dragstart", function (e) {
+    li.classList.add("dragging");
+    e.dataTransfer.setData("text/plain", row.key);
+    e.dataTransfer.effectAllowed = "copy";
+  });
+  li.addEventListener("dragend", function () { li.classList.remove("dragging"); });
+  return li;
+}
+
+function dispatch(key, repo) {
+  var entry = tiles.get(repo);
+  var el = entry ? entry.el : document.body;
+  return action(el, "start", { repo: repo, ticket: key }).then(function (r) {
+    if (r && r.ok) { boardPanel(false); focus(repo); }
+    else if (r && !r.ok && /jira_project/.test(r.error || "")) {
+      // The one refusal worth offering an override for in the page: the operator can see both
+      // projects on screen and is better placed than the guard to say it is deliberate.
+      if (confirm(r.error + "\n\nStart it anyway?")) {
+        action(el, "start", { repo: repo, ticket: key, cross_project: true });
+      }
+    }
+    return r;
+  });
+}
+
+function drawBoard(rows) {
+  var list = document.getElementById("tickets");
+  var needle = (document.getElementById("boardsearch").value || "").toLowerCase();
+  while (list.firstChild) list.removeChild(list.firstChild);
+  var shown = rows.filter(function (r) {
+    return !needle || (r.key + " " + r.summary + " " + r.status).toLowerCase().indexOf(needle) >= 0;
+  });
+  shown.forEach(function (r) { list.appendChild(ticketRow(r)); });
+  document.getElementById("noboard").hidden = shown.length > 0;
+}
+
+function loadBoard(refresh) {
+  var err = document.getElementById("boarderr");
+  return fetch(q("/api/board", refresh ? { refresh: "1" } : {}))
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      err.hidden = !!data.ok;
+      if (!data.ok) {
+        text(err, data.error + (data.hint ? " — " + data.hint : ""));
+        return;
+      }
+      board = data.rows || [];
+      text(document.getElementById("boardage"),
+           data.cached ? "cached, " + age(data.age_s) + " old" : "from jira");
+      drawBoard(board);
+    }).catch(function (e) { err.hidden = false; text(err, String(e)); });
+}
+
+function loadHistory() {
+  return fetch(q("/api/history", { since: "7d" })).then(function (r) { return r.json(); })
+    .then(function (data) {
+      var body = document.getElementById("runs");
+      while (body.firstChild) body.removeChild(body.firstChild);
+      (data.runs || []).slice().reverse().forEach(function (run) {
+        var tr = document.createElement("tr");
+        [[String(run.started).slice(5, 16), ""], [run.repo, ""], [run.ticket || "-", ""],
+         [run.state, "state-" + run.state], [String(run.premium_requests), ""]].forEach(function (cell) {
+          var td = document.createElement("td");
+          if (cell[1]) td.className = cell[1];
+          text(td, cell[0]);
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+    }).catch(function () { /* the strip is a convenience */ });
+}
+
+function boardPanel(open) {
+  var el = document.getElementById("board");
+  el.hidden = open === undefined ? !el.hidden : !open;
+  if (!el.hidden) { loadBoard(false); loadHistory(); }
+}
+
+document.getElementById("boardtoggle").addEventListener("click", function () { boardPanel(); });
+document.getElementById("closeboard").addEventListener("click", function () { boardPanel(false); });
+document.getElementById("boardrefresh").addEventListener("click", function () { loadBoard(true); });
+document.getElementById("boardsearch").addEventListener("input", function () { drawBoard(board); });
