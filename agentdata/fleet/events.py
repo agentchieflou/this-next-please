@@ -242,8 +242,21 @@ def friction_files(repo_path: str) -> list[str]:
 
 
 LOCK = "events.lock"
-LOCK_WAIT_S = 5.0
+LOCK_WAIT_S = 30.0
 LOCK_STALE_S = 30.0
+
+
+class Busy(OSError):
+    """Another writer holds this agent's stream. Nothing was written; try again.
+
+    An `OSError` on purpose: every caller that reads or refreshes a stream already treats an OS
+    error as "not this time" and comes back on the next tick, so a busy stream needs no new
+    handling anywhere.
+    """
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"{name}'s event stream is held by another writer")
+        self.repo = name
 
 
 @contextlib.contextmanager
@@ -258,35 +271,37 @@ def writing(name: str):
     Exclusive-create rather than `fcntl`/`msvcrt`, because it has to behave the same on both and
     because a lock that outlives its holder must be recoverable: one left by a killed agent is
     stolen after `LOCK_STALE_S`, or a crash would block that repository's stream forever.
+
+    **If the lock cannot be taken, nothing is written.** The first version of this proceeded anyway,
+    reasoning that a dropped event was worse than a duplicate `seq`. That is backwards, and CI
+    proved it by producing a duplicate: a dropped append is recovered on the next `refresh`, which
+    re-reads `state.json` and re-emits what changed, while a duplicate `seq` is permanent and makes
+    every reader resuming from a cursor skip real events. The write is the courtesy; the numbering
+    is the contract.
     """
     path = os.path.join(agent_dir(name), LOCK)
     os.makedirs(agent_dir(name), exist_ok=True)
     deadline = time.time() + LOCK_WAIT_S
     fd = None
     while fd is None:
+        if time.time() >= deadline:
+            raise Busy(name)
         try:
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
+        except OSError:
+            # Not only FileExistsError. On Windows a file whose delete is still pending cannot be
+            # opened at all and answers ERROR_ACCESS_DENIED -- a PermissionError, microseconds long,
+            # raised by the *release* of the lock we are waiting for. Treating it as fatal turned
+            # every busy moment into a crash; it is the ordinary contended case.
             if _stale_lock(path):
                 _drop(path)
-                continue
-            if time.time() >= deadline:
-                # Proceed unlocked rather than lose the event. A duplicate seq is a cosmetic fault
-                # in a dashboard; a dropped phase change is a decision nobody ever sees. Five
-                # seconds of contention on an append this small means a writer died mid-write, and
-                # the staleness check above has already had its chance to clear that.
-                break
-            time.sleep(0.02)
-        except OSError:
-            break
+            time.sleep(0.01)
     try:
-        if fd is not None:
-            os.write(fd, f"{os.getpid()} {time.time():.0f}".encode("utf-8"))
+        os.write(fd, f"{os.getpid()} {time.time():.0f}".encode("utf-8"))
         yield
     finally:
-        if fd is not None:
-            os.close(fd)
-            _drop(path)
+        os.close(fd)
+        _drop(path)
 
 
 def _stale_lock(path: str) -> bool:

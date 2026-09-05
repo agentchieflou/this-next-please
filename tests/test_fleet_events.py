@@ -237,8 +237,11 @@ def test_a_refresh_racing_an_append_loses_nothing(fleet_home, tmp_path):
         while not stop.is_set():
             try:
                 E.refresh("a", repo, repo_state={"phase": "idle"})
+            except E.Busy:
+                pass                                              # the documented answer; retry
             except Exception as e:                                # noqa: BLE001 - that is the point
                 errors.append(e)
+            stop.wait(0.01)                                       # as the SSE loop paces itself
 
     t = threading.Thread(target=refresher, daemon=True)
     t.start()
@@ -254,6 +257,41 @@ def test_a_refresh_racing_an_append_loses_nothing(fleet_home, tmp_path):
     assert [e["seq"] for e in stream] == list(range(1, len(stream) + 1))
     said = [e["data"]["text"] for e in stream if e["kind"] == "assistant_text"]
     assert sorted(said) == sorted([f"line {i}" for i in range(20)] + ["the tree is clean"])
+
+
+def test_a_writer_that_cannot_get_the_lock_writes_nothing_at_all(fleet_home, tmp_path, monkeypatch):
+    """The first version of this proceeded unlocked rather than lose an event, and CI produced a
+    duplicate `seq` for it. That trade is backwards: a dropped append is recovered on the next
+    `refresh`, which re-reads state.json and re-emits what changed, while a duplicate `seq` is
+    permanent and makes every reader resuming from a cursor skip real events."""
+    make_project(tmp_path / "repo-a")
+    Registry().add(str(tmp_path / "repo-a"), name="a")
+    path = os.path.join(registry.agent_dir("a"), E.LOCK)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    open(path, "w").close()                                       # a live holder: fresh mtime
+    monkeypatch.setattr(E, "LOCK_WAIT_S", 0.2)
+
+    with pytest.raises(E.Busy) as e:
+        E.append("a", [E.event("a", "assistant_text", {"text": "should not land"})])
+    assert e.value.repo == "a"
+    assert isinstance(e.value, OSError), "every reader already treats an OS error as 'not this time'"
+    assert E.read("a") == [], "a refused write still wrote"
+
+
+def test_a_busy_stream_never_fails_a_state_save(fleet_home, tmp_path, monkeypatch):
+    """`ad-state` is the only writer of state.json. A held event lock must not cost a decision."""
+    from agentdata import state as S
+
+    repo = make_project(tmp_path / "repo-a", phase="idle")
+    Registry().add(repo, name="a")
+    path = os.path.join(registry.agent_dir("a"), E.LOCK)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    open(path, "w").close()
+    monkeypatch.setattr(E, "LOCK_WAIT_S", 0.2)
+    monkeypatch.setenv(registry.AGENT_ENV, "a")
+
+    S.save({"phase": "blocked"}, os.path.join(repo, ".agent", "state.json"))
+    assert json.loads(open(os.path.join(repo, ".agent", "state.json"), encoding="utf-8").read())["phase"] == "blocked"
 
 
 def test_a_lock_left_by_a_dead_writer_is_stolen(fleet_home, tmp_path):

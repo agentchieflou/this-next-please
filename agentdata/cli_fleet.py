@@ -193,7 +193,12 @@ def cmd_events(a) -> int:
     except RegistryError as e:
         return _refuse("ad-fleet events", e)
 
-    E.refresh(a.repo, repo.path, repo_state=repo.state())
+    try:
+        E.refresh(a.repo, repo.path, repo_state=repo.state())
+    except E.Busy:
+        # Another writer holds the stream. Read what is already normalized rather than fail: the
+        # next reader picks up whatever this one could not merge.
+        pass
     kinds = tuple(a.kind) if a.kind else None
     stream = E.read(a.repo, since=a.since, kinds=kinds, limit=a.limit)
 
