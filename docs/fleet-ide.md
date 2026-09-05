@@ -152,7 +152,55 @@ same URL in an ordinary Edge window differs only in the title bar.
 it takes no shell-quoted arguments and touches no shell-specific path. Running it twice does not
 open the dashboard twice — `/api/ping` is checked first, and an already-running server is reused.
 
+## What a shell must do (#100)
+
+Two thin shells now exist — `ide/jetbrains/` (a JCEF tool window) and `ide/vscode/` (a webview) —
+and this is the contract they follow, so a third host (Visual Studio, a tray app, a phone) needs no
+new server work.
+
+1. **Find the dashboard.** Read `$AGENTDATA_FLEET_DIR/serve.json`, or `~/.agentdata/fleet/serve.json`.
+   It holds `url`, `token` and `port`.
+2. **Check it is alive**, because that file outlives the process it describes: `GET /api/ping` must
+   answer `{"service": "ad-fleet"}`. No token needed.
+3. **Start one if it is not.** `ad-fleet serve --port <n>`, falling back to
+   `python -m agentdata fleet serve --port <n>` — the console scripts are frequently not on PATH,
+   which is the most common way this package looks broken when it is merely unfound. Start it
+   detached: closing the IDE must not take the dashboard down, because the other shells are
+   attached to the same server.
+4. **Host the URL** in whatever embedded browser the host has. Nothing else. The page is the UI.
+5. **Subscribe to `GET /api/events?t=<token>`** and act on `event: notify` frames only. Each carries
+   `{repo, severity, title, body, …}` already decided by the fleet's rules.
+6. **Focus a tile with `#tile=<repo>`** — the same anchor the Windows toasts use, so there is one
+   way to say "show me that one" and not two.
+7. **Check `contract` on `/api/ping`** against your own and raise exactly one balloon on a mismatch.
+   A shell built against an older contract mis-renders quietly, which is the kind of bug that gets
+   blamed on the dashboard for a week.
+
+**A shell contains no rule logic.** Which agents need a person, what to say and when to stay quiet
+are `agentdata/fleet/notify.py`'s, and a second implementation in Kotlin or TypeScript would
+eventually disagree with the tiles beside it. `tests/test_fleet_shells.py` asserts this rather than
+leaving it to a review checklist: the shells may not name a state, a severity rule or a threshold.
+
+### Building them
+
+Neither is part of the Python wheel. CI builds both on every push:
+
+| Artefact | Job | Verified |
+| --- | --- | --- |
+| `agentdata-fleet.vsix` | `ide · vscode extension` | compiles under `strict`, packages |
+| `agentdata-fleet-*.zip` | `ide · jetbrains plugin` | builds on ubuntu **and** windows |
+
+The JetBrains plugin builds against PyCharm Community 2024.2.5 with `sinceBuild = 232`
+(PyCharm 2023.2) — it uses only long-stable platform API. `untilBuild` is `299.*` rather than open:
+the plugin API's spelling for "no upper bound" moves between releases, and a far-future build number
+means the same thing everywhere.
+
+Both install **from disk**; there is no marketplace publishing and no signing budget assumed.
+**Unverified:** whether corporate policy permits installing an unsigned plugin zip. If it does not,
+that is a hard blocker for the JetBrains half and #99's External Tool remains the answer.
+
 ## What is not done here
 
-Writing a plugin or an extension is #100, and the PyCharm row above is the argument for it.
-JetBrains Gateway, remote development, and macOS/Linux IDE paths are out of scope.
+JetBrains Gateway, remote development, and macOS/Linux IDE paths are out of scope. So is any UI in
+either shell beyond hosting the page and one balloon type — the moment a shell grows its own view
+of an agent, there are two answers to every question and no way to tell which is current.

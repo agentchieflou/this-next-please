@@ -52,7 +52,9 @@ def test_ping_says_it_is_us_and_nothing_else(running):
     port = server.server_address[1]
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=10) as r:
         body = json.loads(r.read())
-    assert body == {"ok": True, "service": "ad-fleet", "port": port}
+    assert body["ok"] is True and body["service"] == "ad-fleet" and body["port"] == port
+    assert body["version"] and body["contract"] == S.CONTRACT
+    assert set(body) == {"ok", "service", "port", "version", "contract"}, body
     assert token not in json.dumps(body), "the liveness check leaked the token"
 
 

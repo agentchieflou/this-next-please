@@ -354,3 +354,61 @@ jobs:
       # "works on my machine". Two seeds, because one shuffle proves very little.
       - run: python -m pytest -q -p no:cacheprovider --shuffle-seed 1
       - run: python -m pytest -q -p no:cacheprovider --shuffle-seed 20260904
+
+  # ---------------------------------------------------------------- the IDE shells (#100)
+  #
+  # Separate jobs, because a Gradle IntelliJ build downloads an IDE and neither shell can break
+  # the Python suite. They are the only verification these two artefacts get: nobody can compile
+  # Kotlin or package a .vsix on the laptop this was written on.
+
+  vscode-extension:
+    name: ide · vscode extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: install
+        run: npm install --no-audit --no-fund
+        working-directory: ide/vscode
+      # `--strict` is on in tsconfig, so this is a real check and not a formality: the extension
+      # talks to the fleet over HTTP and every field it reads is typed here.
+      - name: typecheck and compile
+        run: npm run compile
+        working-directory: ide/vscode
+      - name: package
+        run: npx --yes @vscode/vsce@3 package --no-dependencies -o agentdata-fleet.vsix
+        working-directory: ide/vscode
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentdata-fleet-vsix
+          path: ide/vscode/agentdata-fleet.vsix
+
+  jetbrains-plugin:
+    name: ide · jetbrains plugin
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows too: the IntelliJ Gradle plugin is where path bugs live, and Windows is the only
+        # platform this fleet is actually operated from.
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # No committed `gradle-wrapper.jar`: a binary in the repository is a thing nobody reviews.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10"
+      - name: build the plugin
+        run: gradle buildPlugin --no-daemon --stacktrace
+        working-directory: ide/jetbrains
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: agentdata-fleet-plugin
+          path: ide/jetbrains/build/distributions/*.zip

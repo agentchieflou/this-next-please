@@ -41,6 +41,9 @@ HEARTBEAT_S = 15.0
 TICK_S = 0.4                 # how often the stream looks for new events; a tile must feel live
 NOTIFY_EVERY_S = 5.0         # how often the notification rules run; state changes are not frequent
 MAX_BODY = 64 * 1024
+# What a shell must speak to host this page. Bumped only when an embedder would have to change:
+# a new route it must call, or a changed meaning for one it already calls.
+CONTRACT = 1
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 
 # The page may load nothing but itself. Belt and braces with shipping no external references: if a
@@ -249,7 +252,16 @@ class Handler(BaseHTTPRequestHandler):
         # cross-origin page that navigates a window here cannot read where it landed.
         if route in ("/api/ping", "/open") and (self.client_address[0] or "").strip("[]") in LOOPBACK:
             if route == "/api/ping":
-                return self._json({"ok": True, "service": "ad-fleet", "port": self.server.server_address[1]})
+                from ..version import version_string
+
+                # The shells (#100) check this against their own and raise one balloon on a
+                # mismatch. It rides on `ping` rather than a route of its own because a shell that
+                # is already asking "are you there" should not need a second round trip to find out
+                # "and are we the same age".
+                return self._json({"ok": True, "service": "ad-fleet",
+                                   "port": self.server.server_address[1],
+                                   "version": version_string().split()[1],
+                                   "contract": CONTRACT})
             self.send_response(302)
             self.send_header("Location", f"/?t={self.token}")
             self.send_header("Cache-Control", "no-store")

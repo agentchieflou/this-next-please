@@ -1,0 +1,29 @@
+<idea-plugin>
+  <id>com.agentdata.fleet</id>
+  <name>agentdata fleet</name>
+  <vendor>agentdata</vendor>
+
+  <description><![CDATA[
+    Hosts the <code>ad-fleet serve</code> dashboard in a tool window, and relays its notifications
+    as IDE balloons.<br><br>
+    A shell only: every rule about what an agent is doing and whether it needs you lives in the
+    fleet itself, so the tool window, the browser and the VS Code view always agree.
+  ]]></description>
+
+  <depends>com.intellij.modules.platform</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <toolWindow id="Fleet" anchor="right" secondary="false"
+                factoryClass="com.agentdata.fleet.FleetToolWindowFactory"/>
+    <notificationGroup id="agentdata.fleet" displayType="BALLOON"/>
+    <applicationService serviceImplementation="com.agentdata.fleet.FleetSettings"/>
+  </extensions>
+
+  <actions>
+    <action id="agentdata.fleet.startHere" class="com.agentdata.fleet.StartHereAction"
+            text="Start a Fleet Agent on This Project…"
+            description="Start a headless agent on this repository through the fleet">
+      <add-to-group group-id="ToolsMenu" anchor="last"/>
+    </action>
+  </actions>
+</idea-plugin>

@@ -1,0 +1,59 @@
+{
+  "name": "agentdata-fleet",
+  "displayName": "agentdata fleet",
+  "description": "Hosts the ad-fleet dashboard in a view, and relays its notifications.",
+  "version": "0.1.0",
+  "publisher": "agentdata",
+  "license": "MIT",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "fleet", "title": "Fleet", "icon": "media/fleet.svg" }
+      ]
+    },
+    "views": {
+      "fleet": [
+        { "id": "fleet.dashboard", "name": "Dashboard", "type": "webview" }
+      ]
+    },
+    "commands": [
+      { "command": "fleet.open", "title": "Fleet: Open the dashboard" },
+      { "command": "fleet.start", "title": "Fleet: Start an agent on a ticket" },
+      { "command": "fleet.reload", "title": "Fleet: Reload the dashboard" }
+    ],
+    "configuration": {
+      "title": "agentdata fleet",
+      "properties": {
+        "fleet.port": {
+          "type": "number",
+          "default": 8765,
+          "description": "Port to start `ad-fleet serve` on when nothing is listening."
+        },
+        "fleet.command": {
+          "type": "string",
+          "default": "",
+          "description": "How to run the CLI. Empty means try `ad-fleet`, then `python -m agentdata fleet`."
+        },
+        "fleet.notifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Raise a VS Code notification when an agent needs you."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --no-dependencies -o agentdata-fleet.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.0"
+  }
+}
