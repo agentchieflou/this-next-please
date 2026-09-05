@@ -1,5 +1,6 @@
 """Guardrails for the skill set itself: size, frontmatter, router rows, referenced files."""
 import glob, os, re
+import pytest
 import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -168,11 +169,56 @@ def test_pbi_router_and_two_level_resolution():
     assert "`pbi-router`" in router_text
 
 
-def test_router_early_warning_threshold():
-    """Early-warning guardrail from #26: router must remain compact with two-level domain split."""
-    text = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
+# Every routing table in the repository. A sub-router that outgrows the limit is the same problem
+# one level down, and has the same fix.
+ROUTERS = ("router", "pbi-router")
+
+# The early warning, well under the 120-line hard limit every skill has. Two numbers because they
+# fail for different reasons: a router gets long (costly to read, every task) or it gets wide
+# (harder to pick from, and first-match-wins turns a near-miss into the wrong skill).
+ROUTER_LINES = 60
+ROUTER_ROWS = 24
+
+# What to do when one of them trips. Deliberately not "shorten the row text": the rows are already
+# terse, and squeezing them trades a legible table for a cryptic one while the real growth continues.
+SPLIT = ("split it: keep a top-level table routing to a handful of domain sub-routers "
+         "(`pbi-router` is the worked example — `router` has one row for Power BI, and the seven "
+         "report skills live behind it). Raising this limit is not the fix; it only moves the "
+         "decision to a worse moment.")
+
+
+def _rows(text):
+    return re.findall(r"^\|[^|]*\|\s*`([a-z0-9\-]+)`\s*\|$", text, re.M)
+
+
+@pytest.mark.parametrize("name", ROUTERS)
+def test_a_router_stays_small_enough_to_pick_from(name):
+    """The early warning from #26, with real headroom under the hard limit.
+
+    Every task's routing decision reads one of these, so their size is paid per task rather than
+    per use of a skill. The point of warning early is that a split is a decision somebody makes
+    deliberately, rather than a rush once the file is already at 119 lines.
+    """
+    text = open(os.path.join(ROOT, "skills", name, "SKILL.md"), encoding="utf-8").read()
     lines = text.count("\n") + (0 if text.endswith("\n") else 1)
-    assert lines < 60, f"router/SKILL.md is {lines} lines (early warning limit: 60; split further into domain sub-routers)"
+    rows = _rows(text)
+    assert lines < ROUTER_LINES, f"{name}/SKILL.md is {lines} lines (early warning {ROUTER_LINES}): {SPLIT}"
+    assert len(rows) < ROUTER_ROWS, (
+        f"{name}/SKILL.md has {len(rows)} routing rows (early warning {ROUTER_ROWS}): {SPLIT}")
+
+
+def test_the_early_warning_is_still_early():
+    """A limit quietly raised to 119 would pass its own test and warn nobody. This is what stops
+    the guardrail from being disarmed by the edit that was supposed to trip it."""
+    assert ROUTER_LINES <= 60, "the router warning must stay well under the 120-line hard limit"
+    assert ROUTER_ROWS <= 24, "a flat first-match table stops being reliably scannable around here"
+
+
+def test_the_router_says_what_to_do_when_it_outgrows_itself():
+    """The failure message is read by whoever trips it; the note is read by whoever is about to."""
+    text = open(os.path.join(ROOT, "skills", "router", "SKILL.md"), encoding="utf-8").read()
+    assert "sub-router" in text, "the router does not describe the split that is its own next step"
+    assert "`pbi-router`" in text, "the note must point at the worked example"
 
 
 # Lines that are genuinely one-shell, with the reason. Kept explicit and short: an entry here is a

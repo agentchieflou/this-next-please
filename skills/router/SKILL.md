@@ -30,3 +30,5 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 
 4. Output one line: `→ <skill>: <reason in ≤ 12 words>`. Then invoke it.
 5. No match after reading the table twice → invoke `friction-log` with type `ambiguity`. STOP.
+
+When this table outgrows itself — about 24 rows, checked by `tests/test_skills.py` — **split it, do not shorten the rows.** Add a domain sub-router and give this table one row pointing at it, the way `pbi-router` already holds the seven report skills behind a single Power BI row. The rows here are already terse; squeezing them further trades a legible table for a cryptic one while the growth continues, and first-match-wins turns a near-miss into the wrong skill.
