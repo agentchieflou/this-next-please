@@ -156,3 +156,34 @@ body.focused .tile.is-focused { max-height: none; }
   main { grid-template-columns: 1fr; }
   .keys { display: none; }
 }
+
+/* ------------------------------------------------------------------- notifications (#97) */
+
+#bell { position: relative; }
+#bell.unread { border-color: var(--human); color: var(--human); font-weight: 600; }
+.muted { color: var(--muted); font-size: 11px; }
+
+.badge {
+  font: 11px var(--mono); border-radius: 9px; padding: 0 7px;
+  background: var(--human); color: #fff;
+}
+
+#drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 92vw); z-index: 20;
+  background: var(--panel); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 8px 10px;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, .18);
+}
+.drawer-head { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; }
+#notes { flex: 1 1 auto; overflow: auto; margin: 0; padding: 0; list-style: none; }
+#notes li {
+  padding: 6px 0 6px 8px; border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--idle); cursor: pointer;
+}
+#notes li:hover { background: var(--select); }
+#notes li.action { border-left-color: var(--waiting); }
+#notes li.alert { border-left-color: var(--human); }
+#notes li.info { border-left-color: var(--done); }
+#notes .t { display: block; }
+#notes .b, #notes .when { color: var(--muted); font: 11px var(--mono); }
+#nonotes { padding: 8px 0; }

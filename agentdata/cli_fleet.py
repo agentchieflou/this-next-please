@@ -24,7 +24,7 @@ from . import config as C
 from . import toon
 from . import ui
 from .console import utf8_stdout
-from .fleet import agentstate, approval, events as E, launch, serve as S, supervisor
+from .fleet import agentstate, approval, events as E, launch, notify as N, serve as S, supervisor
 from .fleet.registry import Registry, RegistryError, fleet_dir
 from .version import add_version, version_string
 
@@ -152,7 +152,7 @@ def cmd_status(a) -> int:
         ui.table(COLUMNS, table, title="fleet")
         return EXIT_OK
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet status", "agents": len(rows),
-                                "fleet_dir": fleet_dir()}}))
+                                "fleet_dir": fleet_dir(), "toast": N.toast_status(C.load())}}))
     print(toon.table("agents", COLUMNS, table))
     return EXIT_OK
 
@@ -218,6 +218,55 @@ def cmd_events(a) -> int:
              _summarize(e).replace("\n", " ")[:120]] for e in stream]
     print(toon.table("events", ["seq", "at", "kind", "detail"], rows))
     return EXIT_OK
+
+
+def cmd_notify(a) -> int:
+    """`test` fires one of each severity; `tail` prints what *would* fire, changing nothing.
+
+    `tail` is the point of this verb. A rule can be tuned against a real captured stream instead of
+    by starting four agents and waiting for one of them to get stuck.
+    """
+    cfg = C.load()
+    if a.what == "test":
+        items = N.deliver(N.samples(), cfg=cfg, url=_serve_url())
+        print(toon.encode({"meta": {"ok": True, "source": "ad-fleet notify test",
+                                    "toast": N.toast_status(cfg),
+                                    "quiet_hours": N.settings(cfg)["quiet_hours"] or "off",
+                                    "sent": len(items)}}))
+        print(toon.table("notifications", ["severity", "title", "toasted"],
+                         [[i["severity"], i["title"], i["toasted"]] for i in items]))
+        return EXIT_OK
+
+    if a.what == "tail":
+        would = N.sweep(cfg=cfg, dry_run=True)
+        s = N.settings(cfg)
+        print(toon.encode({"meta": {"ok": True, "source": "ad-fleet notify tail",
+                                    "would_fire": len(would), "cooldown_s": s["cooldown"],
+                                    "idle_minutes": s["idle_minutes"],
+                                    "quiet_hours": s["quiet_hours"] or "off",
+                                    "note": "a dry run: nothing was sent and no cooldown was spent"}}))
+        print(toon.table("would_fire", ["seq", "repo", "severity", "title", "why"],
+                         [[i["seq"], i["repo"], i["severity"], i["title"],
+                           i["body"].replace("\n", " ")[:80]] for i in would]))
+        return EXIT_OK
+
+    recent = N.read_log(a.limit)
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet notify list",
+                                "notifications": len(recent), "toast": N.toast_status(cfg)}}))
+    print(toon.table("notifications", ["at", "repo", "severity", "title", "toasted"],
+                     [[str(i.get("at", ""))[11:19], i.get("repo"), i.get("severity"),
+                       i.get("title"), i.get("toasted")] for i in recent]))
+    return EXIT_OK
+
+
+def _serve_url() -> str:
+    """Where the dashboard is, if one is running. A toast that cannot deep-link still notifies."""
+    try:
+        import json
+
+        return str(json.loads(open(S.serve_file(), encoding="utf-8").read()).get("url") or "")
+    except (OSError, ValueError):
+        return ""
 
 
 def cmd_serve(a) -> int:
@@ -385,6 +434,12 @@ def build_parser() -> argparse.ArgumentParser:
     no.add_argument("id")
     no.add_argument("--reason", required=True, help="why. The agent quotes this, so write it for whoever picks the ticket up")
     no.set_defaults(fn=cmd_deny)
+
+    note = sub.add_parser("notify", help="what the fleet would tell you, and what it has")
+    note.add_argument("what", nargs="?", default="list", choices=["list", "test", "tail"],
+                      help="list: recent; test: one of each severity; tail: what would fire now")
+    note.add_argument("--limit", type=int, default=50, help="how many to list")
+    note.set_defaults(fn=cmd_notify)
 
     srv = sub.add_parser("serve", help="the multi-viewer: one local page, one tile per agent")
     srv.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 picks a free one)")

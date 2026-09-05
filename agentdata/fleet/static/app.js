@@ -218,6 +218,7 @@ function connect() {
     append(entry.el, ev);
     refreshSoon();
   });
+  source.addEventListener("notify", function (m) { arrived(JSON.parse(m.data)); });
   source.addEventListener("tick", function () {
     link.className = "dot live";
     text(link, "live");
@@ -238,6 +239,10 @@ function focus(name) {
   document.body.classList.add("focused");
   document.getElementById("unfocus").hidden = false;
   tiles.forEach(function (entry, key) { entry.el.classList.toggle("is-focused", key === name); });
+  unread.delete(name);                       // looking at it is what "read" means
+  bell();
+  drawer(false);
+  if (location.hash !== "#tile=" + name) history.replaceState(null, "", "#tile=" + name);
 }
 
 function unfocus() {
@@ -245,7 +250,18 @@ function unfocus() {
   document.body.classList.remove("focused");
   document.getElementById("unfocus").hidden = true;
   tiles.forEach(function (entry) { entry.el.classList.remove("is-focused"); });
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
 }
+
+/* A toast launches `…/?t=…#tile=luna`, so the click lands on the agent that needs the operator
+   rather than on "one of these four". Also fired on hashchange, because the window may already be
+   open and the shell simply re-focuses it with a new hash. */
+function followHash() {
+  var m = /^#tile=(.+)$/.exec(location.hash || "");
+  if (m && tiles.has(decodeURIComponent(m[1]))) focus(decodeURIComponent(m[1]));
+}
+
+window.addEventListener("hashchange", followHash);
 
 document.getElementById("unfocus").addEventListener("click", unfocus);
 
@@ -259,6 +275,7 @@ document.addEventListener("keydown", function (e) {
     if (name) focus(name);
     return;
   }
+  if (e.key === "n") { drawer(); return; }
   if (e.key === "a") {
     var entry = focused ? tiles.get(focused) : null;
     if (entry && entry.el.dataset.approval && !entry.el.querySelector(".approval").hidden) {
@@ -302,4 +319,127 @@ function loadThemes() {
   }).catch(function () { /* themes are decoration; the page works without them */ });
 }
 
-refresh().then(function () { connect(); loadThemes(); });
+refresh().then(function () {
+  connect();
+  loadThemes();
+  loadNotifications();
+  followHash();
+});
+
+/* ------------------------------------------------------------------------- notifications (#97) */
+
+/* The chime is synthesised, not a bundled sound file. WebAudio is in every browser this page has
+   to run in, it adds nothing to the payload and nothing to fetch, and a .wav shipped as package
+   data is one more thing that can fail to install. Off by default: a sound the operator did not
+   ask for is the fastest way to have every notification muted. */
+function chime() {
+  if (!chimeOn) return;
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(660, ctx.currentTime);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.09);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.32);
+    osc.onended = function () { try { ctx.close(); } catch (e) { /* already closed */ } };
+  } catch (e) { /* no audio device, or autoplay refused until the page is clicked */ }
+}
+
+var unread = new Map();          // repo -> count, cleared when that tile is focused
+var chimeOn = false;
+
+function bell() {
+  var total = 0;
+  unread.forEach(function (n) { total += n; });
+  var button = document.getElementById("bell");
+  text(document.getElementById("bellcount"), total);
+  button.classList.toggle("unread", total > 0);
+  tiles.forEach(function (entry, name) {
+    var badge = entry.el.querySelector(".badge");
+    var n = unread.get(name) || 0;
+    badge.hidden = n === 0;
+    text(badge, n);
+  });
+  return total;
+}
+
+function noteRow(item) {
+  var li = document.createElement("li");
+  li.className = item.severity || "info";
+  var t = document.createElement("span");
+  t.className = "t";
+  text(t, item.title);
+  var b = document.createElement("span");
+  b.className = "b";
+  text(b, item.body || "");
+  var when = document.createElement("span");
+  when.className = "when";
+  text(when, String(item.at || "").slice(11, 19) + (item.toasted ? "  ·  toasted" : "") +
+             (item.quiet ? "  ·  quiet hours" : ""));
+  li.appendChild(t);
+  li.appendChild(b);
+  li.appendChild(when);
+  li.addEventListener("click", function () { if (tiles.has(item.repo)) focus(item.repo); });
+  return li;
+}
+
+function addNote(item, atTop) {
+  var list = document.getElementById("notes");
+  var row = noteRow(item);
+  if (atTop && list.firstChild) list.insertBefore(row, list.firstChild);
+  else list.appendChild(row);
+  while (list.children.length > 50) list.removeChild(list.lastChild);
+  document.getElementById("nonotes").hidden = list.children.length > 0;
+}
+
+function arrived(item) {
+  unread.set(item.repo, (unread.get(item.repo) || 0) + 1);
+  addNote(item, true);
+  bell();
+  refreshSoon();
+  if (item.severity !== "info") chime();
+}
+
+function loadNotifications() {
+  return fetch(q("/api/notifications", { limit: 50 })).then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (!data.ok) return;
+      var list = document.getElementById("notes");
+      while (list.firstChild) list.removeChild(list.firstChild);
+      (data.notifications || []).slice().reverse().forEach(function (i) { addNote(i, false); });
+      text(document.getElementById("toaststatus"), "toast: " + (data.toast || "?"));
+      document.getElementById("nonotes").hidden = list.children.length > 0;
+    }).catch(function () { /* the drawer is a convenience; the tiles are the truth */ });
+}
+
+function drawer(open) {
+  var el = document.getElementById("drawer");
+  el.hidden = open === undefined ? !el.hidden : !open;
+  if (!el.hidden) loadNotifications();
+}
+
+document.getElementById("bell").addEventListener("click", function () { drawer(); });
+document.getElementById("closedrawer").addEventListener("click", function () { drawer(false); });
+document.getElementById("clearbell").addEventListener("click", function () {
+  unread.clear();
+  bell();
+});
+document.getElementById("chime").addEventListener("click", function () {
+  chimeOn = !chimeOn;
+  var button = document.getElementById("chime");
+  button.setAttribute("aria-pressed", String(chimeOn));
+  text(button, chimeOn ? "chime on" : "chime off");
+  try { localStorage.setItem("fleet.chime", chimeOn ? "1" : "0"); } catch (e) { /* private window */ }
+  if (chimeOn) chime();                      // and it plays once, so "on" is not taken on trust
+});
+
+try { chimeOn = localStorage.getItem("fleet.chime") === "1"; } catch (e) { chimeOn = false; }
+document.getElementById("chime").setAttribute("aria-pressed", String(chimeOn));
+text(document.getElementById("chime"), chimeOn ? "chime on" : "chime off");

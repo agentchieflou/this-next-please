@@ -13,8 +13,22 @@
   <span class="spacer"></span>
   <label for="theme" class="sr">theme</label>
   <select id="theme" title="page theme"><option value="">system</option></select>
+  <button id="chime" aria-pressed="false" title="sound on a notification">chime off</button>
+  <button id="bell" title="notifications"><span id="bellcount">0</span> new</button>
   <button id="unfocus" hidden>back to grid <kbd>Esc</kbd></button>
 </header>
+
+<aside id="drawer" hidden aria-label="notifications">
+  <div class="drawer-head">
+    <strong>notifications</strong>
+    <span id="toaststatus" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="clearbell">mark all read</button>
+    <button id="closedrawer">close <kbd>n</kbd></button>
+  </div>
+  <ol id="notes"></ol>
+  <p id="nonotes" class="muted">Nothing yet. Only state changes are announced &mdash; never a tool call.</p>
+</aside>
 
 <main id="grid" aria-live="polite"></main>
 
@@ -25,7 +39,7 @@
 <footer>
   <span id="counts"></span>
   <span class="spacer"></span>
-  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus a tile · <kbd>a</kbd> approve · <kbd>Esc</kbd> grid</span>
+  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus a tile · <kbd>a</kbd> approve · <kbd>n</kbd> notifications · <kbd>Esc</kbd> grid</span>
 </footer>
 
 <template id="tile">
@@ -36,6 +50,7 @@
       <span class="chip"></span>
       <span class="ticket"></span>
       <span class="spacer"></span>
+      <span class="badge" hidden title="unread notifications for this agent"></span>
       <span class="age" title="age of the last event"></span>
     </div>
     <p class="why"></p>

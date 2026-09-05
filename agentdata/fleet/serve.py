@@ -32,13 +32,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .. import textio
-from . import agentstate, approval, events as E, supervisor
+from . import agentstate, approval, events as E, notify as N, supervisor
 from .registry import Registry, RegistryError, fleet_dir
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 SERVE_FILE = "serve.json"
 HEARTBEAT_S = 15.0
 TICK_S = 0.4                 # how often the stream looks for new events; a tile must feel live
+NOTIFY_EVERY_S = 5.0         # how often the notification rules run; state changes are not frequent
 MAX_BODY = 64 * 1024
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 
@@ -114,6 +115,20 @@ def act(what: str, body: dict) -> dict:
     raise ServeError(f"unknown action {what!r}", "start | send | stop | approve | deny")
 
 
+def _sweep(url: str) -> list[dict]:
+    """Run the notification rules. Never raises: a notifier that can kill the event stream is worse
+    than one that stays quiet, and the tiles carry the same information either way."""
+    try:
+        from .. import config as C
+
+        return N.sweep(cfg=C.load(), url=url)
+    except Exception:                        # noqa: BLE001 - see the docstring
+        from ..log import debug_exc
+
+        debug_exc("fleet notify sweep")
+        return []
+
+
 def _cursors(raw: str) -> dict:
     """`luna:12,other:4` -> {'luna': 12, 'other': 4}. The SSE resume point, per agent.
 
@@ -129,14 +144,24 @@ def _cursors(raw: str) -> dict:
 
 
 def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float = HEARTBEAT_S,
-                  tick: float = TICK_S, once: bool = False) -> None:
+                  tick: float = TICK_S, once: bool = False, url: str = "",
+                  notify_every: float = NOTIFY_EVERY_S) -> None:
     """Multiplex every agent's new events onto one SSE connection until the client goes away.
 
     `write` raises when the socket closes, which is how this ends -- a browser tab being shut is
     the normal case, not an error.
+
+    The notification sweep (#97) rides on the same loop but at its own, slower cadence: the rules
+    are about state *changes*, which do not happen four times a second, and each sweep writes the
+    dedupe ledger to disk.
     """
     last_beat = 0.0
+    last_sweep = 0.0
     while not stop.is_set():
+        if time.time() - last_sweep >= notify_every:
+            last_sweep = time.time()
+            for item in _sweep(url):
+                write(f"event: notify\ndata: {json.dumps(item, ensure_ascii=False)}\n\n")
         try:
             names = [r.name for r in Registry().sorted()]
         except RegistryError:
@@ -219,6 +244,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, **fleet_snapshot()})
         if route == "/api/themes":
             return self._json({"ok": True, "themes": themes()})
+        if route == "/api/notifications":
+            try:
+                limit = int((query.get("limit") or ["50"])[0])
+            except ValueError:
+                limit = 50
+            from .. import config as C
+
+            return self._json({"ok": True, "notifications": N.read_log(limit),
+                               "toast": N.toast_status(C.load()),
+                               "settings": N.settings(C.load())})
         if route == "/api/events":
             return self._sse(query)
         if route.startswith("/static/"):
@@ -249,8 +284,10 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(chunk.encode("utf-8"))
             self.wfile.flush()
 
+        url = f"http://127.0.0.1:{self.server.server_address[1]}/?t={self.token}"
         try:
-            stream_events(cursors, getattr(self.server, "stopping", threading.Event()), write)
+            stream_events(cursors, getattr(self.server, "stopping", threading.Event()), write,
+                          url=url)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass                              # the tab was closed. Not an error.
         self.close_connection = True
