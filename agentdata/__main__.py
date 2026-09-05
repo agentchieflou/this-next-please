@@ -31,9 +31,10 @@ COMMANDS = {
     "graph": ("agentdata.cli_graph", "main", "code graph extraction, queries, approval, and guard"),
     "test": ("agentdata.cli_test", "main", "repository test runner detection, execution, and normalization"),
     "argv": ("agentdata.cli_argv", "main", "print the argv Python received, and the shell it came from"),
+    "metrics": ("agentdata.cli_metrics", "main", "what the format policy decided, from the local opt-in usage file"),
 }
 # diagnostics: real commands, deliberately absent from the catalog a person reads
-HIDDEN = {"argv"}
+HIDDEN = {"argv", "metrics"}
 USAGE = ("usage: python -m agentdata <command> [options]\n\nSame commands as the ad-* console scripts:\n"
          + "\n".join(f"  {name:<10} ad-{name:<10} {help}"
                      for name, (_m, _f, help) in COMMANDS.items() if name not in HIDDEN)

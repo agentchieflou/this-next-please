@@ -55,6 +55,7 @@ ad-pbiviz = "agentdata.cli_pbiviz:main"
 ad-graph = "agentdata.cli_graph:main"
 ad-test = "agentdata.cli_test:main"
 ad-argv = "agentdata.cli_argv:main"
+ad-metrics = "agentdata.cli_metrics:main"
 
 [tool.setuptools.packages.find]
 include = ["agentdata*"]
