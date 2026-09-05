@@ -135,11 +135,29 @@ class AgentTable:
 
 
 def _coerce(v: str):
+    """Text from a TSV or a tool's stdout, as a number **only when that loses nothing**.
+
+    The round-trip rule is the whole of it: if writing the number back would not reproduce the
+    text, the text was not a number, it was an identifier that happens to be digits. This matters
+    here more than in most places -- the values passing through are cost centres, account numbers,
+    Jira keys and DAX results:
+
+        "007"    was becoming 7        -- a zero-padded code, silently renumbered
+        "1_000"  was becoming 1000     -- Python allows underscores in int literals; nothing else does
+        "+5"     was becoming 5
+        " 5"     was becoming 5        -- and the padding a fixed-width extract relied on was gone
+
+    `"1.50"` now stays text for the same reason: it is a formatting the source chose, and a caller
+    that wants a float from it can say so. Found by `tests/test_props_toon.py`, which has asserted
+    this round trip since #75 while the code did not honour it.
+    """
     if v == "":
         return None
     for t in (int, float):
         try:
-            return t(v)
+            n = t(v)
         except ValueError:
-            pass
+            continue
+        if str(n) == v:
+            return n
     return v
