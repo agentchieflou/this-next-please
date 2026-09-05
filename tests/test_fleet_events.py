@@ -203,23 +203,25 @@ def test_concurrent_writers_never_hand_out_the_same_seq(fleet_home, tmp_path):
 
     repo = make_project(tmp_path / "repo-a")
     Registry().add(repo, name="a")
-    ready = threading.Barrier(6)
+    writers, each = 8, 12
+    total = writers * each
+    ready = threading.Barrier(writers)
 
     def writer(n):
         ready.wait()
-        for i in range(5):
+        for i in range(each):
             E.append("a", [E.event("a", "assistant_text", {"text": f"{n}-{i}"})])
 
-    threads = [threading.Thread(target=writer, args=(n,)) for n in range(6)]
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(writers)]
     for t in threads:
         t.start()
     for t in threads:
-        t.join(timeout=30)
+        t.join(timeout=60)
 
     seqs = [e["seq"] for e in E.read("a")]
-    assert len(seqs) == 30, f"{len(seqs)} of 30 events survived"
-    assert seqs == sorted(seqs) and len(set(seqs)) == 30, "a seq was reused"
-    assert seqs == list(range(1, 31)), "the numbering is not dense"
+    assert len(seqs) == total, f"{len(seqs)} of {total} events survived"
+    assert seqs == sorted(seqs) and len(set(seqs)) == total, "a seq was reused"
+    assert seqs == list(range(1, total + 1)), "the numbering is not dense"
 
 
 def test_a_refresh_racing_an_append_loses_nothing(fleet_home, tmp_path):
@@ -292,6 +294,24 @@ def test_a_busy_stream_never_fails_a_state_save(fleet_home, tmp_path, monkeypatc
 
     S.save({"phase": "blocked"}, os.path.join(repo, ".agent", "state.json"))
     assert json.loads(open(os.path.join(repo, ".agent", "state.json"), encoding="utf-8").read())["phase"] == "blocked"
+
+
+def test_a_lock_that_was_merely_released_is_never_mistaken_for_a_stale_one(fleet_home, tmp_path):
+    """The exact hole CI found. The first version called a missing lock "stale" -- which is what a
+    *released* lock looks like -- and then deleted whatever was at that path. Between the check and
+    the delete another waiter could have taken the lock, so the delete removed a live holder's lock
+    and two writers ran at once: one duplicate `seq` in thirty, on a loaded runner, never locally."""
+    make_project(tmp_path / "repo-a")
+    Registry().add(str(tmp_path / "repo-a"), name="a")
+    path = os.path.join(registry.agent_dir("a"), E.LOCK)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    assert E._age_of(path) == 0.0, "a lock that does not exist must not read as infinitely old"
+    E._steal_if_stale(path)                                       # nothing there: must not raise
+
+    open(path, "w").close()                                       # a live holder, taken just now
+    E._steal_if_stale(path)
+    assert os.path.exists(path), "a fresh lock was stolen from its holder"
 
 
 def test_a_lock_left_by_a_dead_writer_is_stolen(fleet_home, tmp_path):

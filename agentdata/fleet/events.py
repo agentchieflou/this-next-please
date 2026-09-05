@@ -293,8 +293,7 @@ def writing(name: str):
             # opened at all and answers ERROR_ACCESS_DENIED -- a PermissionError, microseconds long,
             # raised by the *release* of the lock we are waiting for. Treating it as fatal turned
             # every busy moment into a crash; it is the ordinary contended case.
-            if _stale_lock(path):
-                _drop(path)
+            _steal_if_stale(path)
             time.sleep(0.01)
     try:
         os.write(fd, f"{os.getpid()} {time.time():.0f}".encode("utf-8"))
@@ -304,11 +303,32 @@ def writing(name: str):
         _drop(path)
 
 
-def _stale_lock(path: str) -> bool:
+def _steal_if_stale(path: str) -> None:
+    """Clear a lock whose holder is gone. Never clear one that is merely *not there*.
+
+    The distinction cost a CI run. The first version returned "stale" when `getmtime` raised --
+    which is what happens when the file has just been released -- and then deleted whatever was at
+    that path. Between those two calls another waiter could have taken the lock, so the delete
+    removed a *live* holder's lock and two writers ran at once. One duplicate `seq` in thirty, on a
+    loaded runner, and never once locally.
+
+    So: a missing file is not stale, it is gone, and the answer is to retry the open. Only a file
+    that is still there and still old is stolen, and its age is re-read immediately before the
+    removal to keep that window as small as it can be made without an atomic compare-and-delete.
+    """
+    if _age_of(path) <= LOCK_STALE_S:
+        return
+    if _age_of(path) <= LOCK_STALE_S:            # re-read: the holder may have just replaced it
+        return
+    _drop(path)
+
+
+def _age_of(path: str) -> float:
+    """Seconds since the lock was taken, or 0 if there is no lock -- never "infinitely old"."""
     try:
-        return time.time() - os.path.getmtime(path) > LOCK_STALE_S
+        return max(0.0, time.time() - os.path.getmtime(path))
     except OSError:
-        return True
+        return 0.0
 
 
 def _drop(path: str) -> None:
