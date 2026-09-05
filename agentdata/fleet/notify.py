@@ -285,14 +285,20 @@ def sweep(*, cfg: dict | None = None, url: str = "", dry_run: bool = False,
 
     for name in names:
         stream = E.read(name)
-        if not stream:
-            continue
-        last = stream[-1].get("seq", 0)
+        last = stream[-1].get("seq", 0) if stream else 0
         if name not in seen:
             # First sight. Attaching to an agent that has been running for an hour must not
             # announce the hour; it must announce what happens next.
+            #
+            # An agent with *no* stream is the other half of that rule and was missing: it has no
+            # history to suppress, so its cursor starts at 0 and its very first event is announced.
+            # Skipping it left no cursor at all, so the next sweep treated it as newly seen and
+            # swallowed the first thing it ever did -- which is the common flow exactly: register a
+            # repository, open the dashboard, *then* start the agent.
             if not dry_run:
                 seen[name] = last
+            continue
+        if not stream:
             continue
         found = scan(name, stream, since_seq=int(seen[name] or 0),
                      idle_minutes=s["idle_minutes"],

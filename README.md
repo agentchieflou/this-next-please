@@ -177,6 +177,8 @@ python -m pytest -q
 | `agentdata/connectors/` | teradata / hive / impala / oracle (native or ODBC DSN), pncli, jira_api (Jira REST on pncli's token), keyring wrapper, probes |
 | `agentdata/sqlcheck/` | dialect pre-flight lint (`ad-sql-check`, auto inside the query commands) |
 | `agentdata/pbip/` | PBIP tooling: TMDL parser/lint/editor, PBIR loader, projection, model↔report validator, Desktop discovery, DAX runner (`ad-pbip`) |
+| `agentdata/fleet/` | `ad-fleet`: several headless agents, one per repository, watched from one page — supervisor, normalized event stream, approval gate, notifications, Jira intake, dashboard ([docs/fleet.md](docs/fleet.md)) |
+| `ide/` | two thin shells that host that page — a JetBrains tool window and a VS Code view. Not part of the Python wheel; built by CI |
 | `agentdata/ui.py` | how the CLI looks to a person: panels, tables and status glyphs via `rich`, and off whenever a machine might be reading |
 | `agentdata/confluence.py` | `ad-confluence`: Markdown → Confluence storage format (XHTML, code macro, entities), XML-validated before it is published |
 | `agentdata/jira_workflow.py` | `ad-jira transition`: resolves "review"/"done" against the transitions Jira offers THIS issue — a Task and a Story have different workflows |

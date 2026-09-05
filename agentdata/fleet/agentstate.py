@@ -53,6 +53,14 @@ class Fold:
             self.last_ts = str(ev["ts"])
         if ev.get("ticket"):
             self.ticket = ev["ticket"]
+        if kind in ("exited", "error"):
+            # A standalone `if`, not part of the chain below, because these two must both close the
+            # turn *and* be classified. A process that ended has no turn in flight, whatever the
+            # last `turn_start` implied -- and without this a crashed agent reads as `running`
+            # forever, since its turn never ended and `turn_open` outranks everything in
+            # `classify`. Reporting a corpse as working is the exact failure the reaper exists to
+            # prevent, and the fold was quietly undoing it.
+            self.turn_open = False
         if kind == "turn_started":
             self.turn_open = True
             # A new turn supersedes what the last one was refused, but not what it asked: a
@@ -104,7 +112,12 @@ def classify(f: Fold, *, live: bool = False) -> dict:
         unblock = (f.frictions[-1].get("data") or {}).get("unblock") or ""
         state, why = "blocked", unblock or "a skill wrote a friction log and stopped"
     elif f.phase == "blocked":
-        state, why = "blocked", "state.json says the phase is blocked"
+        # An agent asking a question sets `phase=blocked --question "…"` in one command, so the
+        # question is usually right here. Preferring it keeps the state honest -- the agent said it
+        # was blocked -- while giving the operator the sentence they can act on instead of
+        # "something is blocked, go and look".
+        state = "blocked"
+        why = f.questions[-1] if f.questions else "state.json says the phase is blocked"
     elif f.denied:
         message = (f.denied[-1].get("data") or {}).get("message") or ""
         state, why = "needs_human", message or "a tool the agent may not run was refused"

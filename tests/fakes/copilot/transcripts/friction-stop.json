@@ -1,0 +1,59 @@
+{
+  "source": "synthesized",
+  "note": "shapes from docs/fleet-spike.md (#92); content invented, because the recorded runs carry a tenant's ticket keys and hostnames",
+  "captured": "2026-09-05",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-friction",
+  "usage": {
+    "premiumRequests": 0.66,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "The acceptance criteria contradict each other.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "ad-state set phase=blocked"
+    },
+    {
+      "write_friction": true
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "I have logged friction and stopped.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ]
+}

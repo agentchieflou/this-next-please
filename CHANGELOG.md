@@ -4,6 +4,30 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## Unreleased
+
+**New: `ad-fleet`.** Several headless Copilot agents, one per repository, watched from one page —
+the answer to "which of these four tickets needs me right now?" without four PyCharm windows.
+`docs/fleet.md` is the front door; `ad-fleet doctor` is where to start when something is wrong.
+
+**Run `ad-setup --patch fleet` only if you intend to use it.** The fleet adds its own settings
+(`fleet.port`, `fleet.notify.*`, `fleet.budget_per_agent`, `fleet.log_mb`), and `--patch fleet`
+re-asks exactly those. Skip it otherwise: with no repositories registered the fleet is inert,
+`ad-doctor` prints one `skip` row for it and runs no extra subprocess, and nothing else in this
+release behaves differently. Optional extra: `pip install "agentdata[fleet-win]"` adds Windows
+toasts.
+
+Two fixes worth reading if you use the data commands:
+
+* **A TSV round trip renumbered zero-padded codes.** Reading back a TSV this package had written
+  turned `"007"` into `7`, `"1_000"` into `1000` and `"+5"` into `5` — cost centres, account numbers
+  and anything else that is digits but not a number. A value is now read as a number only when
+  writing it back reproduces the text exactly, which also means `"1.50"` stays text. If you were
+  relying on numeric coercion of a non-canonical spelling, convert it deliberately.
+* **`ad-state` is unchanged for a person**, and gained one behaviour inside a fleet: it also appends
+  the change to that agent's event stream, gated on two environment markers the supervisor sets.
+  Outside a fleet nothing is written but `state.json`, exactly as before.
+
 ## 0.6.1 — 2026-09-04
 
 **Run `ad-setup --patch` after updating.** This release adds three project facts the new code-graph and

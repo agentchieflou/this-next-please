@@ -89,13 +89,17 @@ def pid_alive(pid: int) -> bool:
 
 
 def live(name: str) -> dict:
-    """The lock, if the process it names is still running; otherwise `{}` and the lock is cleared."""
+    """The lock, if the process it names is still running; otherwise `{}`.
+
+    **A query, and nothing else.** It used to clear a lock whose process was gone, which sounds
+    tidy and was destructive: `lifecycle.reap` reads that lock to find out which ticket the agent
+    died on and where its stderr is, and everything in the fleet calls `live()` constantly. So the
+    first innocent status poll deleted the evidence, and a crashed agent was never reported as
+    anything at all -- it simply stopped existing. Clearing a stale lock is the reaper's job,
+    *after* it has said what happened.
+    """
     lock = read_lock(name)
-    if lock and pid_alive(int(lock.get("pid") or 0)):
-        return lock
-    if lock:
-        clear_lock(name)
-    return {}
+    return lock if lock and pid_alive(int(lock.get("pid") or 0)) else {}
 
 
 # --------------------------------------------------------------------------------- the events

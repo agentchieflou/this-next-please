@@ -367,3 +367,132 @@ CI can hold a file open with a second process; it cannot open PyCharm or Power B
 4. **A deep path.** Create `.agent/out/` nested until the full path passes 260 characters, write a
    TSV there through any `ad-*` command, and read it back. If it fails, paste
    `ad-doctor --quiet --only console` — the `long_paths` row says whether the policy is on.
+
+## Fleet: the laptop pass
+
+Everything below needs a person at the machine, which is why it is here rather than asserted in a
+test. Run it **twice** — once from PowerShell 5.1 and once from Git Bash — because the shells epic
+(#63) exists precisely because those two disagree. Every step says what a good answer looks like;
+if yours differs, paste it into the issue and it becomes a regression test or a fix.
+
+### 0. Before anything
+
+```
+ad-doctor --only fleet
+```
+
+With nothing registered this is one `skip` row, and that is correct. After step 1 it should be
+`copilot`, `login`, `skills`, `dashboard`, `repos`, `toast`, `rules`. A `fail` on `copilot` or
+`login` stops everything else being meaningful — fix it first.
+
+> **Paste back** the whole `checks` table if any row is `fail`.
+
+### 1. Register four repositories
+
+```
+ad-fleet repo add C:/repos/<first>
+ad-fleet repo add C:/repos/<second>
+ad-fleet repo add C:/repos/<third>
+ad-fleet repo add C:/repos/<fourth>
+ad-fleet repo list
+```
+
+Each `repo add` prints `ok: true` with the `jira_project` it read from that repo's `AGENTS.md`. A
+blank `jira_project` means the board panel cannot suggest that repo for anything — fix the
+`AGENTS.md` fact rather than working around it.
+
+### 2. The dashboard
+
+```
+ad-fleet serve --open
+```
+
+Expect one TOON row with a `127.0.0.1` URL and `bound: 127.0.0.1 only`, then a browser with four
+grey tiles. Then, from a **second** shell:
+
+```
+ad-fleet open
+```
+
+> **Expect**: `server: already up`. If a second dashboard starts, `/api/ping` is not answering —
+> paste the row.
+
+### 3. Inside the IDEs
+
+* **VS Code**: `Ctrl+Shift+P` → `Simple Browser: Show` → paste `http://127.0.0.1:8765/open`. The
+  tiles should update live inside the editor. Add the keybinding from
+  [fleet-ide.md](fleet-ide.md) and check it opens the same view.
+* **PyCharm**: Tools → External Tools → agentdata → *fleet: open*. **Then try attempt (b)**: run
+  *fleet: launcher here*, and open the `.agent/fleet.html` it writes with the built-in preview.
+  Does the page appear **inside a tool window**? That answer decides whether the JetBrains plugin
+  is necessary or merely nicer.
+* **The plugin and the extension**, if the artefacts from CI are to hand: install the `.vsix` with
+  *Install from VSIX*, and the plugin zip with *Install Plugin from Disk*.
+
+> **Paste back**: whether the unsigned plugin zip installed at all. If corporate policy refuses it,
+> the JetBrains half is blocked and the External Tool is the answer — that is a finding, not a
+> failure.
+
+### 4. Dispatch four real tickets
+
+Press `b` for the board. It should list your own tickets, each with a suggested repo or a plain
+reason why not.
+
+Choose **four low-stakes tickets**. Drag each onto a tile.
+
+> **Expect**: each tile shows the key and the summary within a second, and the chip turns blue.
+> **Paste back** anything that says `no repo for <PROJ>` if the project really is registered.
+
+### 5. Approve one write
+
+Wait for a tile to turn amber, or drive one deliberately: let an agent reach a Jira transition.
+
+The tile shows the **dry-run payload**. Read it, then click **Approve**.
+
+> **Expect**: the agent continues within a second or two, and the transition really happens in
+> Jira. Check the ticket in a browser.
+> **Paste back** the approval card's payload if what landed in Jira differs from what it showed.
+
+### 6. One toast
+
+With `pip install "agentdata[fleet-win]"` installed, an agent needing you should produce **one**
+Windows toast, and clicking it should focus that tile.
+
+> **Paste back**: whether the toast appeared at all. Corporate notification policy may refuse an
+> app that registers itself at runtime — if so, say which of the fallbacks in
+> [fleet-notifications.md](fleet-notifications.md) is worth building.
+
+### 7. Kill one, and bring it back
+
+Kill one agent's `copilot` process from Task Manager.
+
+```
+ad-fleet status
+ad-fleet restart <repo>
+```
+
+> **Expect**: within a few seconds the tile is red and says `error`; `restart` reports a `session`
+> and the transcript continues rather than beginning the ticket again.
+
+### 8. Quiet is the point
+
+Leave the four agents working for half an hour and do something else.
+
+> **Expect**: **zero** notifications from agents that are simply working. If a toast arrives for a
+> tool call, paste `ad-fleet notify tail` — the rule that fired is a bug.
+
+### 9. The end of the day
+
+```
+ad-fleet history --since 1d
+ad-fleet stop --all
+ad-fleet gc
+```
+
+> **Expect**: one row per dispatch with a state and a cost; `stop --all` reports each agent; `gc`
+> removes only rotated logs.
+
+### What to attach to the issue
+
+The output of `ad-doctor --only fleet`, the `ad-fleet status` table with four agents running, one
+screenshot of four live tiles in one window, and any row that differed from what is written above.

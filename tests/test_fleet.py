@@ -221,14 +221,26 @@ def test_a_second_start_is_refused_while_an_agent_is_live(fleet_home, tmp_path, 
 
 
 def test_a_stale_lock_does_not_block_the_repo_forever(fleet_home, tmp_path, monkeypatch):
-    """A supervisor that crashed must not leave the repo unusable."""
+    """A supervisor that crashed must not leave the repo unusable.
+
+    `live()` reports the lock is dead but no longer *deletes* it, and the difference matters: the
+    lock says which ticket the agent died on and where its stderr is, and `lifecycle.reap` needs
+    both to say what happened. Deleting it here meant the first innocent status poll destroyed the
+    evidence and a crash was reported as nothing at all. So: `live()` answers, `reap` clears, and
+    the repo is startable either way -- which is what this test is actually about.
+    """
+    from agentdata.fleet import lifecycle
+
     repo = make_project(tmp_path / "repo-a")
     Registry().add(repo, name="a")
-    supervisor.write_lock("a", {"pid": 999999, "repo": "a"})
+    supervisor.write_lock("a", {"pid": 999999, "repo": "a", "ticket": "RDSD-1"})
     monkeypatch.setattr(supervisor, "pid_alive", lambda pid: False)
 
     assert supervisor.live("a") == {}
-    assert not os.path.isfile(supervisor.lock_path("a")), "the stale lock was not cleared"
+    assert supervisor.read_lock("a")["ticket"] == "RDSD-1", "the evidence was destroyed by a query"
+
+    lifecycle.reap("a")
+    assert not os.path.isfile(supervisor.lock_path("a")), "the reaper did not clear the stale lock"
 
 
 def test_starting_a_different_ticket_mid_ticket_is_refused_without_force(fleet_home, tmp_path):
