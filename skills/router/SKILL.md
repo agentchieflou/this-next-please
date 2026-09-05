@@ -18,6 +18,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 | Hive, Hadoop, Impala, Spark table | `hive-query` |
 | Oracle | `oracle-query` |
 | DPM run, hand back / handoff, orchestrator.db, selection manifest, text_analysis, job manifest, OCR routing, native text | `dpm-consumer-integration` |
+| extract named fields from DPM documents ("pull the borrower and amount out of these"), per-job field list | `dpm-field-extraction` |
 | Power BI, PBIP, report, visual, model, DAX, measure, TMDL | `pbi-router` |
 | sbatch, cluster job, schedule | `slurm-submit` |
 | map the codebase, how does this repo work, what calls what, unfamiliar code | `codebase-map` |
