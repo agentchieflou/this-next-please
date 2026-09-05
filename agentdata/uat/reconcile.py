@@ -8,13 +8,15 @@ from typing import Any
 
 from ..model import AgentTable
 
-CLASSES = ("report-bug", "history-gap", "lag", "mapping-bug", "expectation-wrong", "missing", "unexplained")
-TIER_ORDER = ("jira", "hist", "pbi")
+CLASSES = ("report-bug", "history-gap", "lag", "mapping-bug", "warehouse-drift", "expectation-wrong",
+           "missing", "unexplained")
+TIER_ORDER = ("jira", "hist", "hist2", "pbi")
 DEFINITION = {
     "report-bug": "Power BI disagrees with the warehouse while the warehouse matches Jira: the model or report logic is wrong",
     "history-gap": "the warehouse has no history rows (or null points) covering the window for this key: it cannot reproduce live Jira",
     "lag": "the warehouse is behind: its last change for this key predates the window end",
     "mapping-bug": "history covers the window but disagrees with live Jira: a mapping/transformation defect in the load",
+    "warehouse-drift": "the two warehouses disagree with each other: the migration between them has not reproduced this value, whatever either says about Jira",
     "expectation-wrong": "every available tier agrees; the expected value in the document is wrong",
     "missing": "the key exists in only one tier",
     "unexplained": "tiers disagree and the evidence needed to classify is missing (supply --hist-coverage / a history tier)",
@@ -24,6 +26,7 @@ RECOMMENDATION = {
     "history-gap": "report the gap to the data owner; do not patch the warehouse or the report to match",
     "lag": "re-run after the next load or narrow the window to the last loaded timestamp",
     "mapping-bug": "raise a load defect with the 3 example keys; keep Jira as the truth in the findings",
+    "warehouse-drift": "raise a migration defect against the platform that disagrees with Jira; if both do, the load is common to them and Jira is still the truth",
     "expectation-wrong": "reply to the requester with the reproduced numbers and the tier that produced them",
     "missing": "check scope (JQL / WHERE clause) and the join key on each side",
     "unexplained": "provide the coverage TSV (references/uat-sql-templates.md) and re-run",
@@ -65,8 +68,10 @@ def _ts(v) -> _dt.datetime | None:
 
 
 def classify(key: str, col: str, exp, t1, t2, t3, cov_row: dict | None, coverage_given: bool, window_end: _dt.datetime | None, tol: float,
-             hist_present: bool = False) -> tuple[str, str, Any]:
-    present = {k: v for k, v in (("jira", t1), ("hist", t2), ("pbi", t3)) if v is not None}
+             hist_present: bool = False, t2b=None, hist2_name: str = "hist2") -> tuple[str, str, Any]:
+    """`t2b` is the optional second warehouse history. Keyword-only in practice and defaulted, so
+    every existing caller -- the 2-tier and 4-tier ones -- behaves exactly as before."""
+    present = {k: v for k, v in (("jira", t1), ("hist", t2), ("hist2", t2b), ("pbi", t3)) if v is not None}
     truth_tier = next((k for k in TIER_ORDER if k in present), None)
     truth = present.get(truth_tier) if truth_tier else None
     vals = list(present.values())
@@ -76,6 +81,15 @@ def classify(key: str, col: str, exp, t1, t2, t3, cov_row: dict | None, coverage
     if hist_present and t2 is None and t1 is not None:
         nulls = (cov_row or {}).get("points_null")
         return "history-gap", f"jira {t1} but the history row has no value" + (f" (points_null={nulls})" if nulls not in (None, "") else ""), truth
+    # Checked before the Jira comparisons: when two warehouses disagree with each other, that is
+    # the finding -- a migration that has not reproduced the value. Reporting it as "hist disagrees
+    # with Jira" would name one platform and hide that the other one differs too.
+    if t2 is not None and t2b is not None and not eq(t2, t2b, tol):
+        agrees = [n for n, v in (("hist", t2), (hist2_name, t2b)) if t1 is not None and eq(v, t1, tol)]
+        detail = f"hist {t2} vs {hist2_name} {t2b}"
+        if t1 is not None:
+            detail += f"; jira {t1}" + (f" agrees with {agrees[0]}" if agrees else " agrees with neither")
+        return "warehouse-drift", detail, truth
     if t3 is not None and t2 is not None and not eq(t3, t2, tol) and (t1 is None or eq(t2, t1, tol)):
         return "report-bug", f"pbi {t3} vs hist {t2}", truth
     if t1 is not None and t2 is not None and not eq(t2, t1, tol):
@@ -97,11 +111,12 @@ def classify(key: str, col: str, exp, t1, t2, t3, cov_row: dict | None, coverage
 
 
 def reconcile(*, expected: AgentTable | None, jira: AgentTable | None, hist: AgentTable | None, pbi: AgentTable | None,
-              key: str, cols: list[str], window: tuple[str, str] | None = None, coverage: AgentTable | None = None, tol: float = 0.0) -> dict:
-    tiers = {"expected": expected, "jira": jira, "hist": hist, "pbi": pbi}
+              key: str, cols: list[str], window: tuple[str, str] | None = None, coverage: AgentTable | None = None,
+              tol: float = 0.0, hist2: AgentTable | None = None, hist2_name: str = "hist2") -> dict:
+    tiers = {"expected": expected, "jira": jira, "hist": hist, "hist2": hist2, "pbi": pbi}
     given = [k for k, v in tiers.items() if v is not None]
     if len(given) < 2:
-        raise ValueError("reconcile needs at least two of --expected/--jira/--hist/--pbi")
+        raise ValueError("reconcile needs at least two of --expected/--jira/--hist/--hist2/--pbi")
     for k, t in tiers.items():
         if t is not None and key not in t.columns:
             raise ValueError(f"key '{key}' missing in {k} (columns: {', '.join(t.columns[:8])})")
@@ -123,15 +138,18 @@ def reconcile(*, expected: AgentTable | None, jira: AgentTable | None, hist: Age
             exp = _val(expected, idx["expected"].get(k), col)
             t1 = _val(jira, idx["jira"].get(k), col)
             t2 = _val(hist, idx["hist"].get(k), col)
+            t2b = _val(hist2, idx["hist2"].get(k), col)
             t3 = _val(pbi, idx["pbi"].get(k), col)
-            cls, note, truth = classify(k, col, exp, t1, t2, t3, cov_rows.get(k), coverage is not None, window_end, tol, hist_present=k in idx["hist"])
+            cls, note, truth = classify(k, col, exp, t1, t2, t3, cov_rows.get(k), coverage is not None, window_end, tol,
+                                        hist_present=k in idx["hist"], t2b=t2b, hist2_name=hist2_name)
             counts[cls] += 1
             if cls != "ok":
-                findings.append({"key": k, "col": col, "class": cls, "expected": exp, "jira": t1, "hist": t2, "pbi": t3, "truth": truth, "note": note})
+                findings.append({"key": k, "col": col, "class": cls, "expected": exp, "jira": t1, "hist": t2,
+                                 "hist2": t2b, "pbi": t3, "truth": truth, "note": note})
     order = {c: i for i, c in enumerate(CLASSES)}
     findings.sort(key=lambda f: (order.get(f["class"], 99), f["key"], f["col"]))
     return {"counts": counts, "findings": findings, "tiers": given, "keys_total": len(keys), "compared": len(keys) * len(cols), "key": key, "cols": cols,
-            "window": list(window) if window else None}
+            "window": list(window) if window else None, "hist2_name": hist2_name}
 
 
 def findings_md(result: dict, ticket: str, max_lines: int = 40) -> str:
@@ -152,8 +170,13 @@ def findings_md(result: dict, ticket: str, max_lines: int = 40) -> str:
         if c == "history-gap":
             title += " **The Teradata history cannot reproduce live Jira for these keys: report the number, do not patch the warehouse or the report to match.**"
         body += ["", title]
+        second = result.get("hist2_name", "hist2")
         for f in [x for x in result["findings"] if x["class"] == c][:examples]:
-            body.append(f"- {f['key']} {f['col']}: expected {_fmt(f['expected'])} · jira {_fmt(f['jira'])} · hist {_fmt(f['hist'])} · pbi {_fmt(f['pbi'])} — {f['note']}")
+            row = (f"- {f['key']} {f['col']}: expected {_fmt(f['expected'])} · jira {_fmt(f['jira'])} · "
+                   f"hist {_fmt(f['hist'])}")
+            if "hist2" in f and f.get("hist2") is not None:
+                row += f" · {second} {_fmt(f['hist2'])}"
+            body.append(row + f" · pbi {_fmt(f['pbi'])} — {f['note']}")
     lines = head + body + rec
     return "\n".join(lines[:max_lines]).rstrip() + "\n"
 

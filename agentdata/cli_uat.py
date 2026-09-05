@@ -15,6 +15,7 @@ from .uat import expect as X
 from .uat import plan as PL
 from .uat import jira_sql as JQ
 from .uat import jira_vs_source as JV
+from .uat import jira_vs_warehouses as JW
 from .uat import reconcile as R
 
 
@@ -58,7 +59,9 @@ def _read(path: str | None, name: str) -> AgentTable | None:
 
 def cmd_reconcile(a) -> int:
     window = tuple(a.window.split(",", 1)) if a.window and "," in a.window else None
-    res = R.reconcile(expected=_read(a.expected, "expected"), jira=_read(a.jira, "jira"), hist=_read(a.hist, "hist"), pbi=_read(a.pbi, "pbi"),
+    res = R.reconcile(expected=_read(a.expected, "expected"), jira=_read(a.jira, "jira"), hist=_read(a.hist, "hist"),
+                      hist2=_read(getattr(a, "hist2", None), "hist2"),
+                      hist2_name=getattr(a, "hist2_name", None) or "hist2", pbi=_read(a.pbi, "pbi"),
                       key=a.key, cols=[c.strip() for c in a.cols.split(",") if c.strip()], window=window,
                       coverage=_read(a.hist_coverage, "coverage"), tol=a.tol)
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -91,6 +94,46 @@ def cmd_reconcile(a) -> int:
         print(toon.table("findings", ["key", "col", "class", "expected", "jira", "hist", "pbi", "truth", "note"],
                          [[f[c] for c in ("key", "col", "class", "expected", "jira", "hist", "pbi", "truth", "note")] for f in shown]))
     return 0
+
+
+def cmd_jira_vs_warehouses(a) -> int:
+    """Live Jira against **two** warehouse histories, and the two warehouses against each other.
+
+    Not the single-engine flow run twice. The business question behind it is migration parity --
+    *do the two platforms agree* -- and that is a comparison neither single run can make.
+    """
+    window = tuple(a.window.split(",", 1)) if a.window and "," in a.window else None
+    if not window:
+        print(error("no window", "--window <start>,<end> in YYYY-MM-DD", "ad-uat"))
+        return 2
+    sources = [x.strip() for x in a.sources.split(",") if x.strip()]
+    if len(sources) != 2:
+        print(error(f"--sources needs exactly two engines, got {len(sources)}",
+                    "e.g. --sources teradata,hive -- for one engine use `ad-uat jira-vs-source`",
+                    "ad-uat"))
+        return 2
+    if sources[0] == sources[1]:
+        print(error("--sources names the same engine twice",
+                    "the comparison is between two platforms; one of them is `jira-vs-source`",
+                    "ad-uat"))
+        return 2
+
+    fields = [f.strip() for f in (a.fields or "status,assignee").split(",") if f.strip()]
+    res = JW.run(ticket=a.ticket, sources=sources, jql=a.jql, window=window, fields=fields,
+                 sql_dir=a.sql_dir, plan_only=a.plan_only, max_results=a.max_results,
+                 tol=a.tol)
+    meta = {"ok": True, "source": "ad-uat jira-vs-warehouses", "ticket": res["ticket"],
+            "engines": ",".join(res["sources"]), "window": res["window"], "sql": res["sql"]}
+    if a.plan_only:
+        meta["plan_only"] = True
+        meta["next"] = res["next"]
+        return _emit_uat(meta)
+    meta.update({k: res[k] for k in ("live_rows", "matched", "findings")})
+    meta["counts"] = " · ".join(f"{c} {n}" for c, n in res["counts"].items() if n and c != "ok")
+    meta["drift"] = res["counts"].get("warehouse-drift", 0)
+    if res.get("warnings"):
+        meta["warning"] = "; ".join(res["warnings"])
+    return _emit_uat(meta)
 
 
 def cmd_jira_vs_source(a) -> int:
@@ -154,10 +197,30 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_plan)
     p = sub.add_parser("reconcile", help="compare tiers and classify every (key, metric)")
     p.add_argument("--expected"); p.add_argument("--jira"); p.add_argument("--hist"); p.add_argument("--pbi")
+    p.add_argument("--hist2", help="a second warehouse history tier: enables the warehouse-vs-warehouse comparison")
+    p.add_argument("--hist2-name", dest="hist2_name",
+                   help="what to call it in the findings (default hist2); use the engine, e.g. hive")
     p.add_argument("--key", required=True); p.add_argument("--cols", required=True); p.add_argument("--window"); p.add_argument("--hist-coverage")
     p.add_argument("--tol", type=float, default=0.0); p.add_argument("--ticket", default="uat"); p.add_argument("--show", type=int, default=20)
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_reconcile)
+    p = sub.add_parser("jira-vs-warehouses",
+                       help="live Jira vs TWO warehouse histories, including whether the two "
+                            "warehouses agree with each other (migration parity)")
+    p.add_argument("--sources", required=True,
+                   help="exactly two engines, comma-separated, e.g. teradata,hive")
+    p.add_argument("--ticket", required=True)
+    p.add_argument("--jql", required=True, help="the live scope, from the ticket's criteria")
+    p.add_argument("--window", required=True, help="start,end (YYYY-MM-DD)")
+    p.add_argument("--fields", default="status,assignee")
+    p.add_argument("--tol", type=float, default=0.0, help="numeric tolerance when comparing values")
+    p.add_argument("--max-results", type=int, default=2000, dest="max_results")
+    p.add_argument("--sql-dir", default=os.path.join(".agent", "sql"), dest="sql_dir")
+    p.add_argument("--plan-only", action="store_true", dest="plan_only",
+                   help="write and lint both SQL files, run nothing")
+    p.add_argument("--pretty", action="store_true", help="draw it for a person to read")
+    p.set_defaults(fn=cmd_jira_vs_warehouses)
+
     p = sub.add_parser("jira-vs-source",
                        help="live Jira vs Jira history in a warehouse: generate the SQL, run both "
                             "sides, diff, and write the findings")

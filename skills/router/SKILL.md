@@ -12,6 +12,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 |---|---|
 | a ticket key, "triage", "what's next", acceptance criteria | `jira-triage` |
 | UAT, remediation, "compare Jira to Teradata / Hadoop / Hive / Impala" (status/assignee lists) | `uat-jira-vs-source` |
+| UAT across **two** warehouses at once, migration or cutover parity ("do Teradata and Hadoop agree") | `uat-jira-vs-warehouses` |
 | sprint report, committed / completed points, changelog, field history, "when did … change" | `jira-changelog` |
 | query, count, rows, table, SQL (Teradata) | `teradata-query` |
 | Hive, Hadoop, Impala, Spark table | `hive-query` |
