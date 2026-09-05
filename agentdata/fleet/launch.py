@@ -5,12 +5,19 @@ documentation. The command line is a value, not a side effect: `ad-fleet status 
 prints it, allow-list and all, because "what may this agent do" should be answerable without
 reading the supervisor.
 
-**Prefix matching is the whole design constraint.** `--allow-tool 'shell(git)'` permits `git` and
-everything that can follow it -- measured. That cuts both ways, and the deny-list cuts the *same*
-way: `shell(git push --force)` does not match `git push -u origin HEAD --force`, because a deny is a
-prefix too, not a substring. So a deny can never be a safety net for a loose allow. The allow-list
-has to be tight enough that the dangerous continuation cannot be appended in the first place, and
-the denies below are a second line for the spellings that start the same way.
+**The allow-list is the boundary. The deny-list is not, and cannot be.** Two measurements say so:
+
+* `--allow-tool 'shell(git)'` is a PREFIX match, so it permits `git` and everything that can follow
+  it. A deny is a prefix too -- `shell(git push --force)` does not match
+  `git push -u origin HEAD --force` -- so a deny can never be a safety net for a loose allow.
+* Run with no allow-list and asked to write a file, the CLI *denied* its own `apply_patch` tool
+  and denied `Set-Content`, then *allowed* a .NET file-write call made from inside PowerShell, and
+  the file was written. The model tried four spellings before one passed. See docs/fleet-spike.md.
+
+So the allow-list is an enumerated whitelist, narrow enough that no dangerous continuation can be
+appended, and the denies below are a second line against near-miss spellings -- never the boundary.
+Anything that must be *refused* rather than merely un-allowed belongs in the `ad-*` command that
+performs it, where a refusal is a return value rather than a guess about a command string.
 """
 from __future__ import annotations
 import os

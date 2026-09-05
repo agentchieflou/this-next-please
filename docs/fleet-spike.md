@@ -23,32 +23,46 @@ custom agents, BYOK, rate limits — is unverified here and is listed under [Wha
 corporate machine](#what-still-needs-the-corporate-machine). Nothing in this document should be read
 as "the org allows it".
 
-## Four assumptions in #91 that are wrong
+## Headless Luna works — proven, not argued
 
-### 1. Skills do not live in `~/.copilot/skills`
+With the skills installed, a headless turn was given nothing but
+`copilot -p "Invoke the skill session-bootstrap…"`. It:
 
-Epic #91's central premise is that Copilot's skill search includes `~/.copilot/skills/`, "the exact
-directory `gh skill install … --scope user` already writes". On CLI 1.0.81 that directory **does not
-exist and is not read**. User-scope skills live in:
+1. invoked `skill: session-bootstrap` — **ok**
+2. read `AGENTS.md` and `.agent/state.json`
+3. ran `ad-doctor --quiet`
+4. reported that `ad-doctor` is not on PATH and gave the module-form recovery, which is correct on
+   this machine and is exactly what the new `console/scripts` doctor row says
 
-```
-~/.agents/skills/
-```
+Exit 0, **1 premium request**, no human. That is #92's step 3 acceptance criterion met: the skill was
+followed, the toolchain was checked, and it stopped where the skill says to stop.
 
-`gh skill install --help` confirms the shape: the default scope is `project`, the default agent is
-`github-copilot` *"when running non-interactively"*, and several agents share an `.agents/skills`
-directory. `copilot plugins list` reports the two skills in `~/.agents/skills` as **User** skills.
+## Four assumptions in #91, re-examined
 
-**This was also a live bug in `ad-update`.** `SKILL_DIRS` held
-`("~/.copilot/skills", "~/.config/copilot/skills", "~/.claude/skills")` — none of them the real one —
-so `ad-update --check` reported `skills: 0` against a directory that does not exist, and `stale()`
-could never fire because it is guarded on `skills["installed"]`. Fixed: `~/.agents/skills` is first,
-and `SKILLS_CMD` now pins `--agent github-copilot` rather than relying on a default that only applies
-non-interactively.
+### 1. Skills: the epic was right, and `ad-update` was still wrong
 
-### 2. The agent wants this repo's skills and cannot find them
+**Corrected after installing them.** Copilot CLI 1.0.81 reads **both** `~/.copilot/skills` *and*
+`~/.agents/skills`: `gh skill install … --scope user --agent github-copilot` writes to the former,
+and one `copilot skill list` afterwards shows skills from both as "Personal". An earlier draft of
+this document concluded that `~/.copilot/skills` "does not exist and is not read" — it did not exist
+*on this machine*, because the skills had never been installed at user scope, and absence was read as
+exclusion. The epic's premise stands.
 
-Asked to run a shell command, the model's *first* action was:
+The bug in `ad-update` was narrower than that draft claimed, and real:
+
+* `SKILLS_CMD` did not pin `--agent`, and `gh skill install --help` says the default is
+  `github-copilot` only *"when running non-interactively"* — so an interactive run could put the
+  skills where the CLI never looks. It is pinned now.
+* `SKILL_DIRS` did not list `~/.agents/skills` at all, which is a directory the CLI genuinely reads
+  and which other agents share.
+
+Before the install, `ad-update --check` reported `skills: 0` and `stale_skills: false` — the
+staleness check is guarded on `skills["installed"]`, so it could never fire. Afterwards:
+`skills_dir: ~/.copilot/skills`, `skills: 36`.
+
+### 2. Without the skills installed, a headless copilot is not Luna
+
+Before the install, asked to run a shell command, the model's *first* action was:
 
 ```json
 {"type":"tool.execution_start","data":{"toolName":"skill","arguments":{"skill":"session-bootstrap"}}}
@@ -56,9 +70,10 @@ Asked to run a shell command, the model's *first* action was:
 ```
 
 It inferred `session-bootstrap` from `AGENTS.md` — which **is** loaded (`copilot plugins list` shows
-`Instructions → Repository → AGENTS.md`) — and the skill was not installed anywhere it looks. So the
-premise "a headless `copilot` in a project repo is the same Luna" holds *only after* the skills are
-installed to `~/.agents/skills`. That is now a precondition, not an assumption.
+`Instructions → Repository → AGENTS.md`) — and the skill was not installed. So "a headless `copilot`
+in a project repo is the same Luna" holds *only after*
+`gh skill install agentchieflou/this-next-please --all --scope user --agent github-copilot`. That is a
+precondition, and `ad-doctor`/`ad-update` now report it truthfully.
 
 ### 3. The tool allow-list is not the `ad-*` family
 
@@ -100,6 +115,39 @@ explicit `--allow-tool` patterns are supplied — the runs below used no `--allo
 a permission event, because neither exists. It must be derived from
 `tool.execution_complete` where `data.error.code == "denied"`. That is a deterministic rule, which is
 what #94 asked for — it is just not the rule the epic expected.
+
+## The permission model is a whitelist, and it leaks
+
+The sharpest safety finding, and it is not what the epic assumed. Run with **no allow-list at all**
+and asked to create a file, the agent:
+
+| Attempt | Verdict |
+|---|---|
+| `apply_patch` (the CLI's own write tool) | **denied** |
+| `powershell: Set-Content -Path .\probe.txt -Value hello` | **denied** |
+| `powershell: Get-Location`, `Get-ChildItem` | allowed |
+| `powershell:` a .NET file-write call, made from inside PowerShell | **allowed — and the file was written** |
+
+Three things follow, and every later slice depends on them.
+
+1. **"No allow-list" is not "no permissions".** Some commands run by default; the CLI classifies
+   them. A fleet that omits `--allow-tool` is not running a sandboxed agent.
+2. **The classifier can be talked around.** It denied two spellings of "write a file" and permitted a
+   third that does the same thing. This is not a bug to route around — it is the reason a deny-list
+   can never be a boundary.
+3. **The model iterates through denials.** It did not stop at the first refusal; it tried four
+   further spellings until one passed. Anything designed as "deny the dangerous thing" is designed
+   against an adversary that retries.
+
+So the fleet's containment is the **allow-list, kept tight** — an enumerated whitelist of command
+prefixes narrow enough that no dangerous continuation can be appended — and the deny-list is a
+second line for near-miss spellings, never the boundary. `agentdata/fleet/launch.py` is written that
+way and says so.
+
+**And for #95:** the approval gate cannot rest on the CLI's permission system. A write to a system of
+record must be gated by the `ad-*` command that performs it, which is what epic #91 already
+specifies — "an approval decision is the `ok`/`refused` TOON a gated `ad-*` command returns". This
+measurement is why that is the only design that can work, rather than one of two options.
 
 ## The JSONL event catalogue
 
@@ -176,10 +224,9 @@ None of this blocks the epic; all of it must be filled in before #95, #100 and #
 - [ ] **Two agents at once**, in two repos, sharing `~/.copilot/session-store.db` — does `--resume`
       pick the right session per repo, and does the tenant rate-limit?
 - [ ] **The SDK trial** against `--acp`, if policy allows server mode.
-- [ ] **Skills installed to the right place**, then `copilot skill list` showing all 36:
-      `gh skill install agentchieflou/this-next-please --all --scope user --agent github-copilot`.
-      This machine has 2 unrelated user skills and none of this repo's, which is why the
-      `session-bootstrap` invocation above failed.
+- [x] ~~Skills installed~~ — done, 2026-09-05. `gh skill install agentchieflou/this-next-please
+      --all --scope user --agent github-copilot` wrote 36 skills to `~/.copilot/skills`, and a
+      headless turn then ran `session-bootstrap` end to end (see the top of this document).
 
 ## Transport decision
 

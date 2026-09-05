@@ -154,22 +154,27 @@ def test_newest_is_the_newest_skill_not_the_first_alphabetically(tmp_path):
 
 
 def test_the_skills_directory_is_where_the_agent_actually_reads(tmp_path, monkeypatch):
-    """`~/.agents/skills` is first, and the install command pins the agent.
+    """Both directories the agent reads are listed, and the install command pins the agent.
 
-    Measured for the #92 fleet spike on Copilot CLI 1.0.81: user-scope skills live in
-    `~/.agents/skills`, and none of the three directories this list used to hold was it. The symptom
-    was silent -- `ad-update --check` reported `skills: 0` against a directory that does not exist,
-    so `stale()` could never fire, and a headless agent that asked for `session-bootstrap` got a bare
-    "failure" because the skill was not installed anywhere it looks. See docs/fleet-spike.md.
+    Measured for the #92 fleet spike on Copilot CLI 1.0.81, by installing and looking: it reads
+    `~/.copilot/skills` **and** `~/.agents/skills`, and
+    `gh skill install --scope user --agent github-copilot` writes to the first. `--agent` is pinned
+    because `gh` only defaults to `github-copilot` "when running non-interactively", so an
+    interactive run could put the skills where the CLI never looks.
+
+    Getting this wrong failed silently: `ad-update --check` reported `skills: 0`, so `stale()` --
+    guarded on `skills["installed"]` -- could never fire, and a headless agent asking for
+    `session-bootstrap` got a bare "failure". See docs/fleet-spike.md.
     """
-    assert U.SKILL_DIRS[0] == "~/.agents/skills", U.SKILL_DIRS
+    assert U.SKILL_DIRS[0] == "~/.copilot/skills", U.SKILL_DIRS
+    assert "~/.agents/skills" in U.SKILL_DIRS, U.SKILL_DIRS
     assert "--agent" in U.SKILLS_CMD and "github-copilot" in U.SKILLS_CMD, U.SKILLS_CMD
 
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    skill = tmp_path / ".agents" / "skills" / "session-bootstrap"
+    skill = tmp_path / ".copilot" / "skills" / "session-bootstrap"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: session-bootstrap\n---\n", encoding="utf-8")
 
-    assert U.skills_dir().replace("\\", "/").endswith(".agents/skills")
+    assert U.skills_dir().replace("\\", "/").endswith(".copilot/skills")
     assert U.skills_state()["installed"] == 1

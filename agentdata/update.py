@@ -36,13 +36,12 @@ SKILL_SPEC = "agentchieflou/this-next-please"
 # could put the skills somewhere the CLI never reads.
 SKILLS_CMD = ["gh", "skill", "install", SKILL_SPEC, "--all", "--scope", "user",
               "--agent", "github-copilot"]
-# Where an agent actually reads user-scope skills. `~/.agents/skills` is FIRST because it is where
-# Copilot CLI 1.0.81 looks and where `gh skill install --scope user --agent github-copilot` writes --
-# measured on the laptop for the #92 spike, and none of the three directories this tuple used to hold
-# were it. The symptom was silent: `ad-update --check` reported `skills: 0` against
-# `~/.copilot/skills`, the staleness check could never fire, and a headless agent that tried to
-# invoke `session-bootstrap` got "failure" because the skill was not installed anywhere it looks.
-SKILL_DIRS = ("~/.agents/skills", "~/.copilot/skills", "~/.config/copilot/skills", "~/.claude/skills")
+# Where an agent reads user-scope skills. Copilot CLI 1.0.81 reads **both** `~/.copilot/skills` and
+# `~/.agents/skills` -- measured for the #92 spike by installing into the first and watching skills
+# from both appear in one `copilot skill list`. `~/.copilot/skills` is first because that is where
+# `SKILLS_CMD` below writes; `~/.agents/skills` is second because other agents share it and a laptop
+# can legitimately have skills in either.
+SKILL_DIRS = ("~/.copilot/skills", "~/.agents/skills", "~/.config/copilot/skills", "~/.claude/skills")
 STALE_DAYS = 1.0
 TAIL_LINES = 15
 # `gh skill install` exits 1 when any skill already exists and names them on one line
