@@ -5,25 +5,53 @@
   "version": "0.1.0",
   "publisher": "agentdata",
   "license": "MIT",
-  "engines": { "vscode": "^1.90.0" },
-  "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentchieflou/this-next-please.git"
+  },
+  "homepage": "https://github.com/agentchieflou/this-next-please/blob/main/docs/fleet-ide.md",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
-        { "id": "fleet", "title": "Fleet", "icon": "media/fleet.svg" }
+        {
+          "id": "fleet",
+          "title": "Fleet",
+          "icon": "media/fleet.svg"
+        }
       ]
     },
     "views": {
       "fleet": [
-        { "id": "fleet.dashboard", "name": "Dashboard", "type": "webview" }
+        {
+          "id": "fleet.dashboard",
+          "name": "Dashboard",
+          "type": "webview"
+        }
       ]
     },
     "commands": [
-      { "command": "fleet.open", "title": "Fleet: Open the dashboard" },
-      { "command": "fleet.start", "title": "Fleet: Start an agent on a ticket" },
-      { "command": "fleet.reload", "title": "Fleet: Reload the dashboard" }
+      {
+        "command": "fleet.open",
+        "title": "Fleet: Open the dashboard"
+      },
+      {
+        "command": "fleet.start",
+        "title": "Fleet: Start an agent on a ticket"
+      },
+      {
+        "command": "fleet.reload",
+        "title": "Fleet: Reload the dashboard"
+      }
     ],
     "configuration": {
       "title": "agentdata fleet",

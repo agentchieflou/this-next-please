@@ -156,6 +156,40 @@ def test_both_shells_ping_before_starting_a_second_server():
         assert "startServer" in body
 
 
+# --------------------------------------------------------------------- nothing mangled them
+
+
+# What each language actually accepts after a backslash in a string literal. A regex literal has
+# its own alphabet and is skipped.
+KOTLIN_ESCAPES = set("tbnr'\"\\$u")
+TS_ESCAPES = set("tbnrfv'\"\\`0xu")
+REGEXY = ("Regex(", "RegExp(", "= /", "(/", "split(/", "match(/", "replace(/")
+
+
+def test_no_source_carries_a_broken_escape():
+    """A fast pre-filter for one specific way these files get damaged.
+
+    Writing a file through a heredoc in some tooling eats one level of backslash, so a regex like
+    `[0-9]+` written as a shorthand class arrives with its backslash gone. Kotlin rejects the
+    result outright; TypeScript quietly reinterprets it. The Kotlin's only other check is a
+    ten-minute CI job, so a one-second local one earns its place -- this exact fault reached CI.
+
+    **It catches invalid escape *letters* and nothing more.** A mangled char literal like
+    `replace('<backslash>', '/')` still looks like a legal escaped quote to any check this cheap,
+    and only the compiler sees it. That case is CI's; this is the one that fails in a second.
+    """
+    problems = []
+    for path, body in shell_sources().items():
+        allowed = KOTLIN_ESCAPES if path.endswith(".kt") else TS_ESCAPES
+        for number, line in enumerate(body.splitlines(), 1):
+            if any(marker in line for marker in REGEXY):
+                continue
+            for match in re.finditer(r"\\(.)", line):
+                if match.group(1) not in allowed:
+                    problems.append(f"{path}:{number}: backslash-{match.group(1)}")
+    assert not problems, "escape sequences no compiler here would accept:\n  " + "\n  ".join(problems)
+
+
 # ------------------------------------------------------------------- the packaging is coherent
 
 
