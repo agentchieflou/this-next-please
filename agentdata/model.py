@@ -3,6 +3,7 @@ import csv, io, json, os, time, uuid
 from dataclasses import dataclass, field
 from .textio import read_text
 from typing import Any
+from . import textio
 
 OUT_DIR = os.environ.get("AGENTDATA_OUT", os.path.join(".agent", "out"))
 
@@ -109,18 +110,23 @@ class AgentTable:
             w.writerow(self.columns)
             for r in self.rows:
                 w.writerow(["" if v is None else v for v in r])
-        return p.replace("\\", "/")
+        return textio.norm_path(p)
 
     def write_json(self) -> str:
         p = self._path("json")
         with open(p, "w", encoding="utf-8") as f:
             json.dump(self.raw if self.raw is not None else self.to_records(), f, default=str)
-        return p.replace("\\", "/")
+        return textio.norm_path(p)
 
     @staticmethod
     def read_tsv(path: str, name="result") -> "AgentTable":
         r = csv.reader(io.StringIO(read_text(path), newline=""), delimiter="\t")
-        cols = next(r)
+        # An empty file has no header row. `next(r)` raised StopIteration, which reached the caller
+        # as a traceback rather than as a row saying the file is empty -- and a 0-byte TSV is a
+        # perfectly ordinary thing to be handed by a query that matched nothing.
+        cols = next(r, None)
+        if cols is None:
+            return AgentTable(name=name, columns=[], rows=[], source=path)
         rows = [[_coerce(v) for v in row] for row in r]
         return AgentTable(name=name, columns=cols, rows=rows, source=path)
 
@@ -129,11 +135,29 @@ class AgentTable:
 
 
 def _coerce(v: str):
+    """Text from a TSV or a tool's stdout, as a number **only when that loses nothing**.
+
+    The round-trip rule is the whole of it: if writing the number back would not reproduce the
+    text, the text was not a number, it was an identifier that happens to be digits. This matters
+    here more than in most places -- the values passing through are cost centres, account numbers,
+    Jira keys and DAX results:
+
+        "007"    was becoming 7        -- a zero-padded code, silently renumbered
+        "1_000"  was becoming 1000     -- Python allows underscores in int literals; nothing else does
+        "+5"     was becoming 5
+        " 5"     was becoming 5        -- and the padding a fixed-width extract relied on was gone
+
+    `"1.50"` now stays text for the same reason: it is a formatting the source chose, and a caller
+    that wants a float from it can say so. Found by `tests/test_props_toon.py`, which has asserted
+    this round trip since #75 while the code did not honour it.
+    """
     if v == "":
         return None
     for t in (int, float):
         try:
-            return t(v)
+            n = t(v)
         except ValueError:
-            pass
+            continue
+        if str(n) == v:
+            return n
     return v

@@ -9,6 +9,7 @@ from typing import Any
 
 from . import pbir as P
 from . import tmdl as T
+from .. import textio
 
 _DAX_QUALIFIED = re.compile(r"'((?:[^']|'')+)'\[([^\]]+)\]|(?<![\w'\]])([A-Za-z_][\w]*)\[([^\]]+)\]")
 _DAX_BARE = re.compile(r"(?<![\w'\]\)])\[([^\]]+)\]")
@@ -101,7 +102,7 @@ def load_model(definition_dir: str) -> Model:
     m = Model(definition_dir, files)
     for path, tf in files.items():
         m.lint.extend(T.lint_file(tf))
-        rel = os.path.relpath(path, definition_dir).replace("\\", "/")
+        rel = textio.norm_path(os.path.relpath(path, definition_dir))
         for node in tf.nodes:
             if node.kind == "table":
                 m.tables.append(_table(node, rel))
@@ -189,8 +190,8 @@ def partition_sources(m_text: str) -> list[str]:
 # ---------- normalized dict ----------
 def normalize(model: Model, report: P.Report | None, pbip_dir: str) -> dict:
     norm: dict[str, Any] = {"generated_at": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                            "pbip": {"dir": pbip_dir.replace("\\", "/"), "model_dir": model.definition_dir.replace("\\", "/"),
-                                     "report_dir": report.root.replace("\\", "/") if report else None}}
+                            "pbip": {"dir": textio.norm_path(pbip_dir), "model_dir": textio.norm_path(model.definition_dir),
+                                     "report_dir": textio.norm_path(report.root) if report else None}}
     norm["model"] = {"name": model.name, "compatibility": model.compatibility, "tables": model.tables,
                      "relationships": model.relationships, "expressions": model.expressions, "roles": model.roles,
                      "perspectives": model.perspectives, "cultures": model.cultures}

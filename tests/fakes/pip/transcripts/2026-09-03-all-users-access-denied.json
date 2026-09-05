@@ -14,5 +14,10 @@
   ],
   "returncode": 1,
   "stdout": "Collecting agentdata@ git+https://github.com/agentchieflou/this-next-please.git\n  Cloning https://github.com/agentchieflou/this-next-please.git to c:\\users\\pk40484\\appdata\\local\\temp\\pip-install-8s1k\\agentdata_9f\n  Resolved https://github.com/agentchieflou/this-next-please.git to commit 742f2ef32881\n  Installing build dependencies: started\n  Installing build dependencies: finished with status 'done'\nBuilding wheels for collected packages: agentdata\n  Building wheel for agentdata (pyproject.toml): started\n  Building wheel for agentdata (pyproject.toml): finished with status 'done'\nInstalling collected packages: agentdata\n  Attempting uninstall: agentdata\n    Found existing installation: agentdata 0.5.3\n    Uninstalling agentdata-0.5.3:",
-  "stderr": "ERROR: Could not install packages due to an OSError: [WinError 5] Access is denied: 'C:\\Program Files\\Python314\\Scripts\\ad-doctor.exe'\nConsider using the `--user` option or check the permissions.\n"
+  "stderr": "ERROR: Could not install packages due to an OSError: [WinError 5] Access is denied: 'C:\\Program Files\\Python314\\Scripts\\ad-doctor.exe'\nConsider using the `--user` option or check the permissions.\n",
+  "captured": "2026-09-03",
+  "match": [
+    "-m",
+    "pip"
+  ]
 }

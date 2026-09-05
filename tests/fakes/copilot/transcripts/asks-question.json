@@ -1,0 +1,97 @@
+{
+  "source": "synthesized",
+  "note": "shapes from docs/fleet-spike.md (#92); content invented, because the recorded runs carry a tenant's ticket keys and hostnames",
+  "captured": "2026-09-05",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-asks",
+  "usage": {
+    "premiumRequests": 0.66,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "The ticket does not say which workspace.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "ad-state set phase=blocked --question \"Which workspace is UAT?\""
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Which workspace should I use, UAT or PROD?",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ],
+  "resume_steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Thank you -- using UAT.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "ad-state set phase=optimizing --clear-questions"
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Continuing.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ]
+}

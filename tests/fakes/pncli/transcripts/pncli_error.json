@@ -1,0 +1,17 @@
+{
+  "source": "synthesized",
+  "note": "a well-formed refusal from pncli itself",
+  "match": [
+    "jira",
+    "search"
+  ],
+  "argv": [
+    "pncli",
+    "jira",
+    "search"
+  ],
+  "returncode": 0,
+  "stdout": "{\"ok\": false, \"error\": \"bad JQL\"}",
+  "stderr": "",
+  "captured": "2026-09-04"
+}

@@ -4,6 +4,30 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## Unreleased
+
+**New: `ad-fleet`.** Several headless Copilot agents, one per repository, watched from one page —
+the answer to "which of these four tickets needs me right now?" without four PyCharm windows.
+`docs/fleet.md` is the front door; `ad-fleet doctor` is where to start when something is wrong.
+
+**Run `ad-setup --patch fleet` only if you intend to use it.** The fleet adds its own settings
+(`fleet.port`, `fleet.notify.*`, `fleet.budget_per_agent`, `fleet.log_mb`), and `--patch fleet`
+re-asks exactly those. Skip it otherwise: with no repositories registered the fleet is inert,
+`ad-doctor` prints one `skip` row for it and runs no extra subprocess, and nothing else in this
+release behaves differently. Optional extra: `pip install "agentdata[fleet-win]"` adds Windows
+toasts.
+
+Two fixes worth reading if you use the data commands:
+
+* **A TSV round trip renumbered zero-padded codes.** Reading back a TSV this package had written
+  turned `"007"` into `7`, `"1_000"` into `1000` and `"+5"` into `5` — cost centres, account numbers
+  and anything else that is digits but not a number. A value is now read as a number only when
+  writing it back reproduces the text exactly, which also means `"1.50"` stays text. If you were
+  relying on numeric coercion of a non-canonical spelling, convert it deliberately.
+* **`ad-state` is unchanged for a person**, and gained one behaviour inside a fleet: it also appends
+  the change to that agent's event stream, gated on two environment markers the supervisor sets.
+  Outside a fleet nothing is written but `state.json`, exactly as before.
+
 ## 0.6.1 — 2026-09-04
 
 **Run `ad-setup --patch` after updating.** This release adds three project facts the new code-graph and
@@ -30,6 +54,88 @@ vanishing and quietly turning into a skip included. New skills: `test-cover`, `t
 
 `AGENTS.md` gains stop condition 14: never edit a source file whose `ad-graph guard` verdict is not `ok`, or
 that you have not run it against. `.agent/state.json` gains the phase `optimizing`.
+
+**`ad-test run` could kill your shell when a test run timed out (#78).** `proc.kill_tree` reached
+for `psutil` and, failing that, ran `os.killpg(os.getpgid(pid), SIGKILL)`. psutil is in the `pbi`
+extra, so on an ordinary install it is absent and that fallback always ran -- and a child started
+without `start_new_session` is in **the caller's own process group**, so the line SIGKILLed the
+process that called it, and everything else in the group. `ad-test run --timeout` has had this
+path since it was written. Found when a CI runner's job ended after 46 minutes with no failure, no
+logs and no step conclusion, because nothing was left alive to write them.
+
+`kill_tree` now kills a child's process group only when that group is genuinely the child's own,
+and never signals ours whatever a caller forgets to pass; `proc.run` starts children with
+`start_new_session=True` so the group really is theirs, and their grandchildren go with them.
+
+**Every `ad-*` command that shells out could hang forever on Windows (#78).** `proc.run` captured
+output through pipes, and `subprocess.run(capture_output=True, timeout=N)` is not a real timeout
+there: when it expires it kills the direct child and then waits for the pipe write-ends to close,
+and a grandchild that inherited them keeps them open. `ad-update` spawns pip, pip spawns git, git
+spawns `upload-pack` -- so killing pip left two processes holding the handles, and the call blocked
+*past its own timeout*, indefinitely. The user saw a command that never returned and no way to say
+why. Found when a CI runner sat in exactly that state for ten minutes with `--timeout 600` set.
+
+`proc.run` now writes to temporary files rather than pipes, so the timeout fires when it says it
+will; the timeout kills the whole process **tree** (Windows has no process groups, and the
+grandchildren are the problem); and children get `stdin` from `/dev/null`, because nothing this
+package spawns should ever wait for a person -- git reaching for a credential helper is the usual
+way that happens, and with no console attached it waits forever instead of failing.
+
+**The install/update lifecycle is tested end to end, and it was broken in three places (#78).**
+A new `slow` slice drives the real `pip` and the real `ad-update` through real venvs against a
+`git+file://` clone -- fresh git install, update to a new commit, update to the same commit,
+editable checkout, `--pull`, `--from-git`, uninstall, and a shadowed second install. Three things
+it found, all of which shipped:
+
+- **`ad-pbip` did not run on any real install.** `pyyaml` was in the `dev` extra only, and
+  `cli_pbip` imports the module that imports it, so every subcommand -- `ad-pbip --version`
+  included -- died with `ModuleNotFoundError: No module named 'yaml'`. It is a base dependency now,
+  and the import is lazy as well, because `ad-update --cli` installs with `--no-deps` and an
+  upgrade from an older version would otherwise still arrive without it.
+- **`ad-update` started as `ad-update.exe` now refuses the CLI half** instead of failing deep
+  inside pip with WinError 32. pip has to replace `Scripts/ad-update.exe`, and Windows will not let
+  it while that launcher is the running process. The re-exec that was supposed to handle this never
+  fired at all -- a console-script launcher strips its own `.exe` before handing over, so the check
+  for it was never true -- and neither shape of re-exec can work: spawning a child leaves the
+  launcher open, and `os.execv` on Windows starts a new process and exits, handing the shell its
+  prompt back mid-update and losing the exit code. The refusal is synchronous, exits 2, and names
+  the command to run. `--check` and `--skills` still work from the launcher; neither touches it.
+- **`ad-update --check` reported one problem at a time.** `hint` was a single slot each check
+  overwrote, so a laptop with two installs *and* a PATH problem heard about only one of them.
+  There is a `problems` table now; `hint` is the most blocking entry in it.
+
+`--check` also gained `scripts_dir` / `scripts_on_path` (the `'ad-setup' is not recognized` case
+the README has always described and nothing checked) and flags a Microsoft Store
+`python.exe` App Execution Alias sitting earlier on PATH. `ad-doctor` gains a matching
+`console/scripts` row. `AGENTDATA_REPO_URL` now overrides where `ad-update` installs from, for a
+fork or an internal mirror.
+
+**Tab-completion actually completes (#76).** It never did. The bash script was wrapped in
+`if command -v register-python-argcomplete`, which ships into the same `Scripts` directory whose
+absence from PATH is the reason `python -m agentdata` exists -- so on Windows it was a no-op that
+looked installed. The PowerShell script registered a completer whose body was a comment. Both are
+real now, driven by a new hidden verb (`python -m agentdata _complete`) that walks the argparse
+tree, so there is **nothing extra to install** -- the `completion` extra is no longer needed for
+completion to work, and `argcomplete` is still honoured if it happens to be there. Subcommands,
+flags and the values of flags with fixed choices, in Git Bash, zsh, pwsh 7 and Windows PowerShell
+5.1. Install it with one line:
+
+```
+ad-setup --print-completion bash --install          # or: powershell
+```
+
+`--install` is idempotent and replaces a stale line if Python moved. `ad-doctor` gains a
+`console/completion` row saying which startup files carry it. Four commands (`ad-pbi`, `ad-pbiviz`,
+`ad-graph`, `ad-test`) were missing from the hand-kept command list and now come from the
+dispatcher, so adding a command is enough.
+
+**Two smaller fixes, both found by property tests (#75).** `python -m agentdata.csv2toon` now reads whichever
+encoding dscmd wrote (UTF-8, with or without a BOM, or UTF-16) and reduces `Table[Column]` result headers to
+the bare column name, so it agrees with `ad-pbip`'s own DAX path instead of producing a different TSV header
+for the same query; with no file it prints usage and exits 2 rather than a traceback, and importing it no
+longer runs it. And every path in `meta` output now goes through one canonicaliser (`textio.norm_path`)
+instead of 142 hand-written separator replacements, so two spellings of the same file compare equal on
+Windows -- a drive letter is upper-case and `/c/Users` resolves, wherever the path came from.
 
 ## 0.6.0 — 2026-09-04
 

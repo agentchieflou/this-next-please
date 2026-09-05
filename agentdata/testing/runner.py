@@ -21,9 +21,9 @@ from .kill import kill_tree
 
 def safe_relpath(path: str, start: str) -> str:
     try:
-        return os.path.relpath(path, start).replace("\\", "/")
+        return textio.norm_path(os.path.relpath(path, start))
     except ValueError:
-        return path.replace("\\", "/")
+        return textio.norm_path(path)
 
 
 def resolve_selectors(root: str, selectors: list[str]) -> list[str]:
@@ -121,14 +121,14 @@ def parse_junit_xml(xml_path: str, root: str = ".") -> tuple[int, int, int, int,
                 # Pytest traceback pattern: path/to/file.py:123: ErrorName
                 m = re.search(r"([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+):(\d+):", elem_text)
                 if m:
-                    raw_file = m.group(1).replace("\\", "/")
+                    raw_file = textio.norm_path(m.group(1))
                     if os.path.isabs(raw_file):
                         rel_file = safe_relpath(raw_file, root)
                     else:
                         rel_file = raw_file
                     where = f"{rel_file}:{m.group(2)}"
                 elif tc.get("file") and tc.get("line"):
-                    tc_file = tc.get("file", "").replace("\\", "/")
+                    tc_file = textio.norm_path(tc.get("file", ""))
                     if os.path.isabs(tc_file):
                         tc_file = safe_relpath(tc_file, root)
                     where = f"{tc_file}:{tc.get('line')}"

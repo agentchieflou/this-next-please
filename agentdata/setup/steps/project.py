@@ -11,6 +11,7 @@ import sys
 from ... import config as C
 from ...install import install_cmd, templates_dir
 from ..wizard import Context, Step
+from ... import textio
 
 _FACT_LINE = re.compile(r"^(\s*-\s*)([A-Za-z_][\w\-]*)(\s*:\s*)(<[^>]*>|\S+)(.*)$")
 # packaged file name -> path written into the project (dot-free in the package so every packaging tool ships it)
@@ -109,7 +110,7 @@ class ProjectStep(Step):
             for _src, rel in STUB_FILES:
                 p = os.path.join(found["dir"], rel)
                 ok = ctx.det.exists(p)
-                ctx.add(self.key, rel.replace(os.sep, "/"), "ok" if ok else "warn", C.display_path(p),
+                ctx.add(self.key, textio.norm_path(rel), "ok" if ok else "warn", C.display_path(p),
                         "" if ok else f"ad-setup --project {found['dir']}")
 
         if found.get("runner_ok"):
@@ -143,19 +144,19 @@ class ProjectStep(Step):
             ctx.facts.get("graph_min_coverage") or "")
         pbips = [p for p in ctx.det.glob("**/*.pbip", d) if ".agent" not in p]
         if pbips:
-            facts["pbip_path"] = os.path.relpath(pbips[0], d).replace("\\", "/")
+            facts["pbip_path"] = textio.norm_path(os.path.relpath(pbips[0], d))
         facts = {k: v for k, v in facts.items() if v}
         written: list[str] = []
         for src, rel in STUB_FILES:
             target = os.path.join(d, rel)
             if ctx.det.exists(target):
-                ctx.add(self.key, rel.replace(os.sep, "/"), "skip", "exists; not overwritten",
+                ctx.add(self.key, textio.norm_path(rel), "skip", "exists; not overwritten",
                         "edit it by hand, or delete it and re-run" if rel == "AGENTS.md" else "")
                 continue
             text = ctx.det.read_text(os.path.join(found["template"], src))
             text = fill(text, facts) if src.endswith(".md") else text.replace("<PROJECT_KEY>", facts.get("jira_project", "<PROJECT_KEY>"))
             ctx.det.write_text(target, text)
-            written.append(rel.replace(os.sep, "/"))
+            written.append(textio.norm_path(rel))
         gi = os.path.join(d, ".gitignore")
         add = ctx.det.read_text(os.path.join(found["template"], GITIGNORE_TEMPLATE))
         cur = ctx.det.read_text(gi) if ctx.det.exists(gi) else ""

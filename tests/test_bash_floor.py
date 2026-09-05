@@ -35,12 +35,18 @@ POST_44 = {
 REQUIRES_EXEMPT = {"win32.ps1"}
 
 
+# Directories that hold somebody else's files. `node_modules` arrived with the VS Code shell
+# (#100) and brought TypeScript's own `tsc.ps1` with it -- which we do not ship, do not maintain,
+# and cannot make declare our shell floor.
+NOT_OURS = (".git", "build", "dist", "__pycache__", ".pytest_cache", "agentdata.egg-info",
+            "node_modules", ".gradle", "out")
+
+
 def _files(suffix: str) -> list[str]:
     """Every script we ship. `glob` skips dot-directories, so `.github/scripts` needs os.walk."""
     found = []
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
-        dirnames[:] = [d for d in dirnames if d not in (".git", "build", "dist", "__pycache__",
-                                                        ".pytest_cache", "agentdata.egg-info")]
+        dirnames[:] = [d for d in dirnames if d not in NOT_OURS]
         for name in filenames:
             if name.endswith(suffix):
                 found.append(os.path.join(dirpath, name))

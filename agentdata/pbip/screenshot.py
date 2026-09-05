@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable
 from . import desktop as DT
 from ..model import AgentTable
+from .. import textio
 
 WIN32_PS1 = os.path.join(os.path.dirname(__file__), "win32.ps1")
 Runner = Callable[[list[str], int], tuple[int, str, str]]
@@ -289,7 +290,7 @@ def screenshot_session(pid: int, page: str | None = None, all_pages: bool = Fals
     for p in to_capture:
         p_id = p["id"]
         p_name = p.get("displayName", p_id)
-        out_path = os.path.join(out_dir, f"{p_id}.png").replace("\\", "/")
+        out_path = textio.norm_path(os.path.join(out_dir, f"{p_id}.png"))
 
         captured_via_bridge = False
         if use_bridge and b_client:
@@ -358,7 +359,7 @@ def screenshot_session(pid: int, page: str | None = None, all_pages: bool = Fals
                 cw = int(pos.get("width", 100) * scale_x)
                 ch = int(pos.get("height", 100) * scale_y)
 
-                crop_path = os.path.join(out_dir, f"{v_info['id']}.png").replace("\\", "/")
+                crop_path = textio.norm_path(os.path.join(out_dir, f"{v_info['id']}.png"))
                 crop_image(out_path, crop_path, cx, cy, cw, ch, run=run)
                 visual_rows.append({
                     "visual_id": v_info["id"],

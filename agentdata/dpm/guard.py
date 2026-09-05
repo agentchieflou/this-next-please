@@ -4,6 +4,7 @@ import hashlib
 import os
 
 from . import DpmError
+from .. import textio
 
 CHUNK = 1 << 20
 
@@ -28,7 +29,7 @@ def snapshot(root: str) -> dict:
                 st = os.stat(p)
             except OSError:
                 continue
-            entries.append((os.path.relpath(p, root).replace("\\", "/"), st.st_size, st.st_mtime_ns))
+            entries.append((textio.norm_path(os.path.relpath(p, root)), st.st_size, st.st_mtime_ns))
     h = hashlib.sha256()
     for rel, size, mtime in entries:
         h.update(f"{rel}\t{size}\t{mtime}\n".encode("utf-8"))

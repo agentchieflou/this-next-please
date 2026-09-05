@@ -206,8 +206,16 @@ def test_docs_carry_the_workflow_and_what_the_human_sees():
 
 
 def test_changelog_tells_an_updating_user_to_patch_their_project():
+    """The rule is about *every* release: the newest entry has to answer "do I need
+    `ad-setup --patch`?", because that is the question someone runs `ad-update` with.
+
+    It used to also require the newest entry to name `graph_min_coverage` and
+    `graph_min_speedup` -- facts that belong to 0.6.1 and to no release after it, so the check
+    broke the moment anything else shipped. Those are pinned to the changelog as a whole instead:
+    the settings they describe still exist, so the note that introduced them must not vanish.
+    """
     text = read_text(os.path.join(REPO_ROOT, "CHANGELOG.md"))
     entry = text.split("## ", 2)[1]
-    assert "ad-setup --patch" in entry
+    assert "ad-setup --patch" in entry, "the newest entry does not say whether --patch is needed"
     for fact in ("graph_min_coverage", "graph_min_speedup"):
-        assert fact in entry
+        assert fact in text

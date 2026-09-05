@@ -1,0 +1,32 @@
+<toolSet name="agentdata">
+  <tool name="fleet: open" description="Show the fleet dashboard (starts one if none is running)"
+        showInMainMenu="true" showInEditor="false" showInProject="true" showInSearchPopup="true"
+        disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="true"
+        synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="$PyInterpreterDirectory$/python.exe" />
+      <option name="PARAMETERS" value="-m agentdata fleet open --in edge" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+  <tool name="fleet: launcher here" description="Write fleet.html into this project, to open from the Project tool window"
+        showInMainMenu="true" showInEditor="false" showInProject="true" showInSearchPopup="true"
+        disabled="false" useConsole="true" showConsoleOnStdOut="true" showConsoleOnStdErr="true"
+        synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="$PyInterpreterDirectory$/python.exe" />
+      <option name="PARAMETERS" value="-m agentdata fleet open --in pycharm --write-launcher $ProjectFileDir$/.agent" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+  <tool name="fleet: status" description="One row per registered repository"
+        showInMainMenu="true" showInEditor="false" showInProject="true" showInSearchPopup="true"
+        disabled="false" useConsole="true" showConsoleOnStdOut="true" showConsoleOnStdErr="true"
+        synchronizeAfterRun="false">
+    <exec>
+      <option name="COMMAND" value="$PyInterpreterDirectory$/python.exe" />
+      <option name="PARAMETERS" value="-m agentdata fleet status --pretty" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+</toolSet>

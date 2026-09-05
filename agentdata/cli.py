@@ -125,6 +125,18 @@ def main_pncli() -> None:
                     sys.exit(2)
                 pargs = [*pargs, a.body_arg, body]
                 shown = [*shown, a.body_arg, f"<{len(body)} chars from {a.body_file}>"]
+            if P.is_write(pargs):
+                # Unattended, a write to a system of record waits for one operator click. In
+                # PyCharm this returns before it touches the disk. What is shown for approval is
+                # `shown`, never `pargs`: a Confluence body is thousands of characters and the
+                # operator is deciding about the command, not reading the HTML.
+                from .fleet import approval
+
+                d = approval.require("pncli-write", "pncli " + " ".join(shown),
+                                     {"command": " ".join(shown), "verb": " ".join(P.verb(pargs))})
+                if not d.ok:
+                    print(toon.encode({"meta": approval.refusal(d, "ad-pncli raw")}))
+                    sys.exit(2)
             payload, el = P.run(pargs)
             source = "pncli " + " ".join(shown)
             if raw_out:

@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from typing import Any
 from ..model import AgentTable
+from .. import textio
 
 SCHEMA_DIR = Path(__file__).parent / "schema"
 VISUALS_JSON = SCHEMA_DIR / "visuals.json"
@@ -40,7 +41,7 @@ def list_visuals() -> AgentTable:
     cat = load_catalog()
     visuals = cat.get("visuals", {})
     rows = []
-    schema_path = str(VISUALS_JSON.relative_to(Path(__file__).parent.parent.parent)).replace("\\", "/")
+    schema_path = textio.norm_path(str(VISUALS_JSON.relative_to(Path(__file__).parent.parent.parent)))
 
     for vtype, vdata in sorted(visuals.items()):
         desc = vdata.get("description", "")
@@ -97,7 +98,7 @@ def describe_visual(visual_type: str, report_dir: str | None = None) -> AgentTab
 
     vdata = visuals[visual_type]
     roles = vdata.get("roles", {})
-    schema_path = str(VISUALS_JSON.relative_to(Path(__file__).parent.parent.parent)).replace("\\", "/")
+    schema_path = textio.norm_path(str(VISUALS_JSON.relative_to(Path(__file__).parent.parent.parent)))
 
     rows = []
     for role_name, rdata in roles.items():
@@ -125,7 +126,7 @@ def formatting_catalog(visual_type: str | None = None, object_name: str | None =
     """Query available formatting objects and properties."""
     cat = load_catalog()
     formatting = cat.get("formatting", {})
-    schema_path = str(VISUALS_JSON.relative_to(Path(__file__).parent.parent.parent)).replace("\\", "/")
+    schema_path = textio.norm_path(str(VISUALS_JSON.relative_to(Path(__file__).parent.parent.parent)))
 
     rows = []
     for obj, odata in sorted(formatting.items()):

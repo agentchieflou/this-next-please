@@ -1,0 +1,16 @@
+{
+  "source": "synthesized",
+  "note": "an older gh with no skill subcommand",
+  "match": [
+    "skill"
+  ],
+  "argv": [
+    "gh",
+    "skill",
+    "install"
+  ],
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "unknown command \"skill\" for \"gh\"\n",
+  "captured": "2026-09-04"
+}

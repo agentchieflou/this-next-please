@@ -8,6 +8,7 @@ from typing import Any
 from . import Extractor
 from ..model import Edge, Node
 from ..tags import is_io_call
+from ... import textio
 
 BRANCH_TYPES = (
     ast.If,
@@ -49,7 +50,7 @@ class PythonExtractor(Extractor):
     def extract(
         self, relpath: str, text: str, project_context: dict[str, Any] | None = None
     ) -> tuple[list[Node], list[Edge]]:
-        norm_path = relpath.replace("\\", "/")
+        norm_path = textio.norm_path(relpath)
         file_name = os.path.basename(norm_path)
         lines = text.splitlines(keepends=True)
         total_loc = max(1, len(lines))

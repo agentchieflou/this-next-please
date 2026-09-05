@@ -1,0 +1,72 @@
+{
+  "source": "synthesized",
+  "note": "shapes from docs/fleet-spike.md (#92); content invented, because the recorded runs carry a tenant's ticket keys and hostnames",
+  "captured": "2026-09-05",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-crash",
+  "returncode": 3,
+  "usage": {
+    "premiumRequests": 0.33,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Starting.",
+          "model": "claude-haiku-4.5"
+        }
+      }
+    },
+    {
+      "stderr": "TypeError: cannot read property 'length' of undefined\n"
+    },
+    {
+      "exit": true
+    }
+  ],
+  "resume_steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "I was interrupted after reading the ticket. Continuing from there.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "ad-state set phase=optimizing"
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ]
+}

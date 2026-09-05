@@ -33,6 +33,7 @@ from .pbip import tmdl as T
 from .pbip import trace as TR
 from .policy import error, render
 from . import policy, ui
+from . import textio
 
 
 def _resolve_desktop_target(a):
@@ -93,12 +94,12 @@ def cmd_project(a) -> int:
               "pages": len(report.pages) if report else 0, "visuals": sum(len(p.visuals) for p in report.pages) if report else 0,
               "lint_errors": sum(1 for f in model.lint if f.severity == "error")}
     if policy.pretty():
-        ui.facts([("pbip", pbip.replace("\\", "/")), ("path", res["out_dir"]), ("skipped", res["skipped"]),
+        ui.facts([("pbip", textio.norm_path(pbip)), ("path", res["out_dir"]), ("skipped", res["skipped"]),
                   *[(k, v) for k, v in counts.items()]], title="ad-pbip project")
         if res.get("files"):
-            ui.table(["file", "path"], [[f, os.path.join(res["out_dir"], f).replace("\\", "/")] for f in res["files"]], title="projected files")
+            ui.table(["file", "path"], [[f, textio.norm_path(os.path.join(res["out_dir"], f))] for f in res["files"]], title="projected files")
     else:
-        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip project", "pbip": pbip.replace("\\", "/"), "skipped": res["skipped"],
+        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip project", "pbip": textio.norm_path(pbip), "skipped": res["skipped"],
                                     "path": res["out_dir"], "read": ["MODEL.md", "REPORT.md", "LINEAGE.md"] if report else ["MODEL.md"], **counts},
                            "files": res["files"]}))
     return 0
@@ -109,7 +110,7 @@ def cmd_check(a) -> int:
     pbip = _pbip_dir(a.pbip)
     model, report, _ = N.load_all(pbip, legacy_ok=a.legacy_ok)
     findings = CK.check_model(model)
-    extra = {"pbip": pbip.replace("\\", "/"), "report": bool(report), "te2": "skipped"}
+    extra = {"pbip": textio.norm_path(pbip), "report": bool(report), "te2": "skipped"}
     if report:
         findings += CK.check_report(report, model)
     else:
@@ -338,7 +339,7 @@ def cmd_visual_query(a) -> int:
     page, visual = hits[0]
     dax, notes = D.visual_query(visual, N.ModelIndex(model, report), extra_filters=list(page.filters) + list(report.filters), top_n=a.top)
     os.makedirs(OUT_DIR, exist_ok=True)
-    dax_path = os.path.join(OUT_DIR, f"{visual.id}_visual.dax").replace("\\", "/")
+    dax_path = textio.norm_path(os.path.join(OUT_DIR, f"{visual.id}_visual.dax"))
     with open(dax_path, "w", encoding="utf-8") as f:
         f.write(dax)
     if a.dry_run or not a.server:

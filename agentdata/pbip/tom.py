@@ -25,6 +25,7 @@ from . import normalize as N
 from . import tmdl as T
 from .. import config as C
 from ..dpm import guard
+from .. import textio
 
 Runner = Callable[[list[str], int], tuple[int, str, str]]
 
@@ -60,7 +61,7 @@ def build_te2_script(ops: list[dict[str, Any]], out_json_path: str, ops_json_pat
     """Generate a self-contained C# script for Tabular Editor 2 to execute with -S."""
     ops_json = json.dumps(ops)
     escaped_ops = ops_json.replace('"', '""')
-    escaped_out = out_json_path.replace("\\", "/").replace('"', '""')
+    escaped_out = textio.norm_path(out_json_path).replace('"', '""')
 
     script = f'''// Generated Tabular Editor 2 script for declarative model apply
 using System;
@@ -324,7 +325,7 @@ def apply_live(server: str, ops: list[dict[str, Any]], database: str | None = No
     run_fn = run or DT.default_run
 
     with tempfile.TemporaryDirectory() as td:
-        out_json = os.path.join(td, "results.json").replace("\\", "/")
+        out_json = textio.norm_path(os.path.join(td, "results.json"))
         csx_path = os.path.join(td, "apply_script.csx")
         script = build_te2_script(ops, out_json)
         with open(csx_path, "w", encoding="utf-8") as f:

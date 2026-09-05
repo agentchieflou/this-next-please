@@ -1,0 +1,17 @@
+{
+  "source": "synthesized",
+  "note": "pncli printed prose where JSON was expected",
+  "match": [
+    "jira",
+    "search"
+  ],
+  "argv": [
+    "pncli",
+    "jira",
+    "search"
+  ],
+  "returncode": 3,
+  "stdout": "not json",
+  "stderr": "",
+  "captured": "2026-09-04"
+}

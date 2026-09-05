@@ -93,7 +93,7 @@ def find_node(graph: Graph, target: str) -> Node:
             exact_name_matches.append(node)
         elif node.id.endswith(f"::{target}"):
             suffix_matches.append(node)
-        elif node.id == target.replace("\\", "/"):
+        elif node.id == textio.norm_path(target):
             return node
 
     candidates = exact_name_matches or suffix_matches
@@ -412,7 +412,7 @@ def get_changed(
             # working and the AttributeError below silently making --since match nothing
             rc, out, _err, _el = proc.run(["git", "diff", "--name-only", since_ref], cwd=norm_root, timeout=10)
             if rc == 0:
-                diff_files = {line.strip().replace("\\", "/") for line in out.splitlines() if line.strip()}
+                diff_files = {textio.norm_path(line.strip()) for line in out.splitlines() if line.strip()}
         except Exception:
             pass
 

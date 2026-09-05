@@ -333,10 +333,10 @@ class Step:
 
 
 def registry() -> list[Step]:
-    from .steps import console, pncli_import, powerbi, project, sources
+    from .steps import console, fleet, pncli_import, powerbi, project, sources
     # console first: a report from an unsupported shell should say so before anything it explains
     return [console.ConsoleStep(), pncli_import.PncliStep(), sources.SourcesStep(), powerbi.PowerBIStep(),
-            project.ProjectStep()]
+            project.ProjectStep(), fleet.FleetStep()]
 
 
 def _select(steps: list[Step], only: list[str] | None) -> list[Step]:
@@ -590,13 +590,26 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
                     help="colour output (default auto: on for a terminal, off when piped)")
     ap.add_argument("--print-completion", choices=["bash", "zsh", "powershell"],
                     help="print shell tab-completion setup script and exit")
+    ap.add_argument("--install", action="store_true",
+                    help="with --print-completion: add one line to that shell's startup file instead "
+                         "of printing (idempotent; re-run after moving Python and it replaces the line)")
     from .. import completion, version
     version.add_version(ap)
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if a.print_completion:
+        if a.install:
+            done = completion.install(a.print_completion)
+            print(toon.encode({"meta": {"ok": True, "source": f"ad-setup --print-completion {a.print_completion} --install",
+                                        **done,
+                                        "next": "open a new shell, or source the file, for it to take effect"}}))
+            return 0
         completion.print_completion(a.print_completion)
         return 0
+    if a.install:
+        sys.stderr.write("--install only means something with --print-completion, "
+                         "e.g. `ad-setup --print-completion bash --install`\n")
+        return 2
     utf8_stdout()
     color.set_enabled(None if a.color == "auto" else a.color == "always")
     if a.export_defaults:
@@ -683,7 +696,15 @@ def run_setup(argv: list[str] | None = None, det: Detectors | None = None) -> in
         print(toon.encode({"meta": {"ok": False, "source": "ad-setup", "error": str(e), "hint": e.hint}}))
         ui.problem(str(e), e.hint or "", title="ad-setup")
         return 2
-    except (EOFError, KeyboardInterrupt):
+    except EOFError:
+        # not an interrupt: there is simply nothing to read. 130 is the SIGINT convention and would
+        # tell a caller a person pressed Ctrl-C, which is a different thing to act on.
+        print(toon.encode({"meta": {
+            "ok": False, "source": "ad-setup", "error": "no input available on stdin",
+            "hint": "run it in a terminal, or answer inline: "
+                    "`ad-setup --non-interactive --set key=value` (see `ad-setup --help`)"}}))
+        return 2
+    except KeyboardInterrupt:
         print(toon.encode({"meta": {"ok": False, "source": "ad-setup", "error": "interrupted",
                                     "hint": "progress up to the last completed step was saved; re-run ad-setup"}}))
         return 130

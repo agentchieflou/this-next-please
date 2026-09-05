@@ -17,6 +17,7 @@ from typing import Any
 from . import catalog as CAT
 from . import expr as E
 from . import pbir as P
+from .. import textio
 
 
 def _gen_hex(length: int) -> str:
@@ -118,7 +119,7 @@ def page_add(pbip_path: str, name: str, after: str | None = None,
         "action": "page_add",
         "page_id": page_id,
         "displayName": name,
-        "path": str(page_dir / "page.json").replace("\\", "/"),
+        "path": textio.norm_path(str(page_dir / "page.json")),
         "pageOrder": pages_order,
     }
 
@@ -309,7 +310,7 @@ def visual_add(pbip_path: str, page_name_or_id: str, visual_type: str,
         "visualType": visual_type,
         "title": title,
         "page_id": page_dir.name,
-        "path": str(vj_path).replace("\\", "/"),
+        "path": textio.norm_path(str(vj_path)),
         "position": {"x": x, "y": y, "width": w, "height": h},
     }
 
@@ -519,7 +520,7 @@ def filter_set(pbip_path: str, scope: str, field_ref: str,
         "filter_id": filter_id,
         "scope": scope,
         "field": field_ref,
-        "path": str(target_file).replace("\\", "/")
+        "path": textio.norm_path(str(target_file))
     }
 
 
@@ -553,7 +554,7 @@ def bookmark_add(pbip_path: str, name: str, page: str,
 
     bm_file = bm_dir / f"{bm_id}.json"
     _save_json(bm_file, bm_data)
-    return {"ok": True, "action": "bookmark_add", "name": bm_id, "displayName": name, "path": str(bm_file).replace("\\", "/")}
+    return {"ok": True, "action": "bookmark_add", "name": bm_id, "displayName": name, "path": textio.norm_path(str(bm_file))}
 
 
 def theme_set(pbip_path: str, theme_file: str) -> dict[str, Any]:
@@ -588,6 +589,6 @@ def theme_set(pbip_path: str, theme_file: str) -> dict[str, Any]:
         "ok": True,
         "action": "theme_set",
         "name": theme_name,
-        "target": str(dest_path).replace("\\", "/"),
-        "report_json": str(rj_path).replace("\\", "/")
+        "target": textio.norm_path(str(dest_path)),
+        "report_json": textio.norm_path(str(rj_path))
     }

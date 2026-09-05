@@ -93,7 +93,7 @@ def _script_from(text: str) -> str | None:
     for rx in (r'"%~?dp0%?[\\/]+([^"]+?\.[cm]?js)"', r'"\$basedir/([^"]+?\.[cm]?js)"', r'%~?dp0%?[\\/]+(\S+?\.[cm]?js)'):
         m = re.search(rx, text, re.I)
         if m:
-            return m.group(1).replace("\\", "/")
+            return textio.norm_path(m.group(1))
     return None
 
 
@@ -159,23 +159,23 @@ def resolve(name: str, *, exe: str | None = None, windows: bool | None = None, p
             tried.append("npm global prefix (%APPDATA%\\npm, %ProgramFiles%\\nodejs)" if not extra else "; ".join(extra))
     if not p:
         return {"found": False, "name": name, "tried": tried, "kind": "", "path": ""}
-    info = {"found": True, "name": name, "path": p.replace("\\", "/"), "tried": tried, "kind": "executable",
+    info = {"found": True, "name": name, "path": textio.norm_path(p), "tried": tried, "kind": "executable",
             "node": "", "script": ""}
     if p.lower().endswith(NODE_EXTS):        # a pinned entry point (the escape hatch cmd_line's hint offers)
         node = which("node", windows=windows)
         if node:
-            info.update(kind="node script", node=node.replace("\\", "/"), script=info["path"])
+            info.update(kind="node script", node=textio.norm_path(node), script=info["path"])
         else:
             info["error"] = "no `node` on PATH to run " + info["path"]
     elif windows and p.lower().endswith(SHIM_EXTS):
         info["kind"] = "cmd shim"
         target = unwrap_shim(p, windows=windows)
         if target:
-            info.update(kind="npm shim", node=target[0].replace("\\", "/"), script=target[1].replace("\\", "/"))
+            info.update(kind="npm shim", node=textio.norm_path(target[0]), script=textio.norm_path(target[1]))
     elif not windows and os.path.splitext(p)[1] == "":
         target = unwrap_shim(p, windows=windows)
         if target:
-            info.update(kind="npm shim", node=target[0].replace("\\", "/"), script=target[1].replace("\\", "/"))
+            info.update(kind="npm shim", node=textio.norm_path(target[0]), script=textio.norm_path(target[1]))
     return info
 
 
@@ -215,6 +215,54 @@ def child_env(base: dict | None = None) -> dict:
     return env
 
 
+def _spawn(real: list[str], *, timeout: int, cwd: str | None) -> tuple[int, str, str]:
+    """Run to completion, or kill the whole tree and raise. Never blocks past `timeout`.
+
+    Deliberately not `subprocess.run(capture_output=True, timeout=...)`, which is not a real timeout
+    on Windows. When it expires, `run()` kills the **direct** child and then waits for the pipe
+    write-ends to close -- and a grandchild that inherited them keeps them open. `ad-update` spawns
+    pip, pip spawns git, git spawns `upload-pack`: killing pip leaves two processes holding the
+    handles we are blocked on, so the call waits past its own timeout, indefinitely, and the user
+    sees a command that simply never returns. A CI runner sat in exactly that state for ten minutes
+    with a 600-second timeout set.
+
+    Two changes make the timeout mean something:
+
+    * **stdout and stderr go to real temporary files, not pipes.** There is no reader thread to
+      block on, so `wait(timeout=...)` fires when it says it will.
+    * **the timeout kills the process tree**, because Windows has no process groups and the
+      grandchildren are the ones still running.
+
+    `stdin` is `DEVNULL` for a third reason: nothing this package spawns should ever wait for a
+    person. git reaching for a credential helper is the usual way that happens, and on a machine
+    with no console attached it waits forever rather than failing.
+    """
+    import tempfile
+
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as out, \
+            tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
+        p = subprocess.Popen(real, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                             cwd=cwd, env=child_env(), text=True,
+                             encoding="utf-8", errors="replace",
+                             # Its own session on POSIX, so the timeout can kill the child *and its
+                             # descendants* as a group without touching ours. Without this,
+                             # `os.getpgid(child)` is our own group and killing it takes the caller
+                             # with it -- see kill_tree.
+                             start_new_session=(os.name != "nt"))
+        try:
+            code = p.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_tree(p.pid)
+            try:
+                p.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                pass
+            raise
+        out.seek(0)
+        err.seek(0)
+        return code, out.read(), err.read()
+
+
 def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: str = "", check: bool = False,
         cwd: str | None = None, progress: str | None = None) -> tuple[int, str, str, float]:
     """(returncode, stdout, stderr, elapsed). Raises ProcError for start failures and, with check, for exit != 0."""
@@ -225,11 +273,9 @@ def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: st
         if progress:
             from . import ui
             with ui.progress(progress):
-                p = subprocess.run(real, capture_output=True, text=True, timeout=timeout, cwd=cwd,
-                                   encoding="utf-8", errors="replace", env=child_env())
+                code, out, err = _spawn(real, timeout=timeout, cwd=cwd)
         else:
-            p = subprocess.run(real, capture_output=True, text=True, timeout=timeout, cwd=cwd,
-                               encoding="utf-8", errors="replace", env=child_env())
+            code, out, err = _spawn(real, timeout=timeout, cwd=cwd)
     except FileNotFoundError as e:      # resolved, then vanished, or a broken shim target
         raise ProcError("start_failed", f"{argv[0]}: cannot start {launched} ({e.strerror or e})",
                         hint or "re-run `ad-setup --patch`", {"executable": launched, "kind": info["kind"]}) from None
@@ -240,41 +286,58 @@ def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: st
         raise ProcError("timeout", f"{argv[0]}: no answer after {timeout}s",
                         hint or "raise --timeout, or run the command yourself to see where it hangs") from None
     el = time.time() - t0
-    if check and p.returncode != 0:
-        tail = (p.stderr or p.stdout or "").strip().splitlines()
-        raise ProcError("exit_code", f"{argv[0]} exited {p.returncode}: " + (tail[-1][:200] if tail else "no output"),
-                        hint, {"exit_code": p.returncode, "executable": launched})
-    return p.returncode, p.stdout, p.stderr, el
+    if check and code != 0:
+        tail = (err or out or "").strip().splitlines()
+        raise ProcError("exit_code", f"{argv[0]} exited {code}: " + (tail[-1][:200] if tail else "no output"),
+                        hint, {"exit_code": code, "executable": launched})
+    return code, out, err, el
 
 
 def kill_tree(pid: int) -> None:
-    """Terminate a process and all its children across platforms."""
+    """Terminate a process and everything it started, without ever touching our own group.
+
+    The POSIX path used to reach for `psutil` and, failing that, do
+    `os.killpg(os.getpgid(pid), SIGKILL)`. psutil is in the `pbi` extra, so on an ordinary install it
+    is absent and the fallback always ran -- and a child started without `start_new_session` is in
+    **our** process group, so that line SIGKILLs the caller. On a CI runner it took out pytest and
+    the shell above it: a 46-minute job that ended with no failure, no logs and no step conclusion,
+    because nothing was left alive to write them. On a laptop it would end the user's session.
+
+    So: kill the child's group only when that group is genuinely its own, and never signal ours,
+    whatever a future caller forgets to pass.
+    """
     if WINDOWS:
         try:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                           capture_output=True, check=False)
-        except Exception:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], check=False, timeout=60,
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+        except Exception:  # noqa: BLE001 - a kill that fails must not mask the timeout it serves
             pass
-    else:
+        return
+
+    import signal
+
+    try:
+        group, ours = os.getpgid(pid), os.getpgid(0)
+    except OSError:
+        group, ours = None, os.getpgid(0)
+
+    if group is not None and group != ours:
         try:
-            import psutil
-            parent = psutil.Process(pid)
-            children = parent.children(recursive=True)
-            for child in children:
-                try:
-                    child.kill()
-                except Exception:
-                    pass
-            parent.kill()
-        except Exception:
-            try:
-                import signal
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
-            except Exception:
-                try:
-                    import signal
-                    subprocess.run(["pkill", "-9", "-P", str(pid)], capture_output=True, check=False)
-                    os.kill(pid, signal.SIGKILL)
-                except Exception:
-                    pass
+            os.killpg(group, signal.SIGKILL)
+            return
+        except OSError:
+            pass
+
+    # Not in a group of its own: kill what we can name, and nothing we cannot. `pkill -P` reaches
+    # the direct children; a deeper tree needs the caller to have used `start_new_session=True`.
+    try:
+        subprocess.run(["pkill", "-9", "-P", str(pid)], check=False, timeout=30,
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
 

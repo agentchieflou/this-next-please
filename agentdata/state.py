@@ -64,7 +64,7 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
     if artifacts:
         arts = state.setdefault("artifacts", [])
         for a in artifacts:
-            arts.append({"path": a["path"].replace("\\", "/"), "what": a.get("what", ""), "run_id": a.get("run_id", ""), "added": stamp[:10]})
+            arts.append({"path": textio.norm_path(a["path"]), "what": a.get("what", ""), "run_id": a.get("run_id", ""), "added": stamp[:10]})
     state["artifacts"] = prune(state.get("artifacts") or [], stamp[:10])
     # open questions persist until --clear-questions: leaving a blocked phase is a deliberate act, never a side effect
     state["last_updated"] = stamp
@@ -84,7 +84,36 @@ def prune(artifacts: list, today: str) -> list:
 
 
 def save(state: dict, path: str = PATH) -> str:
-    return textio.write_json(path, state)
+    """Write the state, and tell the fleet if one is watching.
+
+    `ad-state` stays the only writer of `state.json`; the fleet only ever reads it. The emit below
+    is the reverse direction and is additive: when this process was launched by a supervisor -- the
+    two `AGENTDATA_FLEET_*` markers -- the change is appended to that agent's normalized stream so
+    the dashboard sees a phase change immediately instead of discovering it on the next poll.
+
+    Outside a fleet the behaviour is byte-identical to before: no markers, no emit, and a failure to
+    emit never fails the save. The state file is the contract; the event is a courtesy.
+    """
+    previous = load(path) if os.path.exists(path) else {}
+    written = textio.write_json(path, state)
+    _emit_to_fleet(previous, state)
+    return written
+
+
+def _emit_to_fleet(previous: dict, current: dict) -> None:
+    from .fleet.registry import AGENT_ENV, FLEET_DIR_ENV
+
+    name = os.environ.get(AGENT_ENV)
+    if not name or not os.environ.get(FLEET_DIR_ENV):
+        return
+    try:
+        from .fleet import events as E
+
+        E.append(name, E.from_state(previous, current, name))
+    except Exception:  # noqa: BLE001 - a dashboard that misses an event must never fail a save
+        from .log import debug_exc
+
+        debug_exc("fleet emit")
 
 
 def line(state: dict) -> str:
