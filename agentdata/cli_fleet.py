@@ -24,7 +24,7 @@ from . import config as C
 from . import toon
 from . import ui
 from .console import utf8_stdout
-from .fleet import launch, supervisor
+from .fleet import agentstate, events as E, launch, supervisor
 from .fleet.registry import Registry, RegistryError, fleet_dir
 from .version import add_version, version_string
 
@@ -186,6 +186,45 @@ def cmd_logs(a) -> int:
 # ------------------------------------------------------------------------------------- parser
 
 
+def cmd_events(a) -> int:
+    reg = Registry()
+    try:
+        repo = reg.get(a.repo)
+    except RegistryError as e:
+        return _refuse("ad-fleet events", e)
+
+    E.refresh(a.repo, repo.path, repo_state=repo.state())
+    kinds = tuple(a.kind) if a.kind else None
+    stream = E.read(a.repo, since=a.since, kinds=kinds, limit=a.limit)
+
+    if a.raw:
+        import json
+
+        for ev in stream:
+            print(json.dumps(ev, ensure_ascii=False))
+        return EXIT_OK
+
+    derived = agentstate.derive(E.read(a.repo), live=bool(supervisor.live(a.repo)))
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet events", "repo": a.repo,
+                                "events": len(stream), "state": derived["state"],
+                                "why": derived["why"],
+                                "needs_human": agentstate.needs_the_human(derived["state"])}}))
+    rows = [[e.get("seq"), str(e.get("ts", ""))[11:19], e.get("kind"),
+             _summarize(e).replace("\n", " ")[:120]] for e in stream]
+    print(toon.table("events", ["seq", "at", "kind", "detail"], rows))
+    return EXIT_OK
+
+
+def _summarize(ev: dict) -> str:
+    """One line a person can read. The full payload is always there under --raw."""
+    data = ev.get("data") or {}
+    for key in ("text", "unblock", "question", "message", "tool", "to", "url", "artifact",
+                "session", "premium_requests", "exit_code", "type"):
+        if data.get(key) not in (None, ""):
+            return f"{key}={data[key]}"
+    return ""
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="ad-fleet",
@@ -230,7 +269,15 @@ def build_parser() -> argparse.ArgumentParser:
                         help="print the exact command line and tool allow-list instead")
     status.set_defaults(fn=cmd_status)
 
-    logs = sub.add_parser("logs", help="an agent's event stream")
+    ev = sub.add_parser("events", help="the normalized event stream, and the agent's derived state")
+    ev.add_argument("repo")
+    ev.add_argument("--since", type=int, default=0, help="only events after this seq")
+    ev.add_argument("--kind", action="append", help="only these kinds (repeatable)")
+    ev.add_argument("--limit", type=int, default=60, help="how many events (0 = all)")
+    ev.add_argument("--raw", action="store_true", help="the normalized JSON, one object per line")
+    ev.set_defaults(fn=cmd_events)
+
+    logs = sub.add_parser("logs", help="the raw Copilot event stream, unnormalized")
     logs.add_argument("repo")
     logs.add_argument("--raw", action="store_true", help="the untouched JSONL, ephemeral events included")
     logs.add_argument("--limit", type=int, default=60, help="how many events (0 = all)")

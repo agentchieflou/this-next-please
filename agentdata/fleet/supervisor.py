@@ -14,6 +14,7 @@ import time
 
 from .. import proc
 from .. import textio
+from .events import reset_raw_cursor
 from .launch import child_env, launch_command, prompt_for
 from .registry import Registry, Repo, RegistryError, agent_dir, fleet_dir
 
@@ -116,6 +117,7 @@ def _rotate(name: str) -> None:
     try:
         if os.path.getsize(path) > MAX_LOG_BYTES:
             os.replace(path, path + ".1")
+            reset_raw_cursor(name)
     except OSError:
         pass
 
@@ -290,6 +292,26 @@ def _spawn(repo: Repo, name: str, argv, exe: str | None = None) -> subprocess.Po
                                 env=child_env(name, fleet_dir()), **kwargs)
 
 
+def _emit_started(name: str, lock: dict, *, resumed: bool = False) -> None:
+    """Put the launch itself into the normalized stream.
+
+    Without this the stream begins mid-narrative -- the first thing anyone downstream sees is the
+    agent's own first turn, with no record of what it was asked or when. A `started` event is also
+    what lets the dashboard distinguish "never launched" from "launched and said nothing yet".
+    """
+    try:
+        from . import events as E
+
+        E.append(name, [E.event(name, "started",
+                                {"pid": lock.get("pid"), "prompt": (lock.get("prompt") or "")[:400],
+                                 "resumed": resumed, "session": lock.get("session", "")},
+                                ticket=lock.get("ticket", ""))])
+    except Exception:  # noqa: BLE001 - a missing breadcrumb must never fail a launch
+        from ..log import debug_exc
+
+        debug_exc("fleet started event")
+
+
 def start(name: str, *, key: str | None = None, prompt: str | None = None, force: bool = False,
           cfg: dict | None = None, registry: Registry | None = None, exe: str | None = None) -> dict:
     reg = registry or Registry()
@@ -332,6 +354,7 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
             "prompt": text, "started": time.time(),
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
     write_lock(name, lock)
+    _emit_started(name, lock)
     return lock
 
 
@@ -358,6 +381,7 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
             "prompt": message, "started": time.time(),
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
     write_lock(name, lock)
+    _emit_started(name, lock, resumed=True)
     return lock
 
 
