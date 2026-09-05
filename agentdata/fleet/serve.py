@@ -235,12 +235,33 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:                # noqa: N802 - stdlib's name
         url = urlparse(self.path)
         query = parse_qs(url.query)
+        route = url.path.rstrip("/") or "/"
+
+        # Two routes answer without the token, and both are loopback-only like everything else.
+        #
+        # `/api/ping` says only that ad-fleet is listening. A launcher has to know that before it
+        # decides whether to start a second server, and it holds no token to ask with.
+        #
+        # `/open` redirects to the real, tokened URL. A per-run token cannot be written into a VS
+        # Code keybinding or a PyCharm External Tool, so without this there is no stable address to
+        # embed anywhere -- and #99's whole premise is embedding with nothing installed. It is not
+        # a hole: any local process can already read `~/.agentdata/fleet/serve.json`, and a
+        # cross-origin page that navigates a window here cannot read where it landed.
+        if route in ("/api/ping", "/open") and (self.client_address[0] or "").strip("[]") in LOOPBACK:
+            if route == "/api/ping":
+                return self._json({"ok": True, "service": "ad-fleet", "port": self.server.server_address[1]})
+            self.send_response(302)
+            self.send_header("Location", f"/?t={self.token}")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+
         if not self._authorized(query):
             # Deliberately the same answer for a bad token and a non-loopback caller: neither is
             # told which of the two it got wrong.
             return self._refuse(403, "not authorized",
                                 "open the URL `ad-fleet serve` printed, token and all")
-        route = url.path.rstrip("/") or "/"
         if route == "/":
             return self._static("index.html")
         if route == "/api/fleet":

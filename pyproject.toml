@@ -68,7 +68,7 @@ include = ["agentdata*"]
 
 [tool.setuptools.package-data]
 # the project stub and external tool definitions must ship in the wheel: `ad-setup --project` runs on laptops with no repo checkout
-agentdata = ["templates/project-stub/*", "templates/external-tool/*", "pbip/*.ps1", "fleet/static/*"]
+agentdata = ["templates/project-stub/*", "templates/external-tool/*", "pbip/*.ps1", "fleet/static/*", "templates/pycharm/*"]
 
 [tool.pytest.ini_options]
 norecursedirs = ["tests/fixtures", "fixtures", ".*", "build", "dist"]

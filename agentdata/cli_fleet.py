@@ -25,7 +25,7 @@ from . import toon
 from . import ui
 from .console import utf8_stdout
 from .fleet import (agentstate, approval, board as B, events as E, launch, notify as N,
-                    serve as S, supervisor)
+                    opener as O, serve as S, supervisor)
 from .fleet.registry import Registry, RegistryError, fleet_dir
 from .version import add_version, version_string
 
@@ -225,6 +225,30 @@ def cmd_events(a) -> int:
              _summarize(e).replace("\n", " ")[:120]] for e in stream]
     print(toon.table("events", ["seq", "at", "kind", "detail"], rows))
     return EXIT_OK
+
+
+def cmd_open(a) -> int:
+    """Put the dashboard in front of the operator, starting one if none is up.
+
+    Every branch prints what it actually did, including the ones that could only put the URL on the
+    clipboard -- an embedding story that quietly does nothing is worse than one that says so.
+    """
+    record = O.running()
+    started = False
+    if not record:
+        try:
+            record = O.start_server(a.port)
+            started = True
+        except O.OpenError as e:
+            return _refuse("ad-fleet open", e)
+
+    try:
+        did = O.open_in(a.where, record, launcher_dir=a.write_launcher or "")
+    except O.OpenError as e:
+        return _refuse("ad-fleet open", e)
+
+    return _emit("ad-fleet open", {"where": a.where, "server": "started" if started else "already up",
+                                   "port": record.get("port"), **did})
 
 
 def cmd_board(a) -> int:
@@ -478,6 +502,14 @@ def build_parser() -> argparse.ArgumentParser:
     no.add_argument("id")
     no.add_argument("--reason", required=True, help="why. The agent quotes this, so write it for whoever picks the ticket up")
     no.set_defaults(fn=cmd_deny)
+
+    opn = sub.add_parser("open", help="show the dashboard, starting one if none is running")
+    opn.add_argument("--in", dest="where", default="browser", choices=list(O.WHERE),
+                     help="where to show it (default: the default browser)")
+    opn.add_argument("--port", type=int, default=8765, help="port to start a server on if none is up")
+    opn.add_argument("--write-launcher", dest="write_launcher", metavar="DIR",
+                     help="write fleet.html into DIR, for an IDE that only opens files")
+    opn.set_defaults(fn=cmd_open)
 
     brd = sub.add_parser("board", help="your Jira tickets, and which repo each one belongs to")
     brd.add_argument("--refresh", action="store_true", help="ask Jira now instead of using the cache")
