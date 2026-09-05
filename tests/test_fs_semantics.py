@@ -159,6 +159,39 @@ def test_no_tmp_survives_a_normal_write(tmp_path):
     assert "x.txt" in os.listdir(tmp_path)
 
 
+def test_two_writers_of_one_file_do_not_share_a_staging_name(tmp_path):
+    """The staging file is per writer, not per path.
+
+    Earned on CI: `ad-fleet serve` and an agent's `ad-state` wrote the same cursor at the same
+    moment, both staged it as `<path>.tmp`, and one renamed it away while the other still held it
+    -- FileNotFoundError on Linux, PermissionError on Windows, out of code that looked atomic. Only
+    the staging name was shared; the rename itself was always the atomic step.
+    """
+    import threading
+
+    path = str(tmp_path / "contended.json")
+    ready = threading.Barrier(8)
+    errors = []
+
+    def writer(n):
+        ready.wait()
+        for i in range(25):
+            try:
+                textio.write_text(path, f"writer {n} pass {i}\n")
+            except Exception as e:                                # noqa: BLE001 - that is the point
+                errors.append(e)
+
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+
+    assert not errors, f"{len(errors)} writes failed, first: {errors[0]!r}"
+    assert textio.read_text(path).startswith("writer "), "the file was left half-written"
+    assert [n for n in os.listdir(tmp_path) if n.endswith(".tmp")] == []
+
+
 def test_the_retry_is_bounded(monkeypatch, tmp_path):
     """Five attempts with backoff, then in place -- never a hang."""
     calls = []

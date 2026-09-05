@@ -191,6 +191,87 @@ def test_since_and_kind_filters_do_what_they_say(fleet_home, tmp_path):
     assert _kinds(E.read("a", kinds=("assistant_text",))) == ["assistant_text"]
 
 
+# ------------------------------------------------------------------------- two writers at once
+
+
+def test_concurrent_writers_never_hand_out_the_same_seq(fleet_home, tmp_path):
+    """Two writers is the normal case, not an edge: `ad-state` emits from inside the agent while
+    `ad-fleet serve` refreshes the same stream from the operator's machine. Unlocked, both read
+    `seq: 5` and both write a `seq: 6`, and the dense, never-reused numbering this contract promises
+    is quietly untrue."""
+    import threading
+
+    repo = make_project(tmp_path / "repo-a")
+    Registry().add(repo, name="a")
+    ready = threading.Barrier(6)
+
+    def writer(n):
+        ready.wait()
+        for i in range(5):
+            E.append("a", [E.event("a", "assistant_text", {"text": f"{n}-{i}"})])
+
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    seqs = [e["seq"] for e in E.read("a")]
+    assert len(seqs) == 30, f"{len(seqs)} of 30 events survived"
+    assert seqs == sorted(seqs) and len(set(seqs)) == 30, "a seq was reused"
+    assert seqs == list(range(1, 31)), "the numbering is not dense"
+
+
+def test_a_refresh_racing_an_append_loses_nothing(fleet_home, tmp_path):
+    """Exactly the CI failure this lock was written for: the SSE loop refreshing while the agent
+    appends. Both write the cursor, and unlocked they clobbered each other's staging file."""
+    import threading
+
+    repo = make_project(tmp_path / "repo-a")
+    Registry().add(repo, name="a")
+    _write_raw("a", RAW_TURN)
+    stop = threading.Event()
+    errors = []
+
+    def refresher():
+        while not stop.is_set():
+            try:
+                E.refresh("a", repo, repo_state={"phase": "idle"})
+            except Exception as e:                                # noqa: BLE001 - that is the point
+                errors.append(e)
+
+    t = threading.Thread(target=refresher, daemon=True)
+    t.start()
+    try:
+        for i in range(20):
+            E.append("a", [E.event("a", "assistant_text", {"text": f"line {i}"})])
+    finally:
+        stop.set()
+        t.join(timeout=30)
+
+    assert not errors, f"the refresher raised: {errors[:3]}"
+    stream = E.read("a")
+    assert [e["seq"] for e in stream] == list(range(1, len(stream) + 1))
+    said = [e["data"]["text"] for e in stream if e["kind"] == "assistant_text"]
+    assert sorted(said) == sorted([f"line {i}" for i in range(20)] + ["the tree is clean"])
+
+
+def test_a_lock_left_by_a_dead_writer_is_stolen(fleet_home, tmp_path):
+    """A crash must not block a repository's stream forever -- the events are how anyone finds out
+    it crashed."""
+    make_project(tmp_path / "repo-a")
+    Registry().add(str(tmp_path / "repo-a"), name="a")
+    path = os.path.join(registry.agent_dir("a"), E.LOCK)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    open(path, "w").close()
+    old = time.time() - E.LOCK_STALE_S - 60
+    os.utime(path, (old, old))
+
+    E.append("a", [E.event("a", "assistant_text", {"text": "after the crash"})])
+    assert [e["data"]["text"] for e in E.read("a")] == ["after the crash"]
+    assert not os.path.exists(path), "the stolen lock was not released"
+
+
 # ------------------------------------------------------------------------- the state machine
 
 

@@ -18,6 +18,7 @@ emitted on one day; the next release will add something. A reader that raised on
 would turn a Copilot upgrade into a fleet outage.
 """
 from __future__ import annotations
+import contextlib
 import json
 import os
 import re
@@ -240,10 +241,78 @@ def friction_files(repo_path: str) -> list[str]:
 # ------------------------------------------------------------------------------ the merged read
 
 
+LOCK = "events.lock"
+LOCK_WAIT_S = 5.0
+LOCK_STALE_S = 30.0
+
+
+@contextlib.contextmanager
+def writing(name: str):
+    """Hold the agent's write lock for a read-modify-write of the cursor.
+
+    Two writers is the normal case, not an edge: `ad-state` emits from inside the agent while
+    `ad-fleet serve` refreshes the same stream from the operator's machine. Without this they both
+    read `seq: 5` and both write a `seq: 6`, and the dense, never-reused numbering this contract
+    promises is quietly untrue.
+
+    Exclusive-create rather than `fcntl`/`msvcrt`, because it has to behave the same on both and
+    because a lock that outlives its holder must be recoverable: one left by a killed agent is
+    stolen after `LOCK_STALE_S`, or a crash would block that repository's stream forever.
+    """
+    path = os.path.join(agent_dir(name), LOCK)
+    os.makedirs(agent_dir(name), exist_ok=True)
+    deadline = time.time() + LOCK_WAIT_S
+    fd = None
+    while fd is None:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if _stale_lock(path):
+                _drop(path)
+                continue
+            if time.time() >= deadline:
+                # Proceed unlocked rather than lose the event. A duplicate seq is a cosmetic fault
+                # in a dashboard; a dropped phase change is a decision nobody ever sees. Five
+                # seconds of contention on an append this small means a writer died mid-write, and
+                # the staleness check above has already had its chance to clear that.
+                break
+            time.sleep(0.02)
+        except OSError:
+            break
+    try:
+        if fd is not None:
+            os.write(fd, f"{os.getpid()} {time.time():.0f}".encode("utf-8"))
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+            _drop(path)
+
+
+def _stale_lock(path: str) -> bool:
+    try:
+        return time.time() - os.path.getmtime(path) > LOCK_STALE_S
+    except OSError:
+        return True
+
+
+def _drop(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 def append(name: str, events: list[dict]) -> int:
     """Append normalized events, numbering them. Returns the last seq written."""
     if not events:
         return int(read_cursor(name).get("seq", 0))
+    with writing(name):
+        return _append(name, events)
+
+
+def _append(name: str, events: list[dict]) -> int:
+    """The write itself. Callers hold the lock; `refresh` holds it across its whole cycle."""
     cursor = read_cursor(name)
     seq = int(cursor.get("seq", 0))
     os.makedirs(agent_dir(name), exist_ok=True)
@@ -288,10 +357,14 @@ def refresh(name: str, repo_path: str = "", *, repo_state: dict | None = None) -
     """
     from .supervisor import events_path
 
+    with writing(name):
+        return _refresh(name, repo_path, repo_state, events_path(name))
+
+
+def _refresh(name: str, repo_path: str, repo_state: dict | None, raw_path: str) -> list[dict]:
     cursor = read_cursor(name)
     fresh: list[dict] = []
 
-    raw_path = events_path(name)
     consumed = int(cursor.get("raw_lines", 0))
     lines = textio.read_text(raw_path).splitlines() if os.path.isfile(raw_path) else []
     ticket = (repo_state or {}).get("active_ticket", "") or ""
@@ -321,5 +394,5 @@ def refresh(name: str, repo_path: str = "", *, repo_state: dict | None = None) -
         cursor["friction"] = sorted(seen)
 
     write_cursor(name, cursor)
-    append(name, fresh)
+    _append(name, fresh)          # `_append`, not `append`: the lock is already held above
     return fresh

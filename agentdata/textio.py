@@ -22,6 +22,7 @@ import json
 import locale
 import os
 import re
+import threading
 import time
 
 BOMS = ((b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe\x00\x00", "utf-32-le"), (b"\x00\x00\xfe\xff", "utf-32-be"),
@@ -223,7 +224,12 @@ def write_text(path: str, text: str, *, report: dict | None = None) -> str:
     d = os.path.dirname(path)
     if d:
         os.makedirs(longpath(d), exist_ok=True)
-    tmp = path + ".tmp"
+    # The scratch name is per writer, not per path. Two processes writing the same file at once --
+    # `ad-state` in an agent and `ad-fleet serve` refreshing the same cursor, say -- both wrote
+    # `<path>.tmp`, and then one renamed it away while the other was still holding it: a
+    # FileNotFoundError on Linux and a PermissionError on Windows, from code that looked atomic.
+    # The rename itself is still the atomic step; only the staging file needed to be unshared.
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident():x}.tmp"
     with open(longpath(tmp), "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
     how = _replace_with_retry(tmp, path)
