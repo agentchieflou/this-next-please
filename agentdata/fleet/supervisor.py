@@ -385,7 +385,7 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
     return lock
 
 
-def stop(name: str, *, wait: float = 10.0) -> dict:
+def stop(name: str, *, wait: float = 10.0, registry: Registry | None = None) -> dict:
     """End the agent and everything it started, and report honestly whether it died.
 
     Through `proc.kill_tree`, which ends the child's process group -- `copilot` spawns shells and
@@ -393,7 +393,8 @@ def stop(name: str, *, wait: float = 10.0) -> dict:
     working tree. The lock is cleared **only** if the process is actually gone; a lock removed over
     a live agent would let `start` launch a second one beside it.
     """
-    lock = live(name)
+    (registry or Registry()).get(name)     # an unknown name is a typo, and saying "no live agent"
+    lock = live(name)                     # to a typo sends the operator looking in the wrong place
     if not lock:
         clear_lock(name)
         return {"repo": name, "stopped": False, "detail": "no live agent"}

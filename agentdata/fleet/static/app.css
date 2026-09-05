@@ -1,0 +1,158 @@
+/* The multi-viewer. Light and dark follow the system; the three PyCharm palettes override the
+   surface colours only -- status colours never change, because a chip that means "needs you" has
+   to be the same red in every theme or the colour stops being information. */
+
+:root {
+  --bg: #f6f7f8;
+  --panel: #ffffff;
+  --text: #1b1f23;
+  --muted: #5b6570;
+  --accent: #1668b8;
+  --line: #d8dde2;
+  --select: #dce8f5;
+
+  --running: #2f7fd4;
+  --waiting: #c9820a;
+  --human: #cc3344;
+  --done: #2c9a5c;
+  --idle: #7c8794;
+
+  --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #14171a; --panel: #1c2024; --text: #e3e7ea; --muted: #909aa4;
+    --accent: #58a6ff; --line: #2c3237; --select: #23303d;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 13px/1.45 var(--ui);
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+header, footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex: 0 0 auto;
+}
+footer { border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted); }
+h1 { font-size: 14px; margin: 0; letter-spacing: .12em; text-transform: uppercase; }
+.spacer { flex: 1 1 auto; }
+.sr { position: absolute; left: -9999px; }
+.keys kbd, kbd {
+  font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 3px; padding: 0 4px; background: var(--bg);
+}
+
+.dot::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 6px; background: var(--idle); vertical-align: baseline;
+}
+.dot { color: var(--muted); font-size: 11px; }
+.dot.live::before { background: var(--done); }
+.dot.lost::before { background: var(--human); }
+
+select, button, input {
+  font: inherit; color: inherit; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input { min-width: 0; }
+
+/* ------------------------------------------------------------------ the grid, and one big tile */
+
+main {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 10px;
+  padding: 10px;
+  overflow: auto;
+  align-content: start;
+}
+body.focused main { grid-template-columns: 1fr; }
+body.focused .tile:not(.is-focused) { display: none; }
+
+.tile {
+  display: flex; flex-direction: column; min-height: 240px; max-height: 60vh;
+  background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid var(--idle); border-radius: 6px; padding: 8px 10px;
+}
+body.focused .tile.is-focused { max-height: none; }
+.tile.state-running   { border-left-color: var(--running); }
+.tile.state-waiting_approval { border-left-color: var(--waiting); }
+.tile.state-needs_human, .tile.state-blocked, .tile.state-error { border-left-color: var(--human); }
+.tile.state-done      { border-left-color: var(--done); }
+
+.head { display: flex; align-items: center; gap: 8px; }
+.head .n {
+  font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line);
+  border-radius: 3px; padding: 0 4px;
+}
+.repo { cursor: pointer; }
+.ticket, .age { color: var(--muted); font: 11px var(--mono); }
+
+.chip {
+  font: 11px var(--mono); border-radius: 10px; padding: 1px 8px;
+  background: var(--select); color: var(--text);
+}
+.chip.running { background: var(--running); color: #fff; }
+.chip.waiting_approval { background: var(--waiting); color: #fff; }
+.chip.needs_human, .chip.blocked, .chip.error { background: var(--human); color: #fff; }
+.chip.done { background: var(--done); color: #fff; }
+
+.why { margin: 6px 0 0; color: var(--muted); }
+.tile.state-needs_human .why, .tile.state-blocked .why, .tile.state-error .why { color: var(--human); }
+
+/* ------------------------------------------------------------------------------ the transcript */
+
+.transcript {
+  flex: 1 1 auto; overflow: auto; margin: 8px 0 0; padding: 0; list-style: none;
+  font: 12px/1.5 var(--mono); border-top: 1px solid var(--line);
+}
+.transcript li { padding: 3px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; }
+.transcript li:last-child { border-bottom: 0; }
+.transcript .k { color: var(--muted); flex: 0 0 96px; }
+.transcript .v { white-space: pre-wrap; overflow-wrap: anywhere; }
+.transcript li.denied .v, .transcript li.error .v, .transcript li.friction .v { color: var(--human); }
+.transcript li.assistant_text .v { color: var(--text); }
+.transcript li.tool_call .v, .transcript li.tool_result .v { color: var(--muted); }
+
+/* -------------------------------------------------------------------------------- the approval */
+
+.approval {
+  margin-top: 8px; padding: 8px; border: 1px solid var(--waiting); border-radius: 5px;
+  background: var(--select);
+}
+.approval-head { font-weight: 600; color: var(--waiting); }
+.approval .summary { margin: 4px 0; }
+.approval pre {
+  margin: 4px 0; padding: 6px; max-height: 140px; overflow: auto;
+  font: 11px/1.4 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+}
+
+.row { display: flex; gap: 6px; align-items: center; }
+.row input { flex: 1 1 auto; }
+.bottom { margin-top: 8px; }
+.err { margin: 6px 0 0; color: var(--human); }
+
+@media (max-width: 640px) {
+  main { grid-template-columns: 1fr; }
+  .keys { display: none; }
+}

@@ -375,6 +375,22 @@ def _scripts() -> list[str]:
 
 # --------------------------------------------------------------------------- (a) .. (h), in order
 
+# Run inside the installed venv, not here: the point is whether the *wheel* carries the static
+# files, which a checkout can never tell us because they are on disk either way.
+SERVE_A_PAGE = """
+import threading, urllib.request
+from agentdata.fleet import serve
+
+server, token = serve.build(0)
+threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+try:
+    with urllib.request.urlopen(serve.url_for(server, token), timeout=20) as r:
+        print(r.read().decode("utf-8")[:400])
+finally:
+    server.shutdown()
+    server.server_close()
+"""
+
 
 @pytest.mark.posix
 @pytest.mark.skipif(os.name == "nt", reason="six pip builds do not fit a Windows runner; the "
@@ -412,6 +428,14 @@ def test_the_install_and_update_lifecycle(tmp_path_factory, clone, cache):
             lines = out.stdout.strip().splitlines()
             broken.append(f"{name}: exit {out.returncode}, {lines[-1][:160] if lines else 'no output'}")
     assert not broken, "(a) console scripts:\n  " + "\n  ".join(broken)
+
+    # (a) the dashboard's page ships in the wheel. Without the `package-data` entry, `ad-fleet
+    # serve` installs perfectly and then answers 404 to every request -- and only ever on someone
+    # else's machine, because in a checkout the files are simply there.
+    out = run_bounded([v.python, "-c", SERVE_A_PAGE], cwd=v.work, env=v.env(), timeout=180,
+                      label="ad-fleet serve from the wheel")
+    assert out.returncode == 0, f"(a) the installed dashboard did not serve its page: {out.stdout}"
+    assert "<title>fleet</title>" in out.stdout, f"(a) {out.stdout[-300:]}"
 
     # (a) `'ad-setup' is not recognized` reads like a failed install; it is almost always PATH. The
     # venv's Scripts directory is deliberately not on this process's PATH, which is exactly the

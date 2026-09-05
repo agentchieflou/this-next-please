@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fleet</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <h1>fleet</h1>
+  <span id="link" class="dot" title="event stream">connecting</span>
+  <span class="spacer"></span>
+  <label for="theme" class="sr">theme</label>
+  <select id="theme" title="page theme"><option value="">system</option></select>
+  <button id="unfocus" hidden>back to grid <kbd>Esc</kbd></button>
+</header>
+
+<main id="grid" aria-live="polite"></main>
+
+<p id="empty" hidden>
+  No repositories registered. Run <code>ad-fleet repo add &lt;path&gt;</code>, then reload.
+</p>
+
+<footer>
+  <span id="counts"></span>
+  <span class="spacer"></span>
+  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus a tile · <kbd>a</kbd> approve · <kbd>Esc</kbd> grid</span>
+</footer>
+
+<template id="tile">
+  <section class="tile" tabindex="0">
+    <div class="head">
+      <span class="n"></span>
+      <strong class="repo"></strong>
+      <span class="chip"></span>
+      <span class="ticket"></span>
+      <span class="spacer"></span>
+      <span class="age" title="age of the last event"></span>
+    </div>
+    <p class="why"></p>
+    <div class="approval" hidden>
+      <div class="approval-head">waiting for you: <span class="kind"></span></div>
+      <div class="summary"></div>
+      <pre class="payload"></pre>
+      <div class="row">
+        <button class="approve">Approve</button>
+        <input class="reason" type="text" placeholder="reason (required to deny)">
+        <button class="deny">Deny</button>
+      </div>
+    </div>
+    <ol class="transcript"></ol>
+    <div class="row bottom">
+      <input class="say" type="text" placeholder="reply, or a ticket key to start">
+      <button class="send">Send</button>
+      <button class="start">Start</button>
+      <button class="stop">Stop</button>
+    </div>
+    <p class="err" hidden></p>
+  </section>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

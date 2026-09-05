@@ -24,7 +24,7 @@ from . import config as C
 from . import toon
 from . import ui
 from .console import utf8_stdout
-from .fleet import agentstate, approval, events as E, launch, supervisor
+from .fleet import agentstate, approval, events as E, launch, serve as S, supervisor
 from .fleet.registry import Registry, RegistryError, fleet_dir
 from .version import add_version, version_string
 
@@ -215,6 +215,27 @@ def cmd_events(a) -> int:
     return EXIT_OK
 
 
+def cmd_serve(a) -> int:
+    """The multi-viewer. Blocks until Ctrl-C; everything it shows comes from #94's stream."""
+    try:
+        server, token = S.build(a.port)
+    except S.ServeError as e:
+        return _refuse("ad-fleet serve", e)
+    url = S.url_for(server, token)
+    S.record(server, token)
+    _emit("ad-fleet serve", {"url": url, "port": server.server_address[1],
+                             "bound": "127.0.0.1 only",
+                             "note": "the token in the URL is required on every request; "
+                                     "stop with Ctrl-C"})
+    sys.stdout.flush()
+    if a.open:
+        import webbrowser
+
+        webbrowser.open(url)
+    S.run(server)
+    return EXIT_OK
+
+
 def cmd_approvals(a) -> int:
     waiting = approval.pending()
     if a.raw:
@@ -359,6 +380,11 @@ def build_parser() -> argparse.ArgumentParser:
     no.add_argument("id")
     no.add_argument("--reason", required=True, help="why. The agent quotes this, so write it for whoever picks the ticket up")
     no.set_defaults(fn=cmd_deny)
+
+    srv = sub.add_parser("serve", help="the multi-viewer: one local page, one tile per agent")
+    srv.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 picks a free one)")
+    srv.add_argument("--open", action="store_true", help="open it in the default browser")
+    srv.set_defaults(fn=cmd_serve)
 
     logs = sub.add_parser("logs", help="the raw Copilot event stream, unnormalized")
     logs.add_argument("repo")
