@@ -19,6 +19,7 @@ interactive picker (its first row is a search box that swallows Enter, so paging
 | `pncli` | resolves the pncli launcher (PATH + PATHEXT + the npm global prefix) and proves it starts with `--version`; finds `~/.pncli/config.json`, lists its keys (values masked), asks which keys hold the Jira URL / email / token; verifies with `/myself` and detects Cloud (v3, Basic) vs Data Center (v2, Bearer) | `pncli.exe` (the resolved shim), `pncli.config_path`, `pncli.keys.*` (key **names**), `jira.base_url/flavor/auth/api`, `verified.jira` |
 | `sources` | per Teradata / Hive / Impala: environments, native driver or ODBC DSN (lists what this 64-bit Python can see), auth mechanism, user. **Oracle is asked differently** (see below): hostname, port, service name or SID, because there is no ODBC DSN to point at. Then `SELECT 1` and capability probes | `sources.<s>.envs.<env>.*`, `capabilities`, `verified.<s>:<env>`; passwords → `keyring` service `<s>:<env>` |
 | `powerbi` | locates `TabularEditor.exe`, `dscmd.exe`, `PBIDesktop.exe` and **`az`** (a `.cmd`, searched on PATH and in `%ProgramFiles%\Microsoft SDKs\Azure\CLI2\wbin`); `az login`; lists workspaces via the Power BI REST API; percent-encodes the XMLA URL; smoke-tests each workspace/model with a one-line Tabular Editor script | `powerbi.tools.*` (incl. `az_exe`), `powerbi.workspaces[]`, `powerbi.tenant_id`, `verified.powerbi:xmla:<ws>` |
+| `content_understanding` | optional, and `skip` until a project says it uses it: the Microsoft Foundry resource endpoint (shape-checked offline -- a pasted portal key and an endpoint with the API path already on it are the two mistakes it catches), auth mode, and a default analyzer. Online, `get_analyzer` proves endpoint + credential + permission + analyzer id in one call and sends no document anywhere | `content_understanding.endpoint/auth/analyzer`, `verified.content_understanding:<analyzer>`; the resource key -> `keyring` service `content_understanding:default` |
 | `project` | `--project DIR`: writes the packaged project stub into DIR and fills the facts it knows (env names, tool paths, workspace/model/XMLA, first `*.pbip`) | `AGENTS.md`, `.agent/state.json`, `.gitignore` additions (never overwrites existing files) |
 
 Non-interactive (Copilot terminals have no stdin for prompts):
@@ -99,6 +100,7 @@ Env overrides keep working: `TD_HOST_<ENV>`/`TD_HOST`, `TD_USER`, `TD_LOGMECH`, 
 `IMPALA_HOST_<ENV>`, `IMPALA_PORT`, `ORA_HOST_<ENV>`, `ORA_PORT_<ENV>`, `ORA_SERVICE_<ENV>`, `ORA_SID_<ENV>`,
 `ORA_DSN_<ENV>`, `ORA_USER`, `ORACLE_CLIENT_LIB`, `TNS_ADMIN`;
 Jira: `JIRA_URL`, `JIRA_EMAIL`, `JIRA_TOKEN`; pncli launcher: `PNCLI_EXE`; TLS: `AGENTDATA_CA_BUNDLE`.
+Content Understanding: `CONTENT_UNDERSTANDING_ENDPOINT`, `CONTENT_UNDERSTANDING_ANALYZER`, `CONTENT_UNDERSTANDING_KEY`.
 
 ## Oracle: the four fields, not one string
 
@@ -127,6 +129,35 @@ credential prompts — and both require `client_lib`, which the doctor now check
 question existed (a `client_lib` and nothing else) still means Kerberos. Every `ad-doctor` run prints the composed target next to the env, so a wrong port or
 service name is visible without connecting. A host with no service name or SID fails the check by name rather than at
 query time. Oracle never uses the ODBC mode: an ODBC DSN handed to python-oracledb would be read as a TNS alias.
+
+## Content Understanding (Microsoft Foundry): an optional service, and why it stays `skip`
+
+`ad-dpm extract-fields --engine azure-content-understanding` and `ad-foundry` talk to Azure AI Content Understanding.
+Most installs never call it, so the step reports one `skip` row until a project says otherwise, and the SDK is an
+optional extra:
+
+```
+pip install "agentdata[content-understanding]"
+```
+
+An unconfigured optional service is not a broken install. A `fail` row for it would push the rows that matter off the
+reader's screen, which is the same reason `console` never fails the doctor.
+
+**The endpoint is the resource host and nothing else** — `https://<resource>.services.ai.azure.com`. The SDK appends
+its own path, so an endpoint carrying `/contentunderstanding` produces a 404 that reads like a missing analyzer. The
+check is offline and shape-only; the mistake it catches most often is a portal **key** pasted where the endpoint goes,
+which otherwise fails as an authentication error rather than a URL error.
+
+**Auth is `entra` by default and stores nothing** — `DefaultAzureCredential` over the same `az login` the Power BI step
+already needs, so an operator who can reach a workspace can reach this with nothing new to rotate. `key` puts the
+resource key in the keyring under `content_understanding:default` (user `resource-key`), the same place and shape as a
+data source's password; `CONTENT_UNDERSTANDING_KEY` overrides it for one session. The key never goes in config —
+`save()` refuses it.
+
+**A default analyzer is optional on purpose.** A default that is wrong for half the jobs is worse than none, so
+`--analyzer <id>` per run is a supported answer and the row stays `warn` rather than `fail`. `ad-foundry analyzers
+list` shows what the resource has; `ad-foundry analyzers get <id>` shows the field schema it declares, which is the
+list your job schema has to agree with. Analyzers are authored in the Foundry portal — nothing here creates one.
 
 ## Windows notes
 - Console scripts land in the per-user Scripts folder when site-packages is not writeable; if `ad-*` is "not recognized", use `python -m agentdata <command>` (identical arguments) or add that folder to PATH.

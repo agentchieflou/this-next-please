@@ -198,7 +198,12 @@ def cmd_extract_fields(a) -> int:
     schema = EX.load_schema(a.schema)
     run_root = a.run_root or (manifest.get("producer") or {}).get("run_root")
 
+    # Only options a person actually gave: an engine's own default is a decision it documents, and
+    # passing None over it would quietly make this file the one that chose.
+    engine_options = {k: v for k, v in (("analyzer", a.analyzer),
+                                        ("min_confidence", a.min_confidence)) if v is not None}
     result = EX.extract(manifest=manifest, schema=schema, engine_name=a.engine,
+                        engine_options=engine_options,
                         run_root=run_root if run_root and os.path.isdir(run_root) else None)
 
     run_id = (manifest.get("producer") or {}).get("run_id") or "dpm"
@@ -351,8 +356,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--manifest", required=True, help="job-manifest.json from `ad-dpm convert`")
     p.add_argument("--schema", required=True,
                    help="the per-job field schema: {\"fields\": [{\"name\", \"hint\", \"required\"}]}")
-    p.add_argument("--engine", default="simple",
-                   help="how to find each field (default simple: text search near the hint)")
+    p.add_argument("--engine", default="simple", choices=EX.names(),
+                   help="how to find each field (default simple: text search near the hint; "
+                        "azure-content-understanding sends the text to a Foundry analyzer, which "
+                        "holds its own field schema and ignores the job schema's hints)")
+    p.add_argument("--analyzer", help="[azure-content-understanding] the analyzer id "
+                                      "(default: content_understanding.analyzer)")
+    p.add_argument("--min-confidence", dest="min_confidence", type=float,
+                   help="[azure-content-understanding] below this a value is reported `ambiguous` "
+                        "rather than `found`, so a reviewer confirms it (default 0.7)")
     p.add_argument("--run-root", help="verify the run root is untouched (default: from the manifest)")
     p.add_argument("--out-dir", dest="out_dir", help="where the review file goes (default .agent/out)")
     p.add_argument("--no-review", action="store_true", dest="no_review",

@@ -4,6 +4,39 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.6.2 — 2026-09-05
+
+**Optional dependency.** Only if you will use Azure AI Content Understanding:
+`pip install "agentdata[content-understanding]"`, then `ad-setup --only content_understanding`. Everything
+else in this release needs nothing beyond the two standard update commands. `ad-doctor` reports the new step
+as one `skip` row until a project says it uses the service.
+
+**One-prompt workflows (#16).** Five workflows that previously needed a human to sequence skills and
+hand-author SQL now run from one request.
+
+- **UAT against a warehouse (#27).** `ad-uat jira-vs-source` generates the SQL per engine — Teradata and Oracle
+  get `QUALIFY`, Hive gets it only from 4.0, Impala never does, and Hive/Impala identifiers are backtick-quoted
+  because a double-quoted one is a string literal there. The generated SQL is linted by `ad-sql-check` before
+  it runs.
+- **Two warehouses at once (#28).** `ad-uat jira-vs-warehouses` answers "do Teradata and Hadoop agree?" first
+  and the per-source comparisons after, because that is the question being asked. `ad-uat reconcile` gains the
+  `warehouse-drift` class for a row the two warehouses disagree on.
+- **Ticket to deployed (#29).** The Power BI chain no longer skips its own prerequisites: a model change now
+  enters at `pbip-projection` instead of jumping to `tmdl-edit`, and `tests/test_skill_handoffs.py` fails the
+  build if any hand-off skips a step its target declares it needs.
+- **Document field extraction (#30).** `ad-dpm extract-fields` pulls named values out of the text a DPM run
+  already routed, with the field list supplied per job — no business field name is built in, and there is a
+  test that greps for one. OCR-routed documents are bucketed as `needs_ocr_review` and **never extracted
+  from**: their text quality is unverified, so a value read from it would not be either.
+- **Azure AI Content Understanding (#31).** New `ad-foundry` command (`analyze`, `analyzers list|get`) and the
+  `--engine azure-content-understanding` backend for `ad-dpm extract-fields`. Same schema in, same rows out,
+  same statuses — nothing downstream knows which engine ran. One request per document, not per field. A
+  service failure is reported as a refusal, never as a missing field. New skill
+  `content-understanding-extract`.
+
+New optional extra `content-understanding`; new setup step and `ad-doctor` rows for endpoint, SDK, auth and
+analyzer, all offline-safe — the online check reads the analyzer definition and sends no document anywhere.
+
 ## 0.6.1 — 2026-09-04
 
 **Run `ad-setup --patch` after updating.** This release adds three project facts the new code-graph and

@@ -31,7 +31,7 @@ ad-dpm extract-fields --manifest <governed-dir>/<run_id>/job-manifest.json --sch
    - `needs_ocr_review` — **not extracted at all.** The document is OCR-routed and its text quality is unverified. Never report these as missing: say they were not read.
 4. `missing_required` in `meta` → a required field no document yielded. Say so plainly in the handover; do not substitute a value from anywhere else.
 5. The review file is `.agent/out/<run_id>-field-extraction.md`. Cite its path. Never restate rows in chat.
-6. `state-update`: artifacts. Hand off → `dpm-consumer-integration` when the values feed the consumer, else `router`.
+6. `state-update`: artifacts. Hand off → `dpm-consumer-integration` when the values feed the consumer, else `router`. When `not_found` dominates because the documents have no consistent labels to search near, hand off → `content-understanding-extract`: an analyzer holds its own schema and does not need one.
 7. Never write to the DPM run root — the command fingerprints it before and after and fails if anything changed. Never edit the manifest to make a field resolve.
 8. Every row carries the document id, page and source sha256 from DPM's own lineage. If a value is questioned, that is what answers it — never construct a second provenance trail.
 

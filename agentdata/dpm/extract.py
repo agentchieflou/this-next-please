@@ -116,9 +116,23 @@ class Engine:
 
     An engine is given the text and the schema and returns one result per field. It is never given
     the run root, and never writes anything.
+
+    `options` is the per-run configuration an engine accepts -- an analyzer id, a confidence floor.
+    Declared as a name list rather than swallowed as `**kwargs` so a misspelled option refuses
+    instead of being silently ignored, which is how a run ends up quietly using a default nobody
+    chose.
     """
 
     name = "base"
+    options: tuple[str, ...] = ()
+
+    def __init__(self, **options):
+        unknown = sorted(set(options) - set(self.options))
+        if unknown:
+            raise DpmError("unknown_engine_option",
+                           f"engine {self.name!r} has no option(s): {', '.join(unknown)}",
+                           "it takes " + (" | ".join(self.options) or "no options"))
+        self.opt = options
 
     def find(self, text: str, field: dict) -> tuple[str, str, str]:
         """(status, value, detail). `status` is one of STATUSES."""
@@ -179,10 +193,25 @@ def register(engine: type[Engine]) -> None:
     ENGINES[engine.name] = engine
 
 
-def engine_for(name: str) -> Engine:
+# An engine that lives in its own module and registers itself on import. Named here rather than
+# imported at the top, so this module stays free of anything optional and a caller does not have to
+# know which module owns which engine -- `--engine <name>` works from any entry point.
+LAZY = {"azure-content-understanding": ".engine_cu"}
+
+
+def names() -> list[str]:
+    """Every engine `--engine` accepts, whether or not its module has been imported yet."""
+    return sorted(set(ENGINES) | set(LAZY))
+
+
+def engine_for(name: str, options: dict | None = None) -> Engine:
+    if name not in ENGINES and name in LAZY:
+        import importlib
+
+        importlib.import_module(LAZY[name], __package__)
     if name not in ENGINES:
-        raise DpmError("unknown_engine", f"unknown engine {name!r}", "one of " + " | ".join(sorted(ENGINES)))
-    return ENGINES[name]()
+        raise DpmError("unknown_engine", f"unknown engine {name!r}", "one of " + " | ".join(names()))
+    return ENGINES[name](**(options or {}))
 
 
 # ------------------------------------------------------------------------------- the run
@@ -201,13 +230,13 @@ def read_manifest(path: str) -> dict:
 
 
 def extract(*, manifest: dict, schema: FieldSchema, engine_name: str = SimpleEngine.name,
-            run_root: str | None = None, read_text=None) -> dict:
+            engine_options: dict | None = None, run_root: str | None = None, read_text=None) -> dict:
     """One row per (job, field), with the job's own lineage carried through.
 
     `read_text` is injectable so the tests do not need a DPM run on disk; by default it reads the
     `text_path` the manifest recorded.
     """
-    engine = engine_for(engine_name)
+    engine = engine_for(engine_name, engine_options)
     reader = read_text or _read_text
 
     before = snapshot(run_root) if run_root else None

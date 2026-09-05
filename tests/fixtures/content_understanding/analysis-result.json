@@ -1,0 +1,44 @@
+{
+  "id": "b3f1c0de-0000-4a11-9c2f-1d2e3f4a5b6c",
+  "status": "Succeeded",
+  "analyzerId": "loan-application-v2",
+  "apiVersion": "2025-11-01",
+  "createdAt": "2026-01-04T09:14:22Z",
+  "warnings": [],
+  "contents": [
+    {
+      "kind": "document",
+      "mimeType": "application/pdf",
+      "analyzerId": "loan-application-v2",
+      "path": "page-1",
+      "markdown": "# LOAN APPLICATION\n\nBorrower: Ada Lovelace\n\nLoan Amount: 125,000.00\n",
+      "fields": {
+        "BorrowerName": {
+          "type": "string",
+          "valueString": "Ada Lovelace",
+          "confidence": 0.972,
+          "spans": [{"offset": 32, "length": 12}],
+          "source": "D(1,1.2,2.1,3.4,2.1,3.4,1.2)"
+        },
+        "LoanAmount": {
+          "type": "number",
+          "valueNumber": 125000.0,
+          "confidence": 0.941,
+          "spans": [{"offset": 60, "length": 10}]
+        },
+        "ApplicationDate": {
+          "type": "date",
+          "valueDate": "2026-01-04",
+          "confidence": 0.412,
+          "spans": [{"offset": 96, "length": 10}]
+        },
+        "CoBorrowerName": {
+          "type": "string",
+          "valueString": "",
+          "confidence": 0.108,
+          "spans": []
+        }
+      }
+    }
+  ]
+}
