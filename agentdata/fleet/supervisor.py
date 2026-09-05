@@ -77,6 +77,20 @@ def pid_alive(pid: int) -> bool:
             return False
         # tasklist prints an INFO line when nothing matches, so the pid must appear in a real row.
         return any(str(pid) in line.split() for line in (out.stdout or "").splitlines())
+    # A child of ours that has exited stays a zombie until somebody waits for it, and `kill(pid, 0)`
+    # succeeds on a zombie -- so this answered "alive" forever for an agent started by a process
+    # that outlives it. `ad-fleet start` exits and hands its orphan to init, which hides the bug;
+    # `ad-fleet serve` does not, so an agent started from the dashboard on Linux or macOS would have
+    # sat on its tile as `running` after it had finished. Reaping here is also the only thing that
+    # ever reaps it, since nothing keeps the `Popen`.
+    try:
+        reaped, _status = os.waitpid(pid, os.WNOHANG)
+        if reaped == pid:
+            return False
+    except ChildProcessError:
+        pass                      # not our child: `kill(pid, 0)` below is the whole answer
+    except OSError:
+        pass
     try:
         os.kill(pid, 0)
         return True

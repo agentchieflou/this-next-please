@@ -243,6 +243,30 @@ def test_a_stale_lock_does_not_block_the_repo_forever(fleet_home, tmp_path, monk
     assert not os.path.isfile(supervisor.lock_path("a")), "the reaper did not clear the stale lock"
 
 
+@pytest.mark.posix
+@pytest.mark.skipif(os.name == "nt", reason="zombies are a POSIX idea; Windows has no equivalent")
+def test_a_finished_child_is_not_reported_as_alive(fleet_home, tmp_path):
+    """On POSIX a child that has exited stays a zombie until somebody waits for it, and
+    `os.kill(pid, 0)` succeeds on a zombie.
+
+    `ad-fleet start` exits immediately and hands its orphan to init, which hid this completely.
+    `ad-fleet serve` does not exit -- so an agent started from the dashboard finished, became a
+    zombie, and sat on its tile as `running` for the life of the server. CI found it; this keeps
+    it found.
+    """
+    import subprocess
+    import sys
+    import time
+
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    deadline = time.time() + 30
+    while child.poll() is None and time.time() < deadline:
+        time.sleep(0.02)
+    assert child.poll() is not None, "the probe process never exited"
+
+    assert supervisor.pid_alive(child.pid) is False, "a finished child was reported as running"
+
+
 def test_starting_a_different_ticket_mid_ticket_is_refused_without_force(fleet_home, tmp_path):
     repo = make_project(tmp_path / "repo-a", phase="triaged", ticket="RDSD-7")
     Registry().add(repo, name="a")
