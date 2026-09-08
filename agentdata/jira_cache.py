@@ -41,6 +41,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Iterator
 
+from . import textio
 from .connectors.jira_http import JiraError
 
 CACHE_DIR = ".jira-changelog-cache"
@@ -93,7 +94,7 @@ class ChangelogCache:
     live connection, because the connection is opened lazily and dropped again by `clear()`."""
 
     def __init__(self, path: str):
-        self.path = path.replace("\\", "/")
+        self.path = textio.norm_path(path)
         self.disabled = False
         self.error = ""
         self.hint = ""

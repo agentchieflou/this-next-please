@@ -295,11 +295,20 @@ class Corpus:
 
     # ---- histories
     def history(self, i: int, h: int) -> dict:
-        """One changelog entry. Ascending in `h` by both `created` and `id`, which is the ordering guarantee the
-        replay depends on and #126 has to state: the first entry adds the issue to its sprint, the last closes it.
+        """One changelog entry.
+
+        Ascending in `h` by both `created` and `id` — the ordering guarantee the replay depends on and #126 has to
+        state. Entries are spread evenly from the issue's creation to ten days into the sprint, so the first one
+        (which adds the issue to its sprint) lands before the sprint starts and the last one (which closes it)
+        lands inside it: a replay run against this corpus gets sensible committed and completed numbers rather
+        than a pile of issues that finished before the sprint existed. At very large `histories` the step falls
+        below a second and several entries share a timestamp, which is realistic — automation does that — and is
+        exactly the case the `(created_utc, changelog_id)` tiebreak exists for.
         """
         n = _hash64(self.seed, i, h)
-        created = self.created(i) + timedelta(seconds=h * 3600 + n % 600)
+        start = self.created(i)
+        step = (SPRINT_START + timedelta(days=10) - start) / max(1, self.histories)
+        created = start + step * (h + 1)
         items = [self._first_item() if h == 0 else
                  self._last_item() if h == self.histories - 1 else
                  dict(_MENU[n % len(_MENU)])]
@@ -367,9 +376,6 @@ class TokenBucket:
 
 
 # ------------------------------------------------------------------------------------------ fault script
-
-
-_ACTIONS = ("status", "timeout", "reset", "interrupt", "cap", "drop_islast", "duplicate", "shuffle")
 
 
 def parse_fault(fault: Any) -> tuple[str, Any, dict]:
@@ -440,7 +446,7 @@ class FakeJira:
                  bulk_duplicate: bool = False, bulk_cap: int = 1000, bulk_created: str = "iso",
                  expand_cap: int = 100, paged_changelog: bool = True,
                  bucket: TokenBucket | None = None, rate_headers: bool | None = None,
-                 rate_limit: int = 0, reset_style: str = "epoch",
+                 rate_limit: int = 0, reset_style: str = "epoch",   # rate_limit=N is shorthand for a bucket of N
                  faults: Any = (), wall_start: datetime | None = None):
         if flavor not in ("cloud", "dc"):
             raise ValueError("flavor is 'cloud' or 'dc'")
