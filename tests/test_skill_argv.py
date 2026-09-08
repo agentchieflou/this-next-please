@@ -139,7 +139,13 @@ def command_lines() -> list[tuple[str, int, str]]:
     found = []
     for path in documents():
         rel = os.path.relpath(path, REPO_ROOT).replace("\\", "/")
-        for n, line in enumerate(open(path, encoding="utf-8").read().splitlines(), 1):
+        text = open(path, encoding="utf-8").read()
+        # A plan names the commands its slices will add; nobody is told to run them yet. Its status line
+        # is the switch (same rule as tests/test_entrypoints.py): once it says IMPLEMENTED, every line
+        # it shows is parsed like any other doc.
+        if re.search(r"^_Status: PLANNED\b", text, re.M):
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
             if NO_PARSE in line:
                 continue
             candidates = COMMAND_LINE.findall(line)

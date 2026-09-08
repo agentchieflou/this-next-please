@@ -7,6 +7,7 @@ frames, the fact that the page fetches nothing from the internet, and that the w
 """
 from __future__ import annotations
 import json
+import re
 import os
 import shutil
 import socket
@@ -384,3 +385,25 @@ def test_the_dashboard_is_documented_including_the_keyboard_map():
     for key in ("Esc", "1", "9", "a"):
         assert f"`{key}`" in text, f"the {key} key is not in the keyboard map"
     assert "127.0.0.1" in text and "token" in text
+
+
+def test_the_page_can_actually_fetch_its_own_css_and_js(running):
+    """The dashboard has to work in a browser, and a browser does not carry the token for it.
+
+    Every route but `/api/ping` and `/open` requires the token. A relative `href` in the HTML does
+    not inherit the query string the operator opened, so the page asked for `/static/app.css` with
+    no token and got a 403: the whole dashboard rendered as unstyled HTML with no behaviour. Every
+    test here missed it for the same reason -- a test fetches the asset directly, with the token
+    already in hand, which is not how a page asks. This one asks the way a browser does: it takes
+    the URLs out of the served HTML and fetches exactly those.
+    """
+    base, token, _ = running
+    html = urllib.request.urlopen(f"{base}/?t={token}", timeout=5).read().decode()
+
+    refs = re.findall(r'(?:href|src)="(/static/[^"]+)"', html)
+    assert refs, f"the page references no assets at all: {html[:200]!r}"
+
+    for ref in refs:
+        with urllib.request.urlopen(base + ref, timeout=5) as r:   # exactly as written, nothing added
+            assert r.status == 200, ref
+            assert r.read(), f"{ref} served empty"

@@ -78,6 +78,11 @@ def test_docs_only_mention_commands_that_exist(where):
     bad = []
     for f in files:
         text = open(f, encoding="utf-8").read()
+        # A plan names the commands its slices will add, so it cannot pass this guard until they exist -- and
+        # a plan is not something Luna is told to run. Its status line is the switch: the moment it says
+        # IMPLEMENTED (docs/plan-luna-pipeline.md) every command it names is checked like any other doc.
+        if re.search(r"^_Status: PLANNED\b", text, re.M):
+            continue
         for cmd in re.findall(r"`?\bad-([a-z][\w-]*)", text):
             if cmd not in known and cmd not in {"hoc", "hoc-"}:
                 bad.append(f"{os.path.relpath(f, ROOT)}: ad-{cmd}")

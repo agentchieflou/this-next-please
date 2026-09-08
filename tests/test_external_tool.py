@@ -142,4 +142,15 @@ def test_doctor_powerbi_external_tool_check():
         ext_rows = [r for r in ctx.checks if r.name == "powerbi/external_tool"]
         assert len(ext_rows) == 1
         assert ext_rows[0].status == "warn"
-        assert "not registered" in ext_rows[0].detail
+
+        # This row used to say "not registered" and point at elevation. That sentence is the whole
+        # reason epic #112 exists: it was shown to an operator who cannot elevate, on a machine where
+        # the ribbon costs one Administrators-only write into Common Files. The row now reports the
+        # live transport, and the ribbon's state as a FACT with what to do about it. Here there is
+        # genuinely no transport -- no Desktop window and not Windows -- so the warn is correct; what
+        # must never appear is advice the reader cannot follow.
+        detail = ext_rows[0].detail + " " + (ext_rows[0].hint or "")
+        assert "transport" in detail
+        assert "needs-it-file" in detail or "ribbon" in detail
+        assert "elevated" not in detail.lower() and "administrator" not in detail.lower(), \
+            f"the row told a user who cannot elevate to elevate: {detail!r}"

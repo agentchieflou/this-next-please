@@ -1,13 +1,40 @@
 """Jira REST client (stdlib only). Reuses pncli's Jira token: read at call time from pncli's own config by
 dot-path (ad-setup --only pncli picks the keys); env JIRA_URL / JIRA_EMAIL / JIRA_TOKEN override.
 Flavor is detected once and cached in agentdata config: Cloud = REST v3 + Basic(email:token),
-Data Center = REST v2 + Bearer PAT (Basic as a fallback). The token never appears in output or errors."""
+Data Center = REST v2 + Bearer PAT (Basic as a fallback). The token never appears in output or errors.
+
+What changed with epic #121 is not what a row means -- `history_rows` and the column set are untouched -- but how
+rows are fetched and how the client behaves when the fetch goes wrong on request 1,900 of 2,000.
+
+* **The request policy moved to `jira_http`.** `request()` used to retry 429 and 503 and nothing else, so a 502
+  from the tenant's proxy or a socket timeout on page 40 of 80 raised on the spot and threw away every page
+  already fetched. Now `classify()` names the failure, only idempotent calls are replayed (`transition()` posts
+  with `idempotent=False`, because a replayed transition moves an issue twice), backoff is jittered so the fleet's
+  tiles do not retry in lockstep, `Retry-After` wins up to a cap, and a per-run `RequestBudget` stops a runaway
+  pull with an error naming what it spent instead of hammering the human's shared token until the tenant does.
+  Atlassian's rate-limit headers are read on **every** response, error responses included -- a 429 carries them
+  and that is exactly the moment they matter -- so the client can pause *before* it is refused.
+
+* **`iter_changelog()` is the one fetch path.** `changelog()` and `bulk_changelog()` are thin wrappers that
+  `list()` it, kept because their callers and tests predate this. The iterator yields rows instead of building a
+  list, which is what lets the CLI stream a 100,000-row pull to disk with one chunk in memory.
+
+* **The bulkfetch fallback announces its cost.** A 400 caused by one bad key used to turn three requests into
+  three thousand, silently -- the single fastest way to get a shared token throttled. Now a 400 names the keys it
+  rejects, they are dropped into `bulk_meta["skipped_keys"]` and the chunk is retried; a 404/405 falls back once
+  for the whole run and says how many requests that implies; and a fallback that cannot fit in the budget raises
+  `JiraBudgetError` *before* starting a run that cannot finish.
+
+* **Ordering is a guarantee, not a final sort.** See `iter_changelog`.
+"""
 from __future__ import annotations
 import base64
-import email.utils
 import getpass
+import http.client
 import json
 import os
+import random
+import re
 import ssl
 import time
 import urllib.error
@@ -18,26 +45,31 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterator
 from .. import textio
 from .. import config as C
+from .jira_http import (USER_AGENT, HINTS, JiraError, JiraHTTPError, JiraBudgetError, JiraPartialError,
+                        RateLimit, RequestBudget, Stats, backoff_seconds, classify, retry_after_seconds)
 
-USER_AGENT = "agentdata/0.1"
-_HINTS = {
-    401: "token rejected; re-run ad-setup --only pncli, or set JIRA_TOKEN / JIRA_EMAIL",
-    403: "no permission on this project or issue",
-    404: "not found (issue key, endpoint, or wrong Jira flavor); try ad-jira whoami --redetect",
-    429: "rate limited even after retries; wait a minute and rerun",
-}
+__all__ = ["USER_AGENT", "HINTS", "JiraError", "JiraHTTPError", "JiraBudgetError", "JiraPartialError",
+           "Flavor", "CLOUD", "DC_BEARER", "DC_BASIC", "Creds", "Jira", "load_credentials", "detect_flavor",
+           "remember_flavor", "history_rows", "pin_fields", "resolve_field_ids", "parse_ts",
+           "RequestBudget", "RateLimit", "Stats"]
 
+_HINTS = HINTS          # the old spelling, kept so nothing that reads it has to move
 
-class JiraError(Exception):
-    def __init__(self, msg: str, hint: str = ""):
-        super().__init__(msg)
-        self.hint = hint
+# Atlassian's own ceilings, and one floor of ours. 1,000 issues x 1,000 changes is the largest page the API
+# allows and is precisely the page that times out on deep histories, so the defaults (200 / 500, in
+# `iter_changelog`) sit well under them; 50 is the smallest page worth asking for once the shrink has halved a
+# few times -- below that the per-request overhead costs more than the big page ever did.
+MAX_BULK_ISSUES = 1000
+MAX_BULK_PAGE = 10000
+MIN_BULK_PAGE = 50
+MAX_FIELD_IDS = 10      # per bulkfetch call; more than this is a second call, not a truncation
 
+# `key in (...)` batching for id -> key resolution. 200 keys is roughly 2,400 characters of JQL, comfortably
+# inside every documented limit, and halves the number of searches the old 100 needed.
+ID_BATCH = 200
 
-class JiraHTTPError(JiraError):
-    def __init__(self, status: int, path: str, body: str = ""):
-        super().__init__(f"HTTP {status} on {path}: {body[:200]}", hint=_HINTS.get(status, ""))
-        self.status, self.path = status, path
+# The unit of backoff. `backoff_seconds` turns it into 1, 2, 4, 8, 16, 32 seconds plus up to one second of jitter.
+BACKOFF_BASE = 1.0
 
 
 @dataclass(frozen=True)
@@ -119,25 +151,43 @@ def parse_ts(v: Any) -> datetime:
     return d.astimezone(timezone.utc)
 
 
-def _retry_after(headers, attempt: int) -> float:
-    ra = headers.get("Retry-After") if headers else None
-    if ra and str(ra).strip().isdigit():
-        return min(int(ra), 60)
-    if ra:
-        try:
-            dt = email.utils.parsedate_to_datetime(ra)
-            return max(0.0, (dt - datetime.now(timezone.utc)).total_seconds())
-        except Exception:  # noqa: BLE001
-            pass
-    return float(2 ** attempt)  # 1, 2, 4, 8
-
-
 class Jira:
+    """One Jira instance, one run's budget, one set of stats.
+
+    The client is deliberately single-threaded and holds no connection pool: the interesting state is the budget
+    (`RequestBudget`), the last rate-limit reading (`RateLimit`) and what the run has cost so far (`Stats`), all
+    of which the CLI reads after the pull to decide what to print.
+    """
+
     def __init__(self, creds: Creds, flavor: Flavor, timeout: int = 60, ca_bundle: str | None = None,
-                 sleep: Callable[[float], None] = time.sleep, opener: Callable | None = None):
+                 sleep: Callable[[float], None] = time.sleep, opener: Callable | None = None,
+                 budget: RequestBudget | None = None, rand: Callable[[], float] = random.random,
+                 clock: Callable[[], float] = time.monotonic, max_attempts: int = 6,
+                 retry_after_cap: float = 120.0, rate_floor: float = 0.10,
+                 log: Callable[[str], None] | None = None):
         self.creds, self.flavor, self.timeout, self.sleep = creds, flavor, timeout, sleep
         self._open = opener or urllib.request.urlopen
         self.ssl_ctx = ssl.create_default_context(cafile=ca_bundle or os.environ.get("AGENTDATA_CA_BUNDLE") or None)
+        self.rand, self.clock = rand, clock
+        self.max_attempts, self.retry_after_cap, self.rate_floor = max_attempts, retry_after_cap, rate_floor
+        self.log = log
+        self.stats = Stats()
+        self.rate = RateLimit()
+        self.budget = budget or RequestBudget()
+        # A budget already running belongs to somebody else -- the fleet shares one across tiles (#91) -- and
+        # restarting it would hand every new client a fresh 2,000 requests against the same token.
+        if self.budget.started_at is None:
+            self.budget.start(self.clock())
+        # `X-RateLimit-Reset` arrives as an epoch on some tenants, so the arithmetic that turns it into a wait has
+        # to happen in the epoch's own frame -- `clock` is monotonic by default and comparing the two would ask
+        # the client to sleep for fifty years. Wall time is not injectable through the constructor (the signature
+        # is a contract other modules are written against); a test that needs to steer it replaces this attribute.
+        self.wall: Callable[[], float] = time.time
+        self._rate_paused = False
+        self.last_retry_reason: str | None = None
+        self.bulk_meta: dict = _fresh_bulk_meta()
+        self._truncation: JiraPartialError | None = None
+        self._bulk_page = MAX_BULK_PAGE
 
     def __repr__(self) -> str:
         return f"Jira({self.creds.base_url}, {self.flavor.kind}/{self.flavor.auth}/v{self.flavor.api})"
@@ -157,54 +207,144 @@ class Jira:
             h["Authorization"] = "Bearer " + self.creds.token
         return h
 
-    def request(self, method: str, path: str, params: dict | None = None, body: Any = None) -> Any:
+    # ---------- the request layer ----------
+    def request(self, method: str, path: str, params: dict | None = None, body: Any = None,
+                idempotent: bool = True, attempts: int | None = None) -> Any:
+        """One HTTP call, with the retry policy `jira_http` describes.
+
+        `idempotent` is a property of the *call*, not of the method: `POST /changelog/bulkfetch` asks a question
+        and may be replayed, `POST /issue/K/transitions` moves an issue and must not. Marking it by method would
+        either replay transitions or refuse to recover a bulkfetch page, and both are worse than one flag.
+
+        `attempts` lowers the ceiling for failures that mean *this request was too big* -- a timeout or a 5xx --
+        so a caller who can make the request smaller hears about it quickly instead of after six sixty-second
+        timeouts at a size that was never going to work. A 429 is not that kind of failure: it says the tenant is
+        rate-limiting the token, which a smaller page does not fix and a shorter retry budget makes worse, so a
+        429 always gets the full `max_attempts` and its `Retry-After`.
+
+        The failing page names itself. A second 500 on the same page is a real server error rather than the
+        transient one Jira hands out for changelog pages, and when that raises, the message carries the page's
+        `startAt` or `nextPageToken` so a human reading the error knows where the pull died rather than only that
+        it did.
+        """
         url = self.creds.base_url + path
         if params:
             url += "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None}, doseq=True)
         data = json.dumps(body).encode() if body is not None else None
-        for attempt in range(5):
+        where = path + _page_marker(params, body)
+        size_cap = self.max_attempts if attempts is None else max(1, min(attempts, self.max_attempts))
+        self.last_retry_reason = None
+        spent_once = False
+        attempt = 0
+        while True:
+            self._pause_for_rate_limit(where)
+            self.budget.spend_request(where, self.clock())
+            self.stats.requests = self.budget.requests
             req = urllib.request.Request(url, data=data, method=method, headers=self._headers(data is not None))
             try:
                 with self._open(req, timeout=self.timeout, context=self.ssl_ctx) as r:
+                    self._read_rate(getattr(r, "headers", None))
                     raw = r.read()
-                    return json.loads(raw) if raw.strip() else None
             except urllib.error.HTTPError as e:
-                if e.code in (429, 503) and attempt < 4:
-                    self.sleep(_retry_after(e.headers, attempt))
-                    continue
-                try:
-                    body_txt = e.read()[:300].decode("utf-8", "replace")
-                except Exception:  # noqa: BLE001
-                    body_txt = ""
-                raise JiraHTTPError(e.code, path, body_txt) from None
-            except urllib.error.URLError as e:
-                raise JiraError(f"network error reaching {self.creds.base_url}: {e.reason}",
-                                hint="check VPN / proxy (HTTPS_PROXY) / AGENTDATA_CA_BUNDLE") from None
-        raise JiraError(f"gave up after retries on {path}")
+                self._read_rate(e.headers)                     # a 429 carries them; that is when they matter
+                verdict = classify(exc=e)
+                if verdict == "retry_once":
+                    verdict, spent_once = ("fatal" if spent_once else "retry"), True
+                ceiling = self.max_attempts if e.code == 429 else size_cap
+                if verdict != "retry" or not idempotent or attempt + 1 >= ceiling:
+                    self._tick()
+                    raise JiraHTTPError(e.code, where, _error_body(e)) from None
+                wait = retry_after_seconds(e.headers, self.retry_after_cap)
+                if wait is None:
+                    wait = backoff_seconds(attempt, BACKOFF_BASE, self.retry_after_cap, self.rand)
+                self._charge_retry(where, f"HTTP {e.code}", wait)
+            except (OSError, http.client.HTTPException) as e:  # timeout, reset, remote disconnect, bad hostname
+                if classify(exc=e) != "retry" or not idempotent or attempt + 1 >= size_cap:
+                    self._tick()
+                    raise self._transport_error(e) from None
+                self._charge_retry(where, _transport_reason(e),
+                                   backoff_seconds(attempt, BACKOFF_BASE, self.retry_after_cap, self.rand))
+            else:
+                self._tick()
+                return json.loads(raw) if raw.strip() else None
+            attempt += 1
+
+    def _charge_retry(self, where: str, reason: str, wait: float) -> None:
+        self.budget.spend_retry(where, self.clock())
+        self.stats.retries = self.budget.retries
+        self.last_retry_reason = reason
+        if wait > 0:
+            self._say(f"{reason} on {where}: retrying in {wait:.1f}s")
+            self.sleep(wait)
+            self.stats.waited_seconds += wait
+        self._tick()
+
+    def _pause_for_rate_limit(self, where: str) -> None:
+        """Slow down before being refused, once per rate-limit reading.
+
+        Learning about a quota from a 429 means the request was already spent and already counted against the
+        human's token. Cloud says how much is left on every response, so the last few requests before a limit
+        become a pause instead of a rejection. Data Center below 8.6 sends no headers, `should_pause()` is then
+        False, and such a run stays reactive exactly as it was.
+        """
+        if self._rate_paused or not self.rate.should_pause(self.rate_floor):
+            return
+        self._rate_paused = True                     # one pause per reading, or a stale header loops
+        secs = self.rate.pause_seconds(self.wall())
+        if secs <= 0:
+            return
+        self._say(f"rate limit: {self.rate.remaining} of {self.rate.limit} left, waiting {secs:.0f}s")
+        self.sleep(secs)
+        self.stats.rate_limit_waits += 1
+        self.stats.waited_seconds += secs
+        self._tick()
+
+    def _read_rate(self, headers: Any) -> None:
+        self.rate = RateLimit.from_headers(headers, self.wall())
+        self._rate_paused = False
+
+    def _tick(self) -> None:
+        self.stats.elapsed_seconds = self.budget.elapsed(self.clock())
+
+    def _transport_error(self, e: BaseException) -> JiraError:
+        return JiraError(f"network error reaching {self.creds.base_url}: {getattr(e, 'reason', None) or e}",
+                         hint="check VPN / proxy (HTTPS_PROXY) / AGENTDATA_CA_BUNDLE")
+
+    def _say(self, msg: str) -> None:
+        """Progress and warnings go to stderr -- which is what `log` is -- and stdout stays TOON only."""
+        if self.log:
+            self.log(msg)
 
     def get(self, path: str, params: dict | None = None) -> Any:
         return self.request("GET", path, params)
 
-    def post(self, path: str, body: Any, params: dict | None = None) -> Any:
-        return self.request("POST", path, params, body)
+    def post(self, path: str, body: Any, params: dict | None = None, idempotent: bool = True,
+             attempts: int | None = None) -> Any:
+        return self.request("POST", path, params, body, idempotent=idempotent, attempts=attempts)
 
     def myself(self) -> dict:
         return self.get(f"{self.api}/myself")
 
     # ---------- pagination ----------
-    def paged(self, path: str, params: dict | None = None, values_key: str = "values", page_size: int = 100) -> Iterator[dict]:
-        """startAt/maxResults paging. Uses the *echoed* maxResults (the server may cap the request)."""
+    def _pages(self, path: str, params: dict | None = None, values_key: str = "values",
+               page_size: int = 100) -> Iterator[tuple[list, str]]:
+        """`(values, marker)` per page, where the marker names the page for a progress line or an error."""
         start = 0
         while True:
             page = self.get(path, {**(params or {}), "startAt": start, "maxResults": page_size}) or {}
             values = page.get(values_key) or []
-            yield from values
+            yield values, f" startAt={start}"
             if not values or page.get("isLast") is True:
                 return
             start += page.get("maxResults") or len(values)
             total = page.get("total")
             if total is not None and start >= int(total):
                 return
+
+    def paged(self, path: str, params: dict | None = None, values_key: str = "values", page_size: int = 100) -> Iterator[dict]:
+        """startAt/maxResults paging. Uses the *echoed* maxResults (the server may cap the request)."""
+        for values, _ in self._pages(path, params, values_key, page_size):
+            yield from values
 
     def paged_token(self, path: str, params: dict | None = None, body: dict | None = None,
                     values_key: str = "issues") -> Iterator[dict]:
@@ -239,7 +379,14 @@ class Jira:
 
     # ---------- issues ----------
     def search(self, jql: str, fields: list[str], max_results: int = 5000) -> list[dict]:
-        """Cloud: GET /rest/api/3/search/jql (token paging; /search was retired) with /search fallback. DC: /rest/api/2/search."""
+        """Cloud: GET /rest/api/3/search/jql (token paging; /search was retired) with /search fallback. DC: /rest/api/2/search.
+
+        A JQL wider than `max_results` raises rather than returning the prefix. It used to `break` and hand back
+        exactly 5,000 issues with nothing saying so, and the caller -- `ad-jira changelog --jql`, whose whole
+        purpose is "a JQL that returns thousands of issues" -- built its key list from that prefix and reported
+        `ok: true`. The ceiling is only detected by reading ONE issue past it, so a JQL that returns exactly
+        `max_results` issues is a complete answer and does not raise.
+        """
         flds = ",".join(fields)
         out: list[dict] = []
         if self.flavor.kind == "cloud":
@@ -247,16 +394,17 @@ class Jira:
                 it = self.paged_token(f"{self.api}/search/jql", {"jql": jql, "fields": flds, "maxResults": 100})
                 for iss in it:
                     out.append(iss)
-                    if len(out) >= max_results:
-                        break
+                    if len(out) > max_results:
+                        raise _truncated_search(max_results)
                 return out
             except JiraHTTPError as e:
                 if e.status not in (404, 410, 405):
                     raise
+            out = []
         for iss in self.paged(f"{self.api}/search", {"jql": jql, "fields": flds}, values_key="issues"):
             out.append(iss)
-            if len(out) >= max_results:
-                break
+            if len(out) > max_results:
+                raise _truncated_search(max_results)
         return out
 
     def issue(self, key: str, fields: list[str] | None = None, expand: str | None = None) -> dict:
@@ -275,67 +423,303 @@ class Jira:
         return data.get("transitions") or []
 
     def transition(self, key: str, transition_id: str, fields: dict | None = None, comment: str | None = None) -> None:
+        """Never replayed. A transition that times out may well have been applied, and a second POST moves the
+        issue twice or posts the comment twice -- so this is the one call that takes its 5xx and reports it."""
         body: dict = {"transition": {"id": str(transition_id)}}
         if fields:
             body["fields"] = fields
         if comment:
             from ..jira_workflow import adf
             body["update"] = {"comment": [{"add": {"body": adf(comment) if self.flavor.api == "3" else comment}}]}
-        self.post(f"{self.api}/issue/{key}/transitions", body)
+        self.post(f"{self.api}/issue/{key}/transitions", body, idempotent=False)
 
     # ---------- changelog ----------
+    def iter_changelog(self, keys: list[str], field_ids: list[str] | None = None, name_to_id: dict | None = None,
+                       id_to_key: dict | None = None, use_bulk: bool = True, bulk_issues: int = 200,
+                       bulk_page: int = 500, on_event: Callable[[str, dict], None] | None = None) -> Iterator[dict]:
+        """Changelog rows for `keys`, yielded as they are parsed. The one fetch path; everything else wraps it.
+
+        **Ordering guarantee.** Keys come out in the order they were given; within one key rows ascend by
+        `(created_utc, changelog_id)`; and a key's rows are all emitted before the next key's first row. This is
+        enforced at fetch time, not by sorting at the end, because the caller streams rows to disk as they arrive
+        and can never re-read them. Bulkfetch groups histories by issue but states no order within an issue across
+        pages, the per-issue Cloud endpoint is ascending by `created`, and Data Center's `?expand=changelog` is
+        newest first -- so the pages of one *chunk* are collected per issue until that chunk is complete, then
+        sorted per key and yielded.
+
+        **The memory bound that follows from it** is one chunk: `bulk_issues` issues and their histories, not the
+        run. That is the ceiling the streaming slice measures, and it is why `bulk_issues` defaults to 200 rather
+        than the 1,000 the API allows.
+
+        `on_event(kind, payload)` is the progress channel: `"page"` `{path, rows}`, `"issue_done"` `{key, rows}`,
+        `"fallback"` `{reason, requests}`, `"shrink"` `{bulk_page}`, `"skipped"` `{keys}`, `"truncated"`
+        `{key, have, total, reason}`. Anything the caller does not recognise it can ignore.
+        """
+        keys = list(keys)
+        self.bulk_meta = _fresh_bulk_meta()
+        self._truncation: JiraPartialError | None = None
+        if not keys:
+            return
+        if not use_bulk or self.flavor.kind != "cloud":
+            yield from self._per_issue(keys, name_to_id, on_event)
+        else:
+            yield from self._bulk(keys, field_ids, name_to_id, id_to_key, bulk_issues, bulk_page, on_event)
+        # Every issue that could be fetched has now been yielded. The refusal comes last, so a truncated history
+        # on issue 3 of 500 costs that one issue and not the 497 after it -- raising where it was found stopped
+        # the pull dead, and since the cache is written per finished issue, a rerun could never make progress
+        # either. The keys that went short are in `bulk_meta["truncated_keys"]` and, because they never fired
+        # `issue_done`, in the CLI's `issues_incomplete`.
+        if self._truncation is not None:
+            raise self._truncation
+
     def changelog(self, key: str, name_to_id: dict | None = None) -> list[dict]:
         """All change items of one issue as flat rows (see history_rows). DC without the paged endpoint falls back to
         ?expand=changelog and refuses to silently return a truncated history."""
-        try:
-            hist = list(self.paged(f"{self.api}/issue/{key}/changelog"))
-        except JiraHTTPError as e:
-            if e.status != 404 or self.flavor.kind == "cloud":
-                raise
-            cl = (self.issue(key, ["summary"], expand="changelog") or {}).get("changelog") or {}
-            hist = cl.get("histories") or []
-            total = cl.get("total")
-            if total is not None and int(total) > len(hist):
-                raise JiraError(f"changelog truncated for {key}: {len(hist)} of {total} entries",
-                                hint="this Jira lacks the paged changelog endpoint; use the Teradata history for older events") from None
-        rows: list[dict] = []
-        for h in hist:
-            rows.extend(history_rows(key, h, name_to_id))
-        return rows
+        return list(self.iter_changelog([key], name_to_id=name_to_id, use_bulk=False))
 
     def bulk_changelog(self, keys: list[str], field_ids: list[str] | None = None, name_to_id: dict | None = None,
                        id_to_key: dict | None = None) -> list[dict]:
-        """Cloud bulkfetch (<=1000 issues, <=10 field ids per call); falls back to per-issue on 404/405."""
-        if self.flavor.kind != "cloud":
-            return [r for k in keys for r in self.changelog(k, name_to_id)]
-        id_to_key = dict(id_to_key or {})
-        if not id_to_key:
-            for i in range(0, len(keys), 100):
-                chunk = keys[i:i + 100]
-                for iss in self.search("key in (" + ",".join(chunk) + ")", ["key"]):
-                    id_to_key[str(iss.get("id"))] = iss.get("key")
-        rows: list[dict] = []
-        seen: set[tuple] = set()
-        for i in range(0, len(keys), 1000):
-            body: dict = {"issueIdsOrKeys": keys[i:i + 1000], "maxResults": 1000}
-            if field_ids:
-                body["fieldIds"] = field_ids[:10]
+        """Cloud bulkfetch; falls back to per-issue when the endpoint is absent, and says what that costs."""
+        return list(self.iter_changelog(keys, field_ids=field_ids, name_to_id=name_to_id, id_to_key=id_to_key))
+
+    # ---------- changelog: the per-issue path ----------
+    def _per_issue(self, keys: list[str], name_to_id: dict | None, on_event: Callable | None) -> Iterator[dict]:
+        """One request per issue. A knowingly short history yields NOTHING for that issue and moves to the next.
+
+        Not one row of it, deliberately: half a history written to the file and to the cache under the issue's
+        `updated` stamp would be served as the whole history by every later run. So the key is recorded, no
+        `issue_done` fires (which is what leaves it in `issues_incomplete`), and `iter_changelog` raises the
+        first such refusal once the remaining keys have been fetched.
+        """
+        for key in keys:
             try:
-                pages = list(self.paged_token(f"{self.api}/changelog/bulkfetch", body=body, values_key="issueChangeLogs"))
-            except JiraHTTPError as e:
-                if e.status in (404, 405, 400):
-                    return [r for k in keys for r in self.changelog(k, name_to_id)]
+                rows = self._issue_rows(key, name_to_id, on_event)
+            except JiraPartialError as e:
+                self.bulk_meta["truncated_keys"].append(key)
+                if self._truncation is None:
+                    self._truncation = e
+                self._say(f"{key}: {e.reason}; skipping it and continuing with the remaining issues")
+                continue
+            rows.sort(key=_order)
+            yield from rows
+            _fire(on_event, "issue_done", {"key": key, "rows": len(rows)})
+
+    def _issue_rows(self, key: str, name_to_id: dict | None, on_event: Callable | None) -> list[dict]:
+        rows: list[dict] = []
+        path = f"{self.api}/issue/{key}/changelog"
+        try:
+            for values, marker in self._pages(path):
+                page = [r for h in values for r in history_rows(key, h, name_to_id)]
+                rows.extend(page)
+                _fire(on_event, "page", {"path": path + marker, "rows": len(page)})
+        except JiraHTTPError as e:
+            # A 404 on the *first* page means this Data Center has no paged changelog endpoint. A 404 after rows
+            # have arrived means something else entirely, and re-fetching through ?expand would duplicate them.
+            if e.status != 404 or self.flavor.kind == "cloud" or rows:
                 raise
-            for entry in pages:
-                iid = str(entry.get("issueId"))
-                key = id_to_key.get(iid) or iid
-                for h in entry.get("changeHistories") or []:
-                    sig = (iid, str(h.get("id")))
+            rows = self._expand_rows(key, name_to_id, on_event)
+        return rows
+
+    def _expand_rows(self, key: str, name_to_id: dict | None, on_event: Callable | None) -> list[dict]:
+        cl = (self.issue(key, ["summary"], expand="changelog") or {}).get("changelog") or {}
+        hist = cl.get("histories") or []
+        total = cl.get("total")
+        rows = [r for h in hist for r in history_rows(key, h, name_to_id)]
+        if total is not None and int(total) > len(hist):
+            reason = f"expand=changelog truncated: {len(hist)} of {total}"
+            _fire(on_event, "truncated", {"key": key, "have": len(hist), "total": int(total), "reason": reason})
+            raise JiraPartialError(f"changelog truncated for {key}: {len(hist)} of {total} entries",
+                                   reason=reason, key=key, have=len(hist), total=int(total),
+                                   hint="this Jira lacks the paged changelog endpoint; use the Teradata history "
+                                        "for older events") from None
+        _fire(on_event, "page", {"path": f"{self.api}/issue/{key}?expand=changelog", "rows": len(rows)})
+        return rows
+
+    # ---------- changelog: the bulkfetch path ----------
+    def _bulk(self, keys: list[str], field_ids: list[str] | None, name_to_id: dict | None,
+              id_to_key: dict | None, bulk_issues: int, bulk_page: int,
+              on_event: Callable | None) -> Iterator[dict]:
+        chunk_size = max(1, min(int(bulk_issues), MAX_BULK_ISSUES))
+        # MIN_BULK_PAGE is the floor the *shrink* stops at, not a floor on what the operator may ask for: a
+        # deliberately tiny --bulk-page is how someone reproduces a paging bug, and overriding it would hide one.
+        self._bulk_page = max(1, min(int(bulk_page), MAX_BULK_PAGE))
+        self.bulk_meta["bulk_page_final"] = self._bulk_page
+        batches = _field_batches(field_ids)
+        id_map = self._resolve_ids(keys, id_to_key)
+        fallback_all = False
+        for start in range(0, len(keys), chunk_size):
+            chunk = keys[start:start + chunk_size]
+            if fallback_all:
+                yield from self._per_issue(chunk, name_to_id, on_event)
+                continue
+            try:
+                rows_by_ref, kept = self._bulk_chunk(chunk, batches, name_to_id, id_map, on_event)
+            except _BulkUnavailable as u:
+                self._announce_fallback(u.reason, keys[start:], on_event)
+                fallback_all = True
+                yield from self._per_issue(chunk, name_to_id, on_event)
+                continue
+            except _ChunkRejected as u:
+                self._announce_fallback(u.reason, u.keys, on_event)
+                yield from self._per_issue(u.keys, name_to_id, on_event)
+                continue
+            for ref in kept:
+                rows = rows_by_ref.pop(ref, [])
+                rows.sort(key=_order)
+                yield from rows
+                _fire(on_event, "issue_done", {"key": ref, "rows": len(rows)})
+            for ref, rows in rows_by_ref.items():      # an issue id no search could map back to a key: never drop it
+                rows.sort(key=_order)
+                yield from rows
+                _fire(on_event, "issue_done", {"key": ref, "rows": len(rows)})
+
+    def _bulk_chunk(self, chunk: list[str], batches: list[list[str] | None], name_to_id: dict | None,
+                    id_map: dict, on_event: Callable | None) -> tuple[dict[str, list[dict]], list[str]]:
+        """One chunk, every field batch, de-duplicated and grouped by issue. Raises the two fallback signals."""
+        keys = list(chunk)
+        dropped = False
+        while True:
+            seen: set[tuple] = set()
+            rows_by_ref: dict[str, list[dict]] = {}
+            try:
+                for batch in batches:
+                    for values in self._bulk_pages(keys, batch, on_event):
+                        self._collect(values, rows_by_ref, seen, id_map, name_to_id, on_event)
+                return rows_by_ref, keys
+            except JiraHTTPError as e:
+                if e.status in (404, 405):
+                    raise _BulkUnavailable(f"HTTP {e.status} on {e.path}") from None
+                if e.status != 400:
+                    raise
+                bad = _invalid_keys(str(e), keys)
+                if not bad or dropped:
+                    raise _ChunkRejected(f"HTTP 400 on {e.path}", keys) from None
+                keys = [k for k in keys if k not in bad]
+                dropped = True
+                self.bulk_meta["skipped_keys"].extend(sorted(bad))
+                _fire(on_event, "skipped", {"keys": sorted(bad)})
+                self._say(f"bulkfetch rejected {len(bad)} key(s) as invalid ({', '.join(sorted(bad))}); "
+                          f"retrying the chunk without them")
+                if not keys:
+                    return {}, []
+
+    def _bulk_pages(self, refs: list[str], field_ids: list[str] | None,
+                    on_event: Callable | None) -> Iterator[list]:
+        """Token-paged bulkfetch that shrinks its page when a page proves too heavy to answer.
+
+        A timeout or a 5xx on a 1,000-change page is a size problem, not a server problem: the default 60-second
+        timeout is per request and that page is exactly the one that hits it. So the page halves -- for the rest
+        of the run, because the next chunk's histories are no shallower -- and the failing page is tried once more
+        at the smaller size before the failure is reported. `bulk_page_final` in `bulk_meta` says where it landed.
+
+        The halving happens *before* the request layer has spent its retries, which is what `attempts=2` buys.
+        Retrying six times at a size that cannot be answered costs six sixty-second timeouts and six requests of
+        the run's budget to learn what the first failure already said; shrinking first costs one. Once the page is
+        at `MIN_BULK_PAGE` there is nothing left to shrink, so the full retry budget is the right answer again and
+        the cap comes off. A 429 is exempt inside `request()`: it is a rate problem, not a size one.
+        """
+        path = f"{self.api}/changelog/bulkfetch"
+        token = None
+        while True:
+            page: dict = {}
+            for retry_smaller in (True, False):
+                body: dict = {"issueIdsOrKeys": list(refs), "maxResults": self._bulk_page}
+                if field_ids:
+                    body["fieldIds"] = list(field_ids)
+                if token:
+                    body["nextPageToken"] = token
+                before = self.stats.retries
+                try:
+                    page = self.post(path, body, attempts=2 if self._bulk_page > MIN_BULK_PAGE else None) or {}
+                except JiraHTTPError as e:
+                    if retry_smaller and e.status >= 500 and self._shrink(on_event):
+                        continue
+                    raise
+                except JiraBudgetError:
+                    raise
+                except JiraError:
+                    if retry_smaller and self._shrink(on_event):
+                        continue
+                    raise
+                if self.stats.retries > before and _heavy(self.last_retry_reason):
+                    self._shrink(on_event)             # the request layer recovered it; the next page is smaller
+                break
+            values = page.get("issueChangeLogs") or []
+            yield values
+            token = page.get("nextPageToken")
+            if not token or not values or page.get("isLast") is True:
+                return
+
+    def _collect(self, values: list, rows_by_ref: dict[str, list[dict]], seen: set, id_map: dict,
+                 name_to_id: dict | None, on_event: Callable | None) -> None:
+        """Turn one bulkfetch page into rows, dropping the ones already seen in this chunk.
+
+        The de-dup key is a *row*, not a history, for two reasons. Bulkfetch repeats a whole history across
+        consecutive pages (JRACLOUD-94906), which a row key removes just as well; and more than ten field ids
+        means a second call over the same issues, whose histories carry the same ids with different items -- a
+        history key would throw the eleventh and twelfth fields away, which is the silent `[:10]` truncation this
+        replaced. Tuples of four small values, one chunk's worth at a time.
+        """
+        n = 0
+        for entry in values:
+            iid = str(entry.get("issueId"))
+            ref = id_map.get(iid) or iid
+            bucket = rows_by_ref.setdefault(ref, [])
+            for h in entry.get("changeHistories") or []:
+                cid = str(h.get("id"))
+                for pos, row in enumerate(history_rows(ref, h, name_to_id)):
+                    sig = (iid, cid, str(row.get("field_id")), pos)
                     if sig in seen:
                         continue
                     seen.add(sig)
-                    rows.extend(history_rows(key, h, name_to_id))
-        return rows
+                    bucket.append(row)
+                    n += 1
+        _fire(on_event, "page", {"path": f"{self.api}/changelog/bulkfetch", "rows": n})
+
+    def _shrink(self, on_event: Callable | None) -> bool:
+        if self._bulk_page <= MIN_BULK_PAGE:
+            return False
+        self._bulk_page = max(MIN_BULK_PAGE, self._bulk_page // 2)
+        self.bulk_meta["bulk_page_final"] = self._bulk_page
+        _fire(on_event, "shrink", {"bulk_page": self._bulk_page})
+        self._say(f"bulkfetch page too heavy; halving to maxResults {self._bulk_page} for the rest of the run")
+        return True
+
+    def _resolve_ids(self, keys: list[str], id_to_key: dict | None) -> dict:
+        """id -> key, for the `issueId` bulkfetch answers with. Nothing is looked up twice.
+
+        The caller usually already knows: `sprint-replay` has the search it ran to pick the issues, and the CLI's
+        cache partition ran `search(jql, ["key", "updated"])` for its freshness check. Passing that map in makes
+        these searches disappear on the common path; what is left batches at 200 keys per `key in (...)`.
+        """
+        id_map = dict(id_to_key or {})
+        known = {str(v) for v in id_map.values()}
+        missing = [k for k in keys if k not in known]
+        for i in range(0, len(missing), ID_BATCH):
+            batch = missing[i:i + ID_BATCH]
+            for iss in self.search("key in (" + ",".join(batch) + ")", ["key"]):
+                id_map[str(iss.get("id"))] = iss.get("key")
+        return id_map
+
+    def _announce_fallback(self, reason: str, pending: list[str], on_event: Callable | None) -> None:
+        """Say what the fallback costs, and refuse to start one the budget cannot finish.
+
+        One bulkfetch becoming one request per issue is the cheapest way there is to get a shared token throttled,
+        and it used to happen without a word. Finding out 2,000 requests in that the run cannot finish is worse
+        than being told before it starts, which is the only reason this checks the budget rather than letting
+        `spend_request` discover it later.
+        """
+        n = len(pending)
+        if self.budget.would_exceed(n):
+            err = JiraBudgetError("requests", self.budget.requests, self.budget.elapsed(self.clock()), reason)
+            err.hint = (f"the per-issue fallback needs about {n} more requests and only "
+                        f"{self.budget.remaining_requests()} are left; rerun with "
+                        f"--max-requests {self.budget.requests + n}, a narrower JQL, or --no-bulk / --bulk-issues")
+            raise err
+        self.bulk_meta["fallback"] = True
+        self.bulk_meta["fallback_reason"] = reason
+        _fire(on_event, "fallback", {"reason": reason, "requests": n})
+        self._say(f"bulkfetch fell back to one request per issue ({reason}): about {n} more requests")
 
     # ---------- agile ----------
     def sprint(self, sprint_id: int) -> dict:
@@ -350,6 +734,107 @@ class Jira:
     def sprintreport(self, board_id: int, sprint_id: int) -> dict:
         """Undocumented GreenHopper endpoint behind the Sprint Report UI. Cross-check only, never truth."""
         return self.get("/rest/greenhopper/1.0/rapid/charts/sprintreport", {"rapidViewId": board_id, "sprintId": sprint_id})
+
+
+class _BulkUnavailable(Exception):
+    """bulkfetch is not on this instance (404/405): fall back once, for the whole run."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+class _ChunkRejected(Exception):
+    """bulkfetch refused this chunk (400) and dropping the keys it named did not help: fall back for it alone."""
+
+    def __init__(self, reason: str, keys: list[str]):
+        super().__init__(reason)
+        self.reason, self.keys = reason, list(keys)
+
+
+def _fresh_bulk_meta() -> dict:
+    return {"bulk_page_final": None, "skipped_keys": [], "truncated_keys": [], "fallback": False,
+            "fallback_reason": None}
+
+
+def _truncated_search(max_results: int) -> JiraPartialError:
+    return JiraPartialError(f"search returned more than {max_results} issues",
+                            reason=f"search truncated at {max_results} issues",
+                            hint="narrow the JQL (a project, a date range) or raise the caller's max_results; "
+                                 "a longer key list than this is a pull nobody can finish in one run")
+
+
+def _fire(on_event: Callable | None, kind: str, payload: dict) -> None:
+    if on_event:
+        on_event(kind, payload)
+
+
+def _order(row: dict) -> tuple:
+    """`(created_utc, changelog_id)`, without ever comparing an int to a string.
+
+    `history_rows` turns a numeric changelog id into an int -- so 9 sorts before 10 rather than after it -- and
+    passes a non-numeric one through unchanged. Both shapes can appear in one pull if a tenant ever answers with
+    something else, and a `TypeError` mid-sort would lose the run for a cosmetic reason.
+    """
+    cid = row.get("changelog_id")
+    return (row.get("created_utc") or "", (0, cid) if isinstance(cid, int) else (1, str(cid)))
+
+
+def _field_batches(field_ids: list[str] | None) -> list[list[str] | None]:
+    """Ten field ids per bulkfetch call, and the eleventh is a second call rather than a silent truncation."""
+    ids: list[str] = []
+    for f in field_ids or []:
+        if f and f not in ids:
+            ids.append(f)
+    if not ids:
+        return [None]
+    return [ids[i:i + MAX_FIELD_IDS] for i in range(0, len(ids), MAX_FIELD_IDS)]
+
+
+def _page_marker(params: dict | None, body: Any = None) -> str:
+    """" startAt=200" or " nextPageToken=t7" -- which page of a long pull this request is, for an error message."""
+    for src in (params, body):
+        if not isinstance(src, dict):
+            continue
+        for k in ("startAt", "nextPageToken"):
+            v = src.get(k)
+            if v is not None and v != "":
+                return f" {k}={v}"
+    return ""
+
+
+def _error_body(e: urllib.error.HTTPError) -> str:
+    try:
+        return e.read()[:300].decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _invalid_keys(message: str, keys: list[str]) -> set[str]:
+    """The keys a 400 names as invalid, intersected with the ones we asked for.
+
+    Jira says `The issue key 'RDSD-9999' does not exist for the field 'key'.` and variations of it; rather than
+    matching that sentence, take every key-shaped token in the message and keep only those this chunk actually
+    sent. A message that names something else drops nothing, which is the safe direction: dropping a key the
+    operator asked for would produce a short history that looks complete.
+    """
+    found = {t.upper() for t in re.findall(r"[A-Za-z][A-Za-z0-9_]*-\d+", message)}
+    return {k for k in keys if str(k).upper() in found}
+
+
+def _heavy(reason: str | None) -> bool:
+    """Was the retry the request layer just did about a page too big to answer, rather than a rate limit?"""
+    if not reason:
+        return False
+    return reason in ("timeout", "reset", "disconnected") or reason.startswith("HTTP 5")
+
+
+def _transport_reason(e: BaseException) -> str:
+    if isinstance(e, (TimeoutError,)) or isinstance(getattr(e, "reason", None), TimeoutError):
+        return "timeout"
+    if isinstance(e, ConnectionResetError) or isinstance(getattr(e, "reason", None), ConnectionResetError):
+        return "reset"
+    return "disconnected"
 
 
 def detect_flavor(creds: Creds, cfg: dict | None = None, redetect: bool = False, **kw) -> tuple[Jira, dict]:

@@ -18,7 +18,8 @@ CODES = {"reset": "0", "bold": "1", "dim": "2", "italic": "3", "underline": "4",
          "red": "31", "green": "32", "yellow": "33", "blue": "34", "magenta": "35", "cyan": "36", "white": "37",
          "grey": "90", "bright_red": "91", "bright_green": "92", "bright_yellow": "93", "bright_cyan": "96"}
 STATUS = {"ok": ("green",), "warn": ("yellow",), "fail": ("red", "bold"), "skip": ("grey",),
-          "error": ("red", "bold"), "true": ("green",), "false": ("red", "bold")}
+          "error": ("red", "bold"), "true": ("green",), "false": ("red", "bold"),
+          "info": ("cyan",)}
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 _enabled: bool | None = None
 

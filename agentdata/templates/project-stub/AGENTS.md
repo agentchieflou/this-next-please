@@ -5,6 +5,7 @@ State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 
 ## Project facts (fill in; skills read these keys; `ad-setup --project .` fills what it knows)
 - jira_project: <RDSD>
+- jira_url: <https://jira.example.com>   # the browse/ base the fleet tile links a ticket to
 - jira_board_id: <board id>                 # ad-jira sprints --board
 - jira_hist_table: <DB.JIRA_ISSUE_HISTORY>  # Teradata: PROJECT_KEY, ISSUE_KEY, STATUS, CHANGED_TS, STORY_POINTS
 - jira_sprint_table: <DB.JIRA_SPRINT>
@@ -12,7 +13,9 @@ State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 - hive_env: <hive_env_name>                 # ad-hive --env
 - impala_env: <impala_env_name>             # ad-impala --env
 - oracle_env: <oracle_env_name>             # ad-ora --env
+- confluence_base: <https://confluence.example.com>   # the wiki base the tile links a page to
 - confluence_space: <SPACE>
+- bitbucket_repo: <project/repo>            # the tile's repo and open-PR links
 - confluence_parent: <page id>
 - te2_exe: C:/Tools/TabularEditor/TabularEditor.exe
 - dscmd_exe: C:/Tools/DaxStudio/dscmd.exe

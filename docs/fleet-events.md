@@ -180,6 +180,33 @@ the gate lands it is a new writer and nothing downstream changes.
 {"schema": 1, "seq": 21, "ts": "2026-01-04T09:39:12", "repo": "luna", "ticket": "RDSD-118", "kind": "approval_resolved", "data": {"what": "ad-pbip apply", "decision": "approved", "by": "operator"}}
 ```
 
+### From the project's own systems (#131), and from the Downloads inbox (#132)
+
+The four kinds above this line describe what the *agent* is doing. These describe what the
+*project* is doing, polled read-only by the supervisor through the same `ad-*` paths a human would
+run, and they exist so that a tab is opened to act and never to check. They travel the same stream
+for one reason: #97's notification rules, its dedupe and its quiet hours already work on this
+contract, so "the refresh you were waiting on finished" needs no second notification path.
+
+**`project.ticket_changed`** — the ticket moved in Jira. One event per real change; polling it again
+produces nothing.
+
+**`project.refresh_finished`** — a dataset refresh ended. This is the toast that removes the
+centre-monitor tab.
+
+**`project.pr_merged`** — the pull request the tile links to was merged.
+
+**`inbox.attached`** — a file the human clicked was copied into `<repo>/.agent/in/<KEY>/`. The one
+write the fleet makes inside a repository's `.agent/`, and the reason it is an event is that it must
+be as visible as everything else the operator did not type themselves.
+
+```json
+{"schema": 1, "seq": 22, "ts": "2026-01-04T09:41:30", "repo": "luna", "ticket": "RDSD-118", "kind": "project.ticket_changed", "data": {"key": "RDSD-118", "from": "In Progress", "to": "In Review", "assignee": "operator"}}
+{"schema": 1, "seq": 23, "ts": "2026-01-04T09:42:05", "repo": "luna", "ticket": "RDSD-118", "kind": "project.refresh_finished", "data": {"dataset": "RDSD Crew Level Reporting", "status": "Completed", "ended": "2026-01-04T09:41:58"}}
+{"schema": 1, "seq": 24, "ts": "2026-01-04T09:44:12", "repo": "luna", "ticket": "RDSD-118", "kind": "project.pr_merged", "data": {"url": "https://github.com/example/luna/pull/42", "by": "reviewer"}}
+{"schema": 1, "seq": 25, "ts": "2026-01-04T09:45:01", "repo": "luna", "ticket": "RDSD-118", "kind": "inbox.attached", "data": {"name": "RDSD-118-export.md", "dest": ".agent/in/RDSD-118/RDSD-118-export.md", "from": "C:/Users/operator/Downloads/RDSD-118-export.md"}}
+```
+
 ## The state a tile shows
 
 `agentstate.derive()` folds the stream into one answer. Deterministic, in this order — the first

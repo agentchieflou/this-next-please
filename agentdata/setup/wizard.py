@@ -26,7 +26,12 @@ from .. import color
 from .. import proc
 from .. import ui
 
-STATUS_ORDER = {"fail": 0, "warn": 1, "skip": 2, "ok": 3}
+# `info` is a fact the operator may want once, not a thing to fix: it sorts below `ok` and, like
+# `ok`, it is hidden by `--quiet`. That matters because `session-bootstrap` runs `ad-doctor
+# --quiet` at the start of EVERY session, and a row that reports the ribbon's state there
+# would be a line of noise per session for a state nobody can act on from inside the repo.
+STATUS_ORDER = {"fail": 0, "warn": 1, "skip": 2, "ok": 3, "info": 4}
+QUIET_HIDES = ("ok", "info")
 
 
 def has_tty() -> bool:
@@ -372,7 +377,7 @@ def check_report(ctx: Context, source: str, extra: dict | None = None,
         meta.update(extra)
     if failed and "hint" not in meta:
         meta["hint"] = "`ad-setup --patch` re-asks only the settings behind the fail rows (nothing else is touched)"
-    shown = [c for c in checks if c.status != "ok"] if quiet else checks
+    shown = [c for c in checks if c.status not in QUIET_HIDES] if quiet else checks
     painted = dict(meta)
     if color.enabled():
         painted["ok"] = color.status("true" if failed == 0 else "false")

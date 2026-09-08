@@ -17,15 +17,19 @@ What the agent is allowed to do is configuration, not a flag buried in the code:
 """
 from __future__ import annotations
 import argparse
+import os
+import sqlite3
 import sys
 
 from . import completion
 from . import config as C
+from . import textio
 from . import toon
 from . import ui
-from .console import utf8_stdout
-from .fleet import (agentstate, approval, board as B, events as E, launch,
-                    lifecycle as L, notify as N, opener as O, serve as S, supervisor)
+from .console import prompt as ask_line, utf8_stdout
+from .fleet import (agentstate, approval, board as B, catalogue as CAT, events as E, inbox as IN,
+                    launch, lifecycle as L, links as LK, notify as N, opener as O, poll as P,
+                    scan as SC, serve as S, supervisor)
 from .fleet.registry import Registry, RegistryError, fleet_dir
 from .version import add_version, version_string
 
@@ -49,6 +53,13 @@ def _emit(source: str, meta: dict, tables: dict | None = None) -> int:
 
 
 def cmd_repo_add(a) -> int:
+    if getattr(a, "scan", ""):
+        return _repo_add_scan(a)
+    if not a.path:
+        return _refuse("ad-fleet repo add", RegistryError(
+            "name the repository to register",
+            "`ad-fleet repo add <path>`, or `ad-fleet repo add --scan <parent folder>` to be "
+            "shown every project under one folder"))
     try:
         repo = Registry().add(a.path, a.name)
     except RegistryError as e:
@@ -167,6 +178,8 @@ COLUMNS = ["repo", "agent", "ticket", "phase", "turns", "premium_requests", "bud
 
 
 def cmd_status(a) -> int:
+    if getattr(a, "polls", False):
+        return _status_polls(a)
     try:
         rows = supervisor.status()
     except RegistryError as e:
@@ -248,6 +261,509 @@ def cmd_logs(a) -> int:
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet logs", "repo": a.repo,
                                 "events": len(rows)}}))
     print(toon.table("events", ["at", "event", "detail"], rows))
+    return EXIT_OK
+
+
+# ------------------------------------------------------------------------------- the desk (#122)
+#
+# Five verbs that turn a folder full of checkouts into a desk: `repo add --scan` proposes what to
+# register, `index`/`where`/`show` answer "which project owns this" without opening a tab, `inbox`
+# routes what the browser dropped in Downloads, and `quickstart` runs the lot in one command. Every
+# one of them is a thin wrapper: the reading, the allow-lists and the refusals live in
+# `fleet/scan.py`, `catalogue.py`, `links.py`, `poll.py` and `inbox.py`, and this file only decides
+# what a person is asked and what gets printed.
+
+# The proposal's columns, in the order #129 fixes them. `why` is last because it is the only one
+# that is a sentence: everything left of it is a fact the operator can scan down.
+SCAN_COLUMNS = ["path", "name", "branch", "has_agents_md", "has_state", "jira_project", "pbip",
+                "last_commit_age_days", "already_registered", "why"]
+
+# `ad-fleet serve --layout roles` is `?layout=roles` on the page. The flag is this file's and the
+# rendering is the dashboard's, so the query parameter's name is written down once, here, rather
+# than spelled twice and drifting the first time one side is renamed.
+LAYOUT_PARAM = "layout"
+LAYOUTS = ("grid", "roles", "screens")
+
+
+def _catalogue(source: str):
+    """Open `~/.agentdata/fleet/catalogue.sqlite`, or refuse in the house shape.
+
+    Returns `(catalogue, exit_code)`; the catalogue is None when it could not be opened, and the
+    refusal has already been printed. A half-written sqlite file is a real laptop failure -- OneDrive
+    syncing the folder mid-write is enough -- and the honest answer is that the file is a cache,
+    deleting it costs an index run and nothing else.
+    """
+    try:
+        return CAT.Catalogue.open(), EXIT_OK
+    except (sqlite3.Error, CAT.CatalogueError, OSError) as e:
+        path = os.path.join(fleet_dir(), CAT.CATALOGUE)
+        return None, _refuse(source, CAT.CatalogueError(
+            f"the catalogue could not be opened: {path} ({e})",
+            "delete that file and run `ad-fleet index --rebuild`; it is a cache of what the repos "
+            "already say, so nothing in it is irreplaceable"))
+
+
+# ---------------------------------------------------------------- repo add --scan (#129)
+
+
+def _pick(candidates: list, only: str) -> tuple[list, list[str]]:
+    """`--only a,b` against the proposal's names, plus the names that matched nothing.
+
+    An unmatched name is reported rather than ignored: the operator typed it, and a
+    `--yes --only rdsd` that quietly registers nothing looks exactly like a run that worked.
+    """
+    if not only:
+        return list(candidates), []
+    by_name = {c.name.lower(): c for c in candidates}
+    picked, unknown = [], []
+    for name in [n.strip() for n in str(only).split(",") if n.strip()]:
+        found = by_name.get(name.lower())
+        if found is None:
+            unknown.append(name)
+        elif found not in picked:
+            picked.append(found)
+    return picked, unknown
+
+
+def _ask_each(candidates: list) -> tuple[list, str]:
+    """One `y/n/a/q` per candidate on stderr. Returns what was accepted and how it ended.
+
+    `a` and `q` are what make a folder of twenty checkouts bearable: the operator reads the first
+    few rows, decides the scan got it right, and takes the rest with one keystroke. A closed stdin
+    -- a scan run from a script, or from an IDE terminal that attaches none -- is neither an error
+    nor a silent yes: it stops with nothing registered and names `--yes`.
+    """
+    accepted: list = []
+    rest = False
+    for i, c in enumerate(candidates):
+        if rest:
+            accepted.append(c)
+            continue
+        try:
+            answer = ask_line(f"register {c.name}?  {c.path}  [y/n/a/q]", "n").strip().lower()[:1]
+        except EOFError:
+            return accepted, ("nothing on stdin, so nothing more was asked; `--yes` registers "
+                              "every proposal without asking")
+        if answer == "q":
+            return accepted, f"quit at {c.name}; {len(candidates) - i} were not asked about"
+        if answer == "a":
+            rest = True
+            accepted.append(c)
+        elif answer == "y":
+            accepted.append(c)
+    return accepted, "asked one at a time"
+
+
+def _scan_and_register(source: str, folder, depth: int, yes: bool, only: str, reg: Registry) -> dict:
+    """The whole of `repo add --scan`, printed as it goes. Also step one of `quickstart`.
+
+    Prints the proposal *before* asking anything, because the answer to "should this folder be
+    registered" is the row: the branch, whether it has an `AGENTS.md`, when it last moved. Then it
+    calls `Registry.add` -- unchanged, once per accepted row -- so a repository registered by the
+    scan is indistinguishable from one registered by hand, which is what keeps #93's registry
+    format, its refusals and the doctor's rows where they are.
+    """
+    skipped: list[list] = []
+    try:
+        found = SC.scan(folder, depth=depth, registry=reg,
+                        on_skip=lambda path, why: skipped.append([path, why]))
+    except SC.ScanError as e:
+        return {"error": e, "added": [], "candidates": []}
+
+    moved = SC.drift(reg)
+    fresh = [c for c in found if not c.already_registered]
+    print(toon.encode({"meta": {
+        "ok": True, "source": source, "folder": textio.norm_path(os.path.abspath(C.expand(
+            textio.from_msys(str(folder))))), "depth": depth,
+        "candidates": len(found), "new": len(fresh),
+        "already_registered": len(found) - len(fresh), "drift": len(moved),
+        "skipped": len(skipped),
+        "note": "nothing is registered yet: the scan proposes and you decide"}}))
+    print(toon.table("candidates", SCAN_COLUMNS,
+                     [[c.to_json()[col] for col in SCAN_COLUMNS] for c in found]))
+    if moved:
+        print(toon.table("drift", ["repo", "path", "reason", "detail", "hint"],
+                         [[d["name"], d["path"], d["reason"], d["detail"], d["hint"]] for d in moved]))
+    if skipped:
+        print(toon.table("skipped", ["path", "why"], skipped))
+    sys.stdout.flush()
+
+    picked, unknown = _pick(fresh, only)
+    if unknown:
+        known = ", ".join(c.name for c in fresh) or "nothing new was proposed"
+        return {"error": SC.ScanError(
+            f"--only names {', '.join(unknown)}, which the scan did not propose",
+            f"proposed: {known}"), "added": [], "candidates": found}
+
+    ready = [c for c in picked if c.ready]
+    not_ready = [c for c in picked if not c.ready]
+    if yes:
+        accepted, how = ready, "--yes"
+    else:
+        accepted, how = _ask_each(ready)
+
+    rows, added, failed = [], [], 0
+    for c in accepted:
+        try:
+            repo = reg.add(c.path, name=c.name)
+        except RegistryError as e:
+            failed += 1
+            rows.append([c.name, c.path, "", False, e.msg])
+            continue
+        added.append(repo)
+        rows.append([repo.name, repo.path, repo.jira_project, True, ""])
+    for c in not_ready:
+        rows.append([c.name, c.path, "", False, c.why])
+
+    print(toon.encode({"meta": {"ok": True, "source": source, "registered": len(added),
+                                "refused": failed + len(not_ready), "how": how,
+                                "fleet_dir": fleet_dir(),
+                                "next": "ad-fleet index" if added else "ad-fleet repo list"}}))
+    print(toon.table("registered", ["repo", "path", "jira", "added", "detail"], rows))
+    return {"error": None, "added": added, "candidates": found, "drift": moved,
+            "failed": failed, "how": how}
+
+
+def _repo_add_scan(a) -> int:
+    result = _scan_and_register("ad-fleet repo add --scan", a.scan, a.depth, a.yes, a.only or "",
+                                Registry())
+    if result["error"]:
+        return _refuse("ad-fleet repo add --scan", result["error"])
+    return EXIT_FAILED if result["failed"] else EXIT_OK
+
+
+# ------------------------------------------------------------- index / where / show (#130)
+
+
+def cmd_index(a) -> int:
+    """Re-read the allow-listed files of every registered repo into the catalogue.
+
+    Incremental: a second run after one edit reads one file, which is what makes `quickstart`'s
+    refresh cheap enough to run whenever the operator sits down. `--rebuild` is for when the *shape*
+    of a doc changed here rather than the file changing there.
+    """
+    reg = Registry()
+    try:
+        repos = [reg.get(a.repo)] if a.repo else reg.sorted()
+    except RegistryError as e:
+        return _refuse("ad-fleet index", e)
+
+    cat, code = _catalogue("ad-fleet index")
+    if cat is None:
+        return code
+    try:
+        got = cat.index(repos, rebuild=a.rebuild)
+        stats = cat.stats()
+    finally:
+        cat.close()
+
+    print(toon.encode({"meta": {
+        "ok": True, "source": "ad-fleet index", "projects": got["projects"],
+        "read": got["docs"], "unchanged": got["unchanged"], "removed": got["removed"],
+        "docs": stats["docs"], "elapsed_s": got["elapsed"],
+        "search": "fts5" if got["fts"] else "like (this Python's sqlite3 has no FTS5)",
+        "catalogue": stats["path"],
+        "note": "nothing outside AGENTS.md, .agent/ and the git branch was opened",
+        "next": ("ad-fleet where <a word from one of your reports>" if stats["docs"] else
+                 "register a repository first: ad-fleet repo add --scan <folder>")}}))
+    if got["refused"]:
+        print(toon.table("refused", ["project", "path", "pattern", "hint"],
+                         [[r["project"], r["path"], r["pattern"], r["hint"]] for r in got["refused"]]))
+    if got["problems"]:
+        print(toon.table("problems", ["project", "path", "reason", "hint"],
+                         [[p["project"], p["path"], p["reason"], p["hint"]] for p in got["problems"]]))
+    if got["skipped_repos"]:
+        print(toon.table("skipped", ["project", "path", "reason", "hint"],
+                         [[s["project"], s["path"], s["reason"], s["hint"]]
+                          for s in got["skipped_repos"]]))
+    return EXIT_OK
+
+
+def cmd_where(a) -> int:
+    """Which project owns this word. The one question that used to cost four tabs."""
+    cat, code = _catalogue("ad-fleet where")
+    if cat is None:
+        return code
+    try:
+        rows = cat.where(a.query, limit=a.limit)
+        stats = cat.stats()
+    except CAT.CatalogueError as e:
+        return _refuse("ad-fleet where", e)
+    finally:
+        cat.close()
+
+    hint = ""
+    if not stats["projects"]:
+        hint = "nothing is indexed yet: `ad-fleet index`"
+    elif not rows:
+        hint = "no project mentions that; try a word from a report title or a ticket key"
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet where", "query": a.query,
+                                "matches": len(rows), "indexed_projects": stats["projects"],
+                                "search": "fts5" if stats["fts"] else "like",
+                                "hint": hint}}))
+    print(toon.table("matches", ["project", "kind", "title", "snippet", "score"],
+                     [[r["project"], r["kind"], r["title"], r["snippet"], r["score"]] for r in rows]))
+    return EXIT_OK
+
+
+def cmd_show(a) -> int:
+    """One project in full: its facts, its state, its open friction, and its links.
+
+    The links come from `links.links_for`, the same rail the tile renders, so what this prints and
+    what the dashboard shows cannot disagree -- and the keys a missing link needs are named here
+    too, because the operator reading this at 5pm is the person who can add them.
+    """
+    cat, code = _catalogue("ad-fleet show")
+    if cat is None:
+        return code
+    try:
+        data = cat.show(a.project)
+    except CAT.CatalogueError as e:
+        return _refuse("ad-fleet show", e)
+    finally:
+        cat.close()
+
+    facts, state = data["facts"], data["state"]
+    rail = LK.links_for(data, facts, state)
+    missing = LK.missing_keys(rail)
+    print(toon.encode({"meta": {
+        "ok": True, "source": "ad-fleet show", "project": data["project"], "path": data["path"],
+        "branch": data["branch"], "jira_project": data["jira_project"],
+        "phase": state.get("phase", ""), "ticket": state.get("active_ticket") or "",
+        "friction": len(data["friction"]), "docs": data["docs"],
+        "last_indexed": data["last_indexed"],
+        "missing_keys": ", ".join(missing) or "none",
+        "hint": (f"add {', '.join(missing)} to that repo's AGENTS.md and the missing links appear"
+                 if missing else "")}}))
+    print(toon.table("facts", ["key", "value"], [[k, facts[k]] for k in sorted(facts)]))
+    print(toon.table("links", ["name", "url", "kind", "why_missing"],
+                     [[r["name"], r["url"], r["kind"], r["why_missing"]] for r in rail]))
+    print(toon.table("friction", ["date", "type", "title", "unblock"],
+                     [[f["date"], f["type"], f["title"], f["unblock"]] for f in data["friction"]]))
+    print(toon.table("pbip", ["name", "model", "report", "lineage"],
+                     [[p["name"], p["model"], p["report"], p["lineage"]] for p in data["pbip"]]))
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------- inbox (#132)
+
+
+def _offer(offers: list, wanted: str):
+    """The offer an `--attach`/`--dismiss` id names, by id, id prefix, or exact file name."""
+    wanted = str(wanted or "").strip()
+    for o in offers:
+        if o.id == wanted or o.name == wanted:
+            return o
+    prefixed = [o for o in offers if o.id.startswith(wanted.lower())] if wanted else []
+    return prefixed[0] if len(prefixed) == 1 else None
+
+
+def _size(n) -> str:
+    """A size a person reads, because the decision is "is that the export or the installer"."""
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return ""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return ""
+
+
+def cmd_inbox(a) -> int:
+    """What the browser saved, and which tile it belongs to. Never opens a file.
+
+    Matching is on the name alone (#132): Downloads holds bank statements and installers next to the
+    Jira exports, and a watcher that read a file to decide where it belongs would be reading all of
+    them. `--attach` is the one write the fleet makes inside a repository, and it happens only here,
+    only on this flag, and only into `.agent/in/<KEY>/`.
+    """
+    if a.attach and a.dismiss:
+        return _refuse("ad-fleet inbox", IN.InboxError(
+            "--attach and --dismiss ask for opposite things",
+            "run them one at a time: `ad-fleet inbox --attach <id> --repo <repo>`"))
+    reg = Registry()
+    box = IN.Inbox(folders=list(a.folder) if a.folder else None, registry=reg)
+    offers = box.look()
+
+    if a.attach or a.dismiss:
+        offer = _offer(offers, a.attach or a.dismiss)
+        if offer is None:
+            ids = ", ".join(f"{o.id} ({o.name})" for o in offers[:10]) or "the tray is empty"
+            return _refuse("ad-fleet inbox", IN.InboxError(
+                f"no file with id {a.attach or a.dismiss!r} in the tray",
+                f"`ad-fleet inbox` lists what is there: {ids}"))
+        if a.dismiss:
+            box.dismiss(offer)
+            return _emit("ad-fleet inbox --dismiss",
+                         {"file": offer.name, "id": offer.id,
+                          "note": "hidden until a newer file arrives with that name"})
+        if not a.repo:
+            return _refuse("ad-fleet inbox", IN.InboxError(
+                "--attach needs the repository to attach it to",
+                f"`ad-fleet inbox --attach {offer.id} --repo "
+                f"{offer.project or '<repo>'}`; `ad-fleet repo list` names them"))
+        try:
+            event = box.attach(offer, a.repo)
+        except (IN.InboxError, RegistryError) as e:
+            return _refuse("ad-fleet inbox --attach", e)
+        data = event["data"]
+        return _emit("ad-fleet inbox --attach",
+                     {"file": data["name"], "repo": data["project"], "to": data["file"],
+                      "attached": data["attached"], "recorded": data["recorded"],
+                      "why": data.get("why", ""),
+                      "note": "the original is still in Downloads; nothing was moved"})
+
+    offered = [o for o in offers if o.offered]
+    print(toon.encode({"meta": {
+        "ok": True, "source": "ad-fleet inbox", "folders": ", ".join(box.folders) or "none found",
+        "files": len(offers), "offered": len(offered),
+        "unsorted": sum(1 for o in offered if not o.project),
+        "dismissed": len(box.dismissed()), "still_being_written": len(box.retry),
+        "note": "matched on the file name; no file here was opened",
+        "hint": ("`ad-fleet inbox --attach <id> --repo <repo>` copies one into "
+                 ".agent/in/<KEY>/" if offered else
+                 "" if box.folders else
+                 "no Downloads folder was found: pass `--folder <path>`")}}))
+    print(toon.table("inbox", ["id", "name", "size", "age", "project", "ticket", "offered", "reason"],
+                     [[o.id, o.name, _size(o.size), _mins(o.age_s), o.project, o.ticket,
+                       o.offered, o.reason] for o in offers]))
+    if box.retry:
+        print(toon.table("still_being_written", ["name", "reason"],
+                         [[r["name"], r["reason"]] for r in box.retry]))
+    return EXIT_OK
+
+
+# ------------------------------------------------------------------- status --polls (#131)
+
+
+def _status_polls(a) -> int:
+    """What the polling cost today, per source.
+
+    Printed because it is the number nobody thinks about until a shared Jira tenant starts rate-
+    limiting a team: four tiles times a poll a minute is a figure the operator should be able to see
+    before somebody else does. `jira` counts *searches*, not tickets -- one JQL covers every tile.
+    """
+    cfg = C.load()
+    try:
+        poller = P.Poller(Registry(), cfg=cfg)
+    except RegistryError as e:
+        return _refuse("ad-fleet status --polls", e)
+    counts, conf = poller.counts(), P.settings(cfg)
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet status --polls",
+                                "day": counts["day"], "requests": counts["total"],
+                                "note": "one JQL covers every tile, so `jira` counts searches, "
+                                        "not tickets; `fleet.poll.<source>: false` turns one off"}}))
+    print(toon.table("polls", ["source", "on", "interval_s", "requests", "errors", "stood_down"],
+                     [[s, conf[s]["on"], conf[s]["interval"], counts["requests"][s],
+                       counts["errors"][s], counts["stood_down"][s]] for s in P.SOURCES]))
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------- quickstart (#134)
+
+
+def _layout_url(url: str, layout: str) -> str:
+    """The dashboard's URL with the layout on it. Both halves agree on `LAYOUT_PARAM`."""
+    return f"{url}{'&' if '?' in url else '?'}{LAYOUT_PARAM}={layout}"
+
+
+def _open_browser(url: str) -> str:
+    """Windows first: `os.startfile` is the shell's own "open this", and it needs no dependency.
+
+    `webbrowser` is the fallback everywhere else. Either way the URL has already been printed, so a
+    machine where neither works loses a click and not the address.
+    """
+    if os.name == "nt":
+        try:
+            os.startfile(url)                    # noqa: S606 - our own 127.0.0.1 address
+            return "os.startfile"
+        except OSError as e:
+            return f"could not open a browser ({e}); the URL is above"
+    import webbrowser
+
+    return "the default browser" if webbrowser.open(url) else "no browser answered; the URL is above"
+
+
+def cmd_quickstart(a) -> int:
+    """From a folder of checkouts to a dashboard that already answers questions, in one command.
+
+    Nothing here is new machinery: it is `repo add --scan`, `index`, one poll of every tile, the
+    inbox's first look and `serve`, in that order, with the clock running. The operator's condition
+    for this whole epic was not spending an evening on setup, and the summary at the end is what
+    that condition is measured against -- `elapsed`, and how much of the desk actually answered.
+
+    A second run is a refresh, not a re-setup: the scan proposes only what is new, the index reads
+    only what changed, and `refresh: true` says so.
+    """
+    import time
+
+    started = time.time()
+    reg = Registry()
+    cat, code = _catalogue("ad-fleet quickstart")
+    if cat is None:
+        return code
+    refresh = bool(reg.repos) and bool(cat.stats()["projects"])
+
+    scanned = _scan_and_register("ad-fleet quickstart", a.folder, a.depth, a.yes, "", reg)
+    if scanned["error"]:
+        cat.close()
+        return _refuse("ad-fleet quickstart", scanned["error"])
+
+    reg.load()
+    repos = reg.sorted()
+    try:
+        cat.index(repos)
+        docs = cat.stats()["docs"]
+        facts = {}
+        for repo in repos:
+            try:
+                facts[repo.name] = cat.show(repo.name)
+            except CAT.CatalogueError:
+                facts[repo.name] = {"facts": {}, "state": {}}
+    finally:
+        cat.close()
+
+    cfg = C.load()
+    poller = P.Poller(reg, cfg=cfg)
+    events = poller.tick()
+
+    with_ticket = missing_facts = 0
+    for repo in repos:
+        shown = facts.get(repo.name) or {}
+        state = shown.get("state") or repo.state()
+        if state.get("active_ticket"):
+            with_ticket += 1
+        if LK.missing_keys(LK.links_for(repo, shown.get("facts") or {}, state)):
+            missing_facts += 1
+
+    watch = list(a.folder_watch) if getattr(a, "folder_watch", None) else None
+    box = IN.Inbox(folders=watch, registry=reg)
+    offered = sum(1 for o in box.look() if o.offered)
+
+    server = url = ""
+    if not a.no_serve:
+        try:
+            server, token = S.build(a.port)
+        except S.ServeError as e:
+            return _refuse("ad-fleet quickstart", e)
+        url = _layout_url(S.url_for(server, token), a.layout)
+        S.record(server, token)
+
+    _emit("ad-fleet quickstart",
+          {"refresh": refresh, "repos": len(repos), "indexed_docs": docs,
+           "tiles_with_ticket": with_ticket, "tiles_missing_facts": missing_facts,
+           "inbox_offered": offered, "elapsed": round(time.time() - started, 2),
+           "events": len(events), "url": url,
+           "next": ("open the page; `ad-fleet show <project>` answers the same questions in a "
+                    "shell" if url else "ad-fleet serve --open")})
+    sys.stdout.flush()
+    if server:
+        _emit("ad-fleet quickstart", {"opened": _open_browser(url), "url": url,
+                                      "bound": "127.0.0.1 only", "note": "stop with Ctrl-C"})
+        sys.stdout.flush()
+        S.run(server)
     return EXIT_OK
 
 
@@ -402,17 +918,15 @@ def cmd_serve(a) -> int:
         server, token = S.build(a.port)
     except S.ServeError as e:
         return _refuse("ad-fleet serve", e)
-    url = S.url_for(server, token)
+    url = _layout_url(S.url_for(server, token), a.layout)
     S.record(server, token)
     _emit("ad-fleet serve", {"url": url, "port": server.server_address[1],
-                             "bound": "127.0.0.1 only",
+                             "bound": "127.0.0.1 only", "layout": a.layout,
                              "note": "the token in the URL is required on every request; "
                                      "stop with Ctrl-C"})
     sys.stdout.flush()
     if a.open:
-        import webbrowser
-
-        webbrowser.open(url)
+        _open_browser(url)
     S.run(server)
     return EXIT_OK
 
@@ -503,10 +1017,19 @@ def build_parser() -> argparse.ArgumentParser:
     repo = sub.add_parser("repo", help="register the repositories the fleet may run agents in")
     repo_sub = repo.add_subparsers(dest="repo_command", metavar="COMMAND")
     add = repo_sub.add_parser("add", help="register a repository (needs AGENTS.md and .agent/state.json)")
-    add.add_argument("path")
+    add.add_argument("path", nargs="?")
     add.add_argument("--name", help="what the fleet calls it (default: the folder name)")
+    add.add_argument("--scan", metavar="FOLDER",
+                     help="propose every project under FOLDER instead, and ask about each")
+    add.add_argument("--depth", type=int, default=2,
+                     help="how many levels under FOLDER to look (default 2)")
+    add.add_argument("--yes", action="store_true",
+                     help="register every proposal without asking (a folder ad-setup has not "
+                          "touched is reported, not registered)")
+    add.add_argument("--only", metavar="A,B", help="register just these proposed names")
     add.set_defaults(fn=cmd_repo_add)
-    rm = repo_sub.add_parser("rm", help="forget a repository (its files are untouched)")
+    rm = repo_sub.add_parser("rm", aliases=["remove"],
+                             help="forget a repository (its files are untouched)")
     rm.add_argument("name")
     rm.set_defaults(fn=cmd_repo_rm)
     repo_sub.add_parser("list", help="the registered repositories").set_defaults(fn=cmd_repo_list)
@@ -552,6 +1075,8 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--repo", help="just this one")
     status.add_argument("--show-launch", action="store_true", dest="show_launch",
                         help="print the exact command line and tool allow-list instead")
+    status.add_argument("--polls", action="store_true",
+                        help="what today's tile polling has cost, per source, instead")
     status.set_defaults(fn=cmd_status)
 
     ev = sub.add_parser("events", help="the normalized event stream, and the agent's derived state")
@@ -606,7 +1131,46 @@ def build_parser() -> argparse.ArgumentParser:
     srv = sub.add_parser("serve", help="the multi-viewer: one local page, one tile per agent")
     srv.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 picks a free one)")
     srv.add_argument("--open", action="store_true", help="open it in the default browser")
+    srv.add_argument("--layout", default=LAYOUTS[0], choices=list(LAYOUTS),
+                     help="how the tiles are arranged: grid | roles | screens (default grid)")
     srv.set_defaults(fn=cmd_serve)
+
+    idx = sub.add_parser("index", help="read what each repo publishes into the local catalogue")
+    idx.add_argument("--repo", help="just this one")
+    idx.add_argument("--rebuild", action="store_true",
+                     help="re-read every file instead of only what changed")
+    idx.set_defaults(fn=cmd_index)
+
+    whr = sub.add_parser("where", help="which project mentions this, and in what")
+    whr.add_argument("query", help="plain words, or a ticket key")
+    whr.add_argument("--limit", type=int, default=20, help="how many projects (default 20)")
+    whr.set_defaults(fn=cmd_where)
+
+    shw = sub.add_parser("show", help="one project: its facts, state, friction and links")
+    shw.add_argument("project")
+    shw.set_defaults(fn=cmd_show)
+
+    inb = sub.add_parser("inbox", help="files the browser saved that belong to a project")
+    inb.add_argument("--folder", action="append", metavar="PATH",
+                     help="watch this folder instead of Downloads (repeatable)")
+    inb.add_argument("--attach", metavar="ID", help="copy one into <repo>/.agent/in/<KEY>/")
+    inb.add_argument("--repo", help="the repository to attach it to")
+    inb.add_argument("--dismiss", metavar="ID", help="stop offering one until it is downloaded again")
+    inb.set_defaults(fn=cmd_inbox)
+
+    quick = sub.add_parser("quickstart", help="scan, index, poll and serve one folder of projects")
+    quick.add_argument("folder", help="the parent folder your projects live under")
+    quick.add_argument("--depth", type=int, default=2,
+                       help="how many levels under it to look (default 2)")
+    quick.add_argument("--yes", action="store_true", help="register every proposal without asking")
+    quick.add_argument("--no-serve", action="store_true", dest="no_serve",
+                       help="print the summary and stop, instead of starting the dashboard")
+    quick.add_argument("--folder-watch", action="append", dest="folder_watch", metavar="PATH",
+                       help="an inbox folder to look in besides Downloads (repeatable)")
+    quick.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 picks a free one)")
+    quick.add_argument("--layout", default=LAYOUTS[0], choices=list(LAYOUTS),
+                       help="how the tiles are arranged: grid | roles | screens (default grid)")
+    quick.set_defaults(fn=cmd_quickstart)
 
     logs = sub.add_parser("logs", help="the raw Copilot event stream, unnormalized")
     logs.add_argument("repo")

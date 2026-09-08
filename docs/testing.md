@@ -233,3 +233,72 @@ The `test-regress` skill runs three gates in order and prints one line:
 `regress: ok speedup=1.8x tests=142/142`, or `regress: FAIL <reason>`. The skill never edits
 anything and never re-runs a step to see if it passes this time — the same command twice with the
 same arguments is `AGENTS.md` rule 11, a stop condition, not a retry.
+
+## The fake Jira (`tests/fakes/jira.py`)
+
+Every question epic #121 asks — what happens on a 429 on page 40 of 80, a 500 that clears on retry, a socket
+timeout, a page that forgot `isLast`, a server that caps `maxResults`, a bulkfetch page that repeats a history, a
+100,000-row pull — was unanswerable on CI, because the Jira tests drove the client with three short, well-formed
+pages. `tests/fakes/jira.py` is the instance those questions are asked of. It is the fake every changelog slice
+proves itself on: the request layer, the streamed partial, the cache, and bulkfetch discipline.
+
+It materialises no executable and touches no PATH, unlike the rest of the harness. It plugs into the `opener`
+argument `agentdata/connectors/jira_api.py` already takes, so the whole wiring is:
+
+```python
+from tests.fakes import jira as FJ
+
+fake = FJ.FakeJira(issues=500, histories=200)     # Cloud by default
+j = fake.client()                                 # a real Jira, pointed at the fake
+rows = j.changelog("RDSD-1")
+```
+
+**Nothing is typed out.** `Corpus` generates keys, authors, timestamps, sprints and points on demand from a seed, so
+a 500 × 200 corpus costs nothing until somebody asks for a page — which matters, because the budget tests measure
+peak memory and the fake must never be the thing that blows it. Constructor knobs worth knowing:
+`flavor="dc"` (v2 REST, `startAt` search, no bulkfetch, `?expand=changelog` capped at `expand_cap`),
+`paged_changelog=False` (a Data Center without the paged endpoint), `bulk_duplicate=True` (JRACLOUD-94906's
+*cross-page* duplicate, which no single-page fault can express), `bulk_cap`, `items_per_history`, `seed`, and
+`rate_limit=N` for a token bucket that answers real 429s with a real `Retry-After`.
+
+There is no clock and no socket. `fake.sleep` is the injected sleeper: it records the seconds and advances the
+fake's own clock, so a run that would have waited eleven minutes finishes instantly and the test asserts the wait
+(`fake.waited`). `fake.requests` records every request — method, path, query, parsed body, headers — with
+`Authorization` stored as `"REDACTED"`, because even a fake token must never reach a fixture, a log or a failure
+message. `fake.count("bulkfetch")`, `fake.matching("issue/")` and `fake.last("/search")` are the assertions;
+`fake.unfired()` is the one to assert empty, since a fault that never fired is nearly always a typo in its `match`.
+
+### Writing a fault script
+
+A fault script is an ordered list of `(match, nth, fault)` triples passed as `faults=[…]`. On each request the list
+is read left to right and the first entry that fires wins.
+
+- **`match`** is a plain substring of `"<METHOD> <path>?<query>"`. Substring means substring: `"changelog"` also
+  matches `POST /rest/api/3/changelog/bulkfetch`, so write `"issue/"` or `"bulkfetch"` when you mean one of them.
+  `""`, `"any"` and `"*"` match every request.
+- **`nth`** picks which matching occurrence fires, counted 1-based per entry: an `int` fires once, a tuple or list
+  of ints fires on each of those, `"every"` (or `None`) fires on all of them.
+- **`fault`** is one of: any int (that HTTP status, with Jira's `errorMessages` body) · `429` (numeric
+  `Retry-After`) · `"429 date"` (an HTTP-date one, the form `email.utils` has to parse) · `"400 invalid key NOPE-1"`
+  (a 400 whose body names the key, as a bad `key in (…)` really does) · `"timeout"` · `"reset"` · `"interrupt"`
+  (a `KeyboardInterrupt`, for the checkpoint tests) · `"drop isLast"` · `"cap maxResults 100"` ·
+  `"duplicate histories"` · `"shuffle pages"`. An unknown spelling raises at construction, where the traceback names
+  the test, rather than quietly doing nothing.
+
+```python
+FJ.FakeJira(60, 40, faults=[
+    ("issue/",    3,       500),          # the third per-issue request answers 500
+    ("bulkfetch", 2,       "timeout"),    # the second bulkfetch times out
+    ("bulkfetch", 4,       "interrupt"),  # Ctrl-C on the fourth chunk
+    ("",          30,      429),          # the thirtieth request of any kind is rate limited
+    ("/search",   "every", "drop isLast"),
+])
+```
+
+Drive the fake directly with `fake.request("GET", path, params)` when the assertion is about the *fake's* contract
+(whether it answered 502 on the third bulkfetch) rather than the client's policy (whether a 502 is retried) — the
+second changes with the request layer, the first must not.
+
+`tests/test_fake_jira.py` is the fake's own test; `tests/test_jira_cli.py`, `tests/test_jira_cache.py`,
+`tests/test_jira_http.py` and `tests/test_jira_stream.py` are what it is for. Every laptop failure pasted back
+becomes a fault script here first, then a regression test under `tests/regressions/`.

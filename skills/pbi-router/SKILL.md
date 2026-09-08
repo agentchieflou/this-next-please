@@ -24,5 +24,5 @@ description: "Domain sub-router for Power BI tasks: reports, models, TMDL, DAX, 
 | custom visual, pbiviz, our own chart, D3 | `pbi-custom-visual` |
 | DAX result, vpax, export measures | `dax-studio-export` |
 
-2. Output one line: `→ <skill>: <reason in ≤ 12 words>`. If `.agent/desktop.json` is stale, ask the human to press *External Tools → agentdata* in the window they mean. Then invoke it.
+2. Output one line: `→ <skill>: <reason in ≤ 12 words>`. `.agent/desktop.json` missing or stale → read the `external_tools` row of `ad-pbip capabilities` and ask for the one gesture its `via` names: `ribbon:machine`, press *External Tools → agentdata*; `te2:local`, in Tabular Editor pick the instance, then *Hand off to agentdata*; `zorder`, click the window you mean and run `ad-pbip handoff --active`; `file`, name the document with `ad-pbip handoff --file <name>`. Then invoke it.
 3. No match after reading the table twice → invoke `friction-log` with type `ambiguity`. STOP.

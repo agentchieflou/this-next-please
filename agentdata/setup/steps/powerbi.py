@@ -4,6 +4,7 @@ stored: Azure auth is interactive (az login)."""
 from __future__ import annotations
 import json
 import os
+import sys
 import tempfile
 import urllib.parse
 from ... import config as C
@@ -28,10 +29,104 @@ PBI_RESOURCE = "https://analysis.windows.net/powerbi/api"
 GROUPS_URL = "https://api.powerbi.com/v1.0/myorg/groups"
 PING_CSX = 'Info("tables=" + Model.Tables.Count.ToString());\n'
 
+# One sentence per transport: what the human actually does. The doctor, `pbi-router` and
+# `pbi-observe` all have to say the same thing, and the thing that used to be said -- "press
+# External Tools -> agentdata" -- was true on none of the four machines #112 measured.
+TRANSPORT_GESTURE = {
+    "ribbon:machine": "press External Tools -> agentdata in Power BI Desktop",
+    "te2:local": 'in Tabular Editor pick the instance, then "Hand off to agentdata"',
+    "zorder": "click the window you mean, then `ad-pbip handoff --active`",
+    "file": "`ad-pbip handoff --file <name>` picks the instance by file name",
+}
+# The local Administrators group, by SID rather than by name: the group is called Administrateurs
+# on a French laptop and the SID is the same everywhere.
+ADMINISTRATORS_SID = "S-1-5-32-544"
+# The one phrase this slice exists to delete from every row but one. Kept as a constant so the
+# test that asserts its absence and the code that emits it cannot drift apart.
+ELEVATED = "run elevated"
+
 
 def xmla_url(workspace: str) -> str:
     """powerbi://api.powerbi.com/v1.0/myorg/<name> with the name RFC 3986 percent-encoded (spaces -> %20)."""
     return "powerbi://api.powerbi.com/v1.0/myorg/" + urllib.parse.quote(workspace, safe="")
+
+
+def package_dir() -> str:
+    """`.agent/out/external-tool` -- where the ticket for whoever owns Common Files is written.
+
+    Read from `external_tool` rather than spelled again, because the doctor row names this path to
+    a human who will then go looking for the folder, and two spellings would eventually disagree.
+    """
+    from ...pbip import external_tool as EXT
+    return textio.norm_path(EXT.DEFAULT_PACKAGE_DIR)
+
+
+def elevation_avenue(run=None) -> dict:
+    """Is there anything for this user to elevate *to*? `{available, evidence}`.
+
+    The bug that started #112 was not the permission error. It was the line under it: `run
+    elevated`, printed to a user whose account is not in the local Administrators group, so there
+    was no elevated shell for them to open and the advice cost them an afternoon. So the phrase is
+    now gated on a measurement, and the measurement is the membership -- not whether the write
+    failed, which on a managed laptop it always will.
+
+    Two reads, both read-only and neither of them an attempt. `shell32!IsUserAnAdmin` answers "this
+    process is already elevated", which settles it. Otherwise `whoami /groups` is asked for the
+    Administrators SID: membership means a UAC prompt would succeed even though this process is
+    filtered, and no membership means there is nothing to consent to. The SID is used rather than
+    the localised group name, and the call goes through the injected `Runner` so the fakes drive
+    both answers on Linux.
+    """
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            if ctypes.windll.shell32.IsUserAnAdmin():
+                return {"available": True, "evidence": "this process is already elevated (shell32!IsUserAnAdmin)"}
+        except Exception as e:  # noqa: BLE001 - a user32/shell32 that will not answer is not an avenue
+            if run is None:
+                return {"available": False, "evidence": f"could not ask shell32!IsUserAnAdmin ({type(e).__name__})"}
+    if run is None:
+        return {"available": False, "evidence": f"no runner to ask with (sys.platform={sys.platform})"}
+    rc, out, err = run(["whoami", "/groups", "/fo", "csv", "/nh"], 20)
+    if rc != 0:
+        return {"available": False,
+                "evidence": f"whoami /groups did not answer ({(err or out or '').strip()[:80] or f'exit {rc}'})"}
+    if ADMINISTRATORS_SID in (out or ""):
+        return {"available": True,
+                "evidence": f"this account is in the local Administrators group ({ADMINISTRATORS_SID}), "
+                            "so a UAC prompt would elevate"}
+    return {"available": False,
+            "evidence": f"this account is not in the local Administrators group ({ADMINISTRATORS_SID}): "
+                        "there is no elevated shell for this user to open"}
+
+
+def next_cheapest_step(ribbon: dict, te2: dict) -> tuple[str, tuple[str, ...]]:
+    """The cheapest thing that would improve the gesture, and the settings `--patch` would re-ask.
+
+    Cheapest first, and cheapness here is measured in *who has to be involved*: the Tabular Editor
+    action is one per-user file this user owns, a direct ribbon write is one file this user has been
+    measured able to create, and the package is a ticket for whoever owns Common Files. That order
+    is why `te2:local` is offered ahead of the ribbon even on a machine whose folder happens to be
+    writable -- the ribbon is nicer, but it is never the *next* step when a free one is left.
+
+    The package step carries no keys on purpose: no answer to any `ad-setup` question places a file
+    in a machine-scoped folder, so `--patch` must list it under `manual` with this hint rather than
+    ask questions that cannot help (HANDOFF.md).
+    """
+    from ...pbip import desktop as DT
+    if ribbon["state"] == DT.RIBBON_REGISTERED:
+        return "", ()
+    if te2.get("present") and not te2.get("installed"):
+        return ("`ad-pbip register-tool --te2` installs the Tabular Editor action -- per-user, no privileged write",
+                ("powerbi.te2_custom_action",))
+    if ribbon["state"] == DT.RIBBON_WRITABLE:
+        return ("`ad-pbip register-tool` writes the ribbon file: this folder accepts a write from this user",
+                ("powerbi.external_tool",))
+    if ribbon["state"] == DT.RIBBON_DISABLED:
+        return ("External Tools is switched off for this machine, so no file would appear on the ribbon; "
+                "the handoff does not need it", ())
+    return (f"`ad-pbip register-tool --package`, and send {package_dir()} to whoever owns Common Files -- "
+            "one file, once, for every user on every laptop", ())
 
 
 class PowerBIStep(Step):
@@ -98,7 +193,10 @@ class PowerBIStep(Step):
 
         # desktop/capabilities
         from ...pbip import desktop as DT
-        caps = DT.capabilities()
+        # The runner is injected all the way down: every probe under `capabilities()` -- the
+        # kill-switch registry reads, the External Tools writable probe, the Z-order enumeration --
+        # is then the same fake on Linux CI that it is a real read on the laptop.
+        caps = DT.capabilities(run=ctx.det.run)
         avail = sum(1 for c in caps if c.get("available"))
         total = len(caps)
         cap_summary = f"{avail}/{total} capabilities available"
@@ -108,30 +206,85 @@ class PowerBIStep(Step):
         else:
             ctx.add(k, "desktop/capabilities", "warn", cap_summary, "ad-setup --patch", cap_keys)
 
-        # powerbi/external_tool
-        from ...pbip import external_tool as EXT
-        ext_dir = EXT.external_tools_dir()
-        pbitool_file = os.path.join(ext_dir, "agentdata.pbitool.json")
-        ext_keys = ("powerbi.external_tool",)
-        reg_ok, reg_msg = EXT.is_external_tools_enabled()
-        if not reg_ok:
-            ctx.add(k, "powerbi/external_tool", "warn", reg_msg, "enable registry EnableExternalTools", ext_keys)
-        elif ctx.det.exists(pbitool_file) or os.path.exists(pbitool_file):
-            try:
-                with open(pbitool_file, encoding="utf-8") as f:
-                    tool_json = json.load(f)
-                py_path = tool_json.get("path")
-                if py_path and (ctx.det.exists(py_path) or os.path.exists(py_path)):
-                    ctx.add(k, "powerbi/external_tool", "ok", f"registered · {pbitool_file}")
-                else:
-                    ctx.add(k, "powerbi/external_tool", "fail", f"python path in tool JSON does not exist: {py_path}",
-                            "re-register with `ad-setup --patch powerbi.external_tool` or `ad-pbip register-tool`", ext_keys)
-            except Exception as e:
-                ctx.add(k, "powerbi/external_tool", "fail", f"invalid tool json: {e}",
-                        "re-register with `ad-setup --patch powerbi.external_tool`", ext_keys)
+        self._transport_rows(ctx, caps)
+
+    def _transport_rows(self, ctx: Context, caps: list[dict]) -> None:
+        """`powerbi/external_tool` and `powerbi/ribbon`: which handoff is live, and what the button is doing.
+
+        These used to be one row, and that row was the bug #112 was filed about. It answered "is our
+        file in Common Files", called the answer `not registered`, and hinted `run elevated` -- three
+        mistakes in one line on the laptop that reported it: the handoff worked there (`zorder` needs
+        no file at all), the folder is Administrators-only so *no* user answer fixes it, and the
+        account cannot elevate, so the hint named an action the reader could not take.
+
+        So they are two rows now, because they are two questions with two owners. `external_tool`
+        asks *can this human hand a window over*, and is `ok` the moment any of the four transports
+        works. `ribbon` is a fact about the machine, reported at `info` -- it never fails a doctor
+        run and never counts as a warning, because a missing button is not a broken install. Its
+        hint is the ticket, with the folder to attach; `run elevated` appears there only when the
+        folder refused a write *and* `elevation_avenue()` measured somewhere to elevate to.
+
+        The transport comes out of the `capabilities()` list rather than from a second
+        `external_tools_row()` call, deliberately: that probe creates and deletes a file in the
+        folder Power BI Desktop reads its ribbon from, and `session-bootstrap` runs `ad-doctor` every
+        session. One probe per row is the budget, not one per question asked about it.
+
+        The ribbon dict comes off that same row for the same reason. It used to be a bare
+        `DT.ribbon_state(run=...)` on the next line, which walked straight back into
+        `external_tools_writable()` and made the paragraph above false: two create/deletes in
+        `%CommonProgramFiles%` per `check()`. `external_tools_row` now carries the whole dict, and
+        `external_tools_writable` is memoised per process as the belt to this braces.
+        """
+        from ...pbip import desktop as DT
+        k = self.key
+
+        ext = next((c for c in caps if c.get("capability") == "external_tools"), None) or \
+            DT.external_tools_row(run=ctx.det.run)
+        ribbon = ext.get("ribbon_state") or DT.ribbon_state(run=ctx.det.run)
+        te2 = DT.te2_action_state()
+        hint, keys = next_cheapest_step(ribbon, te2)
+
+        via = ext.get("via") or "none"
+        if ext.get("available"):
+            gesture = TRANSPORT_GESTURE.get(via, "`ad-pbip handoff --active`")
+            ctx.add(k, "powerbi/external_tool", "ok", f"{via} · {gesture}", hint, keys)
         else:
-            ctx.add(k, "powerbi/external_tool", "warn", "not registered",
-                    "register via `ad-setup --patch powerbi.external_tool` or `ad-pbip register-tool`", ext_keys)
+            # No transport at all. On Windows this only happens with no Desktop window open, which
+            # is a state the human fixes by opening one; off Windows it is simply not applicable.
+            # The ladder is deliberately NOT the hint here: it upgrades a handoff that works, and
+            # "file a ticket for a ribbon button" is not the next step on a machine with nothing to
+            # hand off yet.
+            ctx.add(k, "powerbi/external_tool", "warn", f"no handoff transport · {ext.get('evidence', '')}",
+                    "open a Power BI Desktop window, then `ad-pbip handoff --active`",
+                    ("powerbi.tools.pbi_desktop_exe", "powerbi.tools.te2_exe"))
+
+        state = ribbon["state"]
+        detail = f"{state} · {ribbon['evidence']}"
+        if state == DT.RIBBON_REGISTERED:
+            ctx.add(k, "powerbi/ribbon", "info", detail)
+            return
+        if state == DT.RIBBON_WRITABLE:
+            ctx.add(k, "powerbi/ribbon", "info", detail,
+                    "`ad-pbip register-tool` writes it, or answer yes to powerbi.external_tool in `ad-setup --patch`",
+                    ("powerbi.external_tool",))
+            return
+        if state == DT.RIBBON_DISABLED:
+            # No keys: a Group Policy value is not an answer any prompt of ours can change, so
+            # `--patch` lists this under `manual` rather than asking questions that cannot help.
+            ctx.add(k, "powerbi/ribbon", "info", detail,
+                    "the handoff does not need the ribbon; ask whoever set the policy if you want the button")
+            return
+
+        # needs-it-file: the ticket, and the folder to attach to it. Never a shell we have no
+        # evidence this user can open -- that is measured, not assumed.
+        ticket = (f"`ad-pbip register-tool --package` writes {package_dir()}; send that folder to whoever owns "
+                  f"{textio.norm_path(ribbon['dir'])} -- REQUEST.md is the whole ticket, and the same file works "
+                  "for every user and every Python version")
+        if ribbon.get("writable") is False and ctx.det.is_windows():
+            avenue = elevation_avenue(ctx.det.run)
+            if avenue["available"]:
+                ticket += f". Or {ELEVATED}: {avenue['evidence']}"
+        ctx.add(k, "powerbi/ribbon", "info", detail, ticket)
 
     def ask(self, ctx: Context, found: dict) -> None:
         cfg = ctx.cfg
@@ -149,14 +302,9 @@ class PowerBIStep(Step):
                 (C.get(cfg, "powerbi.tools") or {}).pop(n, None)
 
         dt_found = bool(found["tools"].get("pbi_desktop_exe"))
-        if ctx.ask.confirm("powerbi.external_tool", "Register agentdata as Power BI Desktop External Tool?", dt_found):
-            from ...pbip import external_tool as EXT
-            ok, dest, hint = EXT.register_tool()
-            if ok:
-                ctx.add(self.key, "powerbi/external_tool", "ok", f"registered at {dest}")
-                C.put(cfg, "powerbi.external_tool", True)
-            else:
-                ctx.add(self.key, "powerbi/external_tool", "warn", f"permission error writing {dest}", hint or "run elevated")
+        te2_found = bool(found["tools"].get("te2_exe"))
+        self._ask_te2_action(ctx, te2_found and dt_found)
+        self._ask_ribbon(ctx, dt_found)
 
         if not ctx.ask.confirm("powerbi.workspaces.configure", "Configure Power BI Service workspaces (XMLA)?",
                                 bool(found["workspaces"] or found["az"])):
@@ -214,6 +362,100 @@ class PowerBIStep(Step):
         C.put(cfg, "powerbi.workspaces", result)
         ctx.add(self.key, "workspaces", "ok" if result else "warn", ", ".join(w["name"] for w in result) or "none",
                 "" if result else "ad-setup --only powerbi")
+
+    def _ask_te2_action(self, ctx: Context, default: bool) -> None:
+        """Offer the per-user Tabular Editor action (#115.2). No privileged write, so no ticket.
+
+        This is the cheapest of the four transports to install and the only one that carries
+        `%database%` without a DMV round-trip, which is why `ad-setup` offers it before it offers
+        anything involving Common Files. `merge_custom_action` is idempotent -- it replaces our
+        entry by `Name` or appends it and leaves every other action alone -- so answering yes twice
+        writes once and reports `unchanged` the second time.
+
+        Answering *no* never removes an installed action. `ad-setup --patch` runs this prompt with
+        whatever default the machine suggests when the key is out of scope, so a silent `no` is not
+        evidence that anybody asked for a removal; `ad-pbip register-tool --te2 --remove` is the
+        verb that means it, and the row names it.
+
+        Offered only where Power BI Desktop is here too: an action that hands a Desktop instance
+        over is worth nothing on a machine that has no Desktop.
+        """
+        from ...pbip import desktop as DT
+        from ...pbip import external_tool as EXT
+        state = DT.te2_action_state()
+        if not state["present"]:
+            return
+        if not ctx.ask.confirm("powerbi.te2_custom_action",
+                               f'Install the Tabular Editor custom action "{EXT.TE2_ACTION_NAME}"?', default):
+            C.put(ctx.cfg, "powerbi.te2_custom_action", False)
+            if state["installed"]:
+                ctx.add(self.key, "powerbi/te2_action", "info", f'"{EXT.TE2_ACTION_NAME}" · {state["path"]}',
+                        "`ad-pbip register-tool --te2 --remove` takes it out again")
+            return
+        mode = C.get(ctx.cfg, "powerbi.te2_action") or "process"
+        try:
+            res = EXT.merge_custom_action(EXT.te2_custom_action(mode=mode))
+        except (ValueError, OSError) as e:
+            ctx.add(self.key, "powerbi/te2_action", "warn", str(e)[:200],
+                    "reinstall agentdata: the packaged handoff.te2.csx is missing or damaged")
+            return
+        if not res.get("ok"):
+            # A CustomActions.json that does not parse is a refusal, never a rewrite: Tabular Editor
+            # drops every one of the user's actions on a syntax error, so replacing the file would
+            # destroy work that has nothing to do with us.
+            ctx.add(self.key, "powerbi/te2_action", "warn", res.get("error", "cannot write the custom action"),
+                    res.get("hint", ""), ("powerbi.te2_custom_action",))
+            return
+        C.put(ctx.cfg, "powerbi.te2_custom_action", True)
+        ctx.add(self.key, "powerbi/te2_action", "ok", f'{res["changed"]} · {res["path"]}',
+                "in Tabular Editor: File > Open > From DB > Local instance, pick the window, then "
+                f'right-click the model -> {EXT.TE2_ACTION_NAME}')
+
+    def _ask_ribbon(self, ctx: Context, default: bool) -> None:
+        """Offer the ribbon, and do whichever of the three things this machine actually allows.
+
+        The old version of this prompt called `register_tool()` unconditionally and, on the
+        `PermissionError` that a machine-scoped folder always gives an unprivileged user, printed
+        `run elevated`. That is the line #112 was filed about. So the machine is read first: the
+        direct write happens only where the folder has been *measured* to accept one, and everywhere
+        else this writes the package -- the file plus the one-page request -- and names the folder to
+        attach to the ticket. Nothing here ever asks for elevation, because nothing here has any
+        evidence that this user has any.
+        """
+        from ...pbip import desktop as DT
+        from ...pbip import external_tool as EXT
+        if not ctx.ask.confirm("powerbi.external_tool",
+                               "Put agentdata on the Power BI Desktop External Tools ribbon?", default):
+            return
+        ribbon = DT.ribbon_state(run=ctx.det.run)
+        if ribbon["state"] == DT.RIBBON_REGISTERED:
+            C.put(ctx.cfg, "powerbi.external_tool", True)
+            ctx.add(self.key, "powerbi/external_tool", "ok", f"registered · {ribbon['path']}")
+            return
+        if ribbon["state"] == DT.RIBBON_WRITABLE:
+            ok, dest, hint = EXT.register_tool(run=ctx.det.run)
+            if ok:
+                C.put(ctx.cfg, "powerbi.external_tool", True)
+                ctx.add(self.key, "powerbi/external_tool", "ok", f"registered · {textio.norm_path(dest)}")
+                return
+            # Measured writable and the write still failed: report it and name the package, which is
+            # the next cheapest step, not a shell we have no evidence this user can open.
+            ctx.add(self.key, "powerbi/external_tool", "warn", f"could not write {textio.norm_path(dest)}",
+                    hint or f"`ad-pbip register-tool --package` writes {package_dir()} instead")
+            return
+        res = EXT.package(run=ctx.det.run)
+        if not res.get("ok"):
+            # Nothing on this user's PATH reaches agentdata from a fresh cmd.exe, so there is no file
+            # worth a ticket yet. Say what was measured and what would fix it; never ship it anyway.
+            ctx.add(self.key, "powerbi/external_tool", "warn", f'{res["fail"]} · {res["evidence"]}',
+                    res["hint"], ("powerbi.external_tool",))
+            return
+        note = (f"send {res['dir']} to whoever owns {os.path.dirname(res['destination'])} -- REQUEST.md is the "
+                "whole ticket, one Copy-Item line, and the same file works for every user and every Python version")
+        if ribbon["state"] == DT.RIBBON_DISABLED:
+            note = ("External Tools is switched off for this machine, so the file would change nothing until "
+                    "that setting does; `ad-pbip handoff --active` needs none of it")
+        ctx.add(self.key, "powerbi/external_tool", "info", f"{ribbon['state']} · packaged at {res['dir']}", note)
 
     def verify(self, ctx: Context) -> None:
         te2 = C.get(ctx.cfg, "powerbi.tools.te2_exe")

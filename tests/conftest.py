@@ -45,6 +45,20 @@ def pytest_collection_modifyitems(config, items):  # pragma: no cover - collecti
 
 
 @pytest.fixture(autouse=True)
+def forget_the_ribbon_probe():
+    """`desktop.external_tools_writable` is memoised per process; a test is a new machine.
+
+    The memo exists so one `ad-doctor` run creates and deletes at most one file in the folder every
+    user of the machine reads its ribbon from. Inside one pytest process that would leak an answer
+    measured under one tmp_path into a test that means to measure a different one.
+    """
+    from agentdata.pbip import desktop as DT
+    DT.clear_writable_cache()
+    yield
+    DT.clear_writable_cache()
+
+
+@pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch, request):
     """A temporary home, config, and a quiet, machine-shaped environment.
 

@@ -13,6 +13,14 @@ STRING_KEYS = ("active_ticket", "branch", "pr_url", "confluence_url", "project")
 TOOL_KEYS = ("doctor_verified", "pncli_verified", "graph_approved")
 ARTIFACT_DAYS = 7
 NULLS = ("null", "none", "")
+# Files a human handed to this session: `.agent/in/<KEY>/<name>`, put there by a click on the fleet's
+# Downloads tray (#132) and recorded here so the agent finds them on its next turn without being told.
+# They are *not* pruned the way artifacts are: an artifact is something the run produced and can produce
+# again, an input is something a person went and fetched, and dropping it from the list after a week
+# would leave a file on disk that nothing points at. The cap is the only bound, generous enough that
+# nobody clicking attach reaches it in a project's life, and it drops the oldest rather than refusing
+# the newest -- the file itself stays under `.agent/in/` either way.
+INPUTS_CAP = 200
 
 
 class StateError(Exception):
@@ -38,7 +46,8 @@ def load(path: str = PATH) -> dict:
 
 
 def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, questions: list[str] | None = None,
-          clear_questions: bool = False, tools: dict | None = None, today: str | None = None) -> dict:
+          clear_questions: bool = False, tools: dict | None = None, inputs: list[str] | None = None,
+          today: str | None = None) -> dict:
     """Validate and merge. `sets` keys: phase, active_ticket, branch, pr_url, confluence_url, project."""
     for k, v in sets.items():
         if k == "phase":
@@ -60,6 +69,17 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
     if questions:
         oq = state.setdefault("open_questions", [])
         oq += [q for q in questions if q and q not in oq]
+    # Normalised to one spelling, for the reason an artifact path is: `.agent\in\X\y.md` and
+    # `.agent/in/X/y.md` are one file, and two spellings of it would be listed, read and reported
+    # twice. An empty value is skipped rather than refused, exactly as an empty `--question` is, and
+    # the key is only materialised when there is something to put in it.
+    wanted = [p for p in (textio.norm_path(str(i).strip()) for i in inputs or []) if p]
+    if wanted:
+        current = state.setdefault("inputs", [])
+        for item in wanted:
+            if item not in current:
+                current.append(item)
+        del current[:max(0, len(current) - INPUTS_CAP)]
     stamp = today or now_iso()
     if artifacts:
         arts = state.setdefault("artifacts", [])

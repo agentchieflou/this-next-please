@@ -217,6 +217,189 @@ type .agent\desktop.json                                               # verify 
 ```
 Pass: `register-tool` registers `agentdata.pbitool.json` in Desktop's External Tools folder; `ad-doctor` shows `powerbi/external_tool` ok; Desktop shows `agentdata` in ribbon; clicking ribbon or running `handoff` records `.agent/desktop.json`; downstream verbs prefer handoff when fresh.
 
+## 14b. Handoff without elevation (#112)
+
+This is the section epic #112's **minimum tier is defined on**, and it is the one section in this
+file that **no CI run can stand in for**. Every line below is marked **LAPTOP** because CI runs as
+root on Linux: the folder that refuses the write does not exist there, no `PBIDesktop.exe` window
+can be enumerated, and the registry has no policy key to read. CI proves the ladder against fakes
+(`tests/test_external_tool.py`); only the reporter's own managed laptop — Administrators-only
+`%CommonProgramFiles%\Microsoft Shared\Power BI Desktop\External Tools`, Tabular Editor 2 and dscmd
+running from `C:\Enforce` — proves **which rung is live**.
+
+Four transports, in the order `ad-pbip capabilities` probes them: `ribbon:machine`, `te2:local`,
+then `zorder`/`file`, which need nothing installed and no privileged write. Each block below is one
+transport: the commands, its pass line, and the #113 probe row it rests on. Run every block, even
+the ones you expect to fail — a rung that is *not* live is the finding.
+
+**LAPTOP, first.** The probe is read-only and writes nothing; its rows are what every pass line
+below cites, so run it once and keep the block:
+
+```powershell
+ad-pbip probe --pretty      # pwsh 7
+```
+
+```bash
+ad-pbip probe               # Git Bash: same rows, TOON instead of a table
+```
+
+The `ad-*` lines in this section are shell-neutral and are run identically in **pwsh 7** and **Git
+Bash**; only reading the file back differs, and both forms are shown. Run the whole section once per
+shell — a transport that works in one shell and not the other is exactly the #63 bug this runbook
+exists to catch.
+
+### 14b.1 `zorder` — the window you clicked last
+
+**LAPTOP.** Open two PBIP files in Desktop, click the one you mean, then:
+
+```powershell
+ad-pbip capabilities                # row external_tools: available, via, ribbon, evidence
+ad-pbip handoff --active
+type .agent\desktop.json            # pwsh 7
+```
+
+```bash
+cat .agent/desktop.json             # Git Bash
+```
+
+Pass: `capabilities` row `external_tools` is `available: true` with `via: zorder`; `handoff
+--active` reports `transport: zorder`, the `server` of the window you clicked (not the other one),
+a `database` and `database_source: dmv`; `.agent/desktop.json` carries `server`, `database`, `pid`,
+`file`, `transport` and `database_source`; `ad-pbip visual-query` and `ad-pbip dmv` then need no
+`--server`.
+
+Rests on: #113 `Q4 zorder.source: enum-windows`, `Q4 verdict.zorder: yes`, `Q4 zorder.count` ≥ 1,
+and `Q4 zorder.0` naming the window you clicked last. If `verdict.zorder` is `no` or `unknown`,
+paste the Q4 rows — the Z-order read is `ctypes` on `user32` and nothing else in this rung works
+without it.
+
+`zorder.source` is the row that says *which measurement answered*. `process-table` on Windows means
+the `user32.EnumWindows` call did not answer and the rows are `Get-Process` order, which has no
+notion of on top — so `handoff --active` **refuses** (`no_zorder`) rather than handing over row 0,
+`capabilities` reports `via: file` instead of `zorder`, and this rung is not live. That is a
+finding, not a failure of the runbook: record it, then verify 14b.2 instead and paste `Q1
+python.ctypes_user32` alongside the Q4 rows.
+
+Paste: the `handoff` block, the `desktop.json`, and the `Q4` rows.
+
+### 14b.2 `file` — the document you can name
+
+**LAPTOP.** With both files still open, name the one you are *not* looking at:
+
+```powershell
+ad-pbip handoff --file Sales.pbip   # your own file name; a fragment of the title works too
+ad-pbip desktop status
+```
+
+Pass: `handoff --file` reports `transport: file` and a `why` naming the match, and picks that
+instance without switching windows; `desktop status` shows both instances and the handed-off one is
+the file you named. A name matching two open documents is a **refusal that prints both** — try it
+once on purpose, and paste it.
+
+Rests on: #113 `Q4 zorder.<i>` rows (pid and window title per instance) — this rung matches on the
+same titles, so a title the probe could not read is a title `--file` cannot match.
+
+Paste: the refusal, and the `handoff --file` block for the successful match.
+
+### 14b.3 `te2:local` — the instance you picked in Tabular Editor
+
+**LAPTOP.** Needs Tabular Editor 2; on the machine #112 measured it runs from `C:\Enforce`, which
+is fine — the custom action is per-user and writes nothing outside `%LOCALAPPDATA%`.
+
+```powershell
+ad-pbip register-tool --te2
+ad-pbip capabilities
+```
+
+Then, **by hand in Tabular Editor**: *File > Open > From DB > Local instance*, pick the window,
+right-click the model, *Hand off to agentdata*. Read the file back and put the action away again:
+
+```powershell
+type .agent\desktop.json            # pwsh 7
+ad-pbip register-tool --te2 --remove
+```
+
+```bash
+cat .agent/desktop.json             # Git Bash
+```
+
+Pass: `register-tool --te2` reports `changed: true` and the `%LOCALAPPDATA%\TabularEditor\CustomActions.json`
+path, leaving every other custom action in that file untouched (check yours are still in the menu);
+`capabilities` then reports `via: te2:local`; the click writes `.agent/desktop.json` with
+`transport: te2:local` and `database_source: te2` — the database **verbatim** from Tabular Editor,
+with no DMV round trip; `--remove` reports `changed: true` and the menu entry is gone.
+
+Rests on: #113 `Q3 verdict.te2` and `Q3 te2.custom_actions`. A `CustomActions.json` that does not
+parse is a **refusal with a hint, never a rewrite** — Tabular Editor drops *all* actions on a syntax
+error. If you have a hand-edited one, back it up, break it on purpose, and paste the refusal.
+
+Paste: both `register-tool --te2` blocks, the `desktop.json`, and the `Q3` rows.
+
+### 14b.4 `ribbon:machine` — the one file IT places, once
+
+**LAPTOP.** This is the rung the epic exists for. Nothing here writes to `%CommonProgramFiles%`; it
+produces the file and the request that asks whoever owns it.
+
+```powershell
+ad-pbip register-tool --package --out .agent/out/external-tool
+ad-doctor --only powerbi
+```
+
+Pass: the package folder holds `agentdata.pbitool.json` and `REQUEST.md`, with `sha256` and the
+`destination` path printed; the tool file's `path` is the resolved `%SystemRoot%\System32\cmd.exe`
+and its `arguments` are `/c python -m agentdata pbip handoff --server "%server%" --database
+"%database%"` — **no interpreter path, no project path, no user name, no `%VAR%` beyond Desktop's
+own two substitutes**, which is what makes it worth exactly one ticket forever. `ad-doctor` shows
+`powerbi/external_tool` **ok** naming the live transport (`zorder` or `te2:local` on this machine),
+with the ribbon as a separate **info** line reading `needs-it-file` and the package folder. It must
+**never** say "run elevated": if that string appears anywhere in the output, paste the whole block —
+that is the reported failure of #112 and it is a bug.
+
+Rests on: #113 `Q5 registry.policy.hklm` and `Q5 registry.policy.hkcu` (the `EnableExternalTools`
+kill-switch, policy key before product key, both hives — a managed laptop is exactly the machine
+with a policy key and no product key), plus `Q1 verdict.launcher` and `Q1 cmd.agentdata_help`:
+whether `cmd /c python -m agentdata --help` answers from *this user's* `PATH` is the whole reason
+the file can name no interpreter. If `verdict.launcher` is `per-user-launcher`, regenerate the
+package with `--launcher` pointing at that site's `agentdata-handoff.cmd` and say so in the ticket.
+
+**LAPTOP + IT, after the file is placed.** Only once someone with the right on that folder has
+copied it there:
+
+```powershell
+ad-pbip capabilities
+type .agent\desktop.json            # after pressing External Tools > agentdata in Desktop
+```
+
+Pass: `capabilities` reports `via: ribbon:machine` and `ribbon: registered` with the path; the
+ribbon click writes `transport: ribbon:machine` and `database_source: ribbon`; a **second user** on
+the same laptop gets the button with no follow-up ticket. That last clause is the dream tier — say
+which user you tested it as.
+
+Paste: `.agent/out/external-tool/REQUEST.md`, the `ad-doctor --only powerbi` rows, and whether the
+ticket was accepted, refused, or is still open.
+
+### 14b.5 One evidence line per shell
+
+| Shell | `capabilities.via` | `zorder` | `file` | `te2:local` | `ribbon` state | any "run elevated"? | Evidence file |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| pwsh 7 | | | | | | | |
+| Git Bash | | | | | | | |
+
+> **Expect** in both shells: the same `via`, the same ribbon state, and paths that are not
+> MSYS-converted (`/c/Users/...` in Git Bash where pwsh said `C:/Users/...`). A difference between
+> the shells goes to #63; a difference between two runs in the same shell goes to #117.
+
+When #117 item 6 lands, this section becomes a module in `tests/laptop/` and records these rows into
+`.agent/out/verification-<ts>.toon` like every other section; until then run the lines by hand and
+attach the same evidence.
+
+### What to attach to the issue
+
+The whole `ad-pbip probe` block (it contains no credential by construction), the `desktop.json`
+written by each rung that worked, the `ad-doctor --only powerbi` rows, the filled-in table above,
+and — for any rung that did not work — the refusal text verbatim, which is the thing a fake in
+`tests/test_external_tool.py` gets built from.
+
 ## 15. Observe live model via traces, DMVs, and page-cost (#54)
 ```powershell
 ad-pbip dmv deps --server localhost:<port>                             # query DISCOVER_CALC_DEPENDENCY
@@ -496,6 +679,113 @@ ad-fleet gc
 
 The output of `ad-doctor --only fleet`, the `ad-fleet status` table with four agents running, one
 screenshot of four live tiles in one window, and any row that differed from what is written above.
+
+## Fleet: the fifteen-minute quickstart (#134)
+
+The claim this section exists to test is a wall-clock one: **from a laptop that has the CLI and the
+skills, to a dashboard that already answers "which repo, which ticket, which report", in under
+fifteen minutes, on the real parent folder, from either shell.** CI can prove the verbs work on
+fixture repositories in a temp directory; it cannot prove that on `C:/Users/<you>/PycharmProjects`
+with a mapped drive, OneDrive placeholders, twenty checkouts and a `node_modules` the size of a
+small country the scan still finishes and the answers are right.
+
+`tests/laptop/test_11_fleet_quickstart.py` is this section. It skips itself until you name two
+facts about *this* laptop, because they cannot be guessed and a wrong guess would register the wrong
+folder:
+
+```toml
+# laptop.toml, beside the checkout (AGENTDATA_LAPTOP_TOML moves it)
+[fleet]
+parent_folder = "C:/Users/you/PycharmProjects"          # the folder your projects actually live under
+where = { word = "velocity", repo = "rdsd-pbi-reporting" }   # a word from a real REPORT.md, and whose
+```
+
+`where.word` must be a word that appears in one repository's `.agent/pbip/<name>/REPORT.md` and
+would not obviously appear in the others — a page name, a measure name, a metric. `where.repo` is
+the fleet name of that repository (`ad-fleet repo list` prints them; it is the folder name unless
+`--name` said otherwise). Absent keys **skip with the file to write in the reason**; they never
+fail. The same file already holds the `[jira]` keys section 3 uses.
+
+### Run it, once per shell
+
+```powershell
+$env:AGENTDATA_LAPTOP = '1'; python -m pytest -m laptop -k 11_fleet_quickstart   # pwsh 7
+```
+
+```bash
+AGENTDATA_LAPTOP=1 python -m pytest -m laptop -k 11_fleet_quickstart             # Git Bash
+```
+
+Each run writes its own `.agent/out/verification-<ts>.toon`, whose environment bundle names the
+shell it ran in — that file **is** the evidence, and both go into #134. What the case does:
+
+1. `ad-fleet quickstart <parent_folder> --yes --no-serve` on the real folder, timed.
+2. records `elapsed`, `refresh`, `repos`, `indexed_docs`, `tiles_with_ticket`,
+   `tiles_missing_facts`, `inbox_offered` and the shell, as one step in the evidence file.
+3. `ad-fleet where "<where.word>"` and asserts the **first** match is `where.repo`.
+4. checks the fifteen-minute budget. On the **first** run — the one that reports `refresh: false`,
+   the genuine cold setup — a breach is *reported* in the evidence and does not fail the case, which
+   is the whole point of measuring it before asserting it. Every later run asserts it hard.
+
+The interactive first-time run is the one the epic promises, and only a person can time it. Do it
+once, by hand, before the automated case, and put the wall clock in the table below:
+
+```powershell
+ad-fleet quickstart C:/Users/you/PycharmProjects
+```
+
+Answer `y` / `n` per proposal (`a` takes all the rest, `q` stops). The browser should open on a page
+with one tile per project you said yes to.
+
+### One evidence line per shell
+
+| Shell | `elapsed` (s) | Wall clock, interactive | `repos` | `indexed_docs` | `tiles_with_ticket` | `tiles_missing_facts` | `inbox_offered` | `where` answered | Evidence file |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| pwsh 7 | | | | | | | | | |
+| Git Bash | | | | | | | | | |
+
+> **Expect** in both shells: the same `repos` and `indexed_docs`, the same first match from `where`,
+> and no path in the summary that looks MSYS-converted (`/c/Users/...` where the other shell said
+> `C:/Users/...`). A difference between the two shells is exactly what epic #63 exists for — paste
+> both rows and the two evidence files.
+
+> **Expect** on a second run in the same shell: `refresh: true`, the same `repos`, `read` far below
+> `docs` (the index is incremental), and an `elapsed` in seconds rather than minutes.
+
+### Then the doctor
+
+```
+ad-doctor --only fleet
+```
+
+`parent folder` **ok** with the count and the folder; `catalogue` **ok** naming FTS5 or the LIKE
+fallback and how long ago it was indexed; `facts` naming, per project, the `AGENTS.md` key its tile
+links are missing; `inbox` naming the Downloads folder it can list; `token budget` saying what N
+tiles polling one Jira token is costing.
+
+> **Paste back** every row that is not `ok`, and for `facts`, whether the key it names is one you
+> would actually put in that repository's `AGENTS.md`. A key nobody would fill in is a fact the tile
+> should stop asking for.
+
+### The scan's Windows answers
+
+Only the laptop has these. Run the scan on its own and read the `skipped` and `drift` tables:
+
+```
+ad-fleet repo add --scan C:/Users/you/PycharmProjects --depth 2
+```
+
+> **Expect**: `node_modules`, `.venv` and `Downloads` never walked into; a OneDrive placeholder or a
+> junction reported with `reparse: true` and **not** descended into; a folder the OS refuses listed
+> under `skipped` with its reason rather than failing the scan; a mapped drive that is disconnected
+> showing as drift rather than being removed. Nothing registered until you answer.
+> **Paste back** the `skipped` table in full — it is the only place the real folder's shape is
+> visible.
+
+### What to attach to the issue
+
+Both `verification-<ts>.toon` files, the table above filled in, the `ad-doctor --only fleet` rows,
+and a photograph of the four screens with the dashboard where the tabs used to be.
 
 ## Power BI: one ticket, end to end
 

@@ -24,18 +24,25 @@ def _kv(items: list[str], what: str) -> dict:
     return out
 
 
+# Lists that get a table of their own instead of one crushed cell in the facts panel.
+LISTED = ("artifacts", "inputs")
+
+
 def cmd_show(a) -> int:
     st = S.load(a.file)
     if policy.pretty():
-        ui.facts([(k, v) for k, v in st.items() if k != "artifacts"], title=f"ad-state show ({a.file.replace(chr(92), '/')})")
+        ui.facts([(k, v) for k, v in st.items() if k not in LISTED], title=f"ad-state show ({a.file.replace(chr(92), '/')})")
         if st.get("artifacts"):
             ui.table(["path", "what", "run_id"],
                      [[x.get("path", ""), x.get("what", ""), x.get("run_id", "")] for x in st["artifacts"]],
                      title="artifacts")
+        if st.get("inputs"):
+            ui.table(["path"], [[p] for p in st["inputs"]], title="inputs (attached under .agent/in/)")
         ui.note(S.line(st))
     else:
         print(toon.encode({"meta": {"ok": True, "source": "ad-state show", "path": textio.norm_path(a.file)},
-                           "state": {k: v for k, v in st.items() if k != "artifacts"}, "artifacts": st.get("artifacts") or []}))
+                           "state": {k: v for k, v in st.items() if k not in LISTED},
+                           "artifacts": st.get("artifacts") or [], "inputs": st.get("inputs") or []}))
         print(S.line(st))
     return 0
 
@@ -46,16 +53,18 @@ def cmd_set(a) -> int:
     for item in a.artifact or []:
         path, _, what = item.partition("=")
         arts.append({"path": path.strip(), "what": what.strip(), "run_id": a.run_id or ""})
-    S.apply(st, _kv(a.pairs, "set"), artifacts=arts, questions=a.question, clear_questions=a.clear_questions, tools=_kv(a.tool, "--tool"))
+    S.apply(st, _kv(a.pairs, "set"), artifacts=arts, questions=a.question, clear_questions=a.clear_questions,
+            tools=_kv(a.tool, "--tool"), inputs=a.input)
     path = S.save(st, a.file)
     if policy.pretty():
         ui.facts([("path", path), ("phase", st.get("phase")), ("active_ticket", st.get("active_ticket")),
                   ("open_questions", len(st.get("open_questions") or [])), ("artifacts", len(st.get("artifacts") or [])),
-                  ("last_updated", st.get("last_updated"))], title="ad-state set")
+                  ("inputs", len(st.get("inputs") or [])), ("last_updated", st.get("last_updated"))], title="ad-state set")
         ui.note(S.line(st))
     else:
         print(toon.encode({"meta": {"ok": True, "source": "ad-state set", "path": path, "phase": st.get("phase"), "active_ticket": st.get("active_ticket"),
                                     "open_questions": len(st.get("open_questions") or []), "artifacts": len(st.get("artifacts") or []),
+                                    "inputs": len(st.get("inputs") or []),
                                     "last_updated": st.get("last_updated")}}))
         print(S.line(st))
     return 0
@@ -78,6 +87,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--question", action="append", help="append an open question (repeatable); use with phase=blocked")
     p.add_argument("--clear-questions", action="store_true", help="empty open_questions (when unblocked)")
     p.add_argument("--tool", action="append", metavar="KEY=DATE", help="tools.<key>=<date>: doctor_verified, pncli_verified")
+    # The fleet's Downloads tray (#132) copies a file into `<repo>/.agent/in/<KEY>/` on a click and then
+    # runs `ad-state set --input <path>` here rather than writing state.json itself, which is what keeps
+    # ad-state the only writer of that file. A person attaching a file by hand records it the same way.
+    p.add_argument("--input", action="append", metavar="PATH",
+                   help="record a file handed to this session, normally under .agent/in/<KEY>/ (repeatable)")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_set)
     completion.autocomplete(ap)

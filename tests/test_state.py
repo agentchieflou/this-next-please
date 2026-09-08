@@ -57,6 +57,46 @@ def test_blocked_questions_tools_and_bom_state_rewritten_clean(tmp_path, monkeyp
     assert "phase: triaged" in out and "state: phase=triaged ticket=None" in out
 
 
+def test_an_input_is_recorded_once_and_show_lists_it(tmp_path, monkeypatch, capsys):
+    """#132: the fleet's Downloads tray copies a file into `.agent/in/<KEY>/` on a click and then
+    asks `ad-state` to record it, because `ad-state` is the only writer of state.json. Without
+    `--input` that ask exited 2 -- `unrecognized arguments: --input` -- and every attach reported
+    `recorded: false`, so the criterion "`ad-state show` lists the input" was never met."""
+    p = _init(tmp_path, monkeypatch)
+    assert cli_state.main(["set", "active_ticket=RDSD-22449",
+                           "--input", ".agent/in/RDSD-22449/export.md"]) == 0
+    assert "inputs: 1" in capsys.readouterr().out
+    assert json.load(open(p, encoding="utf-8"))["inputs"] == [".agent/in/RDSD-22449/export.md"]
+
+    # the Windows spelling of the same file is the same input, not a second one
+    assert cli_state.main(["set", "--input", ".agent\\in\\RDSD-22449\\export.md",
+                           "--input", ".agent/in/RDSD-22449/second.md"]) == 0
+    assert json.load(open(p, encoding="utf-8"))["inputs"] == [".agent/in/RDSD-22449/export.md",
+                                                              ".agent/in/RDSD-22449/second.md"]
+    capsys.readouterr()
+    assert cli_state.main(["show"]) == 0
+    out = capsys.readouterr().out
+    assert "inputs[2]: .agent/in/RDSD-22449/export.md,.agent/in/RDSD-22449/second.md" in out
+
+
+def test_an_empty_input_records_nothing_and_the_list_is_bounded(tmp_path, monkeypatch, capsys):
+    """An empty value is skipped the way an empty `--question` is, and the count in the summary says
+    so. The cap drops the oldest rather than refusing the newest: the file itself is under
+    `.agent/in/` either way, and a state.json that grows without end is the worse failure."""
+    p = _init(tmp_path, monkeypatch)
+    assert cli_state.main(["set", "--input", "   "]) == 0
+    assert "inputs: 0" in capsys.readouterr().out
+    assert "inputs" not in json.load(open(p, encoding="utf-8"))       # nothing to record, no key
+
+    many = [f".agent/in/RDSD-1/f{n}.md" for n in range(S.INPUTS_CAP + 5)]
+    argv = ["set"]
+    for one in many:
+        argv += ["--input", one]
+    assert cli_state.main(argv) == 0
+    recorded = json.load(open(p, encoding="utf-8"))["inputs"]
+    assert len(recorded) == S.INPUTS_CAP and recorded[0] == many[5] and recorded[-1] == many[-1]
+
+
 def test_prune_and_missing_file_hint(tmp_path, monkeypatch, capsys):
     arts = [{"path": "a", "added": "2026-08-01"}, {"path": "b", "added": "2026-08-26"}, {"path": "c"}, "junk"]
     assert [a["path"] for a in S.prune(arts, "2026-09-02")] == ["b", "c"]
