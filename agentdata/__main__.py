@@ -32,11 +32,12 @@ COMMANDS = {
     "test": ("agentdata.cli_test", "main", "repository test runner detection, execution, and normalization"),
     "fleet": ("agentdata.cli_fleet", "main", "run several headless Copilot agents, one per repository"),
     "argv": ("agentdata.cli_argv", "main", "print the argv Python received, and the shell it came from"),
+    "metrics": ("agentdata.cli_metrics", "main", "what the format policy decided, from the local opt-in usage file"),
     "_complete": ("agentdata.complete", "main", "shell tab-completion candidates, one per line"),
 }
 # diagnostics and shell plumbing: real commands, deliberately absent from the catalog a person
 # reads. `_complete` runs on a keypress, so it must never look like something to type.
-HIDDEN = {"argv", "_complete"}
+HIDDEN = {"argv", "metrics", "_complete"}
 USAGE = ("usage: python -m agentdata <command> [options]\n\nSame commands as the ad-* console scripts:\n"
          + "\n".join(f"  {name:<10} ad-{name:<10} {help}"
                      for name, (_m, _f, help) in COMMANDS.items() if name not in HIDDEN)

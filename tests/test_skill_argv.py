@@ -271,17 +271,25 @@ def test_every_section_pointer_resolves():
             if not ref.endswith(".md"):
                 continue            # a JSON or CSV reference has no headings to point at
             body = open(ref_path, encoding="utf-8").read()
-            headings = {h.strip().lower() for h in re.findall(r"(?m)^#{2,3}\s+(.+)$", body)}
+            # A heading's parenthetical is commentary, not its name: a pointer says
+            # "§Multi-line expressions", the heading says "Multi-line expressions (the part that
+            # goes wrong)". Compare on the part before the "(".
+            headings = {re.sub(r"\s*\(.*$", "", h).strip().lower()
+                        for h in re.findall(r"(?m)^#{2,3}\s+(.+)$", body)}
+            headings.discard("")
             if not headings:
                 problems.append(f"{ref}: a reference with no headings cannot be section-scoped")
                 continue
             for pointer in re.findall(rf"`references/{re.escape(ref)}`\s*§\s*<?([\w \-]+)>?", text):
                 needle = pointer.strip().lower()
-                if needle in ("framework",):        # a placeholder for one of the sections
+                # placeholders for "one of the sections": §<framework>, §that archetype
+                if needle == "framework" or needle.startswith("that "):
                     continue
-                # "§Row limiting and §Dates" captures "Row limiting and " -- the heading is a
-                # prefix of what was captured, not the other way round
-                if not any(needle in h or h in needle for h in headings):
+                # The capture runs on past the heading into prose ("§Row limiting and §Dates"
+                # captures "Row limiting and "; "§Multi-line expressions is why ..." captures the
+                # whole clause), so the heading is a prefix of what was captured. The reverse
+                # holds when punctuation cut the capture short of a long heading.
+                if not any(needle.startswith(h) or h.startswith(needle) for h in headings):
                     problems.append(f"{ref}: no heading matches §{pointer}")
     assert not problems, "\n  " + "\n  ".join(problems)
 

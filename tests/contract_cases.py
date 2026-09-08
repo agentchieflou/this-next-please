@@ -28,6 +28,9 @@ CASES: dict[str, dict] = {
     # `repo list` on an empty registry: no `copilot`, no processes, and the fleet directory is the
     # temporary AGENTDATA_CONFIG's, so this touches nothing outside the test's own tmp dir.
     "fleet":      {"args": ["repo", "list"], "toon": True},
+    # `path` reports where the opt-in usage file would be and whether recording is on; it reads the
+    # temporary config only and writes nothing.
+    "metrics":    {"args": ["path"], "toon": True},
 
     # These reach a network, a licensed tool, or a Power BI install. `--help` still proves the
     # module imports, the parser builds, and the exit code is 0 -- which is most of what breaks.
