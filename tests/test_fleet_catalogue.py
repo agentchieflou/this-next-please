@@ -462,10 +462,12 @@ def test_a_bearer_line_makes_the_index_refuse_that_doc_and_say_so(folder, cat):
 def test_no_indexed_text_anywhere_carries_a_credential_shape(folder, cat):
     """The catalogue-wide sweep the epic asks for: every stored doc, every stored fact."""
     cat.index(repos(folder))
-    rows = cat.conn.execute("SELECT project, path, title, text FROM doc").fetchall()
+    rows = cat.conn.execute("SELECT project, path, title, text, data FROM doc").fetchall()
     assert rows
     for row in rows:
-        found = looks_like_a_credential(f"{row['title']}\n{row['text']}")
+        # `data` as well as `text`: the sweep used to read only the rendered projection while the
+        # column beside it held the whole parsed state.json, which is what `/api/show` serves.
+        found = looks_like_a_credential(f"{row['title']}\n{row['text']}\n{row['data'] or ''}")
         assert found is None, f"{row['project']}/{row['path']} carries a {found}"
     for row in cat.conn.execute("SELECT name, facts FROM project"):
         assert looks_like_a_credential(row["facts"] or "") is None, row["name"]
@@ -652,3 +654,69 @@ def test_close_is_safe_and_the_file_is_a_plain_sqlite_database(folder, tmp_path)
         assert {"project", "doc", "meta"} <= names
     finally:
         conn.close()
+
+
+def test_a_token_in_state_json_reaches_neither_the_data_column_nor_show(folder, cat):
+    """The `data` column is what `/api/show` hands a browser, so it gets the same sweep as `text`.
+
+    `_build` used to store the whole parsed `state.json` there while the refusal ran against the
+    seven-key rendering, so a `jira_token` written beside `phase` was indexed, served, and copied
+    along with `catalogue.sqlite` to the next machine.
+    """
+    leaky = os.path.join(folder, "rdsd-pbi-reporting", ".agent", "state.json")
+    touch(leaky, json.dumps({"project": "rdsd", "phase": "build", "active_ticket": "RDSD-1",
+                             "jira_token": "ATATT-super-secret-value-123456",
+                             "notes": {"pncli_password": "hunter2hunter2"}}))
+    cat.index(repos(folder))
+
+    row = cat.conn.execute("SELECT text, data FROM doc WHERE project=? AND kind='state'",
+                           ("rdsd-pbi-reporting",)).fetchone()
+    assert row is not None, "the state doc is still indexed: the fields that are safe are kept"
+    blob = f"{row['text']}\n{row['data']}"
+    assert "ATATT-super-secret-value-123456" not in blob and "hunter2hunter2" not in blob
+    assert "RDSD-1" in blob, "the whitelisted fields still travel"
+
+    shown = cat.show("rdsd-pbi-reporting")
+    assert "jira_token" not in shown["state"] and "notes" not in shown["state"]
+    assert shown["state"]["active_ticket"] == "RDSD-1"
+    assert "ATATT" not in json.dumps(shown)
+
+
+def test_a_link_wearing_an_allow_listed_name_is_refused_and_named(folder, cat, tmp_path):
+    """`allows()` reads a name; a name is not a location.
+
+    A junction called `.agent/friction/<stamp>-notes.md` pointing at `~/.pncli/config.json` is
+    allow-listed by spelling and is a live token by content. The refusal is a *named* problem row,
+    not a silent skip: an operator whose `.agent/` has a door in it should be told.
+    """
+    secret = os.path.join(str(tmp_path), "home", ".pncli", "config.json")
+    link = os.path.join(folder, "cef-margin", ".agent", "friction", "20260908T0900-notes.md")
+    os.makedirs(os.path.dirname(link), exist_ok=True)
+    try:
+        os.symlink(secret, link)
+    except (OSError, NotImplementedError, AttributeError):
+        pytest.skip("this account may not create symlinks")
+
+    out = cat.index(repos(folder))
+    named = [p for p in out["problems"] if p["path"].endswith("20260908T0900-notes.md")]
+    assert named, out["problems"]
+    assert "outside the repository" in named[0]["reason"]
+    assert cat.where("atlassian") == [] and cat.where("ghp_notarealtoken00000000000000") == []
+    for row in cat.conn.execute("SELECT text, data FROM doc"):
+        assert "ghp_notarealtoken" not in f"{row['text']}\n{row['data'] or ''}"
+
+
+def test_a_link_may_not_smuggle_agents_md_facts_out_of_the_repository(folder, cat, tmp_path):
+    """The facts block is read by `config.project_facts`, which is not behind `_read()`."""
+    outside = _write(str(tmp_path / "elsewhere"), "AGENTS.md",
+                     "## Project facts\n- jira_project: STOLEN\n- pbi_workspace: Someone Else\n")
+    agents = os.path.join(folder, "cef-margin", "AGENTS.md")
+    os.remove(agents)
+    try:
+        os.symlink(outside, agents)
+    except (OSError, NotImplementedError, AttributeError):
+        pytest.skip("this account may not create symlinks")
+
+    cat.index(repos(folder))
+    shown = cat.show("cef-margin")
+    assert shown["facts"] == {} and shown["jira_project"] != "STOLEN"

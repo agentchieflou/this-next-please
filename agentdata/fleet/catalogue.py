@@ -24,6 +24,12 @@ refuses a path `allows()` does not name. There is no directory walk and no confi
 `.env`, `localSettings.json` or `~/.pncli/config.json` is not skipped by a rule, it is never
 constructed as a path in the first place. Adding a file kind is a change here plus a test.
 
+A name, though, is not a location, so `_read()` also asks `_inside()` where the name actually leads.
+A symlink or an NTFS junction spelled `.agent/friction/20260908T0900-notes.md` and pointing at
+`~/.pncli/config.json` passes `allows()` on spelling alone, and `os.path.isfile()` follows it. That
+is the one way the paragraph above was false, and it is refused by realpath, named in the index
+report, and covered by a test.
+
 **A doc that looks like it carries a credential is not indexed at all.** The sources are supposed to
 be credential-free, but "supposed to" is how a token ends up in a searchable database that then gets
 copied to another machine. `looks_like_a_credential()` reuses the patterns `config.save()` already
@@ -109,17 +115,37 @@ def allows(rel: str) -> str:
     return ""
 
 
+def _inside(repo_path: str, rel: str) -> str:
+    """`rel` as an absolute path, proven to still be inside `repo_path` once the links resolve.
+
+    `allows()` reads a *name*, and a name is not a location. A symlink -- or an NTFS junction, which
+    is what a Windows operator actually ends up with -- called `.agent/friction/20260908T0900.md`
+    and pointing at `~/.pncli/config.json` is allow-listed by spelling and is a live Jira token by
+    content: `os.path.isfile` in `_candidates` follows it and `open()` follows it again. Without
+    this check the module docstring's claim that `~/.pncli/config.json` "is never constructed as a
+    path" holds only for files that are where they say they are. `serve.verify_for` had the same
+    hole closed first and this is deliberately the same guard in the same words.
+    """
+    full = os.path.join(repo_path, *rel.split("/"))
+    root = textio.norm_path(os.path.realpath(repo_path))
+    real = textio.norm_path(os.path.realpath(full))
+    if real != root and not real.startswith(root + "/"):
+        raise ValueError(f"the catalogue may not read {rel!r}: it resolves outside the repository")
+    return full
+
+
 def _read(repo_path: str, rel: str) -> str:
     """The only way this module opens a file in a repository.
 
     Through `textio`, because a friction file written by PowerShell 5.1 carries a UTF-8 BOM and an
-    `AGENTS.md` someone saved from Notepad is cp1252; and behind `allows()`, so a caller that grows
-    a new source has to add the kind here rather than passing a path.
+    `AGENTS.md` someone saved from Notepad is cp1252; behind `allows()`, so a caller that grows a
+    new source has to add the kind here rather than passing a path; and behind `_inside()`, so the
+    allow-listed *name* has to also be an allow-listed *file*.
     """
     kind = allows(rel)
     if not kind:
         raise ValueError(f"the catalogue may not read {rel!r}: it is not on the allow-list")
-    return textio.read_text(os.path.join(repo_path, *rel.split("/")))
+    return textio.read_text(_inside(repo_path, rel))
 
 
 # --------------------------------------------------------------------------- credential refusal
@@ -208,22 +234,49 @@ def _friction_date(name: str, front: dict) -> str:
     return ""
 
 
-def _state_text(state: dict) -> str:
-    """`.agent/state.json` as lines a search can hit and a snippet can show.
+# The only `.agent/state.json` fields that ever leave the repository. One tuple, because there used
+# to be two: `_state_text` rendered these keys and `_build` put the *whole parsed file* in the `data`
+# column, so `looks_like_a_credential` inspected a projection while the original was what got
+# stored. A `jira_token` written next to `phase` in somebody's state.json therefore passed the
+# sweep, landed in `catalogue.sqlite` -- the file that gets copied between machines -- and came back
+# out of `/api/show` and `/api/desk`. What is checked and what is kept are now the same dict.
+STATE_KEYS = ("project", "phase", "active_ticket", "branch", "pr_url", "confluence_url",
+              "last_updated")
+STATE_LISTS = ("open_questions", "artifacts")
+# A state file with two hundred open questions is a search result nobody reads and a row that
+# dwarfs every other doc in the table.
+STATE_LIST_CAP = 20
 
-    The raw JSON would index just as well and read appallingly in a result row -- and the row is the
-    whole point of `ad-fleet where RDSD-22449`.
+
+def _state_doc(state: dict) -> dict:
+    """The projection of `.agent/state.json` the catalogue is allowed to keep.
+
+    Everything outside `STATE_KEYS`/`STATE_LISTS` is dropped rather than carried: state.json is
+    hand-editable JSON that the fleet only reads, and republishing whatever else somebody put in it
+    is how a token, a share path or a customer name reaches a browser tab.
     """
-    lines = []
-    for key in ("project", "phase", "active_ticket", "branch", "pr_url", "confluence_url",
-                "last_updated"):
+    out: dict = {}
+    for key in STATE_KEYS:
         value = state.get(key)
         if value not in (None, "", [], {}):
-            lines.append(f"{key}: {value}")
-    for question in (state.get("open_questions") or [])[:20]:
-        lines.append(f"open question: {question}")
-    for artifact in (state.get("artifacts") or [])[:20]:
-        lines.append(f"artifact: {artifact}")
+            out[key] = value
+    for key in STATE_LISTS:
+        values = state.get(key)
+        if isinstance(values, list) and values:
+            out[key] = values[:STATE_LIST_CAP]
+    return out
+
+
+def _state_text(doc: dict) -> str:
+    """`_state_doc()`'s projection as lines a search can hit and a snippet can show.
+
+    The raw JSON would index just as well and read appallingly in a result row -- and the row is the
+    whole point of `ad-fleet where RDSD-22449`. Takes the projection, not the file, so the text the
+    credential sweep runs against is the text of exactly what will be stored.
+    """
+    lines = [f"{key}: {doc[key]}" for key in STATE_KEYS if key in doc]
+    lines += [f"open question: {q}" for q in doc.get("open_questions") or []]
+    lines += [f"artifact: {a}" for a in doc.get("artifacts") or []]
     return "\n".join(lines)
 
 
@@ -246,7 +299,7 @@ def _git_ref(repo_path: str) -> str:
     """The repo-relative ref file `.git/HEAD` points at, or "" for a detached HEAD or a packed ref."""
     try:
         head = _read(repo_path, GIT_HEAD).strip()
-    except OSError:
+    except (OSError, ValueError):
         return ""
     if not head.startswith("ref:"):
         return ""
@@ -314,8 +367,9 @@ def _build(repo_path: str, kind: str, rel: str) -> _Doc:
         state = json.loads(raw)
         if not isinstance(state, dict):
             raise ValueError("state.json is not an object")
-        title = " ".join(x for x in (state.get("project") or "", state.get("phase") or "") if x)
-        return _Doc(kind, rel, title or "state", _state_text(state), state, mtime, size)
+        doc = _state_doc(state)
+        title = " ".join(x for x in (doc.get("project") or "", doc.get("phase") or "") if x)
+        return _Doc(kind, rel, title or "state", _state_text(doc), doc, mtime, size)
 
     if kind == "friction":
         front = _front_matter(raw)
@@ -374,7 +428,7 @@ def _git_doc(repo_path: str) -> _Doc:
         if ref:                       # a packed ref leaves the branch name, which is the useful half
             try:
                 sha = _read(repo_path, ref).strip()[:40]
-            except OSError:
+            except (OSError, ValueError):
                 sha = ""
     else:
         branch, sha = "(detached)", head[:40]
@@ -406,7 +460,11 @@ def _facts(repo_path: str) -> dict:
     `config.save()` refuses exactly that key shape -- so the same refusal applies before a fact
     reaches the catalogue, rather than after someone copies the sqlite file to another machine.
     """
-    facts = C.project_facts(os.path.join(repo_path, FIXED["agents"]))
+    try:
+        agents = _inside(repo_path, FIXED["agents"])
+    except ValueError:
+        return {}          # a link out of the repository; `_build` refuses the same file by name
+    facts = C.project_facts(agents)
     return {k: v for k, v in facts.items() if not C.looks_secret(k)}
 
 
