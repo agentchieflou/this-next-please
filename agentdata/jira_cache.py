@@ -122,6 +122,7 @@ class ChangelogCache:
             return None
         if self._conn is not None:
             return self._conn
+        conn = None
         try:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             conn = sqlite3.connect(self.path, isolation_level=None)   # explicit BEGIN, no implicit transaction
@@ -129,6 +130,17 @@ class ChangelogCache:
             conn.executescript(_SCHEMA)
             conn.execute("SELECT count(*) FROM issue").fetchone()     # touches the file: a non-database raises here
         except (sqlite3.Error, OSError) as e:
+            # `connect()` on a corrupt file succeeds; the schema call below is what raises. That leaves an OPEN
+            # handle on a connection this method never stored, so `_disable` -- which closes `self._conn` -- has
+            # nothing to close. POSIX deletes a file out from under an open handle without complaint, so the leak
+            # is invisible there; Windows refuses with "the process cannot access the file", which means
+            # `ad-jira cache --clear`, the one recovery this module's own hint tells a human to run, fails on the
+            # exact file it exists to remove.
+            if conn is not None:
+                try:
+                    conn.close()
+                except sqlite3.Error:
+                    pass
             self._disable(e)
             return None
         self._conn = conn

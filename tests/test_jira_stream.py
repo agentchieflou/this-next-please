@@ -15,7 +15,7 @@ import re
 import pytest
 
 from agentdata import jira_stream as S
-from agentdata import policy, textio, toon
+from agentdata import policy, toon, textio, toon
 from agentdata.jira_stream import TsvWriter, out_path
 from agentdata.model import AgentTable
 
@@ -253,7 +253,10 @@ def test_render_stream_never_opens_the_file(tmp_path):
     gone = str(tmp_path / "not-there.tsv")
     sample = [[r[c] for c in COLUMNS] for r in rows(3)]
     out = policy.render_stream("changelog", SOURCE, COLUMNS, gone, 12345, sample)
-    assert f"path: {gone}" in out
+    # Not `f"path: {gone}"`: TOON quotes any value containing a colon, and every absolute Windows path has one
+    # after the drive letter. Asserting the bare string is green on Linux and red on Windows for a difference
+    # that is entirely correct encoding -- so ask TOON how it would render this value and look for that.
+    assert f"path: {toon.encode({'path': gone}).split(': ', 1)[1].strip()}" in out
     assert "  rows: 12345" in out
     assert "  shown: 3" in out
     assert not os.path.exists(gone)

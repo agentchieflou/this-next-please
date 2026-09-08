@@ -107,9 +107,16 @@ def toon_str(v: str) -> str:
 
 
 def path_of(out: str) -> str:
+    """The `path` out of a TOON meta, decoded rather than sliced.
+
+    TOON quotes a value containing a colon, and every absolute Windows path has one after the drive letter -- so
+    the raw capture is `"C:/Users/..."`, quotes included, and `open()` on it raises `OSError: [Errno 22] Invalid
+    argument`. Eleven tests in this file failed that way on the Windows runners while passing here.
+    """
     m = re.search(r"^  path: (.+)$", out, re.M)
     assert m, f"no path in meta:\n{out}"
-    return m.group(1)
+    raw = m.group(1).strip()
+    return raw[1:-1] if len(raw) > 1 and raw[0] == raw[-1] == '"' else raw
 
 
 def file_rows(path: str) -> int:
