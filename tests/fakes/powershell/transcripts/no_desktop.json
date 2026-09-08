@@ -1,0 +1,17 @@
+{
+  "source": "synthesized",
+  "note": "Power BI Desktop is not running: an empty result, not an error",
+  "match": [
+    "-Command"
+  ],
+  "argv": [
+    "powershell",
+    "-NoProfile",
+    "-Command",
+    "Get-CimInstance"
+  ],
+  "returncode": 0,
+  "stdout": "\n",
+  "stderr": "",
+  "captured": "2026-09-04"
+}

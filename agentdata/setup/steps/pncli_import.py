@@ -5,6 +5,7 @@ import re
 from ... import config as C
 from ...connectors.pncli import exe as pncli_exe
 from ..wizard import Context, Step
+from ... import textio
 
 DEFAULT_PNCLI_CONFIG = "~/.pncli/config.json"
 NPM_PACKAGE = "@kolatts/pncli"   # laptop diagnosis 2026-09-02; override with the `pncli.npm_package` config key
@@ -105,7 +106,7 @@ class PncliStep(Step):
             got = ctx.ask.ask("pncli.exe", "full path to the pncli launcher (blank = not installed yet)",
                               C.get(cfg, "pncli.exe") or "")
             if got:
-                C.put(cfg, "pncli.exe", got.replace("\\", "/"))
+                C.put(cfg, "pncli.exe", textio.norm_path(got))
                 found = self.detect(ctx)
         path = ctx.ask.ask("pncli.config_path", "pncli config file", found["config_path"],
                            confident=bool(found["exists"])) or found["config_path"]

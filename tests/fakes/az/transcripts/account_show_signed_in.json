@@ -1,0 +1,17 @@
+{
+  "source": "synthesized",
+  "note": "signed in, with a tenant but no subscription",
+  "match": [
+    "account",
+    "show"
+  ],
+  "argv": [
+    "az",
+    "account",
+    "show"
+  ],
+  "returncode": 0,
+  "stdout": "{\"environmentName\": \"AzureCloud\", \"id\": \"0000\", \"name\": \"N/A(tenant level account)\"}\n",
+  "stderr": "",
+  "captured": "2026-09-04"
+}

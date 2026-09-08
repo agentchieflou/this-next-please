@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Callable
 from . import desktop as DT
 from ..model import AgentTable
+from .. import textio
 
 Runner = Callable[[list[str], int], tuple[int, str, str]]
 SCRIPT_CSX = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
@@ -129,7 +130,7 @@ def start_trace(server: str, pid: int | None = None, seconds: int = 60,
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     out_file = out_path or os.path.join(".agent", "out", f"trace-{ts}.jsonl")
-    out_file = out_file.replace("\\", "/")
+    out_file = textio.norm_path(out_file)
 
     listener.start(out_file=out_file)
 

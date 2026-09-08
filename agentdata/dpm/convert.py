@@ -77,12 +77,12 @@ def build(run: Run, result: Result, *, consumer_root: str, artifact_dir: str, bi
     return {
         "job_manifest_version": JOB_MANIFEST_VERSION,
         "contract": {"name": "dpm-consumer-integration", "version": CONTRACT_VERSION, "binding": binding_label, "binding_sha256": binding_sha},
-        "producer": {"name": run.b["producer"], "run_id": result.run_id, "run_root": run.root.replace("\\", "/"),
+        "producer": {"name": run.b["producer"], "run_id": result.run_id, "run_root": textio.norm_path(run.root),
                      "orchestrator_db": run.rel(run.db_path), "orchestrator_db_sha256": file_sha256(run.db_path), "versions": versions,
                      "selection_manifests": [s.path for s in result.selections], "channels": result.channels_source,
                      "snapshot_sha256": snapshot_sha, "snapshot_files": snapshot_files},
-        "consumer": {"name": run.b["consumer"], "root": os.path.abspath(consumer_root).replace("\\", "/"),
-                     "artifact_dir": os.path.abspath(artifact_dir).replace("\\", "/"), "generated_at": generated_at or now_iso(),
+        "consumer": {"name": run.b["consumer"], "root": textio.norm_path(os.path.abspath(consumer_root)),
+                     "artifact_dir": textio.norm_path(os.path.abspath(artifact_dir)), "generated_at": generated_at or now_iso(),
                      "generator": f"agentdata ad-dpm convert {tool_version()}"},
         "counts": counts,
         "jobs": jobs,
@@ -106,7 +106,7 @@ def refuse_if_present(out_dir: str, *, force: bool) -> list[str]:
     """`artifacts_exist` as early as possible: the caller has not hashed anything yet."""
     existing = present(out_dir)
     if existing and not force:
-        raise DpmError("artifacts_exist", f"{out_dir.replace(os.sep, '/')} already holds {', '.join(existing)}",
+        raise DpmError("artifacts_exist", f"{textio.norm_path(out_dir)} already holds {', '.join(existing)}",
                        "pass --force to replace the previous handoff for this run id (the receipt records the replacement)")
     return existing
 
@@ -181,5 +181,5 @@ def verify(manifest: dict, *, run_root: str | None = None, rehash: bool = True) 
         rows.append({"job_id": j["job_id"], "route": j.get("route"), "document_id": j.get("document_id"), "page": j.get("page"),
                      "status": "broken" if reasons else "ok", "reason": "; ".join(reasons)})
     broken = sum(1 for r in rows if r["status"] == "broken")
-    return {"run_root": root.replace("\\", "/"), "orchestrator_db_ok": db_ok, "jobs": len(rows), "ok_count": len(rows) - broken,
+    return {"run_root": textio.norm_path(root), "orchestrator_db_ok": db_ok, "jobs": len(rows), "ok_count": len(rows) - broken,
             "broken": broken, "rows": rows, "ok": db_ok and broken == 0}

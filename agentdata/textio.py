@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import locale
 import os
+import re
 import time
 
 BOMS = ((b"\xef\xbb\xbf", "utf-8-sig"), (b"\xff\xfe\x00\x00", "utf-32-le"), (b"\x00\x00\xfe\xff", "utf-32-be"),
@@ -91,6 +92,35 @@ def long_paths_enabled() -> bool | None:
             return bool(value)
     except Exception:  # noqa: BLE001
         return None
+
+
+_MSYS_DRIVE = re.compile(r"^/([A-Za-z])/")
+
+
+def from_msys(path: str) -> str:
+    """`/c/Users/x` -> `C:/Users/x`. Git Bash converts most *arguments* itself, but not a path that
+    reached us through a config file, an AGENTS.md fact or an answers file, where no shell was
+    involved."""
+    if os.name != "nt" or not path:
+        return path
+    m = _MSYS_DRIVE.match(path)
+    return f"{m.group(1).upper()}:/{path[3:]}" if m else path
+
+
+def norm_path(path: str) -> str:
+    """One canonical spelling for a path in output: forward slashes, MSYS drives resolved.
+
+    This existed as `.replace("\\\\", "/")` in dozens of places, which is fine until one of them
+    forgets and two `meta.path` values for the same file stop comparing equal. Idempotent, so it can
+    be applied more than once without harm.
+    """
+    if not path:
+        return path
+    out = path.replace("\\", "/")
+    out = from_msys(out)
+    if len(out) > 1 and out[1] == ":":
+        out = out[0].upper() + out[1:]
+    return out
 
 
 def safe_name(name: str) -> str:

@@ -4,13 +4,14 @@ import base64
 import json
 import os
 import re
+from .. import textio
 
 IGNORED_NAMES = {".platform", "localsettings.json", ".git", ".agent", ".gitignore"}
 IGNORED_EXTS = {".pbi", ".user"}
 
 
 def is_ignored(rel_path: str) -> bool:
-    norm = rel_path.replace("\\", "/").lower()
+    norm = textio.norm_path(rel_path).lower()
     parts = norm.split("/")
     for p in parts:
         if p in IGNORED_NAMES or p.startswith(".agent"):
@@ -39,7 +40,7 @@ def load_report_parts(report_folder: str, target_model_id: str | None = None) ->
         dirs[:] = [d for d in dirs if d.lower() not in IGNORED_NAMES and not d.startswith(".agent")]
         for f in sorted(files):
             full_path = os.path.join(root, f)
-            rel_path = os.path.relpath(full_path, report_folder).replace("\\", "/")
+            rel_path = textio.norm_path(os.path.relpath(full_path, report_folder))
             if is_ignored(rel_path):
                 continue
 
@@ -91,7 +92,7 @@ def load_model_parts(model_folder: str) -> tuple[list[dict], list[str]]:
         dirs[:] = [d for d in dirs if d.lower() not in IGNORED_NAMES and not d.startswith(".agent")]
         for f in sorted(files):
             full_path = os.path.join(root, f)
-            rel_path = os.path.relpath(full_path, model_folder).replace("\\", "/")
+            rel_path = textio.norm_path(os.path.relpath(full_path, model_folder))
             if is_ignored(rel_path):
                 continue
 
@@ -120,7 +121,7 @@ def extract_parts_to_disk(parts: list[dict], out_dir: str) -> tuple[int, int]:
     total_bytes = 0
 
     for part in parts:
-        path = part.get("path", "").replace("\\", "/").lstrip("/")
+        path = textio.norm_path(part.get("path", "")).lstrip("/")
         if not path:
             continue
         dest = os.path.abspath(os.path.join(out_dir_abs, path))
@@ -153,14 +154,14 @@ def check_vanished_parts(current_paths: list[str], previous_dir: str) -> list[st
     if not os.path.isdir(previous_dir):
         return []
 
-    cur_set = set(p.replace("\\", "/") for p in current_paths)
+    cur_set = set(textio.norm_path(p) for p in current_paths)
     vanished: list[str] = []
 
     for root, dirs, files in os.walk(previous_dir):
         dirs[:] = [d for d in dirs if d.lower() not in IGNORED_NAMES and not d.startswith(".agent")]
         for f in files:
             full = os.path.join(root, f)
-            rel = os.path.relpath(full, previous_dir).replace("\\", "/")
+            rel = textio.norm_path(os.path.relpath(full, previous_dir))
             if is_ignored(rel):
                 continue
             if rel not in cur_set:

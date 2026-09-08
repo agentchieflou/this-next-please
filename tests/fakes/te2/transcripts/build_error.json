@@ -1,0 +1,15 @@
+{
+  "source": "synthesized",
+  "note": "TabularEditor reports a DAX error on stdout, not stderr",
+  "match": [
+    "-B"
+  ],
+  "argv": [
+    "TabularEditor.exe",
+    "-B"
+  ],
+  "returncode": 1,
+  "stdout": "Error: The syntax for 'SUMX' is incorrect. (DAX)\n",
+  "stderr": "",
+  "captured": "2026-09-04"
+}

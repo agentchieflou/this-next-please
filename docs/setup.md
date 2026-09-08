@@ -145,6 +145,7 @@ query time. Oracle never uses the ODBC mode: an ODBC DSN handed to python-oracle
   agent's context. Override with `--color always|never`, `AGENTDATA_COLOR=always|never`, or the conventional
   `NO_COLOR` / `FORCE_COLOR`. Status words are green/yellow/red, prompts cyan, defaults and hints dim.
 - Console encoding: every `ad-*` command switches stdout to UTF-8 (TOON uses `→ · ≤`).
+- **`AGENTDATA_DEBUG=1`** appends the traceback of any swallowed exception to `.agent/out/agentdata-debug.log`. Most `except Exception` handlers in this package are right — a missing optional tool, a console API that is not there — but when one swallows something unexpected the symptom arrives later as an empty result, and this is where to look. See `docs/refusals.md`.
 - File encoding: **pwsh 7 writes UTF-8 without a BOM** through `>`, `Out-File` and `Set-Content`, so the old `[IO.File]::WriteAllText` workaround is gone — CI asserts it on every run (see below). The 5.1 hazards it existed for (a BOM from `-Encoding utf8`, UTF-16 from `>`) belong to a shell this project no longer supports. Every `ad-*` reader still sniffs a BOM and accepts UTF-16 on **read** (`agentdata/textio.py`) — files arrive from Notepad, from older scripts and from other teams, which is not a shell concern. For state, always use `ad-state set`: it is the only sanctioned writer.
 - Power BI XMLA needs Premium/PPU/Fabric capacity with the XMLA endpoint set to Read Write by the capacity admin.
 

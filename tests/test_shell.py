@@ -145,6 +145,27 @@ def test_every_cli_module_is_runnable_with_dash_m():
     assert not missing, f"no `python -m` entry guard in: {', '.join(missing)}"
 
 
+def test_every_module_imports_without_doing_anything():
+    """`import agentdata.csv2toon` raised IndexError: its whole body ran at import, reading
+    `sys.argv[1]`. Any importer -- a test, a doc build, `pkgutil.walk_packages`, an IDE -- hit it.
+
+    Importing a module must never read argv, touch the filesystem or exit. This is the cheapest
+    check for that, and the one that found it.
+    """
+    import importlib
+    import pkgutil
+
+    import agentdata
+
+    broken = []
+    for mod in pkgutil.walk_packages(agentdata.__path__, "agentdata."):
+        try:
+            importlib.import_module(mod.name)
+        except Exception as e:  # noqa: BLE001
+            broken.append(f"{mod.name}: {type(e).__name__}: {e}")
+    assert not broken, "modules that do work at import time:\n  " + "\n  ".join(broken)
+
+
 def test_the_ad_test_module_form_actually_prints():
     p = subprocess.run([sys.executable, "-m", "agentdata.cli_test", "detect", REPO_ROOT],
                        capture_output=True, text=True, cwd=REPO_ROOT)

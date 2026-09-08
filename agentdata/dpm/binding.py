@@ -106,7 +106,7 @@ def load(path: str | None) -> tuple[dict, str]:
         raise DpmError("binding_invalid", f"{path}: top level must be an object", "")
     if str(over.get("binding_version", 1)) != "1":
         raise DpmError("binding_invalid", f"{path}: binding_version {over.get('binding_version')!r} is not supported (1)", "")
-    return _merge(b, over, ""), path.replace("\\", "/")
+    return _merge(b, over, ""), textio.norm_path(path)
 
 
 def sha256(binding: dict) -> str:

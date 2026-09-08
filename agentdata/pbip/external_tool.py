@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 from . import desktop as DT
 from .. import config as C
+from .. import textio
 
 Runner = Callable[[list[str], int], tuple[int, str, str]]
 DEFAULT_ICON = (
@@ -61,7 +62,7 @@ def is_external_tools_enabled(run: Runner | None = None) -> tuple[bool, str]:
 
 def render_tool_json(python_exe: str | None = None, project_dir: str | None = None) -> dict:
     """Generate the tool JSON structure with resolved python executable."""
-    py = (python_exe or sys.executable).replace("\\", "/")
+    py = textio.norm_path(python_exe or sys.executable)
     data = None
     if os.path.exists(TEMPLATE_PATH):
         try:
@@ -82,7 +83,7 @@ def render_tool_json(python_exe: str | None = None, project_dir: str | None = No
     else:
         args = data.get("arguments", '-m agentdata pbip handoff --server "%server%" --database "%database%"')
         if project_dir and "--project" not in args:
-            clean_proj = project_dir.replace("\\", "/")
+            clean_proj = textio.norm_path(project_dir)
             args = f'{args} --project "{clean_proj}"'
         data["path"] = py
         data["arguments"] = args

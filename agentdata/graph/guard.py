@@ -70,11 +70,11 @@ def _parse_unified(diff_text: str) -> dict[str, dict[str, Any]]:
             if not rel:
                 cur = None
                 continue
-            rel = rel.replace("\\", "/")
+            rel = textio.norm_path(rel)
             cur = files.setdefault(rel, {"new_lines": set(), "old_lines": set(), "old_path": None})
             old_path = pending.get("old_path")
-            if old_path and old_path.replace("\\", "/") != rel:
-                cur["old_path"] = old_path.replace("\\", "/")
+            if old_path and textio.norm_path(old_path) != rel:
+                cur["old_path"] = textio.norm_path(old_path)
             continue
         if cur is None:
             continue
@@ -130,7 +130,7 @@ def collect_diff(root: str, mode: str = "worktree", ref: str | None = None) -> d
         rc, out = _git(root, ["ls-files", "--others", "--exclude-standard"])
         if rc == 0:
             for line in out.splitlines():
-                rel = line.strip().replace("\\", "/")
+                rel = textio.norm_path(line.strip())
                 if not rel:
                     continue
                 path = os.path.join(root, rel.replace("/", os.sep))
@@ -209,7 +209,7 @@ def _approval_state(
 
     unexplained = {
         nid for nid in drifted_nodes(graph, snapshot)
-        if nid.split("::", 1)[0].replace("\\", "/") not in touched_files
+        if textio.norm_path(nid.split("::", 1)[0]) not in touched_files
     }
     return ("stale" if unexplained else "current"), record, unexplained
 
@@ -428,7 +428,7 @@ def install_hook(root: str = ".") -> dict[str, Any]:
         existing = textio.read_text(path)
         if HOOK_MARKER not in existing:
             return {
-                "ok": False, "exit_code": EXIT_USAGE, "path": path.replace("\\", "/"),
+                "ok": False, "exit_code": EXIT_USAGE, "path": textio.norm_path(path),
                 "error": "a pre-commit hook already exists",
                 "hint": "inspect it and chain `ad-graph guard --staged` in yourself; this command will not overwrite it",
             }
@@ -437,25 +437,25 @@ def install_hook(root: str = ".") -> dict[str, Any]:
     # shell; the shebang names this interpreter by absolute path because `env python` on a Windows
     # box frequently resolves to nothing at all
     textio.write_text(path, HOOK_BODY.format(
-        interpreter=sys.executable.replace("\\", "/"), marker=HOOK_MARKER,
+        interpreter=textio.norm_path(sys.executable), marker=HOOK_MARKER,
     ))
     try:
         os.chmod(path, 0o755)
     except OSError:
         pass
-    return {"ok": True, "exit_code": EXIT_OK, "path": path.replace("\\", "/"), "installed": True}
+    return {"ok": True, "exit_code": EXIT_OK, "path": textio.norm_path(path), "installed": True}
 
 
 def uninstall_hook(root: str = ".") -> dict[str, Any]:
     root = os.path.abspath(root)
     path = os.path.join(_hooks_dir(root), "pre-commit")
     if not os.path.exists(path):
-        return {"ok": True, "exit_code": EXIT_OK, "path": path.replace("\\", "/"), "removed": False}
+        return {"ok": True, "exit_code": EXIT_OK, "path": textio.norm_path(path), "removed": False}
     if HOOK_MARKER not in textio.read_text(path):
         return {
-            "ok": False, "exit_code": EXIT_USAGE, "path": path.replace("\\", "/"),
+            "ok": False, "exit_code": EXIT_USAGE, "path": textio.norm_path(path),
             "error": "this pre-commit hook was not written by ad-graph",
             "hint": "remove it yourself if you meant to",
         }
     os.remove(path)
-    return {"ok": True, "exit_code": EXIT_OK, "path": path.replace("\\", "/"), "removed": True}
+    return {"ok": True, "exit_code": EXIT_OK, "path": textio.norm_path(path), "removed": True}

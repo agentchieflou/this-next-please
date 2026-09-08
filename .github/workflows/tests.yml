@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # The property tests run 200 examples per property here and 50 on a laptop, so a run is still a
+  # few seconds locally while CI does the searching. `--hypothesis-seed` replays any failure.
+  HYPOTHESIS_PROFILE: ci
+
 jobs:
   pytest:
     name: ${{ matrix.os }} · python ${{ matrix.python }}
@@ -37,6 +42,23 @@ jobs:
           ad-doctor --quiet || [ $? -eq 1 ]   # documented contract: 0 clean, 1 a row failed, nothing else
           python -m agentdata --help
           python -m agentdata update --check
+      # Tab-completion is asserted by pressing Tab, not by reading the script: the previous version
+      # passed its string checks while completing nothing at all.
+      - name: completion · bash really completes
+        run: |
+          set -e
+          eval "$(python -m agentdata setup --print-completion bash)"
+          COMP_LINE="ad-pbip ch" COMP_POINT=10 _agentdata_complete
+          [ "${COMPREPLY[*]}" = "check" ] || { echo "got: ${COMPREPLY[*]}"; exit 1; }
+          COMP_LINE="ad-graph " COMP_POINT=9 _agentdata_complete
+          case " ${COMPREPLY[*]} " in *" summary "*) ;; *) echo "got: ${COMPREPLY[*]}"; exit 1;; esac
+          bash -n -c "$(python -m agentdata setup --print-completion bash)"
+          if command -v zsh >/dev/null 2>&1; then
+            zsh -n -c "$(python -m agentdata setup --print-completion zsh)"
+          else
+            echo "no zsh on this runner; the bash body it shares is linted above"
+          fi
+
       - name: keep the reference output for the Windows byte-comparison
         if: matrix.python == '3.14'
         run: |
@@ -51,7 +73,11 @@ jobs:
   windows:
     name: windows · python ${{ matrix.python }}
     runs-on: windows-latest
-    timeout-minutes: 12
+    # The 3.14 leg runs the `slow` marker, which includes the install/update lifecycle: a real venv
+    # and a real `pip install` from a `git+file://` clone. Venv creation is the entire cost and it
+    # is minutes on a Windows runner -- four venvs blew straight through an 18-minute cap, so the
+    # lifecycle is one venv stepped through, and the module shares one pip cache.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -71,13 +97,20 @@ jobs:
       - run: pip install -e ".[dev]"
         shell: pwsh
 
-      # the suite. The slow marker builds a wheel in a fresh venv: run it on the laptop's Python,
-      # on the OS where packaging actually goes wrong.
+      # the suite. The slow marker builds wheels and venvs: run it on the laptop's Python, on the OS
+      # where packaging actually goes wrong.
       - name: pytest
         shell: pwsh
-        run: |
-          if ("${{ matrix.python }}" -eq "3.14") { python -m pytest -q }
-          else { python -m pytest -q -m "not slow" }
+        run: python -m pytest -q -m "not slow"
+
+      # Split out, verbose, and with its own cap on purpose. A hang inside the slow marker used to
+      # take the whole job down and `-q` never said which test it was in -- the log simply stopped
+      # at a percentage. `-v` names each test as it starts, so the last line printed is the one.
+      - name: pytest · slow
+        if: matrix.python == '3.14'
+        shell: pwsh
+        timeout-minutes: 10
+        run: python -m pytest -m slow -v --durations=0 --capture=tee-sys
 
       # one step per shell, so a red job names the shell rather than "Windows"
       - name: smoke · pwsh 7
@@ -91,6 +124,29 @@ jobs:
       - name: smoke · cmd
         shell: cmd
         run: .github\scripts\smoke.cmd
+
+      # Tab-completion, per shell, driven the way a keypress drives it. Git Bash is the shell where
+      # the old script was a guaranteed no-op: it needed `register-python-argcomplete` on PATH, and
+      # that ships into the Scripts directory Windows does not add to PATH.
+      - name: completion · Git Bash
+        shell: bash
+        run: |
+          set -e
+          eval "$(python -m agentdata setup --print-completion bash)"
+          COMP_LINE="ad-pbip ch" COMP_POINT=10 _agentdata_complete
+          [ "${COMPREPLY[*]}" = "check" ] || { echo "got: ${COMPREPLY[*]}"; exit 1; }
+          complete -p ad-graph | grep -q _agentdata_complete
+
+      - name: completion · pwsh 7
+        shell: pwsh
+        run: |
+          Invoke-Expression (python -m agentdata setup --print-completion powershell | Out-String)
+          $r = TabExpansion2 -inputScript 'ad-pbip ch' -cursorColumn 10
+          $got = $r.CompletionMatches | ForEach-Object { $_.CompletionText }
+          if ($got -notcontains 'check') { throw "pwsh completed to: $got" }
+          $r = TabExpansion2 -inputScript 'ad-graph ' -cursorColumn 9
+          $got = $r.CompletionMatches | ForEach-Object { $_.CompletionText }
+          if ($got -notcontains 'summary') { throw "pwsh completed to: $got" }
 
       # The console code page is still 437/1252 on a US laptop even under pwsh 7, so the ASCII
       # fallback in ui.glyphs() has to keep working -- and 65001 has to keep the box drawing.
@@ -145,6 +201,13 @@ jobs:
           Write-Host $doc
           if ($doc -notmatch 'PowerShell 7 required') { throw 'ad-doctor did not warn about 5.1' }
           Write-Host 'ad-doctor warned about the unsupported shell'
+          # Unsupported for running ad-* is not the same as broken for completing it. The emitted
+          # script is 5.1 syntax on purpose, so somebody on a locked-down laptop still gets Tab.
+          Invoke-Expression (python -m agentdata setup --print-completion powershell | Out-String)
+          $r = TabExpansion2 -inputScript 'ad-pbip ch' -cursorColumn 10
+          $got = $r.CompletionMatches | ForEach-Object { $_.CompletionText }
+          if ($got -notcontains 'check') { throw "5.1 completed to: $got" }
+          Write-Host 'tab-completion works under Windows PowerShell 5.1'
           # ad-doctor legitimately exits 1 on a bare runner (no pncli), and GitHub appends
           # `exit $LASTEXITCODE` to this shell -- so the step would inherit the exit code of a
           # command whose failure is not what it is asserting. Every assertion above throws.
@@ -195,10 +258,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      # The completion scripts are generated, not committed, so they are written out here and linted
+      # with everything else -- a script nobody lints is a script that regresses.
+      - name: write the generated shell scripts out for the linters
+        run: |
+          mkdir -p generated
+          python -m agentdata setup --print-completion bash > generated/completion.sh
+          python -m agentdata setup --print-completion powershell > generated/completion.ps1
       - name: shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck --shell=bash .github/scripts/smoke.sh
+          shellcheck --shell=bash generated/completion.sh
       - name: PSScriptAnalyzer, targeting the PowerShell 7 floor
         shell: pwsh
         run: |
@@ -211,6 +286,18 @@ jobs:
           $all = @($results) + @($compat) | Where-Object { $_ }
           if ($all) { $all | Format-Table -AutoSize | Out-String | Write-Host; throw "$($all.Count) analyzer finding(s)" }
           Write-Host 'PSScriptAnalyzer clean'
+      # The completion script targets BOTH floors: 5.1 as well, because it is the one thing that
+      # still has to work in a shell the commands themselves do not support.
+      - name: PSScriptAnalyzer on the generated completer, 5.1 and 7.0
+        shell: pwsh
+        run: |
+          $findings = Invoke-ScriptAnalyzer -Path generated/completion.ps1 `
+              -Settings @{ Rules = @{ PSUseCompatibleSyntax = @{
+                  Enable = $true; TargetVersions = @('5.1', '7.0') } } }
+          $style = Invoke-ScriptAnalyzer -Path generated/completion.ps1 -Severity Error, Warning
+          $all = @($findings) + @($style) | Where-Object { $_ }
+          if ($all) { $all | Format-Table -AutoSize | Out-String | Write-Host; throw "$($all.Count) analyzer finding(s)" }
+          Write-Host 'the generated completer is clean on 5.1 and 7.0'
 
   floor-lints:
     name: lint · bash 4.4 and pwsh 7 floors
@@ -230,3 +317,40 @@ jobs:
           python -m pytest -q --collect-only -m laptop | tee collected.txt
           grep -q "no tests ran\|0 tests collected\|deselected" collected.txt || \
             { echo "the laptop suite was collected on CI"; exit 1; }
+
+  coverage:
+    name: coverage · per-module floors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: run the suite under coverage
+        run: |
+          python -m coverage run -m pytest -q -ra --durations=10
+          python -m coverage json -o coverage.json
+          python -m coverage report --skip-covered | tail -20
+      # No repo-wide number: a single percentage invites padding and says nothing about the modules
+      # that actually break on Windows. Floors are per module and ratchet up only.
+      - run: python .github/scripts/coverage_floors.py --coverage-json coverage.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.json
+
+  order-independence:
+    name: suite · shuffled
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      # A fixture that leaks state shows up here rather than three months later as
+      # "works on my machine". Two seeds, because one shuffle proves very little.
+      - run: python -m pytest -q -p no:cacheprovider --shuffle-seed 1
+      - run: python -m pytest -q -p no:cacheprovider --shuffle-seed 20260904

@@ -3,6 +3,7 @@ import csv, io, json, os, time, uuid
 from dataclasses import dataclass, field
 from .textio import read_text
 from typing import Any
+from . import textio
 
 OUT_DIR = os.environ.get("AGENTDATA_OUT", os.path.join(".agent", "out"))
 
@@ -109,18 +110,23 @@ class AgentTable:
             w.writerow(self.columns)
             for r in self.rows:
                 w.writerow(["" if v is None else v for v in r])
-        return p.replace("\\", "/")
+        return textio.norm_path(p)
 
     def write_json(self) -> str:
         p = self._path("json")
         with open(p, "w", encoding="utf-8") as f:
             json.dump(self.raw if self.raw is not None else self.to_records(), f, default=str)
-        return p.replace("\\", "/")
+        return textio.norm_path(p)
 
     @staticmethod
     def read_tsv(path: str, name="result") -> "AgentTable":
         r = csv.reader(io.StringIO(read_text(path), newline=""), delimiter="\t")
-        cols = next(r)
+        # An empty file has no header row. `next(r)` raised StopIteration, which reached the caller
+        # as a traceback rather than as a row saying the file is empty -- and a 0-byte TSV is a
+        # perfectly ordinary thing to be handed by a query that matched nothing.
+        cols = next(r, None)
+        if cols is None:
+            return AgentTable(name=name, columns=[], rows=[], source=path)
         rows = [[_coerce(v) for v in row] for row in r]
         return AgentTable(name=name, columns=cols, rows=rows, source=path)
 

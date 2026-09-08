@@ -7,6 +7,9 @@ from agentdata import proc
 
 def test_progress_writes_to_stderr_never_stdout(monkeypatch, capsys):
     monkeypatch.setenv("AGENTDATA_PROGRESS", "always")
+    # conftest sets AGENTDATA_UI=plain so 700 other tests see deterministic TOON; these three
+    # are about the rich progress indicator, so they ask for it back
+    monkeypatch.delenv("AGENTDATA_UI", raising=False)
     monkeypatch.setenv("AGENTDATA_UI", "rich")
     ui.reset_cache()
 
@@ -46,6 +49,9 @@ def test_progress_is_noop_when_stderr_not_tty_and_not_forced(monkeypatch, capsys
 
 def test_proc_run_with_progress(monkeypatch, capsys):
     monkeypatch.setenv("AGENTDATA_PROGRESS", "always")
+    # conftest sets AGENTDATA_UI=plain so 700 other tests see deterministic TOON; these three
+    # are about the rich progress indicator, so they ask for it back
+    monkeypatch.delenv("AGENTDATA_UI", raising=False)
     ui.reset_cache()
 
     rc, out, err, el = proc.run([sys.executable, "-c", "print('hello')"], progress="Running python...")
@@ -60,6 +66,9 @@ def test_run_dax_with_progress(monkeypatch, capsys, tmp_path):
     from agentdata.pbip import dax
 
     monkeypatch.setenv("AGENTDATA_PROGRESS", "always")
+    # conftest sets AGENTDATA_UI=plain so 700 other tests see deterministic TOON; these three
+    # are about the rich progress indicator, so they ask for it back
+    monkeypatch.delenv("AGENTDATA_UI", raising=False)
     ui.reset_cache()
 
     dummy_dscmd = tmp_path / "dscmd.exe"

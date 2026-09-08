@@ -64,7 +64,7 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
     if artifacts:
         arts = state.setdefault("artifacts", [])
         for a in artifacts:
-            arts.append({"path": a["path"].replace("\\", "/"), "what": a.get("what", ""), "run_id": a.get("run_id", ""), "added": stamp[:10]})
+            arts.append({"path": textio.norm_path(a["path"]), "what": a.get("what", ""), "run_id": a.get("run_id", ""), "added": stamp[:10]})
     state["artifacts"] = prune(state.get("artifacts") or [], stamp[:10])
     # open questions persist until --clear-questions: leaving a blocked phase is a deliberate act, never a side effect
     state["last_updated"] = stamp
