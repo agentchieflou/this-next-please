@@ -27,6 +27,7 @@ from .pbip import expr as EX
 from .pbip import external_tool as EXT
 from .pbip import normalize as N
 from .pbip import pbir as P
+from .pbip import probe as PRB
 from .pbip import project as PJ
 from .pbip import screenshot as SC
 from .pbip import tmdl as T
@@ -259,26 +260,272 @@ def cmd_bridge(a) -> int:
     return 0
 
 
-def cmd_handoff(a) -> int:
-    res = EXT.handoff(a.server, a.database, project_dir=getattr(a, "project", None))
+# ------------------------------------------------------- the handoff, the ribbon file, the probe
+#
+# The verbs of epic #112. The ribbon costs one privileged write nobody on the machine that epic
+# measured can perform, so the operator's side of it is three commands: hand off through whichever
+# transport is actually live, produce (never place) the one file IT must place, and print what the
+# machine offers so the answer arrives as evidence rather than as a guess.
+
+
+def _handoff_refusal(res: dict) -> int:
+    """Print what the gate saw, then stop. #41: two windows and no flag is a refusal, not a coin toss.
+
+    A handoff writes a server address that the next twenty commands trust without re-checking, so
+    the list of open documents is the point of the output, not decoration: the human reads it, picks
+    one, and re-runs with the flag the hint names. `zorder` 0 is the window they touched last.
+    """
+    choices = res.get("choices") or []
+    cols = ["zorder", "pid", "title", "file", "server"]
+    rows = [[c.get("zorder") if c.get("zorder") is not None else "", c.get("pid"), c.get("title") or "",
+             c.get("file") or "", c.get("server") or ""] for c in choices]
     if policy.pretty():
-        ui.facts([("server", a.server), ("database", a.database), *[(k, v) for k, v in res.items()]], title="ad-pbip handoff")
+        ui.facts([("fail", res.get("fail")), ("hint", res.get("hint"))],
+                 title="ad-pbip handoff", subtitle="refused")
+        if rows:
+            ui.table(cols, rows, title="open Power BI Desktop documents", wrap=(2, 3))
     else:
-        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip handoff", **res}}))
+        print(error(f"handoff refused: {res.get('fail')}", res.get("hint", ""), "ad-pbip handoff"))
+        if rows:
+            print(toon.table("instances", cols, rows))
+    # 2 when the human has to say which one they meant, 1 when there is nothing to hand off at all.
+    return 2 if res.get("fail") in ("ambiguous", "no_match") else 1
+
+
+def _handoff_out(res: dict) -> int:
+    meta = {"ok": True, "source": "ad-pbip handoff",
+            **{k: v for k, v in res.items() if k not in ("ok", "source", "choices", "instance")},
+            "next": "ad-pbip desktop / dmv / visual-query now need no --server"}
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k != "ok"], title="ad-pbip handoff")
+    else:
+        print(toon.encode({"meta": meta}))
+    return 0
+
+
+def _click_transport() -> dict:
+    r"""Which button was pressed, read off the machine rather than assumed.
+
+    The ribbon and the Tabular Editor custom action launch the *same* command line -- `pbip handoff
+    --server ... --database ...` -- so nothing in argv can say which one ran it. Two reads settle it
+    without a flag Desktop has no way to pass: `agentdata.pbitool.json` is either in the machine's
+    External Tools folder or it is not, and our action is either in this user's `CustomActions.json`
+    or it is not. Both are reads; neither probes, elevates or writes.
+
+    With neither installed the two fields are simply absent, which is what `.agent/desktop.json`
+    looked like before transports existed and what `read_handoff()` already tolerates. An invented
+    transport would be worse than a missing one -- `ad-doctor` would report a ribbon this machine
+    does not have.
+    """
+    try:
+        if os.path.exists(os.path.join(EXT.external_tools_dir(), EXT.TOOL_FILENAME)):
+            return {"transport": "ribbon:machine", "database_source": "ribbon"}
+        if DT.te2_action_state().get("installed"):
+            return {"transport": "te2:local", "database_source": "te2"}
+    except Exception:  # noqa: BLE001 - a handoff must never fail over a question about its own label
+        pass
+    return {}
+
+
+def _merge_desktop_json(path: str | None, extra: dict) -> None:
+    """Add the transport fields to the file `external_tool.handoff` just wrote, and only those.
+
+    `external_tool.handoff` stays the single writer of `.agent/desktop.json`; this re-opens what it
+    wrote and adds two keys, exactly as `desktop.handoff` does for the flag transports. A file we
+    cannot read back is not worth failing a handoff over -- the server address is already in it.
+    """
+    if not extra or not path or not os.path.exists(path):
+        return
+    try:
+        payload = json.loads(textio.read_text(path))
+    except (OSError, ValueError):
+        return
+    if isinstance(payload, dict):
+        payload.update(extra)
+        textio.write_json(path, payload)
+
+
+def cmd_handoff(a) -> int:
+    """Hand the running Desktop instance over -- by gesture, by name, or from the ribbon's click.
+
+    `--active` is the window on top (the one the human touched last), `--file <name>` the document
+    they can name without switching windows; with neither flag, one open instance is used and said
+    so, and two is a refusal that prints both. `--server`/`--database` is the other direction: the
+    two values Power BI Desktop substitutes when its ribbon button is pressed, and the same two the
+    Tabular Editor action passes -- there is nothing to resolve, so nothing is.
+    """
+    active, want_file = getattr(a, "active", False), getattr(a, "file", None)
+    server, database = getattr(a, "server", None), getattr(a, "database", None)
+
+    if (active or want_file) and (server or database):
+        print(error("--active/--file and --server/--database answer the same question two ways",
+                    "--active and --file resolve the instance here; --server/--database are what "
+                    "Power BI Desktop substitutes when its ribbon button is pressed. Pass one or the other",
+                    "ad-pbip handoff"))
+        return 2
+    if database and not server:
+        print(error("--database without --server", "the two are substituted together; pass --server "
+                    "localhost:<port> as well, or drop both and use --active", "ad-pbip handoff"))
+        return 2
+
+    if server:
+        res = EXT.handoff(server, database or "", project_dir=getattr(a, "project", None))
+        extra = _click_transport()
+        _merge_desktop_json(res.get("path"), extra)
+        return _handoff_out({**res, **extra})
+
+    res = DT.handoff(active=active, file=want_file, project_dir=getattr(a, "project", None),
+                     candidates=_candidates())
+    if not res.get("ok"):
+        return _handoff_refusal(res)
+    return _handoff_out(res)
+
+
+def _register_direct(a, dest_dir: str | None = None, ribbon: dict | None = None) -> int:
+    """Write the file into the External Tools folder, because this machine says we may."""
+    mode = "agnostic" if getattr(a, "launcher", None) else None
+    ok, dest, hint = EXT.register_tool(target_dir=dest_dir, python_exe=getattr(a, "python", None),
+                                       project_dir=getattr(a, "project", None), mode=mode,
+                                       launcher=getattr(a, "launcher", None))
+    if not ok:
+        # The probe said writable and the write still failed: report it and name the package, which
+        # is the next cheapest step. Never a shell we have no evidence this user can open.
+        print(error(f"could not write {textio.norm_path(dest)}", hint or "", "ad-pbip register-tool"))
+        return 1
+    meta = {"ok": True, "source": "ad-pbip register-tool", "wrote": "direct",
+            "path": textio.norm_path(dest), "tool": EXT.TOOL_FILENAME}
+    if ribbon:
+        meta["ribbon"] = ribbon["state"]
+        meta["evidence"] = ribbon["evidence"]
+    meta["next"] = "open Power BI Desktop -> External Tools -> agentdata"
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k != "ok"], title="ad-pbip register-tool")
+    else:
+        print(toon.encode({"meta": meta}))
+    return 0
+
+
+def _register_package(a, ribbon: dict | None = None) -> int:
+    """Write the file and the request that asks whoever owns Common Files to place it.
+
+    This is the honest front door on the machine #112 measured: we never write there ourselves, and
+    the folder this leaves behind is what gets attached to the ticket.
+    """
+    res = EXT.package(out_dir=getattr(a, "out", None), launcher=getattr(a, "launcher", None))
+    meta = {"ok": True, "source": "ad-pbip register-tool --package", "dir": res["dir"],
+            "tool_json": res["tool_json"], "request": res["request"],
+            "destination": res["destination"], "sha256": res["sha256"],
+            "launches": f'{res["path"]} {res["arguments"]}'}
+    if ribbon:
+        meta["ribbon"] = ribbon["state"]
+        meta["evidence"] = ribbon["evidence"]
+        if ribbon["state"] == DT.RIBBON_DISABLED:
+            meta["warn"] = ("External Tools is switched off for this machine, so the file would change "
+                            "nothing until that setting is changed; the handoff does not need it "
+                            "(`ad-pbip handoff --active`)")
+    meta["next"] = (f'send {res["dir"]} to whoever owns {os.path.dirname(res["destination"])} -- '
+                    "REQUEST.md is the whole ticket, one Copy-Item line, and the same file works for "
+                    "every user and every Python version. Meanwhile `ad-pbip handoff --active` needs none of it")
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k != "ok"], title="ad-pbip register-tool --package")
+    else:
+        print(toon.encode({"meta": meta}))
+    return 0
+
+
+def _register_te2(a) -> int:
+    """Install or remove the per-user Tabular Editor custom action. No privileged write anywhere."""
+    cfg = C.load()
+    mode = C.get(cfg, "powerbi.te2_action") or "process"
+    path = EXT.custom_actions_path()
+    try:
+        if getattr(a, "remove", False):
+            res = EXT.remove_custom_action(path=path)
+        else:
+            payload = EXT.te2_custom_action(mode=mode, launcher=getattr(a, "launcher", None))
+            res = EXT.merge_custom_action(payload, path=path)
+    except (ValueError, OSError) as e:
+        print(error(str(e)[:300], "reinstall agentdata: the packaged handoff.te2.csx is missing or damaged",
+                    "ad-pbip register-tool --te2"))
+        return 2
+    if not res.get("ok"):
+        # A CustomActions.json that does not parse is a refusal, never a rewrite: Tabular Editor
+        # drops every one of the user's actions on a syntax error.
+        print(error(res.get("error", "cannot write the custom action"), res.get("hint", ""),
+                    "ad-pbip register-tool --te2"))
+        return 1
+    meta = {"ok": True, "source": "ad-pbip register-tool --te2", "action": res["action"],
+            "changed": res["changed"], "path": res["path"], "actions": res["count"]}
+    if not getattr(a, "remove", False):
+        meta["mode"] = mode
+        meta["next"] = ("in Tabular Editor: File > Open > From DB > Local instance, pick the window, "
+                        f'then right-click the model -> {EXT.TE2_ACTION_NAME}')
+    else:
+        meta["next"] = "the action is gone; `ad-pbip handoff --active` hands off without it"
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if k != "ok"], title="ad-pbip register-tool --te2")
+    else:
+        print(toon.encode({"meta": meta}))
     return 0
 
 
 def cmd_register_tool(a) -> int:
-    ok, dest, hint = EXT.register_tool(target_dir=getattr(a, "target_dir", None),
-                                       python_exe=getattr(a, "python", None),
-                                       project_dir=getattr(a, "project", None))
-    if not ok:
-        print(error(f"failed to register external tool at {dest}", hint or "run with administrator privileges", "ad-pbip"))
-        return 1
+    r"""Put agentdata on the External Tools ribbon, or produce the file that asks someone who can.
+
+    With no flags this reads the machine before it writes anything: the direct write happens only
+    where `ad-pbip capabilities` says that folder accepts one. Everywhere else -- which is the
+    managed laptop of #112 -- it does exactly what `--package` does and says where the file went,
+    because `%CommonProgramFiles%` is Administrators-only and telling a user who cannot elevate to
+    elevate is worse than saying nothing.
+    """
+    remove, te2, package = getattr(a, "remove", False), getattr(a, "te2", False), getattr(a, "package", False)
+    if remove and not te2:
+        print(error("--remove undoes the Tabular Editor custom action, so it needs --te2",
+                    "run `ad-pbip register-tool --te2 --remove`", "ad-pbip register-tool"))
+        return 2
+    if te2:
+        return _register_te2(a)
+    if package:
+        return _register_package(a)
+    if getattr(a, "target_dir", None) or getattr(a, "python", None) or getattr(a, "project", None):
+        return _register_direct(a, dest_dir=getattr(a, "target_dir", None))
+
+    ribbon = DT.ribbon_state()
+    if ribbon["state"] == DT.RIBBON_REGISTERED:
+        meta = {"ok": True, "source": "ad-pbip register-tool", "wrote": "nothing",
+                "ribbon": ribbon["state"], "path": ribbon["path"], "evidence": ribbon["evidence"],
+                "next": "open Power BI Desktop -> External Tools -> agentdata"}
+        if policy.pretty():
+            ui.facts([(k, v) for k, v in meta.items() if k != "ok"], title="ad-pbip register-tool")
+        else:
+            print(toon.encode({"meta": meta}))
+        return 0
+    if ribbon["state"] == DT.RIBBON_WRITABLE:
+        return _register_direct(a, ribbon=ribbon)
+    return _register_package(a, ribbon=ribbon)
+
+
+def cmd_probe(a) -> int:
+    """The #113 read-only report: one command, one block to paste into the issue.
+
+    Printed whole rather than through `policy.render`, which samples a table this long down to
+    twenty rows. A sampled probe is a probe that answers a different question than the one asked,
+    and the value of this output is that every row of it reaches the issue.
+    """
+    rows = PRB.report()
+    cols = ["q", "name", "value", "reason"]
+    human = sum(1 for r in rows if r.get("value") == PRB.HUMAN)
+    verdicts = {r["name"]: r["value"] for r in rows if r["name"].startswith("verdict.")}
+    meta = {"ok": True, "source": "ad-pbip probe", "rows": len(rows), "reads_only": True,
+            **verdicts, "ask_a_human": human,
+            "next": "paste this block into issue #113, and answer the ask-a-human rows by clicking"}
     if policy.pretty():
-        ui.facts([("registered", dest), ("tool", "agentdata.pbitool.json")], title="ad-pbip register-tool")
+        ui.facts([(k, v) for k, v in meta.items() if k != "ok"], title="ad-pbip probe")
+        ui.table(cols, [[r["q"], r["name"], r["value"], r["reason"]] for r in rows],
+                 title="machine probe", wrap=(2, 3))
     else:
-        print(toon.encode({"meta": {"ok": True, "source": "ad-pbip register-tool", "path": dest, "next": "open Power BI Desktop -> External Tools ribbon -> agentdata"}}))
+        print("\n".join([toon.encode(meta, key="meta"),
+                         toon.table("probe", cols, [[r["q"], r["name"], r["value"], r["reason"]] for r in rows])]))
     return 0
 
 
@@ -1090,19 +1337,32 @@ def build_parser() -> argparse.ArgumentParser:
     p_shot.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p_shot.set_defaults(fn=cmd_screenshot)
 
-    p_hand = sub.add_parser("handoff", help="IPC callback when human clicks agentdata in Desktop ribbon")
-    p_hand.add_argument("--server", required=True, help="Analysis Services localhost:<port> address from Desktop")
-    p_hand.add_argument("--database", required=True, help="Analysis Services database GUID from Desktop")
+    p_hand = sub.add_parser("handoff", help="hand the running Desktop instance to this project (--active, --file, or the ribbon's --server/--database)")
+    g_hand = p_hand.add_mutually_exclusive_group()
+    g_hand.add_argument("--active", action="store_true", help="the Power BI Desktop window on top: the one you clicked last")
+    g_hand.add_argument("--file", help="the open document whose file name or title matches, without switching windows")
+    p_hand.add_argument("--server", help="Analysis Services localhost:<port> address, as Desktop's ribbon substitutes it")
+    p_hand.add_argument("--database", help="Analysis Services database GUID, substituted by the same click")
     p_hand.add_argument("--project", help="explicit project folder to write .agent/desktop.json into")
     p_hand.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_hand.set_defaults(fn=cmd_handoff)
 
-    p_reg = sub.add_parser("register-tool", help="register agentdata as Power BI Desktop External Tool")
+    p_reg = sub.add_parser("register-tool", help="put agentdata on the External Tools ribbon, or package the one file IT must place")
+    g_reg = p_reg.add_mutually_exclusive_group()
+    g_reg.add_argument("--package", action="store_true", help="write the tool file and REQUEST.md to send to whoever owns Common Files")
+    g_reg.add_argument("--te2", action="store_true", help="install the per-user Tabular Editor custom action (no privileged write)")
+    p_reg.add_argument("--remove", action="store_true", help="with --te2: take the custom action out again")
+    p_reg.add_argument("--out", help="directory for --package (default: .agent/out/external-tool/)")
+    p_reg.add_argument("--launcher", help="what the file launches instead of `python` (a venv site's agentdata-handoff.cmd)")
     p_reg.add_argument("--python", help="explicit python executable path (default: sys.executable)")
     p_reg.add_argument("--target-dir", help="custom destination directory for .pbitool.json (testing/mock)")
     p_reg.add_argument("--project", help="explicit project directory to bake into tool arguments")
     p_reg.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_reg.set_defaults(fn=cmd_register_tool)
+
+    p_prb = sub.add_parser("probe", help="read-only report of what this machine offers the handoff (paste it into the issue)")
+    p_prb.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_prb.set_defaults(fn=cmd_probe)
 
     p = sub.add_parser("launch", help="open a .pbip in Power BI Desktop")
     p.add_argument("path"); p.add_argument("--exe")
