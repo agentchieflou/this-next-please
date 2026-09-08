@@ -45,8 +45,8 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterator
 from .. import textio
 from .. import config as C
-from .jira_http import (USER_AGENT, HINTS, JiraError, JiraHTTPError, JiraBudgetError, RateLimit, RequestBudget,
-                        Stats, backoff_seconds, classify, retry_after_seconds)
+from .jira_http import (USER_AGENT, HINTS, JiraError, JiraHTTPError, JiraBudgetError, JiraPartialError,
+                        RateLimit, RequestBudget, Stats, backoff_seconds, classify, retry_after_seconds)
 
 __all__ = ["USER_AGENT", "HINTS", "JiraError", "JiraHTTPError", "JiraBudgetError", "JiraPartialError",
            "Flavor", "CLOUD", "DC_BEARER", "DC_BASIC", "Creds", "Jira", "load_credentials", "detect_flavor",
@@ -70,23 +70,6 @@ ID_BATCH = 200
 
 # The unit of backoff. `backoff_seconds` turns it into 1, 2, 4, 8, 16, 32 seconds plus up to one second of jitter.
 BACKOFF_BASE = 1.0
-
-
-class JiraPartialError(JiraError):
-    """The server answered, and its answer is knowingly short.
-
-    Data Center without the paged changelog endpoint hands back `?expand=changelog` with `total: 412` and a
-    hundred histories in the body, and a hundred entries that look like a whole history produce a `committed_points`
-    that looks right and is wrong. That refusal predates this epic and stays; what changes is its shape. It now
-    carries `reason` in exactly the spelling the CLI prints as `partial: true`, so one code path renders every
-    incomplete outcome -- budget, interruption, an unrecoverable HTTP error and this one -- instead of this being
-    the single case that escapes as a bare exception nobody catches.
-    """
-
-    def __init__(self, msg: str, reason: str, key: str | None = None, have: int = 0, total: int = 0,
-                 hint: str = ""):
-        super().__init__(msg, hint=hint)
-        self.reason, self.key, self.have, self.total = reason, key, have, total
 
 
 @dataclass(frozen=True)
@@ -203,6 +186,7 @@ class Jira:
         self._rate_paused = False
         self.last_retry_reason: str | None = None
         self.bulk_meta: dict = _fresh_bulk_meta()
+        self._truncation: JiraPartialError | None = None
         self._bulk_page = MAX_BULK_PAGE
 
     def __repr__(self) -> str:
@@ -386,7 +370,14 @@ class Jira:
 
     # ---------- issues ----------
     def search(self, jql: str, fields: list[str], max_results: int = 5000) -> list[dict]:
-        """Cloud: GET /rest/api/3/search/jql (token paging; /search was retired) with /search fallback. DC: /rest/api/2/search."""
+        """Cloud: GET /rest/api/3/search/jql (token paging; /search was retired) with /search fallback. DC: /rest/api/2/search.
+
+        A JQL wider than `max_results` raises rather than returning the prefix. It used to `break` and hand back
+        exactly 5,000 issues with nothing saying so, and the caller -- `ad-jira changelog --jql`, whose whole
+        purpose is "a JQL that returns thousands of issues" -- built its key list from that prefix and reported
+        `ok: true`. The ceiling is only detected by reading ONE issue past it, so a JQL that returns exactly
+        `max_results` issues is a complete answer and does not raise.
+        """
         flds = ",".join(fields)
         out: list[dict] = []
         if self.flavor.kind == "cloud":
@@ -394,16 +385,17 @@ class Jira:
                 it = self.paged_token(f"{self.api}/search/jql", {"jql": jql, "fields": flds, "maxResults": 100})
                 for iss in it:
                     out.append(iss)
-                    if len(out) >= max_results:
-                        break
+                    if len(out) > max_results:
+                        raise _truncated_search(max_results)
                 return out
             except JiraHTTPError as e:
                 if e.status not in (404, 410, 405):
                     raise
+            out = []
         for iss in self.paged(f"{self.api}/search", {"jql": jql, "fields": flds}, values_key="issues"):
             out.append(iss)
-            if len(out) >= max_results:
-                break
+            if len(out) > max_results:
+                raise _truncated_search(max_results)
         return out
 
     def issue(self, key: str, fields: list[str] | None = None, expand: str | None = None) -> dict:
@@ -456,12 +448,20 @@ class Jira:
         """
         keys = list(keys)
         self.bulk_meta = _fresh_bulk_meta()
+        self._truncation: JiraPartialError | None = None
         if not keys:
             return
         if not use_bulk or self.flavor.kind != "cloud":
             yield from self._per_issue(keys, name_to_id, on_event)
-            return
-        yield from self._bulk(keys, field_ids, name_to_id, id_to_key, bulk_issues, bulk_page, on_event)
+        else:
+            yield from self._bulk(keys, field_ids, name_to_id, id_to_key, bulk_issues, bulk_page, on_event)
+        # Every issue that could be fetched has now been yielded. The refusal comes last, so a truncated history
+        # on issue 3 of 500 costs that one issue and not the 497 after it -- raising where it was found stopped
+        # the pull dead, and since the cache is written per finished issue, a rerun could never make progress
+        # either. The keys that went short are in `bulk_meta["truncated_keys"]` and, because they never fired
+        # `issue_done`, in the CLI's `issues_incomplete`.
+        if self._truncation is not None:
+            raise self._truncation
 
     def changelog(self, key: str, name_to_id: dict | None = None) -> list[dict]:
         """All change items of one issue as flat rows (see history_rows). DC without the paged endpoint falls back to
@@ -475,8 +475,22 @@ class Jira:
 
     # ---------- changelog: the per-issue path ----------
     def _per_issue(self, keys: list[str], name_to_id: dict | None, on_event: Callable | None) -> Iterator[dict]:
+        """One request per issue. A knowingly short history yields NOTHING for that issue and moves to the next.
+
+        Not one row of it, deliberately: half a history written to the file and to the cache under the issue's
+        `updated` stamp would be served as the whole history by every later run. So the key is recorded, no
+        `issue_done` fires (which is what leaves it in `issues_incomplete`), and `iter_changelog` raises the
+        first such refusal once the remaining keys have been fetched.
+        """
         for key in keys:
-            rows = self._issue_rows(key, name_to_id, on_event)
+            try:
+                rows = self._issue_rows(key, name_to_id, on_event)
+            except JiraPartialError as e:
+                self.bulk_meta["truncated_keys"].append(key)
+                if self._truncation is None:
+                    self._truncation = e
+                self._say(f"{key}: {e.reason}; skipping it and continuing with the remaining issues")
+                continue
             rows.sort(key=_order)
             yield from rows
             _fire(on_event, "issue_done", {"key": key, "rows": len(rows)})
@@ -724,7 +738,15 @@ class _ChunkRejected(Exception):
 
 
 def _fresh_bulk_meta() -> dict:
-    return {"bulk_page_final": None, "skipped_keys": [], "fallback": False, "fallback_reason": None}
+    return {"bulk_page_final": None, "skipped_keys": [], "truncated_keys": [], "fallback": False,
+            "fallback_reason": None}
+
+
+def _truncated_search(max_results: int) -> JiraPartialError:
+    return JiraPartialError(f"search returned more than {max_results} issues",
+                            reason=f"search truncated at {max_results} issues",
+                            hint="narrow the JQL (a project, a date range) or raise the caller's max_results; "
+                                 "a longer key list than this is a pull nobody can finish in one run")
 
 
 def _fire(on_event: Callable | None, kind: str, payload: dict) -> None:

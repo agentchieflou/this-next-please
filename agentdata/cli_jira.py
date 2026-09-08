@@ -563,11 +563,22 @@ def _rendered_path(text: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _partial_meta(reason: str, rows_written: int, pull: _Pull, resume: str) -> dict:
+def _partial_meta(reason: str, rows_written: int, pull: _Pull, resume: str, hint: str = "") -> dict:
+    """The shape every short pull renders. `hint` is the one thing the operator can DO about this one.
+
+    It is carried rather than re-derived because the client already knows: `JiraBudgetError` names the flag that
+    would have finished the run, the bulkfetch fallback names `--no-bulk` and `--bulk-issues`, the Data Center
+    truncation names where the older events actually live, and a broken cache names `ad-jira cache --clear`.
+    Those hints were being computed and thrown away, which left `partial: true` telling a human what happened
+    and nothing about what to type next.
+    """
     incomplete = pull.incomplete
-    return {"ok": False, "partial": True, "reason": reason, "rows_written": rows_written,
+    meta = {"ok": False, "partial": True, "reason": reason, "rows_written": rows_written,
             "issues_complete": len(pull.done), "issues_incomplete": incomplete[:INCOMPLETE_SHOWN],
             "issues_incomplete_count": len(incomplete), "resume": resume}
+    if hint:
+        meta["hint"] = hint
+    return meta
 
 
 def _arg(flag: str, value) -> list[str]:
@@ -579,18 +590,31 @@ def _arg(flag: str, value) -> list[str]:
     return [flag, s if s and all(ch.isalnum() or ch in "-_.:/=+" for ch in s) else '"%s"' % s.replace('"', '\\"')]
 
 
-def _resume_changelog(a) -> str:
+def _budget_flags(reason: str, a) -> tuple:
+    """`--max-requests` / `--max-seconds` for the resume line -- unless they are what stopped the run.
+
+    The skill tells the operator to run the printed line once and log friction if it is still short, so a resume
+    that replays the ceiling it just hit turns a pull needing twelve runs into a friction log after one. It also
+    contradicts the client's own hint, which says to rerun with a LARGER budget. Dropping them puts the run back
+    on the default (or on `jira.budget.*`), and the cache means it starts where this one stopped -- the same
+    reason `--no-cache` and `--refresh` are dropped below.
+    """
+    if reason == "budget":
+        return ()
+    return (("--max-requests", a.max_requests), ("--max-seconds", a.max_seconds))
+
+
+def _resume_changelog(a, reason: str = "") -> str:
     """The literal command that resumes this pull.
 
     Rerunning IS the resume: every issue that finished is in the cache, so the second run's partition asks Jira
-    only for what is missing. Which is why two flags are deliberately dropped from the command printed here --
+    only for what is missing. Which is why flags are deliberately dropped from the command printed here --
     `--no-cache` and `--refresh` both defeat the checkpoint the resume depends on, and echoing them back would
-    hand the operator a command that starts the whole pull again.
+    hand the operator a command that starts the whole pull again; see `_budget_flags` for the other two.
     """
     parts = ["ad-jira", "changelog", *list(a.keys)]
     for flag, val in (("--jql", a.jql), ("--fields", a.fields), ("--since", a.since), ("--until", a.until),
-                      ("--name", a.name), ("--no-bulk", a.no_bulk), ("--max-requests", a.max_requests),
-                      ("--max-seconds", a.max_seconds)):
+                      ("--name", a.name), ("--no-bulk", a.no_bulk), *_budget_flags(reason, a)):
         parts += _arg(flag, val)
     if a.bulk_issues != 200:
         parts += _arg("--bulk-issues", a.bulk_issues)
@@ -599,10 +623,10 @@ def _resume_changelog(a) -> str:
     return " ".join(parts)
 
 
-def _resume_replay(a) -> str:
+def _resume_replay(a, reason: str = "") -> str:
     parts = ["ad-jira", "sprint-replay"]
     for flag, val in (("--sprint", a.sprint), ("--board", a.board), ("--jql", a.jql), ("--name", a.name),
-                      ("--no-bulk", a.no_bulk), ("--max-requests", a.max_requests), ("--max-seconds", a.max_seconds)):
+                      ("--no-bulk", a.no_bulk), *_budget_flags(reason, a)):
         parts += _arg(flag, val)
     return " ".join(parts)
 
@@ -620,9 +644,29 @@ def _bulk_extra(j: J.Jira, asked_page: int) -> dict:
         out["bulk_page_final"] = int(m["bulk_page_final"])
     if m.get("skipped_keys"):
         out["skipped_keys"] = list(m["skipped_keys"])[:INCOMPLETE_SHOWN]
+    if m.get("truncated_keys"):
+        out["truncated_keys"] = list(m["truncated_keys"])[:INCOMPLETE_SHOWN]
     if m.get("fallback"):
         out["bulk_fallback"] = m.get("fallback_reason") or True
     return out
+
+
+def _rejected(j: J.Jira) -> J.JiraPartialError | None:
+    """A bulkfetch 400 that named real keys is a short result, not a footnote.
+
+    `_invalid_keys` only ever drops keys THIS run asked for, so every entry here is an issue the operator
+    requested and whose history is entirely absent from the output. It used to reach the meta as one
+    `skipped_keys` line under `ok: true` -- a history short by one whole issue, looking complete, which is the
+    failure the epic exists to kill. It ends the run the same way every other short result does.
+    """
+    keys = list((j.bulk_meta or {}).get("skipped_keys") or [])
+    if not keys:
+        return None
+    shown = ", ".join(keys[:INCOMPLETE_SHOWN])
+    return J.JiraPartialError(f"bulkfetch rejected {len(keys)} key(s): {shown}",
+                              reason="keys rejected by bulkfetch",
+                              hint=f"check that {shown} still exist (a moved or deleted issue is the usual "
+                                   f"cause), or rerun with --no-bulk to fetch them one at a time")
 
 
 def _search_keys(j: J.Jira, jql: str, fields: list[str]) -> tuple[dict, dict, dict]:
@@ -700,9 +744,15 @@ def cmd_changelog(a) -> int:
     finally:
         sink.close()
 
+    # A chunk the server rejected costs whole histories and raises nothing, so it is turned into the same
+    # failure every other short result already is -- one rendering path, one exit code.
+    failure = failure or _rejected(j)
+
     extra: dict = {}
     if failure is not None:
-        extra.update(_partial_meta(_reason(failure, pull), sink.n, pull, _resume_changelog(a)))
+        reason = _reason(failure, pull)
+        extra.update(_partial_meta(reason, sink.n, pull, _resume_changelog(a, reason),
+                                   hint=getattr(failure, "hint", "")))
     if cache is not None:
         extra.update({"cached": len(fresh), "fetched": len(pull.stale),
                       "resumed": bool(fresh) and bool(pull.stale)})
@@ -711,6 +761,10 @@ def cmd_changelog(a) -> int:
         extra.update(j.stats.as_dict())
     out = sink.render(src, raw=a.raw, extra=extra or None)
     if cache is not None:
+        # A cache that broke DURING the run never had its message read: `_open_cache` looks once, at the start.
+        if cache.disabled and cache.error:
+            say(cache.error)
+            say(cache.hint)
         cache.close()
     print(out)
     if failure is not None:
@@ -718,6 +772,8 @@ def cmd_changelog(a) -> int:
         where = f" kept in {kept}" if kept else ""
         say(f"changelog partial ({extra['reason']}): {sink.n:,} rows{where}, "
             f"{len(pull.done):,} of {len(order):,} issues complete")
+        if extra.get("hint"):
+            say(f"hint: {extra['hint']}")
         say(f"resume: {extra['resume']}")
     if a.stats:
         say("changelog: " + j.stats.line())
@@ -791,16 +847,30 @@ def cmd_sprint_replay(a) -> int:
                  bulk_issues=a.bulk_issues, bulk_page=a.bulk_page,
                  progress=_Progress("sprint-replay", j.clock, say))
     src = f"ad-jira sprint-replay {sprint.id}"
-    rows_cl: list[dict] = []
+    # The replay reads four fields of a history and ignores the rest, so only those rows are kept, bucketed by
+    # the issue that owns them. Keeping the whole stream was the one place a `--jql` wide enough to see punted
+    # issues still built every row of every history in memory -- and handing that flat list to
+    # `build_issue_state` once per issue made the assembly quadratic: 2,000 issues x 400,000 rows is 800 million
+    # comparisons for an answer that is one bucket lookup. `_changes()` filters on exactly this expression, so
+    # dropping the other rows here changes nothing the replay could have read.
+    wanted = {str(sprint_field), "status", *(str(f) for f in points_fields)}
+    by_key: dict[str, list[dict]] = {}
+    n_rows = 0
     failure: BaseException | None = None
     try:
         for row in pull.rows():
-            rows_cl.append(row)
+            n_rows += 1
+            if str(row.get("field_id") or row.get("field") or "") in wanted:
+                by_key.setdefault(str(row.get("key") or ""), []).append(row)
     except (KeyboardInterrupt, J.JiraError) as e:
-        if not isinstance(e, (J.JiraBudgetError, J.JiraPartialError)) and not rows_cl and not pull.done:
+        if not isinstance(e, (J.JiraBudgetError, J.JiraPartialError)) and not n_rows and not pull.done:
             raise
         failure = e
+    failure = failure or _rejected(j)
     if cache is not None:
+        if cache.disabled and cache.error:
+            say(cache.error)
+            say(cache.hint)
         cache.close()
 
     if failure is not None:
@@ -808,7 +878,7 @@ def cmd_sprint_replay(a) -> int:
         # The refusal. Replaying a short history is not a smaller answer, it is a different sprint: every issue
         # whose changelog stopped early keeps whatever sprint and points it had at the last row that arrived, and
         # `committed_points` comes out looking exactly like a real number.
-        meta = _partial_meta(reason, len(rows_cl), pull, _resume_replay(a))
+        meta = _partial_meta(reason, n_rows, pull, _resume_replay(a, reason), hint=getattr(failure, "hint", ""))
         if not a.allow_partial:
             meta.update({"source": src, "error": f"changelog partial ({reason}): replay refuses a short history",
                          "hint": f"rerun to resume ({meta['resume']}), or pass --allow-partial to compute "
@@ -823,7 +893,7 @@ def cmd_sprint_replay(a) -> int:
     # order this command has always printed. `order` is sorted for the *fetch*, where it is what lets the cache
     # and the client interleave without a second pass; sorting the output too would have been a gratuitous
     # change to a table people read.
-    states = [SP.build_issue_state(issues[k], rows_cl, sprint_field, points_fields) for k in issues]
+    states = [SP.build_issue_state(issues[k], by_key.get(k, ()), sprint_field, points_fields) for k in issues]
     try:
         rows, summary = SP.replay(states, sprint, status_cat, sprint_field, points_fields, points_at_mode=a.points_at,
                                   include_subtasks=a.include_subtasks, now=J.parse_ts(a.now) if a.now else None,

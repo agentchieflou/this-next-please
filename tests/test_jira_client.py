@@ -207,6 +207,50 @@ def test_the_data_center_truncation_keeps_its_refusal_and_gains_a_shape():
     assert ("truncated", {"key": "RDSD-1", "have": 100, "total": 412, "reason": err.reason}) in events
 
 
+def test_a_truncated_history_skips_that_issue_and_the_refusal_comes_last():
+    """The refusal is a fact about ONE issue, and it used to end the pull at the first one it met.
+
+    Nothing between `_expand_rows` and the caller caught it, so issue 2 of 5 stopped issues 3, 4 and 5 from ever
+    being requested -- and since the CLI's cache is written per finished issue, no rerun could make progress
+    either. The four whole histories come out, the short one contributes not a single row (half a history stored
+    under the issue's `updated` stamp would be served as the whole history forever), and the same refusal is
+    raised once everything fetchable has been yielded.
+    """
+    fake = FJ.FakeJira(5, 200, flavor="dc", expand_cap=100, faults=[("RDSD-2/changelog", "every", 404)])
+    j = fake.client()
+    rows: list[dict] = []
+    with pytest.raises(J.JiraPartialError) as ei:
+        for row in j.iter_changelog(fake.corpus.keys(), use_bulk=False):
+            rows.append(row)
+    assert ei.value.reason == "expand=changelog truncated: 100 of 200"
+    assert _keys_in_order(rows) == ["RDSD-1", "RDSD-3", "RDSD-4", "RDSD-5"]
+    assert len(rows) == 800 and not [r for r in rows if r["key"] == "RDSD-2"]
+    assert j.bulk_meta["truncated_keys"] == ["RDSD-2"]
+
+
+def test_a_search_wider_than_its_ceiling_refuses_instead_of_returning_the_prefix():
+    """`ad-jira changelog --jql` builds its whole key list from `search()`.
+
+    The ceiling used to `break` and hand back exactly `max_results` issues with nothing saying so, which is the
+    silently short result for the one workload the epic names: "a JQL that returns thousands of issues" came
+    back as the first five thousand, `ok: true`, `truncated: false`.
+    """
+    fake = FJ.FakeJira(12, 1)
+    with pytest.raises(J.JiraPartialError) as ei:
+        fake.client().search("project = RDSD", ["key"], max_results=5)
+    assert ei.value.reason == "search truncated at 5 issues"
+    assert ei.value.hint, "and it says what to do: narrow the JQL"
+
+    exact = fake.client().search("project = RDSD", ["key"], max_results=12)
+    assert len(exact) == 12, "a JQL that returns exactly max_results issues is a complete answer"
+
+
+def test_a_data_center_search_wider_than_its_ceiling_refuses_the_same_way():
+    fake = FJ.FakeJira(12, 1, flavor="dc")
+    with pytest.raises(J.JiraPartialError):
+        fake.client().search("project = RDSD", ["key"], max_results=5)
+
+
 def test_on_event_reports_the_progress_the_cli_prints():
     events: list[tuple] = []
     fake = FJ.FakeJira(4, 6)

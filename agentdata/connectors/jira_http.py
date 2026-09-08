@@ -68,6 +68,30 @@ class JiraHTTPError(JiraError):
         self.status, self.path = status, path
 
 
+class JiraPartialError(JiraError):
+    """The answer that arrived is knowingly short, and the caller must not treat it as whole.
+
+    Data Center without the paged changelog endpoint hands back `?expand=changelog` with `total: 412` and a
+    hundred histories in the body, and a hundred entries that look like a whole history produce a
+    `committed_points` that looks right and is wrong. A `search` stopped at its `max_results` ceiling and a
+    cache read that died half way through one issue are the same lie in a different place, which is why they
+    raise this too rather than returning what they happened to have.
+
+    It lives here, beside the other two, because `jira_cache` has to raise it and importing the whole REST
+    client to name an exception would be the wrong dependency. `jira_api` re-exports it, so every existing
+    `J.JiraPartialError` still resolves to this class.
+
+    `reason` is in exactly the spelling the CLI prints as `partial: true`, so one code path renders every
+    incomplete outcome -- budget, interruption, an unrecoverable HTTP error and these -- instead of any of them
+    escaping as a bare exception nobody catches.
+    """
+
+    def __init__(self, msg: str, reason: str, key: str | None = None, have: int = 0, total: int = 0,
+                 hint: str = ""):
+        super().__init__(msg, hint=hint)
+        self.reason, self.key, self.have, self.total = reason, key, have, total
+
+
 class JiraBudgetError(JiraError):
     """The run hit its own ceiling, not Jira's.
 

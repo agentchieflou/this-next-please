@@ -8,12 +8,14 @@ between pages, because an in-process `raise` proves nothing about what SQLite ac
 """
 from __future__ import annotations
 import os
+import sqlite3
 import subprocess
 import sys
 
 import pytest
 
 from agentdata import jira_cache as CACHE
+from agentdata.connectors.jira_http import JiraPartialError
 from agentdata.jira_cache import ChangelogCache
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -254,6 +256,41 @@ def _corrupt(tmp_path):
     (out / CACHE.CACHE_DIR).mkdir(parents=True)
     (out / CACHE.CACHE_DIR / CACHE.DB_NAME).write_bytes(b"this is not a database, it is half a file\n" * 40)
     return str(out)
+
+
+def test_a_read_that_fails_after_the_cache_answered_raises_instead_of_going_quiet(cache, monkeypatch):
+    """The one failure a cache must never absorb.
+
+    `partition()` has already told the caller these issues are complete and need no request. If a read then dies
+    -- a network drive, a `disk I/O error` on the third of ten issues -- returning nothing is not "no cache", it
+    is a history with rows missing that the caller writes to the output file and counts as complete. Every
+    cached issue after it would go the same way. So it raises, and the pull reports `partial` and keeps what it
+    has; the caller\'s hint names `ad-jira cache --clear`.
+    """
+    store(cache, "RDSD-1", [row("RDSD-1", 1, "2026-08-01T09:00:00Z")], updated="U1")
+    assert len(list(cache.rows_for("RDSD-1"))) == 1
+
+    monkeypatch.setattr(cache, "_db", lambda: _Flaky(cache._conn))
+    with pytest.raises(JiraPartialError) as ei:
+        list(cache.rows_for("RDSD-1"))
+    assert ei.value.reason == "cache read failed" and ei.value.key == "RDSD-1"
+    assert "ad-jira cache --clear" in ei.value.hint
+    assert cache.disabled, "and the cache takes itself out of the run"
+
+
+class _Flaky:
+    """The connection a network drive hands back: it answers everything until it answers nothing."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, *args):
+        if 'FROM "row"' in sql:
+            raise sqlite3.OperationalError("disk I/O error")
+        return self._conn.execute(sql, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
 
 
 def test_a_corrupt_file_degrades_with_a_hint_instead_of_crashing_the_pull(tmp_path):

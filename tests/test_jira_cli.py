@@ -34,6 +34,7 @@ from agentdata import policy
 from agentdata import toon
 from agentdata.connectors import jira_api as J
 from agentdata.model import AgentTable
+from agentdata.uat import sprint as SP
 from tests.fakes import jira as FJ
 
 STAMP = "2026-09-01T10:00:00.000+0000"
@@ -240,8 +241,28 @@ def test_a_budget_exhaustion_is_a_partial_with_a_resume_hint(wire, out_dir, caps
     assert m["partial"] == "true" and m["reason"] == "budget"
     assert 0 < int(m["issues_complete"]) < 40
     assert int(m["issues_incomplete_count"]) == 40 - int(m["issues_complete"])
-    assert "--max-requests 8" in toon_str(m["resume"]), "the resume command carries the flags that were typed"
+    resume = toon_str(m["resume"])
+    assert "--bulk-issues 5" in resume, "the resume command carries the flags that shaped the fetch"
+    assert "--max-requests" not in resume, "but never the ceiling that stopped it: that is a resume that cannot resume"
+    assert "--max-requests" in toon_str(m["hint"]), "the client's own hint says what to raise, and reaches the meta"
+    assert "--max-requests" in err
     assert fake.count("bulkfetch") + fake.count("/search") + fake.count("/field") == 8
+
+
+def test_the_printed_resume_line_actually_finishes_the_pull(wire, out_dir, capsys):
+    """`skills/jira-changelog/SKILL.md` tells Luna to run the printed line ONCE and log friction if it is still
+    short. A resume that echoed `--max-requests 8` back needed six more runs to finish forty issues, so the
+    first rerun logged friction against a pull that was working exactly as designed."""
+    wire(FJ.FakeJira(40, 20))
+    rc, out, _ = run(["changelog", "--jql", "project = RDSD", "--bulk-issues", "5", "--max-requests", "8"], capsys)
+    assert rc == 1
+    resume = shlex.split(toon_str(meta_of(out)["resume"]))
+    assert resume[0] == "ad-jira"
+
+    rc2, out2, _ = run(resume[1:], capsys)
+    m2 = meta_of(out2)
+    assert rc2 == 0 and "partial" not in m2, f"the resume line left the pull short again: {m2}"
+    assert int(m2["cached"]) > 0, "and it resumed from the cache rather than starting over"
 
 
 def test_an_http_error_before_the_first_row_is_an_error_not_a_partial(wire, out_dir, capsys):
@@ -429,12 +450,106 @@ def test_bulk_flags_reach_the_request_and_a_shrink_is_reported(wire, out_dir, ca
     assert meta_of(out)["bulk_page_final"] == "50", "a page that timed out halved, and the meta says where it landed"
 
 
-def test_skipped_keys_reach_the_meta(wire, out_dir, capsys):
+def test_skipped_keys_are_a_partial_result_and_not_a_footnote(wire, out_dir, capsys):
+    """A 400 that names a key the operator asked for drops that issue's WHOLE history.
+
+    `_invalid_keys` only ever drops keys this run requested, so `skipped_keys` is never cosmetic: RDSD-2 exists,
+    has two histories, and none of its rows are in the output. Reporting that under `ok: true` with a footnote
+    is the short-history-that-looks-complete this epic exists to kill, so it ends like every other short result.
+    """
     fake = wire(FJ.FakeJira(5, 2, faults=[("bulkfetch", 1, "400 invalid key RDSD-2")]))
-    rc, out, _ = run(["changelog", "--jql", "project = RDSD"], capsys)
-    assert rc == 0
-    assert "RDSD-2" in meta_of(out)["skipped_keys"]
+    rc, out, err = run(["changelog", "--jql", "project = RDSD"], capsys)
+    m = meta_of(out)
+    assert rc == 1 and m["ok"] == "false" and m["partial"] == "true"
+    assert m["reason"] == "keys rejected by bulkfetch"
+    assert "RDSD-2" in m["skipped_keys"] and "RDSD-2" in m["issues_incomplete"]
+    assert "RDSD-2" in toon_str(m["hint"]) and "--no-bulk" in toon_str(m["hint"])
+    assert file_rows(path_of(out)) == 8 == int(m["rows_written"]), "the four good issues are still kept"
     assert fake.count("issue/") == 0, "a named bad key is dropped, not paid for with a per-issue fallback"
+
+
+def test_one_truncated_history_costs_that_issue_and_not_the_ones_after_it(wire, out_dir, capsys):
+    """The Data Center refusal used to abort the pull at the first issue it hit, permanently.
+
+    `_expand_rows` raised, nothing between it and the row loop caught it, and every later issue in the JQL was
+    never requested -- so the file had zero rows, the cache had zero issues, and "rerunning IS the resume" could
+    not make progress no matter how often it ran. Here only RDSD-2 lacks the paged endpoint; the other four
+    histories are whole, are on disk, and are in the cache for the rerun.
+    """
+    fake = wire(FJ.FakeJira(5, 200, flavor="dc", expand_cap=100,
+                            faults=[("RDSD-2/changelog", "every", 404)]))
+    rc, out, err = run(["changelog", "--jql", "project = RDSD"], capsys)
+    m = meta_of(out)
+    assert rc == 1 and m["partial"] == "true"
+    assert toon_str(m["reason"]) == "expand=changelog truncated: 100 of 200"
+    assert m["issues_complete"] == "4" and m["issues_incomplete"] == "RDSD-2"
+    assert m["truncated_keys"] == "RDSD-2"
+    assert int(m["rows_written"]) == file_rows(path_of(out)) == 4 * 200
+    assert "RDSD-2" not in open(path_of(out), encoding="utf-8").read(), \
+        "not one row of a knowingly short history reaches the file"
+    assert fake.unfired() == []
+
+    again = wire(FJ.FakeJira(5, 200, flavor="dc", expand_cap=100,
+                             faults=[("RDSD-2/changelog", "every", 404)]))
+    rc2, out2, _ = run(["changelog", "--jql", "project = RDSD"], capsys)
+    assert rc2 == 1, "RDSD-2 is still short, so the run is still partial"
+    assert meta_of(out2)["cached"] == "4", "and the four whole histories were not fetched twice"
+    assert again.count("RDSD-2") == 2, "and only RDSD-2 was asked for again: the paged 404 and the expand"
+    assert [k for k in again.corpus.keys() if k != "RDSD-2" and again.count("issue/" + k)] == []
+
+
+def _flaky_reads(monkeypatch, fail_on: int):
+    """Break the Nth `rows_for` SELECT, the way a network drive does mid-run."""
+    import sqlite3
+
+    from agentdata import jira_cache as CACHE
+
+    original = CACHE.ChangelogCache._db
+    left = [fail_on]
+
+    class _Flaky:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def execute(self, sql, *args):
+            if 'FROM "row" WHERE key' in sql:
+                left[0] -= 1
+                if left[0] == 0:
+                    raise sqlite3.OperationalError("disk I/O error")
+            return self._conn.execute(sql, *args)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    def _db(self):
+        conn = original(self)
+        return None if conn is None else _Flaky(conn)
+
+    monkeypatch.setattr(CACHE.ChangelogCache, "_db", _db)
+
+
+def test_a_cache_read_that_breaks_mid_run_is_a_partial_and_not_a_short_history(wire, out_dir, capsys, monkeypatch):
+    """The cache disabling itself half way through a walk of cached issues.
+
+    `rows_for` used to `return` there, so the issue being read and every cached issue after it yielded nothing --
+    and the caller counted each one complete. Ten cached issues came back as six histories under `ok: true`, no
+    `partial`, no `error`: a `committed_points` computed from that looks exactly like a real number. It is the
+    failure this whole epic exists to kill, arriving through the one door built to prevent it.
+    """
+    wire(FJ.FakeJira(10, 3))
+    rc, out, _ = run(["changelog", "--jql", "project = RDSD"], capsys)
+    assert rc == 0 and file_rows(path_of(out)) == 30
+
+    again = wire(FJ.FakeJira(10, 3))
+    _flaky_reads(monkeypatch, fail_on=3)
+    rc2, out2, err = run(["changelog", "--jql", "project = RDSD"], capsys)
+    m = meta_of(out2)
+    assert rc2 == 1, "a cache that stopped answering must not exit 0"
+    assert m["ok"] == "false" and m["partial"] == "true" and m["reason"] == "cache read failed"
+    assert int(m["issues_complete"]) < 10 and int(m["issues_incomplete_count"]) > 0
+    assert "cache --clear" in toon_str(m["hint"])
+    assert "cache unusable" in err or "cache read failed" in err
+    assert again.count("bulkfetch") == 0, "the failure is the cache's, and it is reported rather than papered over"
 
 
 # ------------------------------------------------------------------------------------- sprint-replay
@@ -481,6 +596,29 @@ def test_sprint_replay_second_run_costs_one_search(wire, out_dir, capsys):
     assert rc == 0
     assert again.count("bulkfetch") == 0 and again.count("changelog") == 0
     assert meta_of(out2)["cached"] == str(len(again.corpus.keys())), "every issue served from the cache"
+
+
+def test_the_replay_assembles_each_issue_from_its_own_rows_only(wire, out_dir, capsys, monkeypatch):
+    """FETCH used to build a flat list of every row of every history and hand that same list to
+    `build_issue_state` once per issue, which rescanned all of it to find the rows of one -- quadratic in issues,
+    on top of holding the whole pull in memory that the streaming slice exists to avoid. The replay reads four
+    fields; it is given those four fields, bucketed by the issue that owns them."""
+    seen: list[int] = []
+    original = SP.build_issue_state
+
+    def spy(issue, rows, sprint_field, points_fields):
+        rows = list(rows)
+        seen.append(len(rows))
+        assert all(r.get("key") == issue.get("key") for r in rows), "another issue's rows reached this one"
+        return original(issue, rows, sprint_field, points_fields)
+
+    monkeypatch.setattr(SP, "build_issue_state", spy)
+    wire(FJ.FakeJira(20, 20))
+    pinned()
+    rc, out, _ = run(["sprint-replay", "--sprint", "41"], capsys)
+    assert rc == 0 and "committed_points" in out
+    assert len(seen) == 20
+    assert max(seen) <= 20, "one issue's histories, not the pull's 400 rows"
 
 
 def test_sprint_replay_numbers_are_unchanged_by_the_cache(wire, out_dir, capsys):

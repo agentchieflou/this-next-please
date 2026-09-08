@@ -30,10 +30,15 @@ cache stores nothing that was not already written to disk.
 Ordering matches the client's guarantee exactly -- rows come back ascending by `(created_utc, changelog_id)` --
 so a cached issue and a freshly fetched one are indistinguishable in the output file.
 
-Finally, a broken cache must never break a data pull. A corrupt or unreadable database (a killed process on a
-network drive, a half-copied `.agent/`) leaves the cache `disabled` with a message and a hint naming
-`ad-jira cache --clear`; every read then answers "not cached" and every write is a no-op, and the run fetches
-everything, exactly as it did before this file existed. Stdlib `sqlite3`, no dependency, no async.
+Finally, a cache that never opened must never break a data pull. A corrupt or unreadable database (a killed
+process on a network drive, a half-copied `.agent/`) leaves the cache `disabled` with a message and a hint
+naming `ad-jira cache --clear`; every read then answers "not cached" and every write is a no-op, and the run
+fetches everything, exactly as it did before this file existed.
+
+A cache that answered and *then* broke is the one case that cannot degrade quietly, and `rows_for` raises there
+instead. `partition()` has already promised the caller that those issues are complete and need no request; an
+empty read after that promise is not "no cache", it is a history with rows missing, written to the output file
+and counted as complete. Stdlib `sqlite3`, no dependency, no async.
 """
 from __future__ import annotations
 import os
@@ -42,7 +47,7 @@ from datetime import datetime, timezone
 from typing import Iterator
 
 from . import textio
-from .connectors.jira_http import JiraError
+from .connectors.jira_http import JiraError, JiraPartialError
 
 CACHE_DIR = ".jira-changelog-cache"
 DB_NAME = "changelog.sqlite3"
@@ -98,6 +103,7 @@ class ChangelogCache:
         self.disabled = False
         self.error = ""
         self.hint = ""
+        self._worked = False        # did this cache ever answer? see `rows_for`
         self._conn: sqlite3.Connection | None = None
 
     # ---------- lifecycle ----------
@@ -126,6 +132,7 @@ class ChangelogCache:
             self._disable(e)
             return None
         self._conn = conn
+        self._worked = True
         return conn
 
     def _disable(self, e: Exception) -> None:
@@ -182,10 +189,22 @@ class ChangelogCache:
 
     def rows_for(self, key: str) -> Iterator[dict]:
         """The cached history of one issue, ascending by (created_utc, changelog_id) -- the same guarantee the
-        client gives, with insertion order breaking ties so the items of one history entry stay together."""
+        client gives, with insertion order breaking ties so the items of one history entry stay together.
+
+        A read that fails RAISES, and that is the difference between a broken cache and a wrong answer. Failing
+        to open the database is harmless: nothing is cached, everything is fetched, the run is complete. But a
+        `disk I/O error` on the third of ten cached issues disables the cache mid-walk, and the old `return`
+        then handed back an empty history for that issue and every cached issue after it -- rows the caller
+        counted as complete, wrote to the file, and reported under `ok: true`. That is the silently short
+        history that produces a `committed_points` which looks right, arriving through the one door built to
+        prevent it. The caller renders this as `partial: true` and keeps what it has.
+        """
         conn = self._db()
         if conn is None:
-            return
+            if not self._worked:
+                return          # it never opened, so `partition` called every key stale and nobody is waiting
+            raise JiraPartialError(f"changelog cache unreadable for {key}: {self.error or 'cache disabled'}",
+                                   reason="cache read failed", key=key, hint=self.hint or CLEAR_HINT)
         try:
             cur = conn.execute(
                 'SELECT %s FROM "row" WHERE key = ? ORDER BY created_utc, changelog_id, rowid' % ",".join(COLUMNS),
@@ -194,7 +213,8 @@ class ChangelogCache:
                 yield {c: r[c] for c in COLUMNS}
         except sqlite3.Error as e:
             self._disable(e)
-            return
+            raise JiraPartialError(f"changelog cache read failed on {key}: {e}", reason="cache read failed",
+                                   key=key, hint=self.hint or CLEAR_HINT) from None
 
     # ---------- writing one issue ----------
 

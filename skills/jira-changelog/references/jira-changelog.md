@@ -67,7 +67,9 @@ That announcement is the bulkfetch fallback's price list. One bulkfetch call bec
 cheapest way there is to get a shared token throttled, so it is said out loud, recorded as `bulk_fallback` in the
 meta, and **refused before it starts** when the remaining budget cannot pay for it — the error then names
 `--max-requests <n>`, a narrower JQL, `--no-bulk` or `--bulk-issues`. A 400 that names bad keys is not a fallback:
-those keys go to `skipped_keys` and the chunk is retried once without them.
+those keys go to `skipped_keys` and the chunk is retried once without them. `_invalid_keys` only ever drops keys
+*this run asked for*, so that is a whole history missing from the answer — it ends the run as a partial result
+(`reason: keys rejected by bulkfetch`, exit 1), never as a footnote under `ok: true`.
 
 ## Partial results
 Any result that is not the whole history the operator asked for says so. Real output, budget exhausted mid-pull
@@ -92,7 +94,8 @@ meta:
   issues_complete: 30
   issues_incomplete[10]: RDSD-37,RDSD-38,RDSD-39,RDSD-4,RDSD-40,RDSD-5,RDSD-6,RDSD-7,RDSD-8,RDSD-9
   issues_incomplete_count: 10
-  resume: "ad-jira changelog --jql ""project = RDSD"" --max-requests 8 --bulk-issues 5"
+  resume: "ad-jira changelog --jql ""project = RDSD"" --bulk-issues 5"
+  hint: "rerun with a larger --max-requests, or narrow the JQL to fewer issues"
   cached: 0
   fetched: 40
   resumed: false
@@ -101,7 +104,7 @@ meta:
 (the rule-6 sample rows follow it, unchanged; `issues_incomplete` is capped at 20 keys and `issues_incomplete_count`
 carries the rest.)
 
-`reason` is one of:
+`hint` is what to DO about it; `reason` is one of:
 
 | `reason` | What happened | Does a rerun fix it |
 |---|---|---|
@@ -109,11 +112,15 @@ carries the rest.)
 | `interrupted` | Ctrl-C; the pages that arrived are on disk | yes |
 | `http 502 on RDSD-1234 page 7` | an HTTP failure the retries could not recover | usually — if it repeats, it is the server, not the pull |
 | `network on RDSD-1234 page 7` | a timeout or reset that survived six retries | usually |
-| `expand=changelog truncated: 100 of 150` | Data Center answered knowingly short | **no** — the endpoint cannot page; use the Teradata history for older events |
+| `keys rejected by bulkfetch` | a 400 named keys this JQL asked for; `skipped_keys` lists them and none of their rows are in the file | only if the keys are real — check they still exist, or rerun with `--no-bulk` |
+| `cache read failed` | the changelog cache answered and then stopped mid-run | yes, after `ad-jira cache --clear` |
+| `expand=changelog truncated: 100 of 150` | Data Center answered knowingly short for the keys in `truncated_keys` | **not for those keys** — the endpoint cannot page, so use the Teradata history for their older events. Every OTHER issue in the JQL is complete, on disk and cached, so the rerun still costs nothing for them |
 
 **`resume` is the literal command to run, and rerunning IS the resume**: an issue is written to the cache only after
-its last row, so the second run's freshness check asks Jira for the incomplete ones and nothing else. `--no-cache`
-and `--refresh` are deliberately dropped from the printed command — either would start the whole pull again.
+its last row, so the second run's freshness check asks Jira for the incomplete ones and nothing else. Four flags are
+deliberately dropped from the printed command: `--no-cache` and `--refresh` would start the whole pull again, and on
+a `budget` stop `--max-requests` / `--max-seconds` would replay the ceiling that stopped it — a resume that cannot
+resume. The rerun gets the default budget (or `jira.budget.*`), which is what the `hint` is telling you.
 
 Exit codes: `changelog` returns 1 with the file kept and named on stderr. `sprint-replay` returns 2 and computes
 nothing: `error: "changelog partial (budget): replay refuses a short history"` with the same `resume` in the hint. A
@@ -191,8 +198,9 @@ Closed sprints stay in the field, so "carried over" = the issue also lists anoth
 - `--compare-sprintreport` calls `/rest/greenhopper/1.0/rapid/charts/sprintreport` — undocumented, unsupported,
   rate-limited on Cloud. Informational only; never the truth.
 - `?expand=changelog` on Data Center returns the most recent histories only; that answer comes back `partial: true`
-  with `reason: expand=changelog truncated: <have> of <total>` rather than being silently miscounted, and no rerun
-  fixes it (§Partial results).
+  with `reason: expand=changelog truncated: <have> of <total>` rather than being silently miscounted. The affected
+  keys are in `truncated_keys` and no rerun fixes those; they contribute **no rows at all** rather than a short
+  history, and the rest of the JQL is fetched and cached normally (§Partial results).
 - Neither changelog endpoint filters by date server-side. `--since` / `--until` are client-side filters over a full
   pull; the only real narrowing is the JQL that chooses the issues.
 - A run stops at its own budget before Jira's limit, and reports what it fetched (§Limits and budgets). A partial
