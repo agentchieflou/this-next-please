@@ -555,7 +555,9 @@ def test_the_poll_never_writes_to_a_repository(fleet_home, tmp_path):
     assert {n: (open(p, "rb").read(), os.stat(p).st_mtime_ns) for n, p in files.items()} == before
     written = json.loads(textio.read_text(poller.state_path))
     assert written["version"] == P.STATE_VERSION
-    assert str(poller.state_path).startswith(str(fleet_home))
+    # Both spellings through `norm_path`: the poller stores its path canonicalised and `tmp_path`
+    # hands out backslashes on Windows, so a raw `startswith` compared two spellings of one path.
+    assert textio.norm_path(str(poller.state_path)).startswith(textio.norm_path(str(fleet_home)))
 
 
 def test_state_for_names_the_four_cells(fleet_home, tmp_path):

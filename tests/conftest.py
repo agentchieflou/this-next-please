@@ -225,3 +225,21 @@ def _no_user32_in_tests(monkeypatch):
     from agentdata.setup.steps import powerbi as _pbi_step
 
     monkeypatch.setattr(_pbi_step, "_is_user_an_admin", lambda: False, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_browser_in_tests(monkeypatch):
+    """No test may launch a real browser. `os.startfile` is Windows-only, so nothing here saw it.
+
+    `cli_fleet._open_browser` opens the dashboard with `os.startfile` on Windows and `webbrowser`
+    everywhere else. A test that patched only the fallback still opened Edge on the runner -- the
+    job's cleanup step was terminating orphaned msedge processes -- and counted one handover fewer
+    than it expected. Raising `OSError` is a state `_open_browser` already handles: it returns the
+    "could not open a browser" sentence, and the URL was printed before either call.
+    """
+    def _no_startfile(path, *a, **k):
+        raise OSError("no browser may be launched from the test suite (tests/conftest.py)")
+
+    if hasattr(os, "startfile"):
+        monkeypatch.setattr(os, "startfile", _no_startfile, raising=False)
+    monkeypatch.setattr("webbrowser.open", lambda *a, **k: False, raising=False)

@@ -444,7 +444,10 @@ def test_quickstart_serves_last_and_hands_over_the_url_with_the_layout(fleet_hom
 
     served = []
     monkeypatch.setattr(S, "run", lambda server: served.append(server.server_close()))
-    monkeypatch.setattr("webbrowser.open", lambda url: served.append(url) or True)
+    # `_open_browser`, not `webbrowser.open`: on Windows the command goes through `os.startfile`
+    # instead, so patching the fallback counted one handover here and launched a real browser on
+    # the runner (the job's cleanup step was terminating orphaned msedge processes).
+    monkeypatch.setattr(cli_fleet, "_open_browser", lambda url: served.append(url) or "the test")
 
     code, out = run(["quickstart", str(tree), "--yes", "--port", "0", "--layout", "roles"], capsys)
     assert code == 0 and len(served) == 2, out

@@ -262,11 +262,15 @@ def _under(path: str, root: str) -> bool:
     `textio.norm_path` rather than a separator swap here: this compares a path cmd.exe printed
     against `sys.prefix`, and the two arrive with different separators on the same machine. One
     canonicaliser for both is the only way the answer cannot depend on which one printed it.
+
+    `normcase` runs first and `norm_path` last, because on Windows `normcase` rewrites "/" back to
+    "\\" -- doing it the other way round undid the canonical spelling this function then compares
+    against, and every venv looked like it was not one.
     """
     if not path or not root:
         return False
-    a = os.path.normcase(textio.norm_path(os.path.normpath(path)))
-    b = os.path.normcase(textio.norm_path(os.path.normpath(root))).rstrip("/")
+    a = textio.norm_path(os.path.normcase(os.path.normpath(path)))
+    b = textio.norm_path(os.path.normcase(os.path.normpath(root))).rstrip("/")
     return a == b or a.startswith(b + "/")
 
 
