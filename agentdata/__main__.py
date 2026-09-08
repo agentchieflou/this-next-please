@@ -34,6 +34,7 @@ COMMANDS = {
     "fleet": ("agentdata.cli_fleet", "main", "run several headless Copilot agents, one per repository"),
     "argv": ("agentdata.cli_argv", "main", "print the argv Python received, and the shell it came from"),
     "metrics": ("agentdata.cli_metrics", "main", "what the format policy decided, from the local opt-in usage file"),
+    "sort": ("agentdata.cli_sort", "main", "plan where a heap of files would be filed, and copy them there"),
     "_complete": ("agentdata.complete", "main", "shell tab-completion candidates, one per line"),
 }
 # diagnostics and shell plumbing: real commands, deliberately absent from the catalog a person

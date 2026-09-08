@@ -31,6 +31,10 @@ CASES: dict[str, dict] = {
     # `path` reports where the opt-in usage file would be and whether recording is on; it reads the
     # temporary config only and writes nothing.
     "metrics":    {"args": ["path"], "toon": True},
+    # The real path rather than `--help`: `plan` reads the prepared heap and writes its plan under the
+    # test's own `.agent/out`. It copies nothing -- that is `apply`, which no contract case runs.
+    "sort":       {"args": ["plan", "--heap", "@heap", "--rules", "@sortrules"],
+                   "needs": ["heap", "sortrules"], "toon": True},
 
     # These reach a network, a licensed tool, or a Power BI install. `--help` still proves the
     # module imports, the parser builds, and the exit code is 0 -- which is most of what breaks.
@@ -77,6 +81,15 @@ def prepare(tmp_path) -> dict[str, str]:
                       "from app import main\n\n\ndef test_main():\n    assert main() == 1\n")
     made["repo"] = repo
     made["graphdir"] = os.path.join(repo, ".agent", "graph")
+
+    heap = os.path.join(str(tmp_path), "heap")
+    textio.write_text(os.path.join(heap, "10000123-packet.pdf"), "not really a pdf\n")
+    textio.write_text(os.path.join(heap, "notes.txt"), "unmatched on purpose\n")
+    made["heap"] = heap
+
+    from agentdata.sorting import rules as sort_rules
+
+    made["sortrules"] = textio.write_json(os.path.join(str(tmp_path), "sort-rules.json"), sort_rules.STARTER)
 
     return made
 
