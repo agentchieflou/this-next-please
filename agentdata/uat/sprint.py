@@ -4,6 +4,12 @@ A changelog holds transitions, not states. Start from each field's CURRENT value
 the instant of interest (`value_at`). That is correct even when a field was set at issue creation without any
 changelog entry — the classic source of wrong sprint numbers. All timestamps are tz-aware UTC; the boundary is
 half-open (an event at exactly the sprint start counts as before the start).
+
+`replay()` also takes `partial` / `issues_incomplete`, and that is the only thing epic #121 changed here. A pull
+can now end short -- an exhausted request budget, a Ctrl-C, a Data Center `?expand=changelog` that handed back a
+hundred of four hundred entries -- and a replay over a short history produces numbers that look exactly like real
+ones. `ad-jira sprint-replay` refuses such an input outright; when an operator overrides that with
+`--allow-partial`, these two arguments are how the summary admits what it was computed over.
 """
 from __future__ import annotations
 import re
@@ -12,6 +18,10 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterable
 
 from ..connectors.jira_api import parse_ts
+
+# How many short issues the summary names before it just counts them; the same cap `ad-jira` uses in its meta,
+# for the same reason -- twenty is enough to see a pattern and short enough not to bury the numbers.
+INCOMPLETE_SHOWN = 20
 
 _SPRINT_ID = re.compile(r"\bid=(\d+)")
 
@@ -169,7 +179,8 @@ def build_issue_state(issue: dict, rows: Iterable[dict], sprint_field: str, poin
 # ---------- replay ----------
 def replay(issues: Iterable[IssueState], sprint: SprintInfo, status_cat: dict[str, str], sprint_field: str,
            points_fields: list[str], *, points_at_mode: str = "close", include_subtasks: bool = False,
-           now: datetime | None = None) -> tuple[list[dict], dict]:
+           now: datetime | None = None, partial: bool = False,
+           issues_incomplete: Iterable[str] | None = None) -> tuple[list[dict], dict]:
     if sprint.start is None:
         raise ValueError(f"sprint {sprint.id} has not started (state={sprint.state})")
     t_start = sprint.start
@@ -230,6 +241,15 @@ def replay(issues: Iterable[IssueState], sprint: SprintInfo, status_cat: dict[st
         "subtasks_excluded": sum(1 for r in rows if r["is_subtask"]) if not include_subtasks else 0,
         "issues_scanned": len(rows),
     }
+    if partial:
+        # The arithmetic above is unchanged, and that is exactly the danger: a `committed_points` computed over
+        # forty of a hundred histories is not a smaller number, it is the number for a different sprint -- an
+        # issue whose changelog stopped early keeps whatever sprint and points its last arriving row left it
+        # with, and `value_at` has nothing to undo. The only defence is that the summary says so, which is why
+        # these three keys appear only when the input really was short and never otherwise.
+        short = [str(k) for k in (issues_incomplete or [])]
+        summary.update({"partial": True, "issues_incomplete": short[:INCOMPLETE_SHOWN],
+                        "issues_incomplete_count": len(short)})
     return rows, summary
 
 
