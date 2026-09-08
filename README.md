@@ -183,6 +183,7 @@ python -m pytest -q
 | `agentdata/confluence.py` | `ad-confluence`: Markdown → Confluence storage format (XHTML, code macro, entities), XML-validated before it is published |
 | `agentdata/jira_workflow.py` | `ad-jira transition`: resolves "review"/"done" against the transitions Jira offers THIS issue — a Task and a Story have different workflows |
 | `agentdata/uat/` | sprint replay, expected-value loader, tiered reconciliation (`ad-jira sprint-replay`, `ad-uat`) |
+| `agentdata/jira_cache.py` | the changelog cache (`ad-jira cache`): one SQLite file per project, keyed on each issue's `updated` stamp, so the second pull of a long JQL costs one search |
 | `agentdata/dpm/` | DPM → consumer handoff contract: read-only run root, reference resolution, versioned refusals, job manifest with lineage (`ad-dpm`) |
 | `agentdata/graph/` | code graph extraction, queries, human-approval gate, findings, and guard (`ad-graph`) |
 | `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |
@@ -192,6 +193,23 @@ python -m pytest -q
 | `docs/plan-luna-pipeline.md` | approved design for the Power BI / UAT / SQL-guardrail phase (implemented) |
 | `prompts/remediate-from-friction.prompt.md` | offline frontier-model repair loop |
 | `agentdata/templates/project-stub/` | the project stub `ad-setup --project` writes (ships in the wheel) |
+
+## Long Jira pulls (`ad-jira changelog`, `ad-jira sprint-replay`)
+
+A changelog pull spends the token pncli holds — the human's — so every run has a ceiling of its own rather than a
+rate limit to discover. `--max-requests` (2000) and `--max-seconds` (900) stop it; `--bulk-issues` (200) and
+`--bulk-page` (500) size the bulkfetch calls; `--stats` prints what the run cost, in the TOON meta and one line on
+stderr; `--quiet` silences the progress lines. Cloud's rate-limit headers are read on every response, so the last
+requests before a limit are a pause instead of a refusal.
+
+**A partial pull is now a distinct outcome from a failure.** A budget stop, a Ctrl-C, an unrecoverable HTTP error or
+Data Center's truncated `?expand=changelog` all keep what was fetched on disk and finish the TOON with
+`partial: true`, the reason, the counts and a literal `resume` command. Rerunning that command *is* the resume:
+rows are cached per issue and keyed on its `updated` stamp — an issue's changelog cannot change without that stamp
+moving — so the second run asks Jira only for what is missing. `ad-jira cache --stats` and `ad-jira cache --clear`
+manage the cache (`.agent/out/.jira-changelog-cache/`); `--refresh` refetches everything for the day the stamp lies,
+`--no-cache` turns it off. `ad-jira sprint-replay` refuses a partial changelog outright unless `--allow-partial`
+says otherwise, because a `committed_points` over half the histories looks exactly like a real number.
 
 ## Data format contract (short form)
 Full data always goes to disk (`.agent/out/`). Context gets TOON: inline if

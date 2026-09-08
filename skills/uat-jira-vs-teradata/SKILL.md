@@ -6,6 +6,8 @@ description: "Use for UAT/remediation of Jira-tracking dashboards — when numbe
 
 Prereq: `jira-triage` done; acceptance criteria include an explicit **date window** and **JQL scope**. Missing either → `friction-log`. STOP. Sprint or story-point questions → run `jira-changelog` first (its `sprint-replay` rows are the live side).
 
+A changelog or `sprint-replay` input with `partial: true` is not evidence: rerun the `resume` command it printed, and if it comes back partial again STOP — never diff against a short history.
+
 1. Live side: `ad-pncli jira search --jql "<scope JQL> AND updated >= '<start>' AND updated <= '<end>'" --fields key,status,assignee,updated --max-results 2000`. Note `path` → LEFT.
 2. History side: write `.agent/sql/<ticket>-uat.sql` selecting the same grain (one row per issue key, latest status ≤ `<end>`). Run `ad-td --env <env> --sql-file … --name hist`. Note `path` → RIGHT.
 3. Row counts differ by > 2% → check `truncated: true` on either side. If truncated, narrow the window and repeat once.

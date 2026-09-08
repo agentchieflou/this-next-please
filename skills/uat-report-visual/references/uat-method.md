@@ -2,6 +2,7 @@
 
 ## Source-of-truth order
 1. **Live Jira** (`ad-pncli jira search`, `ad-jira changelog`, `ad-jira sprint-replay`) — what the system of record says now, or said at an instant (replay).
+   A changelog input with `partial: true` is not evidence: rerun the `resume` command it printed, or stop — a tier built on a short history disagrees with the others for a reason that has nothing to do with the report.
 2. **Jira history in Teradata** (`jira_hist_table`) — the warehouse copy the report is built on. Can lag, can miss rows, can mis-map.
 3. **Power BI** (`ad-pbip visual-query`, `dax-studio-export`) — what the report shows: model logic over the warehouse copy.
 The **expected document** is the requester's claim. It is compared, never trusted; when every tier agrees against it, the class is `expectation-wrong`.

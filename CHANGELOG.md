@@ -17,6 +17,30 @@ re-asks exactly those. Skip it otherwise: with no repositories registered the fl
 release behaves differently. Optional extra: `pip install "agentdata[fleet-win]"` adds Windows
 toasts.
 
+**Jira changelog pulls survive being long (#121).** Nothing to run after updating, and a small pull renders exactly
+as it did. What changed is what happens to a big one.
+
+* **A partial pull is now a distinct outcome from a failure.** A budget stop, a Ctrl-C, an HTTP error the retries
+  could not recover, and Data Center's truncated `?expand=changelog` all keep what was fetched in `.agent/out/` and
+  end the TOON with `partial: true`, the `reason`, `rows_written`, `issues_complete` / `issues_incomplete` and a
+  literal `resume` command. Exit code 1, not 0. Before this, a failure on page 40 of 80 threw away every page
+  already fetched, and a short Data Center history was indistinguishable from a whole one.
+* **Rerunning is the resume, and it is cheap.** `ad-jira changelog --jql …` now caches each issue's history keyed on
+  its `updated` stamp — a changelog cannot change without that stamp moving, so there is no expiry to tune. The
+  second run of an unchanged JQL costs one search: `cached` and `fetched` in the meta say so.
+  `ad-jira cache --stats` and `ad-jira cache --clear` manage it (`.agent/out/.jira-changelog-cache/`). `--refresh`
+  refetches everything for the day the stamp lies (a re-index); `--no-cache` turns it off.
+* **New flags on `changelog` and `sprint-replay`:** `--max-requests` (2000), `--max-seconds` (900),
+  `--bulk-issues` (200), `--bulk-page` (500), `--no-cache`, `--refresh`, `--stats`, `--quiet`, and
+  `--allow-partial` on `sprint-replay` only. Defaults also come from `jira.budget.max_requests` /
+  `jira.budget.max_seconds` in `~/.agentdata/config.json`. The budget exists because the token is **yours**: a
+  bulkfetch that quietly fell back to one request per issue used to make 3,000 requests where you expected 3, and
+  the first person to notice was whoever owned the throttled account. That fallback now announces its price and is
+  refused before it starts when the budget cannot pay for it.
+* **`sprint-replay` refuses a partial changelog** rather than computing over it, with the resume command in the
+  hint. `--allow-partial` computes anyway and marks `summary.partial: true` — the skill tells Luna to say so in
+  findings, and never to reach for the flag to make the refusal go away.
+
 Two fixes worth reading if you use the data commands:
 
 * **A TSV round trip renumbered zero-padded codes.** Reading back a TSV this package had written
