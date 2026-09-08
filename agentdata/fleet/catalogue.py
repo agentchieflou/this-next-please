@@ -527,6 +527,16 @@ class Catalogue:
         self._lock = threading.RLock()
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        # The same trade `jira_cache` makes, for the same reason: this file is rebuildable by
+        # definition -- `ad-fleet index --rebuild` re-reads every repository -- so fsyncing each
+        # commit buys durability nobody needs and costs the indexer real time on Windows, where an
+        # fsync goes through a corporate laptop's filter drivers. A torn catalogue is handled the
+        # way a torn cache is: it is detected and rebuilt.
+        for pragma in ("journal_mode = WAL", "synchronous = NORMAL"):
+            try:
+                self.conn.execute(f"PRAGMA {pragma}")
+            except sqlite3.Error:
+                pass
         self.conn.executescript(_SCHEMA_SQL)
         if fts is None:
             fts = not os.environ.get(NO_FTS_ENV) and _fts5_available(self.conn)
