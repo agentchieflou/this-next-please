@@ -140,9 +140,12 @@ def test_bitbucket_takes_a_url_or_a_slug(tmp_path):
     rows = by_name(L.links_for(repo_at(tmp_path), {"bitbucket_repo": "acme/reporting"}, {}, cfg={}))
     assert rows["repo"]["url"] == "https://bitbucket.org/acme/reporting"
 
-    on_prem = {"bitbucket_repo": "acme/reporting", "bitbucket_url": "https://bb.acme.local"}
-    rows = by_name(L.links_for(repo_at(tmp_path), on_prem, {}, cfg={}))
-    assert rows["repo"]["url"] == "https://bb.acme.local/acme/reporting"
+    # Three segments is neither shape: Server nests repos under /projects/<KEY>/repos/<slug>, so
+    # composing a host onto it would produce a link that opens and 404s.
+    rows = by_name(L.links_for(repo_at(tmp_path), {"bitbucket_repo": "RDSD/repos/reporting"}, {},
+                               cfg={}))
+    assert rows["repo"]["url"] == ""
+    assert "RDSD/repos/reporting" in rows["repo"]["why_missing"]
 
 
 def test_confluence_prefers_the_published_page_and_falls_back_to_the_parent(tmp_path):

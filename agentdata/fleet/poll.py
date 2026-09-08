@@ -581,7 +581,12 @@ def _active_ticket(repo) -> str:
 
 
 def _facts(repo) -> dict:
-    return C.project_facts(os.path.join(repo.path, "AGENTS.md"))
+    """The repo's own AGENTS.md, or nothing. A registered path on a mapped drive that is not
+    connected this morning is #129's drift case, and it must not stop the other tiles polling."""
+    try:
+        return C.project_facts(os.path.join(repo.path, "AGENTS.md"))
+    except OSError:
+        return {}
 
 
 def _guid(value) -> str:

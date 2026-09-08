@@ -236,11 +236,16 @@ def _workspace(facts: dict) -> dict:
 
 
 def _repo(facts: dict) -> dict:
-    """The Bitbucket repository. `bitbucket_repo` may be a full URL or `<workspace>/<slug>`.
+    """The Bitbucket repository. `bitbucket_repo` may be a full URL or a Cloud `<workspace>/<slug>`.
 
     Both spellings are in use -- a URL is what somebody pastes out of the browser, `owner/slug` is
     what the CLI wants -- and refusing either would mean the fact is filled in and the link is still
     missing, which is the most annoying possible outcome of a facts block.
+
+    The two-segment form only ever means Cloud, so it is composed against `bitbucket.org` and there
+    is deliberately no base-URL fact to go with it: Server nests a repository under
+    `/projects/<KEY>/repos/<slug>`, so `<host>/<owner>/<slug>` would be a link that opens and 404s
+    on every Server install. An on-prem project writes the whole URL, which is unambiguous.
     """
     raw = str(facts.get("bitbucket_repo") or "").strip().rstrip("/")
     if not raw:
@@ -250,8 +255,7 @@ def _repo(facts: dict) -> dict:
     parts = [p for p in raw.split("/") if p]
     if len(parts) != 2:
         return _row("repo", why=f"`bitbucket_repo` is {raw!r}; it wants a URL or `<workspace>/<slug>`")
-    base = _https(facts.get("bitbucket_url")) or BITBUCKET_BASE
-    return _row("repo", f"{base}/{parts[0]}/{parts[1]}")
+    return _row("repo", f"{BITBUCKET_BASE}/{parts[0]}/{parts[1]}")
 
 
 def _pr(state: dict) -> dict:
