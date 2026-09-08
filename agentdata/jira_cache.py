@@ -127,6 +127,20 @@ class ChangelogCache:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             conn = sqlite3.connect(self.path, isolation_level=None)   # explicit BEGIN, no implicit transaction
             conn.row_factory = sqlite3.Row
+            # A cache is the one store that may trade durability for speed: the worst a lost write
+            # costs is refetching an issue we already know how to refetch. The default
+            # `synchronous = FULL` fsyncs on every commit, and this file commits per issue -- three
+            # transactions each. On Linux a 1,200-issue write takes three seconds; on the Windows
+            # runners the same write sat for over five minutes and tripped the suite's hang
+            # detector, because an fsync there goes through the filter drivers a corporate laptop
+            # also has. WAL plus NORMAL keeps the crash behaviour this file already handles (a torn
+            # cache disables itself and `ad-jira cache --clear` removes it) and stops a 3,000-issue
+            # pull spending its afternoon in the filesystem.
+            for pragma in ("journal_mode = WAL", "synchronous = NORMAL"):
+                try:
+                    conn.execute(f"PRAGMA {pragma}")
+                except sqlite3.Error:
+                    pass          # a filesystem that refuses WAL still gets a correct, slower cache
             conn.executescript(_SCHEMA)
             conn.execute("SELECT count(*) FROM issue").fetchone()     # touches the file: a non-database raises here
         except (sqlite3.Error, OSError) as e:

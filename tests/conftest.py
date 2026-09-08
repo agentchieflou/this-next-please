@@ -176,3 +176,84 @@ def run_cmd(tmp_path):
         return p.returncode, p.stdout, p.stderr
 
     return _run
+
+
+@pytest.fixture(autouse=True)
+def _no_user32_in_tests(monkeypatch):
+    """`winui._enum_ctypes` is unavailable to the suite, so the injected fakes drive every platform.
+
+    `desktop_windows_source()` prefers `EnumWindows` on win32 and only falls back to the Runner. That
+    is correct for the product -- `ctx.det.run` is a real bound method in production, so preferring an
+    injected runner would silently downgrade a real laptop from Z-order to `Get-Process` -- but it
+    means that on the Windows runners the ctypes path answered for real, found no Power BI windows,
+    and returned `[]` to eighty-four tests that had carefully supplied a fake. They passed here and
+    failed there, which is the exact shape this repo runs Windows CI to catch.
+
+    So the suite removes user32 rather than the product preferring the fake. A test that wants the
+    real preference order patches `_enum_ctypes` itself, and that patch wins over this one; a test
+    that wants `SOURCE_ENUM` semantics patches `desktop_windows_source`, as the transport tests
+    already do. Everything else now behaves identically on both platforms.
+    """
+    from agentdata.pbip import winui
+
+    def _no_user32():
+        raise OSError("user32 is not available to the test suite (tests/conftest.py)")
+
+    def _source(run=None):
+        """The fake's rows, labelled the way the platform's own gate needs them.
+
+        `resolve_transport(active=True)` refuses on Windows unless `EnumWindows` answered, and
+        `external_tools_row` downgrades `via` from `zorder` to `file` on the same condition. Both are
+        right for the product. But for the suite the injected fake *is* the enumeration, so on
+        Windows it has to count as one -- otherwise seventy-odd transport tests assert the refusal
+        instead of the behaviour they were written for, which is what the runners reported.
+
+        Off Windows the gate is inactive and the honest label is the process table, which is exactly
+        what `test_off_windows_the_zorder_verdict_refuses_to_claim_anything` checks: the probe must
+        never claim a Z-order it could not have measured.
+        """
+        source = winui.SOURCE_ENUM if sys.platform == "win32" else winui.SOURCE_TABLE
+        return winui._from_runner(run), source
+
+    monkeypatch.setattr(winui, "_enum_ctypes", _no_user32, raising=False)
+    monkeypatch.setattr(winui, "desktop_windows_source", _source, raising=False)
+
+    # The same seam for the other win32-only probe. The runners are administrators, so the real
+    # `shell32!IsUserAnAdmin` answers "already elevated" and overrides whatever a test injected --
+    # which turned the epic's headline assertion, that "run elevated" is never printed to someone
+    # who cannot, into a Windows-only failure. The fakes drive the `whoami /groups` path instead.
+    from agentdata.setup.steps import powerbi as _pbi_step
+
+    monkeypatch.setattr(_pbi_step, "_is_user_an_admin", lambda: False, raising=False)
+
+    # And the third one: `probe.read_key(native=True)` goes straight to `winreg` on win32 and never
+    # looks at the injected Runner, so on the runners the real HKLM answered and every test that
+    # described a machine with the External Tools kill-switch set was told the switch was absent.
+    # Forcing `native=False` routes the registry through the same fake on both platforms. A test
+    # about `winreg` itself patches `_winreg_values`, which this does not touch.
+    from agentdata.pbip import probe as _probe
+
+    real_read_key = _probe.read_key
+
+    def _read_key(hive, subkey, run=None, native=False):
+        return real_read_key(hive, subkey, run=run, native=False)
+
+    monkeypatch.setattr(_probe, "read_key", _read_key, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_browser_in_tests(monkeypatch):
+    """No test may launch a real browser. `os.startfile` is Windows-only, so nothing here saw it.
+
+    `cli_fleet._open_browser` opens the dashboard with `os.startfile` on Windows and `webbrowser`
+    everywhere else. A test that patched only the fallback still opened Edge on the runner -- the
+    job's cleanup step was terminating orphaned msedge processes -- and counted one handover fewer
+    than it expected. Raising `OSError` is a state `_open_browser` already handles: it returns the
+    "could not open a browser" sentence, and the URL was printed before either call.
+    """
+    def _no_startfile(path, *a, **k):
+        raise OSError("no browser may be launched from the test suite (tests/conftest.py)")
+
+    if hasattr(os, "startfile"):
+        monkeypatch.setattr(os, "startfile", _no_startfile, raising=False)
+    monkeypatch.setattr("webbrowser.open", lambda *a, **k: False, raising=False)

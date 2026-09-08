@@ -220,7 +220,12 @@ def test_the_interpreter_running_the_probe_is_reported_truthfully():
 # ---------------------------------------------------------------------------------- Q4: Z-order
 
 
-def test_zorder_rows_come_from_winui_in_order():
+def test_zorder_rows_come_from_winui_in_order(monkeypatch):
+    # The process table is this test's subject, so it says so -- the same way its sibling below says
+    # `SOURCE_ENUM`. The suite's fake stands in for `EnumWindows` on Windows, so inheriting the
+    # label from the platform made this assert `enum-windows` there.
+    monkeypatch.setattr(PB.winui, "desktop_windows_source",
+                        lambda run=None: (PB.winui._from_runner(run), PB.winui.SOURCE_TABLE))
     run = fake_runner(windows=((11, "Sales - Power BI Desktop"), (22, "Finance - Power BI Desktop")))
     rows = by_name(PB.report(run=run))
     assert rows["zorder.count"]["value"] == "2"

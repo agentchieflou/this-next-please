@@ -9,9 +9,17 @@ drive the injected-`Runner` seam that `tests/test_desktop_session.py` establishe
 ctypes helper's parsing rules through the pure functions it shares.
 """
 import json
+import sys
+
+import pytest
 
 from agentdata.pbip import dmv as DMV
 from agentdata.pbip import winui as W
+
+# Captured at import, before the autouse fixture in conftest.py swaps it for one that labels the
+# injected fake as the enumeration. This is the one test about the REAL preference order, so it
+# needs the real function back.
+_REAL_SOURCE = W.desktop_windows_source
 
 
 # --- winui.title_is_desktop -------------------------------------------------------------------
@@ -89,7 +97,16 @@ def test_session_fake_runner_shape_is_accepted():
 
 
 def test_ctypes_path_is_windows_only(monkeypatch):
-    """On this Linux box `desktop_windows` must never reach user32; it must reach the Runner."""
+    """Off Windows there is no user32 to reach, so the Runner is the only implementation.
+
+    Guarded on the platform, because on Windows the opposite is true *and is the point*: production
+    passes `ctx.det.run`, a real bound method, so a rule like "an injected runner wins" would quietly
+    downgrade a real laptop from Z-order to `Get-Process`. The preference order there is asserted by
+    the next test. This one used to assert the Linux answer unconditionally and duly failed on the
+    Windows runners.
+    """
+    if sys.platform == "win32":
+        pytest.skip("ctypes is preferred on Windows; test_windows_platform_prefers_ctypes_and_falls_back covers it")
     calls = []
     monkeypatch.setattr(W, "_enum_ctypes", lambda: calls.append("ctypes") or [])
     W.desktop_windows(run=fake_window_runner([(5, "X - Power BI Desktop")]))
@@ -97,6 +114,7 @@ def test_ctypes_path_is_windows_only(monkeypatch):
 
 
 def test_windows_platform_prefers_ctypes_and_falls_back(monkeypatch):
+    monkeypatch.setattr(W, "desktop_windows_source", _REAL_SOURCE)      # the real selection logic
     monkeypatch.setattr(W.sys, "platform", "win32")
     monkeypatch.setattr(W, "_enum_ctypes", lambda: [(1, "Top - Power BI Desktop")])
     assert W.desktop_windows() == [(1, "Top - Power BI Desktop")]

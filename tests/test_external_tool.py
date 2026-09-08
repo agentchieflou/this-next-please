@@ -136,7 +136,12 @@ def test_doctor_powerbi_external_tool_check():
         "workspaces": [],
     }
 
-    with patch("agentdata.pbip.external_tool.is_external_tools_enabled", return_value=(True, "enabled")), \
+    # Windows always has a transport -- `zorder`, or `file` when EnumWindows cannot answer -- so
+    # "no transport" is a statement about the other platform, and the ladder reads the platform for
+    # itself. `_is_windows` is the seam that says which machine this is without moving the real
+    # `sys.platform` under `os` and `subprocess` at the same time.
+    with patch("agentdata.pbip.desktop._is_windows", return_value=False), \
+         patch("agentdata.pbip.external_tool.is_external_tools_enabled", return_value=(True, "enabled")), \
          patch("agentdata.pbip.external_tool.external_tools_dir", return_value="/nonexistent/ext_tools"):
         step.check(ctx, found)
         ext_rows = [r for r in ctx.checks if r.name == "powerbi/external_tool"]
