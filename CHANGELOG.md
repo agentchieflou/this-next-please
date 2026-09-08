@@ -50,6 +50,16 @@ minutes after the dashboard opened; `ad-state set --input` did not exist, so eve
 nothing; and on Windows `ad-jira cache --clear` could not delete a corrupt cache, because a failed open left a
 handle behind — the one recovery its own hint tells you to run.
 
+**And four more, found by running the suite on Windows rather than on Linux.** `ad-pbip probe` compared a path
+`cmd.exe` printed against `sys.prefix` with the canonical spelling undone, so no path was ever inside any folder:
+a `python` that exists only because a virtualenv is active was reported as a machine-wide answer, and
+`register-tool --package` would have shipped IT a file that works for nobody. The changelog cache fsynced every
+commit, which costs 3.4 seconds here and over five minutes on a laptop whose filesystem has filter drivers, so a
+cache — the one store that may trade durability for speed — now runs WAL with `synchronous = NORMAL`, as does the
+fleet catalogue. The dashboard was served unstyled in every browser, because the page asked for its own CSS
+without the run token. And `ad-fleet quickstart` opened the browser through `os.startfile` on Windows, which
+nothing in the suite had ever exercised.
+
 
 **Also in this release, and previously listed as unreleased:** the fleet itself. 0.6.4 was cut from a
 branch that did not carry it, so these notes have been waiting for a version number and this is it.
