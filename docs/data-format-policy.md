@@ -50,7 +50,45 @@ goes to **disk**. Agents never choose; the adapter does.
 - `ad-doctor|ad-setup`: `checks` table, rows sorted fail → warn → ok.
 Rule 7 note: `render_nested` writes `.tsv` only (the `.json` copy is kept only when flattening fails, rule 8).
 
+## Measuring the thresholds instead of guessing them
+
+The thresholds below were first guesses, and the changelog says so: v1 set 50/1500 and 500 and asked
+to revisit "after 2 weeks of friction logs", then v1.1 and v1.2 both recorded "no threshold change".
+Not because they were checked and found right — because nothing here recorded which rule fired or
+what a result cost. `.agent/friction/*.md` captures ambiguity, tool errors and loops; it says nothing
+about routine token cost.
+
+`agentdata/metrics.py` records it. It is **off by default** and must be turned on in a file somebody
+can see afterwards, never an environment variable that vanishes with the shell:
+
+```json
+{"metrics": {"enabled": true}}
+```
+
+in `~/.agentdata/config.json` (`metrics.path` overrides the default `~/.agentdata/metrics.tsv`).
+Then `ad-metrics summary` reports how often each rule fired and what it cost, per rule and per
+command, with a **median** as well as a total — what these thresholds turn on is what a *typical*
+result costs, and one 400,000-row export moves a mean and answers nothing. `ad-metrics path` says
+where the file is and whether recording is on; `ad-metrics clear --yes` deletes it.
+
+**What it records, and what it cannot.** One line per rendered result, with exactly the signals the
+table above already names: timestamp, command, rule, shape, rows, cols, est_tokens. No cell value,
+no query text, no path. The command is reduced to its `ad-<name>`, because an `AgentTable.source` is
+a whole command line — `ad-td SELECT ssn, dob FROM customers WHERE ...` — and anything past the
+first token is thrown away rather than parsed. A parser that keeps a subcommand also keeps the first
+word of somebody's SQL on the day the shape surprises it; a summary that says `ad-td` rather than
+`ad-td query` is worth that.
+
+The file is local. Nothing in this repository transmits it, `metrics.py` imports nothing that could,
+and there is a test asserting that. Every write is swallowed on failure: instrumentation that can
+fail a query is worse than no instrumentation.
+
+**This does not change a threshold.** Retuning one is a separate task, to be done with this file's
+output in hand and recorded in the changelog below with real numbers rather than another "no
+threshold change".
+
 ## Changelog
 - 2026-09-01 v1: initial thresholds (50/1500, 500). Revisit after 2 weeks of friction logs.
 - 2026-09-02 v1.1: no threshold change; documented the outputs of ad-sql-check, ad-jira, ad-pbip, ad-uat, ad-doctor and the rule-7 disk behaviour.
 - 2026-09-02 v1.2: no threshold change; documented ad-dpm outputs and that its artifacts are governed, not scratch.
+- 2026-09-05 v1.3: no threshold change — and now with a way to make the next entry say otherwise. Added the opt-in local usage file (`metrics.enabled`, off by default) and `ad-metrics summary`. The thresholds stay at 50/1500 and 500 until there is data to move them.
