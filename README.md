@@ -1,4 +1,4 @@
-# this-next-please — Copilot orchestration for Luna
+# this-next-please — Copilot orchestration for cheap models (proven on MAI 1.1 Flash, Luna, and Auto)
 
 [![tests](https://github.com/agentchieflou/this-next-please/actions/workflows/tests.yml/badge.svg)](https://github.com/agentchieflou/this-next-please/actions/workflows/tests.yml)
 
