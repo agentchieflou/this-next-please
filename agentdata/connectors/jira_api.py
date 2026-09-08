@@ -209,12 +209,18 @@ class Jira:
 
     # ---------- the request layer ----------
     def request(self, method: str, path: str, params: dict | None = None, body: Any = None,
-                idempotent: bool = True) -> Any:
+                idempotent: bool = True, attempts: int | None = None) -> Any:
         """One HTTP call, with the retry policy `jira_http` describes.
 
         `idempotent` is a property of the *call*, not of the method: `POST /changelog/bulkfetch` asks a question
         and may be replayed, `POST /issue/K/transitions` moves an issue and must not. Marking it by method would
         either replay transitions or refuse to recover a bulkfetch page, and both are worse than one flag.
+
+        `attempts` lowers the ceiling for failures that mean *this request was too big* -- a timeout or a 5xx --
+        so a caller who can make the request smaller hears about it quickly instead of after six sixty-second
+        timeouts at a size that was never going to work. A 429 is not that kind of failure: it says the tenant is
+        rate-limiting the token, which a smaller page does not fix and a shorter retry budget makes worse, so a
+        429 always gets the full `max_attempts` and its `Retry-After`.
 
         The failing page names itself. A second 500 on the same page is a real server error rather than the
         transient one Jira hands out for changelog pages, and when that raises, the message carries the page's
@@ -226,6 +232,7 @@ class Jira:
             url += "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None}, doseq=True)
         data = json.dumps(body).encode() if body is not None else None
         where = path + _page_marker(params, body)
+        size_cap = self.max_attempts if attempts is None else max(1, min(attempts, self.max_attempts))
         self.last_retry_reason = None
         spent_once = False
         attempt = 0
@@ -243,7 +250,8 @@ class Jira:
                 verdict = classify(exc=e)
                 if verdict == "retry_once":
                     verdict, spent_once = ("fatal" if spent_once else "retry"), True
-                if verdict != "retry" or not idempotent or attempt + 1 >= self.max_attempts:
+                ceiling = self.max_attempts if e.code == 429 else size_cap
+                if verdict != "retry" or not idempotent or attempt + 1 >= ceiling:
                     self._tick()
                     raise JiraHTTPError(e.code, where, _error_body(e)) from None
                 wait = retry_after_seconds(e.headers, self.retry_after_cap)
@@ -251,7 +259,7 @@ class Jira:
                     wait = backoff_seconds(attempt, BACKOFF_BASE, self.retry_after_cap, self.rand)
                 self._charge_retry(where, f"HTTP {e.code}", wait)
             except (OSError, http.client.HTTPException) as e:  # timeout, reset, remote disconnect, bad hostname
-                if classify(exc=e) != "retry" or not idempotent or attempt + 1 >= self.max_attempts:
+                if classify(exc=e) != "retry" or not idempotent or attempt + 1 >= size_cap:
                     self._tick()
                     raise self._transport_error(e) from None
                 self._charge_retry(where, _transport_reason(e),
@@ -310,8 +318,9 @@ class Jira:
     def get(self, path: str, params: dict | None = None) -> Any:
         return self.request("GET", path, params)
 
-    def post(self, path: str, body: Any, params: dict | None = None, idempotent: bool = True) -> Any:
-        return self.request("POST", path, params, body, idempotent=idempotent)
+    def post(self, path: str, body: Any, params: dict | None = None, idempotent: bool = True,
+             attempts: int | None = None) -> Any:
+        return self.request("POST", path, params, body, idempotent=idempotent, attempts=attempts)
 
     def myself(self) -> dict:
         return self.get(f"{self.api}/myself")
@@ -602,6 +611,12 @@ class Jira:
         timeout is per request and that page is exactly the one that hits it. So the page halves -- for the rest
         of the run, because the next chunk's histories are no shallower -- and the failing page is tried once more
         at the smaller size before the failure is reported. `bulk_page_final` in `bulk_meta` says where it landed.
+
+        The halving happens *before* the request layer has spent its retries, which is what `attempts=2` buys.
+        Retrying six times at a size that cannot be answered costs six sixty-second timeouts and six requests of
+        the run's budget to learn what the first failure already said; shrinking first costs one. Once the page is
+        at `MIN_BULK_PAGE` there is nothing left to shrink, so the full retry budget is the right answer again and
+        the cap comes off. A 429 is exempt inside `request()`: it is a rate problem, not a size one.
         """
         path = f"{self.api}/changelog/bulkfetch"
         token = None
@@ -615,7 +630,7 @@ class Jira:
                     body["nextPageToken"] = token
                 before = self.stats.retries
                 try:
-                    page = self.post(path, body) or {}
+                    page = self.post(path, body, attempts=2 if self._bulk_page > MIN_BULK_PAGE else None) or {}
                 except JiraHTTPError as e:
                     if retry_smaller and e.status >= 500 and self._shrink(on_event):
                         continue

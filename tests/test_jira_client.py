@@ -453,3 +453,40 @@ def test_the_client_is_still_a_urllib_client():
     assert j._open is urllib.request.urlopen
     assert isinstance(j.budget, H.RequestBudget) and isinstance(j.stats, H.Stats)
     assert j.log is None, "silent unless the CLI hands it a stderr writer"
+
+
+def test_a_page_too_big_to_answer_shrinks_before_it_spends_the_retry_budget():
+    """#126's "halves the page BEFORE the request-layer retry", measured in requests rather than read off.
+
+    A page that times out cannot be answered at that size, so retrying it the full six times learns nothing the
+    first failure did not already say, and costs six sixty-second timeouts plus six requests of the run's budget
+    to learn it. While there is still something to shrink, a size-shaped failure gets a short leash: two attempts,
+    then halve. Two sizes tried is four requests here, where it used to be twelve.
+    """
+    fake = FJ.FakeJira(2, 400, faults=[("bulkfetch", "every", "timeout")])
+    j = fake.client(max_attempts=6)
+    with pytest.raises(J.JiraError):
+        list(j.iter_changelog(fake.corpus.keys(), bulk_page=800))
+
+    assert j.bulk_meta["bulk_page_final"] == 400, "the page must have halved before the failure was reported"
+    assert j.stats.requests <= 6, (
+        f"{j.stats.requests} requests to try two page sizes; six attempts per size would be thirteen")
+
+
+def test_a_rate_limit_keeps_the_full_retry_budget_even_while_the_page_is_shrinking():
+    """The exemption that makes the short leash safe: a 429 is a rate problem, not a size one.
+
+    A smaller page does not persuade a tenant to stop throttling, and cutting the retries short would turn "the
+    server asked us to wait" into a lost run -- the opposite of the polite-client rule the epic is built on. So
+    the leash covers timeouts and 5xx only: a throttled page waits out its Retry-After the full number of times
+    and keeps its size.
+    """
+    # Three entries each due on their own first match: `_fire` returns at the first entry that fires, so the
+    # ones after it are not counted for that request and each takes the next one in turn.
+    fake = FJ.FakeJira(2, 40, faults=[("bulkfetch", 1, 429), ("bulkfetch", 1, 429), ("bulkfetch", 1, 429)])
+    j = fake.client(max_attempts=6)
+    rows = list(j.iter_changelog(fake.corpus.keys(), bulk_page=800))
+
+    assert rows, "three 429s inside a six-attempt budget must not lose the run"
+    assert j.stats.retries >= 3, "each 429 is a retry the client is charged for"
+    assert j.bulk_meta["bulk_page_final"] == 800, "a 429 is not a reason to shrink the page"
