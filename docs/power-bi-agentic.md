@@ -144,3 +144,82 @@ The development loop for Power BI custom visualizations connects custom TypeScri
 
 
 
+
+---
+
+## 4. Handoff under policy
+
+The Desktop handoff — the human indicates the window they mean, and `.agent/desktop.json` appears
+with `server`, `database`, `pid`, `file` — has to work for a user who **cannot elevate**. Epic #112
+measured that machine over three discovery rounds (#113) instead of guessing at it: Python is
+enterprise-approved and on every user's `PATH`; Tabular Editor 2 and dscmd run fully functional from
+`C:\Enforce`; and the single wall is one privileged file write, `<name>.pbitool.json` into
+`%CommonProgramFiles%\Microsoft Shared\Power BI Desktop\External Tools`, Administrators only.
+
+So the ribbon is not the handoff. It is one of four transports, and `ad-pbip capabilities` row
+`external_tools` is the single source of truth for which one is live:
+
+| Transport | Mechanism | Privileged write | `%database%` | Human gesture |
+|---|---|---|---|---|
+| `zorder` | highest `PBIDesktop.exe` window in Z-order, via `ctypes`/`user32` | none | DMV | click the window, then `ad-pbip handoff --active` |
+| `file` | the instance matching the project's `pbip_path`, or a named document | none | DMV | none |
+| `te2:local` | a per-user Tabular Editor custom action, *Hand off to agentdata* | none | verbatim | pick the instance, one click |
+| `ribbon:machine` | one user-agnostic `agentdata.pbitool.json` placed once by IT | one, **by IT** | verbatim | the ribbon button |
+
+`zorder` and `file` are the floor and need nothing from anyone. `ribbon:machine` is the honest front
+door: `ad-pbip register-tool --package` writes the file and the request, and we never place it
+ourselves. Its `path` is the resolved `%SystemRoot%\System32\cmd.exe`, so `cmd` resolves `python`
+from the clicking user's own `PATH` — no interpreter path, no project path, no user name, no `%VAR%`
+beyond Desktop's two substitutes. That is what makes the ticket worth filing exactly once, for
+everyone, forever, instead of again after every Python upgrade.
+
+### Withdrawn for good, and why
+
+Three routes were considered during #112 and **withdrawn**. They are recorded here with their
+reasons because each is the obvious idea — each will be re-proposed by somebody reading the same
+error message in six months, and the reason it was dropped is not visible from that error message.
+**No code may reintroduce them.** A pull request that does is rejected on this section, not on
+taste.
+
+**Environment-variable redirection of `CommonProgramFiles` / `CommonProgramFiles(x86)`.** Launch
+Power BI Desktop with those variables pointed at a folder this user *can* write, and Desktop reads
+its External Tools from there. It works. It is also a **policy bypass**: the folder is
+Administrators-only precisely so that code launched by every user of the machine is code an
+administrator approved, and redirecting the variable defeats that control while leaving it looking
+enforced. Nobody would sign off on this if it were named honestly in the change request, and the
+right response to "this control blocks me" is a ticket, not a workaround that survives until the
+first audit. Withdrawn permanently: not because it is fragile, but because it is the thing the
+control exists to prevent. What does the job instead: `zorder` and `file` need no ribbon at all,
+and `ribbon:machine` asks for the write in the open.
+
+**A resident `RegisterHotKey` listener.** A small background process holding a system-wide hotkey,
+so the human presses a key over the Desktop window they mean and the handoff fires. This is a
+**global hook by another name**: a process that outlives the command, sees keystrokes aimed at every
+other application, and is indistinguishable to an endpoint agent from the thing those agents are
+deployed to catch. It also breaks the epic's own rule that there is **no resident process** — every
+verb starts, does one thing, and exits, which is what makes the tool auditable and what keeps a
+crashed agent from leaving something running on a locked-down laptop. What does the job instead: the
+gesture the human already made. They clicked the window; `ad-pbip handoff --active` reads the
+Z-order, which is a read, needs no hook, and holds nothing after it returns.
+
+**`Add-Type`-compiled PowerShell for the window enumeration.** Compiling a C# `P/Invoke` shim at
+runtime to call `EnumWindows` and friends. `ctypes` on `user32.dll` does exactly the same job from
+the approved Python, with no compiler on the path, no temporary assembly written to disk, no
+`csc.exe` invocation for an endpoint agent to flag, and it stays inside the "stdlib only, zero new
+dependencies" rule. `Add-Type` costs a compile per call and buys nothing. PowerShell is still used
+through the existing `Runner` seam, for what it already does; it is not the way to reach `user32`.
+
+### The standing rules these three leave behind
+
+- **Measure, don't assume; never bypass.** A transport ships only after a read-only probe
+  (`ad-pbip probe`) or a vendor-documented feature shows it is expected behaviour. Every claim in
+  this section cites #113 output recorded in `docs/windows-verification.md` §Handoff without
+  elevation.
+- Anything needing a write outside `%LOCALAPPDATA%`, `%APPDATA%` or `.agent/` is an **IT package,
+  not code**. We never write the machine file ourselves, and we never say "run elevated" unless an
+  elevation avenue was actually detected — telling a user who cannot elevate to elevate is worse
+  than saying nothing, and it is the reported failure this epic started from.
+- **No resident process, no hotkeys, no hooks, no UI Automation clicks** as a transport.
+- Every verb probes a **capability**, never a **version** — the same rule §2 states for the Bridge,
+  applied to the handoff. `ribbon` is reported as a state (`registered`, `needs-it-file`,
+  `disabled-by-policy`) with its evidence, never as an instruction to elevate.
