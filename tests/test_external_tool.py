@@ -1,7 +1,6 @@
 import json
 import os
 import shutil
-import sys
 import tempfile
 from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, patch
@@ -137,16 +136,17 @@ def test_doctor_powerbi_external_tool_check():
         "workspaces": [],
     }
 
-    with patch("agentdata.pbip.external_tool.is_external_tools_enabled", return_value=(True, "enabled")), \
+    # Windows always has a transport -- `zorder`, or `file` when EnumWindows cannot answer -- so
+    # "no transport" is a statement about the other platform, and the ladder reads the platform for
+    # itself. `_is_windows` is the seam that says which machine this is without moving the real
+    # `sys.platform` under `os` and `subprocess` at the same time.
+    with patch("agentdata.pbip.desktop._is_windows", return_value=False), \
+         patch("agentdata.pbip.external_tool.is_external_tools_enabled", return_value=(True, "enabled")), \
          patch("agentdata.pbip.external_tool.external_tools_dir", return_value="/nonexistent/ext_tools"):
         step.check(ctx, found)
         ext_rows = [r for r in ctx.checks if r.name == "powerbi/external_tool"]
         assert len(ext_rows) == 1
-        # Windows always has a transport -- `zorder`, or `file` when EnumWindows cannot answer --
-        # because neither needs anything installed or any privileged write. So the "no transport"
-        # half of this test is a statement about running off Windows, and asserting `warn` there
-        # too said the row was broken on the one platform the row exists for.
-        assert ext_rows[0].status == ("ok" if sys.platform == "win32" else "warn")
+        assert ext_rows[0].status == "warn"
 
         # This row used to say "not registered" and point at elevation. That sentence is the whole
         # reason epic #112 exists: it was shown to an operator who cannot elevate, on a machine where
@@ -155,8 +155,7 @@ def test_doctor_powerbi_external_tool_check():
         # genuinely no transport -- no Desktop window and not Windows -- so the warn is correct; what
         # must never appear is advice the reader cannot follow.
         detail = ext_rows[0].detail + " " + (ext_rows[0].hint or "")
-        if sys.platform != "win32":
-            assert "transport" in detail
-            assert "needs-it-file" in detail or "ribbon" in detail
+        assert "transport" in detail
+        assert "needs-it-file" in detail or "ribbon" in detail
         assert "elevated" not in detail.lower() and "administrator" not in detail.lower(), \
             f"the row told a user who cannot elevate to elevate: {detail!r}"

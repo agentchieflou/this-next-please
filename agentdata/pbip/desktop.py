@@ -418,7 +418,7 @@ def resolve_transport(active: bool = False, file: str | None = None, candidates:
         return {"ok": False, "source": "ad-pbip handoff", "fail": fail, "hint": hint, "choices": choices}
 
     if active:
-        if sys.platform == "win32" and zorder_source != winui.SOURCE_ENUM:
+        if _is_windows() and zorder_source != winui.SOURCE_ENUM:
             # user32 was there to ask and did not answer, so what came back is the process table --
             # which has no Z-order. Answering anyway would have printed `transport: zorder` and
             # 'the window on top' over a row nothing measured. There is a flag for this case.
@@ -894,6 +894,18 @@ def te2_action_state(te2_exe: str | None = None, actions_path: str | None = None
             "installed": installed, "path": textio.norm_path(path), "evidence": detail}
 
 
+def _is_windows() -> bool:
+    """The one place this module asks what platform it is on.
+
+    A function rather than `sys.platform == "win32"` spelled inline, because the transport ladder's
+    answer *is* the platform: on Windows `zorder`/`file` need nothing installed and no privileged
+    write, so there is always a transport, and off Windows with no window there is none. A test that
+    means to describe the other machine has to be able to say so, and patching the real `sys.platform`
+    changes it for `os`, `subprocess` and everything else in the process at the same time.
+    """
+    return sys.platform == "win32"
+
+
 def external_tools_row(run: Runner | None = None, ext_dir: str | None = None,
                        actions_path: str | None = None, te2_exe: str | None = None) -> dict:
     """The `external_tools` capability row: which transport is live, and what the ribbon is doing.
@@ -922,14 +934,14 @@ def external_tools_row(run: Runner | None = None, ext_dir: str | None = None,
     # On Windows, a fallback to the process table means nothing here knows which window is on top,
     # and `handoff --active` refuses (`no_zorder`). The transport is then `file`, whose gesture names
     # the document instead -- reporting `zorder` would send the human to a flag that refuses.
-    via = "file" if (sys.platform == "win32" and zorder_source != winui.SOURCE_ENUM) else "zorder"
+    via = "file" if (_is_windows() and zorder_source != winui.SOURCE_ENUM) else "zorder"
     if wins:
         top = wins[0]
         ev = (f'{len(wins)} Power BI Desktop window(s), on top "{top[1]}" (pid {top[0]}) -- '
               "`ad-pbip handoff --active` hands that one over") if via == "zorder" else (
             f'{len(wins)} Power BI Desktop window(s), but user32.EnumWindows did not answer, so which is '
             "on top is unknown -- `ad-pbip handoff --file <name>` names the document instead")
-    elif sys.platform == "win32":
+    elif _is_windows():
         ev = ("no Power BI Desktop window open; `ad-pbip handoff --active` works as soon as one is"
               if via == "zorder" else
               "no Power BI Desktop window open, and user32.EnumWindows did not answer either")

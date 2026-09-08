@@ -135,7 +135,22 @@ def advice(det, machine):
     scrubbing the root is what keeps the assertion about the sentence it is actually about.
     """
     text = " ".join(f"{c.detail} {c.hint}" for c in rows(det).values())
-    return text.replace(machine.root, "<tmp>").lower()
+    return scrub(text, machine.root)
+
+
+def scrub(text: str, root: str) -> str:
+    """Lowercased, with every spelling of `root` removed.
+
+    Both spellings, because Windows prints two: `tmp_path` hands out backslashes and the product
+    canonicalises to forward slashes, so replacing only `str(tmp_path)` left the whole absolute path
+    in the text -- and since these tests are named after the word they hunt, the folder pytest names
+    after the test then matched it. That was fifty Windows-only failures whose "advice to elevate"
+    was a temporary directory.
+    """
+    out = text.lower()
+    for spelling in {root, root.replace("\\", "/"), root.replace("/", "\\")}:
+        out = out.replace(spelling.lower(), "<tmp>")
+    return out
 
 
 # ------------------------------------------------------------------ the row names the live transport
@@ -173,8 +188,14 @@ def test_te2_local_when_the_action_is_installed(machine):
     assert r["powerbi/ribbon"].status == "info"
 
 
-def test_no_transport_is_a_warn_that_names_the_settings_behind_it(machine):
-    """Off Windows with no window open there is nothing to hand off -- and an answer can help."""
+def test_no_transport_is_a_warn_that_names_the_settings_behind_it(machine, monkeypatch):
+    """Off Windows with no window open there is nothing to hand off -- and an answer can help.
+
+    `FakeDet(is_windows=False)` says what machine this is, but the ladder reads the platform for
+    itself, so on the Windows runners it answered `zorder` and this row was `ok`. `DT._is_windows`
+    is the seam that carries the fake's answer through.
+    """
+    monkeypatch.setattr(DT, "_is_windows", lambda: False)
     r = rows(FakeDet(windows=False, is_windows=False))
     row = r["powerbi/external_tool"]
     assert row.status == "warn"
@@ -376,7 +397,7 @@ def test_ribbon_offer_packages_instead_of_asking_for_elevation(machine, tmp_path
     assert row.status == "info"
     assert "packaged at" in row.detail and ".agent/out/external-tool" in row.detail
     assert "REQUEST.md" in row.hint
-    assert "elevat" not in (row.detail + row.hint).lower()
+    assert "elevat" not in scrub(row.detail + row.hint, str(tmp_path))
     assert os.path.exists(tmp_path / ".agent" / "out" / "external-tool" / EXT.TOOL_FILENAME)
 
 
@@ -397,7 +418,7 @@ def test_ribbon_offer_refuses_to_package_a_file_that_would_work_for_nobody(machi
     row = {c.name: c for c in ctx.checks}["powerbi/external_tool"]
     assert row.status == "warn" and "per_user_launcher" in row.detail
     assert "--launcher" in row.hint
-    assert "elevat" not in (row.detail + row.hint).lower()
+    assert "elevat" not in scrub(row.detail + row.hint, str(tmp_path))
     assert not os.path.exists(tmp_path / ".agent" / "out" / "external-tool")
 
 
@@ -426,7 +447,7 @@ def test_ad_doctor_prints_both_rows_and_no_advice_to_elevate(machine, capsys):
     out = capsys.readouterr().out
     assert "powerbi/external_tool" in out and "powerbi/ribbon" in out
     assert "zorder" in out
-    assert "elevat" not in out.replace(machine.root, "<tmp>").lower()
+    assert "elevat" not in scrub(out, machine.root)
     assert rc == 0, out          # a machine with no ribbon button is not a failing doctor
 
 

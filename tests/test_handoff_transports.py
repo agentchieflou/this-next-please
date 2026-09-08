@@ -435,7 +435,14 @@ def test_a_malformed_custom_actions_file_is_not_installed_and_is_not_rewritten(t
         (False, False, False, False, False, "none",           DT.RIBBON_WRITABLE,   False),
     ],
 )
-def test_the_transport_ladder(tmp_path, registered, te2, action, killswitch, windows, via, ribbon, available):
+def test_the_transport_ladder(tmp_path, monkeypatch, registered, te2, action, killswitch, windows,
+                              via, ribbon, available):
+    if via == "none":
+        # "no transport" is an off-Windows answer by construction: on Windows `zorder`/`file` need
+        # nothing installed and no privileged write, so the ladder is never empty there. Pinned
+        # rather than inherited from whatever platform the suite happens to run on, which is what
+        # made this one row assert Linux behaviour and fail on the Windows runners.
+        monkeypatch.setattr(DT, "_is_windows", lambda: False)
     ext_dir = ext_tools_dir(tmp_path, registered=registered)
     if te2:
         exe, actions = te2_here(tmp_path, action=action)

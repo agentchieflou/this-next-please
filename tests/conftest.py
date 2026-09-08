@@ -226,6 +226,20 @@ def _no_user32_in_tests(monkeypatch):
 
     monkeypatch.setattr(_pbi_step, "_is_user_an_admin", lambda: False, raising=False)
 
+    # And the third one: `probe.read_key(native=True)` goes straight to `winreg` on win32 and never
+    # looks at the injected Runner, so on the runners the real HKLM answered and every test that
+    # described a machine with the External Tools kill-switch set was told the switch was absent.
+    # Forcing `native=False` routes the registry through the same fake on both platforms. A test
+    # about `winreg` itself patches `_winreg_values`, which this does not touch.
+    from agentdata.pbip import probe as _probe
+
+    real_read_key = _probe.read_key
+
+    def _read_key(hive, subkey, run=None, native=False):
+        return real_read_key(hive, subkey, run=run, native=False)
+
+    monkeypatch.setattr(_probe, "read_key", _read_key, raising=False)
+
 
 @pytest.fixture(autouse=True)
 def _no_browser_in_tests(monkeypatch):
