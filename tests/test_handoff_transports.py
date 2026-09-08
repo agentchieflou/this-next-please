@@ -21,6 +21,7 @@ a real delete, and a real assertion that nothing was left behind.
 """
 import json
 import os
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -269,15 +270,22 @@ def test_handoff_refuses_before_it_writes_anything(tmp_path, catalog):
 
 
 def test_a_desktop_json_written_before_the_new_fields_still_reads(tmp_path):
-    """`.agent/desktop.json` gained two keys and lost none: yesterday's file is still a handoff."""
+    """`.agent/desktop.json` gained two keys and lost none: yesterday's file is still a handoff.
+
+    The stamp is relative to now on purpose. It was written as a literal `2026-09-08T09:00:00+00:00`, and
+    `read_handoff` treats a handoff older than eight hours as stale -- so the test passed on the morning it was
+    written, started failing that same afternoon, and would have failed every day after. "Written before the new
+    fields" is about the file's *shape*, not its age.
+    """
     agent = tmp_path / ".agent"
     agent.mkdir()
+    written_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
     (agent / "desktop.json").write_text(json.dumps({
         "server": "localhost:54321",
         "database": "guid",
         "pid": None,
         "file": None,
-        "handed_off_at": "2026-09-08T09:00:00+00:00",
+        "handed_off_at": written_at,
     }), encoding="utf-8")
 
     data = ET.read_handoff(project_dir=str(tmp_path))
