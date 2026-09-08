@@ -14,6 +14,6 @@ Prereq: `ad-doctor` row `pncli / jira auth` is not `fail`. Failing → print its
 4. Read `summary`: `committed_points` (estimate at sprint start), `completed_points` (credited at close by default; pass `--points-at commit` only when the ticket says so, and state the choice in findings), `added`, `punted`, `re_estimated`, `estimated_mid_sprint`, `carried_over`, `reopened`, `completed_in_another_sprint`. `provisional: true` means the sprint is still active. How each number was derived, and which are credited when: `references/jira-changelog.md` §Replay rules.
 5. Cross-check only when asked: `--compare-sprintreport`. A non-zero delta lists `keys_only_in_report` / `keys_only_in_replay`; Jira's Sprint Report is a hint, the replay rows are the evidence.
 6. `rule: 6` → script over `path`, never read rows. `ok: false` → fix once from `hint`; second failure → `friction-log` type `tool-error`.
-7. `state-update` with the paths. Hand off → `uat-report-visual` when comparing to a report, `confluence-publish` when documenting, else `router`.
+7. `state-update` with the paths. Hand off → `pbip-projection` when comparing to a report (it leads on to `uat-report-visual`, which needs the projection first), `confluence-publish` when documenting, else `router`.
 
 § When a result looks impossible rather than merely wrong: `references/jira-changelog.md` §Known limits — the changelog does not record everything, and Cloud and Data Center differ (§Flavor). Each step above points at the one section it needs.

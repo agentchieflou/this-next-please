@@ -10,4 +10,4 @@ description: "Use when given a Jira ticket key, asked \"what's next\", or asked 
 4. Any criterion untestable → `friction-log` type `ambiguity`, quote the line. STOP.
 5. Decide type: `data-fix | model-change | report | investigation`. Branch: `feature/<KEY>-<slug≤4 words>`.
 6. Invoke `state-update`: `active_ticket=<KEY>`, `branch`, `phase=triaged`.
-7. Print the ≤6 lines + branch. Hand off: investigation/UAT → `uat-jira-vs-teradata`; model-change → `pbi-deploy-te2` after edits; otherwise → `router`.
+7. Print the ≤6 lines + branch. Hand off: investigation/UAT → `uat-jira-vs-source`; model-change → `pbip-projection` (which leads to `tmdl-edit` → `pbi-validate` → `pbi-deploy-te2`; never deploy without validating); otherwise → `router`.
