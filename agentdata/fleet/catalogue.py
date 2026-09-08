@@ -87,7 +87,7 @@ def allows(rel: str) -> str:
     absolute paths are refused outright, and the four PBIP names are only allowed exactly one
     directory below `.agent/pbip/` -- so `.agent/pbip/../../.env` cannot spell its way in.
     """
-    rel = (rel or "").replace("\\", "/")
+    rel = textio.norm_path(rel or "")
     while rel.startswith("./"):
         rel = rel[2:]
     if not rel or rel.startswith("/") or ".." in rel.split("/") or ":" in rel:
@@ -127,6 +127,9 @@ def _read(repo_path: str, rel: str) -> str:
 # The same shape `config.save()` refuses, applied to a *value* rather than a config key: a doc is
 # arbitrary prose, so the offending thing is `key: value` or `key=value` written in it.
 _ASSIGNMENT = re.compile(r"([A-Za-z_][\w.\-]{0,60})\s*[:=]\s*(\S[^\n]{0,200})")
+# Deliberately strict, and it will occasionally refuse an AGENTS.md that merely *mentions* bearer
+# auth. That is the trade the epic asked for: a refused doc costs one search result and says so in
+# the report, a missed one puts a live token in a sqlite file that gets copied between machines.
 _BEARER = re.compile(r"\bBearer\s+\S")
 # a value nobody has filled in yet. The AGENTS.md stub ships `- jira_token: <set in pncli>`, and a
 # catalogue that refused every freshly generated project would be uninstalled by lunchtime.
@@ -138,7 +141,8 @@ def looks_like_a_credential(text: str) -> str | None:
 
     Returns a *pattern name* ("token", "password", "bearer"), never the offending text: the whole
     point is that the value does not travel any further, and an error message is a place values
-    travel to. `config.looks_secret` supplies the key shapes so there is one list, not two.
+    travel to. The key shapes come from `config.py`'s own compiled pattern -- the one `save()`
+    refuses on -- so there is one list in this repository to keep current, not two.
     """
     if not text:
         return None
@@ -246,7 +250,7 @@ def _git_ref(repo_path: str) -> str:
         return ""
     if not head.startswith("ref:"):
         return ""
-    rel = ".git/" + head.split(":", 1)[1].strip().replace("\\", "/")
+    rel = textio.norm_path(".git/" + head.split(":", 1)[1].strip())
     if not allows(rel) or not os.path.isfile(os.path.join(repo_path, *rel.split("/"))):
         return ""
     return rel
@@ -364,7 +368,7 @@ def _git_doc(repo_path: str) -> _Doc:
         # `refs/heads/feature/velocity-gate` is one branch, not a `feature` folder holding a
         # `velocity-gate`: the obvious rsplit("/") reports the branch as "velocity-gate", which is
         # the name that then fails to match anything the operator types or Bitbucket shows.
-        ref_name = head.split(":", 1)[1].strip().replace("\\", "/")
+        ref_name = textio.norm_path(head.split(":", 1)[1].strip())
         branch = ref_name[len("refs/heads/"):] if ref_name.startswith("refs/heads/") else ref_name
         ref = _git_ref(repo_path)
         if ref:                       # a packed ref leaves the branch name, which is the useful half
@@ -385,11 +389,13 @@ def _git_doc(repo_path: str) -> _Doc:
 
 # -------------------------------------------------------------------------------- link facts
 
-# The AGENTS.md facts and state fields #131's `links_for()` turns into a tile's links. Listed here
-# so `show()` hands the tile slice exactly what it needs and nothing else -- a tile does not get
-# the whole fact block, which is how a Teradata host or a share path ends up on a web page.
-LINK_FACTS = ("jira_project", "jira_board_id", "confluence_space", "confluence_parent",
-              "pbi_workspace", "pbi_model", "ws_id", "ds_id", "pbip_path")
+# Exactly the `AGENTS.md` facts and `state.json` fields `links.links_for()` reads, and nothing
+# else. A tile renders in a browser, and handing it the whole fact block is how a Teradata
+# hostname, a `\\share\dpm\runs` path or a TabularEditor install location ends up on a web page
+# that the operator then screenshots into a ticket.
+LINK_FACTS = ("jira_url", "jira_project", "jira_board_id", "report_id", "ds_id", "ws_id",
+              "pbi_workspace", "bitbucket_url", "bitbucket_repo", "confluence_base",
+              "confluence_space", "confluence_parent")
 LINK_STATE = ("active_ticket", "branch", "pr_url", "confluence_url")
 
 
@@ -787,7 +793,10 @@ class Catalogue:
         links = {k: facts.get(k, "") for k in LINK_FACTS}
         links.update({k: (state.get(k) or "") for k in LINK_STATE})
         links["branch"] = links.get("branch") or row["branch"] or ""
-        return {"project": row["name"], "path": row["path"], "branch": row["branch"],
+        # `name` as well as `project`, because `links.links_for()` takes "anything with a .path
+        # and a .name" and the dict this returns is what the tile slice hands it.
+        return {"project": row["name"], "name": row["name"], "path": row["path"],
+                "branch": row["branch"],
                 "jira_project": row["jira_project"], "last_indexed": row["last_indexed"],
                 "facts": facts, "state": state, "friction": friction,
                 "pbip": [pbip[k] for k in sorted(pbip)], "links": links, "docs": len(docs)}

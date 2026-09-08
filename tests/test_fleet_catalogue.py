@@ -112,7 +112,8 @@ def folder(tmp_path, monkeypatch):
 
     make_repo(root, "rdsd-pbi-reporting",
               facts="- jira_project: RDSD\n- jira_board_id: 42\n- pbi_workspace: RDSD Reporting\n"
-                    "- confluence_space: RDSD\n",
+                    "- confluence_space: RDSD\n- jira_url: https://jira.example.com\n"
+                    "- te2_exe: C:/Tools/TabularEditor/TabularEditor.exe\n",
               state={"project": "RDSD", "phase": "building", "active_ticket": "RDSD-22449",
                      "branch": "feature/velocity-gate",
                      "pr_url": "https://bitbucket/pr/7", "open_questions": ["which sprint table"],
@@ -551,8 +552,34 @@ def test_a_branch_name_with_a_slash_survives(folder, cat):
 def test_show_hands_the_tile_only_the_link_facts_it_needs(folder, cat):
     """A tile renders in a browser; the whole fact block would put share paths on a web page."""
     cat.index(repos(folder))
-    links = cat.show("rdsd-pbi-reporting")["links"]
-    assert set(links) == set(K.LINK_FACTS) | set(K.LINK_STATE) | {"branch"}
+    shown = cat.show("rdsd-pbi-reporting")
+    assert set(shown["links"]) == set(K.LINK_FACTS) | set(K.LINK_STATE) | {"branch"}
+    assert shown["facts"]["te2_exe"].endswith("TabularEditor.exe"), "a fact the tile must not get"
+    assert "te2_exe" not in shown["links"]
+
+
+def test_the_link_facts_are_the_ones_the_tile_slice_actually_reads(folder, cat):
+    """`LINK_FACTS` drifting away from `links.py` is a link that silently stops appearing."""
+    links = pytest.importorskip("agentdata.fleet.links")
+    import re as _re
+
+    read = set(_re.findall(r'facts(?:\.get\(|\[)["\']([a-z_]+)["\']',
+                           open(links.__file__, encoding="utf-8").read()))
+    read |= set(_re.findall(r'_guid\(facts,\s*["\']([a-z_]+)["\']',
+                            open(links.__file__, encoding="utf-8").read()))
+    assert read <= set(K.LINK_FACTS), sorted(read - set(K.LINK_FACTS))
+
+
+def test_show_output_is_what_links_for_takes(folder, cat):
+    """The seam: `links_for(shown, shown["facts"], shown["state"])`, no re-reading of the repo."""
+    links = pytest.importorskip("agentdata.fleet.links")
+    cat.index(repos(folder))
+    shown = cat.show("rdsd-pbi-reporting")
+    rows = links.links_for(shown, shown["facts"], shown["state"])
+    by_name = {r["name"]: r for r in rows}
+    assert by_name["ticket"]["url"].endswith("RDSD-22449")
+    assert by_name["pr"]["url"] == "https://bitbucket/pr/7"
+    assert by_name["folder"]["url"].startswith("file:///")
 
 
 def test_show_names_the_projects_that_are_indexed_when_asked_for_one_that_is_not(folder, cat):
