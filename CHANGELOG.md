@@ -4,6 +4,18 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## Unreleased
+
+**New: `ad-sort` — organizing a folder of files.** An agent asked to sort a delivery of documents had no sanctioned way
+to do it, and correctly stopped: canonical rule 12 makes writing outside `.agent/` a stop condition. This is the
+sanctioned way, and it keeps that rule rather than carving an exception in it. `ad-sort plan` reads a folder, decides
+where each file would go under a rule set somebody supplied, and writes `.agent/out/<heap>-sort-plan.{json,md}` — it
+opens no document and copies nothing. `ad-sort apply` is a separate command and it is a person's: it re-fingerprints
+the folder, refuses a plan written against a different one, and **copies rather than moves**, so the folder it read is
+still there afterwards. Two files wanting one destination is a refusal, never a `(2)` suffix. **Nothing to do after
+updating**, unless you want it: new skill `file-organize`, a new router row, and `docs/sorting.md`. Never sort a DPM
+run root or into one — it is read-only and fingerprinted.
+
 ## 0.7.0
 
 Three roadmap epics, and the first of them changes what `ad-jira changelog` does when a pull goes wrong.

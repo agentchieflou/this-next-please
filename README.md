@@ -186,6 +186,7 @@ python -m pytest -q
 | `agentdata/jira_cache.py` | the changelog cache (`ad-jira cache`): one SQLite file per project, keyed on each issue's `updated` stamp, so the second pull of a long JQL costs one search |
 | `agentdata/dpm/` | DPM → consumer handoff contract: read-only run root, reference resolution, versioned refusals, job manifest with lineage (`ad-dpm`) |
 | `agentdata/graph/` | code graph extraction, queries, human-approval gate, findings, and guard (`ad-graph`) |
+| `agentdata/sorting/` | `ad-sort`: organizing a folder of files into a structure — a plan an agent writes and a person applies, by name only, copying and never moving ([docs/sorting.md](docs/sorting.md)) |
 | `agentdata/dpm/extract.py` | field extraction over DPM-routed text: the field list is an input, and the engine is a seam (`simple` label matching, or an Azure Content Understanding analyzer) that downstream output does not see |
 | `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |
 | `docs/data-format-policy.md` | the determinant: which format, when |
