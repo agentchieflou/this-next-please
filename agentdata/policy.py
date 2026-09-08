@@ -1,8 +1,10 @@
 """Deterministic format policy. See docs/data-format-policy.md. Agents never choose; this does."""
 from __future__ import annotations
 import json
+import re
 from .model import AgentTable
 from . import color
+from . import metrics
 from . import toon
 from . import ui
 
@@ -36,8 +38,31 @@ def pretty() -> bool:
     return _pretty()
 
 
+def _rule_of(text: str, raw: bool) -> int:
+    """The rule the rendered text says fired. Read back out rather than threaded through every
+    branch, so a new rule cannot be added and silently go unmeasured.
+
+    Rule 1 is the exception and the reason `raw` is a parameter: it returns the payload itself, so
+    there is no `rule` in it to read. Everything else names its own rule.
+    """
+    m = re.search(r'"?rule"?:\s*(\d+)', text)
+    if m:
+        return int(m.group(1))
+    return 1 if raw else 0
+
+
 def render(t: AgentTable, raw: bool = False, extra: dict | None = None) -> str:
     """Return the exact text to print to the agent's context. `extra` is merged into meta (e.g. warnings)."""
+    out = _render(t, raw=raw, extra=extra)
+    # Off unless the config says otherwise, and it can never raise. Measured on the finished text
+    # because that is what actually reaches the context -- an estimate taken before the sample was
+    # cut would be a number about a string nobody ever sees.
+    metrics.record(source=t.source, rule=_rule_of(out, raw), shape=t.shape, rows=t.n,
+                   cols=len(t.columns), est_tokens=est_tokens(out))
+    return out
+
+
+def _render(t: AgentTable, raw: bool = False, extra: dict | None = None) -> str:
     # rules 1-2: raw JSON for debugging
     if raw:
         payload = t.raw if t.raw is not None else t.to_records()
@@ -92,7 +117,10 @@ def render_nested(records: list, name: str, source: str, raw_payload) -> str:
     summary = {"meta": {"ok": True, "rule": 8, "source": source, "records": len(records), "path": path},
                "top_keys": list(sample.keys()) if isinstance(sample, dict) else [],
                "sample": sample}
-    return toon.encode(summary)
+    out = toon.encode(summary)
+    metrics.record(source=source, rule=8, shape="nested", rows=len(records), cols=0,
+                   est_tokens=est_tokens(out))
+    return out
 
 
 def error(msg: str, hint: str = "", source: str = "") -> str:

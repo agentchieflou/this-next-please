@@ -206,8 +206,16 @@ def test_docs_carry_the_workflow_and_what_the_human_sees():
 
 
 def test_changelog_tells_an_updating_user_to_patch_their_project():
+    """The release that added these project facts has to tell a reader to run `--patch` for them.
+
+    Found by the facts it names, not by being the newest entry. Reading the top of the file made
+    this test fail on the next release for no reason a reader could act on — the guarantee is about
+    *that* entry, and it does not expire when another version lands above it.
+    """
     text = read_text(os.path.join(REPO_ROOT, "CHANGELOG.md"))
-    entry = text.split("## ", 2)[1]
-    assert "ad-setup --patch" in entry
+    entries = text.split("\n## ")[1:]
     for fact in ("graph_min_coverage", "graph_min_speedup"):
-        assert fact in entry
+        naming = [e for e in entries if fact in e]
+        assert naming, f"no changelog entry mentions {fact}"
+        assert all("ad-setup --patch" in e for e in naming), \
+            f"an entry names {fact} without telling the reader to run `ad-setup --patch`"

@@ -4,7 +4,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 ---
 # Router
 
-1. Read `.agent/state.json`. Note `phase`, `active_ticket`, `open_questions`.
+1. Use the `phase`, `active_ticket` and `open_questions` `session-bootstrap` handed you **if it invoked you in this same turn**. Otherwise read `.agent/state.json` — on every later task in the session you must, because a skill has run since and state changes.
 2. If `open_questions` is non-empty → invoke `friction-log`. STOP.
 3. Match the user's request to ONE row. First match wins.
 
@@ -30,3 +30,5 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 
 4. Output one line: `→ <skill>: <reason in ≤ 12 words>`. Then invoke it.
 5. No match after reading the table twice → invoke `friction-log` with type `ambiguity`. STOP.
+
+When this table outgrows itself — about 24 rows, checked by `tests/test_skills.py` — **split it, do not shorten the rows.** Add a domain sub-router and give this table one row pointing at it, the way `pbi-router` already holds the seven report skills behind a single Power BI row. The rows here are already terse; squeezing them further trades a legible table for a cryptic one while the growth continues, and first-match-wins turns a near-miss into the wrong skill.

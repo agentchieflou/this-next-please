@@ -4,6 +4,8 @@ Per-dialect detail lives next to each query skill: `teradata-query/references/te
 `hive-query/references/hive-impala-sql.md`, `oracle-query/references/oracle-sql.md`. `ad-sql-check` enforces the
 blocking rows below before any query runs; **V** = verified from grammar/docs, **?** = verify on your instance.
 
+## The side-by-side
+
 | Operation | Teradata 20 | Hive 3/4 | Impala 4 | Oracle 19c/21c |
 |---|---|---|---|---|
 | Limit rows | `SELECT TOP n` / `SAMPLE n` (V) | `LIMIT n` (V) | `LIMIT n` (V) | `FETCH FIRST n ROWS ONLY` (V) |

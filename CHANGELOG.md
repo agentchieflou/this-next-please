@@ -4,6 +4,36 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.6.3 — 2026-09-05
+
+**Nothing to run after updating.** One new command, and it does nothing until you ask it to.
+
+**Skill improvement — token consumption (#15).** Three changes to the skill system itself, all
+independent of any one workflow.
+
+- **Skills point at a section, not a file (#24).** `dpm-consumer-integration` used to point at all
+  160 lines of `dpm-contract.md` for a step that needs one part of it. Seven skills now name the
+  section each step needs — which four query skills already did, so this makes an existing
+  convention consistent rather than inventing one. Reference docs gained headings only, never
+  content. One pointer stays whole-file and says why: `theme-base.json` is a Power BI theme, not
+  prose.
+- **No more session-start double read (#24).** `session-bootstrap` read `.agent/state.json`, then
+  handed off to `router`, which read it again in the same turn. Bootstrap now passes the three
+  values across, and the router uses them **only** when bootstrap invoked it this turn — on every
+  later task it still reads the file, because a skill has run since.
+- **Usage metrics, off by default (#25).** `docs/data-format-policy.md` set its thresholds as first
+  guesses and then recorded "no threshold change" twice, because nothing here measured what a
+  result actually cost. `metrics.enabled: true` in `~/.agentdata/config.json` starts a local file
+  holding one line per rendered result — rule, shape, rows, cols, est_tokens — and `ad-metrics
+  summary` reports it, with a median as well as a total. No cell value, no query text, no path;
+  the command is reduced to its `ad-<name>`. Nothing transmits it. **No threshold changed**: that
+  is the next task, with this file's output in hand.
+- **A router guardrail before it is needed (#26).** Both routing tables are checked for length and
+  for row count, well under the 120-line hard limit, and `router/SKILL.md` now says what to do when
+  one trips: split off a domain sub-router the way `pbi-router` already holds seven report skills
+  behind one row. Shortening the rows is explicitly not the fix, and neither is raising the limit —
+  there is a test for that too.
+
 ## 0.6.1 — 2026-09-04
 
 **Run `ad-setup --patch` after updating.** This release adds three project facts the new code-graph and
