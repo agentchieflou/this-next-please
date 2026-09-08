@@ -50,6 +50,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import time
 from dataclasses import dataclass
 
@@ -92,6 +93,12 @@ STATE_VERSION = 1
 DISMISSED_CAP = 500                            # oldest fall off; a dismissal is not an archive
 
 _FOLDERID_DOWNLOADS = "{374DE290-123F-4565-9164-39C4925E467B}"
+
+# Every Windows Downloads folder has a hidden `desktop.ini`, and a browser leaves hidden bookkeeping
+# beside a download. Listing them as "not offered: .ini is not an offered type" is noise on the one
+# screen that has to stay readable, and a hidden file is never something a person saved on purpose.
+_HIDDEN = (getattr(stat, "FILE_ATTRIBUTE_HIDDEN", 0)
+           | getattr(stat, "FILE_ATTRIBUTE_SYSTEM", 0))
 
 
 class InboxError(Exception):
@@ -259,6 +266,8 @@ class Inbox:
                                "reason": f"{type(e).__name__}: {e.strerror or e}"})
             return None
 
+        if getattr(st, "st_file_attributes", 0) & _HIDDEN:
+            return None                          # `desktop.ini` and the browser's own bookkeeping
         age = max(0.0, now - st.st_mtime)
         if age > LOOK_BACK_S:
             return None
@@ -303,7 +312,12 @@ class Inbox:
         """
         repos = self.registry.sorted()
         tickets = self._tickets or {r.name: (r.state().get("active_ticket") or "") for r in repos}
-        for key in TICKET_RE.findall(name):
+        keys = TICKET_RE.findall(name)
+        # A key nobody is working and nobody owns still travels with the row: it is what the file
+        # is *about*, so the unsorted tray can say so and an attach filed under `.agent/in/<KEY>/`
+        # gets the right folder even when the human, not the match, chose the repository.
+        seen_key = keys[0] if keys else ""
+        for key in keys:
             for repo in repos:
                 if tickets.get(repo.name) == key:
                     return repo.name, key, f"{key} is {repo.name}'s active ticket"
@@ -318,13 +332,16 @@ class Inbox:
         lowered = name.lower()
         named = [r for r in repos if r.name and len(r.name) >= 3 and r.name.lower() in lowered]
         if named:
+            # The longest name wins, so `velocity-reports-export.json` goes to `velocity-reports`
+            # and not to `velocity`. Only a genuine tie -- two different projects both named in the
+            # file -- is ambiguous, and an ambiguity is unsorted rather than a coin toss.
             longest = max(len(r.name) for r in named)
             best = [r for r in named if len(r.name) == longest]
             if len(best) == 1:
-                return best[0].name, "", f"the name contains the project name {best[0].name}"
+                return best[0].name, seen_key, f"the name contains the project name {best[0].name}"
             listed = " and ".join(r.name for r in best)
-            return "", "", f"unsorted: {listed} both match the name"
-        return "", "", "unsorted: nothing in the name names a registered project"
+            return "", seen_key, f"unsorted: {listed} both match the name"
+        return "", seen_key, "unsorted: nothing in the name names a registered project"
 
     # ---- the one write ---------------------------------------------------------------------
 
@@ -341,8 +358,11 @@ class Inbox:
             raise InboxError(f"{offer.name} is not offered: {offer.reason}",
                              "attach one of the offered rows, or copy this one in yourself")
 
-        key = textio.safe_name(offer.ticket or (target.state().get("active_ticket") or "")
-                               or UNSORTED_KEY)
+        # The key in the name wins over the repository's current ticket: the file says what it is
+        # about, and a human attaching yesterday's export to a repository that has moved on should
+        # get yesterday's folder rather than today's.
+        ticket = offer.ticket or (target.state().get("active_ticket") or "")
+        key = textio.safe_name(ticket or UNSORTED_KEY)
         folder = os.path.join(target.path, *IN_DIR.split("/"), key)
         dest = os.path.join(folder, textio.safe_name(offer.name))
         root = textio.norm_path(os.path.join(target.path, *IN_DIR.split("/")))
@@ -357,7 +377,7 @@ class Inbox:
         if self._already_there(dest, offer):
             data.update(attached=False, recorded=False,
                         why=f"already attached: {offer.name} is there with the same size and time")
-            return E.event(target.name, ATTACHED, data, ticket=offer.ticket)
+            return E.event(target.name, ATTACHED, data, ticket=ticket)
 
         try:
             os.makedirs(textio.longpath(folder), exist_ok=True)
@@ -369,7 +389,7 @@ class Inbox:
 
         why = self._ask_ad_state(target, dest, key)
         data.update(attached=True, recorded=not why, why=why)
-        event = E.event(target.name, ATTACHED, data, ticket=offer.ticket)
+        event = E.event(target.name, ATTACHED, data, ticket=ticket)
         try:
             E.append(target.name, [event])
         except OSError:
@@ -414,6 +434,8 @@ class Inbox:
                                                 cwd=repo.path, timeout=60)
         except proc.ProcError as e:
             return f"ad-state could not be run ({e.code}); the file is in {IN_DIR}/{key}/ regardless"
+        except OSError as e:
+            return f"ad-state could not be run ({e}); the file is in {IN_DIR}/{key}/ regardless"
         if code == 0:
             return ""
         tail = (err or out or "").strip().splitlines()
