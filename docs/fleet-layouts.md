@@ -139,10 +139,12 @@ epic exists because of one. Attach them to issue #133 and link them here.
 >
 > _Focus mode: kept / dropped, and why:_
 
-Then: make it `LAYOUTS[0]` in `agentdata/cli_fleet.py` and `agentdata/fleet/serve.py` (a test asserts
-the two lists agree), update the default named in this page and in
-[fleet-dashboard.md](fleet-dashboard.md), and open the follow-up issue that removes the unused two a
-month later.
+Then the default moves in three places that a test already keeps in step: `LAYOUTS` in
+`agentdata/cli_fleet.py` (the `--layout` default is `LAYOUTS[0]`), `LAYOUTS` in
+`agentdata/fleet/serve.py`, and the fallback a window with no `?layout=` takes in
+`agentdata/fleet/static/app.js`. Update the default named in this page and in
+[fleet-dashboard.md](fleet-dashboard.md), then open the follow-up issue that removes the unused two
+a month later.
 
 ## Constraints every arrangement keeps
 

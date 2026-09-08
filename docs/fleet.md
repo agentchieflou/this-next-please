@@ -83,8 +83,9 @@ is already a rule here. AGENTS.md rule 3 — an agent never reads a second proje
 broken by a folder-wide agent on its first `ls`; the thing that may read across projects is the
 supervisor, a plain Python process the human runs, never a model. The corporate policy disables MCP,
 so no model could query a vector store anyway: the only query path a model has on this laptop is an
-`ad-*` command printing TOON, and `ad-fleet` is not in the agent tool allow-list. And what actually
-answers "which project owns Velocity, what ticket is it on, what did it last get stuck on" is the
+`ad-*` command printing TOON — and `ad-fleet` is on the agent's deny-list, so that path is shut. And
+what actually answers "which project owns Velocity, what ticket is it on, what did it last get
+stuck on" is the
 small structured credential-free material above — indexing the source trees answers nothing more and
 is where the volume and the credential risk live. `ad-fleet where` is the same leverage with none of
 the embedding, the chunking, or the "what did it index" question.
@@ -123,7 +124,9 @@ one checkout would both edit the same working tree and both believe they owned `
 
 **The repository belongs to the agent.** The fleet writes only under `~/.agentdata/fleet/`. Nothing
 in `.agent/` is written by anything but the agent's own `ad-state`, and there is a test that walks
-four repositories after a run to prove it.
+four repositories after a run to prove it. The one documented exception is the inbox's *attach*
+above: a click, a copy into `.agent/in/<KEY>/`, an event — and the `inputs` line it produces is
+still asked of `ad-state` rather than written behind its back.
 
 **Reads run unattended; writes wait for a click.** Every write to Jira, Confluence or Bitbucket
 stops at [the approval gate](fleet-approvals.md) and shows you the dry-run payload first.
