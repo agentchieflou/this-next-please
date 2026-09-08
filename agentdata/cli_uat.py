@@ -17,6 +17,7 @@ from .uat import jira_sql as JQ
 from .uat import jira_vs_source as JV
 from .uat import jira_vs_warehouses as JW
 from .uat import reconcile as R
+from . import textio
 
 
 def cmd_expect(a) -> int:
@@ -65,7 +66,7 @@ def cmd_reconcile(a) -> int:
                       key=a.key, cols=[c.strip() for c in a.cols.split(",") if c.strip()], window=window,
                       coverage=_read(a.hist_coverage, "coverage"), tol=a.tol)
     os.makedirs(OUT_DIR, exist_ok=True)
-    md_path = os.path.join(OUT_DIR, f"{a.ticket}-uat-findings.md").replace("\\", "/")
+    md_path = textio.norm_path(os.path.join(OUT_DIR, f"{a.ticket}-uat-findings.md"))
     with open(md_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(R.findings_md(res, a.ticket))
     t = AgentTable.from_records(res["findings"], name="uat_findings", source="ad-uat reconcile",

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fleet</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <h1>fleet</h1>
+  <span id="link" class="dot" title="event stream">connecting</span>
+  <span class="spacer"></span>
+  <label for="theme" class="sr">theme</label>
+  <select id="theme" title="page theme"><option value="">system</option></select>
+  <button id="chime" aria-pressed="false" title="sound on a notification">chime off</button>
+  <button id="boardtoggle" title="your Jira tickets"><kbd>b</kbd> board</button>
+  <button id="bell" title="notifications"><span id="bellcount">0</span> new</button>
+  <button id="unfocus" hidden>back to grid <kbd>Esc</kbd></button>
+</header>
+
+<aside id="drawer" hidden aria-label="notifications">
+  <div class="drawer-head">
+    <strong>notifications</strong>
+    <span id="toaststatus" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="clearbell">mark all read</button>
+    <button id="closedrawer">close <kbd>n</kbd></button>
+  </div>
+  <ol id="notes"></ol>
+  <p id="nonotes" class="muted">Nothing yet. Only state changes are announced &mdash; never a tool call.</p>
+</aside>
+
+<aside id="board" hidden aria-label="Jira board">
+  <div class="drawer-head">
+    <strong>board</strong>
+    <span id="boardage" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="boardrefresh" title="ask Jira now instead of using the cache">refresh</button>
+    <button id="closeboard">close <kbd>b</kbd></button>
+  </div>
+  <input id="boardsearch" type="search" placeholder="filter by key, summary or status">
+  <p id="boarderr" class="muted" hidden></p>
+  <ol id="tickets"></ol>
+  <p id="noboard" class="muted">Drag a ticket onto a tile, or click <em>start</em>.</p>
+  <details id="history">
+    <summary>what I dispatched (7 days)</summary>
+    <table><tbody id="runs"></tbody></table>
+  </details>
+</aside>
+
+<main id="grid" aria-live="polite"></main>
+
+<p id="empty" hidden>
+  No repositories registered. Run <code>ad-fleet repo add &lt;path&gt;</code>, then reload.
+</p>
+
+<footer>
+  <span id="counts"></span>
+  <span class="spacer"></span>
+  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus a tile · <kbd>a</kbd> approve · <kbd>b</kbd> board · <kbd>n</kbd> notifications · <kbd>Esc</kbd> grid</span>
+</footer>
+
+<template id="tile">
+  <section class="tile" tabindex="0">
+    <div class="head">
+      <span class="n"></span>
+      <strong class="repo"></strong>
+      <span class="chip"></span>
+      <span class="ticket"></span>
+      <span class="spacer"></span>
+      <span class="badge" hidden title="unread notifications for this agent"></span>
+      <span class="age" title="age of the last event"></span>
+    </div>
+    <p class="why"></p>
+    <div class="approval" hidden>
+      <div class="approval-head">waiting for you: <span class="kind"></span></div>
+      <div class="summary"></div>
+      <pre class="payload"></pre>
+      <div class="row">
+        <button class="approve">Approve</button>
+        <input class="reason" type="text" placeholder="reason (required to deny)">
+        <button class="deny">Deny</button>
+      </div>
+    </div>
+    <ol class="transcript"></ol>
+    <div class="row bottom">
+      <input class="say" type="text" placeholder="reply, or a ticket key to start">
+      <button class="send">Send</button>
+      <button class="start">Start</button>
+      <button class="stop">Stop</button>
+    </div>
+    <p class="err" hidden></p>
+  </section>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

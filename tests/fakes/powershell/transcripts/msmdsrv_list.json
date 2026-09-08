@@ -1,0 +1,17 @@
+{
+  "source": "synthesized",
+  "note": "the CIM query agentdata/pbip/desktop.py runs to find Power BI Desktop's engine",
+  "match": [
+    "-Command"
+  ],
+  "argv": [
+    "powershell",
+    "-NoProfile",
+    "-Command",
+    "Get-CimInstance"
+  ],
+  "returncode": 0,
+  "stdout": "[{\"ProcessId\":4242,\"ParentProcessId\":1111,\"CommandLine\":\"msmdsrv.exe -s \\\\\"C:\\\\\\\\ws\\\\\" -n Model\"}]\n",
+  "stderr": "",
+  "captured": "2026-09-04"
+}

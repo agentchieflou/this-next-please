@@ -1,0 +1,19 @@
+{
+  "source": "synthesized",
+  "note": "a normal jira search",
+  "match": [
+    "jira",
+    "search"
+  ],
+  "argv": [
+    "pncli",
+    "jira",
+    "search",
+    "--jql",
+    "key = RDSD-1"
+  ],
+  "returncode": 0,
+  "stdout": "{\"issues\": [{\"key\": \"RDSD-1\"}]}",
+  "stderr": "",
+  "captured": "2026-09-04"
+}

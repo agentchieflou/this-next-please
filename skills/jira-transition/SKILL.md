@@ -21,6 +21,7 @@ ad-jira transition <KEY> --to review --dry-run
 5. `ok: false`, error `... is ambiguous` → the hint lists the candidates. Pick the one the user's words name, or ask. Never pick by position.
 6. `ok: false`, error `has a screen requiring <fields>` → re-run with those fields, e.g. `--resolution Done` or `--field "Fix Version=2026.09"`. Values that look like JSON are sent as JSON.
 7. Re-run without `--dry-run`, adding `--comment "<one line>"` when there is a URL to record (PR, Confluence page). `ok: false` with `still '<status>'` → a workflow post-function undid it: `friction-log` type `tool-error`. STOP.
+   `refused: approval_timeout` or `approval_denied` → an operator gate, not a bug: `friction-log` type `missing-info` quoting the `approval` id and the `hint`. Do not retry.
 8. `state-update`: `phase` matching the new status. Hand off → `router`.
 
 `ad-jira transitions <KEY>` lists the whole picture — id, name, target status, category, and the screen fields each one demands — when a decision needs it.

@@ -1,0 +1,18 @@
+{
+  "source": "synthesized",
+  "note": "a clean skills install",
+  "match": [
+    "skill",
+    "install"
+  ],
+  "argv": [
+    "gh",
+    "skill",
+    "install",
+    "--all"
+  ],
+  "returncode": 0,
+  "stdout": "installed 23 skills\n",
+  "stderr": "",
+  "captured": "2026-09-04"
+}

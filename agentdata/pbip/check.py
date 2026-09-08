@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from . import pbir as P
 from . import tmdl as T
 from .normalize import Model, ModelIndex
+from .. import textio
 
 
 @dataclass
@@ -28,7 +29,7 @@ class Finding:
 
 def check_model(model: Model) -> list[Finding]:
     out: list[Finding] = []
-    rel = lambda p: os.path.relpath(p, model.definition_dir).replace("\\", "/")  # noqa: E731
+    rel = lambda p: textio.norm_path(os.path.relpath(p, model.definition_dir))  # noqa: E731
     for f in model.lint:
         out.append(Finding("error" if f.severity == "error" else "warning", "tmdl-" + f.rule, f"{rel(f.file)}:{f.line}", "", f.message, f.fix))
     idx = ModelIndex(model)

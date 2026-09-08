@@ -133,6 +133,18 @@ def cmd_transition(a) -> int:
         meta["dry_run"] = True
         print(toon.encode({"meta": {k: v for k, v in meta.items() if v is not None}}))
         return 0
+
+    # The write. Unattended, this blocks for one operator click; in PyCharm it returns at once.
+    # `meta` is the dry-run result, so what is approved is exactly what is about to be sent.
+    from .fleet import approval
+
+    decision = approval.require("jira-transition", f"{a.key}: {status} -> {t['to_status']}",
+                                {k: v for k, v in meta.items() if v is not None},
+                                ticket=a.key, cfg=cfg)
+    if not decision.ok:
+        print(toon.encode({"meta": approval.refusal(decision, src)}))
+        return 2
+
     j.transition(a.key, t["id"], fields or None, a.comment)
     _, now, _ = _issue_state(j, a.key)                    # read it back: a post-function can move it somewhere else
     meta["status"], meta["moved"] = now, now.lower() != status.lower()

@@ -1,0 +1,24 @@
+{
+  "source": "synthesized",
+  "note": "shapes from docs/fleet-spike.md (#92); content invented, because the recorded runs carry a tenant's ticket keys and hostnames",
+  "captured": "2026-09-05",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-auth",
+  "returncode": 1,
+  "usage": {
+    "premiumRequests": 0.0,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "stderr": "Error: not logged in. Please run `copilot login`.\n"
+    },
+    {
+      "exit": true
+    }
+  ]
+}

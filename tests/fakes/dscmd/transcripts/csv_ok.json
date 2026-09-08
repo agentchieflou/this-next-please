@@ -1,0 +1,16 @@
+{
+  "source": "synthesized",
+  "note": "dscmd writes the CSV and prints nothing useful",
+  "match": [
+    "csv"
+  ],
+  "argv": [
+    "dscmd.exe",
+    "csv",
+    "out.csv"
+  ],
+  "returncode": 0,
+  "stdout": "",
+  "stderr": "",
+  "captured": "2026-09-04"
+}

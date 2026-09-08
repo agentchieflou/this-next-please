@@ -27,6 +27,48 @@ _MISSING_OPT = re.compile(r"required option '(--[\w-]+)(?:\s+<([^>]*)>)?' not sp
 _UNKNOWN = re.compile(r"unknown (command|option) '?(--)?([\w-]+)'?", re.I)
 
 
+# Which pncli commands only read. Everything else is treated as a write and goes through the fleet
+# approval gate (`agentdata/fleet/approval.py`), because the alternative fails in the wrong
+# direction: a write verb missing from a *write* list would be sent unattended, whereas a read verb
+# missing from this list only costs the operator one extra click. That asymmetry is the whole design
+# -- and it is what makes the gate survive an unpinned verb name (the Bitbucket PR verb and the Jira
+# comment verb are both still `TODO(HANDOFF)` in their skills).
+READ_VERBS = frozenset({
+    ("jira", "search"), ("jira", "get"), ("jira", "get-issue"), ("jira", "changelog"),
+    ("jira", "transitions"), ("jira", "comments"), ("jira", "fields"), ("jira", "list"),
+    ("confluence", "get-page"), ("confluence", "search"), ("confluence", "list-pages"),
+    ("bitbucket", "get-pr"), ("bitbucket", "list-prs"), ("bitbucket", "diff"),
+    ("config", "get"), ("config", "list"), ("config", "show"),
+})
+# Single-token commands that cannot write. Flags never appear here: `verb()` strips them, so
+# `--help` and `--version` produce an empty path and are read by construction.
+READ_COMMANDS = frozenset({"help", "version", "where"})
+
+
+def verb(args: list[str]) -> tuple:
+    """The command being asked for, as (product, verb) -- flags and their values ignored.
+
+    pncli is commander.js: every argument is a *named* option, so the bare tokens are exactly the
+    command path and nothing else can be mistaken for one.
+    """
+    return tuple(a for a in args if not a.startswith("-"))[:2]
+
+
+def is_write(args: list[str]) -> bool:
+    """Would running this change something on a system of record?
+
+    `--dry-run` is not a write whatever the verb: pncli resolves and prints, and sends nothing.
+    """
+    if any(a == "--dry-run" for a in args):
+        return False
+    path = verb(args)
+    if not path:
+        return False
+    if len(path) == 1:
+        return path[0] not in READ_COMMANDS
+    return path not in READ_VERBS
+
+
 def usage_hint(text: str, args: list[str]) -> str:
     """Turn pncli's own usage error into the exact fix. Returns '' when the output is not a usage error."""
     m = _MISSING_OPT.search(text)

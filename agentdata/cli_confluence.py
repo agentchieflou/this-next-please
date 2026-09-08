@@ -16,6 +16,7 @@ from . import policy, ui
 from . import toon
 from .console import utf8_stdout
 from .textio import read_text, write_text
+from . import textio
 
 
 def _meta(ok: bool, source: str, **kw) -> str:
@@ -35,9 +36,9 @@ def cmd_html(a) -> int:
         print(html)
         return 0
     write_text(out, html)
-    msg = _meta(True, f"ad-confluence html {a.src}", path=out.replace("\\", "/"), title=title, chars=info["chars"],
+    msg = _meta(True, f"ad-confluence html {a.src}", path=textio.norm_path(out), title=title, chars=info["chars"],
                 blocks=info["blocks"], warnings=info["warnings"],
-                next=f'ad-pncli raw --body-file {out.replace(os.sep, "/")} confluence create-page --title "{title}" --dry-run')
+                next=f'ad-pncli raw --body-file {textio.norm_path(out)} confluence create-page --title "{title}" --dry-run')
     if msg:
         print(msg)
     return 0
@@ -45,7 +46,7 @@ def cmd_html(a) -> int:
 
 def cmd_check(a) -> int:
     CF.validate(read_text(a.path))
-    msg = _meta(True, f"ad-confluence check {a.path}", path=a.path.replace("\\", "/"), well_formed=True)
+    msg = _meta(True, f"ad-confluence check {a.path}", path=textio.norm_path(a.path), well_formed=True)
     if msg:
         print(msg)
     return 0
