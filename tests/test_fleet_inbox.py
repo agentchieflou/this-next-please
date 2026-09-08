@@ -17,6 +17,7 @@ import time
 
 import pytest
 
+from agentdata import cli_state
 from agentdata import textio
 from agentdata.fleet import events as E
 from agentdata.fleet import inbox as I
@@ -104,6 +105,16 @@ def opened(monkeypatch):
 
     monkeypatch.setattr(builtins, "open", recording)
     return seen
+
+
+def link_or_skip(target: str, link: str) -> str:
+    """A symlink, or a skipped test: Windows makes one only in Developer Mode or an elevated shell,
+    and a runner that cannot is not a runner that should fail."""
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError, AttributeError) as e:
+        pytest.skip(f"this machine will not create a symlink: {e}")
+    return link
 
 
 def by_name(offers: list[Offer]) -> dict[str, Offer]:
@@ -243,6 +254,74 @@ def test_everything_not_offered_says_why(downloads, inbox, name, fragment):
     _write(os.path.join(downloads, name), "x\n")
     row = by_name(inbox.look())[name]
     assert row.offered is False and fragment in row.reason
+
+
+def test_a_link_that_leads_out_of_the_folder_is_listed_with_where_it_goes_and_not_offered(
+        downloads, inbox, tmp_path):
+    """The row that lied to the person clicking it. `os.stat` follows a link, so the size and age
+    described the file the link pointed at -- outside Downloads, outside everything the operator
+    asked to be watched -- under the name of the link, and one click copied that file into a
+    repository. Refused, and refused *visibly*: the row keeps its place and says where it goes."""
+    outside = _write(str(tmp_path / "elsewhere" / "tax-2025.md"),
+                     "the operator's own business, and a good many more bytes of it\n")
+    link = link_or_skip(outside, os.path.join(downloads, "RDSD-22449-report.md"))
+
+    row = by_name(inbox.look())["RDSD-22449-report.md"]
+    assert row.offered is False
+    assert "leads out of the watched folder" in row.reason
+    assert textio.norm_path(outside) in row.reason
+    assert row.size == os.lstat(link).st_size != os.path.getsize(outside)
+
+
+def test_attaching_a_link_that_leads_out_copies_nothing(downloads, inbox, fleet, tmp_path):
+    outside = _write(str(tmp_path / "elsewhere" / "secret.md"), "outside\n")
+    link_or_skip(outside, os.path.join(downloads, "RDSD-22449-secret.md"))
+
+    with pytest.raises(InboxError) as e:
+        inbox.attach(by_name(inbox.look())["RDSD-22449-secret.md"], "velocity")
+    assert "leads out of the watched folder" in e.value.msg and e.value.hint
+    assert not os.path.exists(os.path.join(fleet.get("velocity").path, ".agent", "in",
+                                           "RDSD-22449", "RDSD-22449-secret.md"))
+
+
+def test_a_link_that_appears_after_the_look_is_still_refused_at_the_click(downloads, inbox, fleet,
+                                                                         tmp_path):
+    """The row is from the last tick and the click is now; `copy2` would follow a link swapped in
+    between, so the question is asked again at the one moment it can do harm."""
+    offer = offered(inbox, "notes.md")
+    outside = _write(str(tmp_path / "elsewhere" / "notes.md"), "somebody else's notes\n")
+    os.remove(os.path.join(downloads, "notes.md"))
+    link_or_skip(outside, os.path.join(downloads, "notes.md"))
+
+    with pytest.raises(InboxError) as e:
+        inbox.attach(offer, "billing")
+    assert "leads out of the watched folder" in e.value.msg
+    assert not os.path.exists(os.path.join(fleet.get("billing").path, ".agent", "in",
+                                           I.UNSORTED_KEY, "notes.md"))
+
+
+def test_a_link_inside_the_watched_folder_is_just_a_second_name_for_the_file(downloads, inbox):
+    """The harmless case stays offered: the file is in the watched folder either way, and the size
+    and the age on the row are the ones the operator would get."""
+    link_or_skip(os.path.join(downloads, "RDSD-22449-export.md"),
+                 os.path.join(downloads, "RDSD-22449-export-copy.md"))
+
+    row = by_name(inbox.look())["RDSD-22449-export-copy.md"]
+    assert (row.offered, row.project) == (True, "velocity")
+    event = inbox.attach(row, "velocity")
+    assert event["data"]["attached"] is True
+    assert textio.read_text(event["data"]["file"]) == DESK["RDSD-22449-export.md"]
+
+
+def test_a_link_out_row_can_be_dismissed_like_any_other(downloads, inbox, tmp_path):
+    """The dismissal is keyed to the time the row showed, which for a refused link is the link's
+    own. Keyed to the target's instead, the row would be back on the next tick and the operator
+    would be clicking dismiss forever."""
+    outside = _write(str(tmp_path / "elsewhere" / "old.md"), "x\n", mtime=time.time() - 3600)
+    link_or_skip(outside, os.path.join(downloads, "old-report.md"))
+
+    inbox.dismiss(by_name(inbox.look())["old-report.md"])
+    assert "old-report.md" not in by_name(inbox.look())
 
 
 def test_a_download_still_in_flight_is_not_offered_at_all(inbox):
@@ -452,6 +531,29 @@ def test_the_ask_is_a_request_to_ad_state_in_the_repos_own_directory(inbox, flee
     assert seen["argv"][:2] == ["ad-state", "set"]
     assert seen["argv"][-1] == ".agent/in/RDSD-22449/RDSD-22449-export.md"
     assert seen["cwd"] == fleet.get("velocity").path
+
+
+def test_ad_state_accepts_the_argv_the_fleet_sends_and_records_the_input(inbox, fleet, monkeypatch):
+    """#132's "`ad-state show` lists the input", end to end and without a subprocess: the argv
+    `_ask_ad_state` builds is handed to `ad-state`'s own parser, in the repository, and `ad-state`
+    -- not the fleet -- writes it. Until `--input` existed that argv exited 2 with `unrecognized
+    arguments: --input`, so every attach reported `recorded: false` and nothing was ever recorded;
+    the suite missed it because the ask is stubbed in every other test here."""
+    def in_process(argv, **kw):
+        here = os.getcwd()
+        os.chdir(kw["cwd"])
+        try:
+            return cli_state.main(list(argv[1:])), "", "", 0.0
+        finally:
+            os.chdir(here)
+
+    monkeypatch.undo()                        # take back the autouse stub: this is the subject
+    monkeypatch.setattr(I.proc, "run", in_process)
+    event = inbox.attach(offered(inbox, "RDSD-22449-export.md"), "velocity")
+
+    assert (event["data"]["recorded"], event["data"]["why"]) == (True, "")
+    state = json.loads(textio.read_text(fleet.get("velocity").state_file))
+    assert state["inputs"] == [".agent/in/RDSD-22449/RDSD-22449-export.md"]
 
 
 # ------------------------------------------------------------------------------- dismissals

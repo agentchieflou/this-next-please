@@ -31,14 +31,19 @@ def fleet_home(tmp_path, monkeypatch):
 
 
 def make_repo(path, *, project="RDSD", agents_md=True, state=True, branch="main",
-              pyproject=False, pbip="", age_days=0) -> str:
-    """A folder shaped like a checkout `ad-setup --project` has been run in."""
+              pyproject=False, pbip="", age_days=0, md_name="AGENTS.md") -> str:
+    """A folder shaped like a checkout `ad-setup --project` has been run in.
+
+    `md_name` spells the AGENTS.md. The marker is matched case-insensitively because the laptop
+    is the target, so a checkout that spells it `agents.md` has to be exercised on the machine
+    the suite actually runs on -- where the two names are two different files.
+    """
     path = str(path)
     os.makedirs(os.path.join(path, ".git"), exist_ok=True)
     with open(os.path.join(path, ".git", "HEAD"), "w", encoding="utf-8", newline="\n") as f:
         f.write(f"ref: refs/heads/{branch}\n")
     if agents_md:
-        with open(os.path.join(path, "AGENTS.md"), "w", encoding="utf-8", newline="\n") as f:
+        with open(os.path.join(path, md_name), "w", encoding="utf-8", newline="\n") as f:
             f.write(f"# Project\n\n- jira_project: {project}\n- owner: <name>\n")
     if state:
         os.makedirs(os.path.join(path, ".agent"), exist_ok=True)
@@ -110,10 +115,16 @@ class Opens:
         Matched as a suffix rather than by splitting off one leading segment: the tree has a
         repository three levels down, and a helper that only stripped the first one would have
         reported `mid/inner/AGENTS.md` as an unexpected read.
+
+        Folded case-insensitively for the same reason the marker is matched that way: `agents.md`
+        *is* AGENTS.md, and a checkout spelling it so must land inside the two allowed kinds
+        rather than appearing as a third. The allow-list is still two names, never a prefix rule.
         """
         kinds = set()
         for p in self.paths:
-            kinds.add(next((r for r in scan.READS if p == r or p.endswith("/" + r)), p))
+            low = p.lower()
+            kinds.add(next((r for r in scan.READS
+                            if low == r.lower() or low.endswith("/" + r.lower())), p))
         return kinds
 
 
@@ -208,6 +219,40 @@ def test_a_git_file_instead_of_a_git_directory_is_proposed_without_a_branch(flee
     assert found[0].branch == "" and found[0].last_commit_age_days is None
 
 
+def test_a_lowercase_agents_md_is_read_where_it_was_matched(fleet_home, tmp_path):
+    """`agents.md` matched the marker case-insensitively and was then opened by the literal name.
+
+    On the laptop the two spellings are one file and nobody notices; on Linux and on CI -- and so
+    in this suite -- the open finds nothing, and the operator is offered a row that says
+    `has_agents_md: true` with no `jira_project` and no facts at all, which is a row they would
+    confirm and a link the tile slice would then be unable to build.
+    """
+    root = tmp_path / "PycharmProjects"
+    make_repo(root / "lower", project="RDSD", md_name="agents.md")
+
+    found = scan.scan(str(root), registry=Registry())
+    assert [c.name for c in found] == ["lower"], [c.path for c in found]
+    row = found[0]
+    assert row.has_agents_md is True
+    assert row.jira_project == "RDSD", "matched case-insensitively, opened case-sensitively"
+    assert row.ready is True and row.branch == "main"
+
+
+@pytest.mark.posix
+@pytest.mark.skipif(os.name == "nt", reason="one directory cannot hold both spellings on nt")
+def test_two_spellings_in_one_checkout_resolve_the_same_way_every_run(fleet_home, tmp_path):
+    """A case-sensitive filesystem can hold `AGENTS.md` and `agents.md` at once, and `os.scandir`
+    does not promise an order. Without a tie-break the same checkout proposes a different
+    `jira_project` on different runs, which is worse than either answer."""
+    root = tmp_path / "PycharmProjects"
+    repo = make_repo(root / "both", project="RDSD")
+    with open(os.path.join(repo, "agents.md"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("- jira_project: OTHER\n")
+
+    seen = {scan.scan(str(root), registry=Registry())[0].jira_project for _ in range(5)}
+    assert seen == {"RDSD"}, f"the canonical spelling must win, and win every time: {seen}"
+
+
 # ----------------------------------------------------------------------------- what it may open
 
 
@@ -220,7 +265,24 @@ def test_the_scan_opens_only_agents_md_and_git_head(fleet_home, tree, monkeypatc
     assert opens.paths, "the recorder did not see the AGENTS.md reads, so it proves nothing"
     assert opens.file_kinds() <= set(scan.READS), sorted(set(opens.paths))
     for read in opens.paths:
-        assert read.endswith("AGENTS.md") or read.endswith(".git/HEAD"), read
+        assert read.lower().endswith("agents.md") or read.endswith(".git/HEAD"), read
+
+
+def test_reading_a_lowercase_agents_md_does_not_widen_the_allow_list(fleet_home, tmp_path,
+                                                                    monkeypatch):
+    """The fix reads the entry the marker matched, so the promise has to be checked against that
+    entry: exactly two files opened in the candidate, and the AGENTS.md one is the file that is
+    there, not a second spelling tried on the off-chance."""
+    root = tmp_path / "PycharmProjects"
+    make_repo(root / "lower", project="RDSD", md_name="agents.md")
+    plant_credentials(root / "lower")
+
+    reg = Registry()
+    opens = Opens(monkeypatch, str(root))
+    assert scan.scan(str(root), registry=reg)[0].jira_project == "RDSD"
+
+    assert sorted(opens.paths) == ["lower/.git/HEAD", "lower/agents.md"], sorted(opens.paths)
+    assert opens.file_kinds() <= set(scan.READS), sorted(set(opens.paths))
 
 
 def test_a_planted_credential_file_is_proposed_and_never_opened(fleet_home, tree, monkeypatch):

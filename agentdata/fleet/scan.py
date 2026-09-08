@@ -53,7 +53,9 @@ _DENY_LOWER = frozenset(d.lower() for d in DENY_DIRS)
 # enough: a bare clone of somebody's dotfiles is not a project an agent could be given work in.
 MARKERS = ("AGENTS.md", ".agent", "pyproject.toml", "*.pbip")
 
-# The complete set of files this module may open, relative to a candidate. Asserted by the suite.
+# The complete set of files this module may open, relative to a candidate. Asserted by the suite,
+# which compares the names it recorded case-insensitively -- the marker is matched that way, so on
+# Linux the file actually opened may be spelled `agents.md`, and it is the same allow-list of two.
 READS = ("AGENTS.md", ".git/HEAD")
 
 # `ref: refs/heads/<branch>` is the attached case; a bare 40-hex line is a detached HEAD.
@@ -167,25 +169,46 @@ def _is_dir(entry) -> bool:
         return False
 
 
-def _markers(path: str, entries: list) -> list[str]:
-    """Which of `MARKERS` this directory has, or [] when it is not a candidate at all.
+def _real_name(hits: list, prefer: str) -> str:
+    """The name a matched marker actually has on disk, given every entry that matched it.
+
+    Matching case-insensitively and then opening case-sensitively is the same bug twice: the
+    marker check said yes to `agents.md` and the read asked the OS for `AGENTS.md`, which on Linux
+    and on CI is a different file -- so the row came back claiming an AGENTS.md it had never
+    opened. Handing the real name back means the file that matched is the file that is read.
+
+    A case-sensitive filesystem may hold `AGENTS.md` *and* `agents.md` at once. The canonical
+    spelling wins, and otherwise the first in sorted order, because "whichever `os.scandir`
+    happened to yield last" would mean one checkout proposing different facts on different runs.
+    """
+    names = sorted(e.name for e in hits)
+    return prefer if prefer in names else names[0]
+
+
+def _markers(path: str, entries: list) -> dict[str, str]:
+    """Which of `MARKERS` this directory has, mapped to its real name, or {} when not a candidate.
 
     Matched case-insensitively because the laptop is the target: `agents.md` and `AGENTS.md` are
     the same file there, and a scan that missed one of them would look like the folder is empty.
+    The values are what `os.scandir` reported, so whatever the scan then opens or stats is the
+    entry that actually matched rather than the constant it was matched against.
     """
-    by_name = {e.name.lower(): e for e in entries}
-    if ".git" not in by_name:
-        return []
-    found = [".git"]
-    if "agents.md" in by_name:
-        found.append("AGENTS.md")
-    if ".agent" in by_name and _is_dir(by_name[".agent"]):
-        found.append(".agent")
-    if "pyproject.toml" in by_name:
-        found.append("pyproject.toml")
-    if any(n.endswith(".pbip") for n in by_name):
-        found.append("*.pbip")
-    return found if len(found) > 1 else []
+    index: dict[str, list] = {}
+    for e in entries:
+        index.setdefault(e.name.lower(), []).append(e)
+    if ".git" not in index:
+        return {}
+    found = {".git": _real_name(index[".git"], ".git")}
+    if "agents.md" in index:
+        found["AGENTS.md"] = _real_name(index["agents.md"], "AGENTS.md")
+    agent_dirs = [e for e in index.get(".agent", []) if _is_dir(e)]
+    if agent_dirs:
+        found[".agent"] = _real_name(agent_dirs, ".agent")
+    if "pyproject.toml" in index:
+        found["pyproject.toml"] = _real_name(index["pyproject.toml"], "pyproject.toml")
+    if any(n.endswith(".pbip") for n in index):
+        found["*.pbip"] = "*.pbip"
+    return found if len(found) > 1 else {}
 
 
 def _pbip_names(entries: list) -> str:
@@ -242,11 +265,16 @@ def _last_commit_age_days(git_dir: str, branch: str) -> int | None:
 # ------------------------------------------------------------------------------------ the scan
 
 
-def _facts(path: str) -> dict:
-    """`- key: value` from AGENTS.md. The only file content the proposal carries."""
-    agents_md = os.path.join(path, "AGENTS.md")
+def _facts(path: str, agents_md: str = "AGENTS.md") -> dict:
+    """`- key: value` from the candidate's AGENTS.md. The only file content the proposal carries.
+
+    `agents_md` is the name `_markers` saw, not the constant: joining the literal "AGENTS.md" onto
+    a checkout whose file is `agents.md` opens nothing on Linux, and the operator gets a row with
+    `has_agents_md: true`, no `jira_project` and no facts at all -- wrong on CI and on the
+    maintainer's own machine, which is exactly where this suite runs.
+    """
     try:
-        return C.project_facts(agents_md)
+        return C.project_facts(os.path.join(path, agents_md))
     except OSError:
         return {}
 
@@ -293,7 +321,7 @@ def scan(folder, depth: int = 2, registry: Registry | None = None, on_skip=None)
     reg = registry if registry is not None else Registry()
     registered = {r.path: r.name for r in reg.sorted()}
 
-    hits: list[tuple[str, bool, list[str], list]] = []
+    hits: list[tuple[str, bool, dict[str, str], list]] = []
     seen: set[str] = set()
     queue = [(root, 0, _is_reparse(root))]
     while queue:
@@ -335,8 +363,9 @@ def scan(folder, depth: int = 2, registry: Registry | None = None, on_skip=None)
     for path, reparse, markers, entries in hits:
         norm = textio.norm_path(path)
         registered_as = registered.get(norm, "")
-        facts = _facts(path) if "AGENTS.md" in markers else {}
-        git_dir = os.path.join(path, ".git")
+        facts = _facts(path, markers["AGENTS.md"]) if "AGENTS.md" in markers else {}
+        git_dir = os.path.join(path, markers[".git"])
+        agent_dir = os.path.join(path, markers.get(".agent", ".agent"))
         branch = _branch(git_dir) if os.path.isdir(git_dir) else ""
         parent = os.path.basename(os.path.dirname(path.rstrip("/\\")))
         base = os.path.basename(path.rstrip("/\\")) or norm
@@ -348,7 +377,7 @@ def scan(folder, depth: int = 2, registry: Registry | None = None, on_skip=None)
             name=name,
             branch=branch,
             has_agents_md="AGENTS.md" in markers,
-            has_state=os.path.isfile(os.path.join(path, ".agent", "state.json")),
+            has_state=os.path.isfile(os.path.join(agent_dir, "state.json")),
             jira_project=facts.get("jira_project", ""),
             pbip=_pbip_names(entries),
             last_commit_age_days=_last_commit_age_days(git_dir, branch) if os.path.isdir(git_dir) else None,
@@ -360,7 +389,7 @@ def scan(folder, depth: int = 2, registry: Registry | None = None, on_skip=None)
     return out
 
 
-def _why(c: Candidate, markers: list[str], registered_as: str) -> str:
+def _why(c: Candidate, markers: dict[str, str], registered_as: str) -> str:
     """The one line the human decides on. Flags win over markers; markers are the fallback."""
     flags: list[str] = []
     if registered_as:

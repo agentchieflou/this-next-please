@@ -33,6 +33,12 @@ until a human says where it goes. A file that is not an offered type, or is over
 listed *with its reason* rather than dropped -- a laptop where `setup.exe` silently vanished from a
 listing is a laptop where the operator stops trusting the listing.
 
+**A link is not a file.** `stat` and `copy2` both follow one, so an entry in Downloads pointing at
+something outside every watched folder would show that file's size and age under the link's name and
+copy that file's bytes on the click -- the row would be describing one file and attaching another.
+Such an entry is listed with where it leads and has no attach button (`_leads_outside`); a link that
+stays inside a watched folder is just the same file under a second name, and is offered.
+
 Windows facts this is shaped by:
 
 * a browser writes `<name>.crdownload` (Chrome/Edge) or `<name>.partial` (Firefox) while the
@@ -176,6 +182,14 @@ def _windows_downloads() -> str:
         return ""
 
 
+def _real(path: str) -> str:
+    """`os.path.realpath`, never raising. A path the OS will not resolve is returned as it stands."""
+    try:
+        return os.path.realpath(path)
+    except OSError:                              # a drive that went away mid-tick, a cycle, a race
+        return path
+
+
 def default_folders() -> list[str]:
     """The folders watched when nobody said otherwise: the user's Downloads, if it exists."""
     home = os.path.expanduser("~")
@@ -200,6 +214,11 @@ class Inbox:
                  state_path: str | None = None):
         raw = folders if folders is not None else default_folders()
         self.folders = [textio.norm_path(os.path.abspath(textio.from_msys(str(f)))) for f in raw]
+        # The watched folders with every link on the way to them already followed, so a link *inside*
+        # one can be compared against them. Downloads itself is often a redirection -- OneDrive, a
+        # second drive, `/tmp` -> `/private/tmp` on a Mac -- and comparing the spelling rather than
+        # the destination would call every file in it an escape.
+        self._roots = [os.path.normcase(_real(f)) for f in self.folders]
         self.registry = registry if registry is not None else Registry()
         self.state_path = state_path or os.path.join(fleet_dir(), STATE_FILE)
 
@@ -258,9 +277,12 @@ class Inbox:
         if name.startswith(".") or name.lower().endswith(PARTIAL_SUFFIXES):
             return None
         try:
+            leads = self._leads_outside(path, entry.is_symlink())
             if entry.is_dir():                   # folders are ignored; a `.pbip` tree is not a file
                 return None
-            st = entry.stat()
+            # `follow_symlinks=False` for a link that leads out: the size and the age on the row then
+            # describe the entry in Downloads, not the file it points at somewhere else on the disk.
+            st = entry.stat(follow_symlinks=not leads)
         except OSError as e:
             self.retry.append({"path": textio.norm_path(path), "name": name,
                                "reason": f"{type(e).__name__}: {e.strerror or e}"})
@@ -276,13 +298,38 @@ class Inbox:
 
         offer = Offer(path=textio.norm_path(path), name=name, size=int(st.st_size),
                       ext=os.path.splitext(name)[1].lstrip(".").lower(), age_s=age)
-        refusal = self._refuse(offer)
+        refusal = f"not offered: {leads}" if leads else self._refuse(offer)
         if refusal:
             offer.offered, offer.reason = False, refusal
             return st.st_mtime, offer
         offer.offered = True
         offer.project, offer.ticket, offer.reason = self._match(name)
         return st.st_mtime, offer
+
+    def _leads_outside(self, path: str, is_link: bool) -> str:
+        """Why a link here cannot be offered, or "" -- for anything that is not a link, always "".
+
+        `os.stat` and `shutil.copy2` both follow a link, and that is the whole problem. With
+        `Downloads/RDSD-1-report.md -> C:/Users/x/tax/2025.md` the row's size and age describe the
+        *target* while the operator reads the name of the link, so the row lies to the person
+        clicking it, and the click then copies a file from outside every watched folder into a
+        repository. One click, and the thing that arrived in `.agent/in/` was never in Downloads.
+
+        A link that stays inside a watched folder is the harmless case -- the same file under a
+        second name, with the size and age the row already shows -- and is offered as usual.
+
+        The refusal is a row with a reason, in the style of `not offered: executable`, never a
+        silent drop: a file that disappears from the listing is one the operator goes hunting for.
+        """
+        if not is_link:
+            return ""
+        target = _real(path)
+        real = os.path.normcase(target)
+        for root in self._roots:
+            trimmed = root.rstrip("\\/")
+            if real == trimmed or real.startswith(trimmed + os.sep):
+                return ""
+        return f"a link that leads out of the watched folder, to {textio.norm_path(target)}"
 
     def _refuse(self, offer: Offer) -> str:
         """Why this file has no attach button, or "". Judged on the name and the size alone."""
@@ -355,8 +402,17 @@ class Inbox:
         """
         target = self._repo(repo)
         if not offer.offered:
-            raise InboxError(f"{offer.name} is not offered: {offer.reason}",
+            # `reason` already begins "not offered: "; saying it twice made the refusal read as
+            # though something had gone wrong on top of the refusal.
+            raise InboxError(f"{offer.name} is {offer.reason}",
                              "attach one of the offered rows, or copy this one in yourself")
+        # Asked again here, at the only moment it can do harm: the row was built by an earlier look,
+        # and a link put in its place since then would be followed by `copy2` all the same.
+        leads = self._leads_outside(offer.path, os.path.islink(textio.longpath(offer.path)))
+        if leads:
+            raise InboxError(f"{offer.name} is not offered: {leads}",
+                             "attach the file it points at from a folder that is watched, or copy "
+                             "it in yourself; nothing is copied out of a folder nobody named")
 
         # The key in the name wins over the repository's current ticket: the file says what it is
         # about, and a human attaching yesterday's export to a repository that has moved on should
@@ -466,8 +522,12 @@ class Inbox:
         return sorted(self._dismissed.values(), key=lambda d: (d["name"].lower(), d["mtime"]))
 
     def _mtime_of(self, offer: Offer) -> float:
+        # The same follow-or-not rule `look` used to build the row, so the dismissal is keyed to the
+        # time the operator was shown. Keyed to the target's mtime instead, a dismissed link-out row
+        # would come straight back on the next tick.
+        follow = not self._leads_outside(offer.path, os.path.islink(textio.longpath(offer.path)))
         try:
-            return os.stat(textio.longpath(offer.path)).st_mtime
+            return os.stat(textio.longpath(offer.path), follow_symlinks=follow).st_mtime
         except OSError:
             return time.time() - offer.age_s          # already gone: the row's own reckoning
 
