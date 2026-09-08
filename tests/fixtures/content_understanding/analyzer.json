@@ -1,0 +1,16 @@
+{
+  "analyzerId": "loan-application-v2",
+  "description": "Loan application intake",
+  "status": "ready",
+  "createdAt": "2025-12-02T11:00:00Z",
+  "baseAnalyzerId": "prebuilt-documentAnalyzer",
+  "fieldSchema": {
+    "name": "LoanApplication",
+    "fields": {
+      "BorrowerName": {"type": "string", "method": "extract", "description": "Full legal name of the primary applicant"},
+      "LoanAmount": {"type": "number", "method": "extract", "description": "Requested principal"},
+      "ApplicationDate": {"type": "date", "method": "extract", "description": "Date the form was signed"},
+      "CoBorrowerName": {"type": "string", "method": "extract", "description": "Second applicant, if any"}
+    }
+  }
+}

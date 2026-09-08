@@ -19,6 +19,6 @@ Prereq: `ad-doctor` row `pncli / jira auth` is not `fail`. Failing → print its
 9. Cross-check only when asked: `--compare-sprintreport`. A non-zero delta lists `keys_only_in_report` / `keys_only_in_replay`; Jira's Sprint Report is a hint, the replay rows are the evidence.
 10. The cache is on for every `--jql` run and is what makes step 4's rerun cheap; `cached` and `fetched` in the meta say what it saved. Use `--refresh` only after a `friction-log` has recorded a history the cache cannot have (the issue's `updated` did not move but its history did — a re-index). Never `--no-cache` in a normal run. Inspect or reset it with `ad-jira cache --stats` and `ad-jira cache --clear`. Where it lives and what it keys on: `references/jira-changelog.md` §Cache.
 11. `rule: 6` → script over `path`, never read rows. `ok: false` without `partial: true` → fix once from `hint`; second failure → `friction-log` type `tool-error`.
-12. `state-update` with the paths. Hand off → `uat-report-visual` when comparing to a report, `confluence-publish` when documenting, else `router`.
+12. `state-update` with the paths. Hand off → `pbip-projection` when comparing to a report (it leads on to `uat-report-visual`, which needs the projection first), `confluence-publish` when documenting, else `router`.
 
 § When a result looks impossible rather than merely wrong: `references/jira-changelog.md` §Known limits — the changelog does not record everything, and Cloud and Data Center differ (§Flavor). Each step above points at the one section it needs.

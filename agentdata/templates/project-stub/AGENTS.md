@@ -31,6 +31,9 @@ State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 - dpm_runs_dir: <\\share\dpm\runs>            # ad-dpm --run-id / --latest picks under this folder
 - dpm_artifact_dir: <artifacts/dpm>            # consumer's governed artifact directory, relative to this repo; ad-dpm writes only here
 - dpm_binding: <dpm-binding.json>               # optional: names DPM uses differently (ad-dpm binding --write)
+- content_understanding_endpoint: <https://<resource>.services.ai.azure.com>  # optional: Azure AI Content Understanding (ad-foundry, ad-dpm extract-fields --engine azure-content-understanding)
+- content_understanding_analyzer: <analyzer-id>   # optional: the analyzer whose field schema the job uses
+- content_understanding_auth: entra                # optional: entra (default) or key; the key itself lives in keyring, never here
 - test_cmd: <pytest -q>                      # ad-test: blank = auto-detect the runner
 - graph_min_coverage: <0.8>                 # ad-graph findings/guard: per-node coverage a change must clear
 - graph_min_speedup: <1.10>                 # test-regress: speedup a change must clear to count

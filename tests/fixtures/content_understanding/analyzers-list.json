@@ -1,0 +1,4 @@
+[
+  {"analyzerId": "loan-application-v2", "description": "Loan application intake", "status": "ready", "createdAt": "2025-12-02T11:00:00Z"},
+  {"analyzerId": "prebuilt-documentAnalyzer", "description": "Content only: text and layout, no field schema", "status": "ready", "createdAt": "2025-01-01T00:00:00Z"}
+]

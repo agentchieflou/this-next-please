@@ -15,6 +15,7 @@ description: "Domain sub-router for Power BI tasks: reports, models, TMDL, DAX, 
 | PBIP, report, visual, page, "what feeds this chart", model overview | `pbip-projection` |
 | add / fix a measure, column, format string, relationship, TMDL edit | `tmdl-edit` |
 | audit the model, best practices, prepare for Copilot, slow measure, optimize DAX | `pbi-model-audit` |
+| slow visual, query trace, DMV, memory usage, page cost, "why is this page slow" | `pbi-observe` |
 | validate the report, broken visual, "does the report still work", before deploy | `pbi-validate` |
 | publish report, upload to workspace, service copy, rebind | `pbi-publish` |
 | deploy model, publish, XMLA, workspace | `pbi-deploy-te2` |

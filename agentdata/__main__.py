@@ -18,6 +18,7 @@ COMMANDS = {
     "dpm": ("agentdata.cli_dpm", "main", "DPM run root -> consumer job manifest (handoff contract)"),
     "state": ("agentdata.cli_state", "main", "show / set .agent/state.json (its only writer)"),
     "confluence": ("agentdata.cli_confluence", "main", "Markdown -> Confluence storage format (the page body)"),
+    "foundry": ("agentdata.cli_foundry", "main", "Azure AI Content Understanding: analyzers and field extraction"),
     "update": ("agentdata.update", "main", "reinstall the CLI + skills from GitHub; --check reports the commit"),
     "pncli": ("agentdata.cli", "main_pncli", "pncli reads through the format policy"),
     "td": ("agentdata.cli", "main_td", "Teradata query"),
