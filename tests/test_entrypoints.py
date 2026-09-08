@@ -35,12 +35,31 @@ def test_module_form_propagates_the_commands_exit_code(monkeypatch, capsys):
     assert M.main(["nope"]) == 2 and "unknown command" in capsys.readouterr().err
 
 
+# The one exemption from "every command is both a script and a module form", and it has to be
+# explicit so a real command cannot become script-less by accident. `_complete` is called by a shell
+# on a keypress, through the interpreter path baked into the generated script -- never typed, and a
+# `Scripts` entry for it would be one more name on PATH that means nothing to a person.
+MODULE_ONLY = {"_complete"}
+
+
+def test_a_module_only_command_is_hidden_and_unspeakable():
+    """If it is not in the catalog and has no script, nothing should invite a person to type it."""
+    for name in MODULE_ONLY:
+        assert name in M.COMMANDS, f"{name} is exempted but is not a command"
+        assert name in M.HIDDEN, f"{name} has no console script, so it must not be in the catalog"
+        assert name.startswith("_"), f"{name} reads like something to type"
+
+
 def test_every_console_script_is_also_a_module_command():
     scripts = _scripts()
     assert len(scripts) >= 14
     for name in scripts:
         assert name[3:] in M.COMMANDS, f"{name} has no `python -m agentdata {name[3:]}` form"
     for name, (module, func, help_text) in M.COMMANDS.items():
+        if name in MODULE_ONLY:
+            assert f"ad-{name}" not in scripts, f"ad-{name} is listed as module-only but has a script"
+            assert help_text, f"{name} has no help text"
+            continue
         assert scripts.get(f"ad-{name}"), f"python -m agentdata {name} has no ad-{name} console script"
         assert scripts[f"ad-{name}"] == f"{module}:{func}", f"ad-{name} and the module form call different functions"
         assert help_text, f"{name} has no help text"

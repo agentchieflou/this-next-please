@@ -15,6 +15,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
 from typing import Callable
+from .. import textio
 
 PS = ["powershell", "-NoProfile", "-NonInteractive", "-Command"]
 CIM_MSMDSRV = "Get-CimInstance Win32_Process -Filter \"Name='msmdsrv.exe'\" | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress"
@@ -101,7 +102,7 @@ def match_file(name: str | None, candidates: list[str]) -> str | None:
     for c in candidates:
         base = os.path.splitext(os.path.basename(c))[0]
         if base.lower() == name.lower():
-            return c.replace("\\", "/")
+            return textio.norm_path(c)
     return None
 
 

@@ -12,6 +12,7 @@ from typing import Any, Callable
 from .. import config as C
 from .. import proc
 from .client import FabricClient, FabricError
+from .. import textio
 
 
 def compute_model_sha(definition_dir: str) -> str:
@@ -22,7 +23,7 @@ def compute_model_sha(definition_dir: str) -> str:
 
     h = hashlib.sha256()
     for path in tmdl_files:
-        rel = os.path.relpath(path, definition_dir).replace("\\", "/")
+        rel = textio.norm_path(os.path.relpath(path, definition_dir))
         h.update(rel.encode("utf-8"))
         with open(path, "rb") as f:
             h.update(f.read())
@@ -69,7 +70,7 @@ def record_deploy_stamp(workspace: str, model: str, model_sha: str, log_file: st
         "model": model,
         "timestamp": ts,
         "roles": roles,
-        "log": log_file.replace("\\", "/"),
+        "log": textio.norm_path(log_file),
     }
 
     # Write specific timestamped record
@@ -173,7 +174,7 @@ def deploy_model(
             "deploy_failed",
             f"TE2 deploy failed (exit {rc})",
             hint="check XMLA permissions, workspace name, or view log",
-            detail={"errors": error_lines, "log": log_path.replace("\\", "/")},
+            detail={"errors": error_lines, "log": textio.norm_path(log_path)},
         )
 
     if not dry_run:
@@ -186,5 +187,5 @@ def deploy_model(
         "workspace": workspace,
         "model": model,
         "model_sha": model_sha,
-        "log": log_path.replace("\\", "/"),
+        "log": textio.norm_path(log_path),
     }

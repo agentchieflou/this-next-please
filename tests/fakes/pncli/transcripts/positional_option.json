@@ -1,0 +1,19 @@
+{
+  "source": "photographed",
+  "note": "2026-09-02 laptop: pncli options are named, never positional",
+  "shell": "bash (MSYSTEM=MINGW64)",
+  "match": [
+    "jira",
+    "get-issue"
+  ],
+  "argv": [
+    "pncli",
+    "jira",
+    "get-issue",
+    "RDSD-22399"
+  ],
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "error: required option '--key <issue-key>' not specified\n",
+  "captured": "2026-09-04"
+}

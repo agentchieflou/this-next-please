@@ -253,8 +253,8 @@ class Run:
         try:
             r = os.path.relpath(a, self.root)
         except ValueError:  # another drive on Windows
-            return a.replace("\\", "/")
-        return a.replace("\\", "/") if r.startswith("..") else r.replace("\\", "/")
+            return textio.norm_path(a)
+        return textio.norm_path(a) if r.startswith("..") else textio.norm_path(r)
 
     def _json(self, p: str, what: str):
         try:
@@ -295,7 +295,7 @@ class Run:
 
     def analysis_rel(self, document_id, sha256) -> str:
         name = self.b["text_analysis"]["file"].format_map(_Placeholders(document_id=document_id or "", sha256=sha256 or ""))
-        return (self.b["run_root"]["text_analysis_dir"] + "/" + name).replace("\\", "/")
+        return textio.norm_path(self.b["run_root"]["text_analysis_dir"] + "/" + name)
 
     def analysis(self, document_id, sha256) -> dict | None:
         """The text_analysis output for a document, or None when absent. Refuses unsupported versions."""

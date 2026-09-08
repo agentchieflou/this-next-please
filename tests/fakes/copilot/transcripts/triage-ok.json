@@ -1,0 +1,99 @@
+{
+  "source": "synthesized",
+  "note": "shapes from docs/fleet-spike.md (#92); content invented, because the recorded runs carry a tenant's ticket keys and hostnames",
+  "captured": "2026-09-05",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-triage-ok",
+  "usage": {
+    "premiumRequests": 1.33,
+    "codeChanges": {
+      "filesModified": [
+        "reports/sales.md"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message_delta",
+        "ephemeral": true,
+        "data": {
+          "delta": "…"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Reading the ticket.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "ad-state set phase=triaged"
+    },
+    {
+      "emit": {
+        "type": "session.usage_checkpoint",
+        "data": {
+          "totalPremiumRequests": 0.33
+        }
+      }
+    },
+    {
+      "run": "ad-state set phase=optimizing"
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Six measures are unused. Recording the artefact.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "ad-state set phase=documenting"
+    },
+    {
+      "emit": {
+        "type": "session.usage_checkpoint",
+        "data": {
+          "totalPremiumRequests": 1.33
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Done. Nothing needs you.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ]
+}

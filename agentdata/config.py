@@ -44,24 +44,12 @@ class ConfigError(Exception):
 
 
 # ---------- paths ----------
-_MSYS_DRIVE = re.compile(r"^/([A-Za-z])/")
-
-
-def from_msys(p: str) -> str:
-    """`/c/Users/x` -> `C:/Users/x`. Git Bash converts most arguments itself, but not one that
-    reached us through a config file, an AGENTS.md fact or an answers file, where nothing did."""
-    if os.name != "nt" or not p:
-        return p
-    m = _MSYS_DRIVE.match(p)
-    return f"{m.group(1).upper()}:/{p[3:]}" if m else p
-
-
 def expand(p: str) -> str:
-    return from_msys(os.path.expandvars(os.path.expanduser(p)))
+    return textio.from_msys(os.path.expandvars(os.path.expanduser(p)))
 
 
 def display_path(p: str) -> str:
-    return p.replace("\\", "/")
+    return textio.norm_path(p)
 
 
 def path() -> str:

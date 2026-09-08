@@ -10,7 +10,7 @@ description: "Use when code or model changes are ready for review — to branch,
 4. `git push -u origin <branch>`.
 5. Pinned PR verb: `TODO(HANDOFF: pin after pncli bitbucket --help)`. If unpinned, run `pncli bitbucket --help` once.
 6. `pncli bitbucket <pr-create verb> --title "<KEY>: <summary>" --description-file .agent/out/<KEY>-pr.md --dry-run`. Read `"ok"`. False → `friction-log`.
-7. Re-run without `--dry-run`. Capture PR URL.
+7. Re-run without `--dry-run`. Capture PR URL. `refused: approval_timeout` or `approval_denied` → `friction-log` type `missing-info` quoting the `approval` id and the `hint`. Do not retry.
 8. Move the ticket: invoke `jira-transition` with `--to review --comment "PR: <URL>"`. It asks Jira what this
    issue type can do — a Task and a Story do not share a workflow, so never write a status name here.
 9. `state-update`: `pr_url`, `phase=pr_open`. Print URL. STOP. A human merges.

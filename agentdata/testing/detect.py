@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .. import config as C
+from .. import textio
 
 
 @dataclass
@@ -153,7 +154,7 @@ def detect_all(root: str = ".", *, det: Any = None, flag_cmd: str | None = None)
             test_files.extend(matched)
 
     if test_files:
-        rel_example = os.path.relpath(test_files[0], root).replace("\\", "/")
+        rel_example = textio.norm_path(os.path.relpath(test_files[0], root))
         # If pytest was already matched, unittest can still be in candidates for --all
         candidates.append(TestRunnerInfo(
             runner="unittest",
@@ -187,7 +188,7 @@ def detect_all(root: str = ".", *, det: Any = None, flag_cmd: str | None = None)
     for cf in csproj_files:
         content = _read_text(cf, det=det)
         if "Microsoft.NET.Test.Sdk" in content or "xunit" in content or "nunit" in content:
-            rel = os.path.relpath(cf, root).replace("\\", "/")
+            rel = textio.norm_path(os.path.relpath(cf, root))
             candidates.append(TestRunnerInfo(
                 runner="dotnet",
                 cmd="dotnet test",
@@ -200,7 +201,7 @@ def detect_all(root: str = ".", *, det: Any = None, flag_cmd: str | None = None)
         for sf in sln_files:
             content = _read_text(sf, det=det)
             if "Test" in content or "test" in content:
-                rel = os.path.relpath(sf, root).replace("\\", "/")
+                rel = textio.norm_path(os.path.relpath(sf, root))
                 candidates.append(TestRunnerInfo(
                     runner="dotnet",
                     cmd="dotnet test",

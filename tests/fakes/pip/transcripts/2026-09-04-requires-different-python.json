@@ -13,5 +13,10 @@
   ],
   "returncode": 1,
   "stdout": "",
-  "stderr": "ERROR: Package 'agentdata' requires a different Python: 3.11.9 not in '>=3.12'\n"
+  "stderr": "ERROR: Package 'agentdata' requires a different Python: 3.11.9 not in '>=3.12'\n",
+  "captured": "2026-09-03",
+  "match": [
+    "-m",
+    "pip"
+  ]
 }

@@ -25,6 +25,6 @@ ad-pncli raw --body-file .agent/out/<KEY>-confluence.html confluence create-page
    `--body-file` hands the file to pncli as one `--body <html>` argument. Never put the body on the command line yourself: quotes, newlines, `<`, `>` and `&` do not survive a shell, and a page is longer than a command line allows.
 6. Read `"ok"`. `false` → print `meta.hint`, fix, retry once. Second failure → `friction-log` type `tool-error`. STOP.
 7. `--space`, `--parent` and `--title` are not confirmed against this pncli build (only `create-page --body` is). An `unknown option` error → run `pncli confluence create-page --help` ONCE, use the names it lists, and report the working command so it can be pinned here. Never guess a second time.
-8. Re-run without `--dry-run`. Capture the URL from the result.
+8. Re-run without `--dry-run`. Capture the URL from the result. `refused: approval_timeout` or `approval_denied` → `friction-log` type `missing-info` quoting the `approval` id and the `hint`. Do not retry.
 9. Comment on Jira: `ad-pncli raw jira <comment verb> --key <KEY> --body "Documented: <URL>"` (`--dry-run` first; pncli options are named, never positional).
 10. `state-update`: `confluence_url`, `phase=documenting`. Hand off → `bitbucket-pr` if code changed, else `router`.

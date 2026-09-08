@@ -330,7 +330,7 @@ def explain_graph(
     return {
         "ok": True,
         "path": out_path,
-        "rel_path": os.path.relpath(out_path, root).replace("\\", "/"),
+        "rel_path": textio.norm_path(os.path.relpath(out_path, root)),
         "graph_sha256": meta.get("sha256", ""),
         "sections": list(SECTIONS),
     }

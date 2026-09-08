@@ -1,0 +1,56 @@
+{
+  "source": "synthesized",
+  "note": "shapes from docs/fleet-spike.md (#92); content invented, because the recorded runs carry a tenant's ticket keys and hostnames",
+  "captured": "2026-09-05",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-denied",
+  "usage": {
+    "premiumRequests": 0.33,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Pushing the branch.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "git push -u origin HEAD"
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "I could not push; that tool is not permitted.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ]
+}

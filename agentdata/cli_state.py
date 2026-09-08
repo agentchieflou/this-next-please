@@ -11,6 +11,7 @@ from . import policy, ui
 from . import state as S
 from . import toon
 from .console import utf8_stdout
+from . import textio
 
 
 def _kv(items: list[str], what: str) -> dict:
@@ -33,7 +34,7 @@ def cmd_show(a) -> int:
                      title="artifacts")
         ui.note(S.line(st))
     else:
-        print(toon.encode({"meta": {"ok": True, "source": "ad-state show", "path": a.file.replace("\\", "/")},
+        print(toon.encode({"meta": {"ok": True, "source": "ad-state show", "path": textio.norm_path(a.file)},
                            "state": {k: v for k, v in st.items() if k != "artifacts"}, "artifacts": st.get("artifacts") or []}))
         print(S.line(st))
     return 0

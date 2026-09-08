@@ -10,6 +10,7 @@ from typing import Any
 from ..textio import read_text
 from .normalize import Model, source_files
 from . import pbir as P
+from .. import textio
 
 
 def _sha(path: str) -> str:
@@ -20,7 +21,7 @@ def _sha(path: str) -> str:
 
 
 def hashes(model: Model, report: P.Report | None) -> dict[str, str]:
-    return {p.replace("\\", "/"): _sha(p) for p in source_files(model, report)}
+    return {textio.norm_path(p): _sha(p) for p in source_files(model, report)}
 
 
 def _tsv(path: str, cols: list[str], rows: list[list[Any]]) -> None:
@@ -39,7 +40,7 @@ def write_projection(norm: dict, model: Model, report: P.Report | None, out_dir:
         try:
             old = json.loads(read_text(meta_path))
             if old.get("sources") == new_hashes:
-                return {"skipped": True, "out_dir": out_dir.replace("\\", "/"), "files": sorted(os.listdir(out_dir))}
+                return {"skipped": True, "out_dir": textio.norm_path(out_dir), "files": sorted(os.listdir(out_dir))}
         except (ValueError, OSError):
             pass
     m = norm["model"]
@@ -84,7 +85,7 @@ def write_projection(norm: dict, model: Model, report: P.Report | None, out_dir:
                               "measures": sum(len(t["measures"]) for t in m["tables"]), "relationships": len(m["relationships"]),
                               "pages": len(rep["pages"]) if rep else 0, "visuals": sum(len(p["visuals"]) for p in rep["pages"]) if rep else 0}}, f, indent=1, sort_keys=True)
         f.write("\n")
-    return {"skipped": False, "out_dir": out_dir.replace("\\", "/"), "files": sorted(files)}
+    return {"skipped": False, "out_dir": textio.norm_path(out_dir), "files": sorted(files)}
 
 
 def model_md(norm: dict) -> str:
