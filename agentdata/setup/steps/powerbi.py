@@ -245,8 +245,11 @@ class PowerBIStep(Step):
         else:
             # No transport at all. On Windows this only happens with no Desktop window open, which
             # is a state the human fixes by opening one; off Windows it is simply not applicable.
+            # The ladder is deliberately NOT the hint here: it upgrades a handoff that works, and
+            # "file a ticket for a ribbon button" is not the next step on a machine with nothing to
+            # hand off yet.
             ctx.add(k, "powerbi/external_tool", "warn", f"no handoff transport · {ext.get('evidence', '')}",
-                    hint or "open a Power BI Desktop window, then `ad-pbip handoff --active`",
+                    "open a Power BI Desktop window, then `ad-pbip handoff --active`",
                     ("powerbi.tools.pbi_desktop_exe", "powerbi.tools.te2_exe"))
 
         state = ribbon["state"]

@@ -182,6 +182,16 @@ def test_no_transport_is_a_warn_that_names_the_settings_behind_it(machine):
     assert row.keys, "a row --patch could help with must name its keys"
 
 
+def test_no_external_tools_folder_at_all_is_still_only_an_info_line(machine):
+    """Desktop never installed for this machine: a fact about the folder, not a failing check."""
+    machine.no_folder()
+    r = rows(FakeDet(windows=True))
+    assert r["powerbi/external_tool"].status == "ok"
+    assert r["powerbi/ribbon"].status == "info"
+    assert "does not exist" in r["powerbi/ribbon"].detail
+    assert "elevat" not in advice(FakeDet(windows=True), machine)
+
+
 def test_disabled_by_policy_is_a_fact_and_does_not_stop_the_handoff(machine):
     r = rows(FakeDet(windows=True, killswitch_off=True))
     assert r["powerbi/external_tool"].status == "ok"                 # zorder does not need the button
