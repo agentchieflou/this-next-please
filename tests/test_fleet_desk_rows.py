@@ -17,6 +17,7 @@ import time
 import pytest
 
 from agentdata import config as C
+from agentdata import textio
 from agentdata.fleet import agentstate, catalogue as CAT, events as E, links as L, notify as N
 from agentdata.fleet import poll as P
 from agentdata.fleet.registry import Registry
@@ -262,8 +263,9 @@ def test_a_bare_project_is_named_with_the_agents_md_keys_it_is_missing(fleet_hom
     repo = a_repo(tmp_path, "luna")
     ctx = W.Context(cfg={}, det=W.Detectors(), ask=W.Prompter(), interactive=False)
     facts = FleetStep()._facts(ctx, [repo])
-    assert facts == [{"name": "luna", "keys": ["jira_board_id", "report_id", "ds_id", "ws_id",
-                                               "bitbucket_repo"]}]
+    assert facts == [{"name": "luna", "path": textio.norm_path(repo.path),
+                      "keys": ["jira_board_id", "report_id", "ds_id", "ws_id",
+                               "bitbucket_repo"]}]
 
     row = _rows(repos=[repo], facts=facts)["facts"]
     assert row.status == "warn" and "luna needs jira_board_id" in row.detail
@@ -277,6 +279,78 @@ def test_a_project_that_supplies_its_facts_passes(fleet_home, tmp_path):        
     repo = a_repo(tmp_path, "luna")
     row = _rows(repos=[repo], facts=[{"name": "luna", "keys": []}])["facts"]
     assert row.status == "ok" and "1 projects supply" in row.detail
+
+
+def test_the_facts_row_names_the_file_and_the_lines_the_human_has_to_add(fleet_home, tmp_path):  # noqa: F811,E501
+    """The price of a row `--patch` cannot repair: it has to be followable by hand, per repository.
+
+    A hint that said "add the key to that project's AGENTS.md" is not followable on a desk with six
+    checkouts whose folder names differ by a suffix -- which one, and which key -- so the row names
+    the path and the lines, and says outright that `--patch` will list it under `manual`.
+    """
+    repo = a_repo(tmp_path, "luna")
+    ctx = W.Context(cfg={}, det=W.Detectors(), ask=W.Prompter(), interactive=False)
+    facts = FleetStep()._facts(ctx, [repo])
+    assert facts[0]["path"] == textio.norm_path(repo.path)
+
+    row = _rows(repos=[repo], facts=facts)["facts"]
+    assert row.status == "warn" and row.keys == ()
+    assert "`ad-setup --patch` cannot repair this row" in row.hint and "manual" in row.hint
+    assert textio.norm_path(os.path.join(repo.path, "AGENTS.md")) in row.hint
+    for key in facts[0]["keys"]:
+        assert f"`- {key}: <value>`" in row.hint, f"{key} is named but not spelled out"
+    assert "+1 more" in row.detail, "the detail shortens; the hint must not"
+
+
+def test_the_hint_spells_two_repositories_out_and_counts_the_rest():
+    """One cell of a table read on every session start. Eight half-filled projects spelled out in
+    full would push the rows that are actually broken off the operator's screen."""
+    short = [{"name": f"p{i}", "path": f"C:/work/p{i}", "keys": ["ws_id"]} for i in range(5)]
+    row = _rows(facts=short)["facts"]
+    assert "5 of 5 projects" in row.detail and "and 2 more" in row.detail
+    assert "C:/work/p0/AGENTS.md" in row.hint and "C:/work/p1/AGENTS.md" in row.hint
+    assert "C:/work/p2" not in row.hint and "then the other 3" in row.hint
+    assert "ad-fleet show" in row.hint
+
+
+def test_no_answer_repairs_the_facts_row_and_the_hand_edit_does(fleet_home, tmp_path, capsys,  # noqa: F811,E501
+                                                                monkeypatch):
+    """#134's criterion says `ad-setup --patch` addresses this row by prompting for the named
+    `AGENTS.md` keys. It does not, deliberately, and this is the deviation recorded in the issue.
+
+    The reason is asserted here rather than argued: `--patch` writes answers into
+    `~/.agentdata/config.json`, `links` reads these five keys only out of one repository's own
+    `AGENTS.md` through `config.project_facts`, so a full `--patch` run leaves the row exactly
+    where it was and never mentions a key -- while appending the facts block to that one file
+    closes it. A prompt would have to write N other repositories' files, which the fleet does not
+    do (`test_fleet_e2e.test_nothing_but_the_agent_wrote_the_repositories`).
+    """
+    monkeypatch.setattr("agentdata.proc.run", lambda *a, **k: (127, "", "not found", 0.0))
+    repo = a_repo(tmp_path, "luna")
+    C.save({"fleet": {"enabled": True}})
+
+    W.run_setup(["--patch", "--include-warnings", "--non-interactive", "--offline",
+                 "--only", "fleet"], W.Detectors())
+    out, _err = capsys.readouterr()
+
+    assert "fleet/facts" in out and "manual" in out, out
+    saved = json.dumps(C.load())
+    for key in sorted(k for k in L.MISSING_KEYS_HINT.values() if k):
+        assert f'"{key}"' not in saved, f"--patch wrote {key} into the config, where nothing reads it"
+        assert f"fleet.{key}" not in out, f"--patch offered to ask for {key}"
+
+    ctx = W.Context(cfg=C.load(), det=W.Detectors(), ask=W.Prompter(), interactive=False)
+    assert FleetStep()._facts(ctx, [repo])[0]["keys"], "the row repaired itself without the edit"
+
+    with open(os.path.join(repo.path, "AGENTS.md"), "a", encoding="utf-8", newline="\n") as f:
+        f.write("\n- jira_url: https://jira.example.com\n- jira_board_id: 42\n"
+                "- ws_id: 11111111-2222-3333-4444-555555555555\n"
+                "- ds_id: 66666666-7777-8888-9999-000000000000\n"
+                "- report_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n"
+                "- bitbucket_repo: acme/luna\n")
+    after = FleetStep()._facts(ctx, [repo])
+    assert after == [{"name": "luna", "path": textio.norm_path(repo.path), "keys": []}], after
+    assert _rows(repos=[repo], facts=after)["facts"].status == "ok"
 
 
 # ---- the tray
@@ -331,6 +405,26 @@ def test_a_stand_down_is_reported_because_the_budget_itself_said_so():
     assert row.status == "warn" and "stood down 3 time(s)" in row.detail
     assert "today 120" in row.detail and "60 jira" in row.detail
     assert "fleet.poll.jira.interval" in row.hint
+
+
+def test_the_token_budget_row_never_claims_a_budget_the_poll_does_not_share(fleet_home):  # noqa: F811,E501
+    """The allowance in `poll.py` is the poll's ceiling on itself, one `RequestBudget` object per
+    `Poller`. An `ad-jira changelog` runs in another process with its own, so a row that said the
+    budget was "shared", or "reserved for the command you are waiting on", would tell the operator
+    their command was protected when nothing protects it -- and nobody would then build the spend
+    file that would."""
+    counts = {"day": "2026-01-04", "total": 400, "requests": {"jira": 400},
+              "stood_down": {"jira": 2}, "errors": {}}
+    row = _rows(polls={"settings": P.settings({}), "repos": 4, "counts": counts})["token budget"]
+    words = (row.detail + " " + row.hint).lower()
+    assert "shared" not in words and "reserved for" not in words, words
+    assert "its own allowance for the day" in row.detail
+    assert "reserves nothing for another process" in row.detail
+    assert "rate limiter" in row.hint, "the row must name what does bound the token"
+
+    # ...and the structural reason, so the wording cannot drift back: a second poller in this very
+    # process already has a second allowance, never mind a second process.
+    assert P.Poller(Registry()).budget is not P.Poller(Registry()).budget
 
 
 def test_polling_turned_off_is_a_setting_and_not_a_fault():

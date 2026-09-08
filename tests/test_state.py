@@ -79,13 +79,14 @@ def test_an_input_is_recorded_once_and_show_lists_it(tmp_path, monkeypatch, caps
     assert "inputs[2]: .agent/in/RDSD-22449/export.md,.agent/in/RDSD-22449/second.md" in out
 
 
-def test_an_empty_input_is_refused_and_the_list_is_bounded(tmp_path, monkeypatch, capsys):
-    """The cap drops the oldest rather than refusing the newest: the file itself is under
+def test_an_empty_input_records_nothing_and_the_list_is_bounded(tmp_path, monkeypatch, capsys):
+    """An empty value is skipped the way an empty `--question` is, and the count in the summary says
+    so. The cap drops the oldest rather than refusing the newest: the file itself is under
     `.agent/in/` either way, and a state.json that grows without end is the worse failure."""
     p = _init(tmp_path, monkeypatch)
-    assert cli_state.main(["set", "--input", "   "]) == 2
-    assert "--input expects a path" in capsys.readouterr().out
-    assert "inputs" not in json.load(open(p, encoding="utf-8"))       # nothing recorded, nothing left
+    assert cli_state.main(["set", "--input", "   "]) == 0
+    assert "inputs: 0" in capsys.readouterr().out
+    assert "inputs" not in json.load(open(p, encoding="utf-8"))       # nothing to record, no key
 
     many = [f".agent/in/RDSD-1/f{n}.md" for n in range(S.INPUTS_CAP + 5)]
     argv = ["set"]

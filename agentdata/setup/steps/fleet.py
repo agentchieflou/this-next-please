@@ -124,17 +124,23 @@ class FleetStep(Step):
         """Per repo, the `AGENTS.md` keys its tile links are missing -- `links.MISSING_KEYS_HINT`.
 
         Read through the same two files the catalogue's allow-list names, and nothing else.
+
+        The repository's path travels with its keys because the row's whole repair is an edit to a
+        named file, and "add `ws_id` to AGENTS.md" is not actionable on a desk with six checkouts
+        of projects whose folders differ by a suffix. The path is what the hint spells out.
         """
         from ...fleet import links as L
 
         out = []
         for repo in repos:
+            path = textio.norm_path(getattr(repo, "path", "") or "")
             try:
                 facts = C.project_facts(os.path.join(repo.path, "AGENTS.md"))
                 rows = L.links_for(repo, facts, repo.state(), cfg=ctx.cfg)
-                out.append({"name": repo.name, "keys": L.missing_keys(rows)})
+                out.append({"name": repo.name, "path": path, "keys": L.missing_keys(rows)})
             except Exception as e:                   # noqa: BLE001
-                out.append({"name": getattr(repo, "name", "?"), "keys": [], "error": str(e)[:120]})
+                out.append({"name": getattr(repo, "name", "?"), "path": path, "keys": [],
+                            "error": str(e)[:120]})
         return out
 
     @staticmethod
@@ -372,25 +378,59 @@ class FleetStep(Step):
     def _check_facts(self, ctx: Context, found: dict) -> None:
         """Which projects cannot build every tile link, and the exact key each one is missing.
 
-        No keys on this row on purpose, and it is the clearest case of the rule: the answer is a
-        line in *another repository's* `AGENTS.md`, and this wizard writes one project's stub. A
-        prompt here would either ask a question it cannot act on or edit a file that belongs to the
-        agent working in it.
+        **This row carries no keys, and #134's acceptance criterion saying `--patch` prompts for
+        them is a criterion this slice deliberately does not meet.** The deviation is recorded in
+        the issue; the argument for it is that `Check.keys` are *prompt* keys, every one of which
+        `Step.ask` writes into `~/.agentdata/config.json` with `C.put`, while every key
+        `links.missing_keys` reports (`jira_board_id`, `report_id`, `ds_id`, `ws_id`,
+        `bitbucket_repo`) is read only from one repository's own `AGENTS.md` through
+        `config.project_facts` -- the config is never consulted for any of them. So a prompt here
+        could not fix a single one of these rows by saving an answer; it could only fix them by
+        editing N *other* repositories' files, which is the one thing the fleet does not do
+        (HANDOFF.md, and `test_fleet_e2e.test_nothing_but_the_agent_wrote_the_repositories`).
+
+        What that costs the operator is a row that reports a problem and offers no action, so the
+        hint pays it back: it names the file per repository, the lines to add, and the fact that
+        `--patch` will list this under `manual` rather than ask.
         """
         rows = found.get("facts") or []
         if not rows:
             return
         short = [r for r in rows if r.get("keys")]
         if short:
-            named = "; ".join(f"{r['name']} needs {', '.join(r['keys'][:4])}" for r in short[:3])
+            named = "; ".join(f"{r['name']} needs {_keys(r['keys'])}" for r in short[:3])
+            if len(short) > 3:
+                named += f"; and {len(short) - 3} more"
             ctx.add(self.key, "facts", "warn",
                     f"{len(short)} of {len(rows)} projects cannot build every tile link: {named}",
-                    "add the key to the facts block of that project's AGENTS.md "
-                    "(`- ws_id: <guid>`); `ad-fleet show <project>` lists what its tile is missing",
-                    keys=())
+                    self._facts_hint(short), keys=())
         else:
             ctx.add(self.key, "facts", "ok",
                     f"{len(rows)} projects supply the facts their tile links need", keys=())
+
+    @staticmethod
+    def _facts_hint(short: list[dict]) -> str:
+        """The whole repair, written out by hand and by repository, because no answer performs it.
+
+        Two repositories are spelled out in full rather than all of them: the hint is one cell of a
+        table an operator reads on every session start, and a desk with eight half-filled projects
+        would push the other rows off the screen. The rest are counted, and `ad-fleet show` is the
+        verb that lists any one of them.
+        """
+        edits = []
+        for r in short[:2]:
+            where = textio.norm_path(os.path.join(r.get("path") or r["name"], "AGENTS.md"))
+            # Every key, never the detail's shortened list: a hint an operator follows to the letter
+            # and finds the row still warning is a hint that cost them a second `ad-doctor` to learn
+            # what it had left out. There are five keys in `links.MISSING_KEYS_HINT` in total.
+            edits.append(f"{where} needs " + ", ".join(f"`- {k}: <value>`" for k in r["keys"]))
+        rest = f"; then the other {len(short) - 2}" if len(short) > 2 else ""
+        return ("`ad-setup --patch` cannot repair this row and will list it under `manual`: the fix "
+                "is a line in another repository's own AGENTS.md facts block, and no setting this "
+                "wizard saves is read for these keys. Add them by hand, per repository -- "
+                + "; ".join(edits) + rest
+                + " -- then `ad-doctor` again. `ad-fleet show <project>` lists what one tile is "
+                  "still missing.")
 
     def _check_inbox(self, ctx: Context, found: dict) -> None:
         """Can the tray list the folder the browser saves into.
@@ -424,9 +464,16 @@ class FleetStep(Step):
         headers epic #121's client reads on every response, and those are only ever seen by a live
         client mid-run -- a doctor that went and asked would spend a request to report on spending
         requests. So the row reports the load it can prove offline: the arithmetic of the intervals
-        against the tile count, today's spend per source, and every time the poll stood down
-        because the shared budget was nearly gone. A stand-down is the budget itself speaking, and
-        it is the one number here that means the operator's own commands were at risk.
+        against the tile count, today's spend per source, and every time the poll stood down having
+        nearly spent its allowance for the day.
+
+        That allowance is the poll's ceiling on *itself*, and the row says so in those words. It is
+        not shared with an `ad-jira changelog` the operator is waiting on: that runs in another
+        process with its own `RequestBudget` object, and nothing here can hold requests back for it
+        (`poll.py`'s module docstring records why, and why believing otherwise was worse than
+        knowing there is no protection). What actually keeps N tiles off one human's token is the
+        single Jira search per interval however many tiles there are, and the tenant's own rate
+        limiter -- so those are what the detail names.
         """
         polls = found.get("polls") or {}
         settings = polls.get("settings") or {}
@@ -461,12 +508,14 @@ class FleetStep(Step):
                        + ", ".join(f"{n} {s}" for s, n in sorted(spent.items()) if n))
         stood_down = sum((counts.get("stood_down") or {}).values())
         slow_down = ("raise `fleet.poll.jira.interval`, or turn a source off with "
-                     "`fleet.poll.<source>: false`; the budget is reserved for the command you are "
-                     "waiting on")
+                     "`fleet.poll.<source>: false`; a longer interval makes the day's allowance "
+                     "last, and it is the tenant's rate limiter, not this allowance, that a "
+                     "command you are waiting on is really competing with")
         if stood_down:
             ctx.add(self.key, "token budget", "warn",
-                    f"{detail}; the poll stood down {stood_down} time(s) today with the shared "
-                    "request budget nearly spent", slow_down, keys=keys)
+                    f"{detail}; the poll stood down {stood_down} time(s) today having nearly spent "
+                    "its own allowance for the day (it reserves nothing for another process)",
+                    slow_down, keys=keys)
         elif per_hour > POLLS_PER_HOUR_WARN:
             ctx.add(self.key, "token budget", "warn", detail,
                     f"over {POLLS_PER_HOUR_WARN} requests an hour against one human's token, and "
@@ -550,6 +599,13 @@ class FleetStep(Step):
                              "Seconds between Jira polls (one search, on your token, however many "
                              "tiles are open)", default=str(polls["jira"]["interval"]))
         C.put(ctx.cfg, "fleet.poll.jira.interval", _int(answer, polls["jira"]["interval"]))
+
+
+def _keys(keys: list) -> str:
+    """The detail's shortened key list. The full one is in the hint, which is what gets followed."""
+    if len(keys) <= 4:
+        return ", ".join(keys)
+    return ", ".join(keys[:4]) + f", +{len(keys) - 4} more"
 
 
 def _ping(port: int) -> bool:

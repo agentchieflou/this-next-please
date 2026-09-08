@@ -69,15 +69,14 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
     if questions:
         oq = state.setdefault("open_questions", [])
         oq += [q for q in questions if q and q not in oq]
-    if inputs:
-        # Same spelling as an artifact path, for the same reason: `.agent\in\X\y.md` and
-        # `.agent/in/X/y.md` are one file, and two spellings of it in the list would be offered,
-        # attached and reported twice. The key is only materialised when there is one to record.
+    # Normalised to one spelling, for the reason an artifact path is: `.agent\in\X\y.md` and
+    # `.agent/in/X/y.md` are one file, and two spellings of it would be listed, read and reported
+    # twice. An empty value is skipped rather than refused, exactly as an empty `--question` is, and
+    # the key is only materialised when there is something to put in it.
+    wanted = [p for p in (textio.norm_path(str(i).strip()) for i in inputs or []) if p]
+    if wanted:
         current = state.setdefault("inputs", [])
-        for raw in inputs:
-            item = textio.norm_path(str(raw).strip())
-            if not item:
-                raise StateError("--input expects a path", hint="example: --input .agent/in/RDSD-1234/export.md")
+        for item in wanted:
             if item not in current:
                 current.append(item)
         del current[:max(0, len(current) - INPUTS_CAP)]
