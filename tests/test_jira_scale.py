@@ -165,7 +165,7 @@ def test_a_run_that_would_have_waited_a_quarter_of_an_hour_finishes_instantly():
 
     assert len(rows) == 10_000, "a throttled run must still deliver every row"
     assert fake.waited > 600, f"the bucket did not make the client wait; it waited {fake.waited:.1f}s"
-    assert fake.waited == pytest.approx(sum(fake.slept))
+    assert j.sleep == fake.sleep, "the client has to be sleeping through the injected sleeper, not time.sleep"
     assert j.stats.waited_seconds == pytest.approx(fake.waited, abs=0.01), \
         "`--stats` must report the waiting the operator was charged for"
     assert real < 5.0, f"something really slept: {real:.1f}s of wall clock for {fake.waited:.0f}s of Jira time"
@@ -485,11 +485,20 @@ def test_the_sweep_knows_every_spelling_the_fake_accepts():
     A new fault kind in `parse_fault` that nothing injects is a failure mode the client has never been shown,
     and the only place that would notice is here.
     """
-    assert set(SPELLING_LABELS) == _spellings_the_fake_accepts(), \
-        "tests/fakes/jira.py accepts a fault spelling this sweep does not know about"
+    accepted = _spellings_the_fake_accepts()
+    assert accepted, "parse_fault no longer compares spellings the way this sweep reads them"
+    assert set(SPELLING_LABELS) == accepted, \
+        (f"tests/fakes/jira.py accepts {sorted(accepted - set(SPELLING_LABELS))} that this sweep does not know "
+         f"about, and this sweep claims {sorted(set(SPELLING_LABELS) - accepted)} that it does not accept")
 
 
 def test_every_fault_the_fake_offers_is_exercised_somewhere_in_the_suite():
+    """A fault the fake can inject and no test injects is a failure mode nobody has watched the client meet.
+
+    The sweep reads scripts rather than outcomes on purpose: whether a 502 is *retried* is the client's policy
+    and moves with the epic, but whether some test hands the client a 502 at all is a fact about the suite, and
+    it is the one that silently stops being true when a case is deleted.
+    """
     exercised = _scripted_faults()
     for label in sorted(set(SPELLING_LABELS.values()) | set(REQUIRED_STATUSES)):
         assert label in exercised, f"no test in the suite injects {label}"
