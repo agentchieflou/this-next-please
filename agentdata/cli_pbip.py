@@ -211,7 +211,7 @@ def cmd_capabilities(a) -> int:
     pid = getattr(a, "pid", None)
     caps = DT.capabilities(pid=pid)
     avail = sum(1 for c in caps if c.get("available"))
-    t = AgentTable.from_records(caps, name="capabilities", source="ad-pbip capabilities")
+    t = AgentTable.from_records(DT.capability_view(caps), name="capabilities", source="ad-pbip capabilities")
     print(render(t, extra={"available": avail, "total": len(caps)}))
     return 0
 
@@ -289,7 +289,7 @@ def _handoff_refusal(res: dict) -> int:
         if rows:
             print(toon.table("instances", cols, rows))
     # 2 when the human has to say which one they meant, 1 when there is nothing to hand off at all.
-    return 2 if res.get("fail") in ("ambiguous", "no_match") else 1
+    return 2 if res.get("fail") in ("ambiguous", "no_match", "no_project", "no_zorder") else 1
 
 
 def _handoff_out(res: dict) -> int:
@@ -370,6 +370,10 @@ def cmd_handoff(a) -> int:
 
     if server:
         res = EXT.handoff(server, database or "", project_dir=getattr(a, "project", None))
+        if not res.get("ok"):
+            # The ribbon and the TE2 action both land here, and both launch from a cwd that is not
+            # the user's, so a refusal is the only honest answer when no project resolves.
+            return _handoff_refusal(res)
         extra = _click_transport()
         _merge_desktop_json(res.get("path"), extra)
         return _handoff_out({**res, **extra})
@@ -412,10 +416,23 @@ def _register_package(a, ribbon: dict | None = None) -> int:
     the folder this leaves behind is what gets attached to the ticket.
     """
     res = EXT.package(out_dir=getattr(a, "out", None), launcher=getattr(a, "launcher", None))
+    if not res.get("ok"):
+        # Measured, not guessed: no bare name on this user's PATH reaches agentdata from a fresh
+        # cmd.exe, so the file would spend somebody's ticket on a button that does nothing.
+        print(error(f'refused: {res["fail"]} ({res["evidence"]})', res["hint"],
+                    "ad-pbip register-tool --package"))
+        return 2
     meta = {"ok": True, "source": "ad-pbip register-tool --package", "dir": res["dir"],
             "tool_json": res["tool_json"], "request": res["request"],
             "destination": res["destination"], "sha256": res["sha256"],
+            "launcher": res["launcher"], "launcher_verdict": res["verdict"],
             "launches": f'{res["path"]} {res["arguments"]}'}
+    if res["verdict"] == "unknown":
+        # Off Windows there is no cmd.exe to ask, so the file is rendered with the default name and
+        # said to be unverified. Sending it anyway is the operator's call, but they get to make it.
+        meta["warn"] = (f'the launcher was not measured ({res["evidence"]}) -- run `ad-pbip probe` in a '
+                        "fresh cmd.exe on the Windows machine and check verdict.launcher before sending "
+                        "this to IT")
     if ribbon:
         meta["ribbon"] = ribbon["state"]
         meta["evidence"] = ribbon["evidence"]

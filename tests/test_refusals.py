@@ -75,7 +75,7 @@ def refusal_call_sites() -> list[str]:
 
 # Pinned so the registry cannot silently fall behind the code. A new refusal moves this number and
 # should move docs/refusals.md in the same commit.
-REFUSAL_SITE_COUNT = 209
+REFUSAL_SITE_COUNT = 234
 
 
 def test_the_number_of_refusal_sites_is_pinned():

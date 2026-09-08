@@ -268,9 +268,17 @@ a `database` and `database_source: dmv`; `.agent/desktop.json` carries `server`,
 `file`, `transport` and `database_source`; `ad-pbip visual-query` and `ad-pbip dmv` then need no
 `--server`.
 
-Rests on: #113 `Q4 verdict.zorder: yes`, `Q4 zorder.count` ≥ 1, and `Q4 zorder.0` naming the window
-you clicked last. If `verdict.zorder` is `no` or `unknown`, paste the Q4 rows — the Z-order read is
-`ctypes` on `user32` and nothing else in this rung works without it.
+Rests on: #113 `Q4 zorder.source: enum-windows`, `Q4 verdict.zorder: yes`, `Q4 zorder.count` ≥ 1,
+and `Q4 zorder.0` naming the window you clicked last. If `verdict.zorder` is `no` or `unknown`,
+paste the Q4 rows — the Z-order read is `ctypes` on `user32` and nothing else in this rung works
+without it.
+
+`zorder.source` is the row that says *which measurement answered*. `process-table` on Windows means
+the `user32.EnumWindows` call did not answer and the rows are `Get-Process` order, which has no
+notion of on top — so `handoff --active` **refuses** (`no_zorder`) rather than handing over row 0,
+`capabilities` reports `via: file` instead of `zorder`, and this rung is not live. That is a
+finding, not a failure of the runbook: record it, then verify 14b.2 instead and paste `Q1
+python.ctypes_user32` alongside the Q4 rows.
 
 Paste: the `handoff` block, the `desktop.json`, and the `Q4` rows.
 

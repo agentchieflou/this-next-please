@@ -380,6 +380,27 @@ def test_ribbon_offer_packages_instead_of_asking_for_elevation(machine, tmp_path
     assert os.path.exists(tmp_path / ".agent" / "out" / "external-tool" / EXT.TOOL_FILENAME)
 
 
+def test_ribbon_offer_refuses_to_package_a_file_that_would_work_for_nobody(machine, tmp_path, monkeypatch):
+    """The measured `per-user-launcher` verdict reaches `ad-setup`, and still never says elevate.
+
+    A ticket is somebody's afternoon. `REQUEST.md` promises IT "this request should never reach you
+    a second time", which is only true if the launcher name in the file resolves on the user's own
+    PATH from a fresh `cmd.exe` -- so a machine where none does gets a refusal with the shim, not a
+    package.
+    """
+    monkeypatch.setattr(EXT, "measured_launcher", lambda launcher=None, run=None: {
+        "ok": False, "fail": "per_user_launcher", "launcher": "", "verdict": "per-user-launcher",
+        "evidence": "the only `python` on PATH is inside the active virtualenv",
+        "hint": "put a shim in %LOCALAPPDATA%\\agentdata\\bin ... then re-run with `--launcher agentdata-handoff.cmd`"})
+    ctx = W.Context(cfg=C.load(), det=FakeDet(admin=True), ask=W.AnswerPrompter({"powerbi.external_tool": True}))
+    PowerBIStep()._ask_ribbon(ctx, default=False)
+    row = {c.name: c for c in ctx.checks}["powerbi/external_tool"]
+    assert row.status == "warn" and "per_user_launcher" in row.detail
+    assert "--launcher" in row.hint
+    assert "elevat" not in (row.detail + row.hint).lower()
+    assert not os.path.exists(tmp_path / ".agent" / "out" / "external-tool")
+
+
 def test_ribbon_offer_writes_directly_where_the_folder_was_measured_writable(machine):
     machine.unlock()
     ctx = W.Context(cfg=C.load(), det=FakeDet(), ask=W.AnswerPrompter({"powerbi.external_tool": True}))
@@ -407,6 +428,41 @@ def test_ad_doctor_prints_both_rows_and_no_advice_to_elevate(machine, capsys):
     assert "zorder" in out
     assert "elevat" not in out.replace(machine.root, "<tmp>").lower()
     assert rc == 0, out          # a machine with no ribbon button is not a failing doctor
+
+
+def test_one_ad_doctor_run_touches_common_files_exactly_once(tmp_path, monkeypatch, cfg_path, capsys):
+    r"""The External Tools folder is probed once per `ad-doctor`, not two or three times.
+
+    `external_tools_writable` creates and deletes a file in the folder Power BI Desktop reads its
+    ribbon from, for every user of the machine, and `session-bootstrap` runs `ad-doctor` every
+    session. `check()` used to ask the question three ways -- `capabilities()`, then a second bare
+    `ribbon_state()` in `_transport_rows`, then `_ask_ribbon` -- so the docstring promising "one
+    probe per row" was false on the line under it. This counts the real writes, through the seam
+    `_probe_write` exists to provide, and it must stay at one.
+    """
+    ext_dir = tmp_path / "CommonFiles" / "External Tools"
+    ext_dir.mkdir(parents=True)
+    monkeypatch.setattr(EXT, "external_tools_dir", lambda: str(ext_dir))
+    monkeypatch.setattr(EXT, "custom_actions_path", lambda: str(tmp_path / "no-such" / "CustomActions.json"))
+    DT.clear_writable_cache()
+
+    probes: list[str] = []
+    real = DT._probe_write
+    monkeypatch.setattr(DT, "_probe_write", lambda path: (probes.append(path), real(path))[1])
+
+    W.run_doctor(["--only", "powerbi"], FakeDet(windows=True))
+    capsys.readouterr()
+    assert len(probes) == 1, f"{len(probes)} create/deletes in the ribbon folder for one doctor run"
+    assert DT.EXT_PROBE_FILENAME not in os.listdir(ext_dir)   # and it cleaned up after itself
+
+    # The memo is what holds the line for any caller that asks again inside the same process.
+    DT.ribbon_state()
+    DT.ribbon_state()
+    assert len(probes) == 1
+    DT.clear_writable_cache()
+    DT.ribbon_state()
+    assert len(probes) == 2, "clear_writable_cache() must be the only way to measure again"
+    assert DT.EXT_PROBE_FILENAME not in os.listdir(ext_dir)
 
 
 def test_package_dir_matches_the_one_register_tool_actually_writes():

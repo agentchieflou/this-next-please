@@ -163,6 +163,131 @@ def test_register_tool_hint_points_at_the_package_not_at_elevation(tmp_path, mon
     assert "run elevated" not in hint.lower()
 
 
+# ------------------------------------------------- the launcher is measured, never guessed (#113)
+
+
+def cmd_runner(*, where_python="", where_py="", help_ok=False, help_py_ok=False):
+    r"""A fake fresh `cmd.exe`. The launcher question is only ever asked through this shape."""
+    def run(args, timeout=30):
+        line = args[-1] if args else ""
+        if line == "where python":
+            return (0, where_python, "") if where_python else (1, "", "INFO: Could not find files")
+        if line == "where py":
+            return (0, where_py, "") if where_py else (1, "", "INFO: Could not find files")
+        if line == "python -m agentdata --help":
+            return (0, "usage: agentdata", "") if help_ok else (9009, "", "not recognized")
+        if line == "py -m agentdata --help":
+            return (0, "usage: agentdata", "") if help_py_ok else (9009, "", "not recognized")
+        return 0, "", ""
+    return run
+
+
+def test_a_venv_python_is_refused_rather_than_shipped_to_it(tmp_path, monkeypatch, stable_launcher):
+    r"""The worst failure this epic can produce: a ticket spent on a file that works for nobody.
+
+    `shutil.which("python")` inside an activated virtualenv answers `python`, so packaging from a
+    venv used to write `/c python -m agentdata ...`, and `REQUEST.md` told IT the request "should
+    never reach you a second time". `probe` already knew better; now `package` asks it.
+    """
+    monkeypatch.setattr(EXT.sys, "prefix", str(tmp_path / "venv"))
+    monkeypatch.setattr(EXT.sys, "base_prefix", str(tmp_path / "base"), raising=False)
+    import agentdata.pbip.probe as PRB
+    monkeypatch.setattr(PRB.sys, "prefix", str(tmp_path / "venv"))
+    monkeypatch.setattr(PRB.sys, "base_prefix", str(tmp_path / "base"), raising=False)
+
+    run = cmd_runner(where_python=str(tmp_path / "venv" / "Scripts" / "python.exe"), help_ok=True)
+    res = EXT.package(out_dir=str(tmp_path / "pkg"), run=run)
+    assert res["ok"] is False
+    assert res["fail"] == "per_user_launcher"
+    assert "--launcher" in res["hint"]
+    assert "handoff --active" in res["hint"]          # the transport that needs none of this
+    assert not os.path.exists(tmp_path / "pkg")       # nothing was written for anyone to send
+
+    # ...and the same measurement stops the direct write, which ships the same file to everyone.
+    ok, _dest, hint = EXT.register_tool(run=run)
+    assert ok is False and "--launcher" in hint
+
+
+def test_a_machine_with_only_the_py_launcher_gets_py_in_the_file(tmp_path, stable_launcher):
+    run = cmd_runner(where_py=r"C:\Windows\py.exe", help_py_ok=True)
+    res = EXT.package(out_dir=str(tmp_path / "pkg"), run=run)
+    assert res["ok"] is True
+    assert res["verdict"] == "cmd-py" and res["launcher"] == "py"
+    assert res["arguments"] == '/c py -m agentdata pbip handoff --server "%server%" --database "%database%"'
+
+
+def test_a_measured_bare_python_is_the_one_file_worth_a_ticket(tmp_path, stable_launcher):
+    run = cmd_runner(where_python=r"C:\Python312\python.exe", help_ok=True)
+    res = EXT.package(out_dir=str(tmp_path / "pkg"), run=run)
+    assert res["ok"] is True and res["verdict"] == "cmd-python"
+    assert res["arguments"] == AGNOSTIC_ARGS
+
+
+def test_an_explicit_launcher_overrides_the_measurement_and_is_not_re_argued(tmp_path):
+    """`--launcher` is the operator saying they have put a shim on PATH. Re-measuring it would only
+    disagree with the one person who can see the machine."""
+    run = cmd_runner()                       # measures nothing at all
+    res = EXT.package(out_dir=str(tmp_path / "pkg"), launcher="agentdata-handoff.cmd", run=run)
+    assert res["ok"] is True and res["verdict"] == "override"
+    assert res["arguments"] == '/c agentdata-handoff.cmd --server "%server%" --database "%database%"'
+
+
+def test_an_unmeasurable_launcher_is_shipped_but_labelled_unknown(tmp_path, stable_launcher):
+    """Off Windows there is no cmd.exe to ask. The file is still written; the verdict says so, and
+    the CLI turns that into a warning rather than a silent claim."""
+    res = EXT.package(out_dir=str(tmp_path / "pkg"), run=lambda *a, **k: (127, "", "cmd not found"))
+    assert res["ok"] is True and res["verdict"] == "unknown"
+    assert res["arguments"] == AGNOSTIC_ARGS
+
+
+# --------------------------------------------------------- the two writes that must never happen
+
+
+def test_register_tool_never_creates_the_machine_folder(tmp_path, monkeypatch, stable_launcher):
+    r"""`os.makedirs(exist_ok=True)` on `%CommonProgramFiles%\...` built that path *relative to cwd*.
+
+    On this CI, and on any box without Power BI Desktop, `register_tool()` reported `ok` after
+    creating a directory literally named `C:\Program Files\Common Files` inside the user's
+    repository. Only Desktop's installer owns that folder; its absence is a refusal.
+    """
+    monkeypatch.delenv("CommonProgramFiles", raising=False)
+    work = tmp_path / "repo"
+    work.mkdir()
+    monkeypatch.chdir(work)
+
+    ok, dest, hint = EXT.register_tool(run=cmd_runner(where_python=r"C:\Python312\python.exe", help_ok=True))
+    assert ok is False
+    assert "does not exist" in hint and "--package" in hint
+    assert os.listdir(work) == [], "a refusal must not leave a Program Files tree in the repo"
+    assert dest.endswith(EXT.TOOL_FILENAME)
+
+
+def test_a_named_target_dir_still_creates_it(tmp_path, stable_launcher):
+    """`--target-dir` is the caller naming a folder they own, which is a different question."""
+    ok, dest, hint = EXT.register_tool(target_dir=str(tmp_path / "ext" / "External Tools"))
+    assert ok is True and hint is None and os.path.exists(dest)
+
+
+def test_handoff_refuses_rather_than_writing_into_whatever_cwd_it_was_launched_from(tmp_path, monkeypatch):
+    r"""The ribbon hands `cmd.exe` Desktop's own `bin`; the TE2 action inherits Tabular Editor's cwd.
+
+    Neither is the user's project, so the old `resolved_proj = "."` wrote `.agent/desktop.json`
+    into `...\Microsoft Power BI Desktopin` or `C:\Enforce` and printed "handed off to bin" --
+    a success no consumer could ever find. The `file` body of `handoff.te2.csx` already refuses
+    here; this is the same refusal in the single writer.
+    """
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))     # no pointer
+    work = tmp_path / "PowerBIDesktop" / "bin"
+    work.mkdir(parents=True)
+    monkeypatch.chdir(work)
+
+    res = EXT.handoff(server="localhost:54321", database="db-guid", run=lambda *a, **k: (1, "", ""))
+    assert res["ok"] is False and res["fail"] == "no_project"
+    assert "ad-setup --project" in res["hint"]
+    assert not os.path.exists(work / ".agent")
+    assert os.listdir(work) == []
+
+
 def test_handoff_pointer_is_where_the_project_went(tmp_path, monkeypatch):
     local = tmp_path / "Local"
     monkeypatch.setenv("LOCALAPPDATA", str(local))

@@ -226,7 +226,33 @@ def test_zorder_rows_come_from_winui_in_order():
     assert rows["zorder.count"]["value"] == "2"
     assert rows["zorder.0"]["value"] == "pid 11  Sales - Power BI Desktop"
     assert rows["zorder.1"]["value"] == "pid 22  Finance - Power BI Desktop"
+    # Off Windows the rows came through the process table, and the report says which measurement
+    # answered rather than calling row 0 "the window on top". Claiming Z-order here would be the
+    # probe fabricating the one fact only the laptop can supply.
+    assert rows["zorder.source"]["value"] == "process-table"
+    assert "NOT the window on top" in rows["zorder.0"]["reason"]
+
+
+def test_the_probe_says_touched_last_only_when_enumwindows_answered(monkeypatch):
+    """`verdict.zorder: yes` used to be printed on any Windows box with a window open.
+
+    Including one whose `EnumWindows` call had just failed and fallen through to `Get-Process`, so
+    the probe pasted into the issue asserted a Z-order nothing had measured.
+    """
+    monkeypatch.setattr(PB.winui, "desktop_windows_source",
+                        lambda run=None: ([(11, "Sales - Power BI Desktop")], PB.winui.SOURCE_ENUM))
+    monkeypatch.setattr(PB.sys, "platform", "win32")
+    rows = by_name(PB.report(run=fake_runner()))
+    assert rows["zorder.source"]["value"] == "enum-windows"
     assert "touched last" in rows["zorder.0"]["reason"]
+    assert rows["verdict.zorder"]["value"] == "yes"
+
+    monkeypatch.setattr(PB.winui, "desktop_windows_source",
+                        lambda run=None: ([(11, "Sales - Power BI Desktop")], PB.winui.SOURCE_TABLE))
+    rows = by_name(PB.report(run=fake_runner()))
+    assert rows["zorder.source"]["value"] == "process-table"
+    assert rows["verdict.zorder"]["value"] == "no"
+    assert "no_zorder" in rows["verdict.zorder"]["reason"]
 
 
 def test_a_browser_tab_named_power_bi_desktop_is_not_a_window():

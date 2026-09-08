@@ -54,6 +54,21 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Approval gate | a denial carries no reason, or an approval is answered twice | `ApprovalError`, exit 2 | `test_fleet_approval.py::test_a_denial_without_a_reason_is_refused` |
 | DPM | the artifact directory is outside the governed tree | `error`, exit 2 | `test_dpm.py::test_convert_refuses_paths_outside_governed_dir` |
 | Install | a hint would tell a project repo to `pip install -e` | refused at the source | `test_install.py::test_runtime_hints_never_tell_a_project_repo_to_pip_install_dash_e` |
+| Power BI handoff | two Desktop documents are open and neither `--active` nor `--file` says which | `refused: ambiguous`, exit 2, the Z-ordered list and both flags | `test_pbip_handoff_cli.py::test_two_instances_and_no_flag_is_a_refusal_that_prints_both_and_both_flags` |
+| Power BI handoff | `--file <name>` matches no open document | `refused: no_match`, exit 2, listing what is open | `test_pbip_handoff_cli.py::test_a_file_that_matches_nothing_lists_what_is_open` |
+| Power BI handoff | nothing is open to hand over | `refused: no_instance`, exit 1, naming `ad-pbip launch` | `test_pbip_handoff_cli.py::test_nothing_open_is_a_refusal_with_nothing_to_hand_off` |
+| Power BI handoff | the document has no Analysis Services port yet | `refused: no_port`, exit 1, "wait and run it again" | `test_handoff_transports.py::test_a_document_whose_port_file_is_missing_refuses_instead_of_guessing` |
+| Power BI handoff | `--active` on Windows and `user32.EnumWindows` did not answer | `refused: no_zorder`, exit 2, naming `--file` | `test_handoff_transports.py::test_active_refuses_on_windows_when_enumwindows_did_not_answer` |
+| Power BI handoff | the ribbon or TE2 click resolves no project, so the cwd is not the user's | `refused: no_project`, exit 2, naming `ad-setup --project` | `test_external_tool_agnostic.py::test_handoff_refuses_rather_than_writing_into_whatever_cwd_it_was_launched_from` |
+| Power BI handoff | `--active`/`--file` mixed with `--server`/`--database` | `error`, exit 2 | `test_pbip_handoff_cli.py::test_the_two_directions_cannot_be_mixed` |
+| Power BI handoff | `--database` without `--server` | `error`, exit 2 | `test_pbip_handoff_cli.py::test_a_database_with_no_server_is_a_refusal` |
+| Power BI ribbon | no bare `python`/`py` on the user's PATH reaches agentdata from a fresh `cmd.exe` | `refused: per_user_launcher`, exit 2, naming `--launcher`; nothing packaged | `test_external_tool_agnostic.py::test_a_venv_python_is_refused_rather_than_shipped_to_it` |
+| Power BI ribbon | the machine's External Tools folder does not exist | refused, hint naming `--package`; the folder is never created | `test_external_tool_agnostic.py::test_register_tool_never_creates_the_machine_folder` |
+| Power BI ribbon | the folder exists and refuses the write | refused, hint naming `--package` and the `Copy-Item` line, never elevation | `test_external_tool_agnostic.py::test_register_tool_hint_points_at_the_package_not_at_elevation` |
+| Power BI ribbon | a launcher name contains `%` | `ValueError` naming cmd.exe's expansion rule | `test_external_tool_agnostic.py::test_launcher_with_percent_is_refused` |
+| Power BI TE2 | `CustomActions.json` does not parse | `refused`, exit 1, file left byte-for-byte alone | `test_pbip_handoff_cli.py::test_te2_refuses_a_malformed_actions_file_rather_than_rewriting_it` |
+| Power BI TE2 | `--remove` without `--te2` | `error`, exit 2 | `test_pbip_handoff_cli.py::test_remove_without_te2_is_a_refusal` |
+| Power BI TE2 | an unknown `te2_action` mode | `ValueError` naming `process` and `file` | `test_external_tool_agnostic.py::test_te2_unknown_mode_names_the_two` |
 
 ## Debugging a swallowed exception
 

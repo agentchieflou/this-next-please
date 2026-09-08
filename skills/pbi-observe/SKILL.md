@@ -26,4 +26,4 @@ Inputs: `pid` or `server` (AGENTS.md, `.agent/desktop.json`, or `ad-pbip desktop
 
 4. Stop conditions:
    - Trace or DMV script exits non-zero twice in a row → invoke `friction-log` with type `tool-error`. STOP.
-   - `.agent/desktop.json` is missing → have the PBIP opened in Desktop first, then read the `external_tools` row of `ad-pbip capabilities` and ask for the one gesture its `via` names: `ribbon:machine`, press *External Tools → agentdata*; `te2:local`, in Tabular Editor pick the instance, then *Hand off to agentdata*; anything else, click the window you mean and run `ad-pbip handoff --active`. STOP.
+   - `.agent/desktop.json` is missing → have the PBIP opened in Desktop first, then read the `external_tools` row of `ad-pbip capabilities` and ask for the one gesture its `via` names: `ribbon:machine`, press *External Tools → agentdata*; `te2:local`, in Tabular Editor pick the instance, then *Hand off to agentdata*; `zorder`, click the window you mean and run `ad-pbip handoff --active`; `file`, name the document with `ad-pbip handoff --file <name>`. STOP.

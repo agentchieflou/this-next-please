@@ -257,11 +257,58 @@ def _same_dir(a: str, b: str) -> bool:
 
 
 def _under(path: str, root: str) -> bool:
+    """Is `path` inside `root`? Both spellings first, because `where python` answers in backslashes.
+
+    `textio.norm_path` rather than a separator swap here: this compares a path cmd.exe printed
+    against `sys.prefix`, and the two arrive with different separators on the same machine. One
+    canonicaliser for both is the only way the answer cannot depend on which one printed it.
+    """
     if not path or not root:
         return False
-    a = os.path.normcase(os.path.normpath(path))
-    b = os.path.normcase(os.path.normpath(root))
-    return a == b or a.startswith(b + os.sep) or a.startswith(b.replace(os.sep, "/") + "/")
+    a = os.path.normcase(textio.norm_path(os.path.normpath(path)))
+    b = os.path.normcase(textio.norm_path(os.path.normpath(root))).rstrip("/")
+    return a == b or a.startswith(b + "/")
+
+
+def measure_launcher(run: Runner | None = None) -> dict:
+    """The five fresh-`cmd.exe` reads `verdict.launcher` is decided from, as raw measurements.
+
+    Split out of `_q1` so it has a second caller. `external_tool` renders the one file that costs an
+    IT ticket, and the launcher name in it used to come from `shutil.which("python")` *in this
+    process* -- inside an activated virtualenv that answers `python`, and the file that reaches IT
+    then names an interpreter that exists on nobody's PATH at click time. This is the same question
+    asked in the environment Desktop actually launches into, and it is the only measurement allowed
+    to decide what goes in the file (#113/#114).
+    """
+    run = run or default_run
+    venv = sys.prefix if sys.prefix != getattr(sys, "base_prefix", sys.prefix) else ""
+    where_python_c, where_python_o, where_python_e = _cmd(run, "where python")
+    where_py_c, where_py_o, where_py_e = _cmd(run, "where py")
+    ver_c, ver_o, ver_e = _cmd(run, "python -V")
+    help_c, help_o, help_e = _cmd(run, "python -m agentdata --help", timeout=60)
+    help_py_c, help_py_o, help_py_e = _cmd(run, "py -m agentdata --help", timeout=60)
+    return {
+        "venv": venv,
+        "where_python": where_python_o if where_python_c == 0 and where_python_o else "",
+        "where_python_reason": where_python_e or f"cmd exited {where_python_c} with no output",
+        "where_py": where_py_o if where_py_c == 0 and where_py_o else "",
+        "where_py_reason": where_py_e or f"cmd exited {where_py_c} with no output",
+        "version": ver_o, "version_reason": ver_e or f"cmd exited {ver_c}", "version_ok": ver_c == 0 and bool(ver_o),
+        "help_ok": help_c == 0 and bool(help_o),
+        "help_out": help_o, "help_reason": help_e or help_o or f"cmd exited {help_c}",
+        "help_py_ok": help_py_c == 0 and bool(help_py_o),
+        "help_py_out": help_py_o, "help_py_reason": help_py_e or help_py_o or f"cmd exited {help_py_c}",
+    }
+
+
+def launcher_verdict(run: Runner | None = None, measured: dict | None = None) -> dict:
+    """The `verdict.launcher` row on its own, for a caller that has to *act* on it rather than print it.
+
+    `cmd-python` / `cmd-py` / `per-user-launcher` / `unknown`; see `_launcher_verdict` for what each
+    one means and `external_tool.measured_launcher` for what is done about it.
+    """
+    m = measured if measured is not None else measure_launcher(run)
+    return _launcher_verdict(m["where_python"], m["where_py"], m["help_ok"], m["help_py_ok"], m["venv"])
 
 
 def _q1(run: Runner, native: bool, localappdata: str | None) -> list[dict]:
@@ -270,36 +317,29 @@ def _q1(run: Runner, native: bool, localappdata: str | None) -> list[dict]:
     rows.append(_row("Q1", "python.version", "%d.%d.%d" % sys.version_info[:3],
                      "" if sys.version_info >= (3, 12) else "agentdata needs Python >= 3.12"))
 
-    venv = sys.prefix if sys.prefix != getattr(sys, "base_prefix", sys.prefix) else ""
+    m = measure_launcher(run)
+    venv = m["venv"]
     rows.append(_row("Q1", "python.venv", textio.norm_path(venv) if venv else "none",
                      "a virtualenv is active: what resolves here is not what Desktop resolves" if venv else ""))
 
     value, reason = _user32()
     rows.append(_row("Q1", "python.ctypes_user32", value, reason))
 
-    code, out, err = _cmd(run, "where python")
-    where_python = out if code == 0 and out else ""
+    where_python, where_py = m["where_python"], m["where_py"]
     rows.append(_row("Q1", "where.python", where_python or "not found",
-                     "" if where_python else (err or f"cmd exited {code} with no output")))
-
-    code, out, err = _cmd(run, "where py")
-    where_py = out if code == 0 and out else ""
+                     "" if where_python else m["where_python_reason"]))
     rows.append(_row("Q1", "where.py", where_py or "not found",
-                     "" if where_py else (err or f"cmd exited {code} with no output")))
+                     "" if where_py else m["where_py_reason"]))
+    rows.append(_row("Q1", "cmd.python_version", m["version"] or "unreadable",
+                     "" if m["version_ok"] else m["version_reason"]))
 
-    code, out, err = _cmd(run, "python -V")
-    rows.append(_row("Q1", "cmd.python_version", out or "unreadable",
-                     "" if code == 0 and out else (err or f"cmd exited {code}")))
-
-    code, out, err = _cmd(run, "python -m agentdata --help", timeout=60)
-    help_ok = code == 0 and bool(out)
-    rows.append(_row("Q1", "cmd.agentdata_help", f"answers: {out[:120]}" if help_ok else "no answer",
-                     "" if help_ok else (err or out or f"cmd exited {code}")))
-
-    code, out, err = _cmd(run, "py -m agentdata --help", timeout=60)
-    help_py_ok = code == 0 and bool(out)
-    rows.append(_row("Q1", "cmd.agentdata_help_py", f"answers: {out[:120]}" if help_py_ok else "no answer",
-                     "" if help_py_ok else (err or out or f"cmd exited {code}")))
+    help_ok, help_py_ok = m["help_ok"], m["help_py_ok"]
+    rows.append(_row("Q1", "cmd.agentdata_help",
+                     f'answers: {m["help_out"][:120]}' if help_ok else "no answer",
+                     "" if help_ok else m["help_reason"]))
+    rows.append(_row("Q1", "cmd.agentdata_help_py",
+                     f'answers: {m["help_py_out"][:120]}' if help_py_ok else "no answer",
+                     "" if help_py_ok else m["help_py_reason"]))
 
     code, out, err = _cmd(run, "echo %PATH%")
     path_value = out if code == 0 and out else ""
@@ -373,9 +413,17 @@ def _launcher_verdict(where_python: str, where_py: str, help_ok: bool, help_py_o
 def _q4(run: Runner) -> list[dict]:
     rows: list[dict] = []
     try:
-        windows = winui.desktop_windows(run=run)
+        windows, source = winui.desktop_windows_source(run=run)
     except Exception as e:  # noqa: BLE001 - one broken read must not cost the other four questions
         return [_row("Q4", "zorder", "unavailable", str(e))]
+
+    # Which measurement answered is itself a probe row: `verdict.zorder: yes` used to be printed on
+    # any Windows box with a window open, including one whose `EnumWindows` call had just failed and
+    # fallen through to the process table. The probe exists to send evidence to the issue, and "the
+    # rows are in the order Get-Process gave" is a different piece of evidence from "Z-order".
+    rows.append(_row("Q4", "zorder.source", source,
+                     "user32.EnumWindows walked the Z-order" if source == winui.SOURCE_ENUM else
+                     "the process table, which has no Z-order -- these rows are not stacking order"))
 
     off_windows = "" if sys.platform == "win32" else (
         f"off Windows (sys.platform={sys.platform}) winui falls back to the process table, which has "
@@ -383,14 +431,20 @@ def _q4(run: Runner) -> list[dict]:
     rows.append(_row("Q4", "zorder.count", str(len(windows)),
                      off_windows or ("" if windows else
                                      "no visible window whose title ends in 'Power BI Desktop'")))
+    top_reason = ("highest in Z-order: the window the human touched last" if source == winui.SOURCE_ENUM
+                  else "first row the process table gave, NOT the window on top")
     for i, (pid, title) in enumerate(windows):
-        rows.append(_row("Q4", f"zorder.{i}", f"pid {pid}  {title}",
-                         "highest in Z-order: the window the human touched last" if i == 0 else ""))
+        rows.append(_row("Q4", f"zorder.{i}", f"pid {pid}  {title}", top_reason if i == 0 else ""))
 
     if sys.platform != "win32":
         rows.append(_row("Q4", "verdict.zorder", "unknown",
                          "Z-order can only be measured on the laptop; run `ad-pbip probe` there, "
                          "click the other Desktop window, and run it again -- line zorder.0 must flip"))
+    elif source != winui.SOURCE_ENUM:
+        rows.append(_row("Q4", "verdict.zorder", "no",
+                         "this is Windows and the ctypes call to user32.EnumWindows did not answer, so "
+                         "`handoff --active` refuses here (no_zorder); hand off with `--file <name>` and "
+                         "paste line python.ctypes_user32 into the issue"))
     elif not windows:
         rows.append(_row("Q4", "verdict.zorder", "no",
                          "no Desktop window is open; open a report and re-run"))

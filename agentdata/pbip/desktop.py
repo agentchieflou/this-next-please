@@ -327,6 +327,15 @@ def windows_zorder(run: Runner | None = None) -> list[tuple[int, str]]:
     return winui.desktop_windows(run=run)
 
 
+def windows_zorder_source(run: Runner | None = None) -> tuple[list[tuple[int, str]], str]:
+    """The same rows plus which measurement answered -- `winui.SOURCE_ENUM` or `SOURCE_TABLE`.
+
+    `--active` is the only caller that needs it, and it needs it badly: see
+    `winui.desktop_windows_source`. Everything else wants the rows in whatever order was available.
+    """
+    return winui.desktop_windows_source(run=run)
+
+
 def _instance_names(inst: Instance) -> list[str]:
     """Every spelling of "which document" one instance answers to, lowercased."""
     names: list[str] = []
@@ -392,6 +401,8 @@ def resolve_transport(active: bool = False, file: str | None = None, candidates:
     honest move is to stop and print both.
 
     * `--active` -> `windows_zorder()[0]`, transport `zorder`: the window the human clicked last.
+      Only when `EnumWindows` is what answered -- on Windows a ctypes fallback to the process table
+      makes `--active` a refusal (`no_zorder`), because the process table has no notion of on top.
     * `--file <name>` -> the instance whose file or title matches, transport `file`.
     * neither, and exactly one instance is running -> that one, transport `file`, and `why` says so.
     * neither, and two or more -> refusal with the Z-ordered list and the two flags.
@@ -400,13 +411,21 @@ def resolve_transport(active: bool = False, file: str | None = None, candidates:
     `fail`, a `hint` naming what to do next, and `choices` when there was more than one answer.
     """
     insts = status(candidates=candidates, run=run)
-    rows = windows_zorder(run=run)
+    rows, zorder_source = windows_zorder_source(run=run)
     choices = _choices(insts, rows)
 
     def refuse(fail: str, hint: str) -> dict:
         return {"ok": False, "source": "ad-pbip handoff", "fail": fail, "hint": hint, "choices": choices}
 
     if active:
+        if sys.platform == "win32" and zorder_source != winui.SOURCE_ENUM:
+            # user32 was there to ask and did not answer, so what came back is the process table --
+            # which has no Z-order. Answering anyway would have printed `transport: zorder` and
+            # 'the window on top' over a row nothing measured. There is a flag for this case.
+            return refuse("no_zorder",
+                          "user32.EnumWindows did not answer, so nothing here knows which window is on "
+                          "top -- the list below is process-table order, not Z-order. Name the document "
+                          "with `ad-pbip handoff --file <name>`, or close the others and run it with no flag")
         if not rows:
             return refuse("no_window", "no Power BI Desktop window is open (or none is visible to this "
                                        "session); open the report, click its window, and run it again")
@@ -499,6 +518,11 @@ def handoff(active: bool = False, file: str | None = None, project_dir: str | No
     server = picked["server"]
     database, database_source = resolve_database(server, dscmd_exe=dscmd_exe, te2_exe=te2_exe, run=run)
     res = ET.handoff(server, database, project_dir=project_dir, run=run)
+    if not res.get("ok"):
+        # `no_project`: the single writer refused rather than writing into whatever cwd it was
+        # launched from. Pass it through with the choices the gate already collected, so the CLI
+        # prints the same refusal shape as every other one.
+        return {**res, "source": "ad-pbip handoff", "choices": picked.get("choices", [])}
 
     extra = {"transport": picked["transport"], "database_source": database_source}
     path = res.get("path")
@@ -735,6 +759,9 @@ def _probe_write(path: str) -> None:
     os.close(fd)
 
 
+_WRITABLE_CACHE: dict[str, tuple[bool, str]] = {}
+
+
 def external_tools_writable(ext_dir: str) -> tuple[bool, str]:
     """Can this user place a file in the External Tools folder? Create one, delete it, answer.
 
@@ -745,7 +772,28 @@ def external_tools_writable(ext_dir: str) -> tuple[bool, str]:
     The probe file is deleted in a `finally`. A `zz-probe.pbitool.json` left behind would be a
     broken button on the ribbon of every user of this machine, which is a far bigger mess than the
     question it answers.
+
+    Memoised per folder for the life of the process, and that is not an optimisation -- it is the
+    guarantee. One `ad-doctor` run asked three different questions that each ended here, so three
+    files appeared and disappeared in the folder every user of the machine reads its ribbon from,
+    and `session-bootstrap` runs `ad-doctor` every session. Whether an ACL lets this account create
+    a file cannot change inside one command, so asking twice can only add risk. `clear_writable_cache()`
+    is the seam for a test that means to measure a *change*.
     """
+    key = os.path.normcase(textio.norm_path(os.path.abspath(ext_dir)))
+    if key in _WRITABLE_CACHE:
+        return _WRITABLE_CACHE[key]
+    answer = _external_tools_writable_uncached(ext_dir)
+    _WRITABLE_CACHE[key] = answer
+    return answer
+
+
+def clear_writable_cache() -> None:
+    """Forget every measured folder. For tests that make the same folder answer twice."""
+    _WRITABLE_CACHE.clear()
+
+
+def _external_tools_writable_uncached(ext_dir: str) -> tuple[bool, str]:
     probe = os.path.join(ext_dir, EXT_PROBE_FILENAME)
     created = False
     removed = True
@@ -858,7 +906,11 @@ def external_tools_row(run: Runner | None = None, ext_dir: str | None = None,
     """
     ribbon = ribbon_state(ext_dir=ext_dir, run=run)
     te2 = te2_action_state(te2_exe=te2_exe, actions_path=actions_path)
-    row = {"capability": "external_tools", "ribbon": ribbon["state"]}
+    # The whole ribbon dict travels with the row, not just its state. `ad-doctor` needs `dir`,
+    # `path`, `writable` and `evidence` for its second row, and calling `ribbon_state()` again to
+    # get them re-ran `external_tools_writable`, which creates and deletes a file in the folder
+    # Power BI Desktop reads its ribbon from. One probe per doctor run is the budget.
+    row = {"capability": "external_tools", "ribbon": ribbon["state"], "ribbon_state": ribbon}
 
     if ribbon["state"] == RIBBON_REGISTERED:
         return {**row, "available": True, "via": "ribbon:machine", "evidence": ribbon["evidence"]}
@@ -866,19 +918,39 @@ def external_tools_row(run: Runner | None = None, ext_dir: str | None = None,
         return {**row, "available": True, "via": "te2:local",
                 "evidence": f'{te2["evidence"]}; ribbon {ribbon["state"]}: {ribbon["evidence"]}'}
 
-    wins = windows_zorder(run=run)
+    wins, zorder_source = windows_zorder_source(run=run)
+    # On Windows, a fallback to the process table means nothing here knows which window is on top,
+    # and `handoff --active` refuses (`no_zorder`). The transport is then `file`, whose gesture names
+    # the document instead -- reporting `zorder` would send the human to a flag that refuses.
+    via = "file" if (sys.platform == "win32" and zorder_source != winui.SOURCE_ENUM) else "zorder"
     if wins:
         top = wins[0]
         ev = (f'{len(wins)} Power BI Desktop window(s), on top "{top[1]}" (pid {top[0]}) -- '
-              "`ad-pbip handoff --active` hands that one over")
+              "`ad-pbip handoff --active` hands that one over") if via == "zorder" else (
+            f'{len(wins)} Power BI Desktop window(s), but user32.EnumWindows did not answer, so which is '
+            "on top is unknown -- `ad-pbip handoff --file <name>` names the document instead")
     elif sys.platform == "win32":
-        ev = "no Power BI Desktop window open; `ad-pbip handoff --active` works as soon as one is"
+        ev = ("no Power BI Desktop window open; `ad-pbip handoff --active` works as soon as one is"
+              if via == "zorder" else
+              "no Power BI Desktop window open, and user32.EnumWindows did not answer either")
     else:
         return {**row, "available": False, "via": "none",
                 "evidence": f'no transport: no Desktop window and this is not Windows (sys.platform={sys.platform}); '
                             f'ribbon {ribbon["state"]}: {ribbon["evidence"]}'}
-    return {**row, "available": True, "via": "zorder",
+    return {**row, "available": True, "via": via,
             "evidence": f'{ev}; ribbon {ribbon["state"]}: {ribbon["evidence"]}'}
+
+
+# Keys a capability row may show in the rendered table. `external_tools` also carries the whole
+# `ribbon_state` dict for `ad-doctor`, and `AgentTable.from_records` flattens a nested dict into a
+# column per key -- five empty columns on the eight rows that have no ribbon. That payload is for a
+# caller, not for a reader, so the CLI projects the row through `capability_view` before rendering.
+CAPABILITY_VIEW_KEYS = ("capability", "available", "via", "evidence", "ribbon")
+
+
+def capability_view(caps: list[dict]) -> list[dict]:
+    """The rendered shape of `capabilities()`: scalar columns only, in a fixed order."""
+    return [{k: c[k] for k in CAPABILITY_VIEW_KEYS if k in c} for c in caps]
 
 
 def capabilities(pid: int | None = None, run: Runner | None = None) -> list[dict]:

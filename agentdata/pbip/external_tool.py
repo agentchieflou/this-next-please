@@ -170,6 +170,13 @@ def resolve_launcher(launcher: str | None = None) -> str:
     overrides for a site where agentdata lives in a venv: `ad-setup` writes
     `%LOCALAPPDATA%\\agentdata\\bin\\agentdata-handoff.cmd` and the user puts that folder on their
     own PATH, which is a user-scope environment variable and needs nobody's permission.
+
+    **The `shutil.which` fallback is a guess, and it is the wrong measurement**: it reads *this*
+    process's PATH, which inside an activated virtualenv contains a `python` that will not be there
+    when Desktop launches the tool from a fresh `cmd.exe`. It survives as the default for the cheap
+    per-user callers (`--te2`, whose action is re-registered for free at any time) and for a caller
+    that passed `--launcher` explicitly. Anything that renders the file which costs an IT ticket
+    goes through `measured_launcher()` instead, which asks `cmd.exe`.
     """
     if launcher:
         return launcher.strip().strip('"')
@@ -178,6 +185,56 @@ def resolve_launcher(launcher: str | None = None) -> str:
     if shutil.which("py"):
         return "py"
     return "python"
+
+
+# `verdict.launcher` -> the token that belongs after `/c`. `per-user-launcher` is not in here on
+# purpose: there is no name that works, which is why it is a refusal and not a default.
+VERDICT_TOKEN = {"cmd-python": "python", "cmd-py": "py"}
+
+
+def measured_launcher(launcher: str | None = None, run: Runner | None = None) -> dict:
+    r"""What the ribbon file should say, measured in the environment Desktop launches into.
+
+    `{"ok", "launcher", "verdict", "evidence"}`, and on `ok: False` a `hint` and a `fail`.
+
+    The file this decides is the one worth a single IT ticket forever, and `REQUEST.md` tells the
+    stranger who acts on it that "this request should never reach you a second time". That sentence
+    is only true if the launcher name in the file resolves on the *user's* PATH at click time --
+    and the name used to come from `shutil.which("python")` in this process, so running
+    `ad-pbip register-tool --package` from an activated virtualenv wrote `python`, shipped it to
+    IT, and produced a ribbon button that works for nobody. `probe.launcher_verdict()` already
+    computed the right answer from a fresh `cmd.exe`; nothing consumed it. This is that wire.
+
+    * `cmd-python` / `cmd-py` -> `python` / `py`.
+    * `per-user-launcher` -> refuse. There is no bare name that reaches agentdata on this machine,
+      so any file we shipped would be a ticket spent on nothing. `--launcher` is the answer, once
+      the shim in `%LOCALAPPDATA%gentdatain` is on the user's PATH.
+    * `unknown` -> nothing could be measured, which is every machine that is not Windows. Fall back
+      to `python` and say so: the caller prints the warning rather than pretending to a verdict.
+
+    An explicit `launcher` skips the measurement entirely -- the operator has overridden it, and
+    re-measuring could only argue with them.
+    """
+    from . import probe as PRB  # deferred: probe imports desktop, which imports this module
+    if launcher:
+        return {"ok": True, "launcher": resolve_launcher(launcher), "verdict": "override",
+                "evidence": f"--launcher {launcher!r} was given, so nothing was measured"}
+    try:
+        row = PRB.launcher_verdict(run=run)
+    except Exception as e:  # noqa: BLE001 - a probe that will not run is "unknown", not a crash
+        row = {"value": "unknown", "reason": f"could not measure ({type(e).__name__}: {e})"}
+    verdict, evidence = row.get("value", "unknown"), row.get("reason", "")
+    if verdict in VERDICT_TOKEN:
+        return {"ok": True, "launcher": VERDICT_TOKEN[verdict], "verdict": verdict, "evidence": evidence}
+    if verdict == "per-user-launcher":
+        return {"ok": False, "fail": "per_user_launcher", "launcher": "", "verdict": verdict,
+                "evidence": evidence,
+                "hint": "no bare `python` or `py` on this user's PATH reaches agentdata from a fresh "
+                        "cmd.exe, so a machine file naming one would spend an IT ticket on a button that "
+                        "does nothing. Put a shim in %LOCALAPPDATA%\\agentdata\\bin, add that folder to "
+                        "your own PATH (user scope, no permission needed), then re-run with "
+                        "`--launcher agentdata-handoff.cmd`. `ad-pbip handoff --active` needs none of this"}
+    return {"ok": True, "launcher": "python", "verdict": "unknown", "evidence": evidence}
 
 
 def _is_interpreter(launcher: str) -> bool:
@@ -344,14 +401,26 @@ Test-Path -LiteralPath "{dest_dir}"
 """
 
 
-def package(out_dir: str | None = None, launcher: str | None = None, minimized: bool = False) -> dict:
+def package(out_dir: str | None = None, launcher: str | None = None, minimized: bool = False,
+            run: Runner | None = None) -> dict:
     """Write the user-agnostic tool file and the request that asks someone to place it.
 
     This is the honest front door: we never write the machine file ourselves, and this folder is
     what gets attached to the ticket.
+
+    The launcher is *measured* first (`measured_launcher`), not guessed from this process's PATH,
+    and a machine where no bare name reaches agentdata is a refusal rather than a package -- a
+    ticket is a person's afternoon, and spending it on a file that cannot work is the one failure
+    this whole epic exists to avoid. `verdict` and `evidence` come back either way so the caller can
+    print what was measured.
     """
+    measured = measured_launcher(launcher, run=run)
+    if not measured["ok"]:
+        return {"ok": False, "source": "ad-pbip register-tool --package", "fail": measured["fail"],
+                "verdict": measured["verdict"], "evidence": measured["evidence"], "hint": measured["hint"]}
+
     out = out_dir or DEFAULT_PACKAGE_DIR
-    data = render_tool_json(mode="agnostic", launcher=launcher, minimized=minimized)
+    data = render_tool_json(mode="agnostic", launcher=measured["launcher"], minimized=minimized)
     text = render_tool_text(data)
     digest = content_hash(text)
     tool_json = textio.write_text(os.path.join(out, TOOL_FILENAME), text)
@@ -369,28 +438,59 @@ def package(out_dir: str | None = None, launcher: str | None = None, minimized: 
         "sha256": digest,
         "path": data["path"],
         "arguments": data["arguments"],
+        "launcher": measured["launcher"],
+        "verdict": measured["verdict"],
+        "evidence": measured["evidence"],
     }
 
 
 def register_tool(target_dir: str | None = None, python_exe: str | None = None,
                   project_dir: str | None = None, mode: str | None = None,
-                  launcher: str | None = None) -> tuple[bool, str, str | None]:
-    """Write `agentdata.pbitool.json` into the External Tools folder, or say who can.
+                  launcher: str | None = None, run: Runner | None = None) -> tuple[bool, str, str | None]:
+    r"""Write `agentdata.pbitool.json` into the External Tools folder, or say who can.
 
     A `PermissionError` here is the expected answer on a managed laptop, not a bug: the hint names
     the package, because the fix is a ticket with one file attached and not an elevated shell we
     have no evidence the user can open.
+
+    The machine folder is never *created*, only written into. `os.makedirs(exist_ok=True)` used to
+    run before the copy, so on a machine where `%CommonProgramFiles%` is unset -- this repo's Linux
+    CI, and any box without Power BI Desktop -- it built a literal
+    `C:\Program Files\Common Files\Microsoft Shared\...` tree *inside the current working
+    directory* and reported `ok`. That is a write into the user's repo, under a name nobody would
+    ever look for, plus a false "registered". Only Desktop's own installer owns that folder, so its
+    absence is a refusal with the package as the next step. `target_dir` is the test/`--target-dir`
+    seam and keeps the create, because there the caller named the folder.
     """
+    machine = target_dir is None
     dest_dir = target_dir or external_tools_dir()
     dest_file = os.path.join(dest_dir, TOOL_FILENAME)
+
+    # A direct write into the machine folder produces the same file the ticket would have carried,
+    # and every user of the machine clicks it -- so it gets the same measured launcher, not this
+    # process's PATH. `--target-dir` is the test seam and skips the measurement, which is five
+    # `cmd.exe` reads it has no use for.
+    if machine and not launcher and not python_exe and not project_dir and mode in (None, "agnostic"):
+        measured = measured_launcher(None, run=run)
+        if not measured["ok"]:
+            return False, dest_file, measured["hint"]
+        launcher = measured["launcher"]
+
     tool_data = render_tool_json(mode=mode, launcher=launcher, python_exe=python_exe, project_dir=project_dir)
+
+    if machine and not os.path.isdir(dest_dir):
+        return False, dest_file, (
+            f"{textio.norm_path(dest_dir)} does not exist, so Power BI Desktop is not installed for this "
+            f"machine (or this is not Windows) -- agentdata will not create a machine-scoped folder. Run "
+            f"`ad-pbip register-tool --package` to write the file and the request instead")
 
     tmp_file = os.path.join(tempfile.gettempdir(), f"agentdata_{os.getpid()}.pbitool.json")
     with open(tmp_file, "w", encoding="utf-8", newline="\n") as f:
         f.write(render_tool_text(tool_data))
 
     try:
-        os.makedirs(dest_dir, exist_ok=True)
+        if not machine:
+            os.makedirs(dest_dir, exist_ok=True)
         shutil.copy2(tmp_file, dest_file)
         try:
             os.remove(tmp_file)
@@ -601,7 +701,25 @@ def handoff(server: str, database: str, project_dir: str | None = None,
             resolved_proj = candidate
 
     if not resolved_proj:
-        resolved_proj = "."
+        # Never `"."`. Two of the four transports launch this from a working directory that is not
+        # the user's: Desktop hands `cmd.exe` its own `...\\Microsoft Power BI Desktop\\bin`, and the
+        # TE2 `process` body sets no `WorkingDirectory` at all, so it inherits Tabular Editor's --
+        # `C:\\Enforce` on the machine #112 measured. A `"."` fallback therefore wrote
+        # `.agent/desktop.json` into a folder outside every allowed root and printed
+        # "handed off to bin", a false success no consumer would ever find. The `file` body of
+        # `handoff.te2.csx` already refuses here; this is the same refusal for the single writer.
+        return {
+            "ok": False,
+            "source": "ad-pbip handoff",
+            "fail": "no_project",
+            "server": server,
+            "database": database,
+            "pid": target_pid,
+            "file": target_file,
+            "hint": "this model belongs to no known project: run `ad-setup --project <folder>` once "
+                    "(it writes the per-user pointer), or pass `ad-pbip handoff --project <folder>`, "
+                    "then click again",
+        }
 
     agent_dir = os.path.join(resolved_proj, ".agent")
     os.makedirs(agent_dir, exist_ok=True)

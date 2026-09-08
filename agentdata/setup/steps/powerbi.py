@@ -228,13 +228,19 @@ class PowerBIStep(Step):
         `external_tools_row()` call, deliberately: that probe creates and deletes a file in the
         folder Power BI Desktop reads its ribbon from, and `session-bootstrap` runs `ad-doctor` every
         session. One probe per row is the budget, not one per question asked about it.
+
+        The ribbon dict comes off that same row for the same reason. It used to be a bare
+        `DT.ribbon_state(run=...)` on the next line, which walked straight back into
+        `external_tools_writable()` and made the paragraph above false: two create/deletes in
+        `%CommonProgramFiles%` per `check()`. `external_tools_row` now carries the whole dict, and
+        `external_tools_writable` is memoised per process as the belt to this braces.
         """
         from ...pbip import desktop as DT
         k = self.key
 
         ext = next((c for c in caps if c.get("capability") == "external_tools"), None) or \
             DT.external_tools_row(run=ctx.det.run)
-        ribbon = DT.ribbon_state(run=ctx.det.run)
+        ribbon = ext.get("ribbon_state") or DT.ribbon_state(run=ctx.det.run)
         te2 = DT.te2_action_state()
         hint, keys = next_cheapest_step(ribbon, te2)
 
@@ -427,7 +433,7 @@ class PowerBIStep(Step):
             ctx.add(self.key, "powerbi/external_tool", "ok", f"registered · {ribbon['path']}")
             return
         if ribbon["state"] == DT.RIBBON_WRITABLE:
-            ok, dest, hint = EXT.register_tool()
+            ok, dest, hint = EXT.register_tool(run=ctx.det.run)
             if ok:
                 C.put(ctx.cfg, "powerbi.external_tool", True)
                 ctx.add(self.key, "powerbi/external_tool", "ok", f"registered · {textio.norm_path(dest)}")
@@ -437,7 +443,13 @@ class PowerBIStep(Step):
             ctx.add(self.key, "powerbi/external_tool", "warn", f"could not write {textio.norm_path(dest)}",
                     hint or f"`ad-pbip register-tool --package` writes {package_dir()} instead")
             return
-        res = EXT.package()
+        res = EXT.package(run=ctx.det.run)
+        if not res.get("ok"):
+            # Nothing on this user's PATH reaches agentdata from a fresh cmd.exe, so there is no file
+            # worth a ticket yet. Say what was measured and what would fix it; never ship it anyway.
+            ctx.add(self.key, "powerbi/external_tool", "warn", f'{res["fail"]} · {res["evidence"]}',
+                    res["hint"], ("powerbi.external_tool",))
+            return
         note = (f"send {res['dir']} to whoever owns {os.path.dirname(res['destination'])} -- REQUEST.md is the "
                 "whole ticket, one Copy-Item line, and the same file works for every user and every Python version")
         if ribbon["state"] == DT.RIBBON_DISABLED:

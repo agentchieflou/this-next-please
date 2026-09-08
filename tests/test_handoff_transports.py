@@ -460,6 +460,65 @@ def test_the_transport_ladder(tmp_path, registered, te2, action, killswitch, win
     assert DT.EXT_PROBE_FILENAME not in os.listdir(ext_dir)
 
 
+def test_active_refuses_on_windows_when_enumwindows_did_not_answer(tmp_path, monkeypatch):
+    """`--active` claimed `transport: zorder` over process-table order whenever user32 hiccuped.
+
+    `desktop_windows()` swallowed every exception from the ctypes path and fell through to
+    `Get-Process`, whose own docstring says it has no notion of Z-order -- and `resolve_transport`
+    then took row 0 and told the human it was "the Power BI Desktop window on top". With two
+    documents open that is a confident handoff of the wrong one, and the server address it writes is
+    trusted by the next twenty commands without re-checking (#41).
+    """
+    run = two_instances(tmp_path, zorder=[2222, 1111])
+    monkeypatch.setattr(DT.winui, "desktop_windows_source",
+                        lambda run=None: (DT.winui._from_runner(run), DT.winui.SOURCE_TABLE))
+    monkeypatch.setattr(DT.sys, "platform", "win32")
+
+    res = DT.resolve_transport(active=True, run=run)
+    assert res["ok"] is False and res["fail"] == "no_zorder"
+    assert "--file" in res["hint"]
+    assert res["choices"], "the refusal still prints what is open, so the human can name one"
+
+    # --file is unaffected: it never claimed to know which window was on top.
+    named = DT.resolve_transport(file="Costs", run=run)
+    assert named["ok"] is True and named["transport"] == "file"
+
+
+
+def test_the_doctor_row_stops_advertising_active_when_zorder_is_unavailable(tmp_path, monkeypatch):
+    """`via` drives the one sentence the doctor, pbi-router and pbi-observe all print.
+
+    Saying `zorder` -> "click the window, then `handoff --active`" on a machine where `--active`
+    now refuses would send the human to a flag that cannot answer. `file` names the document
+    instead, which needs no Z-order at all.
+    """
+    run = two_instances(tmp_path, zorder=[2222, 1111])
+    ribbon = {"state": DT.RIBBON_NEEDS_IT, "writable": False, "dir": "d", "path": "p", "evidence": "e"}
+    monkeypatch.setattr(DT, "ribbon_state", lambda ext_dir=None, run=None: ribbon)
+    monkeypatch.setattr(DT, "te2_action_state", lambda **k: {"present": False, "installed": False,
+                                                             "exe": None, "path": "p", "evidence": "e"})
+    monkeypatch.setattr(DT.winui, "desktop_windows_source",
+                        lambda run=None: (DT.winui._from_runner(run), DT.winui.SOURCE_TABLE))
+    monkeypatch.setattr(DT.sys, "platform", "win32")
+
+    row = DT.external_tools_row(run=run)
+    assert row["available"] is True and row["via"] == "file"
+    assert "EnumWindows did not answer" in row["evidence"]
+
+    monkeypatch.setattr(DT.winui, "desktop_windows_source",
+                        lambda run=None: (DT.winui._from_runner(run), DT.winui.SOURCE_ENUM))
+    assert DT.external_tools_row(run=run)["via"] == "zorder"
+
+
+def test_active_still_answers_when_enumwindows_did(tmp_path, monkeypatch):
+    run = two_instances(tmp_path, zorder=[2222, 1111])
+    monkeypatch.setattr(DT.winui, "desktop_windows_source",
+                        lambda run=None: (DT.winui._from_runner(run), DT.winui.SOURCE_ENUM))
+    monkeypatch.setattr(DT.sys, "platform", "win32")
+    res = DT.resolve_transport(active=True, run=run)
+    assert res["ok"] is True and res["transport"] == "zorder" and res["pid"] == 2222
+
+
 def test_capabilities_still_has_its_nine_rows_and_the_row_gained_the_ribbon(tmp_path):
     run = one_instance(tmp_path)
     caps = DT.capabilities(pid=1111, run=run)
@@ -467,7 +526,17 @@ def test_capabilities_still_has_its_nine_rows_and_the_row_gained_the_ribbon(tmp_
         "as_port", "xmla_local", "external_tools", "uia", "printwindow",
         "bridge_pipe", "bridge_manifest", "developer_visual", "pbiviz"]
     row = next(c for c in caps if c["capability"] == "external_tools")
-    assert set(row) == {"capability", "available", "via", "ribbon", "evidence"}
+    assert set(row) == {"capability", "available", "via", "ribbon", "ribbon_state", "evidence"}
     assert row["available"] is True
     assert row["via"] == "zorder"
     assert TITLE_A in row["evidence"]
+    # The whole ribbon dict rides along so `ad-doctor` does not call `ribbon_state()` a second time
+    # and probe the External Tools folder twice per run. See `steps/powerbi._transport_rows`.
+    assert row["ribbon_state"]["state"] == row["ribbon"]
+    assert {"state", "writable", "dir", "path", "evidence"} <= set(row["ribbon_state"])
+
+    # ...and it stays out of the rendered table: `AgentTable.from_records` unions the keys of every
+    # record, so a nested dict on one row is five empty columns on the other eight.
+    view = DT.capability_view(caps)
+    assert all(set(v) <= set(DT.CAPABILITY_VIEW_KEYS) for v in view)
+    assert next(v for v in view if v["capability"] == "external_tools")["ribbon"] == row["ribbon"]

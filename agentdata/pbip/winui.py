@@ -38,6 +38,10 @@ Runner = Callable[[list[str], int], tuple[int, str, str]]
 # Desktop's window title is "<document name> - Power BI Desktop"; the suffix is the whole test.
 TITLE_SUFFIX = "Power BI Desktop"
 
+# Which measurement answered. Only the first one knows about Z-order; see `desktop_windows_source`.
+SOURCE_ENUM = "enum-windows"
+SOURCE_TABLE = "process-table"
+
 
 def title_is_desktop(title: str | None) -> bool:
     """True only when the title *ends* in "Power BI Desktop".
@@ -118,6 +122,31 @@ def _from_runner(run: Runner | None) -> list[tuple[int, str]]:
     return rows
 
 
+def desktop_windows_source(run: Runner | None = None) -> tuple[list[tuple[int, str]], str]:
+    """`(rows, source)` -- the windows, and *which measurement answered*, which is not decoration.
+
+    Only `EnumWindows` walks Z-order. The runner path returns the order the process table gave, and
+    `_from_runner`'s own docstring says so -- but `desktop_windows()` swallowed every exception from
+    the ctypes path and fell through to it, after which `resolve_transport(active=True)` took row 0,
+    labelled the handoff `transport: zorder` and told the human it was 'the Power BI Desktop window
+    on top'. On a Windows box with two documents open and a user32 call that hiccups, that is a
+    confident claim about the wrong window -- exactly the "wrong answer all afternoon" #41 exists to
+    prevent, and the one failure mode the caller cannot detect from the rows themselves.
+
+    So the source travels with the rows. `SOURCE_ENUM` means Z-order was really measured;
+    `SOURCE_TABLE` means it was not, and a caller whose whole question is "which one is on top" must
+    refuse rather than answer from the process table. Off Windows there is no user32 to fall back
+    *from*: the runner is the only implementation and the injected fakes are what drive it, which is
+    why the refusal is gated on `sys.platform == "win32"` at the call site and not here.
+    """
+    if sys.platform == "win32":
+        try:
+            return _enum_ctypes(), SOURCE_ENUM
+        except Exception:  # noqa: BLE001 - a user32 that will not answer is not a reason to fail
+            pass
+    return _from_runner(run), SOURCE_TABLE
+
+
 def desktop_windows(run: Runner | None = None) -> list[tuple[int, str]]:
     """Visible top-level Power BI Desktop windows as `(pid, title)`, index 0 = the one on top.
 
@@ -128,10 +157,8 @@ def desktop_windows(run: Runner | None = None) -> list[tuple[int, str]]:
     Windows answers through `ctypes`; every other platform, and a Windows box whose user32 call
     fails, falls back to the injected `Runner`. An empty list means no Desktop window is open, which
     is a normal answer and not an error: the caller refuses with a hint, it does not raise here.
+
+    The rows only. Anything that is about to *claim* Z-order calls `desktop_windows_source()` and
+    checks what answered.
     """
-    if sys.platform == "win32":
-        try:
-            return _enum_ctypes()
-        except Exception:  # noqa: BLE001 - a user32 that will not answer is not a reason to fail
-            pass
-    return _from_runner(run)
+    return desktop_windows_source(run=run)[0]
