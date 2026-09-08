@@ -6,17 +6,33 @@ bookmark hunt and a page load to learn a single word -- and the answer is usuall
 module gets those four words onto the tile so the operator reads them all at once, and opens a tab
 only when there is something to do on the other side of it.
 
-Four rules, each of which is a way this could have gone wrong on a real desk.
+Five rules, each of which is a way this has gone wrong on a real desk.
 
 **One JQL, not one call per tile.** Four tiles asking Jira separately is four searches a minute
 against one human's token, which is how a shared tenant starts rate-limiting a whole team. The Jira
 poll collects every registered repo's `active_ticket` and asks once, whatever the tile count.
 
-**The poll gives way to the work.** It shares epic #121's `RequestBudget` with whatever else is
-running on that token, so a poll can never be the reason an `ad-jira changelog` runs out of requests
-halfway through a 3,000-issue pull. When the budget is down to its last `BUDGET_FLOOR` requests the
-poll stands down and says so in the cell, because a stale ticket status costs nothing and a truncated
-changelog costs the operator an hour.
+**The poll caps its own spend, and only its own.** It carries epic #121's `RequestBudget` as a
+ceiling on *its* requests for the day; when it is down to the last `BUDGET_FLOOR` the poll stands
+down and says so in the cell, because a ticket status that is an hour stale costs nothing.
+
+What that budget is *not* -- and what every docstring in this module claimed until #122's review --
+is a counter shared with a running `ad-jira changelog`. That command is a separate **process** with
+its own `RequestBudget` object, so nothing in here can hold requests back for it and no wording can
+make it so. Believing otherwise was worse than knowing there is no protection: it is why nobody
+built any. What actually stops N tiles from starving one human's token is the rule above this one --
+one search per interval however many tiles there are -- and the tenant's own rate limiter, which
+`jira_http.RateLimit` reads on every response. A genuinely cross-process reservation would be a
+spend file under `fleet_dir()` that the client wrote too, and that is a change to epic #121's client,
+not to this module.
+
+**A ceiling that bounds one command must not be left bounding a process.** `RequestBudget` also
+carries `max_seconds` and `max_retries`, and `Jira.__init__` starts the seconds clock on the first
+client and deliberately never restarts it. One budget for the life of `ad-fleet serve` therefore
+died fifteen minutes after it started -- every later search raising "request budget exhausted
+(seconds)", every ticket cell grey until somebody restarted the process. So each tick gets its own
+budget for its own errand (`_tick_budget`), and only the request count is carried across ticks, on
+a day's allowance that rolls over with the counters.
 
 **A failed poll greys the cell; it never invents one.** The last good value stays, `age_s` says how
 old it is and `error` says what went wrong -- so a cell reading `Done · 40m` beside "Jira: HTTP 502"
@@ -68,10 +84,18 @@ REFRESH_FINISHED = "project.refresh_finished"
 PR_MERGED = "project.pr_merged"
 KINDS = (TICKET_CHANGED, REFRESH_FINISHED, PR_MERGED)
 
-# Requests the poll refuses to eat into, so the budget it shares always has something left for the
-# command a human is waiting on. Sized above one changelog page batch on purpose: standing down a
-# minute early is invisible, and standing down a minute late turns somebody's pull into a partial.
+# The tail of its own day's allowance the poll stops before spending. A margin, not a reservation
+# for anyone else (see the module docstring): one tick can cost more than one request once a retry
+# is in play, and a poll that stopped exactly on its ceiling would find that out mid-search and grey
+# four tiles instead of standing down cleanly with a sentence saying why.
 BUDGET_FLOOR = 50
+
+# How long one tick's Jira errand may take, in the client's own clock frame. It bounds *one search*,
+# its 60 s timeout and its retries -- generous enough that a tenant pausing us on `Retry-After` still
+# answers, short enough that a wedged connection cannot hold the dashboard's loop for the afternoon.
+# It is deliberately not `RequestBudget`'s 900 s default: that number bounds a whole `ad-jira
+# changelog` run, and applying a run's ceiling to a process that runs all day is #122's defect 3.
+TICK_SECONDS = 240.0
 
 # What the Jira search asks for -- the four things the cell shows and nothing else. A wider field
 # list is a bigger response on every tick for data no one reads.
@@ -162,7 +186,9 @@ class Poller:
     The four read paths are attributes rather than constructor arguments, the same seam
     `jira_api.Jira.wall` uses and for the same reason: `__init__`'s signature is a contract other
     slices are written against, and a test that needs to steer a source replaces the attribute.
-    `jira_client` is handed the shared budget so no substitute can accidentally forget to share it.
+    `jira_client` is handed a budget rather than making its own, so no substitute can poll on an
+    unbounded one -- and what it is handed is the *tick's* budget, not `self.budget`; `_tick_budget`
+    says why the difference is the whole of #122's defect 3.
     """
 
     def __init__(self, registry, cfg: dict | None = None, now: Callable[[], float] = time.time,
@@ -262,26 +288,31 @@ class Poller:
 
         keys = sorted({key for _repo, key in active})
         jql = "key in (" + ", ".join(keys) + ")"
-        spent_before = self.budget.requests
+        tick = self._tick_budget()
         try:
-            client = self.jira_client(self.budget)
+            client = self.jira_client(tick)
             issues = client.search(jql, list(JIRA_FIELDS), max_results=len(keys))
         except JiraBudgetError as e:
-            # The budget ran out mid-search rather than before it. Same answer, same words: this is
-            # a stand-down and not a Jira failure, and calling it one would send somebody to look at
-            # a status page that is green.
+            # A budget ran out mid-search rather than before it -- and *which* budget decides what
+            # the operator is told. Spending the day's allowance is a stand-down; running past this
+            # tick's own seconds or retries is the poll's errand failing, and saying "standing down"
+            # about it sent the operator to `fleet.poll.jira.interval`, which fixes neither.
+            stood_down, why = _budget_words(e, self.budget)
             for repo, _key in active:
-                self._stand_down(repo.name, "jira", now, f"standing down: {e}")
+                (self._stand_down if stood_down else self._fail)(repo.name, "jira", now, why)
             return []
         except Exception as e:                    # noqa: BLE001 - any failure greys, none is fatal
             for repo, _key in active:
                 self._fail(repo.name, "jira", now, _why(e))
             return []
         finally:
-            # The budget's own counter, not `client.stats.requests`: `stats` mirrors the *shared*
-            # budget's running total, so reading it as this poll's cost reported every request any
-            # command had made today. A failed search still spent what it spent, hence `finally`.
-            self._spent("jira", self.budget.requests - spent_before)
+            # The tick budget's counter, not `client.stats.requests` and not a difference measured
+            # on the allowance: `stats` mirrors whatever budget the client was handed, and the
+            # allowance is a running total for the whole day, so neither is this tick's cost. What
+            # the tick spent is charged to the day here, in one place, and a search that failed
+            # still spent what it spent -- hence `finally`.
+            self.budget.requests += tick.requests
+            self._spent("jira", tick.requests)
 
         found = {str(i.get("key") or "").upper(): i for i in issues or []}
         out: list[dict] = []
@@ -432,14 +463,39 @@ class Poller:
 
     # ---- budget --------------------------------------------------------------------------------
 
+    def _tick_budget(self) -> RequestBudget:
+        """A fresh budget for this one tick, drawn against the day's remaining allowance.
+
+        The obvious thing -- one `RequestBudget` for the life of `ad-fleet serve` -- is what this
+        replaces, and it did not survive contact with a dashboard left open (#122 defect 3).
+        `max_seconds` is 900 and `Jira.__init__` starts that clock on the first client and
+        deliberately never restarts it, so fifteen minutes after the server started every search
+        raised "request budget exhausted (seconds)", every ticket cell greyed with a budget message
+        that named the wrong cause, and nothing but a restart brought them back. `max_retries`
+        accumulated the same way, a 429 at a time, and would have misreported the next transient
+        retry as a stand-down. Both of those ceilings exist to bound *one command*; a poll is one
+        command a minute for as long as the window is open, so the errand gets its own pair.
+
+        The request count is the one thing that must not reset per tick -- it is the allowance whose
+        whole point is to accumulate -- so only that is carried, on `self.budget`, and `_roll_day`
+        turns it over with the counters the operator reads beside it.
+        """
+        return RequestBudget(max_requests=max(1, self.budget.remaining_requests()),
+                             max_seconds=TICK_SECONDS, max_retries=self.budget.max_retries)
+
     def _budget_short(self) -> str:
         """The stand-down sentence, or "" when there is room. Says the numbers, because "the budget
-        is short" is not something an operator can do anything with."""
+        is short" is not something an operator can do anything with.
+
+        Its own spend against its own ceiling: this cannot see, and does not claim to see, what an
+        `ad-jira changelog` in another process is spending on the same token.
+        """
         left = self.budget.remaining_requests()
         if left > BUDGET_FLOOR:
             return ""
-        return (f"standing down: {left} of {self.budget.max_requests} requests left on the shared "
-                f"budget, which is reserved for the command you are waiting on")
+        return (f"standing down: {left} of {self.budget.max_requests} requests left in the poll's "
+                f"own allowance for today; polling resumes tomorrow, and a longer "
+                f"`fleet.poll.jira.interval` makes the allowance last")
 
     def _spent(self, source: str, n: int) -> None:
         self._counts["requests"][source] = self._counts["requests"].get(source, 0) + max(0, int(n))
@@ -450,6 +506,10 @@ class Poller:
         today = time.strftime("%Y-%m-%d", time.localtime(now))
         if self._day and self._day != today:
             self._counts = {"requests": {}, "errors": {}, "stood_down": {}}
+            # The allowance rolls with the counters, for the same reason the tick gets its own
+            # seconds: `max_requests` bounds one command, and a dashboard open since Monday would
+            # otherwise spend Monday's ceiling by Tuesday lunchtime and stand down for ever after.
+            self.budget.requests = self.budget.retries = 0
         self._day = today
 
     def _load(self) -> None:
@@ -483,7 +543,12 @@ class Poller:
 
 
 def default_jira_client(budget: RequestBudget):
-    """A `Jira` on the token pncli already stores, sharing `budget`, and costing nothing to build.
+    """A `Jira` on the token pncli already stores, bounded by `budget`, and costing nothing to build.
+
+    `budget` is this tick's, not the process's, and a fresh client per tick is what makes that work:
+    `Jira.__init__` starts the seconds clock only on a budget nobody has started, so a client handed
+    a budget that has been running since the server started never gets its clock back (#122's
+    defect 3). Building one is a constructor and a config read -- no request, no connection.
 
     `detect_flavor` is deliberately not the first choice: it confirms the flavour with a `/myself`,
     which on a sixty-second timer is 1,440 requests a day spent asking who we are. The flavour
@@ -592,6 +657,32 @@ def _facts(repo) -> dict:
 def _guid(value) -> str:
     text = str(value or "").strip()
     return text if GUID.match(text) else ""
+
+
+def _budget_words(e: JiraBudgetError, allowance: RequestBudget) -> tuple[bool, str]:
+    """`(is_a_stand_down, the sentence for the cell)` for a budget that ran out mid-search.
+
+    Only `requests` is a stand-down: the poll has spent its allowance and is choosing not to spend
+    more. `seconds` and `retries` are this tick's own errand failing -- one search that outran
+    `TICK_SECONDS`, or a Jira that kept erroring -- and they belong in the error count, greyed with
+    what actually happened. Filing them as stand-downs is what made `ad-doctor` warn that the token
+    budget was nearly spent and tell the operator to raise `fleet.poll.jira.interval`, when Jira was
+    slow and the budget was untouched.
+
+    `JiraBudgetError`'s own hint is not used for the same reason: "rerun with a larger --max-seconds"
+    is good advice to somebody running `ad-jira changelog` and no advice at all to somebody looking
+    at a tile.
+    """
+    if e.limit == "requests":
+        left = max(0, allowance.remaining_requests() - e.requests_made)
+        return True, (f"standing down: {left} of {allowance.max_requests} requests left in the "
+                      f"poll's own allowance for today; polling resumes tomorrow")
+    if e.limit == "seconds":
+        return False, (f"Jira did not answer one search within the poll's {int(TICK_SECONDS)}s "
+                       f"ceiling ({e.elapsed:.0f}s, {e.requests_made} request(s)): this tile is "
+                       f"stale because Jira is slow, not because the token budget is spent")
+    return False, (f"Jira kept failing rather than answering ({e.requests_made} request(s) in "
+                   f"{e.elapsed:.0f}s): check its status page; the next tick tries again")
 
 
 def _why(exc: BaseException) -> str:

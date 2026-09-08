@@ -1,11 +1,18 @@
 """What the poll costs, what it announces, and what it does when the answer will not come.
 
-Four properties carry the slice, and each of them is a way a real desk gets hurt:
+Five properties carry the slice, and each of them is a way a real desk gets hurt:
 
 * four tiles must cost **one** Jira search per interval, not four -- asserted on the fake's request
   log, because "we only make one call" is a claim that decays the first time someone adds a tile;
-* the poll must **stand down** rather than starve the command a human is waiting on, since it shares
-  epic #121's `RequestBudget` with a running `ad-jira changelog`;
+* the poll must **stand down** when it has spent its own day's allowance, and say so in those words.
+  It caps its own spend and nothing else: `ad-jira changelog` is a separate process with a separate
+  `RequestBudget`, so no counter in `poll.py` can hold requests back for it, and the tests below say
+  "the poll's own allowance" wherever they used to say "the shared budget";
+* the poll must **survive the afternoon**. `RequestBudget.max_seconds` is 900 and `Jira.__init__`
+  starts that clock on the first client and never restarts it, so one budget for the life of
+  `ad-fleet serve` made every search after the first quarter of an hour raise "request budget
+  exhausted (seconds)" and greyed every ticket cell with a message naming the wrong cause
+  (#122 defect 3). Two tests step the client's own clock past that ceiling on purpose;
 * a failed poll must **grey** its cell -- last value, its age, and the error -- and a later success
   must clear it, because a cell that silently keeps saying `Done` is a lie the operator acts on;
 * a change must be announced **once**, including across a restart of `ad-fleet serve`.
@@ -21,7 +28,7 @@ import os
 import pytest
 
 from agentdata import textio
-from agentdata.connectors.jira_http import RequestBudget
+from agentdata.connectors.jira_http import JiraBudgetError, RequestBudget
 from agentdata.fleet import events as E, poll as P, registry
 from agentdata.fleet.registry import Registry
 
@@ -72,8 +79,19 @@ class Moving(FJ.Corpus):
 
 
 def wire(poller: P.Poller, fake: FJ.FakeJira) -> P.Poller:
-    """The Jira seam, with the shared budget handed through so no substitute can forget to share."""
+    """The Jira seam, with the tick's budget handed through so no substitute polls unbounded."""
     poller.jira_client = lambda budget: fake.client(budget=budget)
+    return poller
+
+
+def wire_at(poller: P.Poller, fake: FJ.FakeJira, clock: list) -> P.Poller:
+    """The same seam, with the *client's* clock in the test's hands.
+
+    `Jira` reads `time.monotonic` by default and charges the budget's seconds against it, which is a
+    different frame from the poller's wall clock. A test about the seconds ceiling has to move the
+    frame the ceiling is measured in, so `clock[0]` is what the client sees.
+    """
+    poller.jira_client = lambda budget: fake.client(budget=budget, clock=lambda: clock[0])
     return poller
 
 
@@ -111,11 +129,15 @@ def test_four_tiles_cost_one_jira_search_per_interval(fleet_home, tmp_path):
     assert poller.counts()["requests"]["jira"] == 2
 
 
-def test_the_poll_stands_down_rather_than_starving_the_command_it_shares_a_budget_with(
-        fleet_home, tmp_path):
-    """#121's budget is per *token*, not per command. A poll that spent the last fifty requests
-    would turn somebody's running changelog into a partial, which costs an hour; a ticket status
-    that is a minute stale costs nothing."""
+def test_the_poll_stands_down_when_its_own_allowance_is_nearly_spent(fleet_home, tmp_path):
+    """The poll holds back the last `BUDGET_FLOOR` of what it may spend in a day and says so.
+
+    This is the poll's *own* ceiling, and the docstrings here used to claim more than that: they said
+    the budget was shared with a running `ad-jira changelog` so the poll could never starve it. It
+    is not and it cannot be -- that command is another process with another `RequestBudget` object
+    (#122 defect 5). What is true is what this asserts: the poll stops before it has spent
+    everything, in a sentence with the numbers in it, and it resumes when there is room again.
+    """
     reg = fleet_of(tmp_path, 2)
     fake = FJ.FakeJira(issues=6, flavor="cloud")
     budget = RequestBudget(max_requests=60)
@@ -128,13 +150,151 @@ def test_the_poll_stands_down_rather_than_starving_the_command_it_shares_a_budge
     cell = poller.state_for("repo-1")["ticket"]
     assert cell.grey and cell.error.startswith("standing down:")
     assert "40 of 60" in cell.error                # the numbers, not "the budget is short"
+    assert "own allowance" in cell.error           # its own ceiling; it cannot see another process
     assert poller.counts()["stood_down"]["jira"] == 2
     assert poller.counts()["requests"]["jira"] == 0
 
-    budget.requests = 0                          # the changelog finished; the poll resumes
+    budget.requests = 0                          # room again; the poll resumes
     poller.tick(T0 + P.DEFAULT_INTERVALS["jira"])
     assert fake.count("/search/jql") == 1
     assert poller.state_for("repo-1")["ticket"].error == ""
+
+
+def test_a_dashboard_left_open_all_afternoon_is_still_polling(fleet_home, tmp_path):
+    """#122 defect 3, in the shape the reviewer reproduced it: `ad-fleet serve` at 09:00, a stale
+    ticket status from 09:15 onwards, and a fleet doctor blaming the poll interval.
+
+    One `RequestBudget` for the life of the process is one `max_seconds` for the life of the
+    process. `Jira.__init__` starts that clock on the first client it is handed and deliberately
+    does not restart it, so the second tick past 900 s raised `JiraBudgetError("seconds")`, every
+    tile greyed with "standing down: request budget exhausted (seconds)", `stood_down` climbed on
+    every tick after it, and only restarting the server brought the ticket cells back.
+
+    The clock moved here is the *client's* -- the frame the seconds ceiling is measured in.
+    """
+    reg = fleet_of(tmp_path, 2)
+    fake = FJ.FakeJira(issues=6, flavor="cloud")
+    clock = [1_000.0]
+    poller = only_jira(wire_at(P.Poller(reg, cfg={}, now=lambda: T0), fake, clock))
+
+    poller.tick(T0)
+    assert fake.count("/search/jql") == 1
+
+    clock[0] += 4 * RequestBudget.max_seconds       # the afternoon; four times over the old ceiling
+    poller.tick(T0 + 3_600)
+    assert fake.count("/search/jql") == 2, "the poll died with a ceiling meant to bound one command"
+
+    cell = poller.state_for("repo-1")["ticket"]
+    assert not cell.grey and cell.error == "" and cell.value["status"]
+    assert poller.counts()["stood_down"]["jira"] == 0
+
+    clock[0] += 4 * RequestBudget.max_seconds       # and it is not one extra tick, it is every tick
+    poller.tick(T0 + 7_200)
+    assert fake.count("/search/jql") == 3
+    assert poller.counts()["requests"]["jira"] == 3
+
+
+def test_a_tick_that_outruns_its_own_ceiling_is_not_the_operators_budget(fleet_home, tmp_path):
+    """Three ways a budget runs out mid-search, and only one of them is a stand-down.
+
+    The cell text is what the operator acts on and `ad-doctor` reads the counter beside it: a
+    `stood_down` tick makes the `fleet / token budget` row warn "the shared request budget nearly
+    spent" and advise raising `fleet.poll.jira.interval`. Filing a slow Jira or a failing Jira under
+    that sends the operator to change a setting that cannot help -- so seconds and retries grey the
+    cell as the errors they are, and only a spent allowance stands down.
+    """
+    reg = fleet_of(tmp_path, 2)
+
+    def raising(limit: str, requests_made: int = 1, elapsed: float = 300.0):
+        def client(budget):
+            class Stub:
+                def search(self, *a, **k):
+                    raise JiraBudgetError(limit, requests_made, elapsed, "/rest/api/3/search/jql")
+            return Stub()
+        return client
+
+    poller = only_jira(P.Poller(reg, cfg={}, now=lambda: T0))
+
+    poller.jira_client = raising("seconds", requests_made=1, elapsed=241.0)
+    poller.tick(T0)
+    cell = poller.state_for("repo-1")["ticket"]
+    assert cell.grey and not cell.error.startswith("standing down")
+    assert f"{int(P.TICK_SECONDS)}s" in cell.error and "Jira is slow" in cell.error
+    assert poller.counts()["errors"]["jira"] == 2
+    assert poller.counts()["stood_down"]["jira"] == 0
+
+    poller.jira_client = raising("retries", requests_made=6, elapsed=90.0)
+    poller.tick(T0 + 60)
+    cell = poller.state_for("repo-1")["ticket"]
+    assert not cell.error.startswith("standing down") and "status page" in cell.error
+    assert poller.counts()["stood_down"]["jira"] == 0
+    assert poller.counts()["errors"]["jira"] == 4
+
+    spent = RequestBudget(max_requests=100)
+    spent.start(T0)
+    # Its own counter file: the poller above persisted this day's errors, and a second `Poller` on
+    # the same fleet dir would load them and make the numbers below about the wrong tick.
+    poller = only_jira(P.Poller(reg, cfg={}, now=lambda: T0, budget=spent,
+                                state_path=str(tmp_path / "second-poll.json")))
+    poller.jira_client = raising("requests", requests_made=100, elapsed=30.0)
+    poller.tick(T0)
+    cell = poller.state_for("repo-1")["ticket"]
+    assert cell.error.startswith("standing down:") and "0 of 100" in cell.error
+    assert poller.counts()["stood_down"]["jira"] == 2
+    assert poller.counts()["errors"]["jira"] == 0
+
+
+def test_the_allowance_is_a_days_allowance_not_a_process_lifetime_one(fleet_home, tmp_path):
+    """`max_requests` bounds one command too, and the poll is not one command.
+
+    At a search a minute a dashboard reaches `RequestBudget`'s 2,000 in a day and a half, and before
+    this rolled over the poll stood down from then on -- for ever, since nothing but a restart of
+    `ad-fleet serve` ever reset the count. The counters the operator reads in `ad-fleet status
+    --polls` are per day; the allowance they measure is now the same day.
+    """
+    reg = fleet_of(tmp_path, 1)
+    fake = FJ.FakeJira(issues=4, flavor="cloud")
+    budget = RequestBudget(max_requests=60)
+    budget.start(T0)
+    budget.requests = 58                            # today is spent
+    poller = only_jira(wire(P.Poller(reg, cfg={}, now=lambda: T0, budget=budget), fake))
+
+    assert poller.tick(T0) == []
+    assert fake.requests == []
+    assert poller.counts()["stood_down"]["jira"] == 1
+
+    tomorrow = T0 + 86_400
+    poller.now = lambda: tomorrow
+    poller.tick(tomorrow)
+    assert fake.count("/search/jql") == 1
+    assert poller.state_for("repo-1")["ticket"].error == ""
+    counts = poller.counts()
+    assert counts["requests"]["jira"] == 1 and counts["stood_down"]["jira"] == 0
+
+
+def test_the_tick_budget_is_the_tick_s_own_and_the_allowance_is_charged_what_it_spent(
+        fleet_home, tmp_path):
+    """The seam's contract, so the next person to touch it keeps both halves.
+
+    A budget per tick is what stops a run's ceilings from bounding the process; charging the day's
+    allowance what the tick spent is what stops "a budget per tick" from meaning no budget at all.
+    """
+    reg = fleet_of(tmp_path, 2)
+    fake = FJ.FakeJira(issues=4, flavor="cloud")
+    handed = []
+    poller = only_jira(P.Poller(reg, cfg={}, now=lambda: T0))
+    poller.jira_client = lambda budget: handed.append(budget) or fake.client(budget=budget)
+
+    poller.tick(T0)
+    poller.tick(T0 + 60)
+
+    assert len(handed) == 2
+    assert handed[0] is not handed[1] and all(b is not poller.budget for b in handed)
+    assert [b.max_seconds for b in handed] == [P.TICK_SECONDS, P.TICK_SECONDS]
+    assert handed[0].max_requests == RequestBudget.max_requests      # the whole day is still there
+    assert handed[1].max_requests == RequestBudget.max_requests - 1  # minus what tick one spent
+    assert poller.budget.requests == 2
+    assert poller.counts()["requests"]["jira"] == 2
 
 
 # ------------------------------------------------------------------------ grey, and recovery

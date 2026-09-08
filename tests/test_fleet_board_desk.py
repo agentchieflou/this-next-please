@@ -9,6 +9,7 @@ refuses to follow, the selection two windows share, and the fact that the page a
 still know every layout name the CLI can print.
 """
 from __future__ import annotations
+import http.client
 import json
 import os
 import re
@@ -38,6 +39,15 @@ FACTS = ("- jira_project: {project}\n"
          "- ws_id: 11111111-2222-3333-4444-555555555555\n"
          "- report_id: 66666666-7777-8888-9999-000000000000\n")
 
+# The rest of a real fact block: where the warehouse is, which share the DPM run writes to, the
+# read-only service account, and where TabularEditor is installed. The repo's own agent needs all
+# four; the tile needs none of them, and not one of them ends in token/secret/password/api_key/pat,
+# so `config.looks_secret()` keeps every one. That is exactly why the tile filters on an allow-list.
+SITE_FACTS = ("- td_host: teradata-prod.corp.example\n"
+              "- dpm_share: \\\\share\\dpm\\runs\n"
+              "- sql_user: svc_rdsd_ro\n"
+              "- tabular_editor: C:\\Program Files\\TabularEditor 3\\TabularEditor.exe\n")
+
 
 @pytest.fixture()
 def desk(fleet_home, tmp_path, monkeypatch):                    # noqa: F811 - the fixture is the argument
@@ -66,6 +76,13 @@ def a_project(tmp_path, name, *, project="RDSD", ticket="", phase="idle", facts=
             f.write(f"# {name}\n\n" + FACTS.format(project=project))
     Registry().add(path, name=name)
     return path
+
+
+def site_facts(repo_path, project="RDSD"):
+    """Rewrite a fixture's AGENTS.md with the link facts *and* the site facts a real one carries."""
+    with open(os.path.join(repo_path, "AGENTS.md"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("# facts\n\n" + FACTS.format(project=project) + SITE_FACTS)
+    return repo_path
 
 
 def out_file(repo_path, name, body="# findings\n\n3 of 41 rows differ on Sales Amount\n"):
@@ -116,6 +133,67 @@ def test_an_unindexed_repo_still_gets_its_links_rather_than_looking_broken(desk,
     assert panel["indexed"] is False
     assert [row["name"] for row in panel["links"]] == ["ticket", "board", "report", "workspace",
                                                        "folder"]
+
+
+def test_the_tile_is_sent_the_link_facts_and_never_the_whole_fact_block(desk, tmp_path):
+    """`catalogue.LINK_FACTS` exists so a Teradata hostname cannot reach a browser, and the tile is
+    the surface the operator screenshots into a ticket.
+
+    Both halves of `show_for` are checked, unindexed and indexed, because they reach the facts by
+    different routes -- `CAT._facts()` off AGENTS.md and the catalogue's `show()` off sqlite -- and
+    a filter on only one of them closes the leak on exactly the machines that never ran
+    `ad-fleet index`, or on exactly the ones that did.
+    """
+    path = site_facts(a_project(tmp_path, "velocity", ticket="RDSD-22449"))
+
+    cold = S.show_for("velocity")
+    assert cold["indexed"] is False
+    assert set(cold["facts"]) <= set(CAT.LINK_FACTS)
+    assert cold["facts"]["jira_board_id"] == "42", "the link facts still travel"
+
+    cat = CAT.Catalogue.open()
+    cat.index(Registry())
+    cat.close()
+    S.reset()
+    warm = S.show_for("velocity")
+    assert warm["indexed"] is True
+    assert set(warm["facts"]) <= set(CAT.LINK_FACTS)
+
+    for panel in (cold, warm):
+        blob = json.dumps(panel)
+        for leak in ("teradata-prod.corp.example", "dpm\\\\runs", "svc_rdsd_ro", "TabularEditor"):
+            assert leak not in blob, f"{leak} reached the tile"
+    # And the rail is still built from the whole block, so filtering the payload cost no links.
+    assert [row["name"] for row in cold["links"]] == ["ticket", "board", "report", "workspace",
+                                                      "folder"]
+    assert os.path.isfile(os.path.join(path, "AGENTS.md"))
+
+
+def test_the_site_facts_are_still_on_ad_fleet_show_where_a_human_asked_for_them(desk, tmp_path):
+    """The filter is about the browser, not about secrecy: a human who typed `ad-fleet show` asked
+    for the fact block and gets it. Narrowing the catalogue itself would take the warehouse host
+    away from the person who needs it and leave the tile no safer."""
+    site_facts(a_project(tmp_path, "velocity", ticket="RDSD-22449"))
+    cat = CAT.Catalogue.open()
+    cat.index(Registry())
+    try:
+        assert cat.show("velocity")["facts"]["td_host"] == "teradata-prod.corp.example"
+    finally:
+        cat.close()
+    S.reset()
+
+
+def test_every_desk_route_filters_the_facts_and_not_just_the_one_panel(running, tmp_path):
+    """`/api/show` is one tile and `/api/desk` is all of them; the grid draws from the second. A
+    filter on the panel function only is a leak that reappears the moment the page uses the other
+    route -- which it does, on a 15 s clock, for every tile at once."""
+    base, token = running
+    site_facts(a_project(tmp_path, "velocity", ticket="RDSD-22449"))
+    for path in ("/api/show?project=velocity", "/api/desk"):
+        body = json.dumps(get(base, path, token))
+        assert "teradata-prod.corp.example" not in body, path
+        assert "svc_rdsd_ro" not in body, path
+        assert "jira_board_id" in body, path
 
 
 def test_search_is_the_same_catalogue_the_cli_verb_asks(desk, tmp_path):
@@ -405,6 +483,62 @@ def test_selecting_the_same_project_twice_does_not_wake_the_other_windows(desk, 
     assert S.select(selected="luna")["version"] == first
 
 
+# ------------------------------------------------- what four windows cost the laptop (#133)
+
+
+def test_four_windows_fold_the_streams_once_between_them_and_not_once_each(desk, tmp_path,
+                                                                          monkeypatch):
+    """#133's premise is that four windows on four screens are cheap *because* they share one
+    stream. `E.refresh` is the expensive half of the loop -- per repository it reads the cursor,
+    reads the agent's raw log, globs `.agent/friction/`, rewrites the cursor and appends -- and it
+    ran per repository per tick per connection, so the fourth monitor cost four times the disk of
+    the first. It is rate-limited for the process now, the way `poll_tick` already was.
+    """
+    a_project(tmp_path, "luna")
+    a_project(tmp_path, "other", project="DATA")
+    folded = []
+    real = E.refresh
+    monkeypatch.setattr(E, "refresh", lambda name, *a, **kw: (folded.append(name),
+                                                              real(name, *a, **kw))[1])
+
+    for _ in range(4):                       # four windows, one tick
+        S.stream_events({}, threading.Event(), lambda _f: None, once=True, polls=False)
+    assert folded == ["luna", "other"], "the fold ran per connection, not per process"
+
+    monkeypatch.setattr(S, "FOLD_EVERY_S", 0.0)   # the floor expiring, without the wall clock
+    S.stream_events({}, threading.Event(), lambda _f: None, once=True, polls=False)
+    assert folded == ["luna", "other", "luna", "other"], "the floor never let go"
+
+
+def test_the_fold_floor_stays_under_the_second_the_transcript_is_promised_in(desk):
+    """The fold is how an agent's newest line reaches the tile, so this floor is not the poller's
+    five seconds: `test_a_live_stream_delivers_a_new_event_within_a_second` is the bar, and the
+    worst case a window waits is one floor plus one tick."""
+    assert S.FOLD_EVERY_S + S.TICK_S < 1.0
+
+
+def test_the_stream_reads_the_registry_once_a_tick_and_not_once_a_tile(desk, tmp_path,
+                                                                      monkeypatch):
+    """`Registry()` re-parses `registry.json` in its constructor, and the loop built one per tile on
+    top of the one it built for the names. The cost of a tick has to be flat in the number of
+    projects the operator registered, or the twelfth repo is what makes the page expensive."""
+    reads = []
+    real = Registry.load
+    monkeypatch.setattr(Registry, "load", lambda self: (reads.append(self.path), real(self))[1])
+
+    a_project(tmp_path, "one")
+    a_project(tmp_path, "two", project="DATA")
+    reads.clear()
+    S.stream_events({}, threading.Event(), lambda _f: None, once=True, polls=False)
+    small = len(reads)
+
+    for i in range(8):
+        a_project(tmp_path, f"more{i}", project="DATA")
+    reads.clear()
+    S.stream_events({}, threading.Event(), lambda _f: None, once=True, polls=False)
+    assert len(reads) == small, f"{small} registry reads for 2 repos, {len(reads)} for 10"
+
+
 # ---------------------------------------------------------------------------- the routes
 
 
@@ -503,6 +637,47 @@ def test_the_page_itself_is_served_for_every_layout_url(running):
         with urllib.request.urlopen(f"{base}{path}{sep}t={token}", timeout=10) as r:
             assert r.status == 200
             assert '<template id="tile">' in r.read().decode("utf-8")
+
+
+def raw_get(base, path):
+    """A GET with the path sent exactly as written -- `urlopen` would tidy `..` away before the
+    server ever saw it, and tidying it away is the bug under test."""
+    host, _, port = base[len("http://"):].partition(":")
+    conn = http.client.HTTPConnection(host, int(port), timeout=10)
+    try:
+        conn.putrequest("GET", path, skip_accept_encoding=True)
+        conn.endheaders()
+        answer = conn.getresponse()
+        return answer.status, answer.read().decode("utf-8", "replace")
+    finally:
+        conn.close()
+
+
+def test_a_directory_beside_static_is_not_served_because_its_name_starts_with_static(
+        running, tmp_path, monkeypatch):
+    """`/static/` serves one directory. The containment check was `path.startswith(STATIC)`, which
+    is a prefix match on a string and not a check that the path is inside the directory: every
+    sibling whose name merely begins with `static` passed it. Nothing in the tree is named that
+    today, which is why this had to be a test rather than a bug report -- one `mkdir` beside the
+    package turns a 404 into a file read.
+    """
+    root = tmp_path / "pkg"
+    (root / "static").mkdir(parents=True)
+    with open(root / "static" / "app.js", "w", encoding="utf-8", newline="\n") as f:
+        f.write("/* the real one */\n")
+    (root / "static_backup").mkdir()
+    with open(root / "static_backup" / "app.js", "w", encoding="utf-8", newline="\n") as f:
+        f.write("/* NOT SERVED */\n")
+    monkeypatch.setattr(S, "STATIC", str(root / "static"))
+    base, token = running
+
+    status, body = raw_get(base, f"/static/app.js?t={token}")
+    assert status == 200 and "the real one" in body, "the control case must still work"
+    for escape in ("/static/../static_backup/app.js", "/static/..%2Fstatic_backup/app.js",
+                   "/static/../../etc/hostname"):
+        status, body = raw_get(base, f"{escape}?t={token}")
+        assert status == 404, escape
+        assert "NOT SERVED" not in body, escape
 
 
 # ------------------------------------------------------------------- the page and the layouts
@@ -607,6 +782,15 @@ def test_a_link_row_without_a_url_is_never_rendered():
     js = open(APP_JS, encoding="utf-8").read()
     assert "((project && project.links) || []).forEach" in js
     assert "project.missing_keys" in js, "what is missing must still be named somewhere"
+
+
+def test_the_page_has_exactly_one_place_that_renders_a_fact_block():
+    """The tile renders whatever facts it is handed, and `serve.tile_facts()` is what makes that
+    safe. A second loop over some other payload's facts is how the filter gets bypassed by a change
+    that looks like a feature, so the count is the test."""
+    js = open(APP_JS, encoding="utf-8").read()
+    assert len(re.findall(r"\.facts \|\| \{\}\)", js)) == 1
+    assert "serve.tile_facts()" in js, "the page must say where the narrowing happens"
 
 
 def test_the_desk_puts_no_agent_output_into_markup():

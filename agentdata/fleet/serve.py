@@ -60,6 +60,16 @@ CONTRACT = 1
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 
 POLL_EVERY_S = 5.0           # the floor between two ticks of the shared poller, however many tabs
+# The same idea for the event fold. `E.refresh` is not free -- per repository it reads the cursor,
+# reads the agent's raw log, globs `.agent/friction/`, rewrites the cursor and appends to the
+# stream -- and the SSE loop ran it per repository per tick *per connection*. #133 puts four windows
+# on four screens and its whole premise is that they are cheap because they share one stream; four
+# folds a tick is the opposite of sharing, and on a laptop with antivirus in the open() path it is
+# what makes the fan audible. Process-wide like `POLL_EVERY_S`, so N windows cost one fold between
+# them. Half a second rather than the poller's five: the fold is how the agent's newest line reaches
+# the transcript, and `test_a_live_stream_delivers_a_new_event_within_a_second` is the bar it has to
+# stay under -- 0.5 s of floor plus one 0.4 s tick still lands inside it.
+FOLD_EVERY_S = 0.5
 DESK_LIMIT = 12              # verify rows and friction rows per project; a tile is not a file manager
 MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is not a work queue
 
@@ -105,11 +115,17 @@ def fleet_snapshot() -> dict:
     what the fold cannot see -- where the checkout is, and which pid is holding it.
     """
     rows = []
+    try:
+        # Once, not once per row: `Registry()` re-parses `registry.json` every time it is built.
+        registry = Registry()
+    except RegistryError:
+        registry = None
     for row in supervisor.status():
         name = row["repo"]
         try:
-            repo = Registry().get(name)
-            E.refresh(name, repo.path, repo_state=repo.state())
+            repo = registry.get(name) if registry is not None else None
+            if repo is not None:
+                E.refresh(name, repo.path, repo_state=repo.state())
         except (RegistryError, OSError):
             pass
         stream = E.read(name)
@@ -138,7 +154,8 @@ def fleet_snapshot() -> dict:
 # the Jira traffic for one operator's desk. Keyed on `fleet_dir()` so that moving the fleet -- which
 # is an environment variable, and is what every test does -- drops the handles rather than answering
 # from the previous one's sqlite file.
-_desk = {"dir": "", "poller": None, "inbox": None, "catalogue": None, "last_tick": 0.0}
+_desk = {"dir": "", "poller": None, "inbox": None, "catalogue": None, "last_tick": 0.0,
+         "last_fold": 0.0}
 _desk_lock = threading.RLock()
 
 # The selected project, shared by every window on the same server. Layout B (#133) is three browser
@@ -177,7 +194,8 @@ def reset() -> None:
                 cat.close()
             except Exception:                # noqa: BLE001 - a closed handle is the point
                 pass
-        _desk.update(dir="", poller=None, inbox=None, catalogue=None, last_tick=0.0)
+        _desk.update(dir="", poller=None, inbox=None, catalogue=None, last_tick=0.0,
+                     last_fold=0.0)
         _selection.update(selected="", screens=[], version=_selection["version"] + 1, at=E.stamp())
 
 
@@ -271,6 +289,25 @@ def poll_tick(now: float | None = None) -> list[dict]:
 
         debug_exc("fleet poll tick")
         return []
+
+
+def fold_due(now: float | None = None) -> bool:
+    """True at most once every `FOLD_EVERY_S`, for the whole process. Claims the slot when it says so.
+
+    The same rate limit `poll_tick` applies to the poller, applied to `E.refresh` and for the same
+    reason: the thing being limited is *this page*, and every open SSE connection runs the same loop.
+    Four windows on four screens (#133) folded four times a tick, which for a dozen repositories was
+    a hundred-odd `state.json` and cursor reads a second on a laptop whose antivirus is in the
+    `open()` path -- all of it re-reading files that had not changed since the window next to it
+    looked. One fold per floor between them; the frames it produced still go out on every tick.
+    """
+    now = time.time() if now is None else float(now)
+    with _desk_lock:
+        bag = _fresh()
+        if now - bag["last_fold"] < FOLD_EVERY_S:
+            return False
+        bag["last_fold"] = now
+        return True
 
 
 def poll_state(name: str) -> dict:
@@ -397,6 +434,22 @@ def _excerpt(path: str, head: int) -> str:
 # ------------------------------------------------------------------------ what one project is
 
 
+def tile_facts(facts: dict) -> dict:
+    """The subset of a project's fact block that may cross to the browser: `LINK_FACTS`, in order.
+
+    Read `catalogue.LINK_FACTS` rather than restating it, so that adding a link fact is one edit in
+    one place. The whole point of the list is that it is the *only* thing a tile needs -- everything
+    else in `AGENTS.md` is there for the repo's own agent, and a `\\\\share\\dpm\\runs` path or a
+    Teradata hostname on a tile is a leak the moment the operator screenshots the dashboard.
+
+    Not a `looks_secret()` call: that rule drops keys *ending* in token/secret/password/api_key/pat,
+    which is the right rule for a config file full of credentials and the wrong one here, where the
+    keys that must not travel (`td_host`, `dpm_share`, `sql_user`, `tabular_editor`) look perfectly
+    innocent. An allow-list is the only filter that holds against a fact block nobody has seen yet.
+    """
+    return {k: facts[k] for k in CAT.LINK_FACTS if facts.get(k)}
+
+
 def show_for(name: str) -> dict:
     """The "what is this project" panel: the catalogue's facts, the link rail, the cells, the tray.
 
@@ -404,6 +457,14 @@ def show_for(name: str) -> dict:
     come from its own `AGENTS.md` either way and a tile with no links until somebody runs
     `ad-fleet index` is a tile that looks broken. A repository with no `.agent/out/` still gets its
     ticket cell. The panel says `indexed: false` rather than pretending.
+
+    **The facts that leave here are `catalogue.LINK_FACTS` and nothing else.** The rail is still
+    built from the whole block -- `links.links_for()` is server side and may grow a key -- but what
+    crosses to the browser is the allow-list, for the reason `LINK_FACTS` is declared: a fact block
+    is hand-edited prose, and a real one carries `td_host`, `dpm_share`, `sql_user` and the local
+    TabularEditor path. `config.looks_secret()` does not drop those (it matches keys *ending* in
+    token/secret/password/api_key/pat), so without this filter the first thing a tile does with an
+    RDSD checkout is put a Teradata hostname on a page the operator screenshots into a ticket.
     """
     repo = Registry().get(name)               # raises RegistryError, which the route turns into 409
     cat = catalogue()
@@ -423,7 +484,7 @@ def show_for(name: str) -> dict:
     return {"project": name, "name": name, "path": textio.norm_path(repo.path),
             "indexed": indexed, "jira_project": repo.jira_project,
             "branch": shown.get("branch", ""), "last_indexed": shown.get("last_indexed", ""),
-            "facts": facts, "state": state,
+            "facts": tile_facts(facts), "state": state,
             "friction": (shown.get("friction") or [])[:DESK_LIMIT],
             "pbip": shown.get("pbip") or [],
             "links": LK.present(rail), "missing": [r for r in rail if not r.get("url")],
@@ -594,6 +655,12 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     appended to the repo's own stream by the poller and reach the tile through the loop below like
     any other, which is why there is no second code path for `project.ticket_changed`.
 
+    **What is per tick and what is per fold.** Reading each agent's stream and writing the frames a
+    connection has not seen is per tick, because that is the connection's own cursor and nothing
+    else can do it. Folding raw agent output into that stream (`E.refresh`) is disk work whose
+    answer is the same for every window, so it is behind `fold_due()` -- see `FOLD_EVERY_S`. The
+    registry is read once per tick rather than once per repository, for the same reason.
+
     The shared selection (#133 layout B) is pushed as its own frame whenever its version moves. A
     connection starts at -1 so every new window is told the current selection immediately -- a
     monitor that joined late and shows a different project than the one beside it is the exact
@@ -610,16 +677,21 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             for item in _sweep(url):
                 write(f"event: notify\ndata: {json.dumps(item, ensure_ascii=False)}\n\n")
         try:
-            names = [r.name for r in Registry().sorted()]
+            # One registry read per tick, not one per repository plus one: `Registry()` parses
+            # `registry.json` in its constructor, so the old `Registry().get(name)` inside the loop
+            # re-read and re-parsed the whole file once per tile, per tick, per window.
+            repos = Registry().sorted()
         except RegistryError:
-            names = []
+            repos = []
+        fold = fold_due()
         sent = False
-        for name in names:
-            try:
-                repo = Registry().get(name)
-                E.refresh(name, repo.path, repo_state=repo.state())
-            except (RegistryError, OSError):
-                pass
+        for repo in repos:
+            name = repo.name
+            if fold:
+                try:
+                    E.refresh(name, repo.path, repo_state=repo.state())
+                except (RegistryError, OSError):
+                    pass
             for ev in E.read(name, since=cursors.get(name, 0)):
                 cursors[name] = ev["seq"]
                 write(f"id: {name}:{ev['seq']}\nevent: agent\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n")
@@ -789,8 +861,18 @@ class Handler(BaseHTTPRequestHandler):
         return self._refuse(404, f"no route {route}")
 
     def _static(self, name: str) -> None:
+        """One file out of the package's `static/` directory, and nothing above or beside it.
+
+        The containment check compares against `STATIC` *plus a separator* (`os.path.join(x, "")`).
+        A bare `startswith(STATIC)` is a prefix match on a string, not a check that the path is
+        inside the directory: it accepts every sibling whose name merely starts with `static`, so
+        `/static/../static_backup/app.js` -- or one day a `static_secrets/` somebody mkdirs beside
+        the package -- resolves outside and is served. Nothing in the tree is named that today,
+        which is exactly why this would be found by an attacker rather than by a test.
+        """
+        root = os.path.join(STATIC, "")      # the directory, with its trailing separator
         path = os.path.normpath(os.path.join(STATIC, name))
-        if not path.startswith(STATIC) or not os.path.isfile(path):
+        if not path.startswith(root) or not os.path.isfile(path):
             return self._refuse(404, f"no file {name}")
         with open(path, "rb") as f:
             body = f.read()

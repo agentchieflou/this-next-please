@@ -774,7 +774,14 @@ function clip(value) {
 /* Redrawn only when the answer actually changed. `/api/fleet` comes back several times a second
    while an agent is talking, and rebuilding the rail, the facts and the tray each time would throw
    away the half-made choice in an open `attach` dropdown -- a bug that only ever bites the operator
-   mid-click, which is the worst kind. */
+   mid-click, which is the worst kind.
+
+   `project.facts` is already `catalogue.LINK_FACTS` and nothing else: `serve.tile_facts()` narrows
+   it before it leaves the server, because a fact block is hand-edited prose and a real one carries
+   a warehouse hostname, a `\\share\dpm\runs` path and a service account beside the Jira keys. This
+   loop therefore renders every key it is handed *on purpose* -- the filter belongs on the side that
+   can read `AGENTS.md`, so there is one list and not two that drift. If a new panel ever needs a
+   fact this loop does not show, add it to `LINK_FACTS`; do not reach for a wider payload here. */
 function drawProject(el, project, offers) {
   var sign = JSON.stringify([project || null, offers || []]);
   if (el.dataset.sign === sign) return;
