@@ -18,7 +18,7 @@ import sys
 
 from . import completion
 from . import config as C
-from . import policy, toon, ui
+from . import policy, textio, toon, ui
 from .connectors import content_understanding as CU
 from .console import utf8_stdout
 
@@ -71,14 +71,12 @@ def cmd_analyze(a) -> int:
     rows_all = CU.fields_from_result(result)
 
     if a.out:
-        from . import textio
-
         textio.write_text(a.out, json.dumps(result, indent=2, default=str, ensure_ascii=False) + "\n")
 
     meta = {"ok": True, "source": f"ad-foundry analyze {a.file or a.url}",
             "analyzer": info["analyzer"] or analyzer, "api_version": info["api_version"],
             "contents": info["contents"], "fields": len(rows_all),
-            "raw": (a.out or "").replace(os.sep, "/")}
+            "raw": textio.norm_path(a.out or "")}
     if info["warnings"]:
         meta["warnings"] = info["warnings"]
         meta["warning"] = info["warning"]
