@@ -76,6 +76,10 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # The three layouts of #133, and the three windows layout B splits into. The page reads them off
 # its own query string and this list is what says which spellings exist; `cli_fleet.LAYOUTS` is the
 # other half of the same seam and a test asserts the two still agree.
+# The two assets `index.html` references. They are rewritten with the run token when the page is
+# served; see `_index`.
+ASSETS = ("app.css", "app.js")
+
 LAYOUTS = ("grid", "roles", "screens")
 VIEWS = ("board", "agents", "verify")
 
@@ -795,7 +799,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse(403, "not authorized",
                                 "open the URL `ad-fleet serve` printed, token and all")
         if route == "/":
-            return self._static("index.html")
+            return self._index()
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
         if route == "/api/themes":
@@ -859,6 +863,25 @@ class Handler(BaseHTTPRequestHandler):
         if route.startswith("/static/"):
             return self._static(route[len("/static/"):])
         return self._refuse(404, f"no route {route}")
+
+    def _index(self) -> None:
+        """The page, with its own asset URLs carrying this run's token.
+
+        Everything but `/api/ping` and `/open` requires the token, and a relative `href` does not
+        inherit the query string the operator opened -- so the page asked for `/static/app.css` and
+        `/static/app.js` with no token and was refused, and the dashboard rendered as unstyled HTML
+        with no behaviour at all. Every test missed it because a test fetches an asset directly with
+        the token already in hand; only a browser asks the way the page asks, and nothing in CI is a
+        browser. Found by screenshotting the real server.
+
+        The token is put on here rather than written into the file because it is generated per run.
+        `app.js` needs no help: it reads `t` out of `location.search` and puts it on every fetch of
+        its own.
+        """
+        html = textio.read_text(os.path.join(STATIC, "index.html"))
+        for asset in ASSETS:
+            html = html.replace(f'"/static/{asset}"', f'"/static/{asset}?t={self.token}"')
+        self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
 
     def _static(self, name: str) -> None:
         """One file out of the package's `static/` directory, and nothing above or beside it.
