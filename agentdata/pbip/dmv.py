@@ -27,6 +27,8 @@ DMV_SHORTCUTS = {
     "schema": "SELECT [CATALOG_NAME], [DESCRIPTION] FROM $SYSTEM.DBSCHEMA_CATALOGS",
 }
 
+CATALOGS_SQL = "SELECT [CATALOG_NAME] FROM $SYSTEM.DBSCHEMA_CATALOGS"
+
 
 def run_dmv(server: str, query_or_shortcut: str, dscmd_exe: str | None = None,
             database: str | None = None, te2_exe: str | None = None,
@@ -52,6 +54,37 @@ def run_dmv(server: str, query_or_shortcut: str, dscmd_exe: str | None = None,
         return run_dmv_te2(server, sql, te2, database=database, run=run, name=name)
 
     raise RuntimeError(f"Neither dscmd nor Tabular Editor 2 available to run DMV on {server}")
+
+
+def catalogs(server: str, dscmd_exe: str | None = None, te2_exe: str | None = None,
+             run: Runner | None = None) -> list[str]:
+    """Catalog names on `localhost:<port>` -- the ribbon's `%database%`, without the ribbon.
+
+    A Power BI Desktop instance serves exactly one catalog (the GUID-named workspace database), so
+    the single row this returns *is* the `%database%` the External Tools ribbon would have
+    substituted. That matters because the ribbon costs a privileged write nobody on the reporter's
+    machine can perform (epic #112), while dscmd and Tabular Editor 2 run fine from `C:\\Enforce` --
+    so the one payload worth a ticket was never `%database%` at all.
+
+    Empty is an answer, not a failure. With neither executor installed there is nothing to ask and
+    `run_dmv` raises; a handoff must still be written, so the caller records `database_source: none`,
+    warns once, and consumers that actually need a database ask for it. Raising here would turn a
+    missing optional field into a failed handoff.
+    """
+    try:
+        table = run_dmv(server, CATALOGS_SQL, dscmd_exe=dscmd_exe, te2_exe=te2_exe, run=run)
+    except Exception:  # noqa: BLE001 - no executor, or one that would not answer; see docstring
+        return []
+
+    idx = next((i for i, c in enumerate(table.columns) if str(c).upper() == "CATALOG_NAME"), 0)
+    names: list[str] = []
+    for r in table.rows:
+        if idx >= len(r):
+            continue
+        name = str(r[idx]).strip()
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def run_dmv_te2(server: str, sql: str, te2_exe: str, database: str | None = None,
