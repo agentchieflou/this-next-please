@@ -496,3 +496,110 @@ ad-fleet gc
 
 The output of `ad-doctor --only fleet`, the `ad-fleet status` table with four agents running, one
 screenshot of four live tiles in one window, and any row that differed from what is written above.
+
+## Fleet: the fifteen-minute quickstart (#134)
+
+The claim this section exists to test is a wall-clock one: **from a laptop that has the CLI and the
+skills, to a dashboard that already answers "which repo, which ticket, which report", in under
+fifteen minutes, on the real parent folder, from either shell.** CI can prove the verbs work on
+fixture repositories in a temp directory; it cannot prove that on `C:/Users/<you>/PycharmProjects`
+with a mapped drive, OneDrive placeholders, twenty checkouts and a `node_modules` the size of a
+small country the scan still finishes and the answers are right.
+
+`tests/laptop/test_11_fleet_quickstart.py` is this section. It skips itself until you name two
+facts about *this* laptop, because they cannot be guessed and a wrong guess would register the wrong
+folder:
+
+```toml
+# laptop.toml, beside the checkout (AGENTDATA_LAPTOP_TOML moves it)
+[fleet]
+parent_folder = "C:/Users/you/PycharmProjects"          # the folder your projects actually live under
+where = { word = "velocity", repo = "rdsd-pbi-reporting" }   # a word from a real REPORT.md, and whose
+```
+
+`where.word` must be a word that appears in one repository's `.agent/pbip/<name>/REPORT.md` and
+would not obviously appear in the others — a page name, a measure name, a metric. `where.repo` is
+the fleet name of that repository (`ad-fleet repo list` prints them; it is the folder name unless
+`--name` said otherwise). Absent keys **skip with the file to write in the reason**; they never
+fail. The same file already holds the `[jira]` keys section 3 uses.
+
+### Run it, once per shell
+
+```powershell
+$env:AGENTDATA_LAPTOP = '1'; python -m pytest -m laptop -k 11_fleet_quickstart   # pwsh 7
+```
+
+```bash
+AGENTDATA_LAPTOP=1 python -m pytest -m laptop -k 11_fleet_quickstart             # Git Bash
+```
+
+Each run writes its own `.agent/out/verification-<ts>.toon`, whose environment bundle names the
+shell it ran in — that file **is** the evidence, and both go into #134. What the case does:
+
+1. `ad-fleet quickstart <parent_folder> --yes --no-serve` on the real folder, timed.
+2. records `elapsed`, `refresh`, `repos`, `indexed_docs`, `tiles_with_ticket`,
+   `tiles_missing_facts`, `inbox_offered` and the shell, as one step in the evidence file.
+3. `ad-fleet where "<where.word>"` and asserts the **first** match is `where.repo`.
+4. checks the fifteen-minute budget. On the **first** run — the one that reports `refresh: false`,
+   the genuine cold setup — a breach is *reported* in the evidence and does not fail the case, which
+   is the whole point of measuring it before asserting it. Every later run asserts it hard.
+
+The interactive first-time run is the one the epic promises, and only a person can time it. Do it
+once, by hand, before the automated case, and put the wall clock in the table below:
+
+```powershell
+ad-fleet quickstart C:/Users/you/PycharmProjects
+```
+
+Answer `y` / `n` per proposal (`a` takes all the rest, `q` stops). The browser should open on a page
+with one tile per project you said yes to.
+
+### One evidence line per shell
+
+| Shell | `elapsed` (s) | Wall clock, interactive | `repos` | `indexed_docs` | `tiles_with_ticket` | `tiles_missing_facts` | `inbox_offered` | `where` answered | Evidence file |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| pwsh 7 | | | | | | | | | |
+| Git Bash | | | | | | | | | |
+
+> **Expect** in both shells: the same `repos` and `indexed_docs`, the same first match from `where`,
+> and no path in the summary that looks MSYS-converted (`/c/Users/...` where the other shell said
+> `C:/Users/...`). A difference between the two shells is exactly what epic #63 exists for — paste
+> both rows and the two evidence files.
+
+> **Expect** on a second run in the same shell: `refresh: true`, the same `repos`, `read` far below
+> `docs` (the index is incremental), and an `elapsed` in seconds rather than minutes.
+
+### Then the doctor
+
+```
+ad-doctor --only fleet
+```
+
+`parent folder` **ok** with the count and the folder; `catalogue` **ok** naming FTS5 or the LIKE
+fallback and how long ago it was indexed; `facts` naming, per project, the `AGENTS.md` key its tile
+links are missing; `inbox` naming the Downloads folder it can list; `token budget` saying what N
+tiles polling one Jira token is costing.
+
+> **Paste back** every row that is not `ok`, and for `facts`, whether the key it names is one you
+> would actually put in that repository's `AGENTS.md`. A key nobody would fill in is a fact the tile
+> should stop asking for.
+
+### The scan's Windows answers
+
+Only the laptop has these. Run the scan on its own and read the `skipped` and `drift` tables:
+
+```
+ad-fleet repo add --scan C:/Users/you/PycharmProjects --depth 2
+```
+
+> **Expect**: `node_modules`, `.venv` and `Downloads` never walked into; a OneDrive placeholder or a
+> junction reported with `reparse: true` and **not** descended into; a folder the OS refuses listed
+> under `skipped` with its reason rather than failing the scan; a mapped drive that is disconnected
+> showing as drift rather than being removed. Nothing registered until you answer.
+> **Paste back** the `skipped` table in full — it is the only place the real folder's shape is
+> visible.
+
+### What to attach to the issue
+
+Both `verification-<ts>.toon` files, the table above filled in, the `ad-doctor --only fleet` rows,
+and a photograph of the four screens with the dashboard where the tabs used to be.

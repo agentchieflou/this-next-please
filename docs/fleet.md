@@ -29,6 +29,93 @@ Everything in that loop is also a command, because a fleet you can only drive th
 fleet you cannot script: `approvals`, `approve`, `deny`, `send`, `restart`, `stop`, `board`,
 `history`, `notify`, `gc`, `doctor`.
 
+## More than one project: the desk
+
+Everything above is per repository. The desk (#122) is the same fleet pointed at the folder every
+project already lives under — `C:/Users/you/PycharmProjects` on the laptop — so that the first
+question of the morning, *which repo, which ticket, which report*, is answered without opening a
+tab.
+
+```bash
+ad-fleet quickstart C:/Users/you/PycharmProjects
+```
+
+That is scan → index → poll → inbox → serve, in that order, with the clock running; each step is
+also its own verb ([setup.md](setup.md) §Several projects at once). The scan **proposes** and you
+confirm each one — it hands the human a list, never an agent a folder — and registration goes
+through the same `repo add` a hand-typed path would.
+
+### The catalogue
+
+`ad-fleet index` reads what every registered repository already publishes into one local SQLite
+file. `ad-fleet where "velocity"` then says which project mentions it, and `ad-fleet show <project>`
+prints that project's facts, state, open friction, PBIP models and reports, and its links.
+
+**What it indexes** — an allow-list of repo-relative *names*, per registered repo:
+
+| Kind | File |
+| --- | --- |
+| `agents` | `AGENTS.md` — the facts block and the headings |
+| `state` | `.agent/state.json` |
+| `friction` | `.agent/friction/*.md` — title, type, date, first paragraph |
+| `pbip_model` / `pbip_report` / `pbip_lineage` | `.agent/pbip/<name>/MODEL.md`, `REPORT.md`, `LINEAGE.md` |
+| `pbip_meta` | `.agent/pbip/<name>/meta.json` |
+| `git` | `.git/HEAD` and `.git/refs/heads/<branch>` — the branch name and when it last moved |
+
+**What it never indexes.** Source trees, notebooks, SQL, exports, anything under `.agent/out/`, and
+above all `.env`, `secrets*`, `localSettings.json` or `~/.pncli/config.json`. Those are not skipped
+by a rule that could be relaxed: `catalogue.allows()` refuses every name it does not list, every
+read goes through it, and a path outside the allow-list is never constructed in the first place.
+Adding a kind is a change to that function plus a test, never a config knob. A doc that *looks* like
+it carries a credential (the patterns `config.save()` already refuses — token, password, secret,
+`Bearer `) is refused outright and reported by file and pattern, never by line.
+
+**Where the file lives.** `~/.agentdata/fleet/catalogue.sqlite`, beside everything else the fleet
+remembers, and outside every repository. It is a **cache**: every byte in it was read from a file
+still on the disk, so deleting it costs one `ad-fleet index --rebuild` and nothing else. Search is
+SQLite FTS5 where the interpreter has it and a plain `LIKE` scan where it does not; `ad-doctor` says
+which, every time, because "search found nothing" and "search is running on the fallback" look
+identical from a result set.
+
+**This is deliberately not a RAG, and that is the point.** The obvious version of this feature is to
+give an agent the parent folder and embed everything in it; three constraints say no, and each one
+is already a rule here. AGENTS.md rule 3 — an agent never reads a second project's `.agent/` — is
+broken by a folder-wide agent on its first `ls`; the thing that may read across projects is the
+supervisor, a plain Python process the human runs, never a model. The corporate policy disables MCP,
+so no model could query a vector store anyway: the only query path a model has on this laptop is an
+`ad-*` command printing TOON, and `ad-fleet` is not in the agent tool allow-list. And what actually
+answers "which project owns Velocity, what ticket is it on, what did it last get stuck on" is the
+small structured credential-free material above — indexing the source trees answers nothing more and
+is where the volume and the credential risk live. `ad-fleet where` is the same leverage with none of
+the embedding, the chunking, or the "what did it index" question.
+
+An agent sees the catalogue only as a summary of **its own** repository, pasted into the first
+prompt `ad-fleet start` composes. No command run inside a repository can query the catalogue: there
+is no per-repo verb for it, and `ad-fleet` is the only one that reads it.
+
+### The tile is the project's home
+
+With those facts indexed, each tile carries the project's own state beside the agent's: the ticket,
+the board, the report, the dataset, the workspace, the repository, the open PR, the Confluence page
+and the local folder as links, and their live state polled read-only on a per-source timer (Jira
+60 s, PR 120 s, Power BI 300 s, git 30 s). A cell shows value and age (`Done · 4m`) and goes **grey,
+not wrong**, when a poll fails. A missing fact means the link is absent and `ad-fleet doctor` names
+the `AGENTS.md` key to add — never a broken URL that opens an error page.
+
+Polling is honest about its cost: `ad-fleet status --polls` prints today's request count per source,
+the Jira poll is **one JQL for every tile**, and it stands down rather than starving a running
+`ad-jira changelog` of its request budget. `fleet.poll.jira: false` turns one source off;
+`fleet.poll.enabled: false` turns the lot off.
+
+### Downloads is an inbox
+
+`ad-fleet inbox` lists what the browser saved into Downloads and which project each file belongs to,
+matched **on the file name alone** — a ticket key, or a project name. Nothing there is opened:
+Downloads holds bank statements and installers next to the Jira exports, and a watcher that read a
+file to decide where it belongs would be reading all of them. Attach copies one file into
+`<repo>/.agent/in/<KEY>/` and leaves the original where it is; that copy is the *only* write the
+fleet makes inside a repository, it happens only on a click, and it is logged as `inbox.attached`.
+
 ## The rules
 
 **One agent per repository**, enforced by a lock rather than by hope — two `copilot` processes in
@@ -58,6 +145,7 @@ normally produce zero notifications; see [fleet-notifications.md](fleet-notifica
 | [fleet-dashboard.md](fleet-dashboard.md) | the page, its endpoints, the token model |
 | [fleet-notifications.md](fleet-notifications.md) | when you are interrupted, and when you are not |
 | [fleet-intake.md](fleet-intake.md) | the Jira board and the start guard rails |
+| [fleet-layouts.md](fleet-layouts.md) | the three layouts, focus mode, and the sitting that picks one |
 | [fleet-ide.md](fleet-ide.md) | the dashboard inside PyCharm and VS Code |
 | [fleet-lifecycle.md](fleet-lifecycle.md) | crashes, restarts, budgets, logs, the doctor rows |
 
@@ -74,6 +162,11 @@ Start with `ad-fleet doctor`. Every row names its own fix.
 | `fleet/dashboard` **warn** | the port is taken | `ad-fleet serve --port 0`, or set `fleet.port` |
 | `fleet/repos` **warn** | a checkout moved or was cleaned | `ad-setup --project .` there, or `ad-fleet repo rm` |
 | `fleet/toast` **warn** | no Windows toasts | optional: `pip install "agentdata[fleet-win]"` |
+| `fleet/parent folder` **warn** | a checkout, or the drive under it, is not where the registry says | reconnect the drive, or `ad-fleet repo add --scan` again; nothing is removed for you |
+| `fleet/catalogue` **warn** | never built, stale by more than a day, or unreadable | `ad-fleet index` — or delete the file and `ad-fleet index --rebuild`; it is a cache |
+| `fleet/facts` **warn** | a project cannot build every tile link | the row names the `AGENTS.md` key per project; `ad-fleet show <project>` lists them |
+| `fleet/inbox` **warn** | no Downloads folder, or it cannot be listed | `ad-fleet inbox --folder <path>`, or `fleet.inbox.folders` in the config |
+| `fleet/token budget` **warn** | N tiles are polling one Jira token near its limit | slow or stop a source: `fleet.poll.jira: {"interval": 300}` or `false` |
 
 And when a tile is wrong rather than the fleet:
 

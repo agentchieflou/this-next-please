@@ -13,6 +13,45 @@ The skills are installed separately and once per laptop:
 interactive picker (its first row is a search box that swallows Enter, so paging requires arrowing down first);
 `--scope user` makes them available in every repo instead of only the current one.
 
+## Several projects at once
+
+`ad-setup` sets up **one** project. When every project you work on lives under one parent folder,
+three commands turn that folder into a desk — a page that already answers *which repo, which ticket,
+which report* before you open a browser tab. Fifteen minutes, once, on a laptop that already has the
+CLI and the skills:
+
+```bash
+ad-fleet repo add --scan C:/Users/you/PycharmProjects
+ad-fleet index
+ad-fleet serve --open
+```
+
+1. **Scan proposes; you confirm.** It walks one or two levels down (`--depth 2` by default), calls a
+   directory a candidate when it has a `.git` and at least one of `AGENTS.md`, `.agent/`,
+   `pyproject.toml` or a `*.pbip`, and prints the branch, the Jira project and the last commit age
+   for each. Nothing is registered until you answer `y` (or `a` for all the rest, `q` to stop);
+   `--yes` skips the asking and `--only a,b` picks. The only files it opens are that candidate's
+   `AGENTS.md` and `.git/HEAD` — a `.env` or a `secrets.json` sitting next to them is proposed and
+   never read. Re-running proposes what is new and flags what moved; it never unregisters anything.
+2. **Index reads what each repo publishes** into `~/.agentdata/fleet/catalogue.sqlite` — the facts,
+   the state, the friction logs and the PBIP notes, and nothing else. Then `ad-fleet where "velocity"`
+   names the project, and `ad-fleet show <project>` prints its facts, links and open friction. It is
+   deliberately not a RAG: [fleet.md](fleet.md) §The catalogue says why.
+3. **Serve is the page.** One tile per project, its links and their live state, the files Downloads
+   is offering it, and the agents if you run any.
+
+One command runs all three, times itself and opens the browser:
+
+```bash
+ad-fleet quickstart C:/Users/you/PycharmProjects
+```
+
+`--yes` registers every proposal without asking, `--no-serve` prints the summary and stops, and a
+second run is a refresh (`refresh: true`) rather than a re-setup. `ad-doctor --only fleet` says what
+is missing before a tile does: which checkouts moved, whether the catalogue is fresh, which projects
+lack the `AGENTS.md` keys their links need, whether Downloads can be listed, and what the polling is
+costing your Jira token.
+
 ## Steps (`--only <key>` runs one)
 | key | what it does | writes |
 |---|---|---|
