@@ -16,6 +16,11 @@ import pytest
 from agentdata.pbip import dmv as DMV
 from agentdata.pbip import winui as W
 
+# Captured at import, before the autouse fixture in conftest.py swaps it for one that labels the
+# injected fake as the enumeration. This is the one test about the REAL preference order, so it
+# needs the real function back.
+_REAL_SOURCE = W.desktop_windows_source
+
 
 # --- winui.title_is_desktop -------------------------------------------------------------------
 
@@ -109,6 +114,7 @@ def test_ctypes_path_is_windows_only(monkeypatch):
 
 
 def test_windows_platform_prefers_ctypes_and_falls_back(monkeypatch):
+    monkeypatch.setattr(W, "desktop_windows_source", _REAL_SOURCE)      # the real selection logic
     monkeypatch.setattr(W.sys, "platform", "win32")
     monkeypatch.setattr(W, "_enum_ctypes", lambda: [(1, "Top - Power BI Desktop")])
     assert W.desktop_windows() == [(1, "Top - Power BI Desktop")]
