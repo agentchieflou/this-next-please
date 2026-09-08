@@ -4,6 +4,52 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.7.0
+
+Three roadmap epics, and the first of them changes what `ad-jira changelog` does when a pull goes wrong.
+
+**Jira changelog at scale (#121).** A long pull no longer loses its work or lies about what it got. The client
+retries what is safe to retry — a `transition()` is never replayed — jitters its backoff so several agents sharing
+one token do not retry in lockstep, and reads Atlassian's rate-limit headers on error responses too, so it pauses
+before it is refused rather than after. Rows stream to `.agent/out/` as pages arrive, under a measured memory
+ceiling, so a 502 at minute fourteen keeps everything already fetched.
+
+**A short pull is now a distinct outcome from a failure, and this is the part to know.** Budget exhaustion,
+Ctrl-C, an unrecoverable HTTP error, a Data Center truncation, keys the bulkfetch rejected and a cache read that
+broke all end the same way: `partial: true` with the reason, the counts, a `hint`, and the literal command to
+rerun — and a non-zero exit. `ad-jira sprint-replay` refuses such input unless you pass `--allow-partial`, because
+a `committed_points` computed over forty of a hundred histories looks exactly like a real number. **Nothing to do
+after updating**: the skill knows the rule. New flags on `changelog` and `sprint-replay`: `--max-requests`,
+`--max-seconds`, `--bulk-issues`, `--bulk-page`, `--no-cache`, `--refresh`, `--stats`, `--quiet`,
+`--allow-partial`; and a new sub-verb `ad-jira cache --stats | --clear`.
+
+The cache is keyed on each issue's `updated` stamp — a changelog cannot change without it moving — so the second
+run of a JQL costs one search, and it doubles as the checkpoint that makes the `resume` hint real.
+
+**One desk, many projects (#122).** `ad-fleet repo add --scan <folder>` proposes every project under one parent
+folder and you confirm each; `ad-fleet index`, `where` and `show` are a read-only catalogue over what each repo
+already publishes — deliberately not a RAG, and it reads eight allow-listed file kinds and nothing else. The tile
+carries the project's links and their polled state so a tab is opened to act and never to check; `ad-fleet inbox`
+offers files from Downloads that name a ticket and copies one into `.agent/in/<KEY>/` on a click. `ad-fleet
+quickstart <folder>` sequences the lot. Three dashboard layouts plus a focus mode live behind `?layout=` and
+`--layout`; `grid` is the default until the layout sitting in #133 picks one.
+
+**Power BI handoff without elevation (#112).** The External Tools ribbon needs one file only an administrator can
+write, and the file we generated baked in the interpreter and project paths — so that write would have been needed
+again after every Python upgrade. It no longer contains either, so one file placed once works for every user
+forever, and `ad-pbip register-tool --package` writes it with the request letter to send. Meanwhile the handoff
+stops needing the ribbon at all: `ad-pbip handoff --active` takes the Desktop window you just clicked, `--file`
+takes one by name, and two open windows are a refusal that lists them rather than a guess. `ad-doctor` now names
+the transport that works instead of telling someone who cannot elevate to elevate. `ad-pbip probe` collects the
+read-only discovery for #113 in one block.
+
+**Fixed, and each was found by reading the finished code rather than by a test.** A credential in a project's
+`state.json` was written verbatim into the fleet catalogue and served over HTTP; the catalogue's read allow-list
+was name-only, so a symlink wearing an allowed name read any file on disk; every Jira tile poll died fifteen
+minutes after the dashboard opened; `ad-state set --input` did not exist, so every inbox attach silently recorded
+nothing; and on Windows `ad-jira cache --clear` could not delete a corrupt cache, because a failed open left a
+handle behind — the one recovery its own hint tells you to run.
+
 ## Unreleased
 
 **New: `ad-fleet`.** Several headless Copilot agents, one per repository, watched from one page —
