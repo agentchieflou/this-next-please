@@ -199,4 +199,29 @@ def _no_user32_in_tests(monkeypatch):
     def _no_user32():
         raise OSError("user32 is not available to the test suite (tests/conftest.py)")
 
+    def _source(run=None):
+        """The fake's rows, labelled the way the platform's own gate needs them.
+
+        `resolve_transport(active=True)` refuses on Windows unless `EnumWindows` answered, and
+        `external_tools_row` downgrades `via` from `zorder` to `file` on the same condition. Both are
+        right for the product. But for the suite the injected fake *is* the enumeration, so on
+        Windows it has to count as one -- otherwise seventy-odd transport tests assert the refusal
+        instead of the behaviour they were written for, which is what the runners reported.
+
+        Off Windows the gate is inactive and the honest label is the process table, which is exactly
+        what `test_off_windows_the_zorder_verdict_refuses_to_claim_anything` checks: the probe must
+        never claim a Z-order it could not have measured.
+        """
+        source = winui.SOURCE_ENUM if sys.platform == "win32" else winui.SOURCE_TABLE
+        return winui._from_runner(run), source
+
     monkeypatch.setattr(winui, "_enum_ctypes", _no_user32, raising=False)
+    monkeypatch.setattr(winui, "desktop_windows_source", _source, raising=False)
+
+    # The same seam for the other win32-only probe. The runners are administrators, so the real
+    # `shell32!IsUserAnAdmin` answers "already elevated" and overrides whatever a test injected --
+    # which turned the epic's headline assertion, that "run elevated" is never printed to someone
+    # who cannot, into a Windows-only failure. The fakes drive the `whoami /groups` path instead.
+    from agentdata.setup.steps import powerbi as _pbi_step
+
+    monkeypatch.setattr(_pbi_step, "_is_user_an_admin", lambda: False, raising=False)

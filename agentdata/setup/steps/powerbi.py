@@ -61,6 +61,20 @@ def package_dir() -> str:
     return textio.norm_path(EXT.DEFAULT_PACKAGE_DIR)
 
 
+def _is_user_an_admin() -> bool:
+    """`shell32!IsUserAnAdmin`, as its own function so the suite has a seam.
+
+    It was inline, and inline it consults the real machine no matter what a caller injected. The
+    GitHub Windows runners run as an administrator, so every test that faked "there is nothing to
+    elevate to" got a truthful "this process is already elevated" instead, and the assertion that
+    the phrase never appears failed on the one platform it matters on. Same shape as
+    `winui._enum_ctypes`, and neutralised the same way in `tests/conftest.py`.
+    """
+    import ctypes
+
+    return bool(ctypes.windll.shell32.IsUserAnAdmin())  # type: ignore[attr-defined]
+
+
 def elevation_avenue(run=None) -> dict:
     """Is there anything for this user to elevate *to*? `{available, evidence}`.
 
@@ -79,8 +93,7 @@ def elevation_avenue(run=None) -> dict:
     """
     if sys.platform == "win32":
         try:
-            import ctypes
-            if ctypes.windll.shell32.IsUserAnAdmin():
+            if _is_user_an_admin():
                 return {"available": True, "evidence": "this process is already elevated (shell32!IsUserAnAdmin)"}
         except Exception as e:  # noqa: BLE001 - a user32/shell32 that will not answer is not an avenue
             if run is None:
