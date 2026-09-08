@@ -9,15 +9,35 @@
 <body>
 <header>
   <h1>fleet</h1>
+  <span id="view" class="muted" title="this window's layout"></span>
   <span id="link" class="dot" title="event stream">connecting</span>
+  <label for="find" class="sr">search every project</label>
+  <input id="find" type="search" placeholder="where is … (/)" title="search the catalogue: ad-fleet where">
   <span class="spacer"></span>
+  <label for="layout" class="sr">layout</label>
+  <select id="layout" title="which of the four screens this window is"></select>
+  <label for="swap" class="sr">project on this screen</label>
+  <select id="swap" hidden title="put another project on this screen"></select>
   <label for="theme" class="sr">theme</label>
   <select id="theme" title="page theme"><option value="">system</option></select>
   <button id="chime" aria-pressed="false" title="sound on a notification">chime off</button>
+  <button id="focus" aria-pressed="false" title="show only the agents that need you"><kbd>f</kbd> focus</button>
+  <button id="traytoggle" title="files Downloads is offering"><kbd>i</kbd> inbox</button>
   <button id="boardtoggle" title="your Jira tickets"><kbd>b</kbd> board</button>
   <button id="bell" title="notifications"><span id="bellcount">0</span> new</button>
   <button id="unfocus" hidden>back to grid <kbd>Esc</kbd></button>
 </header>
+
+<aside id="found" hidden aria-label="search results">
+  <div class="drawer-head">
+    <strong>where</strong>
+    <span id="foundhow" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="closefound">close <kbd>Esc</kbd></button>
+  </div>
+  <ol id="hits"></ol>
+  <p id="nohits" class="muted">Nothing matched. <code>ad-fleet index</code> reads each repo's own AGENTS.md, state, friction and PBIP notes &mdash; nothing else.</p>
+</aside>
 
 <aside id="drawer" hidden aria-label="notifications">
   <div class="drawer-head">
@@ -49,16 +69,33 @@
   </details>
 </aside>
 
+<aside id="unsorted" hidden aria-label="unsorted downloads">
+  <div class="drawer-head">
+    <strong>inbox</strong>
+    <span id="folders" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="closetray">close <kbd>i</kbd></button>
+  </div>
+  <p class="muted">Nothing is opened, moved or renamed. <em>Attach</em> copies one file into that repo's <code>.agent/in/&lt;KEY&gt;/</code> and leaves the original where it is.</p>
+  <ol id="loose"></ol>
+  <p id="noloose" class="muted">Nothing unsorted.</p>
+  <details id="refused">
+    <summary>listed, not offered</summary>
+    <ol id="refusedrows"></ol>
+  </details>
+</aside>
+
 <main id="grid" aria-live="polite"></main>
 
 <p id="empty" hidden>
-  No repositories registered. Run <code>ad-fleet repo add &lt;path&gt;</code>, then reload.
+  No repositories registered. Run <code>ad-fleet repo add --scan &lt;folder&gt;</code>, then reload.
 </p>
+<p id="nonefocus" hidden>Nothing needs you. Press <kbd>f</kbd> for the whole grid.</p>
 
 <footer>
   <span id="counts"></span>
   <span class="spacer"></span>
-  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus a tile · <kbd>a</kbd> approve · <kbd>b</kbd> board · <kbd>n</kbd> notifications · <kbd>Esc</kbd> grid</span>
+  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus a tile · <kbd>f</kbd> only what needs you · <kbd>/</kbd> where · <kbd>i</kbd> inbox · <kbd>a</kbd> approve · <kbd>b</kbd> board · <kbd>n</kbd> notifications · <kbd>Esc</kbd> grid</span>
 </footer>
 
 <template id="tile">
@@ -73,6 +110,8 @@
       <span class="age" title="age of the last event"></span>
     </div>
     <p class="why"></p>
+    <div class="cells" aria-label="the project's own state"></div>
+    <div class="rail" aria-label="where this project lives"></div>
     <div class="approval" hidden>
       <div class="approval-head">waiting for you: <span class="kind"></span></div>
       <div class="summary"></div>
@@ -84,6 +123,19 @@
       </div>
     </div>
     <ol class="transcript"></ol>
+    <ol class="tray" hidden aria-label="files offered to this project"></ol>
+    <details class="verify" hidden>
+      <summary class="verifyhead">verify</summary>
+      <pre class="verifybody"></pre>
+      <ol class="verifymore"></ol>
+    </details>
+    <details class="about">
+      <summary>what is this project</summary>
+      <div class="facts"></div>
+      <ol class="friction"></ol>
+      <ol class="pbip"></ol>
+      <p class="missing muted"></p>
+    </details>
     <div class="row bottom">
       <input class="say" type="text" placeholder="reply, or a ticket key to start">
       <button class="send">Send</button>

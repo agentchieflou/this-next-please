@@ -1,6 +1,11 @@
 /* The multi-viewer. Light and dark follow the system; the three PyCharm palettes override the
    surface colours only -- status colours never change, because a chip that means "needs you" has
-   to be the same red in every theme or the colour stops being information. */
+   to be the same red in every theme or the colour stops being information.
+
+   That rule is why the greyed cell of a failed poll (#131) uses --idle and not a lighter --muted:
+   "this number is old" is a status, the same status, on every screen and in every palette. The
+   layouts of #133 are body classes over this one stylesheet -- one page, three arrangements -- so
+   nothing below can make a chip mean one thing on the centre monitor and another on the left. */
 
 :root {
   --bg: #f6f7f8;
@@ -222,3 +227,123 @@ body.focused .tile.is-focused { max-height: none; }
 #history td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
 #history td.state-done { color: var(--done); }
 #history td.state-error, #history td.state-blocked, #history td.state-needs_human { color: var(--human); }
+
+
+/* ------------------------------------------------- the project's own state and links (#131) */
+
+/* The rail and the cells sit above the transcript because they answer the question that used to
+   cost a tab. A cell is value + age, always both: the value alone goes stale silently. */
+
+.cells { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cell {
+  display: inline-flex; align-items: baseline; gap: 6px; padding: 1px 8px;
+  border: 1px solid var(--line); border-radius: 10px; font: 11px var(--mono);
+}
+.cell .lab { color: var(--muted); }
+.cell .val { overflow-wrap: anywhere; }
+.cell .old { color: var(--muted); }
+/* Grey, never wrong: the last value it actually had, how old that is, and the error in the tooltip.
+   Dashed as well as grey, because a colour alone is not a signal on a bad monitor at arm's length. */
+.cell.grey { border-style: dashed; border-color: var(--idle); color: var(--idle); }
+.cell.grey .val { color: var(--idle); }
+.cell.idle { opacity: .55; }
+
+.rail { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.rail a, .rail button {
+  font: 11px var(--ui); padding: 1px 8px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--accent); text-decoration: none;
+}
+.rail a:hover { border-color: var(--accent); }
+.rail a.local { color: var(--muted); }
+
+.verify { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+.verify summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.verifybody {
+  margin: 6px 0 0; padding: 6px; max-height: 200px; overflow: auto; white-space: pre-wrap;
+  font: 11px/1.45 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+}
+.verifymore { margin: 4px 0 0; padding: 0; list-style: none; color: var(--muted); font: 11px var(--mono); }
+
+/* ------------------------------------------------------- what is this project (#130) */
+
+.about { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
+.about summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 1px 10px; font: 11px var(--mono); margin-top: 6px; }
+.facts .k { color: var(--muted); }
+.facts .v { overflow-wrap: anywhere; }
+.friction, .pbip { margin: 6px 0 0; padding: 0; list-style: none; font: 11px var(--mono); }
+.friction li { padding: 2px 0 2px 8px; border-left: 3px solid var(--human); }
+.pbip li { padding: 2px 0; color: var(--muted); }
+.missing { margin: 6px 0 0; }
+
+#found {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 94vw); z-index: 21;
+  background: var(--panel); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 8px 10px;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, .18);
+}
+#hits { flex: 1 1 auto; overflow: auto; margin: 0; padding: 0; list-style: none; }
+#hits li { padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+#hits li:hover { background: var(--select); }
+#hits .p { font: 12px var(--mono); font-weight: 600; }
+#hits .kind { font: 10px var(--mono); border-radius: 9px; padding: 0 6px; margin-left: 6px; background: var(--select); }
+#hits .snip { display: block; color: var(--muted); }
+#find { width: min(260px, 30vw); }
+
+/* ------------------------------------------------------------- the Downloads inbox (#132) */
+
+.tray { margin: 8px 0 0; padding: 0; list-style: none; font: 11px var(--mono); }
+.tray li, #loose li, #refusedrows li {
+  display: flex; align-items: center; gap: 6px; padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+}
+.tray .nm, #loose .nm { flex: 1 1 auto; overflow-wrap: anywhere; }
+.tray .meta, #loose .meta, #refusedrows .why { color: var(--muted); }
+.tray button, #loose button { font: 11px var(--ui); padding: 0 6px; }
+
+#unsorted {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 94vw); z-index: 20;
+  background: var(--panel); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 8px 10px;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, .18);
+}
+#loose { flex: 1 1 auto; overflow: auto; margin: 0; padding: 0; list-style: none; font: 11px var(--mono); }
+#refused { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; max-height: 34%; overflow: auto; }
+#refused summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+#refusedrows { margin: 0; padding: 0; list-style: none; font: 11px var(--mono); }
+
+/* ------------------------------------------------------------------ the layouts (#133) */
+
+/* Three arrangements of one page, chosen by `?layout=` and `?view=`, because the friction the
+   operator named was managing tabs -- and a second HTML file is a second thing to keep in step.
+   `solo` is one project filling the window (layout B's centre monitor, and every screen of layout
+   C); `panels` is the laptop: the board and the unsorted tray and no tiles. */
+
+#focus[aria-pressed="true"] { border-color: var(--human); color: var(--human); font-weight: 600; }
+.tile.needs-human .head .repo { color: var(--human); }
+
+/* Focus mode. Not applied in the solo views: hiding the one tile the window exists to show would
+   leave an empty monitor. */
+body.needs-only:not(.solo) .tile:not(.needs-human) { display: none; }
+
+body.solo main { grid-template-columns: 1fr; }
+body.solo .tile:not(.is-solo) { display: none; }
+body.solo .tile.is-solo { max-height: none; }
+body.solo .transcript { max-height: 34vh; }
+
+body.panels main, body.panels #empty { display: none; }
+body.panels #board, body.panels #unsorted {
+  position: static; width: auto; flex: 1 1 auto; min-height: 0; z-index: auto;
+  border: 0; border-top: 1px solid var(--line); box-shadow: none;
+}
+body.panels #unsorted { flex: 0 1 40%; }
+body.panels #closeboard, body.panels #closetray, body.panels #boardtoggle,
+body.panels #traytoggle { display: none; }
+
+/* The left monitor replaces a terminal, so the tiles get the width and the drawers stay drawers. */
+body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+
+/* Which window is this? The grid has nothing to say -- it is the whole fleet. Every other layout is
+   one of a set, and four windows that look alike is the tab problem again, one level up. */
+#view { display: none; }
+body.layout-roles #view, body.layout-screens #view { display: inline; }

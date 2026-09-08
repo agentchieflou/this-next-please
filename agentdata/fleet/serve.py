@@ -19,6 +19,18 @@ every button calls the same #93/#95 function the CLI verb calls. The server spaw
 **Security is loopback plus a per-run token.** The socket binds 127.0.0.1 and nothing else, every
 request must carry the token this run generated, and the token is not a cookie -- so another page
 on the corporate network cannot drive the fleet even if it guesses the port.
+
+**The desk half (#130, #131, #132, #133) is read-only except for one click.** `/api/desk` answers
+with what each project already publishes -- the catalogue's `show`, the link rail, the polled cells,
+the newest verify summary the repo's own agent wrote, and the files Downloads is offering it. The
+only write any of it can cause is `inbox.attach`, which copies one file into `<repo>/.agent/in/` and
+only because somebody pressed a button.
+
+**One process, one poller, one selection.** Four browser windows on four screens (#133) are four SSE
+connections to this one server, so the poller, the inbox watcher and the catalogue handle are held
+once for the process rather than once per connection -- otherwise the Jira poll would multiply by the
+number of monitors the operator happens to own. The selected project lives here too, and rides the
+same stream, which is what makes clicking a tile on the left monitor change the centre one.
 """
 from __future__ import annotations
 import hmac
@@ -32,7 +44,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .. import textio
-from . import agentstate, approval, board as B, events as E, notify as N, supervisor
+from . import (agentstate, approval, board as B, catalogue as CAT, events as E, inbox as IN,
+               links as LK, notify as N, poll as P, supervisor)
 from .registry import Registry, RegistryError, fleet_dir
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -45,6 +58,27 @@ MAX_BODY = 64 * 1024
 # a new route it must call, or a changed meaning for one it already calls.
 CONTRACT = 1
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
+
+POLL_EVERY_S = 5.0           # the floor between two ticks of the shared poller, however many tabs
+DESK_LIMIT = 12              # verify rows and friction rows per project; a tile is not a file manager
+MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is not a work queue
+
+# The three layouts of #133, and the three windows layout B splits into. The page reads them off
+# its own query string and this list is what says which spellings exist; `cli_fleet.LAYOUTS` is the
+# other half of the same seam and a test asserts the two still agree.
+LAYOUTS = ("grid", "roles", "screens")
+VIEWS = ("board", "agents", "verify")
+
+# What `.agent/out/` file counts as a verify summary, and which command wrote it. An allow-list of
+# *names*, like the catalogue's: `.agent/out/` also holds trace jsonl, screenshots and the debug log,
+# and "show the newest file" would eventually put a stack trace on the operator's centre monitor.
+VERIFY_KINDS = (("*-uat-findings.md", "ad-uat reconcile"),
+                ("*_uat_findings.tsv", "ad-uat reconcile"),
+                ("*_pbip_*.tsv", "ad-pbip"),
+                ("*-pbip-findings.md", "ad-pbip"),
+                ("verification-*.toon", "laptop verification"))
+VERIFY_DIR = (".agent", "out")
+VERIFY_HEAD = 3000           # characters of the summary the pane shows; the link opens the rest
 
 # The page may load nothing but itself. Belt and braces with shipping no external references: if a
 # later edit pastes in a CDN script tag, the browser refuses it and the test below catches it.
@@ -86,9 +120,388 @@ def fleet_snapshot() -> dict:
                      **derived,
                      "last_seq": stream[-1]["seq"] if stream else 0,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
+                     # The project's own state (#131), beside the agent's. Named `polls` and not
+                     # folded into the row, because a cell can be stale or grey and the agent's
+                     # state never is -- flattening them would make one age apply to both.
+                     "polls": poll_state(name),
                      "recent": stream[-40:]})
     return {"repos": rows, "approvals": approval.pending(), "fleet_dir": fleet_dir(),
+            "desk": desk_state(),
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
+
+
+# ------------------------------------------------------------------- the desk (#130 #131 #132)
+
+
+# The poller, the inbox watcher and the catalogue handle are per *process*, not per request and not
+# per SSE connection: #133 puts four windows on four screens, and four pollers would be four times
+# the Jira traffic for one operator's desk. Keyed on `fleet_dir()` so that moving the fleet -- which
+# is an environment variable, and is what every test does -- drops the handles rather than answering
+# from the previous one's sqlite file.
+_desk = {"dir": "", "poller": None, "inbox": None, "catalogue": None, "last_tick": 0.0}
+_desk_lock = threading.RLock()
+
+# The selected project, shared by every window on the same server. Layout B (#133) is three browser
+# windows that agree on one project, and the only thing they share is this stream -- so the selection
+# is server state pushed as an event, not a URL fragment each window would have to be told about.
+# `screens` is layout C's pinning, held the same way and for the same reason: a swap on one monitor
+# has to move the project off the other one.
+_selection = {"selected": "", "screens": [], "version": 0, "at": ""}
+
+
+def _fresh() -> dict:
+    """The handle bag for the current `fleet_dir()`, dropping one built for a different fleet.
+
+    An empty `dir` is "nothing has been opened yet", not "a different fleet": resetting on that
+    would throw away a selection made before the first handle was needed, which is every window that
+    clicked a tile before it opened the catalogue.
+    """
+    here = fleet_dir()
+    if _desk["dir"] and _desk["dir"] != here:
+        reset()
+    _desk["dir"] = here
+    return _desk
+
+
+def reset() -> None:
+    """Drop the shared handles and the selection. Called when the fleet moves under a live process.
+
+    The selection goes with them: it names a project in the fleet that was, and a screen still
+    pinned to a repository the new fleet has never heard of would be an empty monitor with nothing
+    saying why. The version is bumped rather than zeroed so every connected window is told.
+    """
+    with _desk_lock:
+        cat = _desk.get("catalogue")
+        if cat is not None:
+            try:
+                cat.close()
+            except Exception:                # noqa: BLE001 - a closed handle is the point
+                pass
+        _desk.update(dir="", poller=None, inbox=None, catalogue=None, last_tick=0.0)
+        _selection.update(selected="", screens=[], version=_selection["version"] + 1, at=E.stamp())
+
+
+def poller():
+    """The one `Poller`, or None when there is no registry to poll. Never raises."""
+    with _desk_lock:
+        bag = _fresh()
+        if bag["poller"] is None:
+            from .. import config as C
+
+            try:
+                bag["poller"] = P.Poller(Registry(), cfg=C.load())
+            except (RegistryError, C.ConfigError, OSError):
+                return None
+        return bag["poller"]
+
+
+def inbox_folders(cfg: dict | None = None) -> list[str] | None:
+    """`fleet.inbox.folders` from the config, or None for the inbox's own default.
+
+    `ad-fleet inbox` takes `--folder`; a server started from a desktop shortcut or an IDE tool window
+    has no flags to be given, so the same list has to be configuration. None rather than `[]`,
+    because an empty list means "watch nothing" to `Inbox` and that is a different answer from
+    "watch wherever this machine puts Downloads".
+    """
+    from .. import config as C
+
+    try:
+        raw = C.get(C.load() if cfg is None else cfg, "fleet.inbox.folders")
+    except C.ConfigError:
+        return None                          # a broken config file is `ad-doctor`'s to report
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return None
+    folders = [str(f) for f in raw if str(f).strip()]
+    return folders or None
+
+
+def inbox():
+    """The one `Inbox`, or None when Downloads cannot be resolved. Never raises."""
+    with _desk_lock:
+        bag = _fresh()
+        if bag["inbox"] is None:
+            try:
+                bag["inbox"] = IN.Inbox(folders=inbox_folders())
+            except (RegistryError, IN.InboxError, OSError):
+                return None
+        return bag["inbox"]
+
+
+def catalogue():
+    """The one `Catalogue`, or None when the sqlite file cannot be opened.
+
+    A half-written catalogue is a real laptop failure -- OneDrive syncing `~/.agentdata` mid-write is
+    enough -- and the page must degrade to "search is unavailable, run `ad-fleet index`" rather than
+    500 on every tile.
+    """
+    import sqlite3
+
+    with _desk_lock:
+        bag = _fresh()
+        if bag["catalogue"] is None:
+            try:
+                bag["catalogue"] = CAT.Catalogue.open()
+            except (sqlite3.Error, CAT.CatalogueError, OSError):
+                return None
+        return bag["catalogue"]
+
+
+def poll_tick(now: float | None = None) -> list[dict]:
+    """Tick the shared poller if it is due, and return the events that produced. Never raises.
+
+    Rate-limited here rather than inside `Poller`, because the thing being limited is *this* page:
+    every open SSE connection runs the same loop, and the poller's own per-source intervals would
+    still let four windows ask four times as often as one.
+    """
+    now = time.time() if now is None else float(now)
+    with _desk_lock:
+        bag = _fresh()
+        if now - bag["last_tick"] < POLL_EVERY_S:
+            return []
+        bag["last_tick"] = now
+    live = poller()
+    if live is None:
+        return []
+    try:
+        return live.tick(now)
+    except Exception:                        # noqa: BLE001 - a poll must never kill the stream
+        from ..log import debug_exc
+
+        debug_exc("fleet poll tick")
+        return []
+
+
+def poll_state(name: str) -> dict:
+    """`{ticket, pr, refresh, git}` for one tile, as JSON. `{}` when polling is not running.
+
+    Each cell carries the last value it actually obtained, its age, and the error that greyed it.
+    The page shows all three: a cell that blanked on a failed poll would lose what was known, and one
+    that kept the value without the age would look current. Grey plus an age is the honest answer.
+    """
+    live = poller()
+    if live is None:
+        return {}
+    try:
+        return {cell: poll.to_json() for cell, poll in live.state_for(name).items()}
+    except Exception:                        # noqa: BLE001 - see poll_tick
+        return {}
+
+
+def desk_state() -> dict:
+    """What every window agrees on: the selected project and the screen pinning."""
+    with _desk_lock:
+        return dict(_selection, screens=list(_selection["screens"]))
+
+
+def select(selected=None, screens=None) -> dict:
+    """Set the shared selection and/or the screen pinning, bumping the version the stream watches.
+
+    Returns the new state whether or not anything changed, because the caller is a button and "your
+    click did nothing" is not a useful answer. The version only moves on a real change, so two
+    windows clicking the same tile do not each wake the other.
+    """
+    with _desk_lock:
+        after = dict(_selection)
+        if selected is not None:
+            after["selected"] = str(selected or "")
+        if screens is not None:
+            after["screens"] = [str(x) for x in list(screens)[:9] if str(x)]
+        if (after["selected"], after["screens"]) != (_selection["selected"], _selection["screens"]):
+            _selection.update(after, version=_selection["version"] + 1, at=E.stamp())
+        return desk_state()
+
+
+# ---------------------------------------------------------------------------- the verify pane
+
+
+def _verify_tool(name: str) -> str:
+    """Which command wrote a file with this name, or "" -- the allow-list, matched on the name."""
+    import fnmatch
+
+    for pattern, tool in VERIFY_KINDS:
+        if fnmatch.fnmatch(name.lower(), pattern.lower()):
+            return tool
+    return ""
+
+
+def verify_for(repo, *, head: int = VERIFY_HEAD, limit: int = DESK_LIMIT) -> dict:
+    """The newest `ad-uat` / `ad-pbip` summary **this** repository's own agent wrote, and no other.
+
+    #131.4: the operator's "go and look at the chart" should be a click with the numbers already
+    beside it, so the pane carries the head of the summary next to the report link. Three rules make
+    that safe. The directory is not walked, so nothing under `.agent/out/shots/` or a nested checkout
+    is reachable. Every candidate is resolved with `realpath` and refused unless it is still inside
+    this repo's `.agent/out/` -- a symlink or an NTFS junction dropped in there is the one way a file
+    from another project could otherwise appear on this tile, which AGENTS.md rule 3 forbids. And the
+    excerpt is run past `catalogue.looks_like_a_credential` before it leaves the process, because a
+    summary is a file we did not write.
+    """
+    root = os.path.join(getattr(repo, "path", "") or "", *VERIFY_DIR)
+    real_root = textio.norm_path(os.path.realpath(root))
+    rows: list[dict] = []
+    refused: list[dict] = []
+    try:
+        with os.scandir(textio.longpath(root)) as it:
+            entries = list(it)
+    except OSError:
+        entries = []                          # no `.agent/out/` yet: nothing has been verified
+    for entry in entries:
+        tool = _verify_tool(entry.name)
+        if not tool:
+            continue
+        path = os.path.join(root, entry.name)
+        real = textio.norm_path(os.path.realpath(path))
+        if real != real_root + "/" + entry.name:
+            # A link out of the repository. Named, not silently dropped: the operator should know
+            # their `.agent/out/` has a door in it.
+            refused.append({"name": entry.name,
+                            "why": "refused: it resolves outside this repository's .agent/out/"})
+            continue
+        try:
+            st = entry.stat()
+        except OSError:
+            continue
+        rows.append({"name": entry.name, "tool": tool, "path": textio.norm_path(path),
+                     "mtime": st.st_mtime, "bytes": int(st.st_size),
+                     "age_s": round(max(0.0, time.time() - st.st_mtime), 1)})
+    rows.sort(key=lambda r: (-r["mtime"], r["name"]))
+    latest = dict(rows[0]) if rows else {}
+    if latest:
+        latest["excerpt"] = _excerpt(latest["path"], head)
+    return {"repo": getattr(repo, "name", ""), "dir": "/".join(VERIFY_DIR), "found": len(rows),
+            "latest": latest, "others": [{k: r[k] for k in ("name", "tool", "age_s", "path")}
+                                         for r in rows[1:limit]], "refused": refused}
+
+
+def _excerpt(path: str, head: int) -> str:
+    """The first `head` characters, or the reason there are none. Never a credential.
+
+    Read as bytes and cut, rather than `textio.read_text`: a findings TSV can be tens of megabytes
+    and this runs while the operator is looking at a tile.
+    """
+    try:
+        with open(textio.longpath(path), "rb") as f:
+            raw = f.read(head * 4)
+    except OSError as e:
+        return f"(cannot read it: {e.strerror or e})"
+    body = textio.decode(raw)[:head]
+    found = CAT.looks_like_a_credential(body)
+    if found:
+        return (f"(not shown: this file has something that looks like a {found}; "
+                f"open it yourself and take it out)")
+    return body
+
+
+# ------------------------------------------------------------------------ what one project is
+
+
+def show_for(name: str) -> dict:
+    """The "what is this project" panel: the catalogue's facts, the link rail, the cells, the tray.
+
+    Every half degrades on its own. An unindexed repository still gets a link rail, because the facts
+    come from its own `AGENTS.md` either way and a tile with no links until somebody runs
+    `ad-fleet index` is a tile that looks broken. A repository with no `.agent/out/` still gets its
+    ticket cell. The panel says `indexed: false` rather than pretending.
+    """
+    repo = Registry().get(name)               # raises RegistryError, which the route turns into 409
+    cat = catalogue()
+    facts, shown, indexed = {}, {}, False
+    if cat is not None:
+        try:
+            shown = cat.show(name)
+            facts, indexed = shown.get("facts") or {}, True
+        except CAT.CatalogueError:
+            shown = {}
+    if not facts:
+        # The same allow-listed read the index does, secret-looking keys dropped by the same rule --
+        # duplicating that filter here is how the two would eventually disagree.
+        facts = CAT._facts(repo.path)
+    state = repo.state()
+    rail = LK.links_for(repo, facts, state)
+    return {"project": name, "name": name, "path": textio.norm_path(repo.path),
+            "indexed": indexed, "jira_project": repo.jira_project,
+            "branch": shown.get("branch", ""), "last_indexed": shown.get("last_indexed", ""),
+            "facts": facts, "state": state,
+            "friction": (shown.get("friction") or [])[:DESK_LIMIT],
+            "pbip": shown.get("pbip") or [],
+            "links": LK.present(rail), "missing": [r for r in rail if not r.get("url")],
+            "missing_keys": LK.missing_keys(rail),
+            "polls": poll_state(name), "verify": verify_for(repo)}
+
+
+def desk_snapshot() -> dict:
+    """Every project's panel, plus the trays, in one request.
+
+    One round trip rather than one per tile: the grid layout draws N tiles at once and #133 puts them
+    on a screen the operator is not looking at, so the page asks for the lot on a slow cadence and
+    lets the SSE stream carry what is urgent.
+    """
+    projects, order = {}, []
+    try:
+        names = [r.name for r in Registry().sorted()]
+    except RegistryError:
+        names = []
+    for name in names:
+        try:
+            projects[name] = show_for(name)
+            order.append(name)
+        except (RegistryError, OSError):
+            continue
+    cat = catalogue()
+    return {"projects": projects, "order": order, "desk": desk_state(),
+            "catalogue": cat.stats() if cat is not None else
+                         {"projects": 0, "docs": 0, "fts": False,
+                          "error": "the catalogue could not be opened; run `ad-fleet index`"},
+            **inbox_snapshot()}
+
+
+def inbox_snapshot() -> dict:
+    """The three trays #132 asks for: offered per project, unsorted, and listed-but-not-offered.
+
+    The split is the inbox's own, not a second opinion: `offered` with a project is a tile's row,
+    `offered` with none is the unsorted tray, and the rest are shown with the reason so a file that
+    did not appear is never a silence.
+    """
+    box = inbox()
+    if box is None:
+        return {"folders": [], "offers": {}, "unsorted": [], "not_offered": [], "still_writing": []}
+    try:
+        found = box.look()
+    except OSError:
+        found = []
+    offers: dict[str, list] = {}
+    unsorted, refused = [], []
+    for offer in found:
+        row = offer.to_json()
+        if not offer.offered:
+            refused.append(row)
+        elif offer.project:
+            offers.setdefault(offer.project, []).append(row)
+        else:
+            unsorted.append(row)
+    return {"folders": list(box.folders), "offers": offers,
+            "unsorted": unsorted[:MAX_TRAY], "not_offered": refused[:MAX_TRAY],
+            "still_writing": list(box.retry)}
+
+
+def _offer(id: str):
+    """`(inbox, offer)` for this id from a fresh look, or a refusal naming what happened to it.
+
+    Deliberately re-looked rather than remembered from the last `/api/desk`: between the page drawing
+    a row and the operator clicking it, the file can be moved, finished downloading, or replaced by a
+    newer save -- and attaching whatever used to be at that path is exactly the wrong answer.
+    """
+    box = inbox()
+    if box is None:
+        raise IN.InboxError("there is no inbox to attach from",
+                            "set `fleet.inbox.folders` or check that Downloads exists")
+    for offer in box.look():
+        if offer.id == id:
+            return box, offer
+    raise IN.InboxError(f"no file with id {id!r} in the inbox now",
+                        "it was moved, renamed or re-saved; reload the tray and try again")
 
 
 def act(what: str, body: dict) -> dict:
@@ -118,7 +531,22 @@ def act(what: str, body: dict) -> dict:
         id = str(body.get("id") or "")
         state = approval.APPROVED if what == "approve" else approval.DENIED
         return approval.decide(id, state, reason=str(body.get("reason") or ""))
-    raise ServeError(f"unknown action {what!r}", "start | send | stop | approve | deny")
+    if what == "select":
+        # The one "action" that changes nothing on disk. It is a POST rather than a query parameter
+        # because its whole point is that the *other* windows hear about it (#133 layout B).
+        return select(selected=body.get("repo"), screens=body.get("screens"))
+    if what == "attach":
+        # The single exception in the epic's "nothing is written outside ~/.agentdata/fleet without
+        # a click": this is the click. `Inbox.attach` does the copy and holds the rule that it lands
+        # inside `<repo>/.agent/in/` and nowhere else.
+        box, offer = _offer(str(body.get("id") or ""))
+        return box.attach(offer, repo)
+    if what == "dismiss":
+        box, offer = _offer(str(body.get("id") or ""))
+        box.dismiss(offer)
+        return {"dismissed": offer.name, "id": offer.id}
+    raise ServeError(f"unknown action {what!r}",
+                     "start | send | stop | approve | deny | select | attach | dismiss")
 
 
 def _sweep(url: str) -> list[dict]:
@@ -151,7 +579,7 @@ def _cursors(raw: str) -> dict:
 
 def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float = HEARTBEAT_S,
                   tick: float = TICK_S, once: bool = False, url: str = "",
-                  notify_every: float = NOTIFY_EVERY_S) -> None:
+                  notify_every: float = NOTIFY_EVERY_S, polls: bool = True) -> None:
     """Multiplex every agent's new events onto one SSE connection until the client goes away.
 
     `write` raises when the socket closes, which is how this ends -- a browser tab being shut is
@@ -160,10 +588,23 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     The notification sweep (#97) rides on the same loop but at its own, slower cadence: the rules
     are about state *changes*, which do not happen four times a second, and each sweep writes the
     dedupe ledger to disk.
+
+    The project poll (#131) rides on it too. `poll_tick` is rate-limited for the whole process, so
+    the four windows of #133 cost one poll between them rather than four; the events it produces are
+    appended to the repo's own stream by the poller and reach the tile through the loop below like
+    any other, which is why there is no second code path for `project.ticket_changed`.
+
+    The shared selection (#133 layout B) is pushed as its own frame whenever its version moves. A
+    connection starts at -1 so every new window is told the current selection immediately -- a
+    monitor that joined late and shows a different project than the one beside it is the exact
+    failure this frame exists to prevent.
     """
     last_beat = 0.0
     last_sweep = 0.0
+    seen_selection = -1
     while not stop.is_set():
+        if polls:
+            poll_tick()
         if time.time() - last_sweep >= notify_every:
             last_sweep = time.time()
             for item in _sweep(url):
@@ -183,6 +624,13 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
                 cursors[name] = ev["seq"]
                 write(f"id: {name}:{ev['seq']}\nevent: agent\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n")
                 sent = True
+        state = desk_state()
+        if state["version"] != seen_selection:
+            # After the agent frames, not before: a window that has just connected wants the events
+            # it missed first, and the selection is what it draws *with* them.
+            seen_selection = state["version"]
+            write(f"event: desk\ndata: {json.dumps(state, ensure_ascii=False)}\n\n")
+            sent = True
         if sent or time.time() - last_beat > heartbeat:
             # The heartbeat is not decoration: a proxy that sees no bytes for a minute closes the
             # connection, and the tiles then quietly stop updating with no error anywhere.
@@ -307,6 +755,33 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "notifications": N.read_log(limit),
                                "toast": N.toast_status(C.load()),
                                "settings": N.settings(C.load())})
+        if route == "/api/desk":
+            return self._json({"ok": True, **desk_snapshot()})
+        if route == "/api/show":
+            project = (query.get("project") or [""])[0]
+            try:
+                return self._json({"ok": True, **show_for(project)})
+            except RegistryError as e:
+                # 200 with ok:false like `/api/board`: a panel has to render the reason, and asking
+                # about a repository that was unregistered in another window is not a server fault.
+                return self._json({"ok": False, "error": e.msg, "hint": e.hint,
+                                   "project": project})
+        if route == "/api/inbox":
+            return self._json({"ok": True, **inbox_snapshot()})
+        if route == "/api/where":
+            cat = catalogue()
+            if cat is None:
+                return self._json({"ok": False, "results": [], "fts": False,
+                                   "error": "the catalogue could not be opened",
+                                   "hint": f"delete {os.path.join(fleet_dir(), CAT.CATALOGUE)} "
+                                           "and run `ad-fleet index`; it is a cache"})
+            try:
+                limit = int((query.get("limit") or ["20"])[0])
+            except ValueError:
+                limit = 20
+            q = (query.get("q") or [""])[0]
+            return self._json({"ok": True, "query": q, "fts": cat.fts,
+                               "results": cat.where(q, limit) if q.strip() else []})
         if route == "/api/events":
             return self._sse(query)
         if route.startswith("/static/"):
@@ -368,7 +843,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             return self._json({"ok": True, "action": what, **act(what, body)})
         except (ServeError, RegistryError, supervisor.SupervisorError,
-                approval.ApprovalError) as e:
+                approval.ApprovalError, IN.InboxError, CAT.CatalogueError) as e:
             # The same refusal the CLI gives, with the same hint. One vocabulary.
             return self._refuse(409, e.msg, getattr(e, "hint", ""))
         except Exception as e:               # noqa: BLE001 - a button must never 500 silently
@@ -466,3 +941,4 @@ def run(server: ThreadingHTTPServer) -> None:
         server.shutdown()
         server.server_close()
         forget()
+        reset()          # the poller, the inbox and the catalogue handle are this run's, not the next's

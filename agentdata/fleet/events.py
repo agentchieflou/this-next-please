@@ -47,6 +47,13 @@ KINDS = (
     # reserved for the approval gate (#95); `agentstate.derive` already folds them, so the gate is
     # a writer and nothing downstream changes when it lands
     "needs_approval", "approval_resolved",
+    # the project's own systems, polled by `poll.py` (#131). The agent did not do these; they
+    # happened *to* the project it is working in, which is why the fold ignores them -- see
+    # `NOTICES` below.
+    "project.ticket_changed", "project.refresh_finished", "project.pr_merged",
+    # the Downloads tray (#132). The one write the fleet makes inside a repository, so it is in
+    # the history like everything else.
+    "inbox.attached",
 )
 
 # The same shape `config.py` refuses to store, reused rather than re-invented: a value under a key
@@ -236,6 +243,99 @@ def friction_files(repo_path: str) -> list[str]:
     if not os.path.isdir(directory):
         return []
     return sorted(os.path.join(directory, n) for n in os.listdir(directory) if n.endswith(".md"))
+
+
+# ---------------------------------------------------- what is worth saying about the project
+
+# The four kinds above are not the agent doing something; they are the project changing under it,
+# and `agentstate.Fold` folds none of them on purpose. A Power BI refresh finishing must not
+# repaint the *agent's* tile: the one question the fleet exists to answer is "does this agent need
+# me", and a system the agent is not running must not be able to answer it.
+#
+# They are still the news the operator opened those eight tabs to check, and #97 already owns when
+# a person may be interrupted. So this is the smallest thing that lets them through that machinery
+# unchanged: `notice()` returns exactly the item `notify.notification` returns, which means
+# `notify.suppress` dedupes it on `key` with the configured cooldown and `notify.deliver` withholds
+# it in quiet hours while still recording the badge. Nothing here decides to interrupt anybody. It
+# decides what the sentence says.
+#
+# kind -> (severity, phrase, the data fields that make one occurrence different from the next).
+# Severities are `notify.SEVERITIES`; the test asserts that rather than importing it, because a
+# notifier importing this module and this module importing the notifier is a cycle.
+#
+# The fingerprint is the second half of "announced once". `poll.py` already refuses to emit an
+# event for a change it has announced before, but that memory is one deletable file under
+# `~/.agentdata/fleet/`, and the stream itself is replayed from `seq` 0 by anything that lost its
+# cursor. Putting the changed fields in the key means a re-observation of the *same* fact
+# collapses into the notification already sent, while tomorrow's refresh -- a different `end` -- is
+# news again. A cooldown keyed on `repo:kind` alone would have swallowed it.
+NOTICES = {
+    "project.ticket_changed":   ("info", "the ticket moved", ("key", "status", "assignee")),
+    "project.refresh_finished": ("info", "the refresh finished", ("status", "end")),
+    "project.pr_merged":        ("info", "the PR merged", ("url", "state")),
+    "inbox.attached":           ("info", "a file was attached", ("file",)),
+}
+
+# A refresh that ended in one of these ended, but it did not work. Same kind, different news: the
+# operator who is told "the refresh finished" and finds a failure in the morning stops reading the
+# toasts. `notify` chimes for anything that is not `info`, which is exactly the right behaviour
+# here and the reason the severity is a function of the data rather than a constant in the table.
+REFRESH_FAILED = ("Failed", "Disabled", "Cancelled")
+
+
+def notice(ev: dict) -> dict | None:
+    """The notification #97's channels should carry for this event, or None for one that is not news.
+
+    None is the common answer: every Copilot kind, and an `inbox.attached` that copied nothing
+    because the file was already there -- an operator who clicks attach twice meant it once, and a
+    toast for the second click would be the fleet telling them what they just did.
+    """
+    kind = ev.get("kind")
+    if kind not in NOTICES:
+        return None
+    data = ev.get("data") or {}
+    if kind == "inbox.attached" and not data.get("attached"):
+        return None
+    severity, phrase, fields = NOTICES[kind]
+    if kind == "project.refresh_finished" and str(data.get("status") or "") in REFRESH_FAILED:
+        severity, phrase = "alert", f"the refresh {str(data['status']).lower()}"
+    repo, ticket = str(ev.get("repo") or ""), str(ev.get("ticket") or "")
+    fingerprint = "|".join(str(data.get(f) or "") for f in fields)
+    return {"repo": repo, "state": kind, "severity": severity, "ticket": ticket,
+            "title": f"{repo}{' · ' + ticket if ticket else ''} — {phrase}",
+            "body": _notice_body(kind, data)[:300], "seq": int(ev.get("seq", 0) or 0),
+            "at": str(ev.get("ts") or stamp()),
+            "key": f"{repo}:{kind}:{fingerprint}"}
+
+
+def notices(events: list[dict], *, since: int = 0) -> list[dict]:
+    """Every project notice in this slice of the stream, in order.
+
+    `since` is #97's rule and not an optimisation: a fleet attached to a project whose PR merged
+    last week must announce what happens next, not the week.
+    """
+    out = []
+    for ev in events:
+        if int(ev.get("seq", 0) or 0) <= since:
+            continue
+        item = notice(ev)
+        if item:
+            out.append(item)
+    return out
+
+
+def _notice_body(kind: str, data: dict) -> str:
+    """The one line under the title. Facts only -- the operator decides whether to open the tab."""
+    if kind == "project.ticket_changed":
+        who = data.get("assignee") or "nobody"
+        status = data.get("status") or "unknown"
+        return f"{data.get('key', '')} is {status}, assigned to {who}".strip()
+    if kind == "project.refresh_finished":
+        kind_of = f" ({data['type']})" if data.get("type") else ""
+        return f"{data.get('status', '')}{kind_of} at {data.get('end') or 'an unrecorded time'}"
+    if kind == "project.pr_merged":
+        return str(data.get("url") or "")
+    return f"{data.get('name', '')} → {data.get('dir', '')}".strip()
 
 
 # ------------------------------------------------------------------------------ the merged read

@@ -7,11 +7,29 @@
 
 "use strict";
 
-var TOKEN = new URLSearchParams(location.search).get("t") || "";
+var PARAMS = new URLSearchParams(location.search);
+var TOKEN = PARAMS.get("t") || "";
 var tiles = new Map();          // repo name -> {el, seq}
 var focused = null;
 var pendingRefresh = null;
 var source = null;
+
+/* #133: three arrangements of this one page, chosen by the URL, because a second HTML file is a
+   second thing to keep in step and the friction being fixed is *tabs*. `grid` is every tile on one
+   screen; `roles` is three windows -- board, agents, verify -- that agree on a selected project
+   through the SSE stream; `screens` pins one project per monitor. `ad-fleet serve --layout` puts
+   the parameter on the URL it prints, so the operator never has to type one. */
+var LAYOUTS = ["grid", "roles", "screens"];
+var VIEWS = ["board", "agents", "verify"];
+var LAYOUT = LAYOUTS.indexOf(PARAMS.get("layout")) >= 0 ? PARAMS.get("layout") : "grid";
+var VIEW = VIEWS.indexOf(PARAMS.get("view")) >= 0 ? PARAMS.get("view")
+                                                  : (LAYOUT === "roles" ? "agents" : "");
+var SCREEN = Math.max(0, Math.min(9, Number(PARAMS.get("screen")) || 0));
+
+var desk = { projects: {}, offers: {}, unsorted: [], not_offered: [], folders: [],
+             desk: { selected: "", screens: [] } };
+var pendingDesk = null;
+var needsOnly = false;
 
 function q(path, params) {
   var u = new URL(path, location.origin);
@@ -55,6 +73,14 @@ function line(ev) {
     case "exited": return "exit " + d.exit_code;
     case "error": return "exit " + d.exit_code;
     case "started": return "launched: " + (d.prompt || "");
+    /* #131 and #132 put the *project's* changes on the same stream as the agent's, so the
+       transcript is one narrative rather than two panes the operator has to interleave. */
+    case "project.ticket_changed": return (d.key || "") + " is " + (d.status || "") +
+                                          (d.assignee ? " · " + d.assignee : "");
+    case "project.refresh_finished": return "refresh " + (d.status || "") + " " + (d.end || "");
+    case "project.pr_merged": return "PR merged: " + (d.url || "");
+    case "inbox.attached": return (d.attached ? "attached " : "already there: ") +
+                                  (d.name || "") + " → " + (d.dir || "");
     case "pr_open": return d.url || "";
     case "artifact": return (d.artifact && d.artifact.path) || "";
     case "session_id": return "";
@@ -65,7 +91,9 @@ function line(ev) {
 var SHOWN = {
   started: 1, assistant_text: 1, tool_call: 1, tool_result: 1, denied: 1, friction: 1,
   phase_changed: 1, question_opened: 1, needs_approval: 1, approval_resolved: 1,
-  exited: 1, error: 1, pr_open: 1, artifact: 1
+  exited: 1, error: 1, pr_open: 1, artifact: 1,
+  "project.ticket_changed": 1, "project.refresh_finished": 1, "project.pr_merged": 1,
+  "inbox.attached": 1
 };
 
 function append(el, ev) {
@@ -96,6 +124,10 @@ function makeTile(row, index) {
 
   el.querySelector(".repo").addEventListener("click", function () { focus(row.repo); });
   el.addEventListener("dblclick", function () { focus(row.repo); });
+  // Clicking anywhere on a tile *selects* the project for every window on this server (#133 layout
+  // B), which is what makes the left monitor drive the centre one. Blowing a tile up is still the
+  // repo name or a double click: one gesture per meaning.
+  el.addEventListener("click", function () { choose(row.repo); });
 
   // A ticket dropped on a tile is a dispatch. `preventDefault` on dragover is what makes an
   // element a drop target at all -- without it the browser refuses the drop and nothing happens,
@@ -154,6 +186,9 @@ function action(el, what, body) {
 
 function drawTile(el, row, approvals) {
   el.className = "tile state-" + row.state + (el.classList.contains("is-focused") ? " is-focused" : "");
+  // `needs-human` is the class focus mode filters on, and it comes from #94's fold rather than from
+  // anything this page works out for itself: the chip, the toast and the filter must agree.
+  el.classList.toggle("needs-human", !!row.needs_human);
   el.tabIndex = 0;
   var chip = el.querySelector(".chip");
   chip.className = "chip " + row.state;
@@ -171,6 +206,8 @@ function drawTile(el, row, approvals) {
     text(el.querySelector(".summary"), mine.summary || "");
     text(el.querySelector(".payload"), JSON.stringify(mine.payload || {}, null, 2));
   }
+  drawCells(el, row.polls || {});
+  drawProject(el, desk.projects[row.repo], desk.offers[row.repo] || []);
 }
 
 /* -------------------------------------------------------------------------------- the whole page */
@@ -202,7 +239,9 @@ function refresh() {
     var need = data.repos.filter(function (r) { return r.needs_human; }).length;
     text(document.getElementById("counts"),
          data.repos.length + " agents" + (need ? "  ·  " + need + " need you" : ""));
-    document.title = (need ? "(" + need + ") " : "") + "fleet";
+    if (data.desk) desk.desk = data.desk;
+    place();
+    title(need);
     return data;
   }).catch(function () { pendingRefresh = null; });
   return pendingRefresh;
@@ -235,6 +274,13 @@ function connect() {
     refreshSoon();
   });
   source.addEventListener("notify", function (m) { arrived(JSON.parse(m.data)); });
+  // The shared selection (#133). Every window is sent the current one the moment it connects, so a
+  // monitor that joined late never sits on a different project than the one beside it.
+  source.addEventListener("desk", function (m) {
+    desk.desk = JSON.parse(m.data);
+    place();
+    if (VIEW === "verify" || LAYOUT === "screens") deskSoon();
+  });
   source.addEventListener("tick", function () {
     link.className = "dot live";
     text(link, "live");
@@ -340,8 +386,16 @@ refresh().then(function () {
   connect();
   loadThemes();
   loadNotifications();
+  loadDesk();
   followHash();
+  if (LAYOUT === "roles" && VIEW === "board") boardPanel(true);
+  if (LAYOUT === "screens" && !SCREEN) { boardPanel(true); trayPanel(true); }
 });
+
+// The desk half is answered on its own, slower clock: a catalogue read, a Downloads scandir and a
+// `.agent/out/` stat per project is not something to do four times a second, and nothing on it is
+// urgent -- what is urgent arrives on the stream.
+setInterval(loadDesk, 15000);
 
 /* ------------------------------------------------------------------------- notifications (#97) */
 
@@ -600,3 +654,525 @@ document.getElementById("boardtoggle").addEventListener("click", function () { b
 document.getElementById("closeboard").addEventListener("click", function () { boardPanel(false); });
 document.getElementById("boardrefresh").addEventListener("click", function () { loadBoard(true); });
 document.getElementById("boardsearch").addEventListener("input", function () { drawBoard(board); });
+
+/* ================================================================= the desk (#130 #131 #132 #133)
+
+   Everything below reads. The one exception is `attach`, which copies a file the operator clicked
+   into that repository's own `.agent/in/` -- the single write the epic allows outside
+   `~/.agentdata/fleet/`, and it happens because a person pressed a button.
+
+   All of it comes from one `/api/desk` on a slow clock rather than a fetch per tile: four screens
+   of tiles is four screens of requests otherwise, and none of this is urgent. */
+
+function loadDesk() {
+  if (pendingDesk) return pendingDesk;
+  pendingDesk = fetch(q("/api/desk")).then(function (r) { return r.json(); }).then(function (data) {
+    pendingDesk = null;
+    if (!data.ok) return;
+    desk = data;
+    tiles.forEach(function (entry, name) {
+      drawProject(entry.el, desk.projects[name], (desk.offers || {})[name] || []);
+    });
+    drawTray();
+    place();
+    return data;
+  }).catch(function () { pendingDesk = null; });
+  return pendingDesk;
+}
+
+var deskSoon = (function () {
+  var timer = null;
+  return function () {
+    if (timer) return;
+    timer = setTimeout(function () { timer = null; loadDesk(); }, 300);
+  };
+})();
+
+/* ------------------------------------------------------------------ the project's live state */
+
+var CELLS = ["ticket", "pr", "refresh", "git"];
+
+/* A cell is value + age, and when the poll failed it is grey with the error in the tooltip and the
+   *last value it actually had* still on it. Blanking it would lose what was known; keeping it
+   without the age would make five-minute-old news look current. Grey, old and honest. */
+function drawCells(el, polls) {
+  var box = el.querySelector(".cells");
+  while (box.firstChild) box.removeChild(box.firstChild);
+  CELLS.forEach(function (name) {
+    var p = polls[name];
+    if (!p) return;
+    var value = (p.value && p.value.text) || "";
+    if (!value && !p.error) return;                 // nothing to ask about: no PR, no dataset
+    var cell = document.createElement("span");
+    cell.className = "cell" + (p.grey ? " grey" : "") + (value ? "" : " idle");
+    cell.dataset.cell = name;
+    var lab = document.createElement("span");
+    lab.className = "lab";
+    text(lab, name);
+    var val = document.createElement("span");
+    val.className = "val";
+    text(val, value || "—");
+    var old = document.createElement("span");
+    old.className = "old";
+    text(old, p.age_s ? age(Math.round(p.age_s)) : "");
+    cell.appendChild(lab);
+    cell.appendChild(val);
+    cell.appendChild(old);
+    cell.title = p.error ? p.error : (name + ", polled every " + p.interval + "s");
+    box.appendChild(cell);
+  });
+}
+
+/* ------------------------------------------------------------------------------- the link rail */
+
+/* A row with no `url` is not a link and is not rendered: `links.py` refuses to compose a URL from a
+   missing fact precisely so the tile never shows something that opens onto an error page. What is
+   missing goes under "what is this project" as the AGENTS.md key to add. */
+function drawRail(el, project) {
+  var rail = el.querySelector(".rail");
+  while (rail.firstChild) rail.removeChild(rail.firstChild);
+  ((project && project.links) || []).forEach(function (row) {
+    var a = document.createElement("a");
+    a.className = row.kind;
+    a.href = row.url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.title = row.url;
+    text(a, row.name);
+    rail.appendChild(a);
+  });
+  if (project && project.path) {
+    // The folder link is a `file:` URL, which JCEF and Simple Browser are both entitled to refuse.
+    // Copying the path always works and is what gets pasted into a terminal anyway.
+    var copy = document.createElement("button");
+    text(copy, "copy path");
+    copy.title = project.path;
+    copy.addEventListener("click", function (e) {
+      e.stopPropagation();
+      clip(project.path);
+      text(copy, "copied");
+      setTimeout(function () { text(copy, "copy path"); }, 1200);
+    });
+    rail.appendChild(copy);
+  }
+}
+
+function clip(value) {
+  try {
+    if (navigator.clipboard) return navigator.clipboard.writeText(value);
+  } catch (e) { /* Simple Browser has no clipboard permission; fall through */ }
+  var box = document.createElement("textarea");
+  box.value = value;
+  document.body.appendChild(box);
+  box.select();
+  try { document.execCommand("copy"); } catch (e) { /* nothing else to try */ }
+  document.body.removeChild(box);
+}
+
+/* ------------------------------------------------- what is this project, and what it verified */
+
+/* Redrawn only when the answer actually changed. `/api/fleet` comes back several times a second
+   while an agent is talking, and rebuilding the rail, the facts and the tray each time would throw
+   away the half-made choice in an open `attach` dropdown -- a bug that only ever bites the operator
+   mid-click, which is the worst kind. */
+function drawProject(el, project, offers) {
+  var sign = JSON.stringify([project || null, offers || []]);
+  if (el.dataset.sign === sign) return;
+  el.dataset.sign = sign;
+  drawRail(el, project);
+  drawVerify(el, project);
+  drawOffers(el, offers);
+  var facts = el.querySelector(".facts");
+  while (facts.firstChild) facts.removeChild(facts.firstChild);
+  var pairs = [];
+  if (project) {
+    pairs.push(["path", project.path]);
+    if (project.branch) pairs.push(["branch", project.branch]);
+    if (project.jira_project) pairs.push(["jira_project", project.jira_project]);
+    Object.keys(project.facts || {}).forEach(function (k) {
+      if (k !== "jira_project") pairs.push([k, project.facts[k]]);
+    });
+    pairs.push(["indexed", project.indexed ? (project.last_indexed || "yes") : "not yet"]);
+  }
+  pairs.forEach(function (pair) {
+    var k = document.createElement("span");
+    k.className = "k";
+    text(k, pair[0]);
+    var v = document.createElement("span");
+    v.className = "v";
+    text(v, pair[1]);
+    facts.appendChild(k);
+    facts.appendChild(v);
+  });
+
+  var stops = el.querySelector(".friction");
+  while (stops.firstChild) stops.removeChild(stops.firstChild);
+  ((project && project.friction) || []).forEach(function (f) {
+    var li = document.createElement("li");
+    text(li, [f.date, f.type, f.title].filter(Boolean).join("  ·  ") +
+             (f.unblock ? "\n" + f.unblock : ""));
+    stops.appendChild(li);
+  });
+
+  var models = el.querySelector(".pbip");
+  while (models.firstChild) models.removeChild(models.firstChild);
+  ((project && project.pbip) || []).forEach(function (m) {
+    var li = document.createElement("li");
+    text(li, m.name + (m.model ? "  ·  " + m.model : "") + (m.report ? "  ·  " + m.report : ""));
+    models.appendChild(li);
+  });
+
+  var missing = (project && project.missing_keys) || [];
+  text(el.querySelector(".missing"),
+       missing.length ? "add to AGENTS.md for the rest of the rail: " + missing.join(", ") : "");
+}
+
+/* The verify pane is #131.4: the numbers the agent already wrote, beside the report link, so "go
+   and look at the chart" is a click rather than a hunt. The server only ever reads this repo's own
+   `.agent/out/`, and says so when a file in there resolves somewhere else. */
+function drawVerify(el, project) {
+  var pane = el.querySelector(".verify");
+  var v = (project && project.verify) || {};
+  var latest = v.latest || {};
+  pane.hidden = !latest.name && !(v.refused || []).length;
+  text(el.querySelector(".verifyhead"),
+       latest.name ? "verify · " + latest.tool + " · " + latest.name + " · " + age(Math.round(latest.age_s))
+                   : "verify · nothing in " + (v.dir || ".agent/out"));
+  text(el.querySelector(".verifybody"), latest.excerpt || "");
+  var more = el.querySelector(".verifymore");
+  while (more.firstChild) more.removeChild(more.firstChild);
+  (v.others || []).concat(v.refused || []).forEach(function (row) {
+    var li = document.createElement("li");
+    text(li, row.name + (row.why ? "  ·  " + row.why : "  ·  " + row.tool + "  ·  " + age(Math.round(row.age_s))));
+    more.appendChild(li);
+  });
+}
+
+/* ------------------------------------------------------------------ the Downloads inbox (#132) */
+
+function offerRow(row, repo) {
+  var li = document.createElement("li");
+  var nm = document.createElement("span");
+  nm.className = "nm";
+  text(nm, row.name);
+  nm.title = row.path + "\n" + row.reason;
+  var meta = document.createElement("span");
+  meta.className = "meta";
+  text(meta, kb(row.size) + "  ·  " + age(Math.round(row.age_s)));
+  li.appendChild(nm);
+  li.appendChild(meta);
+
+  if (row.offered) {
+    var where = null;
+    if (!repo) {
+      // Unsorted: the operator picks the project. Nothing is guessed -- two repos that match the
+      // name equally well is exactly why this tray exists.
+      where = document.createElement("select");
+      Array.from(tiles.keys()).forEach(function (name) {
+        var option = document.createElement("option");
+        option.value = name;
+        text(option, name);
+        where.appendChild(option);
+      });
+      li.appendChild(where);
+    }
+    var attach = document.createElement("button");
+    text(attach, "attach");
+    attach.title = "copy it into that repo's .agent/in/<KEY>/ and leave the original here";
+    attach.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var target = repo || (where && where.value);
+      if (!target) return;
+      post("attach", { id: row.id, repo: target }).then(function (r) {
+        text(meta, r.ok ? (r.attached ? "attached → " + r.dir : (r.why || "already there"))
+                        : (r.error || "refused"));
+        loadDesk();
+      });
+    });
+    li.appendChild(attach);
+  } else {
+    var why = document.createElement("span");
+    why.className = "why";
+    text(why, row.reason);
+    li.appendChild(why);
+  }
+
+  var no = document.createElement("button");
+  text(no, "dismiss");
+  no.title = "stop offering this file; a newer save of the same name comes back";
+  no.addEventListener("click", function (e) {
+    e.stopPropagation();
+    post("dismiss", { id: row.id }).then(function () { loadDesk(); });
+  });
+  li.appendChild(no);
+  return li;
+}
+
+function kb(bytes) {
+  var n = Number(bytes) || 0;
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return Math.round(n / 1024) + " KB";
+  return (n / 1048576).toFixed(1) + " MB";
+}
+
+function drawOffers(el, offers) {
+  var tray = el.querySelector(".tray");
+  while (tray.firstChild) tray.removeChild(tray.firstChild);
+  (offers || []).forEach(function (row) { tray.appendChild(offerRow(row, el.dataset.repo)); });
+  tray.hidden = !(offers || []).length;
+}
+
+function drawTray() {
+  var loose = document.getElementById("loose");
+  while (loose.firstChild) loose.removeChild(loose.firstChild);
+  (desk.unsorted || []).forEach(function (row) { loose.appendChild(offerRow(row, "")); });
+  document.getElementById("noloose").hidden = (desk.unsorted || []).length > 0;
+
+  var rows = document.getElementById("refusedrows");
+  while (rows.firstChild) rows.removeChild(rows.firstChild);
+  (desk.not_offered || []).concat(desk.still_writing || []).forEach(function (row) {
+    var li = document.createElement("li");
+    var nm = document.createElement("span");
+    nm.className = "nm";
+    text(nm, row.name);
+    var why = document.createElement("span");
+    why.className = "why";
+    text(why, row.reason);
+    li.appendChild(nm);
+    li.appendChild(why);
+    rows.appendChild(li);
+  });
+  text(document.getElementById("folders"), (desk.folders || []).join("  ·  "));
+}
+
+function trayPanel(open) {
+  var el = document.getElementById("unsorted");
+  el.hidden = open === undefined ? !el.hidden : !open;
+  if (!el.hidden) loadDesk();
+}
+
+document.getElementById("traytoggle").addEventListener("click", function () { trayPanel(); });
+document.getElementById("closetray").addEventListener("click", function () { trayPanel(false); });
+
+/* ------------------------------------------------------------------------- where (#130), search */
+
+/* The catalogue answers "which project owns Velocity" without opening a tab. It is the same
+   `Catalogue.where` the CLI verb calls, and it reads only what each repo publishes -- no source,
+   no notebooks, no exports, and nothing that was never indexed. */
+function drawHits(data) {
+  var list = document.getElementById("hits");
+  while (list.firstChild) list.removeChild(list.firstChild);
+  (data.results || []).forEach(function (hit) {
+    var li = document.createElement("li");
+    var p = document.createElement("span");
+    p.className = "p";
+    text(p, hit.project);
+    var kind = document.createElement("span");
+    kind.className = "kind";
+    text(kind, hit.kind);
+    var snip = document.createElement("span");
+    snip.className = "snip";
+    text(snip, (hit.title ? hit.title + " — " : "") + hit.snippet);
+    li.appendChild(p);
+    li.appendChild(kind);
+    li.appendChild(snip);
+    li.addEventListener("click", function () {
+      choose(hit.project);
+      if (tiles.has(hit.project) && LAYOUT === "grid") focus(hit.project);
+      foundPanel(false);
+    });
+    list.appendChild(li);
+  });
+  text(document.getElementById("foundhow"),
+       data.ok ? ((data.results || []).length + " projects · " + (data.fts ? "fts5" : "like"))
+               : (data.error + (data.hint ? " — " + data.hint : "")));
+  document.getElementById("nohits").hidden = (data.results || []).length > 0;
+}
+
+var findSoon = (function () {
+  var timer = null;
+  return function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      var needle = document.getElementById("find").value.trim();
+      if (!needle) return foundPanel(false);
+      foundPanel(true);
+      fetch(q("/api/where", { q: needle, limit: 20 })).then(function (r) { return r.json(); })
+        .then(drawHits).catch(function () { /* search is a convenience; the tiles are the truth */ });
+    }, 250);
+  };
+})();
+
+function foundPanel(open) {
+  document.getElementById("found").hidden = !open;
+}
+
+document.getElementById("find").addEventListener("input", findSoon);
+document.getElementById("closefound").addEventListener("click", function () { foundPanel(false); });
+
+/* ------------------------------------------------------------------------- the layouts (#133) */
+
+/* One selected project, shared by every window on this server. It is a POST and not a URL fragment
+   because the point is that the *other* windows hear about it: clicking a tile on the left monitor
+   is what changes the centre one. */
+function choose(name) {
+  if (desk.desk.selected === name) return Promise.resolve();
+  desk.desk = Object.assign({}, desk.desk, { selected: name });
+  place();
+  return post("select", { repo: name }).then(function (r) {
+    if (r && r.ok) desk.desk = { selected: r.selected, screens: r.screens, version: r.version };
+    place();
+  });
+}
+
+/* Which project this window is showing, when it is showing exactly one. `screens` is the shared
+   pinning; a screen with nothing pinned falls back to the Nth registered repo, so opening
+   `?layout=screens&screen=2` on a fresh fleet shows something rather than an empty monitor. */
+function solo() {
+  var names = Array.from(tiles.keys());
+  if (LAYOUT === "screens" && SCREEN) {
+    var pinned = (desk.desk.screens || [])[SCREEN - 1];
+    return pinned || names[SCREEN - 1] || "";
+  }
+  if (VIEW === "verify") return desk.desk.selected || names[0] || "";
+  return "";
+}
+
+/* The one function that decides what this window shows. Body classes only: the stylesheet is the
+   layout, and every arrangement is the same DOM, so a tile cannot mean one thing on one screen and
+   something else on another. */
+function place() {
+  var body = document.body;
+  var one = solo();
+  body.classList.remove("layout-grid", "layout-roles", "layout-screens",
+                        "view-board", "view-agents", "view-verify", "solo", "panels");
+  body.classList.add("layout-" + LAYOUT);
+  if (VIEW) body.classList.add("view-" + VIEW);
+  if (one) body.classList.add("solo");
+  if ((LAYOUT === "roles" && VIEW === "board") || (LAYOUT === "screens" && !SCREEN)) {
+    body.classList.add("panels");
+  }
+  body.classList.toggle("needs-only", needsOnly);
+  tiles.forEach(function (entry, name) {
+    entry.el.classList.toggle("is-solo", name === one);
+    entry.el.classList.toggle("is-selected", name === desk.desk.selected);
+  });
+  if (one) {
+    // Opened once, not on every draw: a window that reopens a panel the operator just closed is
+    // the kind of thing that gets a dashboard turned off.
+    var entry = tiles.get(one);
+    if (entry && entry.el.dataset.opened !== "1") {
+      entry.el.dataset.opened = "1";
+      entry.el.querySelector(".about").open = true;
+      entry.el.querySelector(".verify").open = true;
+    }
+  }
+  var need = 0;
+  tiles.forEach(function (entry) { if (entry.el.classList.contains("needs-human")) need += 1; });
+  document.getElementById("nonefocus").hidden = !(needsOnly && !one && need === 0 && tiles.size > 0);
+  text(document.getElementById("view"),
+       LAYOUT + (VIEW ? " · " + VIEW : "") + (SCREEN ? " · screen " + SCREEN : "") +
+       (one ? " · " + one : ""));
+  drawSwap(one);
+}
+
+/* The tab bar is the friction, so the window's own title says which screen it is. */
+function title(need) {
+  var one = solo();
+  document.title = (need ? "(" + need + ") " : "") + "fleet" +
+                   (LAYOUT === "grid" ? "" : " · " + (VIEW || ("screen " + (SCREEN || "board")))) +
+                   (one ? " · " + one : "");
+}
+
+function go(params) {
+  var u = new URLSearchParams(location.search);
+  Object.keys(params).forEach(function (k) {
+    if (params[k]) u.set(k, params[k]); else u.delete(k);
+  });
+  location.search = u.toString();
+}
+
+var CHOICES = [
+  ["grid", "", 0, "grid — every tile, one screen"],
+  ["roles", "agents", 0, "roles — agents (left)"],
+  ["roles", "verify", 0, "roles — verify (centre)"],
+  ["roles", "board", 0, "roles — board (right)"],
+  ["screens", "", 0, "screens — board + inbox (laptop)"],
+  ["screens", "", 1, "screens — screen 1"],
+  ["screens", "", 2, "screens — screen 2"],
+  ["screens", "", 3, "screens — screen 3"]
+];
+
+(function layoutPicker() {
+  var select = document.getElementById("layout");
+  CHOICES.forEach(function (choice) {
+    var option = document.createElement("option");
+    option.value = choice[0] + "|" + choice[1] + "|" + choice[2];
+    text(option, choice[3]);
+    select.appendChild(option);
+  });
+  select.value = LAYOUT + "|" + (VIEW || "") + "|" + (SCREEN || 0);
+  select.addEventListener("change", function () {
+    var parts = select.value.split("|");
+    go({ layout: parts[0], view: parts[1], screen: parts[2] === "0" ? "" : parts[2] });
+  });
+})();
+
+/* Layout C's swap. The pinning is server state, so moving a project onto this monitor takes it off
+   whichever one was holding it -- otherwise two screens end up showing the same thing. */
+function drawSwap(one) {
+  var swap = document.getElementById("swap");
+  swap.hidden = !(LAYOUT === "screens" && SCREEN);
+  if (swap.hidden) return;
+  var names = Array.from(tiles.keys());
+  while (swap.firstChild) swap.removeChild(swap.firstChild);
+  names.forEach(function (name) {
+    var option = document.createElement("option");
+    option.value = name;
+    text(option, "screen " + SCREEN + ": " + name);
+    swap.appendChild(option);
+  });
+  swap.value = one;
+}
+
+document.getElementById("swap").addEventListener("change", function () {
+  var swap = document.getElementById("swap");
+  var names = Array.from(tiles.keys());
+  var screens = (desk.desk.screens || []).slice();
+  while (screens.length < Math.max(SCREEN, names.length)) screens.push(names[screens.length] || "");
+  var wanted = swap.value;
+  var here = screens[SCREEN - 1];
+  var was = screens.indexOf(wanted);
+  if (was >= 0) screens[was] = here;                  // a swap, not an overwrite
+  screens[SCREEN - 1] = wanted;
+  post("select", { screens: screens }).then(function (r) {
+    if (r && r.ok) { desk.desk = { selected: r.selected, screens: r.screens, version: r.version }; }
+    place();
+  });
+});
+
+/* ------------------------------------------------------------------------------- focus mode */
+
+/* The fourth thing #133 asks for, and the only one that is not a layout: hide every tile except
+   the ones #94 says need a person. The alternative to arranging tabs is having fewer to look at.
+   Toggled with `f`, remembered per window, and printed in the footer's key map. */
+function focusMode(on) {
+  needsOnly = on === undefined ? !needsOnly : !!on;
+  document.getElementById("focus").setAttribute("aria-pressed", String(needsOnly));
+  try { localStorage.setItem("fleet.needsonly", needsOnly ? "1" : "0"); } catch (e) { /* private */ }
+  place();
+}
+
+document.getElementById("focus").addEventListener("click", function () { focusMode(); });
+
+try { needsOnly = localStorage.getItem("fleet.needsonly") === "1"; } catch (e) { needsOnly = false; }
+document.getElementById("focus").setAttribute("aria-pressed", String(needsOnly));
+
+document.addEventListener("keydown", function (e) {
+  var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if (e.key === "Escape" && !typing) { foundPanel(false); trayPanel(false); return; }
+  if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "f") { focusMode(); return; }
+  if (e.key === "i") { trayPanel(); return; }
+  if (e.key === "/") { e.preventDefault(); document.getElementById("find").focus(); }
+});
