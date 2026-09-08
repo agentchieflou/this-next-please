@@ -425,8 +425,8 @@ class FleetStep(Step):
             # what it had left out. There are five keys in `links.MISSING_KEYS_HINT` in total.
             edits.append(f"{where} needs " + ", ".join(f"`- {k}: <value>`" for k in r["keys"]))
         rest = f"; then the other {len(short) - 2}" if len(short) > 2 else ""
-        return ("`ad-setup --patch` cannot repair this row and will list it under `manual`: the fix "
-                "is a line in another repository's own AGENTS.md facts block, and no setting this "
+        return ("`ad-setup --patch` cannot repair this row and lists it under `manual`: the fix is "
+                "a line in another repository's own AGENTS.md facts block, and no setting this "
                 "wizard saves is read for these keys. Add them by hand, per repository -- "
                 + "; ".join(edits) + rest
                 + " -- then `ad-doctor` again. `ad-fleet show <project>` lists what one tile is "
