@@ -9,6 +9,9 @@ drive the injected-`Runner` seam that `tests/test_desktop_session.py` establishe
 ctypes helper's parsing rules through the pure functions it shares.
 """
 import json
+import sys
+
+import pytest
 
 from agentdata.pbip import dmv as DMV
 from agentdata.pbip import winui as W
@@ -89,7 +92,16 @@ def test_session_fake_runner_shape_is_accepted():
 
 
 def test_ctypes_path_is_windows_only(monkeypatch):
-    """On this Linux box `desktop_windows` must never reach user32; it must reach the Runner."""
+    """Off Windows there is no user32 to reach, so the Runner is the only implementation.
+
+    Guarded on the platform, because on Windows the opposite is true *and is the point*: production
+    passes `ctx.det.run`, a real bound method, so a rule like "an injected runner wins" would quietly
+    downgrade a real laptop from Z-order to `Get-Process`. The preference order there is asserted by
+    the next test. This one used to assert the Linux answer unconditionally and duly failed on the
+    Windows runners.
+    """
+    if sys.platform == "win32":
+        pytest.skip("ctypes is preferred on Windows; test_windows_platform_prefers_ctypes_and_falls_back covers it")
     calls = []
     monkeypatch.setattr(W, "_enum_ctypes", lambda: calls.append("ctypes") or [])
     W.desktop_windows(run=fake_window_runner([(5, "X - Power BI Desktop")]))

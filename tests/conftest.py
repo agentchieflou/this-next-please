@@ -176,3 +176,27 @@ def run_cmd(tmp_path):
         return p.returncode, p.stdout, p.stderr
 
     return _run
+
+
+@pytest.fixture(autouse=True)
+def _no_user32_in_tests(monkeypatch):
+    """`winui._enum_ctypes` is unavailable to the suite, so the injected fakes drive every platform.
+
+    `desktop_windows_source()` prefers `EnumWindows` on win32 and only falls back to the Runner. That
+    is correct for the product -- `ctx.det.run` is a real bound method in production, so preferring an
+    injected runner would silently downgrade a real laptop from Z-order to `Get-Process` -- but it
+    means that on the Windows runners the ctypes path answered for real, found no Power BI windows,
+    and returned `[]` to eighty-four tests that had carefully supplied a fake. They passed here and
+    failed there, which is the exact shape this repo runs Windows CI to catch.
+
+    So the suite removes user32 rather than the product preferring the fake. A test that wants the
+    real preference order patches `_enum_ctypes` itself, and that patch wins over this one; a test
+    that wants `SOURCE_ENUM` semantics patches `desktop_windows_source`, as the transport tests
+    already do. Everything else now behaves identically on both platforms.
+    """
+    from agentdata.pbip import winui
+
+    def _no_user32():
+        raise OSError("user32 is not available to the test suite (tests/conftest.py)")
+
+    monkeypatch.setattr(winui, "_enum_ctypes", _no_user32, raising=False)
