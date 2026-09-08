@@ -188,7 +188,7 @@ def _is_interpreter(launcher: str) -> bool:
     interpreter and the verb, so appending them again would run the wrong Python, or agentdata
     twice.
     """
-    stem = os.path.splitext(os.path.basename(launcher.replace("\\", "/")))[0].lower()
+    stem = os.path.splitext(os.path.basename(textio.norm_path(launcher)))[0].lower()
     return stem == "py" or stem.startswith("python")
 
 
@@ -264,8 +264,18 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _windows_path(p: str) -> str:
+    """One spelling of a Windows path for a person to retype. See `render_request_md`."""
+    return textio.norm_path(p).replace("/", "\\")
+
+
 def render_request_md(source: str, destination: str, data: dict, digest: str) -> str:
-    """The ticket attachment. Written for a stranger in IT who has never heard of this project."""
+    """The ticket attachment. Written for a stranger in IT who has never heard of this project.
+
+    The destination is spelled with backslashes whatever machine rendered this, because the person
+    who acts on it is standing at a Windows shell and will paste the line as it is written.
+    """
+    destination = _windows_path(destination)
     dest_dir = os.path.dirname(destination)
     return f"""# Request: place one file in the Power BI Desktop External Tools folder
 
@@ -300,8 +310,8 @@ Removing the file removes the ribbon button and nothing else.
 
 ## What happens when a user clicks it
 
-Power BI Desktop shows a button named *{data.get('name', 'agentdata')}* on its External Tools
-ribbon and, when a user clicks it, runs this **as that signed-in user** -- never elevated:
+Power BI Desktop shows a button named *{data.get('name', 'agentdata')}* on its External
+Tools ribbon. Clicking it runs this **as that signed-in user**, never elevated:
 
 ```
 {data.get('path', '')} {data.get('arguments', '')}
@@ -346,8 +356,10 @@ def package(out_dir: str | None = None, launcher: str | None = None, minimized: 
     digest = content_hash(text)
     tool_json = textio.write_text(os.path.join(out, TOOL_FILENAME), text)
     destination = os.path.join(external_tools_dir(), TOOL_FILENAME)
+    # absolute: the request is read on someone else's screen, where "the out folder" means nothing
     request = textio.write_text(os.path.join(out, "REQUEST.md"),
-                                render_request_md(tool_json, destination, data, digest))
+                                render_request_md(textio.norm_path(os.path.abspath(tool_json)),
+                                                  destination, data, digest))
     return {
         "ok": True,
         "dir": textio.norm_path(out),
@@ -405,10 +417,11 @@ def render_te2_script(mode: str = "process", launcher: str | None = None) -> str
     """
     if mode not in TE2_MODES:
         raise ValueError(f"unknown te2_action {mode!r}: pass 'process' (launch python) or 'file' (write it here)")
-    bodies = {m.group("name"): m.group("body").strip("\n") for m in _BODY.finditer(textio.read_text(TE2_SCRIPT_PATH))}
+    script = textio.read_text(TE2_SCRIPT_PATH)
+    bodies = {m.group("name"): m.group("body").strip("\n") for m in _BODY.finditer(script)}
     if mode not in bodies:
-        raise ValueError(f"{textio.norm_path(TE2_SCRIPT_PATH)} has no '{mode}' body -- the packaged script is damaged; "
-                         "reinstall agentdata")
+        raise ValueError(f"{textio.norm_path(TE2_SCRIPT_PATH)} has no '{mode}' body -- the packaged "
+                         "script is damaged; reinstall agentdata")
     # The launcher lands inside a C# string literal, where `C:\venv\Scripts\python.exe` is not a path
     # but four invalid escape sequences and a script that will not compile.
     token = resolve_launcher(launcher).replace("\\", "\\\\").replace('"', '\\"')

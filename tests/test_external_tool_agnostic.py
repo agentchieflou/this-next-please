@@ -143,9 +143,9 @@ def test_package_writes_both_files_and_a_request_it_can_act_on(tmp_path, stable_
 
     with open(res["request"], encoding="utf-8") as f:
         req = f.read()
-    # the real destination, not a description of it
-    assert os.path.join("Microsoft Shared", "Power BI Desktop", "External Tools").replace("\\", "/") in req.replace("\\", "/")
-    assert "agentdata.pbitool.json" in req
+    # the real destination, spelled the way the person acting on it will paste it
+    assert r"Microsoft Shared\Power BI Desktop\External Tools\agentdata.pbitool.json" in req
+    assert res["destination"].endswith("External Tools/agentdata.pbitool.json")
     assert "identical for every user and every Python version" in req
     assert "cmd.exe" in req and "PATH" in req
     assert "Copy-Item -LiteralPath" in req and "Remove-Item -LiteralPath" in req
@@ -209,6 +209,12 @@ def test_te2_script_launches_the_approved_python(stable_launcher):
     assert 'ProcessStartInfo("python"' in src
     assert "{{launcher}}" not in src
     assert 'ProcessStartInfo("agentdata-handoff"' in EXT.render_te2_script("process", launcher="agentdata-handoff")
+
+
+def test_te2_launcher_path_is_escaped_for_the_c_sharp_literal(stable_launcher):
+    # a venv path lands inside a C# string, where \v and \S are not separators but invalid escapes
+    src = EXT.render_te2_script("process", launcher=r"C:\venv\Scripts\python.exe")
+    assert r'ProcessStartInfo("C:\\venv\\Scripts\\python.exe"' in src
 
 
 def test_te2_fallback_body_uses_the_rule_desktop_already_uses():
