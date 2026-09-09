@@ -543,3 +543,99 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
         page.wait_for_timeout(900)
         assert "the fleet did not start" in page.inner_text('.tile[data-repo="busy"] .outside')
         assert not errors, errors
+
+
+# ------------------------------------------------------- the skins, rendered (#4)
+
+
+@pytest.mark.browser
+def test_every_skin_variant_actually_repaints_the_page(desk):
+    """The contrast test proves the numbers; this proves the page uses them.
+
+    A variant that is declared in Python, measured by the contrast test and then not written into
+    the stylesheet renders as the default one -- and every check passes while the operator looks at
+    somebody else's texture. So each variant is applied for real and the panel colour the browser
+    computes is compared with the one `skins.py` declared and the contrast test measured.
+    """
+    playwright_module = pytest.importorskip("playwright.sync_api")
+    from agentdata.fleet import skins as K
+
+    with playwright_module.sync_playwright() as p:
+        browser, page, errors = _page(p, desk)
+        seen = {}
+        for skin_name, variant, spec in K.every_variant():
+            full = f"{skin_name}:{variant}"
+            page.evaluate("(name) => post('theme', { skin: name })", full)
+            page.wait_for_timeout(450)
+            page.evaluate("() => refresh()")
+            page.wait_for_timeout(650)
+
+            body = page.evaluate("""() => ({
+                skin: document.body.getAttribute('data-skin'),
+                variant: document.body.getAttribute('data-skin-variant'),
+                tile: getComputedStyle(document.querySelector('.tile')).backgroundColor,
+                sheets: Array.from(document.head.querySelectorAll('link[data-skin]')).length,
+            })""")
+            assert body["skin"] == skin_name, (full, body)
+            assert body["variant"] == variant, (full, body)
+            assert body["sheets"] == 1, "one stylesheet per skin, never two stacked"
+            seen[full] = body["tile"]
+
+        # Each variant of a skin must paint its panel differently from its siblings; two variants
+        # that compute to the same colour means one of them is not in the stylesheet at all.
+        for skin_name, skin in K.SKINS.items():
+            panels = {v: seen[f"{skin_name}:{v}"] for v in skin["variants"]}
+            assert len(set(panels.values())) == len(panels), \
+                f"{skin_name} variants do not repaint distinctly: {panels}"
+        assert not errors, errors
+
+
+@pytest.mark.browser
+def test_the_palette_picker_says_the_skin_is_driving_it(desk):
+    """Skins drive palettes, so while one is on the palette picker shows what is being rendered and
+    says why it is not taking instructions -- rather than accepting a choice the server overrides."""
+    playwright_module = pytest.importorskip("playwright.sync_api")
+    with playwright_module.sync_playwright() as p:
+        browser, page, errors = _page(p, desk)
+        assert page.evaluate("() => document.getElementById('theme').disabled") is False
+
+        page.evaluate("() => post('theme', { skin: 'voxel:nether' })")
+        page.wait_for_timeout(450)
+        page.evaluate("() => refresh()")
+        page.wait_for_timeout(650)
+
+        picker = page.evaluate("""() => {
+            const t = document.getElementById('theme'), s = document.getElementById('skin');
+            return { disabled: t.disabled, theme: t.value, title: t.title, skin: s.value };
+        }""")
+        assert picker["disabled"] is True
+        assert picker["theme"] == "reds", "it shows the ground the skin brought"
+        assert "comes from the skin" in picker["title"]
+        assert picker["skin"] == "voxel:nether", "and the skin picker sits on the variant"
+
+        page.evaluate("() => post('theme', { skin: 'none' })")
+        page.wait_for_timeout(450)
+        page.evaluate("() => refresh()")
+        page.wait_for_timeout(650)
+        assert page.evaluate("() => document.getElementById('theme').disabled") is False
+        assert not errors, errors
+
+
+@pytest.mark.browser
+def test_the_skin_picker_groups_variants_under_their_skin(desk):
+    """One control, not two. "Nether" means nothing beside Farmstead, and a second picker offering
+    it would be offering a combination that does not exist."""
+    playwright_module = pytest.importorskip("playwright.sync_api")
+    from agentdata.fleet import skins as K
+
+    with playwright_module.sync_playwright() as p:
+        browser, page, errors = _page(p, desk)
+        groups = page.evaluate("""() => Array.from(document.querySelectorAll('#skin optgroup'))
+            .map(g => ({ label: g.label, values: Array.from(g.children).map(o => o.value) }))""")
+        by_label = {g["label"]: g["values"] for g in groups}
+        for name, skin in K.SKINS.items():
+            label = skin["title"]
+            assert label in by_label, f"{name} is not offered: {list(by_label)}"
+            assert set(by_label[label]) == {f"{name}:{v}" for v in skin["variants"]}
+            assert by_label[label][0] == f"{name}:{skin['default']}", "the default variant leads"
+        assert not errors, errors

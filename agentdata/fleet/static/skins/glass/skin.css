@@ -52,3 +52,80 @@ header h1, header .glabel, header .dot,
 footer, footer #counts, footer .keys { color: rgba(230,237,243,.72) !important; }
 header h1 { color: #E6EDF3 !important; }
 #notice { color: var(--waiting) !important; }
+
+/* -------------------------------------------------------------- the colour variants (#4)
+
+   One frost, four grounds. Glass has no texture to re-draw, so a variant is the tint behind the
+   blur, the fill of the panels, and the ink written on them -- and `frost` is the light one, which
+   is why the chrome text is dark there and pale everywhere else.
+
+   The rgba fills below are not chosen by eye. Each is solved backwards from the `composited_panel`
+   its variant declares in `skins.py`: the fill that, at .55 over that variant's ground, actually
+   composites to the colour the contrast test measures the text against. Declared and rendered are
+   therefore the same number by construction, rather than by somebody remembering to update both. */
+
+/* smoke: neutral graphite behind the frost — panel #1B222C over dark (#14171A) */
+body[data-skin-variant="smoke"] {
+  background:
+    radial-gradient(ellipse at 20% 15%, rgba(88, 166, 255, 0.15) 0%, transparent 45%),
+    radial-gradient(ellipse at 80% 85%, rgba(63, 185, 80, 0.10) 0%, transparent 45%),
+    var(--bg);
+}
+body[data-skin-variant="smoke"] header, body[data-skin-variant="smoke"] footer, body[data-skin-variant="smoke"] .tile, body[data-skin-variant="smoke"] #side, body[data-skin-variant="smoke"] #side > aside {
+  background: rgba(33, 43, 59, 0.55) !important;
+}
+body[data-skin-variant="smoke"] header, body[data-skin-variant="smoke"] footer { color: #E6EDF3 !important; }
+body[data-skin-variant="smoke"] header h1 { color: #E6EDF3 !important; }
+body[data-skin-variant="smoke"] header .glabel, body[data-skin-variant="smoke"] header .dot,
+body[data-skin-variant="smoke"] footer, body[data-skin-variant="smoke"] footer #counts, body[data-skin-variant="smoke"] footer .keys { color: rgba(230,237,243,.72) !important; }
+
+/* azure: cold blue depth, the darkest of the three — panel #16243D over blues (#0B1B33) */
+body[data-skin-variant="azure"] {
+  background:
+    radial-gradient(ellipse at 20% 15%, rgba(77, 163, 255, 0.20) 0%, transparent 45%),
+    radial-gradient(ellipse at 80% 85%, rgba(120, 190, 255, 0.10) 0%, transparent 45%),
+    var(--bg);
+}
+body[data-skin-variant="azure"] header, body[data-skin-variant="azure"] footer, body[data-skin-variant="azure"] .tile, body[data-skin-variant="azure"] #side, body[data-skin-variant="azure"] #side > aside {
+  background: rgba(31, 43, 69, 0.55) !important;
+}
+body[data-skin-variant="azure"] header, body[data-skin-variant="azure"] footer { color: #E6EDF3 !important; }
+body[data-skin-variant="azure"] header h1 { color: #E6EDF3 !important; }
+body[data-skin-variant="azure"] header .glabel, body[data-skin-variant="azure"] header .dot,
+body[data-skin-variant="azure"] footer, body[data-skin-variant="azure"] footer #counts, body[data-skin-variant="azure"] footer .keys { color: rgba(230,237,243,.72) !important; }
+
+/* noir: near-black, for a room with the lights off — panel #121212 over vanta-black (#000000) */
+body[data-skin-variant="noir"] {
+  background:
+    radial-gradient(ellipse at 20% 15%, rgba(230, 230, 230, 0.07) 0%, transparent 45%),
+    radial-gradient(ellipse at 80% 85%, rgba(160, 160, 160, 0.05) 0%, transparent 45%),
+    var(--bg);
+}
+body[data-skin-variant="noir"] header, body[data-skin-variant="noir"] footer, body[data-skin-variant="noir"] .tile, body[data-skin-variant="noir"] #side, body[data-skin-variant="noir"] #side > aside {
+  background: rgba(33, 33, 33, 0.55) !important;
+}
+body[data-skin-variant="noir"] header, body[data-skin-variant="noir"] footer { color: #E6EDF3 !important; }
+body[data-skin-variant="noir"] header h1 { color: #E6EDF3 !important; }
+body[data-skin-variant="noir"] header .glabel, body[data-skin-variant="noir"] header .dot,
+body[data-skin-variant="noir"] footer, body[data-skin-variant="noir"] footer #counts, body[data-skin-variant="noir"] footer .keys { color: rgba(230,237,243,.72) !important; }
+
+/* frost: the light one: warm paper under the same frost — panel #EDE6D6 over eye-relief-day (#F2ECDC) */
+body[data-skin-variant="frost"] {
+  background:
+    radial-gradient(ellipse at 20% 15%, rgba(138, 109, 31, 0.12) 0%, transparent 45%),
+    radial-gradient(ellipse at 80% 85%, rgba(90, 140, 190, 0.10) 0%, transparent 45%),
+    var(--bg);
+}
+body[data-skin-variant="frost"] header, body[data-skin-variant="frost"] footer, body[data-skin-variant="frost"] .tile, body[data-skin-variant="frost"] #side, body[data-skin-variant="frost"] #side > aside {
+  background: rgba(233, 225, 209, 0.55) !important;
+}
+body[data-skin-variant="frost"] header, body[data-skin-variant="frost"] footer { color: #2A2620 !important; }
+body[data-skin-variant="frost"] header h1 { color: #2A2620 !important; }
+body[data-skin-variant="frost"] header .glabel, body[data-skin-variant="frost"] header .dot,
+body[data-skin-variant="frost"] footer, body[data-skin-variant="frost"] footer #counts, body[data-skin-variant="frost"] footer .keys { color: rgba(42,38,32,.75) !important; }
+/* The light variant: hairlines and shadows drawn for a dark ground read as smears on a
+   pale one, so they are re-drawn rather than inherited. */
+body[data-skin-variant="frost"] header, body[data-skin-variant="frost"] footer, body[data-skin-variant="frost"] .tile, body[data-skin-variant="frost"] #side, body[data-skin-variant="frost"] #side > aside {
+  border-color: rgba(0, 0, 0, 0.14) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.10);
+}

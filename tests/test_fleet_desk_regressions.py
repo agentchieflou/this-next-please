@@ -371,20 +371,40 @@ def test_an_unknown_palette_name_does_not_take_the_page_down(fleet_home, tmp_pat
 
 
 def test_a_skin_is_drawn_against_the_palette_it_declares(fleet_home, tmp_path):  # noqa: F811
-    """A skin is a rendering, not a palette (#154).
+    """A skin is a rendering, not a palette (#154), and it brings its ground with it (#4).
 
     `glass` is drawn for a dark ground. Choosing it while the palette was still "follow the system"
-    put it on a light one, which is not merely wrong but unreadable -- so when the operator has
-    chosen no palette, the skin's declared base is the honest answer.
+    put it on a light one, which is not merely wrong but unreadable. #154 fixed that for the
+    "no palette chosen" case only, which left the same defect one click away -- pick `glass`, then
+    pick `sand`, and the frost is back on a light ground. Skins drive palettes now: while a skin is
+    on, its variant's base *is* the palette, so the set of reachable combinations is exactly the set
+    of variants and `test_fleet_skins.py` measures the contrast of all of them.
+
+    A bare skin name resolves to its default variant, and the resolved name is what comes back, so
+    the picker cannot sit on a different variant than the one being rendered.
     """
     from agentdata import config as C
     from agentdata.fleet import skins
 
     C.save({"theme": {"default": "none", "skin": "glass"}})
     state = S.theme_state()
-    assert state["skin"] == "glass"
+    assert state["skin"] == "glass:smoke", "the bare name resolved to its default variant"
+    assert state["skin_family"] == "glass" and state["skin_variant"] == "smoke"
     assert state["theme"] == skins.get_skin("glass")["base"], state
     assert state["css"], "and it ships the palette's tokens, not an empty map"
+
+    # The click that used to reintroduce the defect: a palette chosen while a skin is on.
+    C.save({"theme": {"default": "sand", "skin": "glass"}})
+    assert S.theme_state()["theme"] == "dark", "the skin's ground wins while the skin is on"
+
+    # A variant is a different ground for the same art, and choosing one chooses that ground.
+    C.save({"theme": {"default": "none", "skin": "voxel:nether"}})
+    nether = S.theme_state()
+    assert nether["theme"] == "reds" and nether["skin_variant"] == "nether"
+
+    # Turning the skin off hands the palette back.
+    C.save({"theme": {"default": "sand", "skin": "none"}})
+    assert S.theme_state()["theme"] == "sand"
 
 
 @pytest.mark.browser

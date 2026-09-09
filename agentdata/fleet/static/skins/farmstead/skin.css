@@ -147,3 +147,69 @@ header h1 { color: #FFFDF5 !important; }
 .chip.done::before             { background-image: url("sprites.svg#crop-bloom"); }
 .chip.idle::before,
 .chip.starting::before         { background-image: url("sprites.svg#crop-seed"); }
+
+/* --------------------------------------------------------------- the three weathers (#4)
+
+   The same farm at a different hour. Only the surfaces change: the crop stages below stay exactly
+   as they are, because a `done` that were a bloom in daylight and something else in the cave would
+   be a state the operator has to translate before they can read it.
+
+   `daytime` is the stylesheet above -- the default variant carries no attribute block, so there is
+   one copy of it. The panel colour in each block here is the `composited_panel` its variant
+   declares in `skins.py`, which is what the contrast test measures the text against. */
+
+/* cave: lamplight underground */
+body[data-skin-variant="cave"] {
+  background-color: #38352F;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%2346423A'/%3E%3Crect x='0' y='2' width='4' height='2' fill='%2338352F'/%3E%3Crect x='8' y='1' width='3' height='2' fill='%23555045'/%3E%3Crect x='5' y='6' width='4' height='2' fill='%2338352F'/%3E%3Crect x='12' y='7' width='3' height='2' fill='%235C564A'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%232E2B26'/%3E%3Crect x='9' y='12' width='4' height='2' fill='%2338352F'/%3E%3Crect x='14' y='13' width='2' height='2' fill='%23555045'/%3E%3C/svg%3E");
+}
+body[data-skin-variant="cave"] header, body[data-skin-variant="cave"] footer {
+  background-color: #3D3830;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 8' width='16' height='8' shape-rendering='crispEdges'%3E%3Crect width='16' height='8' fill='%234A4438'/%3E%3Crect x='0' y='0' width='16' height='1' fill='%235C5545'/%3E%3Crect x='0' y='7' width='16' height='1' fill='%232E2B24'/%3E%3Crect x='7' y='1' width='1' height='6' fill='%232E2B24'/%3E%3Crect x='2' y='3' width='3' height='1' fill='%233D3830'/%3E%3Crect x='11' y='4' width='3' height='1' fill='%233D3830'/%3E%3C/svg%3E");
+  border-bottom-color: #211F1A !important;
+  color: #F0E9D8 !important;
+}
+body[data-skin-variant="cave"] button, body[data-skin-variant="cave"] select, body[data-skin-variant="cave"] input, body[data-skin-variant="cave"] .segment, body[data-skin-variant="cave"] .segmented,
+body[data-skin-variant="cave"] kbd, body[data-skin-variant="cave"] .keys kbd {
+  background: #5C564A !important;
+  color: #F0E9D8 !important;
+  border-color: #211F1A !important;
+  box-shadow: 0 3px 0 #211F1A !important;
+}
+body[data-skin-variant="cave"] button:active, body[data-skin-variant="cave"] .segment.active { box-shadow: 0 1px 0 #211F1A !important; }
+body[data-skin-variant="cave"] .tile {
+  background: #33302A !important;
+  color: #D6CDB8 !important;
+  border-color: #211F1A !important;
+}
+body[data-skin-variant="cave"] header h1 { color: #F0E9D8 !important; }
+body[data-skin-variant="cave"] header .glabel, body[data-skin-variant="cave"] header .dot,
+body[data-skin-variant="cave"] footer, body[data-skin-variant="cave"] footer #counts, body[data-skin-variant="cave"] footer .keys { color: #CFC6AE !important; }
+
+/* rainy: a wet afternoon indoors */
+body[data-skin-variant="rainy"] {
+  background-color: #1D2A40;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%2327364F'/%3E%3Crect x='0' y='2' width='4' height='2' fill='%231D2A40'/%3E%3Crect x='8' y='1' width='3' height='2' fill='%2332435E'/%3E%3Crect x='5' y='6' width='4' height='2' fill='%231D2A40'/%3E%3Crect x='12' y='7' width='3' height='2' fill='%233A4C69'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23162236'/%3E%3Crect x='9' y='12' width='4' height='2' fill='%231D2A40'/%3E%3Crect x='14' y='13' width='2' height='2' fill='%2332435E'/%3E%3C/svg%3E");
+}
+body[data-skin-variant="rainy"] header, body[data-skin-variant="rainy"] footer {
+  background-color: #1B2740;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 8' width='16' height='8' shape-rendering='crispEdges'%3E%3Crect width='16' height='8' fill='%23243349'/%3E%3Crect x='0' y='0' width='16' height='1' fill='%232F415C'/%3E%3Crect x='0' y='7' width='16' height='1' fill='%23141F31'/%3E%3Crect x='7' y='1' width='1' height='6' fill='%23141F31'/%3E%3Crect x='2' y='3' width='3' height='1' fill='%231B2740'/%3E%3Crect x='11' y='4' width='3' height='1' fill='%231B2740'/%3E%3C/svg%3E");
+  border-bottom-color: #0C1524 !important;
+  color: #E4EDFA !important;
+}
+body[data-skin-variant="rainy"] button, body[data-skin-variant="rainy"] select, body[data-skin-variant="rainy"] input, body[data-skin-variant="rainy"] .segment, body[data-skin-variant="rainy"] .segmented,
+body[data-skin-variant="rainy"] kbd, body[data-skin-variant="rainy"] .keys kbd {
+  background: #33455F !important;
+  color: #E4EDFA !important;
+  border-color: #0C1524 !important;
+  box-shadow: 0 3px 0 #0C1524 !important;
+}
+body[data-skin-variant="rainy"] button:active, body[data-skin-variant="rainy"] .segment.active { box-shadow: 0 1px 0 #0C1524 !important; }
+body[data-skin-variant="rainy"] .tile {
+  background: #16243D !important;
+  color: #D6E4F7 !important;
+  border-color: #0C1524 !important;
+}
+body[data-skin-variant="rainy"] header h1 { color: #E4EDFA !important; }
+body[data-skin-variant="rainy"] header .glabel, body[data-skin-variant="rainy"] header .dot,
+body[data-skin-variant="rainy"] footer, body[data-skin-variant="rainy"] footer #counts, body[data-skin-variant="rainy"] footer .keys { color: #B9CBE4 !important; }

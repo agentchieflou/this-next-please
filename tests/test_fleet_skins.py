@@ -27,7 +27,7 @@ def test_list_skins_returns_all_skins_with_budgets():
     assert names == ["none", "glass", "voxel", "farmstead"]
 
     for s in available:
-        assert "title" in s and "why" in s and "base" in s
+        assert "title" in s and "why" in s and "base" in s and "variants" in s
         if s["name"] != "none":
             assert s["size_bytes"] > 0, f"Skin {s['name']} stylesheet missing or empty"
             # 150 KB budget
@@ -69,18 +69,71 @@ def test_all_svg_sprites_use_rect_pixel_art_with_named_comments():
             assert "crop stage" in content
 
 
-def test_composited_panel_check_passes_for_all_skins():
-    """Each skin's composited panel passes text and status contrast on its base palette."""
-    for skin_name, s in skins.SKINS.items():
-        base_palette = theme.get(s["base"])
-        composited = s["composited_panel"]
-        theme.check(base_palette, composited_panel=composited, skin=skin_name)
+def test_every_skin_variant_passes_the_contrast_rule_on_its_own_ground():
+    """The whole reachable combination set, checked -- not a sample of it (#4).
+
+    Skins drive palettes, so a variant *is* a (skin, palette, composited panel) triple and the set
+    of combinations the operator can reach is exactly the set of variants. That is what makes an
+    exhaustive check possible at all: with the two pickers independent there were eleven palettes
+    times four skins of pairings and nothing had measured most of them.
+
+    The panel, not the palette's ground, is what the text is read on once the skin has painted its
+    texture or its frost over it -- so that is what the ratio is taken against.
+    """
+    every = skins.every_variant()
+    assert len(every) >= 10, "every skin has variants; this test is the reason they can be trusted"
+    for skin_name, variant, spec in every:
+        base_palette = theme.get(spec["base"])
+        theme.check(base_palette, composited_panel=spec["composited_panel"],
+                    skin=f"{skin_name}:{variant}")
+
+
+def test_every_palette_on_its_own_passes_too():
+    """A palette with no skin is the plain page, and it is read on the palette's own ground."""
+    for t in theme.list_themes():
+        theme.check(t)
+
+
+def test_a_variant_names_a_palette_that_exists():
+    """A variant whose base was renamed out from under it would fall back to an unthemed page
+    silently, which is the failure `theme_or_none` was added to survive -- survivable is not the
+    same as correct, so it is caught here instead."""
+    known = {t.name for t in theme.list_themes()}
+    for skin_name, variant, spec in skins.every_variant():
+        assert spec["base"] in known, f"{skin_name}:{variant} names an unknown palette {spec['base']!r}"
+
+
+def test_a_skins_default_variant_is_one_of_its_variants():
+    for name, skin in skins.SKINS.items():
+        assert skin["default"] in skin["variants"], name
+
+
+def test_a_bare_skin_name_resolves_to_its_default_and_an_unknown_variant_does_not_raise():
+    """The name comes from a hand-edited config file and from a URL. A renamed variant must not be
+    able to take the dashboard down -- the same reasoning that put `theme_or_none` in front of
+    `theme.get`."""
+    assert skins.split("voxel") == ("voxel", "overworld")
+    assert skins.split("voxel:nether") == ("voxel", "nether")
+    assert skins.split("voxel:atlantis") == ("voxel", "overworld")
+    assert skins.get_skin("voxel:atlantis")["variant"] == "overworld"
+    assert skins.get_skin("nosuchskin") is None
+
+
+def test_every_variant_is_actually_drawn_by_its_stylesheet():
+    """A variant declared in Python and not written in CSS renders as the default one, and the
+    operator gets the palette they chose with somebody else's texture on it."""
+    for name, skin in skins.SKINS.items():
+        css = open(os.path.join(SKINS_DIR, name, "skin.css"), encoding="utf-8").read()
+        for variant in skin["variants"]:
+            if variant == skin["default"]:
+                continue                # the default is the stylesheet itself, with no attribute
+            assert f'[data-skin-variant="{variant}"]' in css, f"{name}:{variant} is not drawn"
 
 
 def test_broken_composited_panel_refused_with_skin_hint():
     """A composited panel that drops text contrast below 4.5:1 is refused with a hint naming the skin."""
     glass = skins.get_skin("glass")
-    base = theme.get(glass["base"])  # dark (#14171A, text #E3E7EA)
+    base = theme.get(glass["base"])  # smoke's base: dark (#14171A, text #E3E7EA)
     # Using a panel too close in luminance to text drops contrast below 4.5:1
     with pytest.raises(theme.ThemeError) as exc_info:
         theme.check(base, composited_panel="#D0D5DA", skin="glass")

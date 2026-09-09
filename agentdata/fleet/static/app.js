@@ -664,10 +664,20 @@ function applyTheme(cssVars, themeName) {
   }
 }
 
+/* A skin is one stylesheet; a VARIANT is that same stylesheet drawn against a different palette,
+   selected by an attribute rather than by a second file. Nether and Overworld share every bevel and
+   every sprite and differ in their colours, so shipping them as two stylesheets would be shipping
+   the same art twice and letting the two copies drift. Switching variant therefore re-paints
+   without a fetch, and only changing skin loads anything. */
 function applySkin(skinName) {
   var link = document.head.querySelector("link[data-skin]");
-  if (!skinName || skinName === "none") {
+  var parts = String(skinName || "").split(":");
+  var family = parts[0];
+  var variant = parts[1] || "";
+  if (!family || family === "none") {
     if (link) link.remove();
+    document.body.removeAttribute("data-skin");
+    document.body.removeAttribute("data-skin-variant");
     return;
   }
   if (!link) {
@@ -676,7 +686,11 @@ function applySkin(skinName) {
     link.rel = "stylesheet";
     document.head.appendChild(link);
   }
-  link.href = q("/static/skins/" + skinName + "/skin.css");
+  var href = q("/static/skins/" + family + "/skin.css");
+  if (link.href !== href) link.href = href;   // re-assigning re-fetches and flashes the page
+  document.body.setAttribute("data-skin", family);
+  if (variant) document.body.setAttribute("data-skin-variant", variant);
+  else document.body.removeAttribute("data-skin-variant");
 }
 
 /* Two controls, two tiers, and the difference is the point (#150, #154).
@@ -704,14 +718,32 @@ function loadThemes() {
     });
     themeSel.addEventListener("change", function () { post("theme", { theme: themeSel.value }); });
 
+    /* One control, not two. A variant is not independent of its skin -- "Nether" means nothing on
+       its own, and a second picker offering it beside Farmstead would be offering a combination
+       that does not exist. Grouping them says the same thing the model does: pick a skin, and its
+       ground comes with it. A skin with one variant lists as a single option. */
     while (skinSel.options.length > 1) skinSel.remove(1);
     (data.skins || []).forEach(function (k) {
       if (k.name === "none") return;
-      var option = document.createElement("option");
-      option.value = k.name;
-      text(option, k.title || k.name);
-      option.title = (k.why || "") + (k.base ? "  ·  palette: " + k.base : "");
-      skinSel.appendChild(option);
+      var vs = k.variants || [];
+      if (vs.length < 2) {
+        var single = document.createElement("option");
+        single.value = vs.length ? vs[0].full : k.name;
+        text(single, k.title || k.name);
+        single.title = (k.why || "") + (k.base ? "  ·  palette: " + k.base : "");
+        skinSel.appendChild(single);
+        return;
+      }
+      var group = document.createElement("optgroup");
+      group.label = k.title || k.name;
+      vs.forEach(function (v) {
+        var option = document.createElement("option");
+        option.value = v.full;
+        text(option, v.title || v.name);
+        option.title = (v.why || "") + "  ·  palette: " + v.base;
+        group.appendChild(option);
+      });
+      skinSel.appendChild(group);
     });
     skinSel.addEventListener("change", function () { post("theme", { skin: skinSel.value }); });
     reflectTheme(data.current || data.theme);
@@ -726,6 +758,16 @@ function reflectTheme(cur) {
   var skinSel = document.getElementById("skin");
   if (themeSel && cur.theme) themeSel.value = cur.theme;
   if (skinSel) skinSel.value = cur.skin || "none";
+  /* While a skin is on, the palette is the skin's -- so the palette picker shows what is being
+     rendered and says why it is not taking instructions, rather than accepting a choice the server
+     would then override. Turning the skin off hands it back. */
+  if (themeSel) {
+    var bound = !!(cur.skin && cur.skin !== "none");
+    themeSel.disabled = bound;
+    themeSel.title = bound
+      ? "the palette comes from the skin — choose “no skin” to pick one yourself"
+      : "palette — shared with this project's terminal";
+  }
 }
 
 refresh().then(function () {

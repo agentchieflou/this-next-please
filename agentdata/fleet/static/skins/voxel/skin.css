@@ -114,3 +114,60 @@ header h1 { color: #F2F2F2 !important; }
 .chip.done::before             { background-image: url("sprites.svg#done-block"); }
 .chip.idle::before,
 .chip.starting::before         { background-image: url("sprites.svg#idle-block"); }
+
+/* ------------------------------------------------------------------ the three worlds (#4)
+
+   Same bevels, same sprites, same 8-pixel grid; a different ground. A variant is not a second skin
+   -- shipping Nether as its own stylesheet would be shipping this art twice and letting the two
+   copies drift -- so it re-colours the surfaces and nothing else. The status blocks below are
+   deliberately NOT among them: a chip means the same thing in every world, and a `fail` that were
+   red in one and orange in another would be a state the operator has to translate.
+
+   Each variant's ground is the palette named in `skins.py`, and the panel colour here is the
+   `composited_panel` the contrast test measures the text against. */
+
+/* nether: netherrack and firelight */
+body[data-skin-variant="nether"] {
+  background-color: #4E1C16;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%236B2A22'/%3E%3Crect x='0' y='0' width='2' height='2' fill='%234E1C16'/%3E%3Crect x='4' y='1' width='2' height='1' fill='%238A3A2C'/%3E%3Crect x='2' y='3' width='1' height='2' fill='%233A1310'/%3E%3Crect x='6' y='3' width='2' height='2' fill='%234E1C16'/%3E%3Crect x='1' y='6' width='2' height='1' fill='%238A3A2C'/%3E%3Crect x='5' y='6' width='2' height='2' fill='%2345170F'/%3E%3Crect x='3' y='7' width='1' height='1' fill='%238A3A2C'/%3E%3C/svg%3E");
+}
+body[data-skin-variant="nether"] header, body[data-skin-variant="nether"] footer {
+  background-color: #3A1B15;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%2343201A'/%3E%3Crect x='0' y='0' width='3' height='1' fill='%2355291F'/%3E%3Crect x='4' y='0' width='2' height='2' fill='%232E1310'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%233A1B15'/%3E%3Crect x='6' y='2' width='2' height='1' fill='%23663127'/%3E%3Crect x='3' y='4' width='3' height='2' fill='%232E1310'/%3E%3Crect x='0' y='5' width='2' height='2' fill='%2355291F'/%3E%3Crect x='6' y='5' width='2' height='2' fill='%233A1B15'/%3E%3Crect x='2' y='7' width='3' height='1' fill='%23663127'/%3E%3C/svg%3E");
+}
+body[data-skin-variant="nether"] button, body[data-skin-variant="nether"] select, body[data-skin-variant="nether"] input, body[data-skin-variant="nether"] .segment, body[data-skin-variant="nether"] .segmented,
+body[data-skin-variant="nether"] kbd, body[data-skin-variant="nether"] .keys kbd {
+  background: #5A2A20 !important;
+  color: #F7E2DE !important;
+  border-color: #1A0907 !important;
+}
+body[data-skin-variant="nether"] .tile { background: #2A1512 !important; border-color: #1A0907 !important; }
+body[data-skin-variant="nether"] .tile { box-shadow: 0 4px 0 #1A0907; }
+body[data-skin-variant="nether"] .chip { border-color: #1A0907 !important; }
+body[data-skin-variant="nether"] header, body[data-skin-variant="nether"] footer { color: #FFEFEA !important; border-color: #1A0907 !important; }
+body[data-skin-variant="nether"] header h1 { color: #FFEFEA !important; }
+body[data-skin-variant="nether"] header .glabel, body[data-skin-variant="nether"] header .dot,
+body[data-skin-variant="nether"] footer, body[data-skin-variant="nether"] footer #counts, body[data-skin-variant="nether"] footer .keys { color: #E0B3AA !important; }
+
+/* end: endstone and void */
+body[data-skin-variant="end"] {
+  background-color: #1E1829;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%232A2136'/%3E%3Crect x='0' y='0' width='2' height='2' fill='%231E1829'/%3E%3Crect x='4' y='1' width='2' height='1' fill='%233A2F4A'/%3E%3Crect x='2' y='3' width='1' height='2' fill='%23171122'/%3E%3Crect x='6' y='3' width='2' height='2' fill='%231E1829'/%3E%3Crect x='1' y='6' width='2' height='1' fill='%233A2F4A'/%3E%3Crect x='5' y='6' width='2' height='2' fill='%23221A2E'/%3E%3Crect x='3' y='7' width='1' height='1' fill='%233A2F4A'/%3E%3C/svg%3E");
+}
+body[data-skin-variant="end"] header, body[data-skin-variant="end"] footer {
+  background-color: #1F1A2B;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%23272036'/%3E%3Crect x='0' y='0' width='3' height='1' fill='%23332A45'/%3E%3Crect x='4' y='0' width='2' height='2' fill='%2318121F'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%231F1A2B'/%3E%3Crect x='6' y='2' width='2' height='1' fill='%233E3352'/%3E%3Crect x='3' y='4' width='3' height='2' fill='%2318121F'/%3E%3Crect x='0' y='5' width='2' height='2' fill='%23332A45'/%3E%3Crect x='6' y='5' width='2' height='2' fill='%231F1A2B'/%3E%3Crect x='2' y='7' width='3' height='1' fill='%233E3352'/%3E%3C/svg%3E");
+}
+body[data-skin-variant="end"] button, body[data-skin-variant="end"] select, body[data-skin-variant="end"] input, body[data-skin-variant="end"] .segment, body[data-skin-variant="end"] .segmented,
+body[data-skin-variant="end"] kbd, body[data-skin-variant="end"] .keys kbd {
+  background: #332A45 !important;
+  color: #E8E2D0 !important;
+  border-color: #0B0810 !important;
+}
+body[data-skin-variant="end"] .tile { background: #16121C !important; border-color: #0B0810 !important; }
+body[data-skin-variant="end"] .tile { box-shadow: 0 4px 0 #0B0810; }
+body[data-skin-variant="end"] .chip { border-color: #0B0810 !important; }
+body[data-skin-variant="end"] header, body[data-skin-variant="end"] footer { color: #F3EEDC !important; border-color: #0B0810 !important; }
+body[data-skin-variant="end"] header h1 { color: #F3EEDC !important; }
+body[data-skin-variant="end"] header .glabel, body[data-skin-variant="end"] header .dot,
+body[data-skin-variant="end"] footer, body[data-skin-variant="end"] footer #counts, body[data-skin-variant="end"] footer .keys { color: #C6BFA6 !important; }

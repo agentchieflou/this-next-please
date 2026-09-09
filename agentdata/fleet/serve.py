@@ -644,9 +644,17 @@ def theme_state() -> dict:
     # (#154). Choosing `glass` while the palette is still "follow the system" put a skin designed
     # for a dark ground on a light one, which is unreadable rather than merely wrong. When the
     # operator has not chosen a palette, the skin's base is the honest answer.
+    # Skins drive palettes (#4). A variant is a skin drawn against a particular ground -- Nether is
+    # red because the art is red -- so while a skin is on, its variant's base IS the palette, and
+    # not merely the fallback when the operator has not chosen one. Leaving the choice open was the
+    # #154 bug with more ways to hit it: frosted glass designed for a dark ground rendered on a
+    # light one is unreadable rather than merely wrong, and every extra free combination is one more
+    # pairing nothing has checked the contrast of. Bound this way the set of reachable combinations
+    # is exactly the set of variants, and `tests/test_fleet_skins.py` checks all of them.
     skin_info = skins.get_skin(skin_name) if skin_name and skin_name != "none" else None
-    if skin_info and default_name == "none":
-        default_name = skin_info.get("base") or "none"
+    if skin_info:
+        default_name = skin_info.get("base") or default_name
+        skin_name = skin_info["full"]
 
     t = theme_or_none(default_name)
     css_vars = T.to_css(t) if t and t.name != "none" else {}
@@ -669,6 +677,10 @@ def theme_state() -> dict:
     return {
         "theme": default_name,
         "skin": skin_name,
+        # Split out as well as joined: the page fetches one stylesheet per skin and switches the
+        # variant with an attribute, so it needs the two halves without having to parse the name.
+        "skin_family": skin_info["name"] if skin_info else "",
+        "skin_variant": skin_info["variant"] if skin_info else "",
         "css": css_vars,
         "accents": accents,
     }
@@ -999,8 +1011,17 @@ def act(what: str, body: dict) -> dict:
             theme_val = str(body["theme"]).strip()
             cfg["theme"]["default"] = theme_val if theme_val else "none"
         if "skin" in body:
+            from . import skins
+
             skin_val = str(body["skin"]).strip()
             cfg["theme"]["skin"] = skin_val if skin_val else "none"
+            # Choosing a skin chooses its ground with it, and writes that palette to the config the
+            # terminal reads -- so the prompt beside the dashboard moves to Nether too. This is what
+            # "skins drive themes" means in the one file both of them read.
+            chosen = skins.get_skin(cfg["theme"]["skin"]) if skin_val and skin_val != "none" else None
+            if chosen:
+                cfg["theme"]["skin"] = chosen["full"]
+                cfg["theme"]["default"] = chosen["base"]
         C.save(cfg)
         return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
