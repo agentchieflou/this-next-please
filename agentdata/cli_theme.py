@@ -244,6 +244,7 @@ def cmd_unset(a) -> int:
 def cmd_install(a) -> int:
     """Install theme hooks, prompt integration, or terminal configuration."""
     from . import omp
+    from . import theme_project
 
     if getattr(a, "prompt", None) == "omp":
         theme_name, _ = _resolve_cwd_theme()
@@ -265,6 +266,27 @@ def cmd_install(a) -> int:
             print(toon.table("installed", ["shell", "path", "status"], results))
         return 0
 
+    if getattr(a, "hook", False):
+        shells = [a.shell] if getattr(a, "shell", None) else ["pwsh", "bash", "cmd"]
+        results = []
+        for sh in shells:
+            try:
+                res = theme_project.install_hook(sh)
+                results.append([res["shell"], res["path"], "installed" if res["changed"] else "already-there"])
+            except Exception as e:
+                results.append([sh, "error", str(e)])
+
+        if policy.pretty():
+            ui.table(["shell", "path", "status"], results, title="Directory Hook Install")
+        else:
+            print(toon.table("installed", ["shell", "path", "status"], results))
+        return 0
+
+    if getattr(a, "terminal", None) == "wt":
+        p = theme_project.write_wt_fragment()
+        print(toon.encode({"meta": {"ok": True, "action": "install", "target": "terminal-wt", "path": p}}))
+        return 0
+
     print("Nothing to install. Specify --prompt omp, --hook, or --terminal wt.")
     return 0
 
@@ -272,6 +294,7 @@ def cmd_install(a) -> int:
 def cmd_uninstall(a) -> int:
     """Uninstall theme hooks, prompt integration, or terminal configuration."""
     from . import omp
+    from . import theme_project
 
     if getattr(a, "prompt", False):
         shells = [a.shell] if getattr(a, "shell", None) else ["pwsh", "bash", "cmd"]
@@ -287,6 +310,27 @@ def cmd_uninstall(a) -> int:
             ui.table(["shell", "path", "status"], results, title="Oh My Posh Prompt Uninstall")
         else:
             print(toon.table("uninstalled", ["shell", "path", "status"], results))
+        return 0
+
+    if getattr(a, "hook", False):
+        shells = [a.shell] if getattr(a, "shell", None) else ["pwsh", "bash", "cmd"]
+        results = []
+        for sh in shells:
+            try:
+                res = theme_project.uninstall_hook(sh)
+                results.append([res["shell"], res["path"], "removed" if res["removed"] else "not-installed"])
+            except Exception as e:
+                results.append([sh, "error", str(e)])
+
+        if policy.pretty():
+            ui.table(["shell", "path", "status"], results, title="Directory Hook Uninstall")
+        else:
+            print(toon.table("uninstalled", ["shell", "path", "status"], results))
+        return 0
+
+    if getattr(a, "terminal", False):
+        ok = theme_project.remove_wt_fragment()
+        print(toon.encode({"meta": {"ok": ok, "action": "uninstall", "target": "terminal-wt"}}))
         return 0
 
     print("Nothing to uninstall. Specify --prompt, --hook, or --terminal.")
