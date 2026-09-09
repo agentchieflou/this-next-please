@@ -541,7 +541,15 @@ def apply_conhost(t: Theme, persist: bool = False) -> dict[str, Any]:
         info.ColorTable[i] = COLORREF(colref(col))
 
     ok = kernel32.SetConsoleScreenBufferInfoEx(handle, ctypes.byref(info))
-    return {"ok": bool(ok), "mechanism": "conhost-api"}
+    if persist:
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Console", 0, winreg.KEY_SET_VALUE) as key:
+                for i, col in enumerate(t.ansi[:16]):
+                    winreg.SetValueEx(key, f"ColorTable{i:02d}", 0, winreg.REG_DWORD, colref(col))
+        except Exception:
+            pass
+    return {"ok": bool(ok), "mechanism": "conhost-api", "persisted": persist}
 
 
 # ---------- CSS Variables Rendering (#150) ----------

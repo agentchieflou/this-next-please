@@ -197,3 +197,50 @@ def test_cli_theme_set_and_unset(tmp_path, monkeypatch, capsys):
     # Unset default
     rc = cli_theme.main(["unset"])
     assert rc == 0
+
+
+def test_escapes_rendering():
+    """theme.escapes renders OSC 4, 10, 11, 12; reset renders OSC 110, 111, 112."""
+    t = theme.GREENS
+    esc = theme.escapes(t)
+    assert "\x1b]4;0;#0B1F14\x1b\\" in esc
+    assert "\x1b]10;#CDE6D2\x1b\\" in esc
+    assert "\x1b]11;#0B1F14\x1b\\" in esc
+    assert "\x1b]12;#3FB950\x1b\\" in esc
+
+    reset = theme.reset_escapes()
+    assert "\x1b]110\x1b\\" in reset
+    assert "\x1b]111\x1b\\" in reset
+    assert "\x1b]112\x1b\\" in reset
+
+    # none theme renders empty string
+    assert theme.escapes(theme.NONE) == ""
+
+
+def test_piped_apply_and_reset(capsys, monkeypatch):
+    """ad-theme apply/reset when piped emit no escapes and report mechanism none."""
+    monkeypatch.setenv("AGENTDATA_COLOR", "never")
+    color.reset_cache()
+
+    rc = cli_theme.main(["apply", "greens"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert "mechanism: none" in out
+
+    rc = cli_theme.main(["reset"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert "mechanism: none" in out
+
+
+def test_docs_themes_exists_and_covers_matrix():
+    """docs/themes.md exists and documents the host matrix."""
+    with open("docs/themes.md", "r", encoding="utf-8") as f:
+        doc = f.read()
+    assert "windows-terminal" in doc
+    assert "conhost" in doc
+    assert "mintty" in doc
+    assert "vscode" in doc
+
