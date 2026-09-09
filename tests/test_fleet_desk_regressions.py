@@ -514,7 +514,7 @@ def test_a_skin_that_draws_its_status_sprites_can_actually_fetch_them(desk):
     assert all(status == 200 for status, _ in seen), seen
 
 
-def test_the_saved_desk_comes_back_whatever_the_first_request_was(fleet_home, tmp_path):  # noqa: F811
+def test_the_saved_desk_comes_back_whatever_the_first_request_was(fleet_home, tmp_path, monkeypatch):  # noqa: F811
     """`desk.json` used to be read only as a side effect of the lazy handle accessor.
 
     Whether the operator's saved selection and arrangement came back therefore depended on which
@@ -528,9 +528,15 @@ def test_the_saved_desk_comes_back_whatever_the_first_request_was(fleet_home, tm
 
     # A brand new process: the file is on disk and nothing is in memory yet. (`S.reset()` is not
     # that -- it means "the fleet moved under a live process" and deliberately clears the file.)
-    S._selection.update(selected="", screens=[], arrangement={})
-    S._desk_loaded = False
-    S._desk["dir"] = ""
+    #
+    # These are module globals shared by every test in the session, so they are patched rather than
+    # assigned: an earlier version of this test assigned them and left `_desk["dir"]` empty behind
+    # it, which stops `handles()` calling `reset()` and leaves the previous test's poller, inbox
+    # watcher and catalogue handle alive against a directory that no longer exists. The suite then
+    # passed or hung depending on the order tests happened to run in.
+    monkeypatch.setitem(S._desk, "dir", "")
+    monkeypatch.setattr(S, "_desk_loaded", False)
+    monkeypatch.setattr(S, "_selection", dict(S._selection, selected="", screens=[], arrangement={}))
 
     state = S.desk_state()
     assert state["selected"] == "beta", "the selection did not survive"
