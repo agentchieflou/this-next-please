@@ -345,3 +345,116 @@ def test_a_skin_loads_only_when_it_is_asked_for(desk):
                                         return l ? l.href : ''; }""")
         browser.close()
     assert "/static/skins/voxel/skin.css" in href, href
+
+
+def test_an_unknown_palette_name_does_not_take_the_page_down(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    """`theme.get()` raises on a name it does not know, and the names live in a hand-edited file.
+
+    Unguarded, one stale `theme.default` -- a palette renamed by an update, or a typo -- turned
+    every request for the dashboard into a 500. The page is the operator's window onto four agents;
+    it does not get to go down over a colour.
+    """
+    from agentdata import config as C
+
+    repo = make_project(tmp_path / "one")
+    Registry().add(repo, name="one")
+    C.save({"theme": {"default": "no-such-palette", "projects": {"one": "also-not-a-palette"}}})
+
+    state = S.theme_state()
+    assert state["theme"] in ("none", "no-such-palette"), state
+    rows = S.fleet_snapshot()["repos"]
+    assert rows and rows[0]["accent"], "a tile still gets an accent it can paint"
+
+
+def test_a_skin_is_drawn_against_the_palette_it_declares(fleet_home, tmp_path):  # noqa: F811
+    """A skin is a rendering, not a palette (#154).
+
+    `glass` is drawn for a dark ground. Choosing it while the palette was still "follow the system"
+    put it on a light one, which is not merely wrong but unreadable -- so when the operator has
+    chosen no palette, the skin's declared base is the honest answer.
+    """
+    from agentdata import config as C
+    from agentdata.fleet import skins
+
+    C.save({"theme": {"default": "none", "skin": "glass"}})
+    state = S.theme_state()
+    assert state["skin"] == "glass"
+    assert state["theme"] == skins.get_skin("glass")["base"], state
+    assert state["css"], "and it ships the palette's tokens, not an empty map"
+
+
+@pytest.mark.browser
+def test_selecting_a_project_does_not_throw_the_arrangement_away(desk):
+    """`/api/select` answers with the selection and says nothing about the arrangement.
+
+    Assigning that answer wholesale dropped `arrangement`, so clicking any tile un-widened every
+    tile the operator had widened and unpinned every tile they had pinned -- until the next desk
+    poll, fifteen seconds later, put them back.
+    """
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    with sync_playwright() as p:
+        browser, page, _ = _page(p, desk)
+        page.evaluate("""async () => {
+            const first = document.querySelector('.tile').dataset.repo;
+            toggleTileSize(first);
+            await new Promise(r => setTimeout(r, 700));
+        }""")
+        widened = page.evaluate("() => document.querySelectorAll('.tile.size-2').length")
+        page.evaluate("() => choose(document.querySelectorAll('.tile')[1].dataset.repo)")
+        page.wait_for_timeout(900)
+        after = page.evaluate("""() => ({
+            widened: document.querySelectorAll('.tile.size-2').length,
+            arrangement: !!(desk.desk.arrangement && desk.desk.arrangement[LAYOUT]),
+        })""")
+        browser.close()
+    assert widened == 1, "the fixture did not widen a tile"
+    assert after["arrangement"], "the desk state lost its arrangement"
+    assert after["widened"] == 1, "selecting a project reset the tile widths"
+
+
+@pytest.mark.browser
+def test_the_number_on_a_tile_is_the_key_that_focuses_it(desk):
+    """The badge is drawn from the arrangement; the digit shortcut read registry order.
+
+    The moment anything was moved or pinned the two disagreed: the tile said 2 and pressing 2
+    focused a different project.
+    """
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    with sync_playwright() as p:
+        browser, page, _ = _page(p, desk)
+        page.evaluate("() => moveTile(document.querySelector('.tile').dataset.repo, 1)")
+        page.wait_for_timeout(900)
+        got = page.evaluate("""() => {
+            const byBadge = {};
+            document.querySelectorAll('.tile').forEach(t => {
+                byBadge[t.querySelector('.n').textContent.trim()] = t.dataset.repo;
+            });
+            return { byBadge, order: getEffectiveOrder() };
+        }""")
+        browser.close()
+    for index, repo in enumerate(got["order"], start=1):
+        assert got["byBadge"].get(str(index)) == repo, (index, got)
+
+
+@pytest.mark.browser
+def test_a_pinned_tile_can_still_be_moved(desk):
+    """Pinned tiles come first always, so a move has to happen inside the block the tile is in.
+
+    Reordering the flattened list and posting that did nothing once anything was pinned: the pinned
+    names went back in front on the very next draw and the operator's move vanished.
+    """
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    with sync_playwright() as p:
+        browser, page, _ = _page(p, desk)
+        names = page.evaluate("() => getEffectiveOrder()")
+        page.evaluate("async (n) => { await toggleTilePin(n[0]); await toggleTilePin(n[1]); }", names)
+        page.wait_for_timeout(900)
+        assert page.evaluate("() => (getLayoutArrangement().pinned || []).length") == 2, \
+            "two quick pins must both survive"
+        before = page.evaluate("() => getEffectiveOrder()")
+        page.evaluate("(n) => moveTile(n, 1)", before[0])
+        page.wait_for_timeout(1200)
+        after = page.evaluate("() => getEffectiveOrder()")
+        browser.close()
+    assert len(before) >= 2 and before != after, f"a pinned tile would not move: {before} -> {after}"
+    assert after[0] == before[1] and after[1] == before[0], (before, after)

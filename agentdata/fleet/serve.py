@@ -271,13 +271,13 @@ def fleet_snapshot() -> dict:
         if isinstance(proj_entry, dict) and "accent" in proj_entry:
             accent = proj_entry["accent"]
         elif isinstance(proj_entry, dict) and "theme" in proj_entry:
-            pt = T.get(proj_entry["theme"], seed=name)
+            pt = theme_or_none(proj_entry["theme"], seed=name)
             accent = pt.accent or "#3FB950"
         elif isinstance(proj_entry, str) and proj_entry:
-            pt = T.get(proj_entry, seed=name)
+            pt = theme_or_none(proj_entry, seed=name)
             accent = pt.accent or "#3FB950"
         else:
-            pt = T.get(default_theme_name, seed=name)
+            pt = theme_or_none(default_theme_name, seed=name)
             accent = pt.accent or "#3FB950"
 
         rows.append({"repo": name, "path": row.get("path", ""),
@@ -547,6 +547,24 @@ def desk_state() -> dict:
         }
 
 
+def theme_or_none(name: str, seed: str = ""):
+    """A palette by name, or the plain one, and never an exception.
+
+    `theme.get()` raises on a name it does not know, and the names live in a file a person edits by
+    hand and an update can rename out from under them. Unguarded, one stale `theme.default` turned
+    every request for `/api/fleet` and `/api/themes` into a 500 -- the dashboard did not degrade to
+    an unthemed page, it stopped answering at all. The page is the operator's window onto four
+    agents; it does not get to go down over a colour.
+    """
+    from .. import theme as T
+    if not name or name == "none":
+        return T.get("none")
+    try:
+        return T.get(name, seed=seed) if seed else T.get(name)
+    except Exception:                            # noqa: BLE001 - ThemeError, and anything after it
+        return T.get("none")
+
+
 def theme_state() -> dict:
     """The theme and skin configuration shared across windows."""
     from .. import config as C
@@ -555,7 +573,16 @@ def theme_state() -> dict:
     cfg = C.load()
     default_name = cfg.get("theme", {}).get("default") or "none"
     skin_name = cfg.get("theme", {}).get("skin") or "none"
-    t = T.get(default_name)
+
+    # A skin is a rendering, not a palette: it is drawn against the one it declares as its base
+    # (#154). Choosing `glass` while the palette is still "follow the system" put a skin designed
+    # for a dark ground on a light one, which is unreadable rather than merely wrong. When the
+    # operator has not chosen a palette, the skin's base is the honest answer.
+    skin_info = skins.get_skin(skin_name) if skin_name and skin_name != "none" else None
+    if skin_info and default_name == "none":
+        default_name = skin_info.get("base") or "none"
+
+    t = theme_or_none(default_name)
     css_vars = T.to_css(t) if t and t.name != "none" else {}
     proj_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_map, dict):
@@ -565,11 +592,11 @@ def theme_state() -> dict:
         if isinstance(pinfo, dict) and "accent" in pinfo:
             accents[proj] = pinfo["accent"]
         elif isinstance(pinfo, dict) and "theme" in pinfo:
-            pt = T.get(pinfo["theme"], seed=proj)
+            pt = theme_or_none(pinfo["theme"], seed=proj)
             if pt and pt.accent:
                 accents[proj] = pt.accent
         elif isinstance(pinfo, str) and pinfo:
-            pt = T.get(pinfo, seed=proj)
+            pt = theme_or_none(pinfo, seed=proj)
             if pt and pt.accent:
                 accents[proj] = pt.accent
 

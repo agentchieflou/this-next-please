@@ -51,6 +51,33 @@ silently selecting nothing.
 | `windows` / `posix` | only meaningful on that OS |
 | `real_home` | opts out of the isolated home, for tests *about* the real checkout |
 | `network` | reaches the network. Nothing carries it today — it exists so adding one is a decision |
+| `browser` | loads the fleet dashboard in Chromium and asserts on the rendered page |
+
+### The browser tests, and why they are not optional
+
+The dashboard is HTML that four embedders have to render — Edge, PyCharm's JCEF tool window, VS
+Code's Simple Browser, and whatever the operator has on the fourth monitor. Three page-breaking
+defects once shipped with a green suite because every test that covered them read the *source text*
+of `app.js` and asserted a substring was present. That proves an author wrote a line. It cannot
+know that an id selector outranks the user agent's `[hidden]` rule, which is what left five panels
+permanently on the glass, swallowing the clicks meant for the grid underneath.
+
+So `tests/test_fleet_desk_regressions.py` asserts on the **rendered page**: computed styles,
+hit-testing, and the text a person would read. Chromium is the engine under all three hosts, so one
+browser covers the matrix.
+
+```bash
+pip install -e ".[dev]"      # playwright is in the dev extra
+playwright install chromium  # once per machine
+python -m pytest -m browser  # or just `pytest`; they run with everything else
+```
+
+They **skip with the reason named** when there is no browser, and never fail for its absence:
+`AGENTDATA_CHROMIUM` points at one you already have, which is what a machine that ships a browser
+separately from the wheel needs (Playwright pins a build to its own version and otherwise refuses to
+start). CI installs chromium on the Linux legs and on the Windows 3.14 leg, so these run there
+rather than skipping — a browser test that skips everywhere is the harness that let the defects
+through in the first place.
 
 ## Isolation
 

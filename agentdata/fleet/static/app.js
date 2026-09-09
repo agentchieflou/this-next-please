@@ -143,7 +143,13 @@ function makeTile(row, index) {
   // Clicking anywhere on a tile *selects* the project for every window on this server (#133 layout
   // B), which is what makes the left monitor drive the centre one. Blowing a tile up is still the
   // repo name or a double click: one gesture per meaning.
-  el.addEventListener("click", function () { choose(row.repo); });
+  el.addEventListener("click", function (e) {
+    // Clicking a tile selects the project for every window on this server -- which is what makes
+    // the left monitor drive the centre one. Pressing Send, or clicking into the reply box, is not
+    // that gesture: it re-pointed three other screens as a side effect of typing.
+    if (e.target.closest("button, input, select, textarea, a, details, summary")) return;
+    choose(row.repo);
+  });
 
   /* Drag to reorder, from the header only. A tile that is draggable edge to edge cannot have its
      transcript text selected -- every attempt to copy an error message starts a drag instead --
@@ -202,7 +208,7 @@ function makeTile(row, index) {
       if (!dropBefore) toIdx += 1;
       order.splice(toIdx, 0, droppedRepo);
       post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
-        if (r && r.ok) desk.desk = r;
+        if (r && r.ok) mergeDesk(r);
         reorderDomTiles();
       });
       reorderDomTiles();
@@ -505,8 +511,10 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") { if (typing) document.activeElement.blur(); else unfocus(); return; }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^[1-9]$/.test(e.key)) {
-    var names = Array.from(tiles.keys());
-    var name = names[Number(e.key) - 1];
+    // The number printed on a tile comes from the arrangement, so the key that focuses it must
+    // too. Reading registry order here meant that the moment anything was moved or pinned, the
+    // badge said 3 and pressing 3 focused something else.
+    var name = getEffectiveOrder()[Number(e.key) - 1];
     if (name) focus(name);
     return;
   }
@@ -1158,16 +1166,29 @@ document.getElementById("closefound").addEventListener("click", function () { fo
 /* One selected project, shared by every window on this server. It is a POST and not a URL fragment
    because the point is that the *other* windows hear about it: clicking a tile on the left monitor
    is what changes the centre one. */
+/* The desk state is merged, never replaced. `/api/select` answers with the selection and the
+   screen pinning and says nothing about the arrangement, so assigning its answer wholesale dropped
+   `arrangement` on the floor: clicking any tile un-widened every tile you had widened and unpinned
+   every tile you had pinned, until the next `/api/desk` poll fifteen seconds later put them back. */
+function mergeDesk(answer) {
+  if (!answer) return;
+  var next = Object.assign({}, desk.desk);
+  ["selected", "screens", "version", "arrangement"].forEach(function (k) {
+    if (answer[k] !== undefined) next[k] = answer[k];
+  });
+  desk.desk = next;
+}
+
 function choose(name) {
   if (desk.desk.selected === name) {
     drawInspector(name);
     return Promise.resolve();
   }
-  desk.desk = Object.assign({}, desk.desk, { selected: name });
+  mergeDesk({ selected: name });
   place();
   drawInspector(name);
   return post("select", { repo: name }).then(function (r) {
-    if (r && r.ok) desk.desk = { selected: r.selected, screens: r.screens, version: r.version };
+    if (r && r.ok) mergeDesk(r);
     place();
     drawInspector(name);
   });
@@ -1360,42 +1381,64 @@ function reorderDomTiles() {
   if (refocus) refocus.focus();
 }
 
+/* Pinned tiles come first, always -- so a move has to happen inside the block the tile is in.
+   Reordering the flattened list and posting that did nothing whenever anything was pinned:
+   `getEffectiveOrder` puts the pinned names back in front on the very next draw, and the move the
+   operator just made was silently undone. */
 function moveTile(repo, dir) {
-  var order = getEffectiveOrder();
-  var idx = order.indexOf(repo);
-  if (idx < 0) return;
-  var targetIdx = idx + dir;
-  if (targetIdx < 0 || targetIdx >= order.length) return;
-  order.splice(idx, 1);
-  order.splice(targetIdx, 0, repo);
-  post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
-    if (r && r.ok) desk.desk = r;
+  var arr = getLayoutArrangement();
+  var pinned = (arr.pinned || []).filter(function (n) { return tiles.has(n); });
+  var inPinnedBlock = pinned.indexOf(repo) >= 0;
+  var block = inPinnedBlock
+    ? pinned
+    : getEffectiveOrder().filter(function (n) { return pinned.indexOf(n) < 0; });
+
+  var idx = block.indexOf(repo);
+  var target = idx + dir;
+  if (idx < 0 || target < 0 || target >= block.length) return;
+  block.splice(idx, 1);
+  block.splice(target, 0, repo);
+
+  var body = { layout: LAYOUT };
+  if (inPinnedBlock) body.pinned = block;
+  else body.order = block;
+  // Optimistic, then confirmed: the tile moves under the hand, and the server's answer is what
+  // the next draw reads.
+  if (inPinnedBlock) arr.pinned = block; else arr.order = block;
+  reorderDomTiles();
+  post("arrange", body).then(function (r) {
+    if (r && r.ok) mergeDesk(r);
     reorderDomTiles();
   });
-  reorderDomTiles();
 }
 
 function toggleTileSize(repo) {
   var curArr = getLayoutArrangement();
   var sizes = Object.assign({}, curArr.size || {});
   sizes[repo] = (sizes[repo] === 2) ? 1 : 2;
-  post("arrange", { layout: LAYOUT, size: sizes }).then(function (r) {
-    if (r && r.ok) desk.desk = r;
+  curArr.size = sizes;
+  reorderDomTiles();
+  return post("arrange", { layout: LAYOUT, size: sizes }).then(function (r) {
+    if (r && r.ok) mergeDesk(r);
     reorderDomTiles();
   });
-  reorderDomTiles();
 }
 
+/* Both toggles write the local arrangement BEFORE the round trip, not only after it. Reading
+   `desk.desk` and posting without updating it meant two quick clicks both read the same state and
+   the second overwrote the first: pin two tiles in a second and one of them silently came back
+   unpinned. The returned promise is what lets a caller sequence them. */
 function toggleTilePin(repo) {
   var curArr = getLayoutArrangement();
   var pinned = (curArr.pinned || []).slice();
   var idx = pinned.indexOf(repo);
   if (idx >= 0) pinned.splice(idx, 1); else pinned.push(repo);
-  post("arrange", { layout: LAYOUT, pinned: pinned }).then(function (r) {
-    if (r && r.ok) desk.desk = r;
+  curArr.pinned = pinned;
+  reorderDomTiles();
+  return post("arrange", { layout: LAYOUT, pinned: pinned }).then(function (r) {
+    if (r && r.ok) mergeDesk(r);
     reorderDomTiles();
   });
-  reorderDomTiles();
 }
 
 /* Which project this window is showing, when it is showing exactly one. `screens` is the shared
@@ -1566,7 +1609,7 @@ document.getElementById("swap").addEventListener("change", function () {
   if (was >= 0) screens[was] = here;                  // a swap, not an overwrite
   screens[SCREEN - 1] = wanted;
   post("select", { screens: screens }).then(function (r) {
-    if (r && r.ok) { desk.desk = { selected: r.selected, screens: r.screens, version: r.version }; }
+    if (r && r.ok) mergeDesk(r);
     place();
   });
 });
