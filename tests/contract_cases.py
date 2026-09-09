@@ -35,6 +35,8 @@ CASES: dict[str, dict] = {
     # test's own `.agent/out`. It copies nothing -- that is `apply`, which no contract case runs.
     "sort":       {"args": ["plan", "--heap", "@heap", "--rules", "@sortrules"],
                    "needs": ["heap", "sortrules"], "toon": True},
+    # `apply` prints meta block with ok: true on pipe
+    "theme":      {"args": ["apply"], "toon": True},
 
     # These reach a network, a licensed tool, or a Power BI install. `--help` still proves the
     # module imports, the parser builds, and the exit code is 0 -- which is most of what breaks.

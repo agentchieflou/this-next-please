@@ -266,7 +266,7 @@ def generate_sh_hook(entries: list[dict[str, Any]], default_escapes: str = "",
 
     for idx, e in enumerate(entries):
         cond = "if" if idx == 0 else "elif"
-        norm_p = e["path"].replace("\\", "/")
+        norm_p = textio.norm_path(e["path"])
         hex_esc = "".join(f"\\x{ord(c):02x}" for c in e["escapes"]) if e["escapes"] else ""
         lines.append(f'    {cond} [[ "$cur" == "{norm_p}"* ]]; then')
         lines.append(f'      export AGENTDATA_PROJECT="{e["name"]}"')
