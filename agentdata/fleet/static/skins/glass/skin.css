@@ -1,0 +1,45 @@
+/* Glass skin: HIG Materials applied literally (Issue #155).
+   Frosted acrylic translucent panels over dark ground with subtle accent glow.
+   Effective composited panel: #1B222C (panel at .55 over ground).
+*/
+
+body {
+  background:
+    radial-gradient(ellipse at 20% 15%, rgba(88, 166, 255, 0.15) 0%, transparent 45%),
+    radial-gradient(ellipse at 80% 85%, rgba(63, 185, 80, 0.10) 0%, transparent 45%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+header, footer, .tile, .inspector, .sidebars aside {
+  background: rgba(27, 34, 44, 0.55) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.tile {
+  border-top: 3px solid var(--accent) !important;
+}
+
+/* Status chips, accent borders, and focus rings remain solid and fully opaque */
+.chip {
+  opacity: 1 !important;
+}
+
+.chip.running { background: var(--running) !important; color: #fff !important; }
+.chip.waiting_approval { background: var(--waiting) !important; color: #fff !important; }
+.chip.needs_human, .chip.blocked, .chip.error { background: var(--human) !important; color: #fff !important; }
+.chip.done { background: var(--done) !important; color: #fff !important; }
+.chip.starting, .chip.idle { background: var(--idle) !important; color: #fff !important; }
+.chip.not-supervised { background: var(--muted) !important; color: var(--panel) !important; }
+
+/* HIG Accessibility: Reduced transparency fallback */
+@media (prefers-reduced-transparency: reduce) {
+  header, footer, .tile, .inspector, .sidebars aside {
+    background: var(--panel) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}

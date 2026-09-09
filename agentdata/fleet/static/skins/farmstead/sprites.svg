@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none;" shape-rendering="crispEdges">
+  <!-- 16x16 soil tile texture -->
+  <svg id="soil" viewBox="0 0 16 16" width="16" height="16">
+    <rect width="16" height="16" fill="#8C5C38"/>
+    <rect x="0" y="2" width="4" height="2" fill="#754826"/>
+    <rect x="8" y="1" width="3" height="2" fill="#9E6B43"/>
+    <rect x="5" y="6" width="4" height="2" fill="#754826"/>
+    <rect x="12" y="7" width="3" height="2" fill="#A8744B"/>
+    <rect x="2" y="11" width="3" height="2" fill="#693F1F"/>
+    <rect x="9" y="12" width="4" height="2" fill="#754826"/>
+    <rect x="14" y="13" width="2" height="2" fill="#9E6B43"/>
+  </svg>
+
+  <!-- 16x8 wood plank texture -->
+  <svg id="plank" viewBox="0 0 16 8" width="16" height="8">
+    <rect width="16" height="8" fill="#966138"/>
+    <rect x="0" y="0" width="16" height="1" fill="#AD7445"/>
+    <rect x="0" y="7" width="16" height="1" fill="#693F1F"/>
+    <rect x="7" y="1" width="1" height="6" fill="#693F1F"/>
+    <rect x="2" y="3" width="3" height="1" fill="#7A4B24"/>
+    <rect x="11" y="4" width="3" height="1" fill="#7A4B24"/>
+  </svg>
+
+  <!-- 16x16 crop stage: seed (idle/starting) -->
+  <svg id="crop-seed" viewBox="0 0 16 16" width="16" height="16">
+    <rect x="6" y="9" width="4" height="3" fill="#69401F"/>
+    <rect x="7" y="8" width="2" height="1" fill="#8A562B"/>
+    <rect x="7" y="10" width="2" height="1" fill="#A86E3C"/>
+  </svg>
+
+  <!-- 16x16 crop stage: sprout (running) -->
+  <svg id="crop-sprout" viewBox="0 0 16 16" width="16" height="16">
+    <rect x="7" y="7" width="2" height="6" fill="#4B8227"/>
+    <rect x="5" y="5" width="2" height="2" fill="#6CB839"/>
+    <rect x="9" y="6" width="2" height="2" fill="#7ECE42"/>
+    <rect x="7" y="4" width="2" height="2" fill="#6CB839"/>
+  </svg>
+
+  <!-- 16x16 crop stage: sun (waiting_approval) -->
+  <svg id="crop-sun" viewBox="0 0 16 16" width="16" height="16">
+    <rect x="5" y="5" width="6" height="6" fill="#F5A623"/>
+    <rect x="6" y="6" width="4" height="4" fill="#FFD043"/>
+    <rect x="7" y="2" width="2" height="2" fill="#E08B16"/>
+    <rect x="7" y="12" width="2" height="2" fill="#E08B16"/>
+    <rect x="2" y="7" width="2" height="2" fill="#E08B16"/>
+    <rect x="12" y="7" width="2" height="2" fill="#E08B16"/>
+  </svg>
+
+  <!-- 16x16 crop stage: bloom (done) -->
+  <svg id="crop-bloom" viewBox="0 0 16 16" width="16" height="16">
+    <rect x="7" y="7" width="2" height="6" fill="#4B8227"/>
+    <rect x="6" y="4" width="4" height="4" fill="#E83E8C"/>
+    <rect x="5" y="5" width="6" height="2" fill="#FF69B4"/>
+    <rect x="7" y="5" width="2" height="2" fill="#FFE066"/>
+  </svg>
+
+  <!-- 16x16 crop stage: wilted (needs_human/blocked/error) -->
+  <svg id="crop-wilted" viewBox="0 0 16 16" width="16" height="16">
+    <rect x="6" y="9" width="3" height="4" fill="#695333"/>
+    <rect x="9" y="8" width="3" height="2" fill="#8A6E44"/>
+    <rect x="10" y="10" width="3" height="3" fill="#A88B58"/>
+    <rect x="11" y="11" width="1" height="1" fill="#40321F"/>
+  </svg>
+</svg>

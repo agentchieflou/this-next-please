@@ -138,7 +138,7 @@ def css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
     return to_css(t, project_accent=project_accent)
 
 
-def check(t: Theme, composited_panel: str | None = None) -> None:
+def check(t: Theme, composited_panel: str | None = None, skin: str | None = None) -> None:
     """The theme invariant, computed, not judged by eye.
     
     1. text on ground >= 4.5:1 and <= 19:1 (pure white on pure black is refused).
@@ -150,18 +150,19 @@ def check(t: Theme, composited_panel: str | None = None) -> None:
         return
 
     target_ground = composited_panel or t.ground
+    skin_ctx = f"skin '{skin}': " if skin else ""
 
     # Rule 1: text on ground
     c_txt = contrast_ratio(t.text, target_ground)
     if c_txt < 4.5:
         raise ThemeError(
-            f"theme '{t.name}': text contrast {c_txt:.2f}:1 is below 4.5:1 floor",
-            hint=f"text '{t.text}' on ground '{target_ground}'"
+            f"{skin_ctx}theme '{t.name}': text contrast {c_txt:.2f}:1 is below 4.5:1 floor",
+            hint=f"{skin_ctx}text '{t.text}' on panel '{target_ground}'"
         )
     if c_txt > 19.0:
         raise ThemeError(
-            f"theme '{t.name}': text contrast {c_txt:.2f}:1 exceeds 19:1 cap",
-            hint=f"text '{t.text}' on ground '{target_ground}' is too harsh (pure white on pure black refused)"
+            f"{skin_ctx}theme '{t.name}': text contrast {c_txt:.2f}:1 exceeds 19:1 cap",
+            hint=f"{skin_ctx}text '{t.text}' on ground '{target_ground}' is too harsh (pure white on pure black refused)"
         )
 
     # Rule 2: each status colour on ground
@@ -169,8 +170,8 @@ def check(t: Theme, composited_panel: str | None = None) -> None:
         c_st = contrast_ratio(sc, target_ground)
         if c_st < 3.0:
             raise ThemeError(
-                f"theme '{t.name}': status '{role}' contrast {c_st:.2f}:1 is below 3:1 floor",
-                hint=f"status.{role} '{sc}' on ground '{target_ground}'"
+                f"{skin_ctx}theme '{t.name}': status '{role}' contrast {c_st:.2f}:1 is below 3:1 floor",
+                hint=f"{skin_ctx}status.{role} '{sc}' on ground '{target_ground}'"
             )
 
     # Rule 3: status pairwise distinction

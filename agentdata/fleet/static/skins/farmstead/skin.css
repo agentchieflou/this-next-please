@@ -1,0 +1,127 @@
+/* Farmstead skin: Warm paper, wooden frames, and crop-stage status glyphs (Issue #157).
+   Inspired by pixel farming games with 100% original hand-drawn <rect> SVG pixel art.
+   Effective composited panel: #E8DDC3.
+*/
+
+body {
+  background-color: #5C381E;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%238C5C38'/%3E%3Crect x='0' y='2' width='4' height='2' fill='%23754826'/%3E%3Crect x='8' y='1' width='3' height='2' fill='%239E6B43'/%3E%3Crect x='5' y='6' width='4' height='2' fill='%23754826'/%3E%3Crect x='12' y='7' width='3' height='2' fill='%23A8744B'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23693F1F'/%3E%3Crect x='9' y='12' width='4' height='2' fill='%23754826'/%3E%3Crect x='14' y='13' width='2' height='2' fill='%239E6B43'/%3E%3C/svg%3E");
+  background-size: 32px 32px;
+  image-rendering: pixelated;
+}
+
+header, footer {
+  background-color: #7A4B24;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 8' width='16' height='8' shape-rendering='crispEdges'%3E%3Crect width='16' height='8' fill='%23966138'/%3E%3Crect x='0' y='0' width='16' height='1' fill='%23AD7445'/%3E%3Crect x='0' y='7' width='16' height='1' fill='%23693F1F'/%3E%3Crect x='7' y='1' width='1' height='6' fill='%23693F1F'/%3E%3Crect x='2' y='3' width='3' height='1' fill='%237A4B24'/%3E%3Crect x='11' y='4' width='3' height='1' fill='%237A4B24'/%3E%3C/svg%3E");
+  background-size: 32px 16px;
+  image-rendering: pixelated;
+  border-bottom: 4px solid #3D2411 !important;
+  color: #FFFDF5 !important;
+}
+
+/* Controls: Wooden with hard bottom shadow press */
+button, select, input, .segment, .segmented, kbd, .keys kbd {
+  background: #C89D6A !important;
+  color: #2D1A0C !important;
+  border: 2px solid #4A2E16 !important;
+  border-radius: 4px !important;
+  box-shadow: 0 3px 0 #4A2E16 !important;
+  font-weight: 600;
+}
+
+button:active, .segment.active {
+  box-shadow: 0 1px 0 #4A2E16 !important;
+  transform: translateY(2px);
+  background: #B38654 !important;
+}
+
+/* Tiles: Cream paper with 4px wood frame */
+.tile {
+  background: #FBF3E0 !important;
+  color: #2D1A0C !important;
+  border: 4px solid #6E4A28 !important;
+  border-top: 4px solid var(--accent) !important;
+  border-left: 4px solid var(--idle) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+}
+
+.tile .head .n, .ticket, .age {
+  color: #5C381E !important;
+}
+
+.tile.state-running { border-left-color: var(--running) !important; }
+.tile.state-waiting_approval { border-left-color: var(--waiting) !important; }
+.tile.state-needs_human, .tile.state-blocked, .tile.state-error { border-left-color: var(--human) !important; }
+.tile.state-done { border-left-color: var(--done) !important; }
+.tile.state-starting, .tile.state-idle { border-left-color: var(--idle) !important; }
+.tile.state-not_supervised { border-left-color: var(--muted) !important; }
+
+/* Status chips: Cream tags, text in role colour, crop-stage sprite */
+.chip {
+  background: #FFFDF5 !important;
+  border: 2px solid #6E4A28 !important;
+  border-radius: 4px !important;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.chip.running { color: var(--running) !important; }
+.chip.waiting_approval { color: var(--waiting) !important; }
+.chip.needs_human, .chip.blocked, .chip.error { color: var(--human) !important; }
+.chip.done { color: var(--done) !important; }
+.chip.starting, .chip.idle { color: var(--idle) !important; }
+.chip.not-supervised { color: var(--muted) !important; }
+
+.chip::before {
+  content: "";
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  background-size: 16px 16px;
+  image-rendering: pixelated;
+}
+
+/* Crop stage sprites */
+.chip.starting::before, .chip.idle::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='6' y='9' width='4' height='3' fill='%2369401F'/%3E%3Crect x='7' y='8' width='2' height='1' fill='%238A562B'/%3E%3Crect x='7' y='10' width='2' height='1' fill='%23A86E3C'/%3E%3C/svg%3E");
+}
+
+.chip.running::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='7' y='7' width='2' height='6' fill='%234B8227'/%3E%3Crect x='5' y='5' width='2' height='2' fill='%236CB839'/%3E%3Crect x='9' y='6' width='2' height='2' fill='%237ECE42'/%3E%3Crect x='7' y='4' width='2' height='2' fill='%236CB839'/%3E%3C/svg%3E");
+}
+
+.chip.waiting_approval::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='5' y='5' width='6' height='6' fill='%23F5A623'/%3E%3Crect x='6' y='6' width='4' height='4' fill='%23FFD043'/%3E%3Crect x='7' y='2' width='2' height='2' fill='%23E08B16'/%3E%3Crect x='7' y='12' width='2' height='2' fill='%23E08B16'/%3E%3Crect x='2' y='7' width='2' height='2' fill='%23E08B16'/%3E%3Crect x='12' y='7' width='2' height='2' fill='%23E08B16'/%3E%3C/svg%3E");
+}
+
+.chip.done::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='7' y='7' width='2' height='6' fill='%234B8227'/%3E%3Crect x='6' y='4' width='4' height='4' fill='%23E83E8C'/%3E%3Crect x='5' y='5' width='6' height='2' fill='%23FF69B4'/%3E%3Crect x='7' y='5' width='2' height='2' fill='%23FFE066'/%3E%3C/svg%3E");
+}
+
+.chip.needs_human::before, .chip.blocked::before, .chip.error::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='6' y='9' width='3' height='4' fill='%23695333'/%3E%3Crect x='9' y='8' width='3' height='2' fill='%238A6E44'/%3E%3Crect x='10' y='10' width='3' height='3' fill='%23A88B58'/%3E%3Crect x='11' y='11' width='1' height='1' fill='%2340321F'/%3E%3C/svg%3E");
+}
+
+/* Inspector: Journal page style */
+aside#inspector, .sidebars aside {
+  background: #FFFDF5 !important;
+  color: #2D1A0C !important;
+  border-left: 4px solid #6E4A28 !important;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.2);
+}
+
+/* HIG Accessibility: Reduced motion stops animations and fresh page has no animations */
+* {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

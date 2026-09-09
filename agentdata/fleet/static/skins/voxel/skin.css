@@ -1,0 +1,96 @@
+/* Voxel skin: Chunky bevelled slab controls and pixel status blocks (Issue #156).
+   Inspired by voxel worlds with 100% original hand-drawn <rect> SVG pixel art.
+   Effective composited panel: #1E221E.
+*/
+
+body {
+  background-color: #382416;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%235A3D28'/%3E%3Crect x='0' y='0' width='2' height='2' fill='%234B3220'/%3E%3Crect x='4' y='1' width='2' height='1' fill='%236B4B32'/%3E%3Crect x='2' y='3' width='1' height='2' fill='%23402B1B'/%3E%3Crect x='6' y='3' width='2' height='2' fill='%234B3220'/%3E%3Crect x='1' y='6' width='2' height='1' fill='%236B4B32'/%3E%3Crect x='5' y='6' width='2' height='2' fill='%233D2919'/%3E%3Crect x='3' y='7' width='1' height='1' fill='%236B4B32'/%3E%3C/svg%3E");
+  background-size: 32px 32px;
+  image-rendering: pixelated;
+}
+
+header, footer {
+  background-color: #303030;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%23383838'/%3E%3Crect x='0' y='0' width='3' height='1' fill='%23484848'/%3E%3Crect x='4' y='0' width='2' height='2' fill='%23282828'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%23303030'/%3E%3Crect x='6' y='2' width='2' height='1' fill='%23505050'/%3E%3Crect x='3' y='4' width='3' height='2' fill='%23202020'/%3E%3Crect x='0' y='5' width='2' height='2' fill='%23404040'/%3E%3Crect x='6' y='5' width='2' height='2' fill='%232c2c2c'/%3E%3Crect x='2' y='7' width='3' height='1' fill='%23444444'/%3E%3C/svg%3E");
+  background-size: 32px 32px;
+  image-rendering: pixelated;
+  border-color: #111 !important;
+  border-radius: 0 !important;
+}
+
+/* Controls: No border-radius, bevelled slab styling */
+button, select, input, .segment, .segmented, kbd, .keys kbd {
+  border-radius: 0 !important;
+  border: 2px solid #111 !important;
+  background: #3A3D40 !important;
+  color: #E3E7EA !important;
+  box-shadow: inset 2px 2px 0 rgba(255, 255, 255, 0.25), inset -2px -2px 0 rgba(0, 0, 0, 0.6) !important;
+}
+
+button:active, .segment.active {
+  box-shadow: inset 2px 2px 0 rgba(0, 0, 0, 0.7), inset -2px -2px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Tiles: 10px accent border, no border-radius */
+.tile {
+  background: #1E221E !important;
+  border-radius: 0 !important;
+  border: 2px solid #111 !important;
+  border-top: 10px solid var(--accent) !important;
+  border-left: 4px solid var(--idle) !important;
+  box-shadow: 0 4px 0 #111;
+}
+
+.tile.state-running { border-left-color: var(--running) !important; }
+.tile.state-waiting_approval { border-left-color: var(--waiting) !important; }
+.tile.state-needs_human, .tile.state-blocked, .tile.state-error { border-left-color: var(--human) !important; }
+.tile.state-done { border-left-color: var(--done) !important; }
+.tile.state-starting, .tile.state-idle { border-left-color: var(--idle) !important; }
+.tile.state-not_supervised { border-left-color: var(--muted) !important; }
+
+/* Status chips: Keep role colour & glyph, gain 12px status block */
+.chip {
+  border-radius: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #111 !important;
+}
+
+.chip::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  background-size: 12px 12px;
+  image-rendering: pixelated;
+}
+
+.chip.running::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%231C3D5A'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%2358A6FF'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%2379C0FF'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23FFFFFF'/%3E%3C/svg%3E");
+}
+
+.chip.waiting_approval::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%234D3605'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%23D29922'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%23E3B341'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23FFF2D6'/%3E%3C/svg%3E");
+}
+
+.chip.needs_human::before, .chip.blocked::before, .chip.error::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%234A1010'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%23FF5C5C'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%23FFA1A1'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23FFFFFF'/%3E%3C/svg%3E");
+}
+
+.chip.done::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%230E3D18'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%233FB950'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%237EE787'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23E6FFED'/%3E%3C/svg%3E");
+}
+
+.chip.starting::before, .chip.idle::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%2325282B'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%238B949E'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%23B1BAC4'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23F0F6FC'/%3E%3C/svg%3E");
+}
+
+/* HIG Accessibility: Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
