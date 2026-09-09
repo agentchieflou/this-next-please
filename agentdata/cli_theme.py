@@ -241,6 +241,58 @@ def cmd_unset(a) -> int:
         return 0
 
 
+def cmd_install(a) -> int:
+    """Install theme hooks, prompt integration, or terminal configuration."""
+    from . import omp
+
+    if getattr(a, "prompt", None) == "omp":
+        theme_name, _ = _resolve_cwd_theme()
+        t = theme.get(theme_name)
+        omp_path = omp.write_theme_omp(t)
+
+        shells = [a.shell] if getattr(a, "shell", None) else ["pwsh", "bash", "cmd"]
+        results = []
+        for sh in shells:
+            try:
+                res = omp.install(sh, omp_path)
+                results.append([res["shell"], res["path"], "installed" if res["changed"] else "already-there"])
+            except Exception as e:
+                results.append([sh, "error", str(e)])
+
+        if policy.pretty():
+            ui.table(["shell", "path", "status"], results, title="Oh My Posh Prompt Install")
+        else:
+            print(toon.table("installed", ["shell", "path", "status"], results))
+        return 0
+
+    print("Nothing to install. Specify --prompt omp, --hook, or --terminal wt.")
+    return 0
+
+
+def cmd_uninstall(a) -> int:
+    """Uninstall theme hooks, prompt integration, or terminal configuration."""
+    from . import omp
+
+    if getattr(a, "prompt", False):
+        shells = [a.shell] if getattr(a, "shell", None) else ["pwsh", "bash", "cmd"]
+        results = []
+        for sh in shells:
+            try:
+                res = omp.uninstall(sh)
+                results.append([res["shell"], res["path"], "removed" if res["removed"] else "not-installed"])
+            except Exception as e:
+                results.append([sh, "error", str(e)])
+
+        if policy.pretty():
+            ui.table(["shell", "path", "status"], results, title="Oh My Posh Prompt Uninstall")
+        else:
+            print(toon.table("uninstalled", ["shell", "path", "status"], results))
+        return 0
+
+    print("Nothing to uninstall. Specify --prompt, --hook, or --terminal.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="ad-theme",
@@ -277,6 +329,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_unset = sub.add_parser("unset", help="unset theme from config.json")
     p_unset.add_argument("--project", help="project directory or name")
 
+    p_inst = sub.add_parser("install", help="install theme hooks, prompt or terminal configuration")
+    p_inst.add_argument("--prompt", choices=["omp"], help="prompt integration (omp)")
+    p_inst.add_argument("--hook", action="store_true", help="directory hook")
+    p_inst.add_argument("--terminal", choices=["wt"], help="terminal fragment (wt)")
+    p_inst.add_argument("--shell", choices=["pwsh", "bash", "cmd"], help="specific shell")
+    p_inst.add_argument("--pretty", action="store_true", help="draw as table")
+
+    p_uninst = sub.add_parser("uninstall", help="uninstall theme hooks, prompt or terminal configuration")
+    p_uninst.add_argument("--prompt", action="store_true", help="remove prompt integration")
+    p_uninst.add_argument("--hook", action="store_true", help="remove directory hook")
+    p_uninst.add_argument("--terminal", action="store_true", help="remove terminal fragment")
+    p_uninst.add_argument("--shell", choices=["pwsh", "bash", "cmd"], help="specific shell")
+    p_uninst.add_argument("--pretty", action="store_true", help="draw as table")
+
     return p
 
 
@@ -301,6 +367,8 @@ def main(argv: list[str] | None = None) -> int:
         "reset": cmd_reset,
         "set": cmd_set,
         "unset": cmd_unset,
+        "install": cmd_install,
+        "uninstall": cmd_uninstall,
     }
 
     fn = commands.get(args.command)
