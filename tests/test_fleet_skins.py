@@ -98,3 +98,32 @@ def test_accessibility_fallbacks_present_in_skin_stylesheets():
     farm_css = open(os.path.join(SKINS_DIR, "farmstead", "skin.css"), encoding="utf-8").read()
     assert "prefers-reduced-motion" in farm_css
     assert "animation: none" in farm_css
+
+
+def test_every_skin_writes_the_accessibility_fallbacks_it_promised():
+    """A source check, on purpose, and the docstring is the reason.
+
+    Reduced MOTION is exercised in the browser. Reduced TRANSPARENCY cannot be: Chromium did not
+    ship `prefers-reduced-transparency` until well after the build these tests drive, so the query
+    never matches and the fallback never fires there -- and it will not fire in an older Edge or
+    JCEF either. The behaviour is therefore unobservable on every engine we have, and the only
+    honest thing left to assert is that the rule is written and points at elements that exist.
+    `docs/themes.md` carries the limitation so nobody reads this test as proof it works.
+    """
+    base = open(os.path.join(os.path.dirname(SKINS_DIR), "app.css"), encoding="utf-8").read()
+    assert "prefers-reduced-motion" in base, "the page itself must honour reduced motion"
+
+    for name in ("glass", "voxel", "farmstead"):
+        css = open(os.path.join(SKINS_DIR, name, "skin.css"), encoding="utf-8").read()
+        # A skin that introduces movement has to be able to stop it. One that does not introduce
+        # any is covered by the base stylesheet's global rule, and a per-skin block there would be
+        # boilerplate asserting itself.
+        if "animation:" in css or "@keyframes" in css or "transition:" in css:
+            assert "prefers-reduced-motion" in css, f"{name} animates and never stops"
+        assert ".sidebars" not in css and "aside#inspector" not in css, \
+            f"{name} styles a sidebar that no longer exists"
+    glass = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
+    assert "prefers-reduced-transparency" in glass
+    block = glass[glass.index("prefers-reduced-transparency"):]
+    assert "#side" in block, "the opaque fallback must cover the sidebar too"
+    assert "backdrop-filter: none" in block
