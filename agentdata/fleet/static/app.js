@@ -137,21 +137,95 @@ function makeTile(row, index) {
   // repo name or a double click: one gesture per meaning.
   el.addEventListener("click", function () { choose(row.repo); });
 
-  // A ticket dropped on a tile is a dispatch. `preventDefault` on dragover is what makes an
-  // element a drop target at all -- without it the browser refuses the drop and nothing happens,
-  // silently, which looks exactly like a broken feature.
+  // Drag and drop for tile reordering and Jira ticket dropping
+  el.draggable = true;
+  el.addEventListener("dragstart", function (e) {
+    if (["INPUT", "BUTTON", "SELECT"].indexOf(e.target.tagName) >= 0) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.setData("application/x-agentdata-tile", row.repo);
+    e.dataTransfer.effectAllowed = "move";
+    el.classList.add("is-dragging");
+  });
+  el.addEventListener("dragend", function () {
+    el.classList.remove("is-dragging");
+    document.querySelectorAll(".tile").forEach(function (t) {
+      t.classList.remove("drop-before", "drop-after", "drop-target");
+    });
+  });
+
   el.addEventListener("dragover", function (e) {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    el.classList.add("drop-target");
+    var isTileDrag = Array.from(e.dataTransfer.types || []).indexOf("application/x-agentdata-tile") >= 0;
+    if (isTileDrag) {
+      e.dataTransfer.dropEffect = "move";
+      var rect = el.getBoundingClientRect();
+      var before = (e.clientX - rect.left) < (rect.width / 2);
+      el.classList.toggle("drop-before", before);
+      el.classList.toggle("drop-after", !before);
+    } else {
+      e.dataTransfer.dropEffect = "copy";
+      el.classList.add("drop-target");
+    }
   });
-  el.addEventListener("dragleave", function () { el.classList.remove("drop-target"); });
+
+  el.addEventListener("dragleave", function () {
+    el.classList.remove("drop-target", "drop-before", "drop-after");
+  });
+
   el.addEventListener("drop", function (e) {
     e.preventDefault();
-    el.classList.remove("drop-target");
+    var isTileDrag = el.classList.contains("drop-before") || el.classList.contains("drop-after");
+    var droppedRepo = e.dataTransfer.getData("application/x-agentdata-tile");
+    var dropBefore = el.classList.contains("drop-before");
+    el.classList.remove("drop-target", "drop-before", "drop-after");
+
+    if (droppedRepo && droppedRepo !== row.repo) {
+      var order = getEffectiveOrder();
+      var fromIdx = order.indexOf(droppedRepo);
+      if (fromIdx >= 0) order.splice(fromIdx, 1);
+      var toIdx = order.indexOf(row.repo);
+      if (!dropBefore) toIdx += 1;
+      order.splice(toIdx, 0, droppedRepo);
+      post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
+        if (r && r.ok) desk.desk = r;
+        reorderDomTiles();
+      });
+      reorderDomTiles();
+      return;
+    }
+
     var key = (e.dataTransfer.getData("text/plain") || "").trim();
     if (key) dispatch(key, row.repo);
   });
+
+  // Keyboard navigation on tile (Alt+Left / Alt+Right)
+  el.addEventListener("keydown", function (e) {
+    if (e.altKey && e.key === "ArrowLeft") {
+      moveTile(row.repo, -1);
+      e.preventDefault();
+    } else if (e.altKey && e.key === "ArrowRight") {
+      moveTile(row.repo, 1);
+      e.preventDefault();
+    }
+  });
+
+  var pinBtn = el.querySelector(".pintoggle");
+  if (pinBtn) {
+    pinBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      toggleTilePin(row.repo);
+    });
+  }
+
+  var sizeBtn = el.querySelector(".sizetoggle");
+  if (sizeBtn) {
+    sizeBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      toggleTileSize(row.repo);
+    });
+  }
 
   var say = el.querySelector(".say");
   el.querySelector(".send").addEventListener("click", function () {
@@ -1151,6 +1225,87 @@ document.getElementById("closeinspector").addEventListener("click", function () 
   document.getElementById("inspector").hidden = true;
 });
 
+function getLayoutArrangement() {
+  var arr = (desk.desk && desk.desk.arrangement) || {};
+  return arr[LAYOUT] || { order: [], size: {}, pinned: [] };
+}
+
+function getEffectiveOrder() {
+  var curArr = getLayoutArrangement();
+  var pinned = curArr.pinned || [];
+  var order = (curArr.order || []).filter(function (n) { return tiles.has(n); });
+  Array.from(tiles.keys()).forEach(function (n) {
+    if (order.indexOf(n) < 0) order.push(n);
+  });
+  var result = [];
+  pinned.forEach(function (p) { if (tiles.has(p)) result.push(p); });
+  order.forEach(function (o) { if (result.indexOf(o) < 0) result.push(o); });
+  return result;
+}
+
+function reorderDomTiles() {
+  var grid = document.getElementById("grid");
+  if (!grid) return;
+  var order = getEffectiveOrder();
+  var curArr = getLayoutArrangement();
+  var sizes = curArr.size || {};
+  var pinned = curArr.pinned || [];
+
+  order.forEach(function (name, index) {
+    var entry = tiles.get(name);
+    if (entry && entry.el) {
+      grid.appendChild(entry.el);
+      text(entry.el.querySelector(".n"), index + 1);
+      var sz = sizes[name] || 1;
+      entry.el.classList.toggle("size-2", sz === 2);
+      var szBtn = entry.el.querySelector(".sizetoggle");
+      if (szBtn) text(szBtn, sz === 2 ? "2x" : "1x");
+      var isPinned = pinned.indexOf(name) >= 0;
+      entry.el.classList.toggle("is-pinned", isPinned);
+      var pBtn = entry.el.querySelector(".pintoggle");
+      if (pBtn) pBtn.classList.toggle("active", isPinned);
+    }
+  });
+}
+
+function moveTile(repo, dir) {
+  var order = getEffectiveOrder();
+  var idx = order.indexOf(repo);
+  if (idx < 0) return;
+  var targetIdx = idx + dir;
+  if (targetIdx < 0 || targetIdx >= order.length) return;
+  order.splice(idx, 1);
+  order.splice(targetIdx, 0, repo);
+  post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
+    if (r && r.ok) desk.desk = r;
+    reorderDomTiles();
+  });
+  reorderDomTiles();
+}
+
+function toggleTileSize(repo) {
+  var curArr = getLayoutArrangement();
+  var sizes = Object.assign({}, curArr.size || {});
+  sizes[repo] = (sizes[repo] === 2) ? 1 : 2;
+  post("arrange", { layout: LAYOUT, size: sizes }).then(function (r) {
+    if (r && r.ok) desk.desk = r;
+    reorderDomTiles();
+  });
+  reorderDomTiles();
+}
+
+function toggleTilePin(repo) {
+  var curArr = getLayoutArrangement();
+  var pinned = (curArr.pinned || []).slice();
+  var idx = pinned.indexOf(repo);
+  if (idx >= 0) pinned.splice(idx, 1); else pinned.push(repo);
+  post("arrange", { layout: LAYOUT, pinned: pinned }).then(function (r) {
+    if (r && r.ok) desk.desk = r;
+    reorderDomTiles();
+  });
+  reorderDomTiles();
+}
+
 /* Which project this window is showing, when it is showing exactly one. `screens` is the shared
    pinning; a screen with nothing pinned falls back to the Nth registered repo, so opening
    `?layout=screens&screen=2` on a fresh fleet shows something rather than an empty monitor. */
@@ -1183,6 +1338,7 @@ function place() {
     entry.el.classList.toggle("is-solo", name === one);
     entry.el.classList.toggle("is-selected", name === desk.desk.selected);
   });
+  reorderDomTiles();
   if (one) {
     // Opened once, not on every draw: a window that reopens a panel the operator just closed is
     // the kind of thing that gets a dashboard turned off.

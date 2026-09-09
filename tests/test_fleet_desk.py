@@ -2,7 +2,9 @@
 from __future__ import annotations
 import json
 import os
+import threading
 import time
+import urllib.request
 
 import pytest
 
@@ -133,3 +135,29 @@ def test_hig_chrome_toolbar_and_inspector():
     assert "toolbar-group group-actions" in html
     assert 'id="layoutgroup"' in html
     assert 'id="inspector"' in html
+
+
+def test_desk_arrange_api(fleet_home, tmp_path):
+    server, token = S.build(0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        req = urllib.request.Request(
+            f"{base}/api/arrange?t={token}",
+            data=json.dumps({"layout": "grid", "order": ["x", "y"], "size": {"x": 2}, "pinned": ["x"]}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            assert r.status == 200
+            res = json.loads(r.read())
+            assert res["ok"] is True
+            assert res["action"] == "arrange"
+            assert res["arrangement"]["grid"]["order"] == ["x", "y"]
+            assert res["arrangement"]["grid"]["size"] == {"x": 2}
+            assert res["arrangement"]["grid"]["pinned"] == ["x"]
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()

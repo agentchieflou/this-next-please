@@ -155,6 +155,19 @@ body.focused .tile.is-focused { max-height: none; }
 .ticket, .age { color: var(--muted); font: 11px var(--mono); }
 .age.stale { opacity: 0.55; }
 
+.head .pintoggle, .head .sizetoggle {
+  font: 10px var(--mono); padding: 1px 4px; min-height: 20px; min-width: 20px;
+  border-radius: 3px; background: transparent; border: 1px solid var(--line);
+  color: var(--muted); cursor: pointer;
+}
+.head .pintoggle:hover, .head .sizetoggle:hover { border-color: var(--accent); color: var(--text); }
+.head .pintoggle.active { background: var(--select); color: var(--accent); border-color: var(--accent); }
+
+.tile.size-2 { grid-column: span 2; }
+.tile.drop-before { border-left: 4px solid var(--accent) !important; }
+.tile.drop-after { border-right: 4px solid var(--accent) !important; }
+.tile.is-dragging { opacity: 0.45; }
+
 .chip {
   font: 11px var(--mono); border-radius: 10px; padding: 1px 8px;
   background: var(--select); color: var(--text);
