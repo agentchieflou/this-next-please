@@ -49,4 +49,28 @@ ad-sort apply --plan .agent/out/<heap>-sort-plan.json
 8. `state-update`: artifacts. Hand off → `dpm-consumer-integration` when the sorted folder is what a run will read,
    else `router`.
 
-§ The rule-set shape and every refusal: `docs/sorting.md`.
+## The DPM remediation structure (RDSD-22488)
+
+A delivery of retrieved documents does **not** use a rule set — the structure is prescribed and the fields come from
+retrieval's own JSONL, one per source system. Use these instead:
+
+```
+ad-sort probe --at <the volume the structure lives on>
+ad-sort dpm-plan --heap <downloads> --root <M:/.../DPMRemediationDOCS> --ticket RDSD-nnnnn                  --catalog LSS=<lss.jsonl> [--catalog IMZ=<imz.jsonl>] [--loans <population>]
+```
+
+* Verdicts here are `file`, `already_filed` (this loan's manifest has it — retrieval is never repeated),
+  `missing_from_disk` (**a retrieval gap, report it as one**), `collision`, and `unclassified` (a file no catalogue
+  names, so nothing knows its loan or its type).
+* `--loans` is what makes "which loans returned nothing" answerable. Without it the report says it cannot say, and you
+  must repeat that rather than reporting zero.
+* `IsTiff` documents are filed as they are and **queued** for PDF conversion. They are not converted. Never describe
+  them as converted.
+* `IsCanView` false is counted per loan for the administrative report. Those documents are still filed — they are
+  evidence that a retrieval happened.
+* **LIS has no field map.** `ad-sort dpm-plan --catalog LIS=…` refuses. Get a sample record to whoever maintains
+  `agentdata/sorting/catalog.py`; do not map it yourself from a filename.
+* The apply line is still a person's, and views are hardlinks where the volume allows: `ad-sort probe` answers that
+  before anyone commits to a storage budget.
+
+§ The rule-set shape, the DPM structure and every refusal: `docs/sorting.md`.

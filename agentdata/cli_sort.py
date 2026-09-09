@@ -18,10 +18,16 @@ from .console import utf8_stdout
 from .policy import error
 from .sorting import SortError
 from .sorting import apply as A
+from .sorting import catalog as CAT
+from .sorting import dpm_layout as D
+from .sorting import dpm_plan as DP
+from .sorting import links as L
 from .sorting import plan as P
 from .sorting import rules as R
 
 SHOW = 60
+
+DP_COLS = ("verdict", "loan", "source", "destination", "kind", "why")
 
 
 def _out_dir(a) -> str:
@@ -121,6 +127,99 @@ def cmd_rules(a) -> int:
     return 0
 
 
+def _catalogs(a) -> list:
+    """One `--catalog SYSTEM=path` per source system. LSS and IMZ are mapped; LIS refuses until somebody describes it."""
+    read = []
+    for spec in a.catalog:
+        system, sep, path = spec.partition("=")
+        if not sep:
+            raise SortError("bad_catalog_spec", f"--catalog {spec!r} does not name its source system",
+                            "write it as --catalog LSS=/path/to/lss.jsonl (LSS, IMZ, LIS)")
+        read.append(CAT.read(path, system, loan_field=a.loan_field or ""))
+    return read
+
+
+def cmd_dpm_plan(a) -> int:
+    """RDSD-22488's structure, planned. Reads the catalogues and the download folder; writes only its own plan."""
+    catalogs = _catalogs(a)
+    expected = CAT.loans_from(a.loans) if a.loans else None
+    plan = DP.make(heap=a.heap, root=a.root, ticket=a.ticket, catalogs=catalogs, expected_loans=expected)
+
+    out_dir = _out_dir(a)
+    os.makedirs(out_dir, exist_ok=True)
+    stem = textio.safe_name(a.ticket)
+    plan_path = textio.write_json(os.path.join(out_dir, f"{stem}-dpm-plan.json"), plan)
+    review = textio.write_text(os.path.join(out_dir, f"{stem}-dpm-plan.md"), DP.review_md(plan))
+    admin = textio.write_text(os.path.join(out_dir, f"{stem}-administration.md"),
+                              D.admin_md(a.ticket, plan["administration"], [r["record"] for r in plan["rows"]
+                                                                            if r["record"] is not None]))
+    counts, adm = plan["counts"], plan["administration"]
+    ok = counts["file"] > 0 or counts["already_filed"] > 0
+    meta = {"ok": ok, "source": "ad-sort dpm-plan", "ticket": a.ticket, "heap": plan["heap"], "root": plan["root"],
+            **counts, "loans": adm["loans"], "not_viewable": adm["not_viewable"],
+            "tiff_to_convert": adm["tiff_to_convert"], "plan": plan_path, "review": review, "administration": admin,
+            "next": f"read {textio.norm_path(review)}, then `ad-sort dpm-apply --plan {textio.norm_path(plan_path)}`"}
+    if adm["population_known"]:
+        meta["loans_with_no_documents"] = len(adm["loans_with_no_documents"])
+    else:
+        meta["note"] = ("which loans returned nothing cannot be answered from a catalogue alone -- it only records "
+                        "loans that produced a document. Pass --loans <file> with the expected population.")
+    if counts["missing_from_disk"]:
+        meta["hint"] = (f"{counts['missing_from_disk']} catalogued document(s) are not in the folder: that is a "
+                        "retrieval gap, not a filing one")
+    if not ok:
+        meta["hint"] = "nothing to file: no catalogue row matched a file in the download folder"
+    rows = [[r["verdict"], r["loan_number"], r["source"], r["destination"], r["kind"], r["why"]]
+            for r in plan["rows"][:SHOW]]
+    _emit(meta, DP_COLS, rows, title="ad-sort dpm-plan", table="plan")
+    return 0 if ok else 1
+
+
+def cmd_dpm_apply(a) -> int:
+    """File the evidence and link the views. A person's command."""
+    plan = textio.read_json(a.plan, "plan file")
+    if a.dry_run:
+        would = [r for r in plan.get("rows", []) if r.get("verdict") == "file"]
+        volume = L.probe(plan["root"])
+        meta = {"ok": True, "source": "ad-sort dpm-apply", "dry_run": True, "ticket": plan.get("ticket", ""),
+                "root": plan.get("root", ""), "would_file": len(would),
+                "would_link": len(would) * len(D.VIEW_AXES),
+                "hardlinks_available": volume["hardlinks"], "volume": volume["evidence"],
+                "next": "re-run without --dry-run"}
+        rows = [["file", r["loan_number"], r["source"], r["destination"], r["kind"], ""] for r in would[:SHOW]]
+        _emit(meta, DP_COLS, rows, title="ad-sort dpm-apply", table="would file")
+        return 0
+
+    result = DP.apply(plan)
+    ok = result["failed"] == 0
+    meta = {"ok": ok, "source": "ad-sort dpm-apply", "ticket": plan.get("ticket", ""), "root": result["root"],
+            "filed": result["filed"], "views": result["views"], "failed": result["failed"],
+            "link_mode": result["link_mode"], "hardlinks_available": result["hardlinks_available"],
+            "volume": result["volume"], "manifests": len(result["manifests"])}
+    if not result["hardlinks_available"]:
+        meta["note"] = ("this volume has no hardlinks, so every view is a copy: the views tree costs as much as the "
+                        "evidence again, per axis. `ad-sort probe` says the same thing before you commit to it.")
+    if result["errors"]:
+        meta["hint"] = f"first failure: {result['errors'][0]['error']}"
+    rows = [["filed", "", "", m, "manifest", ""] for m in result["manifests"][:SHOW]]
+    _emit(meta, DP_COLS, rows, title="ad-sort dpm-apply", table="manifests")
+    return 0 if ok else 1
+
+
+def cmd_probe(a) -> int:
+    """Does this volume make hardlinks? The one fact a drive letter cannot tell you."""
+    answer = L.probe(a.at)
+    meta = {"ok": answer["writable"], "source": "ad-sort probe", "at": textio.norm_path(os.path.abspath(a.at)),
+            "hardlinks": answer["hardlinks"], "writable": answer["writable"], "evidence": answer["evidence"],
+            "note": ("views will be hardlinks: a view costs no storage and deleting one cannot touch the evidence"
+                     if answer["hardlinks"] else
+                     "views will be copies: budget the evidence's size again for every view axis")}
+    _emit(meta, ("fact", "value", "", "", "", ""),
+          [["hardlinks", str(answer["hardlinks"]), "", "", "", ""],
+           ["writable", str(answer["writable"]), "", "", "", ""]], title="ad-sort probe", table="volume")
+    return 0 if answer["writable"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="ad-sort", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -144,6 +243,33 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out-dir", dest="out_dir", help="where the receipt goes (default .agent/out)")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
     p.set_defaults(func=cmd_apply)
+
+    p = sub.add_parser("dpm-plan", help="RDSD-22488's structure: canonical raw_docs per loan, views beside them")
+    p.add_argument("--heap", required=True, help="the folder retrieval wrote the documents to")
+    p.add_argument("--root", required=True, help=r"where the structure lives, e.g. M:\YB19\GRP2\DPMRemediationDOCS")
+    p.add_argument("--ticket", required=True, help="the DPM ticket, the structure's first level (e.g. RDSD-22488)")
+    p.add_argument("--catalog", action="append", required=True, metavar="SYSTEM=PATH",
+                   help="a source system's JSONL, e.g. LSS=/path/lss.jsonl (repeatable; LSS, IMZ, LIS)")
+    p.add_argument("--loan-field", dest="loan_field",
+                   help="the catalogue key holding the loan number, when it is not one of the names looked for")
+    p.add_argument("--loans", help="the expected loan population, one per line -- what makes a loan with zero "
+                                   "documents visible")
+    p.add_argument("--out-dir", dest="out_dir", help="where the plan, review and administration go (default .agent/out)")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
+    p.set_defaults(func=cmd_dpm_plan)
+
+    p = sub.add_parser("dpm-apply", help="file the evidence and link the views; a person's command")
+    p.add_argument("--plan", required=True, help="the plan file `ad-sort dpm-plan` wrote")
+    p.add_argument("--dry-run", action="store_true", dest="dry_run",
+                   help="say what would be filed, and whether this volume can hardlink")
+    p.add_argument("--out-dir", dest="out_dir", help="unused here; the manifests live with the documents")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
+    p.set_defaults(func=cmd_dpm_apply)
+
+    p = sub.add_parser("probe", help="can this volume make a hardlink? (a mapped drive letter does not say)")
+    p.add_argument("--at", required=True, help="a folder on the volume the structure will live on")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
+    p.set_defaults(func=cmd_probe)
 
     p = sub.add_parser("rules", help="write a starter rule set to edit, or check one")
     p.add_argument("--rules", help="an existing rule set to validate and print")

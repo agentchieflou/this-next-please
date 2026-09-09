@@ -89,7 +89,84 @@ to decide where it belongs would be reading all of them.
 `1` is the one worth wiring into a script. A heap nobody has written rules for looks exactly like a heap that is
 already tidy, and that is the difference between the two.
 
-## DPM
+## The DPM remediation structure (RDSD-22488)
+
+A delivery of retrieved documents does not use a rule set. The structure is prescribed, and the fields it organises by
+are not in the filenames — they come from the JSONL retrieval writes, one per source system.
+
+```
+M:\YB19\GRP2\DPMRemediationDOCS\
+└── <dpm_ticket>\
+    ├── <loan_number>\
+    │   ├── raw_docs\<original filename>          canonical evidence
+    │   └── metadata\document_manifest.csv        every row's lineage back to that download
+    └── views\
+        ├── doc_type\<DocSubtypeName>\<loan>\<reference>
+        └── file_description\<FileDesc>\<loan>\<reference>
+```
+
+```
+ad-sort probe    --at M:/YB19/GRP2/DPMRemediationDOCS
+ad-sort dpm-plan --heap <downloads> --root M:/YB19/GRP2/DPMRemediationDOCS --ticket RDSD-22488 \
+                 --catalog LSS=lss.jsonl --catalog IMZ=imz.jsonl --loans population.txt
+ad-sort dpm-apply --plan .agent/out/RDSD-22488-dpm-plan.json      # a person's
+```
+
+### Evidence and views are different kinds of thing
+
+`raw_docs` is written once and never rewritten; `views/` can be deleted entirely and rebuilt without touching a
+document or repeating a retrieval. That is why views are **hardlinks** where the volume allows: a view is then a second
+*name* for the evidence, costs no storage, and deleting a whole view tree provably cannot harm a document — a test
+asserts exactly that.
+
+A mapped drive letter does not tell you whether hardlinks work. Most SMB shares do not implement `CreateHardLink`, and
+a hardlink cannot cross volumes in any case. `ad-sort probe` measures it on the real path and `dpm-apply` records the
+mode it actually used in every manifest row, because a manifest that says `copy` where somebody budgeted `hardlink` is
+a forecast being wrong, and one that does not say is an argument nobody can settle.
+
+### The source-system catalogue
+
+| Source | Status |
+| --- | --- |
+| LSS | mapped |
+| IMZ | mapped (same fields as LSS) |
+| LIS | **unmapped — refused.** Nobody has described its records, and guessing would file real documents under a field that may not mean what we think it means. Send a sample record. |
+
+Bound keys: `FileName`, `DocSubtypeName`, `BusinessAreaName`, `RepositoryDocName`, `RepoStorageDatetime`,
+`Total Pages`, `FileSizeInBytes`, `FileDesc`, `IsCanView`, `IsTiff`. The **loan number** was never among the named
+fields, so the reader looks for `LoanNumber`, `loan_number` and a few siblings, says which it used, and refuses —
+listing the record's real keys — when none is there. `--loan-field` names it explicitly.
+
+`IsCanView` and `IsTiff` are read in the spellings a source system might use (`true`/`Y`/`1`/…). Anything else is a
+refusal rather than a falsy default: those flags decide a count somebody reports upward and a queue somebody works.
+
+### Verdicts here
+
+| Verdict | Means |
+| --- | --- |
+| `file` | catalogued, on disk, not yet filed |
+| `already_filed` | this loan's manifest records it — retrieval is never repeated |
+| `missing_from_disk` | the catalogue lists it and the folder does not have it. **A retrieval gap, not a filing one.** |
+| `collision` | two catalogue rows want one `raw_docs` path |
+| `unclassified` | a file in the folder no catalogue names, so nothing knows its loan or its type |
+
+### The administrative report
+
+`.agent/out/<ticket>-administration.md`: documents per loan, how many could not be viewed (`IsCanView` false), and the
+TIFF conversion queue.
+
+**Which loans returned nothing is not answerable from a catalogue alone** — a catalogue only records loans that
+produced a document, so a loan that returned nothing is absent rather than zero. Pass `--loans <file>` with the
+expected population and the section fills in; without it the report says it cannot say, which is the honest answer.
+
+### What this does not do
+
+**It does not convert TIFF to PDF.** `IsTiff` documents are filed as they are and listed as a queue with their loan and
+page count. Converting needs an imaging dependency this package does not carry and a correctness story of its own —
+page order, colour, DPI, what happens to the original — and a filing tool that claimed to convert would be the worst
+of both.
+
+## A DPM run root is not a heap
 
 A DPM run root is read-only and fingerprinted — `ad-dpm` fails if anything beneath it changed — so **never sort into
 one and never sort one**. Sort the delivery before it becomes a run, or sort a copy. The skill (`file-organize`) says
