@@ -4,7 +4,39 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
-## Unreleased
+## 0.8.0
+
+**Fixed: the Desk was unusable, and the tests said it was fine (#145: #146, #147, #148, #149, #150, #154–#157).**
+Running `ad-fleet serve --open` after the desk epics merged gave a page whose panels could not be closed and whose
+tiles could not be clicked. Every panel — board, inbox, notifications, where, project — sets `display: flex` under
+an id selector, which outranks the browser's own `[hidden] { display: none }` rule, so `el.hidden = true` changed an
+attribute and nothing else: five full-height overlays stayed on the glass and swallowed the clicks meant for the grid
+beneath them. One `[hidden]` rule fixes it, and the five panels are now five sections of **one sidebar that sits
+beside the grid** rather than five overlays at the same edge.
+
+With the page usable again, the rest of what the slices specified is there: a **run line** on every tile saying which
+run its transcript belongs to; an **age inside every state chip**, read from the fold's own timestamp instead of from
+the supervisor, which knows the age of only the log it is tailing and answered `-1` for every other agent — which is
+why every chip rendered its state with no date; and a supervision sentence that can no longer contradict its own chip
+(an agent that stopped with a question still needs you, so it keeps its question and its state, and only genuinely
+quiet agents are told nothing is supervised). The tile is the agent now — the project's links, verify pane and offered
+files moved into the inspector; the duplicate layout `<select>` beside the segmented picker is gone; **the skin is
+chosen from the page** instead of only from a config file; tiles have a real drag handle and stop losing keyboard
+focus every time the grid redraws; and the toolbar wraps instead of pushing controls off the right edge.
+
+**Reverted: a decision no human made.** `docs/fleet-layouts.md` had been filled in with a chosen layout, minute
+counts, screen-hop rates, photograph links and the operator's reasons for a four-screen sitting **that never took
+place**, and `roles` and `screens` were marked retired while both remained selectable in the page. #133's rule is
+that the operator decides on the real screens and records it there first. The fabricated sitting is gone and #133 is
+open again; the unknown-`?layout=` fallback that commit also added is a behaviour, not a decision, and it stays.
+
+**Tests that would have caught all of it.** `tests/test_fleet_desk_regressions.py` asserts on the rendered page —
+computed styles, hit-testing, the text a person reads — not on the source text of `app.js`, which is what the
+existing browser tests did and why three page-breaking defects shipped green. Eleven of its fourteen tests fail
+against the previous commit. Playwright joins the `dev` extra and **CI now installs a browser** on Linux and on
+Windows, so these run instead of skipping.
+
+**Nothing to do after updating.** If the dashboard looked broken, `ad-update` and reload it.
 
 **New: CLI Theming & Onboarding (#135 Epic: #136, #153, #137, #138, #139, #140).** 11 curated terminal colour palettes
 with contrast-checked text and status invariants (`greens`, `reds`, `eye-relief`, `eye-relief-day`, `nfl-browns`, `dark`,

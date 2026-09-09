@@ -713,13 +713,21 @@ def test_every_class_the_layout_sets_is_a_class_it_also_clears():
 
 def test_every_arrangement_the_url_can_ask_for_is_actually_styled():
     """The layouts are body classes over one stylesheet -- one page, three arrangements. A class the
-    script sets and the sheet does not style is a layout that silently renders as the grid.
+    script sets to *change the layout* and the sheet does not style is a layout that silently
+    renders as the grid, so each of those is asserted here.
 
-    `layout-grid` is not here on purpose: the grid *is* the stylesheet's own arrangement, and a rule
-    for it would be a rule that says "do what you already do"."""
+    `layout-grid`, `layout-roles` and `layout-screens` are deliberately not in that list. They name
+    which arrangement the window is, and nothing more: what actually moves is `view-agents` (the
+    left monitor's narrower columns), `solo` (one project filling the window) and `panels` (the
+    laptop's board and tray). They earn their place as the window's identity in the DOM -- the
+    browser tests read them, and a skin can target an arrangement through them without the page
+    changing -- and a rule for them would be a rule that says "do what you already do"."""
     css = open(APP_CSS, encoding="utf-8").read()
-    for name in ("layout-roles", "layout-screens", "view-agents", "solo", "panels", "needs-only"):
+    js = open(APP_JS, encoding="utf-8").read()
+    for name in ("view-agents", "solo", "panels", "needs-only"):
         assert f"body.{name}" in css, f"{name} is set by app.js and styled nowhere"
+    for name in ("layout-grid", "layout-roles", "layout-screens"):
+        assert f'"{name}"' in js, f"{name} is the window's identity and app.js must still set it"
     # Layout B's centre and right windows, and every screen of layout C, are these two between them.
     assert "body.solo .tile:not(.is-solo) { display: none; }" in css
     assert "body.panels main, body.panels #empty { display: none; }" in css
@@ -727,11 +735,18 @@ def test_every_arrangement_the_url_can_ask_for_is_actually_styled():
 
 def test_the_page_offers_every_layout_without_typing_a_url():
     """The operator is meant to reach the other two by parameter, and a parameter nobody can
-    discover is a feature nobody uses."""
+    discover is a feature nobody uses.
+
+    The eight-way `<select>` this used to check became a segmented control over the three
+    arrangements plus a second segment naming which window of that set this one is (#148): one
+    control per meaning, rather than one control listing every combination of two."""
     js = open(APP_JS, encoding="utf-8").read()
-    for label in ("grid — every tile, one screen", "roles — agents (left)",
-                  "roles — verify (centre)", "roles — board (right)", "screens — screen 1"):
-        assert label in js, label
+    html = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
+    for layout in ("grid", "roles", "screens"):
+        assert f'data-layout="{layout}"' in html, layout
+    for label in ("agents", "verify", "board", "laptop", "screen 1", "screen 2", "screen 3"):
+        assert f'"{label}"' in js, label
+    assert "VIEW_SEGMENTS" in js, "the second segment is what names which window this is"
 
 
 def test_focus_mode_hides_every_tile_but_the_ones_that_need_a_person():
@@ -777,19 +792,26 @@ def test_the_status_colours_are_still_the_same_in_every_layout():
 
 
 def test_a_link_row_without_a_url_is_never_rendered():
-    """`links.py` refuses to compose a URL out of a hole precisely so the tile never shows something
-    that opens onto an error page. The page must read `links`, not the whole rail."""
+    """`links.py` refuses to compose a URL out of a hole precisely so the page never shows something
+    that opens onto an error page. The rail reads `links` and skips any row without a `url`.
+
+    The rail moved from every tile to the one inspector (#148) -- a tile is the agent, the
+    inspector is the project -- so this now reads the inspector's loop."""
     js = open(APP_JS, encoding="utf-8").read()
-    assert "((project && project.links) || []).forEach" in js
-    assert "project.missing_keys" in js, "what is missing must still be named somewhere"
+    assert "var links = (p.links || []);" in js, "the rail reads the links the server composed"
+    assert "if (!row.url) return;" in js, "a row with no url is skipped, never rendered"
+    assert "p.missing_keys" in js, "what is missing must still be named somewhere"
 
 
 def test_the_page_has_exactly_one_place_that_renders_a_fact_block():
-    """The tile renders whatever facts it is handed, and `serve.tile_facts()` is what makes that
-    safe. A second loop over some other payload's facts is how the filter gets bypassed by a change
-    that looks like a feature, so the count is the test."""
+    """The page renders whatever facts it is handed, and `serve.tile_facts()` is what makes that
+    safe: a fact block is hand-edited prose and a real one carries a warehouse hostname, a share
+    path and a service account beside the Jira keys. A second loop over some other payload's facts
+    is how that filter gets bypassed by a change that looks like a feature, so the count is the
+    test. One binding, one loop, and the narrowing named beside it."""
     js = open(APP_JS, encoding="utf-8").read()
-    assert len(re.findall(r"\.facts \|\| \{\}\)", js)) == 1
+    assert len(re.findall(r"\bfactsFromCatalogue\s*=", js)) == 1, "more than one fact source"
+    assert len(re.findall(r"Object\.keys\(factsFromCatalogue\)", js)) == 1, "more than one fact loop"
     assert "serve.tile_facts()" in js, "the page must say where the narrowing happens"
 
 

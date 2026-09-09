@@ -51,29 +51,38 @@ operator's own machine and is never reachable from another one. Remote access is
 
 ## The page
 
-| Part | What it shows |
+**A tile is the agent. The sidebar is the project.** They used to be one thing, and a tile carrying
+its own link rail, verify pane, file tray and fact block left no room for the transcript.
+
+| On a tile | What it shows |
 | --- | --- |
-| Tile header | number, repo name, state chip, ticket, age of the last event |
+| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, width |
+| Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
 | Cells | the **project's** own state, polled read-only: ticket, PR, refresh, git — each with its age |
-| Link rail | ticket, board, report, dataset, workspace, repo, PR, Confluence page, local folder |
 | Approval card | appears when that agent is waiting; the **dry-run payload in full**, Approve / Deny |
-| Transcript | assistant text, tool calls, denials, phase changes — newest at the bottom |
-| Tray | the files Downloads is offering this project: *attach* or *dismiss* |
-| Verify | the newest `ad-uat` / `ad-pbip` summary the agent wrote to `.agent/out/`, beside the report link |
-| About | *what is this project* — facts, open friction, PBIP models and reports, from the catalogue |
+| Transcript | assistant text, tool calls, denials, phase changes — the current run only |
+| Earlier runs | one collapsed row per earlier run with the state it ended in; never replayed as live |
 | Bottom row | reply box (→ `send`), Start (a ticket key in the same box), Stop |
 
-The header carries the search box (`ad-fleet where` over the catalogue), the layout picker, the
-theme, focus mode, the inbox tray and the Jira board. A cell that fails to poll goes **grey with the
-error in a tooltip**, never wrong; a link with no fact behind it is absent, never broken.
+The **sidebar** sits beside the grid and holds five sections, one open at a time: the Jira **board**
+(`b`), the Downloads **inbox** (`i`), **alerts** (`n`), **where** (`/`, `ad-fleet where` over the
+catalogue), and **project** — the selected project's link rail, verify pane, facts, open friction
+and offered files. Every window on this server agrees on which project is selected, so clicking a
+tile on the left monitor changes the inspector on the centre one.
+
+The **toolbar** is three labelled groups: *window* (the layout segments, and which window of that
+set this one is), *see* (search, the sidebar, the palette, the skin), and *needs me* (focus mode,
+chime, the bell). A cell that fails to poll goes **grey with the error in a tooltip**, never wrong;
+a link with no fact behind it is absent, never broken.
 
 The grid follows the number of registered repositories: four repos, four tiles. Click a repo name
 (or double-click a tile) and it fills the window; `Esc` returns to the grid.
 
-The default layout is `grid` (chosen in the four-screen sitting: [fleet-layouts.md](fleet-layouts.md)).
-`roles` and `screens` are retired. An unknown `?layout=` falls back to `grid` with a notice in the
-toolbar. Focus mode (`f`) filters to only agents that need human attention.
+The same page has three arrangements and a focus mode, chosen by the query string —
+`ad-fleet serve --layout grid|roles|screens`. Which one is the default is **still being decided on
+the real screens**: [fleet-layouts.md](fleet-layouts.md). `grid` ships as the default pending that
+sitting; an unknown `?layout=` falls back to it with a notice in the footer.
 
 Chip colours are fixed across every theme, because a chip that means "needs you" has to be the same
 red everywhere or the colour stops being information:
@@ -93,11 +102,18 @@ red everywhere or the colour stops being information:
 | `1`–`9` | focus that tile |
 | `f` | focus mode: only the agents that need you |
 | `/` | the search box — `where` over the catalogue |
-| `i` | the inbox tray |
+| `i` | the sidebar's inbox |
 | `a` | approve the focused tile's pending write |
-| `b` | the Jira board |
-| `n` | notifications |
-| `Esc` | back to the grid (or out of a text box) |
+| `b` | the sidebar's Jira board |
+| `n` | the sidebar's alerts |
+| `Alt`+`←` / `Alt`+`→` | move the focused tile one slot |
+| `Alt`+`Home` | pin the focused tile first |
+| `Alt`+`Enter` | one column or two |
+| `Esc` | close the sidebar, or back to the grid (or out of a text box) |
+
+The number on a tile is the key that focuses it, and it follows the arrangement: move a tile and its
+number moves with it. Every drag gesture has a keyboard equivalent, because a desk that can only be
+arranged with a mouse cannot be arranged by someone who is typing.
 
 Deny has no shortcut on purpose: it needs a reason typed, and a one-key refusal with an empty
 reason is the failure mode the gate was built to avoid.

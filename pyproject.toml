@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentdata"
-version = "0.7.0"
+version = "0.8.0"
 description = "Connector adapter: enterprise sources -> AgentTable -> TOON/TSV/JSON for LLM agents, plus setup, SQL guardrails, Jira changelog, PBIP tooling, UAT helpers and the DPM handoff contract"
 requires-python = ">=3.12"
 dependencies = [
@@ -38,7 +38,10 @@ pandas = ["pandas", "pyarrow"]
 content-understanding = ["azure-ai-contentunderstanding>=1.1.0", "azure-identity"]
 completion = ["argcomplete>=3.0.0"]
 test = ["coverage>=7"]
-dev = ["pytest", "pyyaml", "coverage>=7", "hypothesis>=6"]   # tests/test_props_*.py skip without hypothesis
+dev = ["pytest", "pyyaml", "coverage>=7", "hypothesis>=6", "playwright>=1.40"]
+# tests/test_props_*.py skip without hypothesis; tests/test_fleet_desk*.py skip without playwright and a
+# browser (`playwright install chromium`, or point AGENTDATA_CHROMIUM at one you already have). Neither is a
+# runtime dependency: the wheel ships no browser and the dashboard has no build step.
 
 [project.scripts]
 ad-pncli = "agentdata.cli:main_pncli"

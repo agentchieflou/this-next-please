@@ -28,6 +28,32 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
 
 
+def launch_chromium(p):
+    """Chromium, from wherever this machine keeps it.
+
+    Playwright pins a browser build to its own version and refuses to start when the two disagree,
+    which is what happens on any runner that ships a browser separately from the wheel -- and it
+    raises rather than skipping, so a machine without the exact build turned "no browser here" into
+    a red suite. The binary is what these tests need, not the pin: `AGENTDATA_CHROMIUM` names one,
+    a couple of known locations are tried, and only then do we skip and say so.
+
+    Chromium is the engine under all three hosts the dashboard has to render in -- Edge, PyCharm's
+    JCEF tool window and VS Code's Simple Browser -- so one engine covers the matrix.
+    """
+    try:
+        return p.chromium.launch(headless=True)
+    except Exception as first:                                  # noqa: BLE001 - any launch failure
+        candidates = [os.environ.get("AGENTDATA_CHROMIUM", "")]
+        for root in ("/opt/pw-browsers",):
+            if os.path.isdir(root):
+                for entry in sorted(os.listdir(root)):
+                    candidates.append(os.path.join(root, entry, "chrome-linux", "chrome"))
+        for path in candidates:
+            if path and os.path.isfile(path):
+                return p.chromium.launch(headless=True, executable_path=path)
+        pytest.skip(f"no chromium to drive the page with: {first}")
+
+
 @pytest.fixture()
 def running_desk(fleet_home, tmp_path):                         # noqa: F811
     """A running fleet server with two projects registered for browser testing."""
@@ -99,7 +125,7 @@ def test_desk_browser_layouts_and_sync(running_desk):
     url = f"{base}/?t={token}"
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = launch_chromium(p)
         context = browser.new_context()
 
         page1 = context.new_page()
@@ -135,7 +161,12 @@ def test_desk_browser_layouts_and_sync(running_desk):
 
 @pytest.mark.browser
 def test_desk_browser_unknown_layout_fallback(running_desk):
-    """An unknown ?layout= parameter shows the default layout (grid) with a sentence in the toolbar."""
+    """An unknown ?layout= shows the default layout with a sentence saying so, rather than a blank page.
+
+    The sentence moved from the toolbar to the footer (#148): the toolbar is for commands, and the
+    segmented picker already says which arrangement this window is showing. A page-level notice is
+    status, so it sits beside the counts.
+    """
     playwright_module = pytest.importorskip("playwright.sync_api")
     sync_playwright = playwright_module.sync_playwright
 
@@ -143,7 +174,7 @@ def test_desk_browser_unknown_layout_fallback(running_desk):
     url = f"{base}/?t={token}&layout=superwide"
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = launch_chromium(p)
         context = browser.new_context()
         page = context.new_page()
 
@@ -152,12 +183,14 @@ def test_desk_browser_unknown_layout_fallback(running_desk):
 
         res = page.goto(url)
         assert res.status == 200
-        page.wait_for_selector("#view", timeout=5000)
+        page.wait_for_selector(".tile", timeout=15000)
+        page.wait_for_selector("#notice:not([hidden])", timeout=5000)
 
         assert not errors, f"Page JS errors: {errors}"
-        view_text = page.inner_text("#view")
-        assert "unknown layout" in view_text
-        assert "grid" in view_text
+        notice = page.inner_text("#notice")
+        assert "unknown layout" in notice, notice
+        assert "superwide" in notice, "the notice names the parameter that was not understood"
+        assert page.evaluate("() => document.body.classList.contains('layout-grid')")
 
         # Verify grid is rendered
         assert page.query_selector(".grid, #grid") is not None

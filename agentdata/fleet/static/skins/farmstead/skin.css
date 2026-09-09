@@ -40,8 +40,7 @@ button:active, .segment.active {
   background: #FBF3E0 !important;
   color: #2D1A0C !important;
   border: 4px solid #6E4A28 !important;
-  border-top: 4px solid var(--accent) !important;
-  border-left: 4px solid var(--idle) !important;
+  border-left: 4px solid var(--accent) !important;
   border-radius: 6px !important;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
 }
@@ -50,12 +49,6 @@ button:active, .segment.active {
   color: #5C381E !important;
 }
 
-.tile.state-running { border-left-color: var(--running) !important; }
-.tile.state-waiting_approval { border-left-color: var(--waiting) !important; }
-.tile.state-needs_human, .tile.state-blocked, .tile.state-error { border-left-color: var(--human) !important; }
-.tile.state-done { border-left-color: var(--done) !important; }
-.tile.state-starting, .tile.state-idle { border-left-color: var(--idle) !important; }
-.tile.state-not_supervised { border-left-color: var(--muted) !important; }
 
 /* Status chips: Cream tags, text in role colour, crop-stage sprite */
 .chip {
@@ -107,7 +100,7 @@ button:active, .segment.active {
 }
 
 /* Inspector: Journal page style */
-aside#inspector, .sidebars aside {
+#side, #side > aside {
   background: #FFFDF5 !important;
   color: #2D1A0C !important;
   border-left: 4px solid #6E4A28 !important;
@@ -125,3 +118,32 @@ aside#inspector, .sidebars aside {
     transition: none !important;
   }
 }
+
+/* The toolbar and the footer are repainted above, so everything written ON them is repainted here
+   too. Leaving these to the palette put the group labels, the brand, the live dot and the whole
+   key map in a colour chosen for the panel and rendered on a texture, where they disappeared. */
+header, footer { color: #FFFDF5 !important; }
+header h1, header .glabel, header .dot,
+footer, footer #counts, footer .keys { color: #F0DCC0 !important; }
+header h1 { color: #FFFDF5 !important; }
+#notice { color: var(--waiting) !important; }
+
+/* The state as a crop stage, beside the chip's glyph and colour and never instead of them (#157).
+   The art is `sprites.svg` in this directory -- one file, referenced by fragment, so the pixels the
+   repo reviews are the pixels the page draws. Before this the sprites were on disk and unreferenced
+   and the chips were plain text: the one thing this skin was for was not built. */
+.chip::before {
+  content: "";
+  width: 16px; height: 16px; flex: 0 0 16px;
+  background-size: 16px 16px; background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.chip { display: inline-flex; align-items: center; gap: 6px; }
+.chip.running::before          { background-image: url("sprites.svg#crop-sprout"); }
+.chip.waiting_approval::before { background-image: url("sprites.svg#crop-sun"); }
+.chip.needs_human::before,
+.chip.blocked::before,
+.chip.error::before            { background-image: url("sprites.svg#crop-wilted"); }
+.chip.done::before             { background-image: url("sprites.svg#crop-bloom"); }
+.chip.idle::before,
+.chip.starting::before         { background-image: url("sprites.svg#crop-seed"); }

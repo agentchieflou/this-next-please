@@ -33,10 +33,12 @@ number of monitors the operator happens to own. The selected project lives here 
 same stream, which is what makes clicking a tile on the left monitor change the centre one.
 """
 from __future__ import annotations
+import calendar
 import hmac
 import json
 import mimetypes
 import os
+import re
 import secrets
 import threading
 import time
@@ -99,6 +101,24 @@ VERIFY_HEAD = 3000           # characters of the summary the pane shows; the lin
 CSP = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'"
 
 
+# A relative URL inside a stylesheet does not inherit the query string the stylesheet was fetched
+# with -- the same rule that once made the page render as unstyled HTML, one level down. A skin
+# referencing its own `sprites.svg` therefore asked for it with no token and was refused with a
+# 403, silently: the chips simply had no status sprite, and nothing said why. The token goes on
+# here for the same reason `_index` puts it on the page's own assets, and it goes BEFORE the
+# fragment, because `sprites.svg#crop-sun?t=…` names no fragment at all.
+_CSS_URL = re.compile(r"""url\(\s*(['"]?)(?!data:|https?:|//|/)([^'")#\s]+)(#[^'")\s]*)?\1\s*\)""")
+
+
+def _tokenize_css_urls(css: str, token: str) -> str:
+    """Put this run's token on every relative `url()` in a stylesheet."""
+    def one(m: "re.Match[str]") -> str:
+        quote, target, fragment = m.group(1), m.group(2), m.group(3) or ""
+        joiner = "&" if "?" in target else "?"
+        return f"url({quote}{target}{joiner}t={token}{fragment}{quote})"
+    return _CSS_URL.sub(one, css)
+
+
 class ServeError(Exception):
     def __init__(self, msg: str, hint: str = ""):
         super().__init__(msg)
@@ -107,6 +127,30 @@ class ServeError(Exception):
 
 
 # --------------------------------------------------------------------------------- the API layer
+
+
+# When this process started, so a tile can say whether its run belongs to the session the operator
+# is looking at or to one from before they sat down. `E.stamp()` is UTC, second resolution, and the
+# whole stream already agrees on it.
+SERVER_STARTED = E.stamp()
+
+
+def age_of_stamp(stamp: str) -> int:
+    """Seconds since an `events.stamp()` timestamp, or -1 when there is nothing to measure.
+
+    The supervisor only knows the age of the log it is tailing, so it answers -1 for every agent it
+    is not currently running -- which is most of them, most of the time, and is why every chip on
+    the page rendered with an empty age. The fold already carries the timestamp of the last event
+    it saw (`classify()` returns it as `at`); this turns that into the number the tile shows.
+
+    `calendar.timegm`, not `time.mktime`: the stamps are UTC and mktime would read them as local.
+    """
+    if not stamp:
+        return -1
+    try:
+        return max(0, int(time.time() - calendar.timegm(time.strptime(stamp[:19], "%Y-%m-%dT%H:%M:%S"))))
+    except (ValueError, TypeError):
+        return -1
 
 
 def format_age_str(seconds: int | float) -> str:
@@ -164,6 +208,9 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
     curr_run = {
         "n": len(started_indices),
         "started": start_ev.get("ts", ""),
+        # Did this run begin in the session the operator is looking at? A tile whose newest run
+        # predates `ad-fleet serve` is showing history, and has to say so.
+        "since_start": bool(start_ev.get("ts", "") >= SERVER_STARTED),
         "resumed": bool(start_data.get("resumed", False)),
         "session": curr_derived.get("session") or start_data.get("session", ""),
         "ticket": curr_derived.get("ticket") or start_ev.get("ticket", ""),
@@ -209,16 +256,32 @@ def fleet_snapshot() -> dict:
         curr_run, earlier = split_runs(stream, live=is_live)
         derived = agentstate.derive(curr_run["events"], live=is_live) if curr_run["events"] else agentstate.derive(stream, live=is_live)
 
+        # The supervisor's age covers only the log it is tailing, so it is -1 for every agent that
+        # is not running right now. The fold's own `at` covers the rest.
         last_age_s = row.get("last_event_age_s", -1)
+        if last_age_s < 0:
+            last_age_s = age_of_stamp(derived.get("at", ""))
+
         pid = row.get("pid", 0)
         is_supervised = bool(pid and is_live)
-        if not is_supervised or (last_age_s > 120 and not is_live):
-            is_supervised = False
+
+        # The sentence says "nothing is supervised now". It may therefore only appear where that is
+        # the WHOLE truth. An agent that stopped with a question still needs the human, and a tile
+        # that says "needs you" in its chip and "nothing is supervised" in the same breath is the
+        # contradiction #147 exists to remove: one of the two has to be wrong, and the operator
+        # cannot tell which. So the sentence is for QUIET agents only -- done, idle, starting, and
+        # a turn left open by a process that is gone. Everything `needs_the_human` covers keeps its
+        # own state and its own sentence, and the age beside the chip carries the staleness.
+        quiet = not agentstate.needs_the_human(derived["state"])
+        if not is_supervised and quiet:
             if not stream or not curr_run["started"]:
-                not_supervised_sentence = "this agent is not supervised"
+                not_supervised_sentence = "no run yet; nothing is supervised"
+            elif not curr_run.get("since_start"):
+                age_text = format_age_str(last_age_s) if last_age_s >= 0 else "some time ago"
+                not_supervised_sentence = f"last run ended {age_text}; nothing is supervised now"
             else:
                 age_text = format_age_str(last_age_s) if last_age_s >= 0 else "recently"
-                not_supervised_sentence = f"last run ended {age_text}; nothing is supervised now"
+                not_supervised_sentence = f"the last run ended {age_text}; nothing is supervised now"
         else:
             not_supervised_sentence = ""
 
@@ -227,13 +290,13 @@ def fleet_snapshot() -> dict:
         if isinstance(proj_entry, dict) and "accent" in proj_entry:
             accent = proj_entry["accent"]
         elif isinstance(proj_entry, dict) and "theme" in proj_entry:
-            pt = T.get(proj_entry["theme"], seed=name)
+            pt = theme_or_none(proj_entry["theme"], seed=name)
             accent = pt.accent or "#3FB950"
         elif isinstance(proj_entry, str) and proj_entry:
-            pt = T.get(proj_entry, seed=name)
+            pt = theme_or_none(proj_entry, seed=name)
             accent = pt.accent or "#3FB950"
         else:
-            pt = T.get(default_theme_name, seed=name)
+            pt = theme_or_none(default_theme_name, seed=name)
             accent = pt.accent or "#3FB950"
 
         rows.append({"repo": name, "path": row.get("path", ""),
@@ -242,7 +305,6 @@ def fleet_snapshot() -> dict:
                      "pid": pid, "last_event_age_s": last_age_s,
                      "supervised": is_supervised,
                      "not_supervised_sentence": not_supervised_sentence,
-                     "run": curr_run,
                      "earlier": earlier,
                      **derived,
                      "last_seq": stream[-1]["seq"] if stream else 0,
@@ -251,6 +313,12 @@ def fleet_snapshot() -> dict:
                      # folded into the row, because a cell can be stale or grey and the agent's
                      # state never is -- flattening them would make one age apply to both.
                      "polls": poll_state(name),
+                     # `run` without its events: the page needs to know WHICH run and how big it
+                     # is, and it reads the transcript from `recent`. Shipping the whole current
+                     # run as well meant a long-running agent's entire history was serialised on
+                     # every poll -- several times a second, to every window on every screen --
+                     # so that the page could take its length.
+                     "run": {**curr_run, "events": None, "events_n": len(curr_run["events"])},
                      "recent": curr_run["events"][-40:] if curr_run["events"] else stream[-40:]})
     return {"repos": rows, "approvals": approval.pending(), "fleet_dir": fleet_dir(),
             "desk": desk_state(), "theme": theme_state(),
@@ -288,6 +356,25 @@ _selection = {
 
 def _desk_file() -> str:
     return os.path.join(fleet_dir(), DESK_FILE)
+
+
+_desk_loaded = False
+
+
+def _ensure_desk_loaded() -> None:
+    """Read `desk.json` once, on the first question anyone asks about the desk.
+
+    It used to be read only as a side effect of the lazy handle accessor -- the one that opens the
+    catalogue and the inbox watcher -- so whether the operator's saved selection and arrangement
+    came back depended on which endpoint the server happened to answer first. A window that asked
+    for `/api/fleet` before anything needed a catalogue handle got an empty desk and quietly lost
+    the arrangement it had been given.
+    """
+    global _desk_loaded
+    if _desk_loaded:
+        return
+    _desk_loaded = True
+    _load_desk()
 
 
 def _load_desk() -> None:
@@ -337,6 +424,8 @@ def _fresh() -> dict:
 
 def reset() -> None:
     """Drop the shared handles and the selection. Called when the fleet moves under a live process."""
+    global _desk_loaded
+    _desk_loaded = False
     with _desk_lock:
         cat = _desk.get("catalogue")
         if cat is not None:
@@ -490,6 +579,7 @@ def poll_state(name: str) -> dict:
 
 def desk_state() -> dict:
     """What every window agrees on: the selected project, screen pinning, and tile arrangement."""
+    _ensure_desk_loaded()
     with _desk_lock:
         arr = _selection.get("arrangement") or {}
         return {
@@ -503,6 +593,24 @@ def desk_state() -> dict:
         }
 
 
+def theme_or_none(name: str, seed: str = ""):
+    """A palette by name, or the plain one, and never an exception.
+
+    `theme.get()` raises on a name it does not know, and the names live in a file a person edits by
+    hand and an update can rename out from under them. Unguarded, one stale `theme.default` turned
+    every request for `/api/fleet` and `/api/themes` into a 500 -- the dashboard did not degrade to
+    an unthemed page, it stopped answering at all. The page is the operator's window onto four
+    agents; it does not get to go down over a colour.
+    """
+    from .. import theme as T
+    if not name or name == "none":
+        return T.get("none")
+    try:
+        return T.get(name, seed=seed) if seed else T.get(name)
+    except Exception:                            # noqa: BLE001 - ThemeError, and anything after it
+        return T.get("none")
+
+
 def theme_state() -> dict:
     """The theme and skin configuration shared across windows."""
     from .. import config as C
@@ -511,7 +619,16 @@ def theme_state() -> dict:
     cfg = C.load()
     default_name = cfg.get("theme", {}).get("default") or "none"
     skin_name = cfg.get("theme", {}).get("skin") or "none"
-    t = T.get(default_name)
+
+    # A skin is a rendering, not a palette: it is drawn against the one it declares as its base
+    # (#154). Choosing `glass` while the palette is still "follow the system" put a skin designed
+    # for a dark ground on a light one, which is unreadable rather than merely wrong. When the
+    # operator has not chosen a palette, the skin's base is the honest answer.
+    skin_info = skins.get_skin(skin_name) if skin_name and skin_name != "none" else None
+    if skin_info and default_name == "none":
+        default_name = skin_info.get("base") or "none"
+
+    t = theme_or_none(default_name)
     css_vars = T.to_css(t) if t and t.name != "none" else {}
     proj_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_map, dict):
@@ -521,11 +638,11 @@ def theme_state() -> dict:
         if isinstance(pinfo, dict) and "accent" in pinfo:
             accents[proj] = pinfo["accent"]
         elif isinstance(pinfo, dict) and "theme" in pinfo:
-            pt = T.get(pinfo["theme"], seed=proj)
+            pt = theme_or_none(pinfo["theme"], seed=proj)
             if pt and pt.accent:
                 accents[proj] = pt.accent
         elif isinstance(pinfo, str) and pinfo:
-            pt = T.get(pinfo, seed=proj)
+            pt = theme_or_none(pinfo, seed=proj)
             if pt and pt.accent:
                 accents[proj] = pt.accent
 
@@ -544,6 +661,7 @@ def select(selected=None, screens=None) -> dict:
     click did nothing" is not a useful answer. The version only moves on a real change, so two
     windows clicking the same tile do not each wake the other.
     """
+    _ensure_desk_loaded()
     with _desk_lock:
         after = dict(_selection)
         if selected is not None:
@@ -558,6 +676,7 @@ def select(selected=None, screens=None) -> dict:
 
 def arrange(layout: str, *, order=None, size=None, pinned=None) -> dict:
     """Set the tile arrangement for a layout, persisted in desk.json and pushed down the SSE stream."""
+    _ensure_desk_loaded()
     with _desk_lock:
         arr = _selection.setdefault("arrangement", {})
         cur = arr.setdefault(layout, {"order": [], "size": {}, "pinned": []})
@@ -1162,6 +1281,8 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype.endswith(("javascript", "json")):
             ctype += "; charset=utf-8"
+        if ctype.startswith("text/css"):
+            body = _tokenize_css_urls(body.decode("utf-8"), self.token).encode("utf-8")
         self._send(200, body, ctype)
 
     def _sse(self, query: dict) -> None:

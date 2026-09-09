@@ -57,12 +57,16 @@ function age(seconds) {
   return Math.floor(seconds / 3600) + "h";
 }
 
+/* The age that rides inside the state chip. "done" is not information; "done · 2d" is -- and the
+   bucket labels this replaced ("today", "> 2d") could not tell a run that ended a minute ago from
+   one that ended at breakfast. Anything past a day is marked stale as well as dated, because a
+   colour alone is not a signal on a bad monitor at arm's length. */
 function ageChip(seconds) {
   if (seconds == null || seconds < 0) return { text: "", stale: false };
-  if (seconds < 3600) return { text: "< 1h", stale: false };
-  if (seconds < 86400) return { text: "today", stale: false };
-  if (seconds < 172800) return { text: "yesterday", stale: false };
-  return { text: "> 2d", stale: true };
+  if (seconds < 90) return { text: seconds + "s", stale: false };
+  if (seconds < 5400) return { text: Math.floor(seconds / 60) + "m", stale: false };
+  if (seconds < 86400) return { text: Math.floor(seconds / 3600) + "h", stale: false };
+  return { text: Math.floor(seconds / 86400) + "d", stale: true };
 }
 
 /* --------------------------------------------------------------------------- drawing one tile */
@@ -129,7 +133,9 @@ function append(el, ev) {
 function makeTile(row, index) {
   var el = document.getElementById("tile").content.firstElementChild.cloneNode(true);
   text(el.querySelector(".n"), index + 1);
-  text(el.querySelector(".repo"), row.repo);
+  var repoEl = el.querySelector(".repo");
+  text(repoEl, row.repo);
+  repoEl.title = row.repo;
   el.dataset.repo = row.repo;
 
   el.querySelector(".repo").addEventListener("click", function () { focus(row.repo); });
@@ -137,24 +143,35 @@ function makeTile(row, index) {
   // Clicking anywhere on a tile *selects* the project for every window on this server (#133 layout
   // B), which is what makes the left monitor drive the centre one. Blowing a tile up is still the
   // repo name or a double click: one gesture per meaning.
-  el.addEventListener("click", function () { choose(row.repo); });
+  el.addEventListener("click", function (e) {
+    // Clicking a tile selects the project for every window on this server -- which is what makes
+    // the left monitor drive the centre one. Pressing Send, or clicking into the reply box, is not
+    // that gesture: it re-pointed three other screens as a side effect of typing.
+    if (e.target.closest("button, input, select, textarea, a, details, summary")) return;
+    choose(row.repo);
+  });
 
-  // Drag and drop for tile reordering and Jira ticket dropping
-  el.draggable = true;
-  el.addEventListener("dragstart", function (e) {
-    if (["INPUT", "BUTTON", "SELECT"].indexOf(e.target.tagName) >= 0) {
-      e.preventDefault();
-      return;
-    }
+  /* Drag to reorder, from the header only. A tile that is draggable edge to edge cannot have its
+     transcript text selected -- every attempt to copy an error message starts a drag instead --
+     and it offers no affordance for the gesture. The header carries `draggable` and the grip
+     says so (HIG *Drag and drop*). Tickets dropped from the board still land on the whole tile. */
+  var head = el.querySelector(".head");
+  head.addEventListener("dragstart", function (e) {
+    if (e.target.closest("button, input, select")) { e.preventDefault(); return; }
     e.dataTransfer.setData("application/x-agentdata-tile", row.repo);
     e.dataTransfer.effectAllowed = "move";
     el.classList.add("is-dragging");
   });
-  el.addEventListener("dragend", function () {
+  var clearDrop = function () {
     el.classList.remove("is-dragging");
     document.querySelectorAll(".tile").forEach(function (t) {
       t.classList.remove("drop-before", "drop-after", "drop-target");
     });
+  };
+  head.addEventListener("dragend", clearDrop);
+  // Esc cancels a drag in flight and leaves the order alone (HIG *Drag and drop*).
+  el.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && el.classList.contains("is-dragging")) clearDrop();
   });
 
   el.addEventListener("dragover", function (e) {
@@ -191,7 +208,7 @@ function makeTile(row, index) {
       if (!dropBefore) toIdx += 1;
       order.splice(toIdx, 0, droppedRepo);
       post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
-        if (r && r.ok) desk.desk = r;
+        if (r && r.ok) mergeDesk(r);
         reorderDomTiles();
       });
       reorderDomTiles();
@@ -202,15 +219,13 @@ function makeTile(row, index) {
     if (key) dispatch(key, row.repo);
   });
 
-  // Keyboard navigation on tile (Alt+Left / Alt+Right)
+  /* Every drag gesture has a keyboard equivalent, and the footer key map lists all four. */
   el.addEventListener("keydown", function (e) {
-    if (e.altKey && e.key === "ArrowLeft") {
-      moveTile(row.repo, -1);
-      e.preventDefault();
-    } else if (e.altKey && e.key === "ArrowRight") {
-      moveTile(row.repo, 1);
-      e.preventDefault();
-    }
+    if (!e.altKey) return;
+    if (e.key === "ArrowLeft") { moveTile(row.repo, -1); e.preventDefault(); }
+    else if (e.key === "ArrowRight") { moveTile(row.repo, 1); e.preventDefault(); }
+    else if (e.key === "Home") { toggleTilePin(row.repo); e.preventDefault(); }
+    else if (e.key === "Enter") { toggleTileSize(row.repo); e.preventDefault(); }
   });
 
   var pinBtn = el.querySelector(".pintoggle");
@@ -269,41 +284,55 @@ function action(el, what, body) {
 }
 
 function drawTile(el, row, approvals) {
+  /* Three things have to agree here or the tile lies: the chip, the sentence under it, and the
+     age. The server decides which agents are quiet enough to be called unsupervised (it is the
+     only side that knows whether a process holds the checkout), and it sends the sentence ONLY
+     for those -- so a tile that says "needs you" never also says "nothing is supervised". */
   var isSupervised = row.supervised !== false;
-  var displayState = row.state;
-  if (!isSupervised && (row.state === "idle" || row.last_event_age_s > 120)) {
-    displayState = "not_supervised";
-  }
+  var cold = !isSupervised && !!row.not_supervised_sentence;
+  var displayState = cold ? "idle" : row.state;
   el.className = "tile state-" + displayState + (el.classList.contains("is-focused") ? " is-focused" : "");
-  if (row.accent) el.style.borderTopColor = row.accent;
+  // The left edge is the project's accent -- which project, never what state (#150).
+  if (row.accent) el.style.borderLeftColor = row.accent;
   // `needs-human` is the class focus mode filters on, and it comes from #94's fold rather than from
   // anything this page works out for itself: the chip, the toast and the filter must agree.
   el.classList.toggle("needs-human", !!row.needs_human);
   el.tabIndex = 0;
+  // Every state carries its own age, in the chip, because a verdict with no date is the bug.
+  var ac = ageChip(row.last_event_age_s);
   var chip = el.querySelector(".chip");
-  if (displayState === "not_supervised") {
-    chip.className = "chip not-supervised";
-    text(chip, "not supervised");
-  } else {
-    chip.className = "chip " + row.state;
-    text(chip, row.state.replace(/_/g, " "));
+  chip.className = "chip " + displayState + (ac.stale ? " stale" : "");
+  while (chip.firstChild) chip.removeChild(chip.firstChild);
+  chip.appendChild(document.createTextNode(displayState.replace(/_/g, " ")));
+  if (ac.text) {
+    var span = document.createElement("span");
+    span.className = "chipage";
+    text(span, " · " + ac.text);
+    chip.appendChild(span);
   }
+  chip.title = "state from the fold" + (ac.text ? ", last event " + ac.text + " ago" : "");
   text(el.querySelector(".ticket"), row.ticket || row.jira_project || "");
 
-  var whyText = row.why || "";
-  if (!isSupervised && row.not_supervised_sentence) {
-    whyText = row.not_supervised_sentence;
-  }
-  text(el.querySelector(".why"), whyText);
+  text(el.querySelector(".why"), cold ? row.not_supervised_sentence : (row.why || ""));
 
-  var ageEl = el.querySelector(".age");
-  if (row.last_event_age_s >= 0) {
-    var ac = ageChip(row.last_event_age_s);
-    text(ageEl, ac.text);
-    ageEl.classList.toggle("stale", ac.stale);
-  } else {
-    text(ageEl, "");
-    ageEl.classList.remove("stale");
+  // Which run this transcript belongs to. Without it, a two-day-old run reads as live.
+  var run = row.run || {};
+  var runline = el.querySelector(".runline");
+  if (runline) {
+    var bits = [];
+    if (run.n) bits.push("run " + run.n);
+    if (run.started) bits.push("started " + String(run.started).slice(11, 16));
+    if (run.resumed) bits.push("resumed");
+    if (run.session) bits.push("session " + String(run.session).slice(0, 8));
+    if (run.events_n) bits.push(run.events_n + " events");
+    // The era, last, because it is the qualifier: which run, then whether it is still this one.
+    if (!run.n) bits = ["no run yet"];
+    else if (isSupervised) bits.push("live");
+    else if (!run.since_start) bits.push("before this session");
+    else bits.push("ended");
+    text(runline, bits.join(" · "));
+    runline.title = bits.join(" · ");          // the line truncates; the whole of it stays reachable
+    runline.classList.toggle("cold", cold);
   }
 
   var earlierEl = el.querySelector(".earlier");
@@ -336,7 +365,6 @@ function drawTile(el, row, approvals) {
     text(el.querySelector(".payload"), JSON.stringify(mine.payload || {}, null, 2));
   }
   drawCells(el, row.polls || {});
-  drawProject(el, desk.projects[row.repo], desk.offers[row.repo] || []);
 }
 
 /* -------------------------------------------------------------------------------- the whole page */
@@ -370,10 +398,9 @@ function refresh() {
          data.repos.length + " agents" + (need ? "  ·  " + need + " need you" : ""));
     if (data.desk) desk.desk = data.desk;
     if (data.theme) {
-      var sel = document.getElementById("theme");
-      if (sel && data.theme.theme) sel.value = data.theme.theme === "none" ? "" : data.theme.theme;
       applyTheme(data.theme.css, data.theme.theme);
       applySkin(data.theme.skin);
+      reflectTheme(data.theme);
     }
     place();
     title(need);
@@ -423,6 +450,7 @@ function connect() {
       if (select && d.theme) select.value = d.theme === "none" ? "" : d.theme;
       applyTheme(d.css, d.theme);
       applySkin(d.skin);
+      reflectTheme(d);
       if (d.accents) {
         Object.keys(d.accents).forEach(function (repo) {
           if (tiles.has(repo)) {
@@ -483,13 +511,15 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") { if (typing) document.activeElement.blur(); else unfocus(); return; }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^[1-9]$/.test(e.key)) {
-    var names = Array.from(tiles.keys());
-    var name = names[Number(e.key) - 1];
+    // The number printed on a tile comes from the arrangement, so the key that focuses it must
+    // too. Reading registry order here meant that the moment anything was moved or pinned, the
+    // badge said 3 and pressing 3 focused something else.
+    var name = getEffectiveOrder()[Number(e.key) - 1];
     if (name) focus(name);
     return;
   }
-  if (e.key === "n") { drawer(); return; }
-  if (e.key === "b") { boardPanel(); return; }
+  if (e.key === "n") { section("drawer"); return; }
+  if (e.key === "b") { section("board"); return; }
   if (e.key === "a") {
     var entry = focused ? tiles.get(focused) : null;
     if (entry && entry.el.dataset.approval && !entry.el.querySelector(".approval").hidden) {
@@ -531,20 +561,53 @@ function applySkin(skinName) {
   link.href = q("/static/skins/" + skinName + "/skin.css");
 }
 
+/* Two controls, two tiers, and the difference is the point (#150, #154).
+
+   A PALETTE is colour only, so it is 1:1 with the terminal: the same hex reaches this page's custom
+   properties and the project's prompt and tab, and choosing one here writes
+   `~/.agentdata/config.json` -- the same file `ad-theme set` writes -- so every window on every
+   screen and the terminal beside them move together. A SKIN is how the page is RENDERED, which a
+   terminal cannot follow; it rides on a base palette and loads one extra stylesheet on demand.
+
+   Both post to the server rather than to `localStorage`, because a desk is four windows and a
+   choice kept in one browser's storage is four different desks. */
 function loadThemes() {
-  var select = document.getElementById("theme");
+  var themeSel = document.getElementById("theme");
+  var skinSel = document.getElementById("skin");
   return fetch(q("/api/themes")).then(function (r) { return r.json(); }).then(function (data) {
-    while (select.options.length > 1) select.remove(1);
+    while (themeSel.options.length > 1) themeSel.remove(1);
     (data.themes || []).forEach(function (t) {
+      if (t.name === "none") return;                 // "system" is already the first option
       var option = document.createElement("option");
       option.value = t.name;
       text(option, t.name);
-      select.appendChild(option);
+      option.title = t.why || t.title || t.name;
+      themeSel.appendChild(option);
     });
-    select.addEventListener("change", function () {
-      post("theme", { theme: select.value });
+    themeSel.addEventListener("change", function () { post("theme", { theme: themeSel.value }); });
+
+    while (skinSel.options.length > 1) skinSel.remove(1);
+    (data.skins || []).forEach(function (k) {
+      if (k.name === "none") return;
+      var option = document.createElement("option");
+      option.value = k.name;
+      text(option, k.title || k.name);
+      option.title = (k.why || "") + (k.base ? "  ·  palette: " + k.base : "");
+      skinSel.appendChild(option);
     });
+    skinSel.addEventListener("change", function () { post("theme", { skin: skinSel.value }); });
+    reflectTheme(data.current || data.theme);
   }).catch(function () { /* themes are decoration; the page works without them */ });
+}
+
+/* One place that puts the server's answer into the two controls, so a change made in the terminal
+   or in another window shows up here rather than leaving the picker saying something else. */
+function reflectTheme(cur) {
+  if (!cur) return;
+  var themeSel = document.getElementById("theme");
+  var skinSel = document.getElementById("skin");
+  if (themeSel && cur.theme) themeSel.value = cur.theme;
+  if (skinSel) skinSel.value = cur.skin || "none";
 }
 
 refresh().then(function () {
@@ -655,17 +718,61 @@ function loadNotifications() {
     }).catch(function () { /* the drawer is a convenience; the tiles are the truth */ });
 }
 
-function drawer(open) {
-  var el = document.getElementById("drawer");
-  var show = open === undefined ? el.hidden : open;
-  if (show) {
-    document.getElementById("board").hidden = true;
-    document.getElementById("unsorted").hidden = true;
-    document.getElementById("found").hidden = true;
-  }
-  el.hidden = !show;
-  if (!el.hidden) loadNotifications();
+/* ---------------------------------------------------------------- the sidebar (#148)
+
+   Five panels used to be five fixed overlays at the same screen edge: they covered the grid, they
+   covered each other, and because `[hidden]` lost to their `display: flex` a "closed" one went on
+   eating the clicks meant for the tiles underneath it. They are now five sections of ONE sidebar
+   beside the grid, exactly one open at a time, with a tab strip that says which. Each panel keeps
+   the function name the rest of this file already calls. */
+
+var SECTIONS = ["board", "unsorted", "drawer", "found", "inspector"];
+var lastSection = "board";
+
+function syncSide() {
+  var open = SECTIONS.filter(function (id) {
+    var n = document.getElementById(id);
+    return n && !n.hidden;
+  });
+  document.getElementById("side").hidden = open.length === 0;
+  document.getElementById("sidetoggle").setAttribute("aria-pressed", String(open.length > 0));
+  document.querySelectorAll(".side-tabs .segment").forEach(function (b) {
+    var on = open.indexOf(b.dataset.section) >= 0;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", String(on));
+  });
+  return open[0] || "";
 }
+
+/* `open` undefined toggles, true opens, false closes. Opening one closes the rest. */
+function section(id, open) {
+  var el = document.getElementById(id);
+  if (!el) return false;
+  var want = open === undefined ? el.hidden : !!open;
+  SECTIONS.forEach(function (s) {
+    var n = document.getElementById(s);
+    if (n) n.hidden = !(s === id && want);
+  });
+  if (want) lastSection = id;
+  syncSide();
+  if (want) {
+    if (id === "board") { loadBoard(false); loadHistory(); }
+    if (id === "drawer") loadNotifications();
+    if (id === "unsorted") loadDesk();
+    if (id === "inspector") drawInspector(desk.desk.selected);
+  }
+  return want;
+}
+
+function closeSide() {
+  SECTIONS.forEach(function (id) {
+    var n = document.getElementById(id);
+    if (n) n.hidden = true;
+  });
+  syncSide();
+}
+
+function drawer(open) { return section("drawer", open); }
 
 document.getElementById("bell").addEventListener("click", function () { drawer(); });
 document.getElementById("closedrawer").addEventListener("click", function () { drawer(false); });
@@ -815,19 +922,14 @@ function loadHistory() {
     }).catch(function () { /* the strip is a convenience */ });
 }
 
-function boardPanel(open) {
-  var el = document.getElementById("board");
-  var show = open === undefined ? el.hidden : open;
-  if (show) {
-    document.getElementById("drawer").hidden = true;
-    document.getElementById("unsorted").hidden = true;
-    document.getElementById("found").hidden = true;
-  }
-  el.hidden = !show;
-  if (!el.hidden) { loadBoard(false); loadHistory(); }
-}
+function boardPanel(open) { return section("board", open); }
 
-document.getElementById("boardtoggle").addEventListener("click", function () { boardPanel(); });
+document.querySelectorAll(".side-tabs .segment").forEach(function (b) {
+  b.addEventListener("click", function () { section(b.dataset.section); });
+});
+document.getElementById("sidetoggle").addEventListener("click", function () {
+  if (syncSide()) closeSide(); else section(lastSection, true);
+});
 document.getElementById("closeboard").addEventListener("click", function () { boardPanel(false); });
 document.getElementById("boardrefresh").addEventListener("click", function () { loadBoard(true); });
 document.getElementById("boardsearch").addEventListener("input", function () { drawBoard(board); });
@@ -847,9 +949,8 @@ function loadDesk() {
     pendingDesk = null;
     if (!data.ok) return;
     desk = data;
-    tiles.forEach(function (entry, name) {
-      drawProject(entry.el, desk.projects[name], (desk.offers || {})[name] || []);
-    });
+    // The project's own detail is the inspector's, and the inspector draws the selected one.
+    drawInspector(desk.desk.selected);
     drawTray();
     place();
     return data;
@@ -900,40 +1001,6 @@ function drawCells(el, polls) {
   });
 }
 
-/* ------------------------------------------------------------------------------- the link rail */
-
-/* A row with no `url` is not a link and is not rendered: `links.py` refuses to compose a URL from a
-   missing fact precisely so the tile never shows something that opens onto an error page. What is
-   missing goes under "what is this project" as the AGENTS.md key to add. */
-function drawRail(el, project) {
-  var rail = el.querySelector(".rail");
-  while (rail.firstChild) rail.removeChild(rail.firstChild);
-  ((project && project.links) || []).forEach(function (row) {
-    var a = document.createElement("a");
-    a.className = row.kind;
-    a.href = row.url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    a.title = row.url;
-    text(a, row.name);
-    rail.appendChild(a);
-  });
-  if (project && project.path) {
-    // The folder link is a `file:` URL, which JCEF and Simple Browser are both entitled to refuse.
-    // Copying the path always works and is what gets pasted into a terminal anyway.
-    var copy = document.createElement("button");
-    text(copy, "copy path");
-    copy.title = project.path;
-    copy.addEventListener("click", function (e) {
-      e.stopPropagation();
-      clip(project.path);
-      text(copy, "copied");
-      setTimeout(function () { text(copy, "copy path"); }, 1200);
-    });
-    rail.appendChild(copy);
-  }
-}
-
 function clip(value) {
   try {
     if (navigator.clipboard) return navigator.clipboard.writeText(value);
@@ -944,92 +1011,6 @@ function clip(value) {
   box.select();
   try { document.execCommand("copy"); } catch (e) { /* nothing else to try */ }
   document.body.removeChild(box);
-}
-
-/* ------------------------------------------------- what is this project, and what it verified */
-
-/* Redrawn only when the answer actually changed. `/api/fleet` comes back several times a second
-   while an agent is talking, and rebuilding the rail, the facts and the tray each time would throw
-   away the half-made choice in an open `attach` dropdown -- a bug that only ever bites the operator
-   mid-click, which is the worst kind.
-
-   `project.facts` is already `catalogue.LINK_FACTS` and nothing else: `serve.tile_facts()` narrows
-   it before it leaves the server, because a fact block is hand-edited prose and a real one carries
-   a warehouse hostname, a `\\share\dpm\runs` path and a service account beside the Jira keys. This
-   loop therefore renders every key it is handed *on purpose* -- the filter belongs on the side that
-   can read `AGENTS.md`, so there is one list and not two that drift. If a new panel ever needs a
-   fact this loop does not show, add it to `LINK_FACTS`; do not reach for a wider payload here. */
-function drawProject(el, project, offers) {
-  var sign = JSON.stringify([project || null, offers || []]);
-  if (el.dataset.sign === sign) return;
-  el.dataset.sign = sign;
-  drawRail(el, project);
-  drawVerify(el, project);
-  drawOffers(el, offers);
-  var facts = el.querySelector(".facts");
-  while (facts.firstChild) facts.removeChild(facts.firstChild);
-  var pairs = [];
-  if (project) {
-    pairs.push(["path", project.path]);
-    if (project.branch) pairs.push(["branch", project.branch]);
-    if (project.jira_project) pairs.push(["jira_project", project.jira_project]);
-    Object.keys(project.facts || {}).forEach(function (k) {
-      if (k !== "jira_project") pairs.push([k, project.facts[k]]);
-    });
-    pairs.push(["indexed", project.indexed ? (project.last_indexed || "yes") : "not yet"]);
-  }
-  pairs.forEach(function (pair) {
-    var k = document.createElement("span");
-    k.className = "k";
-    text(k, pair[0]);
-    var v = document.createElement("span");
-    v.className = "v";
-    text(v, pair[1]);
-    facts.appendChild(k);
-    facts.appendChild(v);
-  });
-
-  var stops = el.querySelector(".friction");
-  while (stops.firstChild) stops.removeChild(stops.firstChild);
-  ((project && project.friction) || []).forEach(function (f) {
-    var li = document.createElement("li");
-    text(li, [f.date, f.type, f.title].filter(Boolean).join("  ·  ") +
-             (f.unblock ? "\n" + f.unblock : ""));
-    stops.appendChild(li);
-  });
-
-  var models = el.querySelector(".pbip");
-  while (models.firstChild) models.removeChild(models.firstChild);
-  ((project && project.pbip) || []).forEach(function (m) {
-    var li = document.createElement("li");
-    text(li, m.name + (m.model ? "  ·  " + m.model : "") + (m.report ? "  ·  " + m.report : ""));
-    models.appendChild(li);
-  });
-
-  var missing = (project && project.missing_keys) || [];
-  text(el.querySelector(".missing"),
-       missing.length ? "add to AGENTS.md for the rest of the rail: " + missing.join(", ") : "");
-}
-
-/* The verify pane is #131.4: the numbers the agent already wrote, beside the report link, so "go
-   and look at the chart" is a click rather than a hunt. The server only ever reads this repo's own
-   `.agent/out/`, and says so when a file in there resolves somewhere else. */
-function drawVerify(el, project) {
-  var pane = el.querySelector(".verify");
-  var v = (project && project.verify) || {};
-  var latest = v.latest || {};
-  pane.hidden = !latest.name && !(v.refused || []).length;
-  text(el.querySelector(".verifyhead"),
-       latest.name ? "verify · " + latest.tool + " · " + latest.name + " · " + age(Math.round(latest.age_s))
-                   : "verify · nothing in " + (v.dir || ".agent/out"));
-  text(el.querySelector(".verifybody"), latest.excerpt || "");
-  var more = el.querySelector(".verifymore");
-  while (more.firstChild) more.removeChild(more.firstChild);
-  (v.others || []).concat(v.refused || []).forEach(function (row) {
-    var li = document.createElement("li");
-    text(li, row.name + (row.why ? "  ·  " + row.why : "  ·  " + row.tool + "  ·  " + age(Math.round(row.age_s))));
-    more.appendChild(li);
-  });
 }
 
 /* ------------------------------------------------------------------ the Downloads inbox (#132) */
@@ -1099,13 +1080,6 @@ function kb(bytes) {
   return (n / 1048576).toFixed(1) + " MB";
 }
 
-function drawOffers(el, offers) {
-  var tray = el.querySelector(".tray");
-  while (tray.firstChild) tray.removeChild(tray.firstChild);
-  (offers || []).forEach(function (row) { tray.appendChild(offerRow(row, el.dataset.repo)); });
-  tray.hidden = !(offers || []).length;
-}
-
 function drawTray() {
   var loose = document.getElementById("loose");
   while (loose.firstChild) loose.removeChild(loose.firstChild);
@@ -1129,19 +1103,8 @@ function drawTray() {
   text(document.getElementById("folders"), (desk.folders || []).join("  ·  "));
 }
 
-function trayPanel(open) {
-  var el = document.getElementById("unsorted");
-  var show = open === undefined ? el.hidden : open;
-  if (show) {
-    document.getElementById("board").hidden = true;
-    document.getElementById("drawer").hidden = true;
-    document.getElementById("found").hidden = true;
-  }
-  el.hidden = !show;
-  if (!el.hidden) loadDesk();
-}
+function trayPanel(open) { return section("unsorted", open); }
 
-document.getElementById("traytoggle").addEventListener("click", function () { trayPanel(); });
 document.getElementById("closetray").addEventListener("click", function () { trayPanel(false); });
 
 /* ------------------------------------------------------------------------- where (#130), search */
@@ -1193,15 +1156,7 @@ var findSoon = (function () {
   };
 })();
 
-function foundPanel(open) {
-  var el = document.getElementById("found");
-  if (open) {
-    document.getElementById("board").hidden = true;
-    document.getElementById("drawer").hidden = true;
-    document.getElementById("unsorted").hidden = true;
-  }
-  el.hidden = !open;
-}
+function foundPanel(open) { return section("found", !!open); }
 
 document.getElementById("find").addEventListener("input", findSoon);
 document.getElementById("closefound").addEventListener("click", function () { foundPanel(false); });
@@ -1211,29 +1166,46 @@ document.getElementById("closefound").addEventListener("click", function () { fo
 /* One selected project, shared by every window on this server. It is a POST and not a URL fragment
    because the point is that the *other* windows hear about it: clicking a tile on the left monitor
    is what changes the centre one. */
+/* The desk state is merged, never replaced. `/api/select` answers with the selection and the
+   screen pinning and says nothing about the arrangement, so assigning its answer wholesale dropped
+   `arrangement` on the floor: clicking any tile un-widened every tile you had widened and unpinned
+   every tile you had pinned, until the next `/api/desk` poll fifteen seconds later put them back. */
+function mergeDesk(answer) {
+  if (!answer) return;
+  var next = Object.assign({}, desk.desk);
+  ["selected", "screens", "version", "arrangement"].forEach(function (k) {
+    if (answer[k] !== undefined) next[k] = answer[k];
+  });
+  desk.desk = next;
+}
+
 function choose(name) {
   if (desk.desk.selected === name) {
     drawInspector(name);
     return Promise.resolve();
   }
-  desk.desk = Object.assign({}, desk.desk, { selected: name });
+  mergeDesk({ selected: name });
   place();
   drawInspector(name);
   return post("select", { repo: name }).then(function (r) {
-    if (r && r.ok) desk.desk = { selected: r.selected, screens: r.screens, version: r.version };
+    if (r && r.ok) mergeDesk(r);
     place();
     drawInspector(name);
   });
 }
 
+/* The selected project's own detail, in one place instead of repeated inside every tile: a tile is
+   the AGENT, the inspector is the PROJECT (#148). Visibility belongs to the sidebar, not here --
+   this only draws, so a redraw can never reopen a panel the operator just closed. */
 function drawInspector(name) {
   var el = document.getElementById("inspector");
   if (!el) return;
+  var body0 = document.getElementById("inspectordetails");
   if (!name || !tiles.has(name)) {
-    el.hidden = true;
+    text(document.getElementById("inspectorrepo"), "");
+    while (body0.firstChild) body0.removeChild(body0.firstChild);
     return;
   }
-  el.hidden = false;
   text(document.getElementById("inspectorrepo"), name);
   var body = document.getElementById("inspectordetails");
   while (body.firstChild) body.removeChild(body.firstChild);
@@ -1241,13 +1213,24 @@ function drawInspector(name) {
   var p = desk.projects[name] || {};
   var facts = document.createElement("div");
   facts.className = "facts";
-  [
+  /* The ONE place on this page that renders a fact block, and it stays one on purpose.
+     `serve.tile_facts()` narrows `catalogue.LINK_FACTS` before any of it leaves the server,
+     because a fact block is hand-edited prose and a real one carries a warehouse hostname, a
+     `\\share\dpm\runs` path and a service account beside the Jira keys. A second loop over some
+     other payload's facts is how that filter gets bypassed by a change that looks like a feature.
+     If a panel ever needs a fact this loop does not show, widen `LINK_FACTS`; do not add a loop. */
+  var pairs = [
     ["project", name],
-    ["jira", p.jira_project || "—"],
-    ["ticket", p.ticket || "—"],
-    ["phase", p.phase || "—"],
-    ["branch", p.branch || "—"]
-  ].forEach(function (row) {
+    ["path", p.path || "—"],
+    ["branch", p.branch || "—"],
+    ["jira", p.jira_project || "—"]
+  ];
+  var factsFromCatalogue = p.facts || {};
+  Object.keys(factsFromCatalogue).forEach(function (k) {
+    if (k !== "jira_project") pairs.push([k, factsFromCatalogue[k]]);
+  });
+  pairs.push(["indexed", p.indexed ? (p.last_indexed || "yes") : "not yet"]);
+  pairs.forEach(function (row) {
     var k = document.createElement("span");
     k.className = "k";
     text(k, row[0]);
@@ -1258,10 +1241,83 @@ function drawInspector(name) {
     facts.appendChild(v);
   });
   body.appendChild(facts);
+
+  // What is missing is named, so the operator knows which AGENTS.md key would fill the rail.
+  var missing = p.missing_keys || [];
+  if (missing.length) {
+    var gap = document.createElement("p");
+    gap.className = "muted";
+    text(gap, "add to AGENTS.md for the rest of the rail: " + missing.join(", "));
+    body.appendChild(gap);
+  }
+
+  // Open friction, and the models and reports the catalogue knows about.
+  (p.friction || []).forEach(function (f) {
+    var li = document.createElement("p");
+    li.className = "frictionrow";
+    text(li, [f.date, f.type, f.title].filter(Boolean).join("  ·  ") + (f.unblock ? "\n" + f.unblock : ""));
+    body.appendChild(li);
+  });
+
+  // Where this project lives -- the link rail, so a tab is opened to act and never to check.
+  var links = (p.links || []);
+  if (links.length || p.path) {
+    var rail = document.createElement("div");
+    rail.className = "rail";
+    links.forEach(function (row) {
+      if (!row.url) return;
+      var a = document.createElement("a");
+      a.className = row.kind;
+      a.href = row.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.title = row.url;
+      text(a, row.name);
+      rail.appendChild(a);
+    });
+    if (p.path) {
+      var copy = document.createElement("button");
+      text(copy, "copy path");
+      copy.title = p.path;
+      copy.addEventListener("click", function () {
+        clip(p.path);
+        text(copy, "copied");
+        setTimeout(function () { text(copy, "copy path"); }, 1200);
+      });
+      rail.appendChild(copy);
+    }
+    body.appendChild(rail);
+  }
+
+  // The newest thing the project's own agent verified, beside the report link.
+  var latest = ((p.verify || {}).latest) || {};
+  if (latest.name) {
+    var h = document.createElement("div");
+    h.className = "muted";
+    text(h, "verify · " + (latest.tool || "") + " · " + latest.name +
+            (latest.age_s != null ? " · " + age(Math.round(latest.age_s)) : ""));
+    var pre = document.createElement("pre");
+    pre.className = "verifybody";
+    text(pre, latest.excerpt || "");
+    body.appendChild(h);
+    body.appendChild(pre);
+  }
+
+  var offers = (desk.offers || {})[name] || [];
+  if (offers.length) {
+    var head = document.createElement("div");
+    head.className = "muted";
+    text(head, "Downloads is offering " + offers.length + " file" + (offers.length === 1 ? "" : "s"));
+    var list = document.createElement("ol");
+    list.className = "tray";
+    offers.forEach(function (row) { list.appendChild(offerRow(row, name)); });
+    body.appendChild(head);
+    body.appendChild(list);
+  }
 }
 
 document.getElementById("closeinspector").addEventListener("click", function () {
-  document.getElementById("inspector").hidden = true;
+  section("inspector", false);
 });
 
 function getLayoutArrangement() {
@@ -1282,6 +1338,10 @@ function getEffectiveOrder() {
   return result;
 }
 
+/* Moving an element with `appendChild` takes the focus off it -- so a grid that re-appends every
+   tile on every draw (and the stream draws several times a second while an agent is talking) took
+   the focus off the tile the operator had just selected, and Alt+arrow reached nothing. The order
+   is therefore only touched when it is actually wrong, and the focus is put back when it is. */
 function reorderDomTiles() {
   var grid = document.getElementById("grid");
   if (!grid) return;
@@ -1290,59 +1350,95 @@ function reorderDomTiles() {
   var sizes = curArr.size || {};
   var pinned = curArr.pinned || [];
 
+  var inDom = Array.prototype.map.call(grid.children, function (el) { return el.dataset.repo; });
+  var needsMove = inDom.join("\u0000") !== order.filter(function (n) { return tiles.has(n); }).join("\u0000");
+  var focused = document.activeElement;
+  var refocus = needsMove && focused && focused.closest && focused.closest(".tile") ? focused : null;
+
   order.forEach(function (name, index) {
     var entry = tiles.get(name);
     if (entry && entry.el) {
-      grid.appendChild(entry.el);
+      if (needsMove) grid.appendChild(entry.el);
       text(entry.el.querySelector(".n"), index + 1);
       var sz = sizes[name] || 1;
       entry.el.classList.toggle("size-2", sz === 2);
       var szBtn = entry.el.querySelector(".sizetoggle");
-      if (szBtn) text(szBtn, sz === 2 ? "2x" : "1x");
+      if (szBtn) {
+        szBtn.classList.toggle("active", sz === 2);
+        szBtn.setAttribute("aria-pressed", String(sz === 2));
+        szBtn.title = sz === 2 ? "back to one column (Alt+Enter)" : "widen to two columns (Alt+Enter)";
+      }
       var isPinned = pinned.indexOf(name) >= 0;
       entry.el.classList.toggle("is-pinned", isPinned);
       var pBtn = entry.el.querySelector(".pintoggle");
-      if (pBtn) pBtn.classList.toggle("active", isPinned);
+      if (pBtn) {
+        pBtn.classList.toggle("active", isPinned);
+        pBtn.setAttribute("aria-pressed", String(isPinned));
+        pBtn.title = isPinned ? "unpin (Alt+Home)" : "pin this tile first (Alt+Home)";
+      }
     }
   });
+  if (refocus) refocus.focus();
 }
 
+/* Pinned tiles come first, always -- so a move has to happen inside the block the tile is in.
+   Reordering the flattened list and posting that did nothing whenever anything was pinned:
+   `getEffectiveOrder` puts the pinned names back in front on the very next draw, and the move the
+   operator just made was silently undone. */
 function moveTile(repo, dir) {
-  var order = getEffectiveOrder();
-  var idx = order.indexOf(repo);
-  if (idx < 0) return;
-  var targetIdx = idx + dir;
-  if (targetIdx < 0 || targetIdx >= order.length) return;
-  order.splice(idx, 1);
-  order.splice(targetIdx, 0, repo);
-  post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
-    if (r && r.ok) desk.desk = r;
+  var arr = getLayoutArrangement();
+  var pinned = (arr.pinned || []).filter(function (n) { return tiles.has(n); });
+  var inPinnedBlock = pinned.indexOf(repo) >= 0;
+  var block = inPinnedBlock
+    ? pinned
+    : getEffectiveOrder().filter(function (n) { return pinned.indexOf(n) < 0; });
+
+  var idx = block.indexOf(repo);
+  var target = idx + dir;
+  if (idx < 0 || target < 0 || target >= block.length) return;
+  block.splice(idx, 1);
+  block.splice(target, 0, repo);
+
+  var body = { layout: LAYOUT };
+  if (inPinnedBlock) body.pinned = block;
+  else body.order = block;
+  // Optimistic, then confirmed: the tile moves under the hand, and the server's answer is what
+  // the next draw reads.
+  if (inPinnedBlock) arr.pinned = block; else arr.order = block;
+  reorderDomTiles();
+  post("arrange", body).then(function (r) {
+    if (r && r.ok) mergeDesk(r);
     reorderDomTiles();
   });
-  reorderDomTiles();
 }
 
 function toggleTileSize(repo) {
   var curArr = getLayoutArrangement();
   var sizes = Object.assign({}, curArr.size || {});
   sizes[repo] = (sizes[repo] === 2) ? 1 : 2;
-  post("arrange", { layout: LAYOUT, size: sizes }).then(function (r) {
-    if (r && r.ok) desk.desk = r;
+  curArr.size = sizes;
+  reorderDomTiles();
+  return post("arrange", { layout: LAYOUT, size: sizes }).then(function (r) {
+    if (r && r.ok) mergeDesk(r);
     reorderDomTiles();
   });
-  reorderDomTiles();
 }
 
+/* Both toggles write the local arrangement BEFORE the round trip, not only after it. Reading
+   `desk.desk` and posting without updating it meant two quick clicks both read the same state and
+   the second overwrote the first: pin two tiles in a second and one of them silently came back
+   unpinned. The returned promise is what lets a caller sequence them. */
 function toggleTilePin(repo) {
   var curArr = getLayoutArrangement();
   var pinned = (curArr.pinned || []).slice();
   var idx = pinned.indexOf(repo);
   if (idx >= 0) pinned.splice(idx, 1); else pinned.push(repo);
-  post("arrange", { layout: LAYOUT, pinned: pinned }).then(function (r) {
-    if (r && r.ok) desk.desk = r;
+  curArr.pinned = pinned;
+  reorderDomTiles();
+  return post("arrange", { layout: LAYOUT, pinned: pinned }).then(function (r) {
+    if (r && r.ok) mergeDesk(r);
     reorderDomTiles();
   });
-  reorderDomTiles();
 }
 
 /* Which project this window is showing, when it is showing exactly one. `screens` is the shared
@@ -1381,22 +1477,24 @@ function place() {
   if (one) {
     // Opened once, not on every draw: a window that reopens a panel the operator just closed is
     // the kind of thing that gets a dashboard turned off.
+    // A window showing exactly one project opens the inspector on it, once -- reopening a panel
+    // the operator just closed is the kind of thing that gets a dashboard turned off.
     var entry = tiles.get(one);
     if (entry && entry.el.dataset.opened !== "1") {
       entry.el.dataset.opened = "1";
-      entry.el.querySelector(".about").open = true;
-      entry.el.querySelector(".verify").open = true;
+      section("inspector", true);
     }
   }
   var need = 0;
   tiles.forEach(function (entry) { if (entry.el.classList.contains("needs-human")) need += 1; });
   document.getElementById("nonefocus").hidden = !(needsOnly && !one && need === 0 && tiles.size > 0);
+  var notice = document.getElementById("notice");
   if (unknownLayout) {
-    text(document.getElementById("view"), "unknown layout '" + unknownLayout + "', using grid");
+    text(notice, "unknown layout '" + unknownLayout + "' — showing grid");
+    notice.hidden = false;
   } else {
-    text(document.getElementById("view"),
-         LAYOUT + (VIEW ? " · " + VIEW : "") + (SCREEN ? " · screen " + SCREEN : "") +
-         (one ? " · " + one : ""));
+    text(notice, "");
+    notice.hidden = true;
   }
   drawSwap(one);
 }
@@ -1414,11 +1512,12 @@ function go(params) {
   Object.keys(params).forEach(function (k) {
     if (params[k]) u.set(k, params[k]); else u.delete(k);
   });
-  var rawL = u.get("layout");
-  unknownLayout = (rawL && LAYOUTS.indexOf(rawL) < 0) ? rawL : null;
-  LAYOUT = unknownLayout ? "grid" : (rawL || "grid");
-  VIEW = VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : (LAYOUT === "roles" ? "agents" : "");
-  SCREEN = Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
+  readLocation(u);
+  // The URL is the window's identity, so it has to say only true things: a `view` left over from
+  // `roles` on a `screens` URL put `view-verify` and `layout-screens` on the body together and
+  // titled the window "fleet - verify" when it was a screen.
+  if (LAYOUT !== "roles") u.delete("view"); else u.set("view", VIEW);
+  if (LAYOUT !== "screens" || !SCREEN) u.delete("screen");
   var qs = u.toString();
   var newUrl = location.pathname + (qs ? "?" + qs : "");
   history.pushState({}, "", newUrl);
@@ -1426,57 +1525,82 @@ function go(params) {
   place();
 }
 
+/* One control per meaning (HIG *Segmented controls*). The first segment is the arrangement; the
+   second says WHICH window of that arrangement this one is, and only exists for the arrangements
+   that come as a set. There used to be a second, duplicate <select> alongside this, offering the
+   same eight choices in a different vocabulary. */
+var VIEW_SEGMENTS = {
+  roles: [["agents", "agents"], ["verify", "verify"], ["board", "board"]],
+  screens: [["", "laptop"], ["1", "screen 1"], ["2", "screen 2"], ["3", "screen 3"]]
+};
+
 function updateLayoutSegments() {
-  var segs = document.querySelectorAll("#layoutgroup .segment");
-  segs.forEach(function (btn) {
+  document.querySelectorAll("#layoutgroup .segment").forEach(function (btn) {
     var active = btn.dataset.layout === LAYOUT;
     btn.classList.toggle("active", active);
     btn.setAttribute("aria-checked", String(active));
   });
-  var select = document.getElementById("layout");
-  if (select) {
-    select.value = LAYOUT + "|" + (VIEW || "") + "|" + (SCREEN || 0);
+
+  var group = document.getElementById("viewgroup");
+  var rows = VIEW_SEGMENTS[LAYOUT];
+  group.hidden = !rows;
+  if (!rows) {
+    while (group.firstChild) group.removeChild(group.firstChild);
+    return;
   }
+  // Rebuilt only when the set of choices actually changes. Tearing these down on every draw
+  // destroyed the button the operator had just clicked, which drops the focus to `<body>` -- the
+  // same trap `reorderDomTiles` documents for tiles.
+  var want = LAYOUT + ":" + rows.map(function (r) { return r[0]; }).join(",");
+  if (group.dataset.built === want) {
+    Array.prototype.forEach.call(group.children, function (btn) {
+      var on = LAYOUT === "roles" ? (VIEW === btn.dataset.value)
+                                  : (String(SCREEN || "") === btn.dataset.value);
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-checked", String(on));
+    });
+    return;
+  }
+  group.dataset.built = want;
+  while (group.firstChild) group.removeChild(group.firstChild);
+  rows.forEach(function (row) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "segment";
+    btn.setAttribute("role", "radio");
+    btn.dataset.value = row[0];
+    var mine = LAYOUT === "roles" ? (VIEW === row[0]) : (String(SCREEN || "") === row[0]);
+    btn.classList.toggle("active", mine);
+    btn.setAttribute("aria-checked", String(mine));
+    text(btn, row[1]);
+    btn.addEventListener("click", function () {
+      if (LAYOUT === "roles") go({ layout: "roles", view: row[0], screen: "" });
+      else go({ layout: "screens", view: "", screen: row[0] });
+    });
+    group.appendChild(btn);
+  });
 }
 
-window.addEventListener("popstate", function () {
-  var u = new URLSearchParams(location.search);
+/* Which window this is, read from the query string. `go()` and the back button both come through
+   here so the two cannot drift apart. A `view` is only meaningful under `roles` and a `screen` only
+   under `screens`; anything else is dropped rather than carried into a layout it means nothing in. */
+function readLocation(u) {
   var rawL = u.get("layout");
   unknownLayout = (rawL && LAYOUTS.indexOf(rawL) < 0) ? rawL : null;
   LAYOUT = unknownLayout ? "grid" : (rawL || "grid");
-  VIEW = VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : (LAYOUT === "roles" ? "agents" : "");
-  SCREEN = Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
+  VIEW = LAYOUT !== "roles" ? ""
+       : (VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : "agents");
+  SCREEN = LAYOUT !== "screens" ? 0 : Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
+}
+
+window.addEventListener("popstate", function () {
+  readLocation(new URLSearchParams(location.search));
   updateLayoutSegments();
   place();
 });
 
-var CHOICES = [
-  ["grid", "", 0, "grid — every tile, one screen"],
-  ["roles", "agents", 0, "roles — agents (left)"],
-  ["roles", "verify", 0, "roles — verify (centre)"],
-  ["roles", "board", 0, "roles — board (right)"],
-  ["screens", "", 0, "screens — board + inbox (laptop)"],
-  ["screens", "", 1, "screens — screen 1"],
-  ["screens", "", 2, "screens — screen 2"],
-  ["screens", "", 3, "screens — screen 3"]
-];
-
 (function layoutPicker() {
-  var select = document.getElementById("layout");
-  CHOICES.forEach(function (choice) {
-    var option = document.createElement("option");
-    option.value = choice[0] + "|" + choice[1] + "|" + choice[2];
-    text(option, choice[3]);
-    select.appendChild(option);
-  });
-  select.value = LAYOUT + "|" + (VIEW || "") + "|" + (SCREEN || 0);
-  select.addEventListener("change", function () {
-    var parts = select.value.split("|");
-    go({ layout: parts[0], view: parts[1], screen: parts[2] === "0" ? "" : parts[2] });
-  });
-
-  var segs = document.querySelectorAll("#layoutgroup .segment");
-  segs.forEach(function (btn) {
+  document.querySelectorAll("#layoutgroup .segment").forEach(function (btn) {
     btn.addEventListener("click", function () {
       go({ layout: btn.dataset.layout, view: "", screen: "" });
     });
@@ -1512,7 +1636,7 @@ document.getElementById("swap").addEventListener("change", function () {
   if (was >= 0) screens[was] = here;                  // a swap, not an overwrite
   screens[SCREEN - 1] = wanted;
   post("select", { screens: screens }).then(function (r) {
-    if (r && r.ok) { desk.desk = { selected: r.selected, screens: r.screens, version: r.version }; }
+    if (r && r.ok) mergeDesk(r);
     place();
   });
 });
@@ -1536,9 +1660,9 @@ document.getElementById("focus").setAttribute("aria-pressed", String(needsOnly))
 
 document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-  if (e.key === "Escape" && !typing) { foundPanel(false); trayPanel(false); return; }
+  if (e.key === "Escape" && !typing) { closeSide(); return; }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "f") { focusMode(); return; }
-  if (e.key === "i") { trayPanel(); return; }
+  if (e.key === "i") { section("unsorted"); return; }
   if (e.key === "/") { e.preventDefault(); document.getElementById("find").focus(); }
 });
