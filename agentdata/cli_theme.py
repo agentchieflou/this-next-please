@@ -23,11 +23,34 @@ from . import ui
 THEME_COLS = ("name", "title", "ground", "accent", "light", "why")
 
 
+def is_in_schedule(sched: dict, when: Any = None) -> bool:
+    """Check if current time falls within scheduled after-until window."""
+    if not sched or not isinstance(sched, dict):
+        return False
+    after = sched.get("after", "")
+    until = sched.get("until", "")
+    if not after or not until:
+        return False
+    import time
+    now_tm = when or time.localtime()
+    now_str = f"{now_tm.tm_hour:02d}:{now_tm.tm_min:02d}"
+    if after <= until:
+        return after <= now_str < until
+    return now_str >= after or now_str < until
+
+
 def _resolve_cwd_theme() -> tuple[str, str]:
     """Find the theme for current directory from config.json. Returns (theme_name, reason)."""
     cfg = config.load()
     cwd = os.path.abspath(os.getcwd())
-    
+
+    # Check schedule first
+    sched = config.get(cfg, "theme.schedule", {})
+    if is_in_schedule(sched):
+        sched_theme = sched.get("theme", "greens")
+        until = sched.get("until", "07:00")
+        return str(sched_theme), f"'{sched_theme}' by schedule until {until}"
+
     # Check project-specific mappings
     projects = config.get(cfg, "theme.projects", {})
     if isinstance(projects, dict):
@@ -194,13 +217,52 @@ def cmd_reset(a) -> int:
 
 def cmd_set(a) -> int:
     """Save theme configuration in ~/.agentdata/config.json."""
+    cfg = config.load()
+    target_desc = ""
+
+    if getattr(a, "transient", None):
+        val = (a.transient.lower() == "on")
+        cfg.setdefault("theme", {})["transient_prompt"] = val
+        target_desc = f"transient_prompt={val}"
+
+    if getattr(a, "after", None) or getattr(a, "until", None):
+        if not getattr(a, "name", None):
+            print("error: --after / --until requires a theme name", file=sys.stderr)
+            return 1
+        try:
+            t = theme.get(a.name)
+        except theme.ThemeError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        sched = {
+            "theme": t.name,
+            "after": a.after or "18:00",
+            "until": a.until or "07:00",
+        }
+        cfg.setdefault("theme", {})["schedule"] = sched
+        target_desc = f"schedule '{t.name}' (after {sched['after']} until {sched['until']})"
+        config.save(cfg)
+        try:
+            theme_project.write_hooks()
+        except Exception:
+            pass
+        print(toon.encode({"meta": {"ok": True, "set": t.name, "target": target_desc}}))
+        return 0
+
+    if not getattr(a, "name", None):
+        if target_desc:
+            config.save(cfg)
+            print(toon.encode({"meta": {"ok": True, "target": target_desc}}))
+            return 0
+        print("error: theme name required", file=sys.stderr)
+        return 1
+
     try:
         t = theme.get(a.name)
     except theme.ThemeError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
-    cfg = config.load()
     if a.project:
         proj_key = os.path.abspath(a.project) if os.path.isdir(a.project) else a.project
         projects = config.get(cfg, "theme.projects", {})
@@ -214,6 +276,10 @@ def cmd_set(a) -> int:
         target_desc = "default"
 
     config.save(cfg)
+    try:
+        theme_project.write_hooks()
+    except Exception:
+        pass
     print(toon.encode({"meta": {"ok": True, "set": t.name, "target": target_desc}}))
     return 0
 
@@ -366,10 +432,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_reset = sub.add_parser("reset", help="reset terminal colours to default")
 
-    p_set = sub.add_parser("set", help="set default or project theme in config.json")
-    p_set.add_argument("name", help="theme name")
+    p_set = sub.add_parser("set", help="set default, project or scheduled theme in config.json")
+    p_set.add_argument("name", nargs="?", help="theme name")
     p_set.add_argument("--project", help="project directory or name")
     p_set.add_argument("--default", action="store_true", help="set as global default")
+    p_set.add_argument("--after", help="schedule start time, e.g. 18:00")
+    p_set.add_argument("--until", help="schedule end time, e.g. 07:00")
+    p_set.add_argument("--transient", choices=["on", "off"], help="turn Oh My Posh transient prompt on or off")
 
     p_unset = sub.add_parser("unset", help="unset theme from config.json")
     p_unset.add_argument("--project", help="project directory or name")

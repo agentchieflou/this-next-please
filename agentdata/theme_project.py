@@ -132,8 +132,19 @@ def remove_wt_fragment(path: str | None = None) -> bool:
 
 # ---------- Directory Hooks (Zero Python at prompt time) ----------
 
-def generate_ps1_hook(entries: list[dict[str, Any]], default_escapes: str = "") -> str:
-    """Generate PowerShell hook script."""
+def generate_ps1_hook(entries: list[dict[str, Any]], default_escapes: str = "",
+                      schedule: dict[str, Any] | None = None) -> str:
+    """Generate PowerShell hook script with tab titles and scheduling."""
+    sched_theme = (schedule or {}).get("theme", "")
+    sched_after = (schedule or {}).get("after", "")
+    sched_until = (schedule or {}).get("until", "")
+    sched_esc = ""
+    if sched_theme:
+        try:
+            sched_esc = theme.escapes(theme.get(sched_theme))
+        except Exception:
+            sched_esc = ""
+
     lines = [
         f"{HOOK_MARKER} (PowerShell)",
         "$script:LastDir = ''",
@@ -148,6 +159,10 @@ def generate_ps1_hook(entries: list[dict[str, Any]], default_escapes: str = "") 
     lines.extend([
         ")",
         "$script:DefaultEscapes = \"" + default_escapes.replace('"', '`"') + "\"",
+        f"$script:SchedTheme = '{sched_theme}'",
+        f"$script:SchedAfter = '{sched_after}'",
+        f"$script:SchedUntil = '{sched_until}'",
+        "$script:SchedEscapes = \"" + sched_esc.replace('"', '`"') + "\"",
         "",
         "function Update-AgentdataThemeHook {",
         "  $cur = $PWD.Path",
@@ -160,9 +175,21 @@ def generate_ps1_hook(entries: list[dict[str, Any]], default_escapes: str = "") 
         "        break",
         "      }",
         "    }",
+        "    $schedEsc = $null",
+        "    if ($script:SchedTheme -and $script:SchedAfter -and $script:SchedUntil) {",
+        "      $now = (Get-Date).ToString('HH:mm')",
+        "      $inSched = $false",
+        "      if ($script:SchedAfter -le $script:SchedUntil) {",
+        "        $inSched = ($now -ge $script:SchedAfter -and $now -lt $script:SchedUntil)",
+        "      } else {",
+        "        $inSched = ($now -ge $script:SchedAfter -or $now -lt $script:SchedUntil)",
+        "      }",
+        "      if ($inSched) { $schedEsc = $script:SchedEscapes }",
+        "    }",
         "    if ($matched) {",
         "      $env:AGENTDATA_PROJECT = $matched.Project",
-        "      if ($matched.Escapes) { [Console]::Write($matched.Escapes) }",
+        "      if ($schedEsc) { [Console]::Write($schedEsc) }",
+        "      elseif ($matched.Escapes) { [Console]::Write($matched.Escapes) }",
         "      $stateFile = [System.IO.Path]::Combine($matched.Path, '.agent', 'state.json')",
         "      if ([System.IO.File]::Exists($stateFile)) {",
         "        try {",
@@ -171,11 +198,17 @@ def generate_ps1_hook(entries: list[dict[str, Any]], default_escapes: str = "") 
         "          if ($raw -match '\"phase\":\\s*\"([^\"]+)\"') { $env:AGENTDATA_PHASE = $matches[1] }",
         "        } catch {}",
         "      }",
+        "      $title = \"$($matched.Project)\"",
+        "      if ($env:AGENTDATA_TICKET) { $title += \" · $env:AGENTDATA_TICKET\" }",
+        "      if ($env:AGENTDATA_PHASE) { $title += \" · $env:AGENTDATA_PHASE\" }",
+        "      [Console]::Write(\"`e]2;$title`e\\\")",
         "    } else {",
         "      $env:AGENTDATA_PROJECT = ''",
         "      $env:AGENTDATA_TICKET = ''",
         "      $env:AGENTDATA_PHASE = ''",
-        "      if ($script:DefaultEscapes) { [Console]::Write($script:DefaultEscapes) }",
+        "      if ($schedEsc) { [Console]::Write($schedEsc) }",
+        "      elseif ($script:DefaultEscapes) { [Console]::Write($script:DefaultEscapes) }",
+        "      [Console]::Write(\"`e]2;`e\\\")",
         "    }",
         "  }",
         "}",
@@ -191,41 +224,79 @@ def generate_ps1_hook(entries: list[dict[str, Any]], default_escapes: str = "") 
     return "\n".join(lines) + "\n"
 
 
-def generate_sh_hook(entries: list[dict[str, Any]], default_escapes: str = "") -> str:
-    """Generate Bash/POSIX hook script."""
+def generate_sh_hook(entries: list[dict[str, Any]], default_escapes: str = "",
+                     schedule: dict[str, Any] | None = None) -> str:
+    """Generate Bash/POSIX hook script with tab titles and scheduling."""
+    sched_theme = (schedule or {}).get("theme", "")
+    sched_after = (schedule or {}).get("after", "")
+    sched_until = (schedule or {}).get("until", "")
+    sched_esc = ""
+    if sched_theme:
+        try:
+            sched_esc = theme.escapes(theme.get(sched_theme))
+        except Exception:
+            sched_esc = ""
+
+    hex_sched = "".join(f"\\x{ord(c):02x}" for c in sched_esc) if sched_esc else ""
+    hex_def = "".join(f"\\x{ord(c):02x}" for c in default_escapes) if default_escapes else ""
+
     lines = [
         f"{HOOK_MARKER} (bash)",
         "_AD_LAST_DIR=''",
+        f"_AD_SCHED_THEME='{sched_theme}'",
+        f"_AD_SCHED_AFTER='{sched_after}'",
+        f"_AD_SCHED_UNTIL='{sched_until}'",
+        f'_AD_SCHED_ESCAPES="{hex_sched}"',
+        f'_AD_DEFAULT_ESCAPES="{hex_def}"',
         "",
         "_ad_theme_hook() {",
         "  local cur=\"$PWD\"",
         "  if [ \"$cur\" != \"$_AD_LAST_DIR\" ]; then",
         "    _AD_LAST_DIR=\"$cur\"",
+        "    local sched_active=0",
+        '    if [ -n "$_AD_SCHED_THEME" ] && [ -n "$_AD_SCHED_AFTER" ] && [ -n "$_AD_SCHED_UNTIL" ]; then',
+        "      local now=$(date +%H:%M)",
+        '      if [[ "$_AD_SCHED_AFTER" < "$_AD_SCHED_UNTIL" ]]; then',
+        '        if [[ "$now" > "$_AD_SCHED_AFTER" || "$now" == "$_AD_SCHED_AFTER" ]] && [[ "$now" < "$_AD_SCHED_UNTIL" ]]; then sched_active=1; fi',
+        "      else",
+        '        if [[ "$now" > "$_AD_SCHED_AFTER" || "$now" == "$_AD_SCHED_AFTER" ]] || [[ "$now" < "$_AD_SCHED_UNTIL" ]]; then sched_active=1; fi',
+        "      fi",
+        "    fi",
     ]
 
     for idx, e in enumerate(entries):
         cond = "if" if idx == 0 else "elif"
         norm_p = e["path"].replace("\\", "/")
+        hex_esc = "".join(f"\\x{ord(c):02x}" for c in e["escapes"]) if e["escapes"] else ""
         lines.append(f'    {cond} [[ "$cur" == "{norm_p}"* ]]; then')
         lines.append(f'      export AGENTDATA_PROJECT="{e["name"]}"')
-        if e["escapes"]:
-            # Output escapes in printf
-            hex_esc = "".join(f"\\x{ord(c):02x}" for c in e["escapes"])
-            lines.append(f'      printf "{hex_esc}"')
+        lines.append('      if [ $sched_active -eq 1 ]; then')
+        lines.append('        printf "$_AD_SCHED_ESCAPES"')
+        if hex_esc:
+            lines.append('      else')
+            lines.append(f'        printf "{hex_esc}"')
+        lines.append('      fi')
         lines.append(f'      local sf="{norm_p}/.agent/state.json"')
         lines.append('      if [ -f "$sf" ]; then')
         lines.append('        export AGENTDATA_TICKET=$(grep -o \'"active_ticket": *"[^"]*"\' "$sf" | head -n1 | cut -d\'"\' -f4)')
         lines.append('        export AGENTDATA_PHASE=$(grep -o \'"phase": *"[^"]*"\' "$sf" | head -n1 | cut -d\'"\' -f4)')
         lines.append('      fi')
+        lines.append('      local title="$AGENTDATA_PROJECT"')
+        lines.append('      if [ -n "$AGENTDATA_TICKET" ]; then title="$title · $AGENTDATA_TICKET"; fi')
+        lines.append('      if [ -n "$AGENTDATA_PHASE" ]; then title="$title · $AGENTDATA_PHASE"; fi')
+        lines.append('      printf "\\033]2;%s\\033\\\\" "$title"')
 
     if entries:
         lines.append("    else")
         lines.append("      export AGENTDATA_PROJECT=''")
         lines.append("      export AGENTDATA_TICKET=''")
         lines.append("      export AGENTDATA_PHASE=''")
-        if default_escapes:
-            hex_def = "".join(f"\\x{ord(c):02x}" for c in default_escapes)
-            lines.append(f'      printf "{hex_def}"')
+        lines.append('      if [ $sched_active -eq 1 ]; then')
+        lines.append('        printf "$_AD_SCHED_ESCAPES"')
+        lines.append('      elif [ -n "$_AD_DEFAULT_ESCAPES" ]; then')
+        lines.append('        printf "$_AD_DEFAULT_ESCAPES"')
+        lines.append('      fi')
+        lines.append('      printf "\\033]2;\\033\\\\"')
         lines.append("    fi")
 
     lines.extend([
@@ -238,8 +309,8 @@ def generate_sh_hook(entries: list[dict[str, Any]], default_escapes: str = "") -
     return "\n".join(lines) + "\n"
 
 
-def generate_lua_hook(entries: list[dict[str, Any]]) -> str:
-    """Generate Clink Lua script for cmd.exe."""
+def generate_lua_hook(entries: list[dict[str, Any]], schedule: dict[str, Any] | None = None) -> str:
+    """Generate Clink Lua script for cmd.exe with tab titles."""
     lines = [
         f"{HOOK_MARKER_LUA} (Clink for cmd.exe)",
         "local last_dir = ''",
@@ -264,10 +335,16 @@ def generate_lua_hook(entries: list[dict[str, Any]]) -> str:
         "    end",
         "    if matched then",
         '      clink.setenv("AGENTDATA_PROJECT", matched.project)',
+        "      if clink and clink.settitle then",
+        "        clink.settitle(matched.project)",
+        "      end",
         "    else",
         '      clink.setenv("AGENTDATA_PROJECT", "")',
         '      clink.setenv("AGENTDATA_TICKET", "")',
         '      clink.setenv("AGENTDATA_PHASE", "")',
+        "      if clink and clink.settitle then",
+        '        clink.settitle("")',
+        "      end",
         "    end",
         "  end",
         "end",
@@ -292,13 +369,17 @@ def write_hooks(hook_directory: str | None = None) -> dict[str, str]:
     except Exception:
         def_esc = ""
 
+    sched = config.get(cfg, "theme.schedule", {})
+    if not isinstance(sched, dict):
+        sched = {}
+
     ps1_path = os.path.join(d, "hook.ps1")
     sh_path = os.path.join(d, "hook.sh")
     lua_path = os.path.join(d, "hook.lua")
 
-    textio.write_text(ps1_path, generate_ps1_hook(entries, default_escapes=def_esc))
-    textio.write_text(sh_path, generate_sh_hook(entries, default_escapes=def_esc))
-    textio.write_text(lua_path, generate_lua_hook(entries))
+    textio.write_text(ps1_path, generate_ps1_hook(entries, default_escapes=def_esc, schedule=sched))
+    textio.write_text(sh_path, generate_sh_hook(entries, default_escapes=def_esc, schedule=sched))
+    textio.write_text(lua_path, generate_lua_hook(entries, schedule=sched))
 
     return {
         "ps1": textio.norm_path(ps1_path),

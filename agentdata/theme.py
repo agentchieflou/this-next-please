@@ -18,6 +18,7 @@ import sys
 from typing import Any
 
 from . import textio
+from . import theme_signals as signals
 
 
 class ThemeError(Exception):

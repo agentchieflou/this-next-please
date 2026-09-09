@@ -71,10 +71,26 @@ Installing directory hooks or prompt integration adds a single marked line to yo
 
 Uninstall commands remove the marked line cleanly, leaving all user customizations untouched.
 
+## Terminal Signals & Attention Management
+
+CLI theming extends beyond colors to attention signals that notify humans without context switching:
+
+- **OSC 9;4 Progress Indicator**: Long-running operations (`ui.progress`) emit standard OSC 9;4 progress bar escapes to `sys.stderr` for supported terminals (Windows Terminal, ConEmu). Standard output remains clean and pipe-safe.
+- **Dynamic Tab Titles (OSC 2)**: Directory hooks update terminal tab titles to display `<project> · <ticket> · <phase>` so the human can tell multiple sessions apart at a glance.
+- **Needs-Human Notifications**: Fleet notifications (`agentdata.fleet.notify`) emit terminal bell (`\x07`) and OSC 9 toast notifications when an agent reaches a human-intervention state (`needs_human` / `blocked`), respecting configured quiet hours.
+- **Time-of-Day Scheduling**: Project themes support `--after HH:MM` and `--until HH:MM` time windows so projects can automatically switch between day (e.g. `eye-relief-day`) and night (e.g. `eye-relief`) palettes.
+
+## Starship vs. Oh My Posh
+
+While `agentdata` provides native Oh My Posh integration for high-fidelity prompt glyphs and palette inheritance, Starship is supported via `agentdata.starship.generate_config()`:
+- Oh My Posh remains the primary recommendation on Windows due to direct Clink / ConHost support, native transient prompt support, and fine-grained palette-segment bindings.
+- Starship provides cross-platform Rust speed and identical `AGENTDATA_PROJECT` / `AGENTDATA_TICKET` segment rendering.
+
 ## An Agent Never Sees This
 
 CLI theming is strictly for human awareness. An agent (such as Luna or an autonomous subagent) never receives escape bytes or palette noise:
 - Every terminal recolouring command checks `color.enabled()`. When `stdout` is piped or redirected, all escape sequences are suppressed.
 - `ad-theme list`, `show`, `gallery`, and all doctor rows output pure TOON on `stdout` when piped, adhering strictly to the contract of Issue #71.
 - Directory hooks write escapes directly to the interactive terminal console and never pollute tool call outputs or piped subprocess stdout.
+
 

@@ -256,10 +256,21 @@ def deliver(items: list[dict], *, cfg: dict | None = None, url: str = "",
     """Record every notification; toast the ones the rules allow. Returns them, marked up."""
     s = settings(cfg)
     quiet = in_quiet_hours(s["quiet_hours"], when)
+    cur_project = os.environ.get("AGENTDATA_PROJECT", "")
     for item in items:
         item["quiet"] = quiet
         item["toasted"] = bool(
             s["toast"] and not quiet and toast_status(cfg) == "ready" and send_toast(item, url))
+        # Terminal attention signals for the terminal that has this project active
+        if (cur_project and item.get("repo") == cur_project
+                and item.get("state") in ("needs_human", "waiting_approval")
+                and not quiet):
+            from .. import theme_signals
+            theme_signals.emit_bell(item.get("title"))
+            theme_signals.emit_progress("error")
+            item["belled"] = True
+        else:
+            item["belled"] = False
     if s["dashboard"]:
         _append_log(items)
     return items

@@ -307,33 +307,45 @@ def _numberish(s: str) -> bool:
 def progress(description: str):
     """Show transient progress on sys.stderr for long-running operations.
     Never emits anything to stdout. No-op when piped, mode is plain, or rich unavailable.
+    Emits OSC 9;4 progress sequences to stderr for terminal tab and taskbar.
     """
-    if mode() == "plain":
-        yield
-        return
-    force = os.environ.get("AGENTDATA_PROGRESS", "").lower() in ("1", "true", "always")
-    stderr_is_tty = False
+    from . import theme_signals
+    theme_signals.emit_progress("indeterminate")
     try:
-        stderr_is_tty = bool(sys.stderr) and sys.stderr.isatty()
-    except Exception:
-        pass
-    if not force and not (on() and stderr_is_tty):
-        yield
-        return
-    try:
-        from rich.console import Console
-        from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
-        stderr_console = Console(stderr=True, force_terminal=True if force else None, highlight=False)
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            TimeElapsedColumn(),
-            console=stderr_console,
-            transient=True,
-        ) as prog:
-            prog.add_task(description)
-            prog.refresh()
-            yield prog
-    except Exception:
-        yield
+        if mode() == "plain":
+            yield
+            theme_signals.emit_progress("done")
+            return
+        force = os.environ.get("AGENTDATA_PROGRESS", "").lower() in ("1", "true", "always")
+        stderr_is_tty = False
+        try:
+            stderr_is_tty = bool(sys.stderr) and sys.stderr.isatty()
+        except Exception:
+            pass
+        if not force and not (on() and stderr_is_tty):
+            yield
+            theme_signals.emit_progress("done")
+            return
+        try:
+            from rich.console import Console
+            from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+            stderr_console = Console(stderr=True, force_terminal=True if force else None, highlight=False)
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                TimeElapsedColumn(),
+                console=stderr_console,
+                transient=True,
+            ) as prog:
+                prog.add_task(description)
+                prog.refresh()
+                yield prog
+            theme_signals.emit_progress("done")
+        except Exception:
+            yield
+            theme_signals.emit_progress("done")
+    except BaseException:
+        theme_signals.emit_progress("error")
+        raise
+
 

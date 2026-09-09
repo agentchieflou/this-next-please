@@ -68,7 +68,8 @@ def detect() -> dict[str, Any]:
     }
 
 
-def generate_omp_config(t: Theme, layout: str = "jandedobbeleer") -> dict[str, Any]:
+def generate_omp_config(t: Theme, layout: str = "jandedobbeleer",
+                        transient: bool | None = None) -> dict[str, Any]:
     """Generate an Oh My Posh JSON configuration dict from a Theme."""
     accent = t.accent or "#3FB950"
     ground = t.ground or "#000000"
@@ -121,17 +122,23 @@ def generate_omp_config(t: Theme, layout: str = "jandedobbeleer") -> dict[str, A
         }
     ]
 
-    return {
+    if transient is None:
+        from . import config as C
+        transient = C.get(C.load(), "theme.transient_prompt", True)
+
+    cfg: dict[str, Any] = {
         "$schema": SCHEMA_URL,
         "version": 2,
         "final_space": True,
-        "transient_prompt": {
+        "blocks": blocks,
+    }
+    if transient:
+        cfg["transient_prompt"] = {
             "background": "transparent",
             "foreground": accent,
             "template": "\u276f "
-        },
-        "blocks": blocks,
-    }
+        }
+    return cfg
 
 
 def write_theme_omp(t: Theme, out_path: str | None = None) -> str:
