@@ -96,3 +96,21 @@ header h1, header .glabel, header .dot,
 footer, footer #counts, footer .keys { color: #B8C4B8 !important; }
 header h1 { color: #F2F2F2 !important; }
 #notice { color: var(--waiting) !important; }
+
+/* One 8-pixel block per status role, beside the glyph and never instead of it (#156). The art is
+   `sprites.svg` in this directory, referenced by fragment, so there is one copy of it. */
+.chip::before {
+  content: "";
+  width: 12px; height: 12px; flex: 0 0 12px;
+  background-size: 12px 12px; background-repeat: no-repeat;
+  image-rendering: pixelated; border: 1px solid #111;
+}
+.chip { display: inline-flex; align-items: center; gap: 6px; }
+.chip.running::before          { background-image: url("sprites.svg#running-block"); }
+.chip.waiting_approval::before { background-image: url("sprites.svg#waiting-block"); }
+.chip.needs_human::before,
+.chip.blocked::before,
+.chip.error::before            { background-image: url("sprites.svg#human-block"); }
+.chip.done::before             { background-image: url("sprites.svg#done-block"); }
+.chip.idle::before,
+.chip.starting::before         { background-image: url("sprites.svg#idle-block"); }

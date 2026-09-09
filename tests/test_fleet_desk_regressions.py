@@ -138,11 +138,15 @@ def test_the_transcript_belongs_to_the_current_run_only(fleet_home, tmp_path):  
 
     assert row["run"]["n"] == 3
     assert len(row["earlier"]) == 2
-    kinds = [ev["kind"] for ev in row["run"]["events"]]
+    # `recent` is what the page draws as the transcript.
+    kinds = [ev["kind"] for ev in row["recent"]]
     assert kinds[:2] == ["started", "assistant_text"], kinds
     assert "exited" not in kinds, "an earlier run's ending leaked into the current transcript"
-    blob = json.dumps(row["run"]["events"])
+    blob = json.dumps(row["recent"])
     assert '"one"' not in blob and '"two"' not in blob, "the first two runs are not this transcript"
+    # ...and the run itself travels as a count, not as its whole history on every poll.
+    assert row["run"]["events"] is None, "the current run's events ship once, in `recent`"
+    assert row["run"]["events_n"] == len(kinds)
 
 
 # ------------------------------------------------------------------------- the page, in a browser
@@ -458,3 +462,53 @@ def test_a_pinned_tile_can_still_be_moved(desk):
         browser.close()
     assert len(before) >= 2 and before != after, f"a pinned tile would not move: {before} -> {after}"
     assert after[0] == before[1] and after[1] == before[0], (before, after)
+
+
+def test_a_relative_url_inside_a_stylesheet_carries_the_token():
+    """The rule that once made the page render as unstyled HTML, one level further down.
+
+    Everything but `/api/ping` requires this run's token, and a relative `url()` inside a stylesheet
+    does not inherit the query string the stylesheet was fetched with. A skin asking for its own
+    `sprites.svg` was therefore refused with a 403 -- silently: the chips simply had no status
+    sprite and nothing said why. The token goes on before the fragment, because
+    `sprites.svg#crop-sun?t=...` names no fragment at all.
+    """
+    tok = S._tokenize_css_urls
+    assert tok('a{background:url("sprites.svg#crop-sun")}', "TOK") == \
+        'a{background:url("sprites.svg?t=TOK#crop-sun")}'
+    assert tok("b{background:url(sprites.svg)}", "TOK") == "b{background:url(sprites.svg?t=TOK)}"
+    # ...and never on something that is not a relative file
+    for untouched in ('c{background:url("data:image/svg+xml,%3Csvg%3E")}',
+                      'd{background:url("https://fonts.example/x.woff2")}',
+                      'e{background:url("/static/app.css")}'):
+        assert tok(untouched, "TOK") == untouched, untouched
+
+
+@pytest.mark.browser
+def test_a_skin_that_draws_its_status_sprites_can_actually_fetch_them(desk):
+    """#156 and #157 are "the state as a block / as a crop stage, beside the glyph".
+
+    The art was on disk and referenced by nothing, and the only test covering it asserted the file
+    existed. This asks the page for it the way the page asks.
+    """
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    with sync_playwright() as p:
+        browser, page, _ = _page(p, desk)
+        seen = []
+        page.on("response", lambda r: seen.append((r.status, r.url)) if "sprites.svg" in r.url else None)
+        page.evaluate("""async () => {
+            const u = new URL(location.href);
+            await fetch('/api/theme?t=' + u.searchParams.get('t'),
+                        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ skin: 'farmstead' }) });
+        }""")
+        page.wait_for_timeout(2800)
+        painted = page.evaluate("""() => {
+            const c = document.querySelector('.tile .chip');
+            const before = getComputedStyle(c, '::before');
+            return { image: before.backgroundImage, width: before.width };
+        }""")
+        browser.close()
+    assert "sprites.svg" in painted["image"], painted
+    assert seen, "the page never asked for the sprite sheet"
+    assert all(status == 200 for status, _ in seen), seen

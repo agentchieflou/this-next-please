@@ -38,6 +38,7 @@ import hmac
 import json
 import mimetypes
 import os
+import re
 import secrets
 import threading
 import time
@@ -98,6 +99,24 @@ VERIFY_HEAD = 3000           # characters of the summary the pane shows; the lin
 # The page may load nothing but itself. Belt and braces with shipping no external references: if a
 # later edit pastes in a CDN script tag, the browser refuses it and the test below catches it.
 CSP = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'"
+
+
+# A relative URL inside a stylesheet does not inherit the query string the stylesheet was fetched
+# with -- the same rule that once made the page render as unstyled HTML, one level down. A skin
+# referencing its own `sprites.svg` therefore asked for it with no token and was refused with a
+# 403, silently: the chips simply had no status sprite, and nothing said why. The token goes on
+# here for the same reason `_index` puts it on the page's own assets, and it goes BEFORE the
+# fragment, because `sprites.svg#crop-sun?t=…` names no fragment at all.
+_CSS_URL = re.compile(r"""url\(\s*(['"]?)(?!data:|https?:|//|/)([^'")#\s]+)(#[^'")\s]*)?\1\s*\)""")
+
+
+def _tokenize_css_urls(css: str, token: str) -> str:
+    """Put this run's token on every relative `url()` in a stylesheet."""
+    def one(m: "re.Match[str]") -> str:
+        quote, target, fragment = m.group(1), m.group(2), m.group(3) or ""
+        joiner = "&" if "?" in target else "?"
+        return f"url({quote}{target}{joiner}t={token}{fragment}{quote})"
+    return _CSS_URL.sub(one, css)
 
 
 class ServeError(Exception):
@@ -286,7 +305,6 @@ def fleet_snapshot() -> dict:
                      "pid": pid, "last_event_age_s": last_age_s,
                      "supervised": is_supervised,
                      "not_supervised_sentence": not_supervised_sentence,
-                     "run": curr_run,
                      "earlier": earlier,
                      **derived,
                      "last_seq": stream[-1]["seq"] if stream else 0,
@@ -295,6 +313,12 @@ def fleet_snapshot() -> dict:
                      # folded into the row, because a cell can be stale or grey and the agent's
                      # state never is -- flattening them would make one age apply to both.
                      "polls": poll_state(name),
+                     # `run` without its events: the page needs to know WHICH run and how big it
+                     # is, and it reads the transcript from `recent`. Shipping the whole current
+                     # run as well meant a long-running agent's entire history was serialised on
+                     # every poll -- several times a second, to every window on every screen --
+                     # so that the page could take its length.
+                     "run": {**curr_run, "events": None, "events_n": len(curr_run["events"])},
                      "recent": curr_run["events"][-40:] if curr_run["events"] else stream[-40:]})
     return {"repos": rows, "approvals": approval.pending(), "fleet_dir": fleet_dir(),
             "desk": desk_state(), "theme": theme_state(),
@@ -1233,6 +1257,8 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype.endswith(("javascript", "json")):
             ctype += "; charset=utf-8"
+        if ctype.startswith("text/css"):
+            body = _tokenize_css_urls(body.decode("utf-8"), self.token).encode("utf-8")
         self._send(200, body, ctype)
 
     def _sse(self, query: dict) -> None:

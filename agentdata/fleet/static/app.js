@@ -324,7 +324,7 @@ function drawTile(el, row, approvals) {
     if (run.started) bits.push("started " + String(run.started).slice(11, 16));
     if (run.resumed) bits.push("resumed");
     if (run.session) bits.push("session " + String(run.session).slice(0, 8));
-    if (run.events && run.events.length) bits.push(run.events.length + " events");
+    if (run.events_n) bits.push(run.events_n + " events");
     // The era, last, because it is the qualifier: which run, then whether it is still this one.
     if (!run.n) bits = ["no run yet"];
     else if (isSupervised) bits.push("live");

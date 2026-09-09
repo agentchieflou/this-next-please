@@ -127,3 +127,23 @@ header h1, header .glabel, header .dot,
 footer, footer #counts, footer .keys { color: #F0DCC0 !important; }
 header h1 { color: #FFFDF5 !important; }
 #notice { color: var(--waiting) !important; }
+
+/* The state as a crop stage, beside the chip's glyph and colour and never instead of them (#157).
+   The art is `sprites.svg` in this directory -- one file, referenced by fragment, so the pixels the
+   repo reviews are the pixels the page draws. Before this the sprites were on disk and unreferenced
+   and the chips were plain text: the one thing this skin was for was not built. */
+.chip::before {
+  content: "";
+  width: 16px; height: 16px; flex: 0 0 16px;
+  background-size: 16px 16px; background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.chip { display: inline-flex; align-items: center; gap: 6px; }
+.chip.running::before          { background-image: url("sprites.svg#crop-sprout"); }
+.chip.waiting_approval::before { background-image: url("sprites.svg#crop-sun"); }
+.chip.needs_human::before,
+.chip.blocked::before,
+.chip.error::before            { background-image: url("sprites.svg#crop-wilted"); }
+.chip.done::before             { background-image: url("sprites.svg#crop-bloom"); }
+.chip.idle::before,
+.chip.starting::before         { background-image: url("sprites.svg#crop-seed"); }
