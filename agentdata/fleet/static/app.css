@@ -104,6 +104,7 @@ body.focused .tile.is-focused { max-height: none; }
 .tile.state-waiting_approval { border-left-color: var(--waiting); }
 .tile.state-needs_human, .tile.state-blocked, .tile.state-error { border-left-color: var(--human); }
 .tile.state-done      { border-left-color: var(--done); }
+.tile.state-not_supervised { border-left-color: var(--muted); }
 
 .head { display: flex; align-items: center; gap: 8px; }
 .head .n {
@@ -112,6 +113,7 @@ body.focused .tile.is-focused { max-height: none; }
 }
 .repo { cursor: pointer; }
 .ticket, .age { color: var(--muted); font: 11px var(--mono); }
+.age.stale { opacity: 0.55; }
 
 .chip {
   font: 11px var(--mono); border-radius: 10px; padding: 1px 8px;
@@ -121,9 +123,18 @@ body.focused .tile.is-focused { max-height: none; }
 .chip.waiting_approval { background: var(--waiting); color: #fff; }
 .chip.needs_human, .chip.blocked, .chip.error { background: var(--human); color: #fff; }
 .chip.done { background: var(--done); color: #fff; }
+.chip.not-supervised { background: var(--muted); color: var(--panel); }
 
 .why { margin: 6px 0 0; color: var(--muted); }
 .tile.state-needs_human .why, .tile.state-blocked .why, .tile.state-error .why { color: var(--human); }
+
+.earlier {
+  margin: 6px 0; font: 11px var(--mono); color: var(--muted);
+  border-top: 1px dashed var(--line); padding-top: 4px;
+}
+.earlierhead { cursor: pointer; }
+.earlierlist { margin: 4px 0 0 16px; padding: 0; list-style: square; }
+.earlierlist li { padding: 2px 0; }
 
 /* ------------------------------------------------------------------------------ the transcript */
 

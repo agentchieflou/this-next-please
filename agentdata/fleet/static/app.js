@@ -55,6 +55,14 @@ function age(seconds) {
   return Math.floor(seconds / 3600) + "h";
 }
 
+function ageChip(seconds) {
+  if (seconds == null || seconds < 0) return { text: "", stale: false };
+  if (seconds < 3600) return { text: "< 1h", stale: false };
+  if (seconds < 86400) return { text: "today", stale: false };
+  if (seconds < 172800) return { text: "yesterday", stale: false };
+  return { text: "> 2d", stale: true };
+}
+
 /* --------------------------------------------------------------------------- drawing one tile */
 
 function line(ev) {
@@ -185,17 +193,61 @@ function action(el, what, body) {
 }
 
 function drawTile(el, row, approvals) {
-  el.className = "tile state-" + row.state + (el.classList.contains("is-focused") ? " is-focused" : "");
+  var isSupervised = row.supervised !== false;
+  var displayState = row.state;
+  if (!isSupervised && (row.state === "idle" || row.last_event_age_s > 120)) {
+    displayState = "not_supervised";
+  }
+  el.className = "tile state-" + displayState + (el.classList.contains("is-focused") ? " is-focused" : "");
   // `needs-human` is the class focus mode filters on, and it comes from #94's fold rather than from
   // anything this page works out for itself: the chip, the toast and the filter must agree.
   el.classList.toggle("needs-human", !!row.needs_human);
   el.tabIndex = 0;
   var chip = el.querySelector(".chip");
-  chip.className = "chip " + row.state;
-  text(chip, row.state.replace(/_/g, " "));
+  if (displayState === "not_supervised") {
+    chip.className = "chip not-supervised";
+    text(chip, "not supervised");
+  } else {
+    chip.className = "chip " + row.state;
+    text(chip, row.state.replace(/_/g, " "));
+  }
   text(el.querySelector(".ticket"), row.ticket || row.jira_project || "");
-  text(el.querySelector(".why"), row.why || "");
-  text(el.querySelector(".age"), row.last_event_age_s >= 0 ? age(row.last_event_age_s) : "");
+
+  var whyText = row.why || "";
+  if (!isSupervised && row.not_supervised_sentence) {
+    whyText = row.not_supervised_sentence;
+  }
+  text(el.querySelector(".why"), whyText);
+
+  var ageEl = el.querySelector(".age");
+  if (row.last_event_age_s >= 0) {
+    var ac = ageChip(row.last_event_age_s);
+    text(ageEl, ac.text);
+    ageEl.classList.toggle("stale", ac.stale);
+  } else {
+    text(ageEl, "");
+    ageEl.classList.remove("stale");
+  }
+
+  var earlierEl = el.querySelector(".earlier");
+  if (earlierEl) {
+    var earlierRuns = row.earlier || [];
+    if (earlierRuns.length > 0) {
+      earlierEl.hidden = false;
+      text(earlierEl.querySelector(".earlierhead"), "earlier runs (" + earlierRuns.length + ")");
+      var listEl = earlierEl.querySelector(".earlierlist");
+      while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+      earlierRuns.forEach(function (r) {
+        var li = document.createElement("li");
+        text(li, "Run #" + r.n + ": " + (r.ticket ? r.ticket + " · " : "") + r.state +
+                 " (" + (r.started ? r.started.slice(11, 16) : "") +
+                 (r.ended ? " – " + r.ended.slice(11, 16) : "") + ")");
+        listEl.appendChild(li);
+      });
+    } else {
+      earlierEl.hidden = true;
+    }
+  }
 
   var mine = approvals.filter(function (a) { return a.repo === row.repo; })[0];
   var card = el.querySelector(".approval");
