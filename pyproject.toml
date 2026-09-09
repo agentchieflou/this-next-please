@@ -68,6 +68,7 @@ ad-argv = "agentdata.cli_argv:main"
 ad-fleet = "agentdata.cli_fleet:main"
 ad-metrics = "agentdata.cli_metrics:main"
 ad-sort = "agentdata.cli_sort:main"
+ad-theme = "agentdata.cli_theme:main"
 
 [tool.setuptools.packages.find]
 include = ["agentdata*"]
