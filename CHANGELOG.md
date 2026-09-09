@@ -6,6 +6,17 @@ Read this before running `ad-update`: it says whether an update needs anything b
 
 ## Unreleased
 
+**New: CLI Theming & Onboarding (#135 Epic: #136, #153, #137, #138, #139, #140).** 11 curated terminal colour palettes
+with contrast-checked text and status invariants (`greens`, `reds`, `eye-relief`, `eye-relief-day`, `nfl-browns`, `dark`,
+`vanta-black`, `matrix`, `blues`, `sand`, `none`, and seeded `random`). Live terminal recolour via standard OSC 4/10/11/12
+sequences and Win32 `SetConsoleScreenBufferInfoEx`. One theme per project with zero-Python directory hooks (`hook.ps1`,
+`hook.sh`, `hook.lua`) compiled from fleet registry entries, plus Windows Terminal fragments and Oh My Posh integration.
+Integrated into `ad-setup` as the `theme` step right after `console`, with 6 `ad-doctor` checks (`theme/default`, `theme/hook`,
+`theme/terminal`, `theme/oh-my-posh`, `theme/clink`, `theme/nerd-font`, all `ok` or `warn`, never failing).
+**Nothing to do after updating**, unless you want a theme — preview and configure with:
+`ad-theme gallery` and `ad-setup --only theme`.
+
+
 **New: `ad-sort` — organizing a folder of files.** An agent asked to sort a delivery of documents had no sanctioned way
 to do it, and correctly stopped: canonical rule 12 makes writing outside `.agent/` a stop condition. This is the
 sanctioned way, and it keeps that rule rather than carving an exception in it. `ad-sort plan` reads a folder, decides

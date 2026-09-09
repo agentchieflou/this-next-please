@@ -552,6 +552,22 @@ def apply_conhost(t: Theme, persist: bool = False) -> dict[str, Any]:
     return {"ok": bool(ok), "mechanism": "conhost-api", "persisted": persist}
 
 
+def apply(t: Theme, persist: bool = False) -> dict[str, Any]:
+    """Apply theme to the live terminal (OSC escapes or Win32 conhost API)."""
+    from . import console
+    host = console.host()
+    if host == "conhost":
+        return apply_conhost(t, persist=persist)
+    seq = escapes(t)
+    if seq and sys.stdout:
+        try:
+            sys.stdout.write(seq)
+            sys.stdout.flush()
+        except Exception:
+            pass
+    return {"ok": True, "mechanism": f"osc-{host}"}
+
+
 # ---------- CSS Variables Rendering (#150) ----------
 
 def css(t: Theme) -> dict[str, str]:

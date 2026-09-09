@@ -83,6 +83,8 @@ pncli config init      # if not done (pncli keeps the Jira token; we only borrow
 ad-setup               # guided: pncli import, data sources, Power BI tools/workspaces
 #    ad-setup --quick  # fast path: auto-accepts unambiguous detected facts (single DSN, found tools)
 #    ad-setup --export-defaults team.json / ad-setup --import team.json  # share non-secret team defaults
+ad-theme gallery       # preview terminal themes (greens, dark, eye-relief, matrix, ...)
+#    ad-setup --only theme  # customize theme, directory hook, WT fragment, or Oh My Posh
 ad-doctor              # any time: offline health check (session-bootstrap runs it)
 ad-setup --patch       # after any fail row: re-asks ONLY the settings behind it, nothing else
 ```

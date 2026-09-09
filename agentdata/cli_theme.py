@@ -342,7 +342,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="ad-theme",
         description="Terminal palettes, prompt theming, and project colours."
     )
-    p.add_argument("-v", "--version", action="version", version=f"ad-theme {config.VERSION}")
+    from . import version
+    version.add_version(p)
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
 
     sub = p.add_subparsers(dest="command")

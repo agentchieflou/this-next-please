@@ -44,4 +44,37 @@ ad-theme reset
 ad-theme set greens --default
 ad-theme set matrix --project C:/Users/you/repo
 ad-theme unset --project C:/Users/you/repo
+ad-theme install --hook
+ad-theme install --prompt
+ad-theme install --terminal
+ad-theme uninstall --hook
+ad-theme uninstall --prompt
+ad-theme uninstall --terminal
 ```
+
+## One Theme Per Project (Directory Hooks)
+
+Zero-Python directory hooks let each repository on your machine display its own palette automatically:
+- When you `cd` into a repo, the shell hook matches the directory prefix, applies the project's OSC palette escapes, and exports `AGENTDATA_PROJECT`, `AGENTDATA_TICKET`, and `AGENTDATA_PHASE`.
+- Because the matching rules are pre-compiled into `hook.ps1`, `hook.sh`, and `hook.lua`, directory switching completes in under a single display frame without spawning `python.exe`.
+
+## Startup Lines and Removal
+
+Installing directory hooks or prompt integration adds a single marked line to your shell startup file:
+
+| Shell | Startup File | Installed Marker | Removal Command |
+|---|---|---|---|
+| **PowerShell** (`pwsh`) | `$PROFILE` (`profile.ps1`) | `# agentdata directory theme hook` | `ad-theme uninstall --hook --shell pwsh` |
+| **Git Bash / sh** | `~/.bashrc` | `# agentdata directory theme hook` | `ad-theme uninstall --hook --shell bash` |
+| **cmd.exe** (Clink) | `%LOCALAPPDATA%\clink\oh-my-posh.lua` | `-- agentdata directory theme hook` | `ad-theme uninstall --hook --shell cmd` |
+| **Oh My Posh** | (per shell profile) | `# agentdata theme prompt` | `ad-theme uninstall --prompt` |
+
+Uninstall commands remove the marked line cleanly, leaving all user customizations untouched.
+
+## An Agent Never Sees This
+
+CLI theming is strictly for human awareness. An agent (such as Luna or an autonomous subagent) never receives escape bytes or palette noise:
+- Every terminal recolouring command checks `color.enabled()`. When `stdout` is piped or redirected, all escape sequences are suppressed.
+- `ad-theme list`, `show`, `gallery`, and all doctor rows output pure TOON on `stdout` when piped, adhering strictly to the contract of Issue #71.
+- Directory hooks write escapes directly to the interactive terminal console and never pollute tool call outputs or piped subprocess stdout.
+
