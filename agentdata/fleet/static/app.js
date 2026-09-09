@@ -1549,6 +1549,7 @@ function updateLayoutSegments() {
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "segment";
+    btn.setAttribute("role", "radio");
     var mine = LAYOUT === "roles" ? (VIEW === row[0]) : (String(SCREEN || "") === row[0]);
     btn.classList.toggle("active", mine);
     btn.setAttribute("aria-checked", String(mine));

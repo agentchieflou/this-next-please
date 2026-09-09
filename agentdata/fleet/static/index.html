@@ -15,9 +15,9 @@
   <div class="toolbar-group group-window">
     <span class="glabel">window</span>
     <div class="segmented" id="layoutgroup" role="radiogroup" aria-label="layout">
-      <button type="button" class="segment active" data-layout="grid" aria-checked="true" title="every tile on one screen">grid</button>
-      <button type="button" class="segment" data-layout="roles" aria-checked="false" title="three windows that agree on one project">roles</button>
-      <button type="button" class="segment" data-layout="screens" aria-checked="false" title="one project per monitor">screens</button>
+      <button type="button" role="radio" class="segment active" data-layout="grid" aria-checked="true" title="every tile on one screen">grid</button>
+      <button type="button" role="radio" class="segment" data-layout="roles" aria-checked="false" title="three windows that agree on one project">roles</button>
+      <button type="button" role="radio" class="segment" data-layout="screens" aria-checked="false" title="one project per monitor">screens</button>
     </div>
     <!-- The second segment: which of the set THIS window is. Only roles and screens have one. -->
     <div class="segmented" id="viewgroup" role="radiogroup" aria-label="this window" hidden></div>
@@ -54,11 +54,11 @@
 
 <aside id="side" hidden aria-label="sidebar">
   <div class="segmented side-tabs" role="tablist">
-    <button type="button" class="segment" data-section="board" title="your Jira tickets">board <kbd>b</kbd></button>
-    <button type="button" class="segment" data-section="unsorted" title="files Downloads is offering">inbox <kbd>i</kbd></button>
-    <button type="button" class="segment" data-section="drawer" title="notifications">alerts <kbd>n</kbd></button>
-    <button type="button" class="segment" data-section="found" title="search the catalogue">where <kbd>/</kbd></button>
-    <button type="button" class="segment" data-section="inspector" title="the selected project">project</button>
+    <button type="button" role="tab" class="segment" data-section="board" title="your Jira tickets">board <kbd>b</kbd></button>
+    <button type="button" role="tab" class="segment" data-section="unsorted" title="files Downloads is offering">inbox <kbd>i</kbd></button>
+    <button type="button" role="tab" class="segment" data-section="drawer" title="notifications">alerts <kbd>n</kbd></button>
+    <button type="button" role="tab" class="segment" data-section="found" title="search the catalogue">where <kbd>/</kbd></button>
+    <button type="button" role="tab" class="segment" data-section="inspector" title="the selected project">project</button>
   </div>
 <aside id="found" hidden aria-label="search results">
   <div class="drawer-head">

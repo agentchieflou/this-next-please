@@ -358,6 +358,25 @@ def _desk_file() -> str:
     return os.path.join(fleet_dir(), DESK_FILE)
 
 
+_desk_loaded = False
+
+
+def _ensure_desk_loaded() -> None:
+    """Read `desk.json` once, on the first question anyone asks about the desk.
+
+    It used to be read only as a side effect of the lazy handle accessor -- the one that opens the
+    catalogue and the inbox watcher -- so whether the operator's saved selection and arrangement
+    came back depended on which endpoint the server happened to answer first. A window that asked
+    for `/api/fleet` before anything needed a catalogue handle got an empty desk and quietly lost
+    the arrangement it had been given.
+    """
+    global _desk_loaded
+    if _desk_loaded:
+        return
+    _desk_loaded = True
+    _load_desk()
+
+
 def _load_desk() -> None:
     path = _desk_file()
     if os.path.isfile(path):
@@ -405,6 +424,8 @@ def _fresh() -> dict:
 
 def reset() -> None:
     """Drop the shared handles and the selection. Called when the fleet moves under a live process."""
+    global _desk_loaded
+    _desk_loaded = False
     with _desk_lock:
         cat = _desk.get("catalogue")
         if cat is not None:
@@ -558,6 +579,7 @@ def poll_state(name: str) -> dict:
 
 def desk_state() -> dict:
     """What every window agrees on: the selected project, screen pinning, and tile arrangement."""
+    _ensure_desk_loaded()
     with _desk_lock:
         arr = _selection.get("arrangement") or {}
         return {
@@ -639,6 +661,7 @@ def select(selected=None, screens=None) -> dict:
     click did nothing" is not a useful answer. The version only moves on a real change, so two
     windows clicking the same tile do not each wake the other.
     """
+    _ensure_desk_loaded()
     with _desk_lock:
         after = dict(_selection)
         if selected is not None:
@@ -653,6 +676,7 @@ def select(selected=None, screens=None) -> dict:
 
 def arrange(layout: str, *, order=None, size=None, pinned=None) -> dict:
     """Set the tile arrangement for a layout, persisted in desk.json and pushed down the SSE stream."""
+    _ensure_desk_loaded()
     with _desk_lock:
         arr = _selection.setdefault("arrangement", {})
         cur = arr.setdefault(layout, {"order": [], "size": {}, "pinned": []})

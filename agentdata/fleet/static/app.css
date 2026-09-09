@@ -249,6 +249,14 @@ body.focused .tile.is-focused { max-height: none; }
 
 .tile.size-2 { grid-column: span 2; }
 
+/* A pinned tile says so on the tile, not only in the tint of a 28px button: the pin is why it is
+   first, and "why is this one at the top" is the question the tint could not answer. */
+.tile.is-pinned .head .n::after { content: "\00a0\1F4CC"; font-size: 9px; }
+.tile.is-pinned .head .pintoggle { color: var(--accent); }
+.head .pintoggle.active, .head .sizetoggle.active {
+  background: var(--select); border-color: var(--line); color: var(--accent);
+}
+
 /* Where the tile will land, shown before the drop (HIG *Drag and drop*). An insertion line, not a
    recolour of the neighbour's edge: the edges already carry the project accent, and a drop hint
    that repaints them would say the project changed. */

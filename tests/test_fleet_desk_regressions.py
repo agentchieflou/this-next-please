@@ -512,3 +512,27 @@ def test_a_skin_that_draws_its_status_sprites_can_actually_fetch_them(desk):
     assert "sprites.svg" in painted["image"], painted
     assert seen, "the page never asked for the sprite sheet"
     assert all(status == 200 for status, _ in seen), seen
+
+
+def test_the_saved_desk_comes_back_whatever_the_first_request_was(fleet_home, tmp_path):  # noqa: F811
+    """`desk.json` used to be read only as a side effect of the lazy handle accessor.
+
+    Whether the operator's saved selection and arrangement came back therefore depended on which
+    endpoint the server happened to answer first: a window that asked for `/api/fleet` before
+    anything needed a catalogue handle got an empty desk and silently lost its arrangement.
+    """
+    for name in ("alpha", "beta"):
+        Registry().add(make_project(tmp_path / name), name=name)
+    S.select(selected="beta")
+    S.arrange("grid", order=["beta", "alpha"], pinned=["beta"])
+
+    # A brand new process: the file is on disk and nothing is in memory yet. (`S.reset()` is not
+    # that -- it means "the fleet moved under a live process" and deliberately clears the file.)
+    S._selection.update(selected="", screens=[], arrangement={})
+    S._desk_loaded = False
+    S._desk["dir"] = ""
+
+    state = S.desk_state()
+    assert state["selected"] == "beta", "the selection did not survive"
+    assert state["arrangement"]["grid"]["order"] == ["beta", "alpha"], state
+    assert state["arrangement"]["grid"]["pinned"] == ["beta"], state
