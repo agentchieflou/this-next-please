@@ -188,6 +188,14 @@ def fleet_snapshot() -> dict:
         registry = Registry()
     except RegistryError:
         registry = None
+    from .. import config as C
+    from .. import theme as T
+    cfg = C.load()
+    default_theme_name = cfg.get("theme", {}).get("default") or "none"
+    proj_theme_map = cfg.get("theme", {}).get("projects", {})
+    if not isinstance(proj_theme_map, dict):
+        proj_theme_map = {}
+
     for row in supervisor.status():
         name = row["repo"]
         try:
@@ -214,8 +222,23 @@ def fleet_snapshot() -> dict:
         else:
             not_supervised_sentence = ""
 
+        # Resolve project accent
+        proj_entry = proj_theme_map.get(name) or proj_theme_map.get(os.path.abspath(row.get("path", "")))
+        if isinstance(proj_entry, dict) and "accent" in proj_entry:
+            accent = proj_entry["accent"]
+        elif isinstance(proj_entry, dict) and "theme" in proj_entry:
+            pt = T.get(proj_entry["theme"], seed=name)
+            accent = pt.accent or "#3FB950"
+        elif isinstance(proj_entry, str) and proj_entry:
+            pt = T.get(proj_entry, seed=name)
+            accent = pt.accent or "#3FB950"
+        else:
+            pt = T.get(default_theme_name, seed=name)
+            accent = pt.accent or "#3FB950"
+
         rows.append({"repo": name, "path": row.get("path", ""),
                      "jira_project": row.get("jira_project", ""),
+                     "accent": accent,
                      "pid": pid, "last_event_age_s": last_age_s,
                      "supervised": is_supervised,
                      "not_supervised_sentence": not_supervised_sentence,
@@ -230,7 +253,7 @@ def fleet_snapshot() -> dict:
                      "polls": poll_state(name),
                      "recent": curr_run["events"][-40:] if curr_run["events"] else stream[-40:]})
     return {"repos": rows, "approvals": approval.pending(), "fleet_dir": fleet_dir(),
-            "desk": desk_state(),
+            "desk": desk_state(), "theme": theme_state(),
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
 
 
@@ -478,6 +501,40 @@ def desk_state() -> dict:
                 k: dict(v) if isinstance(v, dict) else v for k, v in arr.items()
             },
         }
+
+
+def theme_state() -> dict:
+    """The theme and skin configuration shared across windows."""
+    from .. import config as C
+    from .. import theme as T
+    from . import skins
+    cfg = C.load()
+    default_name = cfg.get("theme", {}).get("default") or "none"
+    skin_name = cfg.get("theme", {}).get("skin") or "none"
+    t = T.get(default_name)
+    css_vars = T.to_css(t) if t and t.name != "none" else {}
+    proj_map = cfg.get("theme", {}).get("projects", {})
+    if not isinstance(proj_map, dict):
+        proj_map = {}
+    accents = {}
+    for proj, pinfo in proj_map.items():
+        if isinstance(pinfo, dict) and "accent" in pinfo:
+            accents[proj] = pinfo["accent"]
+        elif isinstance(pinfo, dict) and "theme" in pinfo:
+            pt = T.get(pinfo["theme"], seed=proj)
+            if pt and pt.accent:
+                accents[proj] = pt.accent
+        elif isinstance(pinfo, str) and pinfo:
+            pt = T.get(pinfo, seed=proj)
+            if pt and pt.accent:
+                accents[proj] = pt.accent
+
+    return {
+        "theme": default_name,
+        "skin": skin_name,
+        "css": css_vars,
+        "accents": accents,
+    }
 
 
 def select(selected=None, screens=None) -> dict:
@@ -783,8 +840,20 @@ def act(what: str, body: dict) -> dict:
         box, offer = _offer(str(body.get("id") or ""))
         box.dismiss(offer)
         return {"dismissed": offer.name, "id": offer.id}
+    if what == "theme":
+        from .. import config as C
+        cfg = C.load()
+        cfg.setdefault("theme", {})
+        if "theme" in body:
+            theme_val = str(body["theme"]).strip()
+            cfg["theme"]["default"] = theme_val if theme_val else "none"
+        if "skin" in body:
+            skin_val = str(body["skin"]).strip()
+            cfg["theme"]["skin"] = skin_val if skin_val else "none"
+        C.save(cfg)
+        return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
-                     "start | send | stop | approve | deny | select | arrange | attach | dismiss")
+                     "start | send | stop | approve | deny | select | arrange | attach | dismiss | theme")
 
 
 def _sweep(url: str) -> list[dict]:
@@ -846,6 +915,11 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     last_beat = 0.0
     last_sweep = 0.0
     seen_selection = -1
+    last_config_mtime = -1.0
+    seen_theme_state = None
+    from .. import config as C
+    cfg_file = C.path()
+
     while not stop.is_set():
         if polls:
             poll_tick()
@@ -880,6 +954,18 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             seen_selection = state["version"]
             write(f"event: desk\ndata: {json.dumps(state, ensure_ascii=False)}\n\n")
             sent = True
+
+        try:
+            mtime = os.path.getmtime(cfg_file) if os.path.isfile(cfg_file) else 0.0
+        except OSError:
+            mtime = 0.0
+        if seen_theme_state is None or mtime != last_config_mtime:
+            last_config_mtime = mtime
+            tstate = theme_state()
+            if seen_theme_state is None or tstate != seen_theme_state:
+                seen_theme_state = tstate
+                write(f"event: theme\ndata: {json.dumps(tstate, ensure_ascii=False)}\n\n")
+                sent = True
         if sent or time.time() - last_beat > heartbeat:
             # The heartbeat is not decoration: a proxy that sees no bytes for a minute closes the
             # connection, and the tiles then quietly stop updating with no error anywhere.
@@ -976,7 +1062,8 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
         if route == "/api/themes":
-            return self._json({"ok": True, "themes": themes()})
+            from . import skins
+            return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins()})
         if route == "/api/board":
             from .. import config as C
 
@@ -1135,32 +1222,31 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def themes() -> list[dict]:
-    """The PyCharm `.icls` palettes, so the tool window can match the editor beside it.
+    """Palettes from agentdata.theme, rendered through theme.to_css()."""
+    from .. import theme as T
 
-    Status colours are deliberately NOT themed: a chip that means "needs you" must be the same red
-    in every palette, or the colour stops being information.
-    """
-    import xml.etree.ElementTree as ET
-
-    root = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                        "themes", "pycharm")
-    keys = {"bg": "CONSOLE_BACKGROUND_KEY", "panel": "CARET_ROW_COLOR", "text": "CARET_COLOR",
-            "muted": "ANNOTATIONS_COLOR", "accent": "DOC_COMMENT_LINK", "line": "DOC_COMMENT_GUIDE",
-            "select": "SELECTION_BACKGROUND"}
     out = []
-    if not os.path.isdir(root):
-        return out
-    for name in sorted(os.listdir(root)):
-        if not name.endswith(".icls"):
+    for t in T.list_themes():
+        if t.name == "none":
             continue
-        try:
-            tree = ET.parse(os.path.join(root, name))
-        except (ET.ParseError, OSError):
-            continue
-        found = {o.get("name"): o.get("value") for o in tree.iter("option") if o.get("value")}
-        palette = {k: "#" + found[v] for k, v in keys.items() if found.get(v)}
-        if len(palette) == len(keys):
-            out.append({"name": os.path.splitext(name)[0], "colors": palette})
+        c = T.to_css(t)
+        colors = {
+            "bg": c.get("--bg", ""),
+            "panel": c.get("--panel", ""),
+            "text": c.get("--text", ""),
+            "muted": c.get("--muted", ""),
+            "accent": c.get("--accent", ""),
+            "line": c.get("--line", ""),
+            "select": c.get("--select", ""),
+        }
+        out.append({
+            "name": t.name,
+            "title": t.title,
+            "why": t.why,
+            "light": t.light,
+            "colors": colors,
+            "css": c,
+        })
     return out
 
 

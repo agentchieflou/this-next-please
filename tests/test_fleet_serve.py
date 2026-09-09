@@ -315,19 +315,34 @@ def test_the_markup_and_the_script_agree_on_every_hook():
         assert f'id="{element}"' in html, f"#{element} is used by app.js and is not in index.html"
 
 
-def test_the_themes_come_from_the_icls_files_and_the_status_colours_do_not():
-    """A chip that means "needs you" has to be the same red in every palette, or the colour stops
-    being information."""
+def test_the_themes_come_from_theme_py_and_satisfy_contrast():
+    """Palettes come from agentdata.theme, rendered through theme.to_css(), not .icls files.
+    The tokens match the stated mapping in docs/plan-desk-refactor.md, and the state-to-role
+    table in app.css matches agentstate.STATE_ROLES.
+    """
     found = S.themes()
-    assert {t["name"] for t in found} == {"Canopy", "Crimson Studio", "Pastel Lavender"}
-    for theme in found:
-        assert set(theme["colors"]) == {"bg", "panel", "text", "muted", "accent", "line", "select"}
-        assert all(v.startswith("#") for v in theme["colors"].values())
-        assert "human" not in theme["colors"] and "running" not in theme["colors"]
+    assert "Canopy" not in {t["name"] for t in found}
+    assert {"greens", "reds", "eye-relief", "nfl-browns", "dark", "matrix"}.issubset({t["name"] for t in found})
 
+    # Read expected tokens from docs/plan-desk-refactor.md
+    plan_text = open("docs/plan-desk-refactor.md", encoding="utf-8").read()
+    import re
+    plan_tokens = set(re.findall(r'\|\s*`(--[a-z]+)`\s*\|', plan_text))
+    assert plan_tokens == {
+        "--bg", "--text", "--panel", "--line", "--select", "--muted",
+        "--accent", "--focus", "--running", "--waiting", "--human", "--done", "--idle"
+    }
+
+    for theme in found:
+        assert set(theme["css"].keys()) == plan_tokens
+        assert all(v.startswith("#") for v in theme["css"].values())
+
+    # Verify state -> role mapping in app.css against agentstate.STATE_ROLES
     css = open(os.path.join(STATIC, "app.css"), encoding="utf-8").read()
-    for status in ("running", "waiting", "human", "done", "idle"):
-        assert f"--{status}:" in css, f"the {status} colour is not fixed in the stylesheet"
+    from agentdata.fleet.agentstate import STATE_ROLES
+    for state, role in STATE_ROLES.items():
+        assert f".chip.{state}" in css or (f".chip.{role}" in css and state == role)
+        assert f"var(--{role})" in css
 
 
 # ------------------------------------------------------------------------------ finding the page

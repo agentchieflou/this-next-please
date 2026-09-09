@@ -104,9 +104,14 @@ reason is the failure mode the gate was built to avoid.
 
 ## Themes
 
-Light and dark follow `prefers-color-scheme`. The three PyCharm palettes in `themes/pycharm/` are
-also offered, parsed from the `.icls` files themselves so there is one source of truth for a
-colour, and the choice is remembered per browser. They change the surface colours only.
+The dashboard shares its palettes 1:1 with the terminal: palettes come from `agentdata.theme` (#136, #150, #153),
+rendered as CSS custom properties (`--bg`, `--text`, `--panel`, `--line`, `--select`, `--muted`, `--accent`,
+`--focus`, `--running`, `--waiting`, `--human`, `--done`, `--idle`).
+
+Theme choice is configured in `~/.agentdata/config.json` via `theme.default` (e.g. `ad-theme set greens --default`),
+while each registered repository carries its project accent on its tile (`theme.projects.<name>`).
+When `config.json` changes, `ad-fleet serve` broadcasts a `theme` SSE event, recolouring open windows
+without a page reload. `none` follows system `prefers-color-scheme`.
 
 ## Endpoints
 

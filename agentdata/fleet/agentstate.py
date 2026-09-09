@@ -165,3 +165,15 @@ def transitions(events: list[dict]) -> list[dict]:
 def needs_the_human(state: str) -> bool:
     """The one predicate the notifier and the dashboard badge share."""
     return state in ("waiting_approval", "needs_human", "blocked", "error")
+
+
+STATE_ROLES: dict[str, str] = {
+    "running": "running",
+    "waiting_approval": "waiting",
+    "needs_human": "human",
+    "blocked": "human",
+    "error": "human",
+    "done": "done",
+    "starting": "idle",
+    "idle": "idle",
+}

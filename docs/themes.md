@@ -4,20 +4,20 @@ _The terminal a human opens tells them where they are._
 
 ## The Gallery
 
-| Theme | Ground | Text | Accent | `why` |
-|---|---|---|---|---|
-| `greens` | `#0B1F14` | `#CDE6D2` | `#3FB950` | calm and go; a leaf-green desk |
-| `reds` | `#400000` | `#F2D9D9` | `#FF5C5C` | the loud desk; a red ground where errors cannot hide behind the ground |
-| `eye-relief` | `#2B2A27` | `#D6CDB8` | `#C9A227` | for hour six; low blue, low glare, nothing pure white |
-| `eye-relief-day` | `#F2ECDC` | `#3B3A34` | `#8A6D1F` | the same idea for a bright room (light theme) |
-| `nfl-browns` | `#311D00` | `#F2E8D9` | `#FF3C00` | Cleveland Browns: brown, orange, white |
-| `dark` | `#14171A` | `#E3E7EA` | `#58A6FF` | the neutral dark the page already had, now a name the terminal can share |
-| `vanta-black` | `#000000` | `#C8C8C8` | `#E6E6E6` | the true-black panel for OLED and pitch rooms |
-| `matrix` | `#020A03` | `#3DF07A` | `#00FF41` | phosphor on black; the falling code screen |
-| `blues` | `#0B1B33` | `#D6E4F7` | `#4DA3FF` | deep ocean navy and slate |
-| `sand` | `#EFE6D2` | `#3A3126` | `#B9631E` | warm desert solarized parchment (light theme) |
-| `random` | generated | generated | generated | a fresh, stable colour per project or per day; seeded |
-| `none` | — | — | — | the terminal exactly as you had it (the default) |
+| Theme | Ground | Text | Accent | Dashboard | `why` |
+|---|---|---|---|---|---|
+| `greens` | `#0B1F14` | `#CDE6D2` | `#3FB950` | leaf-green panels, emerald accent stripe | calm and go; a leaf-green desk |
+| `reds` | `#400000` | `#F2D9D9` | `#FF5C5C` | deep maroon panels, coral accent stripe | the loud desk; a red ground where errors cannot hide behind the ground |
+| `eye-relief` | `#2B2A27` | `#D6CDB8` | `#C9A227` | warm charcoal panels, gold accent stripe | for hour six; low blue, low glare, nothing pure white |
+| `eye-relief-day` | `#F2ECDC` | `#3B3A34` | `#8A6D1F` | warm cream parchment, brass accent stripe | the same idea for a bright room (light theme) |
+| `nfl-browns` | `#311D00` | `#F2E8D9` | `#FF3C00` | brown leather panels, orange accent stripe | Cleveland Browns: brown, orange, white |
+| `dark` | `#14171A` | `#E3E7EA` | `#58A6FF` | slate panels, blue accent stripe | the neutral dark the page already had, now a name the terminal can share |
+| `vanta-black` | `#000000` | `#C8C8C8` | `#E6E6E6` | true black ground, high-contrast monochrome panels | the true-black panel for OLED and pitch rooms |
+| `matrix` | `#020A03` | `#3DF07A` | `#00FF41` | black ground, glowing phosphor borders and accents | phosphor on black; the falling code screen |
+| `blues` | `#0B1B33` | `#D6E4F7` | `#4DA3FF` | midnight navy panels, cobalt accent stripe | deep ocean navy and slate |
+| `sand` | `#EFE6D2` | `#3A3126` | `#B9631E` | desert sand panels, copper accent stripe | warm desert solarized parchment (light theme) |
+| `random` | generated | generated | generated | seeded per project | a fresh, stable colour per project or per day; seeded |
+| `none` | — | — | — | follows `prefers-color-scheme` | the terminal exactly as you had it (the default) |
 
 ## The Host Matrix
 
@@ -86,11 +86,32 @@ While `agentdata` provides native Oh My Posh integration for high-fidelity promp
 - Oh My Posh remains the primary recommendation on Windows due to direct Clink / ConHost support, native transient prompt support, and fine-grained palette-segment bindings.
 - Starship provides cross-platform Rust speed and identical `AGENTDATA_PROJECT` / `AGENTDATA_TICKET` segment rendering.
 
+## Skins (Desk on Windows)
+
+A **skin** is one more stylesheet over the same DOM: the approved grid with CSS and hand-drawn SVG swapped in. A skin that needs a page change is not a skin.
+
+### The Skin Contract
+- **DOM Stability**: A skin may only alter CSS custom properties, backgrounds, borders, and decorative sprites. It must never require HTML markup changes or alter interactive element IDs.
+- **Pixel-Art Invariant**: Textures and sprites are 100% original, hand-authored SVG `<rect>` pixel art committed directly to the repo. Zero raster images or base64 bitmaps are allowed.
+- **Size Budget**: Each skin directory must remain under 150 KB (including any font and license files).
+- **Accessibility Fallbacks**: Every skin must provide fallbacks for `@media (prefers-reduced-transparency: reduce)` (rendering opaque panels) and `@media (prefers-reduced-motion: reduce)` (disabling animations).
+- **Composited Contrast**: The effective composited panel contrast must pass WCAG floors (text ≥ 4.5:1, status roles ≥ 3:1).
+
+### Available Skins
+
+| Skin | Base Palette | Inspiration & Materials | HIG Rule Applied |
+|---|---|---|---|
+| `none` | system | Default clean HIG interface | Clean baseline |
+| `glass` | `dark` | Translucent frosted acrylic `backdrop-filter: blur(16px)` panels over soft project-accent radial washes. Solid status chips and focus rings. | *Materials*: translucent material blurs what is behind it and adapts to light and dark while keeping content legible. |
+| `voxel` | `matrix` | Tiled 8×8 `<rect>` dirt/stone textures, 2px bevelled slab controls, 10px accent borders, and 12px status blocks before glyphs. Inspired by block-building games; zero copied assets. | *Visual Design*: bold tactile geometry and unmistakable state indicators across a room. |
+| `farmstead` | `sand` | Warm cream paper `#FBF3E0`, 4px wooden frames `#6E4A28`, tan controls with 3px press shadows, journal-style inspector, and 5 crop-stage sprites (seed, sprout, sun, bloom, wilted) carrying state. Inspired by pixel farming games; zero copied assets. | *Color & Redundancy*: never colour alone; crop stages provide a second redundant carrier for agent status. |
+
 ## An Agent Never Sees This
 
 CLI theming is strictly for human awareness. An agent (such as Luna or an autonomous subagent) never receives escape bytes or palette noise:
 - Every terminal recolouring command checks `color.enabled()`. When `stdout` is piped or redirected, all escape sequences are suppressed.
 - `ad-theme list`, `show`, `gallery`, and all doctor rows output pure TOON on `stdout` when piped, adhering strictly to the contract of Issue #71.
 - Directory hooks write escapes directly to the interactive terminal console and never pollute tool call outputs or piped subprocess stdout.
+
 
 

@@ -82,6 +82,62 @@ def hue_distance(h1: str, h2: str) -> float:
     return min(d, 360.0 - d)
 
 
+def mix(h1: str, h2: str, weight: float) -> str:
+    """Blend h1 towards h2 by weight (0.0 = all h1, 1.0 = all h2)."""
+    r1, g1, b1 = hex_to_rgb(h1)
+    r2, g2, b2 = hex_to_rgb(h2)
+    r = r1 + (r2 - r1) * weight
+    g = g1 + (g2 - g1) * weight
+    b = b1 + (b2 - b1) * weight
+    return rgb_to_hex((r, g, b))
+
+
+def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
+    """Render a Theme as CSS custom properties according to the stated mapping.
+
+    Tokens:
+      --bg: ground
+      --text: text
+      --panel: ground moved 4% toward text
+      --line: ground moved 15% toward text
+      --select: ground moved 18% toward accent
+      --muted: ansi.bright_black
+      --accent: accent or project's own
+      --focus: cursor
+      --running: status.info
+      --waiting: status.warn
+      --human: status.fail
+      --done: status.ok
+      --idle: status.skip
+    """
+    if t.name == "none" or t.ground is None or t.text is None:
+        return {}
+    accent = project_accent or t.accent
+    panel = mix(t.ground, t.text, 0.04)
+    line = mix(t.ground, t.text, 0.15)
+    select = mix(t.ground, accent, 0.18)
+    return {
+        "--bg": t.ground,
+        "--text": t.text,
+        "--panel": panel,
+        "--line": line,
+        "--select": select,
+        "--muted": t.ansi[8] if t.ansi and len(t.ansi) > 8 else "#888888",
+        "--accent": accent,
+        "--focus": t.cursor,
+        "--running": t.status.get("info", "#58A6FF"),
+        "--waiting": t.status.get("warn", "#D29922"),
+        "--human": t.status.get("fail", "#FF5C5C"),
+        "--done": t.status.get("ok", "#3FB950"),
+        "--idle": t.status.get("skip", "#8B949E"),
+    }
+
+
+def css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
+    """Alias for to_css()."""
+    return to_css(t, project_accent=project_accent)
+
+
 def check(t: Theme, composited_panel: str | None = None) -> None:
     """The theme invariant, computed, not judged by eye.
     

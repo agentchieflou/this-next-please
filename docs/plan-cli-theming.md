@@ -159,7 +159,7 @@ Windows Terminal is never edited: a **fragment** at
 profile per registered repo (`startingDirectory`, `colorScheme`, `tabColor: <accent>`, `tabTitle`, the user's
 shell). Opening a project from the tab dropdown is one click, in its colour, in its directory. `ad-fleet status`
 gains an `accent` column from the same config and the dashboard tile (#96, #131) paints its border in it — the
-accent says *which project*, the status chip says *what state*, and the chip's colour never changes.
+accent says *which project*, the status chip says *what state*, and the chip's *role* never changes.
 
 ## Command surface
 

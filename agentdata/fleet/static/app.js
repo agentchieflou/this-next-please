@@ -273,6 +273,7 @@ function drawTile(el, row, approvals) {
     displayState = "not_supervised";
   }
   el.className = "tile state-" + displayState + (el.classList.contains("is-focused") ? " is-focused" : "");
+  if (row.accent) el.style.borderTopColor = row.accent;
   // `needs-human` is the class focus mode filters on, and it comes from #94's fold rather than from
   // anything this page works out for itself: the chip, the toast and the filter must agree.
   el.classList.toggle("needs-human", !!row.needs_human);
@@ -366,6 +367,12 @@ function refresh() {
     text(document.getElementById("counts"),
          data.repos.length + " agents" + (need ? "  ·  " + need + " need you" : ""));
     if (data.desk) desk.desk = data.desk;
+    if (data.theme) {
+      var sel = document.getElementById("theme");
+      if (sel && data.theme.theme) sel.value = data.theme.theme === "none" ? "" : data.theme.theme;
+      applyTheme(data.theme.css, data.theme.theme);
+      applySkin(data.theme.skin);
+    }
     place();
     title(need);
     return data;
@@ -406,6 +413,22 @@ function connect() {
     desk.desk = JSON.parse(m.data);
     place();
     if (VIEW === "verify" || LAYOUT === "screens") deskSoon();
+  });
+  source.addEventListener("theme", function (m) {
+    try {
+      var d = JSON.parse(m.data);
+      var select = document.getElementById("theme");
+      if (select && d.theme) select.value = d.theme === "none" ? "" : d.theme;
+      applyTheme(d.css, d.theme);
+      applySkin(d.skin);
+      if (d.accents) {
+        Object.keys(d.accents).forEach(function (repo) {
+          if (tiles.has(repo)) {
+            tiles.get(repo).el.style.borderTopColor = d.accents[repo];
+          }
+        });
+      }
+    } catch (err) {}
   });
   source.addEventListener("tick", function () {
     link.className = "dot live";
@@ -475,36 +498,50 @@ document.addEventListener("keydown", function (e) {
 
 /* ------------------------------------------------------------------------------------- theming */
 
-function applyTheme(colors) {
+function applyTheme(cssVars, themeName) {
   var root = document.documentElement;
-  ["bg", "panel", "text", "muted", "accent", "line", "select"].forEach(function (k) {
-    if (colors && colors[k]) root.style.setProperty("--" + k, colors[k]);
-    else root.style.removeProperty("--" + k);
-  });
-  if (colors) root.setAttribute("data-theme", "custom");
-  else root.removeAttribute("data-theme");
+  var tokens = ["--bg", "--text", "--panel", "--line", "--select", "--muted", "--accent",
+                "--focus", "--running", "--waiting", "--human", "--done", "--idle"];
+  if (cssVars && themeName && themeName !== "none") {
+    tokens.forEach(function (k) {
+      if (cssVars[k]) root.style.setProperty(k, cssVars[k]);
+      else root.style.removeProperty(k);
+    });
+    root.setAttribute("data-theme", "custom");
+  } else {
+    tokens.forEach(function (k) { root.style.removeProperty(k); });
+    root.removeAttribute("data-theme");
+  }
+}
+
+function applySkin(skinName) {
+  var link = document.head.querySelector("link[data-skin]");
+  if (!skinName || skinName === "none") {
+    if (link) link.remove();
+    return;
+  }
+  if (!link) {
+    link = document.createElement("link");
+    link.setAttribute("data-skin", "true");
+    link.rel = "stylesheet";
+    document.head.appendChild(link);
+  }
+  link.href = q("/static/skins/" + skinName + "/skin.css");
 }
 
 function loadThemes() {
   var select = document.getElementById("theme");
   return fetch(q("/api/themes")).then(function (r) { return r.json(); }).then(function (data) {
+    while (select.options.length > 1) select.remove(1);
     (data.themes || []).forEach(function (t) {
       var option = document.createElement("option");
       option.value = t.name;
       text(option, t.name);
       select.appendChild(option);
     });
-    var saved = null;
-    try { saved = localStorage.getItem("fleet.theme"); } catch (e) { saved = null; }
-    select.value = saved && Array.prototype.some.call(select.options, function (o) {
-      return o.value === saved;
-    }) ? saved : "";
     select.addEventListener("change", function () {
-      var chosen = (data.themes || []).filter(function (t) { return t.name === select.value; })[0];
-      applyTheme(chosen ? chosen.colors : null);
-      try { localStorage.setItem("fleet.theme", select.value); } catch (e) { /* private window */ }
+      post("theme", { theme: select.value });
     });
-    select.dispatchEvent(new Event("change"));
   }).catch(function () { /* themes are decoration; the page works without them */ });
 }
 

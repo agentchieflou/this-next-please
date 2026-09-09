@@ -133,14 +133,19 @@ body.focused .tile:not(.is-focused) { display: none; }
 .tile {
   display: flex; flex-direction: column; min-height: 240px; max-height: 60vh;
   background: var(--panel); border: 1px solid var(--line);
+  border-top: 3px solid var(--accent);
   border-left: 3px solid var(--idle); border-radius: 6px; padding: 8px 10px;
 }
 body.focused .tile.is-focused { max-height: none; }
-.tile.state-running   { border-left-color: var(--running); }
+.tile.state-running          { border-left-color: var(--running); }
 .tile.state-waiting_approval { border-left-color: var(--waiting); }
-.tile.state-needs_human, .tile.state-blocked, .tile.state-error { border-left-color: var(--human); }
-.tile.state-done      { border-left-color: var(--done); }
-.tile.state-not_supervised { border-left-color: var(--muted); }
+.tile.state-needs_human,
+.tile.state-blocked,
+.tile.state-error            { border-left-color: var(--human); }
+.tile.state-done             { border-left-color: var(--done); }
+.tile.state-starting,
+.tile.state-idle             { border-left-color: var(--idle); }
+.tile.state-not_supervised   { border-left-color: var(--muted); }
 .tile.is-selected {
   outline: 2px solid var(--accent);
   box-shadow: 0 0 0 3px var(--select);
@@ -172,11 +177,15 @@ body.focused .tile.is-focused { max-height: none; }
   font: 11px var(--mono); border-radius: 10px; padding: 1px 8px;
   background: var(--select); color: var(--text);
 }
-.chip.running { background: var(--running); color: #fff; }
+.chip.running          { background: var(--running); color: #fff; }
 .chip.waiting_approval { background: var(--waiting); color: #fff; }
-.chip.needs_human, .chip.blocked, .chip.error { background: var(--human); color: #fff; }
-.chip.done { background: var(--done); color: #fff; }
-.chip.not-supervised { background: var(--muted); color: var(--panel); }
+.chip.needs_human,
+.chip.blocked,
+.chip.error            { background: var(--human); color: #fff; }
+.chip.done             { background: var(--done); color: #fff; }
+.chip.starting,
+.chip.idle             { background: var(--idle); color: #fff; }
+.chip.not-supervised   { background: var(--muted); color: var(--panel); }
 
 .why { margin: 6px 0 0; color: var(--muted); }
 .tile.state-needs_human .why, .tile.state-blocked .why, .tile.state-error .why { color: var(--human); }

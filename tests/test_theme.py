@@ -244,3 +244,31 @@ def test_docs_themes_exists_and_covers_matrix():
     assert "mintty" in doc
     assert "vscode" in doc
 
+
+def test_theme_css_passes_contrast_and_matches_terminal_hex():
+    """theme.to_css(t) passes contrast floors on rendered pairs for built-ins and 200 random rolls,
+    and css['--human'] == t.status['fail']."""
+    # 1. Built-in themes
+    for t in theme.list_themes():
+        if t.name == "none":
+            continue
+        c = theme.to_css(t)
+        panel = c["--panel"]
+        bg = c["--bg"]
+        assert theme.contrast_ratio(c["--text"], bg) >= 4.5
+        assert theme.contrast_ratio(c["--text"], panel) >= 4.5
+        for role in ("--human", "--waiting", "--done", "--running", "--idle"):
+            assert theme.contrast_ratio(c[role], panel) >= 3.0, f"{t.name} {role} contrast < 3.0"
+        assert c["--human"] == t.status["fail"]
+
+    # 2. 200 random rolls
+    for i in range(200):
+        t = theme.random_theme(i * 1013 + 7)
+        c = theme.to_css(t)
+        panel = c["--panel"]
+        assert theme.contrast_ratio(c["--text"], panel) >= 4.5
+        for role in ("--human", "--waiting", "--done", "--running", "--idle"):
+            assert theme.contrast_ratio(c[role], panel) >= 3.0
+        assert c["--human"] == t.status["fail"]
+
+
