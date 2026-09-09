@@ -91,6 +91,7 @@ markers = [
     "posix: only meaningful off nt",
     "real_home: opts out of the isolated_home fixture; for tests about the real checkout",
     "network: reaches the network. Nothing carries this today -- the marker exists so that adding one is a decision",
+    "browser: Playwright browser tests for the fleet Desk (deselect with -m 'not browser')",
 ]
 # an unregistered marker is a typo that silently selects nothing. No `-m` here: a second `-m` on
 # the command line replaces it rather than combining, and the laptop suite gates itself on
