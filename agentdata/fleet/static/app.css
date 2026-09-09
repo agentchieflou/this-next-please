@@ -483,10 +483,13 @@ body.solo .transcript { max-height: 34vh; }
 
 body.panels main, body.panels #empty { display: none; }
 
-body.panels #closeboard, body.panels #closetray, body.panels #boardtoggle,
-body.panels #traytoggle { display: none; }
+/* The laptop view is the sidebar and nothing else, so its per-section close buttons and the
+   sidebar toggle have nothing to close it to. (`#boardtoggle` and `#traytoggle` were also named
+   here; those two buttons became the sidebar's tab strip.) */
+body.panels #closeboard, body.panels #closetray, body.panels #closedrawer,
+body.panels #closefound, body.panels #closeinspector, body.panels #sidetoggle { display: none; }
 
-/* The left monitor replaces a terminal, so the tiles get the width and the drawers stay drawers. */
+/* The left monitor replaces a terminal, so the tiles get the width and the sidebar stays narrow. */
 body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 
 /* Which window is this? The grid has nothing to say -- it is the whole fleet. Every other layout is
