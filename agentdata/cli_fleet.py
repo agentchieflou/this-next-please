@@ -174,7 +174,7 @@ def cmd_stop(a) -> int:
 
 
 COLUMNS = ["repo", "agent", "ticket", "phase", "turns", "premium_requests", "budget",
-           "denied_tools", "last_event", "pid"]
+           "denied_tools", "last_event", "pid", "accent"]
 
 
 def cmd_status(a) -> int:
@@ -204,9 +204,17 @@ def cmd_status(a) -> int:
                 print(toon.table(f"launch_{row['repo']}", ["arg"], [[x] for x in lock["launch"]]))
         return EXIT_OK
 
-    budget = L.settings(cfg)["budget_per_agent"] if (cfg := C.load()) else 0.0
+    from . import theme
+    cfg = C.load()
+    budget = L.settings(cfg)["budget_per_agent"] if cfg else 0.0
     for row in rows:
         row["budget"] = f"{budget:g}" if budget else "-"
+        t_name = C.get(cfg, f"theme.projects.{row['repo']}") or C.get(cfg, "theme.default") or "none"
+        try:
+            t = theme.get(t_name, seed=row["repo"])
+            row["accent"] = t.accent or ""
+        except Exception:
+            row["accent"] = ""
     table = [[r.get(c, "") for c in COLUMNS] for r in rows]
     if ui.on():
         ui.table(COLUMNS, table, title="fleet")

@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none;" shape-rendering="crispEdges">
+  <!-- 8x8 dirt tile texture -->
+  <svg id="dirt" viewBox="0 0 8 8" width="8" height="8">
+    <rect width="8" height="8" fill="#5A3D28"/>
+    <rect x="0" y="0" width="2" height="2" fill="#4B3220"/>
+    <rect x="4" y="1" width="2" height="1" fill="#6B4B32"/>
+    <rect x="2" y="3" width="1" height="2" fill="#402B1B"/>
+    <rect x="6" y="3" width="2" height="2" fill="#4B3220"/>
+    <rect x="1" y="6" width="2" height="1" fill="#6B4B32"/>
+    <rect x="5" y="6" width="2" height="2" fill="#3D2919"/>
+    <rect x="3" y="7" width="1" height="1" fill="#6B4B32"/>
+  </svg>
+
+  <!-- 8x8 stone tile texture -->
+  <svg id="stone" viewBox="0 0 8 8" width="8" height="8">
+    <rect width="8" height="8" fill="#505050"/>
+    <rect x="0" y="0" width="3" height="1" fill="#606060"/>
+    <rect x="4" y="0" width="2" height="2" fill="#3D3D3D"/>
+    <rect x="1" y="2" width="2" height="2" fill="#444444"/>
+    <rect x="6" y="2" width="2" height="1" fill="#686868"/>
+    <rect x="3" y="4" width="3" height="2" fill="#363636"/>
+    <rect x="0" y="5" width="2" height="2" fill="#5A5A5A"/>
+    <rect x="6" y="5" width="2" height="2" fill="#404040"/>
+    <rect x="2" y="7" width="3" height="1" fill="#585858"/>
+  </svg>
+
+  <!-- 8x8 grass tile texture -->
+  <svg id="grass" viewBox="0 0 8 8" width="8" height="8">
+    <rect width="8" height="8" fill="#4A752C"/>
+    <rect x="0" y="0" width="2" height="2" fill="#3D6324"/>
+    <rect x="4" y="0" width="3" height="1" fill="#5C8A36"/>
+    <rect x="2" y="3" width="2" height="2" fill="#5C8A36"/>
+    <rect x="6" y="2" width="2" height="2" fill="#385B21"/>
+    <rect x="0" y="5" width="2" height="2" fill="#5C8A36"/>
+    <rect x="4" y="5" width="2" height="2" fill="#34541E"/>
+    <rect x="2" y="7" width="3" height="1" fill="#5C8A36"/>
+  </svg>
+
+  <!-- 12x12 status block: running -->
+  <svg id="running-block" viewBox="0 0 12 12" width="12" height="12">
+    <rect width="12" height="12" fill="#1C3D5A"/>
+    <rect x="1" y="1" width="10" height="10" fill="#58A6FF"/>
+    <rect x="3" y="3" width="6" height="6" fill="#79C0FF"/>
+    <rect x="4" y="4" width="4" height="4" fill="#FFFFFF"/>
+  </svg>
+
+  <!-- 12x12 status block: waiting -->
+  <svg id="waiting-block" viewBox="0 0 12 12" width="12" height="12">
+    <rect width="12" height="12" fill="#4D3605"/>
+    <rect x="1" y="1" width="10" height="10" fill="#D29922"/>
+    <rect x="3" y="3" width="6" height="6" fill="#E3B341"/>
+    <rect x="4" y="4" width="4" height="4" fill="#FFF2D6"/>
+  </svg>
+
+  <!-- 12x12 status block: human -->
+  <svg id="human-block" viewBox="0 0 12 12" width="12" height="12">
+    <rect width="12" height="12" fill="#4A1010"/>
+    <rect x="1" y="1" width="10" height="10" fill="#FF5C5C"/>
+    <rect x="3" y="3" width="6" height="6" fill="#FFA1A1"/>
+    <rect x="4" y="4" width="4" height="4" fill="#FFFFFF"/>
+  </svg>
+
+  <!-- 12x12 status block: done -->
+  <svg id="done-block" viewBox="0 0 12 12" width="12" height="12">
+    <rect width="12" height="12" fill="#0E3D18"/>
+    <rect x="1" y="1" width="10" height="10" fill="#3FB950"/>
+    <rect x="3" y="3" width="6" height="6" fill="#7EE787"/>
+    <rect x="4" y="4" width="4" height="4" fill="#E6FFED"/>
+  </svg>
+
+  <!-- 12x12 status block: idle -->
+  <svg id="idle-block" viewBox="0 0 12 12" width="12" height="12">
+    <rect width="12" height="12" fill="#25282B"/>
+    <rect x="1" y="1" width="10" height="10" fill="#8B949E"/>
+    <rect x="3" y="3" width="6" height="6" fill="#B1BAC4"/>
+    <rect x="4" y="4" width="4" height="4" fill="#F0F6FC"/>
+  </svg>
+</svg>

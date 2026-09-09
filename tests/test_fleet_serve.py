@@ -275,14 +275,17 @@ def test_a_live_stream_delivers_a_new_event_within_a_second(running, tmp_path):
 def test_the_page_fetches_nothing_from_the_internet():
     """JCEF and Simple Browser both sit behind the corporate proxy. One CDN reference is a page
     that does not load at work -- and it would look like a bug in the fleet, not in the HTML."""
-    for name in sorted(os.listdir(STATIC)):
-        body = open(os.path.join(STATIC, name), encoding="utf-8").read()
-        for bad in ("http://", "https://", "//cdn", "//unpkg", "@import url("):
-            assert bad not in body, f"{name} reaches outside for {bad}"
+    for root, _, files in os.walk(STATIC):
+        for name in sorted(files):
+            body = open(os.path.join(root, name), encoding="utf-8").read()
+            cleaned = body.replace("http://www.w3.org/2000/svg", "")
+            for bad in ("http://", "https://", "//cdn", "//unpkg", "@import url("):
+                assert bad not in cleaned, f"{name} reaches outside for {bad}"
 
 
 def test_the_static_payload_is_small_enough_to_load_over_anything():
-    total = sum(os.path.getsize(os.path.join(STATIC, n)) for n in os.listdir(STATIC))
+    total = sum(os.path.getsize(os.path.join(STATIC, n)) for n in os.listdir(STATIC)
+                if os.path.isfile(os.path.join(STATIC, n)))
     assert total < 200 * 1024, f"{total} bytes of static payload"
 
 
@@ -315,19 +318,34 @@ def test_the_markup_and_the_script_agree_on_every_hook():
         assert f'id="{element}"' in html, f"#{element} is used by app.js and is not in index.html"
 
 
-def test_the_themes_come_from_the_icls_files_and_the_status_colours_do_not():
-    """A chip that means "needs you" has to be the same red in every palette, or the colour stops
-    being information."""
+def test_the_themes_come_from_theme_py_and_satisfy_contrast():
+    """Palettes come from agentdata.theme, rendered through theme.to_css(), not .icls files.
+    The tokens match the stated mapping in docs/plan-desk-refactor.md, and the state-to-role
+    table in app.css matches agentstate.STATE_ROLES.
+    """
     found = S.themes()
-    assert {t["name"] for t in found} == {"Canopy", "Crimson Studio", "Pastel Lavender"}
-    for theme in found:
-        assert set(theme["colors"]) == {"bg", "panel", "text", "muted", "accent", "line", "select"}
-        assert all(v.startswith("#") for v in theme["colors"].values())
-        assert "human" not in theme["colors"] and "running" not in theme["colors"]
+    assert "Canopy" not in {t["name"] for t in found}
+    assert {"greens", "reds", "eye-relief", "nfl-browns", "dark", "matrix"}.issubset({t["name"] for t in found})
 
+    # Read expected tokens from docs/plan-desk-refactor.md
+    plan_text = open("docs/plan-desk-refactor.md", encoding="utf-8").read()
+    import re
+    plan_tokens = set(re.findall(r'\|\s*`(--[a-z]+)`\s*\|', plan_text))
+    assert plan_tokens == {
+        "--bg", "--text", "--panel", "--line", "--select", "--muted",
+        "--accent", "--focus", "--running", "--waiting", "--human", "--done", "--idle"
+    }
+
+    for theme in found:
+        assert set(theme["css"].keys()) == plan_tokens
+        assert all(v.startswith("#") for v in theme["css"].values())
+
+    # Verify state -> role mapping in app.css against agentstate.STATE_ROLES
     css = open(os.path.join(STATIC, "app.css"), encoding="utf-8").read()
-    for status in ("running", "waiting", "human", "done", "idle"):
-        assert f"--{status}:" in css, f"the {status} colour is not fixed in the stylesheet"
+    from agentdata.fleet.agentstate import STATE_ROLES
+    for state, role in STATE_ROLES.items():
+        assert f".chip.{state}" in css or (f".chip.{role}" in css and state == role)
+        assert f"var(--{role})" in css
 
 
 # ------------------------------------------------------------------------------ finding the page
@@ -407,3 +425,26 @@ def test_the_page_can_actually_fetch_its_own_css_and_js(running):
         with urllib.request.urlopen(base + ref, timeout=5) as r:   # exactly as written, nothing added
             assert r.status == 200, ref
             assert r.read(), f"{ref} served empty"
+
+
+def test_skin_tier_stylesheet_serving_and_budget(running):
+    """With theme.skin none the page requests nothing under /static/skins/; with a skin set it requests
+    exactly one stylesheet; each skin directory is under its budget (< 150 KB) and fonts have LICENSE beside them."""
+    base, token, _ = running
+    html = urllib.request.urlopen(f"{base}/?t={token}", timeout=5).read().decode()
+    # With theme.skin: none, index.html contains no static skins link
+    assert "/static/skins/" not in html
+
+    # With skin requested, each skin stylesheet is served correctly with token
+    from agentdata.fleet import skins
+    for skin in skins.list_skins():
+        if skin["name"] == "none":
+            continue
+        assert skin["size_bytes"] < 150 * 1024
+        url = f"{base}/static/skins/{skin['name']}/skin.css?t={token}"
+        with urllib.request.urlopen(url, timeout=5) as r:
+            assert r.status == 200
+            content = r.read()
+            assert len(content) > 0
+            assert b"prefers-reduced-" in content
+

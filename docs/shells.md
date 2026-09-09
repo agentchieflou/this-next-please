@@ -40,7 +40,11 @@ files carry the line.
 | Git Bash 4.4+ | yes |
 | zsh | yes, through `bashcompinit` |
 | Windows PowerShell 5.1 | yes -- the one thing that works in a shell the commands are not supported in |
-| cmd.exe | no. cmd has no completion protocol to hook |
+| cmd.exe | no native completion; install Clink (`winget install chrisant996.clink`) for completion, prompt hooks, and directory theming |
+
+**cmd.exe and Clink.** cmd.exe has no built-in prompt or directory hook protocol. Installing **Clink**
+adds Readline-style completion, Lua prompt extensions, and allows `ad-theme` directory hooks (`hook.lua`)
+to switch project themes seamlessly on `cd`.
 
 **The one that bites here.** PowerShell does not call a native argument completer for a bare `--`,
 so `ad-test run --<TAB>` offers nothing while `ad-test run --s<TAB>` completes. That is PowerShell,

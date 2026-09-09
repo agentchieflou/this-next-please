@@ -867,3 +867,39 @@ The whole point. Write down how many times you had to type something after the f
 
 The `ad-doctor` rows, the ticket key, the PR URL, the count from step 6, and any step where Luna
 stopped and asked instead of continuing.
+
+## Themes
+
+Terminal colours, live recolour via OSC / Win32 API, zero-Python directory hooks, and prompt engines.
+
+```powershell
+# In PowerShell 7 (pwsh)
+ad-theme gallery                                       # visual check: all 11 themes rendered in color
+ad-theme apply greens                                  # live recolour: terminal background turns leaf-green
+ad-theme reset                                         # terminal background resets to normal
+ad-doctor --only theme                                 # shows 6 theme checks (all ok or warn, never fail)
+ad-setup --only theme                                  # interactive walkthrough
+```
+
+```bash
+# In Git Bash (MSYS2 / mintty)
+ad-theme gallery
+ad-theme apply matrix                                  # live recolour: background phosphor green/black
+ad-theme reset
+ad-doctor --only theme
+```
+
+```cmd
+:: In cmd.exe (conhost)
+ad-theme apply greens                                  # recolours via SetConsoleScreenBufferInfoEx
+ad-theme reset
+ad-doctor --only theme
+```
+
+Pass:
+- `ad-doctor --only theme` reports 6 rows with `ok`/`warn` and exit code 0.
+- `ad-theme apply <name>` applies immediately in the running terminal.
+- Piped invocations (e.g. `ad-theme list | head`) produce pure TOON with zero escape sequences.
+- `ad-setup --patch theme` re-prompts only for warn rows.
+
+Paste: the output of `ad-doctor --only theme` and `ad-theme show --cwd`.

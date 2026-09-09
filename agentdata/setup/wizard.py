@@ -338,10 +338,11 @@ class Step:
 
 
 def registry() -> list[Step]:
-    from .steps import console, content_understanding, fleet, pncli_import, powerbi, project, sources
+    from .steps import console, content_understanding, fleet, pncli_import, powerbi, project, sources, theme
     # console first: a report from an unsupported shell should say so before anything it explains
-    return [console.ConsoleStep(), pncli_import.PncliStep(), sources.SourcesStep(), powerbi.PowerBIStep(),
-            content_understanding.ContentUnderstandingStep(), project.ProjectStep(), fleet.FleetStep()]
+    return [console.ConsoleStep(), theme.ThemeStep(), pncli_import.PncliStep(), sources.SourcesStep(),
+            powerbi.PowerBIStep(), content_understanding.ContentUnderstandingStep(), project.ProjectStep(),
+            fleet.FleetStep()]
 
 
 def _select(steps: list[Step], only: list[str] | None) -> list[Step]:
@@ -497,10 +498,26 @@ def run_patch(ctx: Context, steps: list[Step], prompter: Prompter, *, include_wa
             raise C.ConfigError("nothing to repair for: " + ", ".join(bad),
                                 hint="a target starts with a step key: " + ", ".join(sorted(known)) +
                                      " (e.g. sources.oracle, powerbi.az_exe)")
-        scope = list(dict.fromkeys(targets))
+        scope = []
         todo = [s for s in steps if any(t.split(".")[0] == s.key for t in targets)]
         for step in todo:
             found[step.key] = step.detect(ctx)
+            step.check(ctx, found[step.key])
+        for t in dict.fromkeys(targets):
+            if t in known:
+                step_broken = [c for c in ctx.checks if c.step == t and c.status in ("fail", "warn") and c.keys]
+                for c in step_broken:
+                    for k in c.scope():
+                        if k not in scope:
+                            scope.append(k)
+                        reasons.setdefault(k, f"{c.step}/{c.name}: {c.detail}" + (f" — {c.hint}" if c.hint else ""))
+            else:
+                if t not in scope:
+                    scope.append(t)
+        if not scope:
+            extra = {"repaired": 0, "note": "nothing to repair"}
+            print_checks(ctx, "ad-setup --patch", extra=extra, quiet=quiet)
+            return 0
     else:
         for step in steps:
             found[step.key] = step.detect(ctx)

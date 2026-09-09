@@ -48,11 +48,44 @@ body {
 header, footer {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: 12px;
+  padding: 6px 14px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
   flex: 0 0 auto;
+}
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+.segment {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font: 11px var(--mono);
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 24px;
+}
+.segment:hover {
+  color: var(--text);
+}
+.segment.active {
+  background: var(--panel);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 footer { border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted); }
 h1 { font-size: 14px; margin: 0; letter-spacing: .12em; text-transform: uppercase; }
@@ -73,11 +106,14 @@ h1 { font-size: 14px; margin: 0; letter-spacing: .12em; text-transform: uppercas
 
 select, button, input {
   font: inherit; color: inherit; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px;
+  border: 1px solid var(--line); border-radius: 4px; padding: 4px 10px;
+  min-height: 28px; box-sizing: border-box;
 }
 button { cursor: pointer; }
 button:hover { border-color: var(--accent); }
-button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button:focus-visible, select:focus-visible, input:focus-visible, .segment:focus-visible, .tile:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
 input { min-width: 0; }
 
 /* ------------------------------------------------------------------ the grid, and one big tile */
@@ -97,13 +133,23 @@ body.focused .tile:not(.is-focused) { display: none; }
 .tile {
   display: flex; flex-direction: column; min-height: 240px; max-height: 60vh;
   background: var(--panel); border: 1px solid var(--line);
+  border-top: 3px solid var(--accent);
   border-left: 3px solid var(--idle); border-radius: 6px; padding: 8px 10px;
 }
 body.focused .tile.is-focused { max-height: none; }
-.tile.state-running   { border-left-color: var(--running); }
+.tile.state-running          { border-left-color: var(--running); }
 .tile.state-waiting_approval { border-left-color: var(--waiting); }
-.tile.state-needs_human, .tile.state-blocked, .tile.state-error { border-left-color: var(--human); }
-.tile.state-done      { border-left-color: var(--done); }
+.tile.state-needs_human,
+.tile.state-blocked,
+.tile.state-error            { border-left-color: var(--human); }
+.tile.state-done             { border-left-color: var(--done); }
+.tile.state-starting,
+.tile.state-idle             { border-left-color: var(--idle); }
+.tile.state-not_supervised   { border-left-color: var(--muted); }
+.tile.is-selected {
+  outline: 2px solid var(--accent);
+  box-shadow: 0 0 0 3px var(--select);
+}
 
 .head { display: flex; align-items: center; gap: 8px; }
 .head .n {
@@ -112,18 +158,45 @@ body.focused .tile.is-focused { max-height: none; }
 }
 .repo { cursor: pointer; }
 .ticket, .age { color: var(--muted); font: 11px var(--mono); }
+.age.stale { opacity: 0.55; }
+
+.head .pintoggle, .head .sizetoggle {
+  font: 10px var(--mono); padding: 1px 4px; min-height: 20px; min-width: 20px;
+  border-radius: 3px; background: transparent; border: 1px solid var(--line);
+  color: var(--muted); cursor: pointer;
+}
+.head .pintoggle:hover, .head .sizetoggle:hover { border-color: var(--accent); color: var(--text); }
+.head .pintoggle.active { background: var(--select); color: var(--accent); border-color: var(--accent); }
+
+.tile.size-2 { grid-column: span 2; }
+.tile.drop-before { border-left: 4px solid var(--accent) !important; }
+.tile.drop-after { border-right: 4px solid var(--accent) !important; }
+.tile.is-dragging { opacity: 0.45; }
 
 .chip {
   font: 11px var(--mono); border-radius: 10px; padding: 1px 8px;
   background: var(--select); color: var(--text);
 }
-.chip.running { background: var(--running); color: #fff; }
+.chip.running          { background: var(--running); color: #fff; }
 .chip.waiting_approval { background: var(--waiting); color: #fff; }
-.chip.needs_human, .chip.blocked, .chip.error { background: var(--human); color: #fff; }
-.chip.done { background: var(--done); color: #fff; }
+.chip.needs_human,
+.chip.blocked,
+.chip.error            { background: var(--human); color: #fff; }
+.chip.done             { background: var(--done); color: #fff; }
+.chip.starting,
+.chip.idle             { background: var(--idle); color: #fff; }
+.chip.not-supervised   { background: var(--muted); color: var(--panel); }
 
 .why { margin: 6px 0 0; color: var(--muted); }
 .tile.state-needs_human .why, .tile.state-blocked .why, .tile.state-error .why { color: var(--human); }
+
+.earlier {
+  margin: 6px 0; font: 11px var(--mono); color: var(--muted);
+  border-top: 1px dashed var(--line); padding-top: 4px;
+}
+.earlierhead { cursor: pointer; }
+.earlierlist { margin: 4px 0 0 16px; padding: 0; list-style: square; }
+.earlierlist li { padding: 2px 0; }
 
 /* ------------------------------------------------------------------------------ the transcript */
 
@@ -346,4 +419,21 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
 /* Which window is this? The grid has nothing to say -- it is the whole fleet. Every other layout is
    one of a set, and four windows that look alike is the tab problem again, one level up. */
 #view { display: none; }
+
+#inspector {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 94vw); z-index: 22;
+  background: var(--panel); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 8px 10px;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, .18); overflow-y: auto;
+}
+.inspectorbody { padding: 8px 0; display: flex; flex-direction: column; gap: 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 body.layout-roles #view, body.layout-screens #view { display: inline; }

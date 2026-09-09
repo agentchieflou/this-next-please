@@ -109,6 +109,70 @@ class ServeError(Exception):
 # --------------------------------------------------------------------------------- the API layer
 
 
+def format_age_str(seconds: int | float) -> str:
+    """Format seconds into human readable elapsed age string."""
+    if seconds < 0:
+        return ""
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h"
+    days = int(seconds // 86400)
+    return f"{days} days ago" if days > 1 else "yesterday"
+
+
+def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]]:
+    """Split an event stream into the current run and earlier runs summary.
+
+    A run begins at a 'started' event.
+    Returns:
+        (current_run_dict, earlier_runs_list)
+    """
+    if not stream:
+        return ({"n": 0, "started": "", "resumed": False, "session": "",
+                 "ticket": "", "live": live, "events": []}, [])
+
+    started_indices = [i for i, ev in enumerate(stream) if ev.get("kind") == "started"]
+    if not started_indices:
+        d = agentstate.derive(stream, live=live)
+        return ({"n": 1, "started": stream[0].get("ts", ""), "resumed": False,
+                 "session": d.get("session", ""), "ticket": d.get("ticket", ""),
+                 "live": live, "events": stream}, [])
+
+    earlier = []
+    for idx, start_i in enumerate(started_indices[:-1]):
+        end_i = started_indices[idx + 1]
+        run_events = stream[start_i:end_i]
+        d = agentstate.derive(run_events, live=False)
+        start_ev = stream[start_i]
+        end_ev = run_events[-1] if run_events else start_ev
+        earlier.append({
+            "n": idx + 1,
+            "started": start_ev.get("ts", ""),
+            "ended": end_ev.get("ts", ""),
+            "state": d["state"],
+            "ticket": d.get("ticket", ""),
+        })
+
+    last_start_i = started_indices[-1]
+    curr_events = stream[last_start_i:]
+    curr_derived = agentstate.derive(curr_events, live=live)
+    start_ev = stream[last_start_i]
+    start_data = start_ev.get("data") or {}
+    curr_run = {
+        "n": len(started_indices),
+        "started": start_ev.get("ts", ""),
+        "resumed": bool(start_data.get("resumed", False)),
+        "session": curr_derived.get("session") or start_data.get("session", ""),
+        "ticket": curr_derived.get("ticket") or start_ev.get("ticket", ""),
+        "live": live,
+        "events": curr_events,
+    }
+    return curr_run, earlier
+
+
 def fleet_snapshot() -> dict:
     """Everything the page needs to draw itself from cold. Also the reconnect path.
 
@@ -124,6 +188,14 @@ def fleet_snapshot() -> dict:
         registry = Registry()
     except RegistryError:
         registry = None
+    from .. import config as C
+    from .. import theme as T
+    cfg = C.load()
+    default_theme_name = cfg.get("theme", {}).get("default") or "none"
+    proj_theme_map = cfg.get("theme", {}).get("projects", {})
+    if not isinstance(proj_theme_map, dict):
+        proj_theme_map = {}
+
     for row in supervisor.status():
         name = row["repo"]
         try:
@@ -133,10 +205,45 @@ def fleet_snapshot() -> dict:
         except (RegistryError, OSError):
             pass
         stream = E.read(name)
-        derived = agentstate.derive(stream, live=bool(supervisor.live(name)))
+        is_live = bool(supervisor.live(name))
+        curr_run, earlier = split_runs(stream, live=is_live)
+        derived = agentstate.derive(curr_run["events"], live=is_live) if curr_run["events"] else agentstate.derive(stream, live=is_live)
+
+        last_age_s = row.get("last_event_age_s", -1)
+        pid = row.get("pid", 0)
+        is_supervised = bool(pid and is_live)
+        if not is_supervised or (last_age_s > 120 and not is_live):
+            is_supervised = False
+            if not stream or not curr_run["started"]:
+                not_supervised_sentence = "this agent is not supervised"
+            else:
+                age_text = format_age_str(last_age_s) if last_age_s >= 0 else "recently"
+                not_supervised_sentence = f"last run ended {age_text}; nothing is supervised now"
+        else:
+            not_supervised_sentence = ""
+
+        # Resolve project accent
+        proj_entry = proj_theme_map.get(name) or proj_theme_map.get(os.path.abspath(row.get("path", "")))
+        if isinstance(proj_entry, dict) and "accent" in proj_entry:
+            accent = proj_entry["accent"]
+        elif isinstance(proj_entry, dict) and "theme" in proj_entry:
+            pt = T.get(proj_entry["theme"], seed=name)
+            accent = pt.accent or "#3FB950"
+        elif isinstance(proj_entry, str) and proj_entry:
+            pt = T.get(proj_entry, seed=name)
+            accent = pt.accent or "#3FB950"
+        else:
+            pt = T.get(default_theme_name, seed=name)
+            accent = pt.accent or "#3FB950"
+
         rows.append({"repo": name, "path": row.get("path", ""),
                      "jira_project": row.get("jira_project", ""),
-                     "pid": row.get("pid", 0), "last_event_age_s": row.get("last_event_age_s", -1),
+                     "accent": accent,
+                     "pid": pid, "last_event_age_s": last_age_s,
+                     "supervised": is_supervised,
+                     "not_supervised_sentence": not_supervised_sentence,
+                     "run": curr_run,
+                     "earlier": earlier,
                      **derived,
                      "last_seq": stream[-1]["seq"] if stream else 0,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
@@ -144,9 +251,9 @@ def fleet_snapshot() -> dict:
                      # folded into the row, because a cell can be stale or grey and the agent's
                      # state never is -- flattening them would make one age apply to both.
                      "polls": poll_state(name),
-                     "recent": stream[-40:]})
+                     "recent": curr_run["events"][-40:] if curr_run["events"] else stream[-40:]})
     return {"repos": rows, "approvals": approval.pending(), "fleet_dir": fleet_dir(),
-            "desk": desk_state(),
+            "desk": desk_state(), "theme": theme_state(),
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
 
 
@@ -162,12 +269,54 @@ _desk = {"dir": "", "poller": None, "inbox": None, "catalogue": None, "last_tick
          "last_fold": 0.0}
 _desk_lock = threading.RLock()
 
-# The selected project, shared by every window on the same server. Layout B (#133) is three browser
-# windows that agree on one project, and the only thing they share is this stream -- so the selection
-# is server state pushed as an event, not a URL fragment each window would have to be told about.
-# `screens` is layout C's pinning, held the same way and for the same reason: a swap on one monitor
-# has to move the project off the other one.
-_selection = {"selected": "", "screens": [], "version": 0, "at": ""}
+DESK_FILE = "desk.json"
+
+# The selected project, shared by every window on the same server, now persisted in desk.json.
+# Arrangement holds per-layout ordering, sizes and pinned tiles.
+_selection = {
+    "selected": "",
+    "screens": [],
+    "version": 0,
+    "at": "",
+    "arrangement": {
+        "grid": {"order": [], "size": {}, "pinned": []},
+        "roles": {"order": []},
+        "screens": {"order": []},
+    },
+}
+
+
+def _desk_file() -> str:
+    return os.path.join(fleet_dir(), DESK_FILE)
+
+
+def _load_desk() -> None:
+    path = _desk_file()
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                _selection["selected"] = str(data.get("selected") or "")
+                _selection["screens"] = [str(x) for x in data.get("screens") or []]
+                _selection["version"] = int(data.get("version") or 0)
+                _selection["at"] = str(data.get("at") or "")
+                arr = data.get("arrangement")
+                if isinstance(arr, dict):
+                    _selection["arrangement"] = {
+                        k: dict(v) if isinstance(v, dict) else v for k, v in arr.items()
+                    }
+        except Exception:
+            pass
+
+
+def _save_desk() -> None:
+    path = _desk_file()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        textio.write_text(path, json.dumps(_selection, indent=2))
+    except Exception:
+        pass
 
 
 def _fresh() -> dict:
@@ -180,17 +329,14 @@ def _fresh() -> dict:
     here = fleet_dir()
     if _desk["dir"] and _desk["dir"] != here:
         reset()
+    if not _desk["dir"]:
+        _load_desk()
     _desk["dir"] = here
     return _desk
 
 
 def reset() -> None:
-    """Drop the shared handles and the selection. Called when the fleet moves under a live process.
-
-    The selection goes with them: it names a project in the fleet that was, and a screen still
-    pinned to a repository the new fleet has never heard of would be an empty monitor with nothing
-    saying why. The version is bumped rather than zeroed so every connected window is told.
-    """
+    """Drop the shared handles and the selection. Called when the fleet moves under a live process."""
     with _desk_lock:
         cat = _desk.get("catalogue")
         if cat is not None:
@@ -200,7 +346,19 @@ def reset() -> None:
                 pass
         _desk.update(dir="", poller=None, inbox=None, catalogue=None, last_tick=0.0,
                      last_fold=0.0)
-        _selection.update(selected="", screens=[], version=_selection["version"] + 1, at=E.stamp())
+        _selection.update(
+            selected="",
+            screens=[],
+            version=_selection["version"] + 1,
+            at=E.stamp(),
+            arrangement={
+                "grid": {"order": [], "size": {}, "pinned": []},
+                "roles": {"order": []},
+                "screens": {"order": []},
+            },
+        )
+        _save_desk()
+
 
 
 def poller():
@@ -331,9 +489,52 @@ def poll_state(name: str) -> dict:
 
 
 def desk_state() -> dict:
-    """What every window agrees on: the selected project and the screen pinning."""
+    """What every window agrees on: the selected project, screen pinning, and tile arrangement."""
     with _desk_lock:
-        return dict(_selection, screens=list(_selection["screens"]))
+        arr = _selection.get("arrangement") or {}
+        return {
+            "selected": _selection["selected"],
+            "screens": list(_selection["screens"]),
+            "version": _selection["version"],
+            "at": _selection["at"],
+            "arrangement": {
+                k: dict(v) if isinstance(v, dict) else v for k, v in arr.items()
+            },
+        }
+
+
+def theme_state() -> dict:
+    """The theme and skin configuration shared across windows."""
+    from .. import config as C
+    from .. import theme as T
+    from . import skins
+    cfg = C.load()
+    default_name = cfg.get("theme", {}).get("default") or "none"
+    skin_name = cfg.get("theme", {}).get("skin") or "none"
+    t = T.get(default_name)
+    css_vars = T.to_css(t) if t and t.name != "none" else {}
+    proj_map = cfg.get("theme", {}).get("projects", {})
+    if not isinstance(proj_map, dict):
+        proj_map = {}
+    accents = {}
+    for proj, pinfo in proj_map.items():
+        if isinstance(pinfo, dict) and "accent" in pinfo:
+            accents[proj] = pinfo["accent"]
+        elif isinstance(pinfo, dict) and "theme" in pinfo:
+            pt = T.get(pinfo["theme"], seed=proj)
+            if pt and pt.accent:
+                accents[proj] = pt.accent
+        elif isinstance(pinfo, str) and pinfo:
+            pt = T.get(pinfo, seed=proj)
+            if pt and pt.accent:
+                accents[proj] = pt.accent
+
+    return {
+        "theme": default_name,
+        "skin": skin_name,
+        "css": css_vars,
+        "accents": accents,
+    }
 
 
 def select(selected=None, screens=None) -> dict:
@@ -351,7 +552,31 @@ def select(selected=None, screens=None) -> dict:
             after["screens"] = [str(x) for x in list(screens)[:9] if str(x)]
         if (after["selected"], after["screens"]) != (_selection["selected"], _selection["screens"]):
             _selection.update(after, version=_selection["version"] + 1, at=E.stamp())
+            _save_desk()
         return desk_state()
+
+
+def arrange(layout: str, *, order=None, size=None, pinned=None) -> dict:
+    """Set the tile arrangement for a layout, persisted in desk.json and pushed down the SSE stream."""
+    with _desk_lock:
+        arr = _selection.setdefault("arrangement", {})
+        cur = arr.setdefault(layout, {"order": [], "size": {}, "pinned": []})
+        changed = False
+        if order is not None and cur.get("order") != list(order):
+            cur["order"] = [str(x) for x in order]
+            changed = True
+        if size is not None and cur.get("size") != dict(size):
+            cur["size"] = {str(k): int(v) for k, v in size.items()}
+            changed = True
+        if pinned is not None and cur.get("pinned") != list(pinned):
+            cur["pinned"] = [str(x) for x in pinned]
+            changed = True
+        if changed:
+            _selection["version"] += 1
+            _selection["at"] = E.stamp()
+            _save_desk()
+        return desk_state()
+
 
 
 # ---------------------------------------------------------------------------- the verify pane
@@ -600,6 +825,11 @@ def act(what: str, body: dict) -> dict:
         # The one "action" that changes nothing on disk. It is a POST rather than a query parameter
         # because its whole point is that the *other* windows hear about it (#133 layout B).
         return select(selected=body.get("repo"), screens=body.get("screens"))
+    if what == "arrange":
+        return arrange(str(body.get("layout") or "grid"),
+                       order=body.get("order"),
+                       size=body.get("size"),
+                       pinned=body.get("pinned"))
     if what == "attach":
         # The single exception in the epic's "nothing is written outside ~/.agentdata/fleet without
         # a click": this is the click. `Inbox.attach` does the copy and holds the rule that it lands
@@ -610,8 +840,20 @@ def act(what: str, body: dict) -> dict:
         box, offer = _offer(str(body.get("id") or ""))
         box.dismiss(offer)
         return {"dismissed": offer.name, "id": offer.id}
+    if what == "theme":
+        from .. import config as C
+        cfg = C.load()
+        cfg.setdefault("theme", {})
+        if "theme" in body:
+            theme_val = str(body["theme"]).strip()
+            cfg["theme"]["default"] = theme_val if theme_val else "none"
+        if "skin" in body:
+            skin_val = str(body["skin"]).strip()
+            cfg["theme"]["skin"] = skin_val if skin_val else "none"
+        C.save(cfg)
+        return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
-                     "start | send | stop | approve | deny | select | attach | dismiss")
+                     "start | send | stop | approve | deny | select | arrange | attach | dismiss | theme")
 
 
 def _sweep(url: str) -> list[dict]:
@@ -673,6 +915,11 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     last_beat = 0.0
     last_sweep = 0.0
     seen_selection = -1
+    last_config_mtime = -1.0
+    seen_theme_state = None
+    from .. import config as C
+    cfg_file = C.path()
+
     while not stop.is_set():
         if polls:
             poll_tick()
@@ -707,6 +954,18 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             seen_selection = state["version"]
             write(f"event: desk\ndata: {json.dumps(state, ensure_ascii=False)}\n\n")
             sent = True
+
+        try:
+            mtime = os.path.getmtime(cfg_file) if os.path.isfile(cfg_file) else 0.0
+        except OSError:
+            mtime = 0.0
+        if seen_theme_state is None or mtime != last_config_mtime:
+            last_config_mtime = mtime
+            tstate = theme_state()
+            if seen_theme_state is None or tstate != seen_theme_state:
+                seen_theme_state = tstate
+                write(f"event: theme\ndata: {json.dumps(tstate, ensure_ascii=False)}\n\n")
+                sent = True
         if sent or time.time() - last_beat > heartbeat:
             # The heartbeat is not decoration: a proxy that sees no bytes for a minute closes the
             # connection, and the tiles then quietly stop updating with no error anywhere.
@@ -803,7 +1062,8 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
         if route == "/api/themes":
-            return self._json({"ok": True, "themes": themes()})
+            from . import skins
+            return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins()})
         if route == "/api/board":
             from .. import config as C
 
@@ -962,32 +1222,31 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def themes() -> list[dict]:
-    """The PyCharm `.icls` palettes, so the tool window can match the editor beside it.
+    """Palettes from agentdata.theme, rendered through theme.to_css()."""
+    from .. import theme as T
 
-    Status colours are deliberately NOT themed: a chip that means "needs you" must be the same red
-    in every palette, or the colour stops being information.
-    """
-    import xml.etree.ElementTree as ET
-
-    root = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                        "themes", "pycharm")
-    keys = {"bg": "CONSOLE_BACKGROUND_KEY", "panel": "CARET_ROW_COLOR", "text": "CARET_COLOR",
-            "muted": "ANNOTATIONS_COLOR", "accent": "DOC_COMMENT_LINK", "line": "DOC_COMMENT_GUIDE",
-            "select": "SELECTION_BACKGROUND"}
     out = []
-    if not os.path.isdir(root):
-        return out
-    for name in sorted(os.listdir(root)):
-        if not name.endswith(".icls"):
+    for t in T.list_themes():
+        if t.name == "none":
             continue
-        try:
-            tree = ET.parse(os.path.join(root, name))
-        except (ET.ParseError, OSError):
-            continue
-        found = {o.get("name"): o.get("value") for o in tree.iter("option") if o.get("value")}
-        palette = {k: "#" + found[v] for k, v in keys.items() if found.get(v)}
-        if len(palette) == len(keys):
-            out.append({"name": os.path.splitext(name)[0], "colors": palette})
+        c = T.to_css(t)
+        colors = {
+            "bg": c.get("--bg", ""),
+            "panel": c.get("--panel", ""),
+            "text": c.get("--text", ""),
+            "muted": c.get("--muted", ""),
+            "accent": c.get("--accent", ""),
+            "line": c.get("--line", ""),
+            "select": c.get("--select", ""),
+        }
+        out.append({
+            "name": t.name,
+            "title": t.title,
+            "why": t.why,
+            "light": t.light,
+            "colors": colors,
+            "css": c,
+        })
     return out
 
 

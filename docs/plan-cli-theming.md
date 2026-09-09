@@ -73,6 +73,11 @@ are derived from them in code and listed in `docs/themes.md` once tuned.
 | `eye-relief` | `#2B2A27` warm grey | `#D6CDB8` warm off-white | `#C9A227` muted amber | no saturated blue anywhere; contrast capped near 7:1 | for hour six; low blue, low glare, nothing pure white |
 | `eye-relief-day` | `#F2ECDC` sepia | `#3B3A34` | `#8A6D1F` | the light pair; `light: true` | the same idea for a bright room |
 | `nfl-browns` | `#311D00` | `#F2E8D9` | `#FF3C00` | tab colour is the orange | Cleveland Browns: brown, orange, white |
+| `dark` | `#14171A` | `#E3E7EA` | `#58A6FF` | neutral dark | the neutral dark the page already had, now a name the terminal can share |
+| `vanta-black` | `#000000` | `#C8C8C8` | `#E6E6E6` | text contrast capped under 19:1 | the true-black panel for OLED and pitch rooms |
+| `matrix` | `#020A03` | `#3DF07A` | `#00FF41` | `fail` is red `#FF3B3B`, contrasting with green text | phosphor on black; the falling code screen |
+| `blues` | `#0B1B33` | `#D6E4F7` | `#4DA3FF` | `info` is cyan `#5EE1E6` so running never hides in navy ground | deep ocean navy and slate |
+| `sand` | `#EFE6D2` | `#3A3126` | `#B9631E` | `light: true`, status colours darkened | warm desert solarized parchment |
 | `random` | generated | generated | generated | status hues fixed; the roll is checked before use | a fresh, stable colour per project or per day; `pin` keeps one |
 | `none` | — | — | — | — | the terminal exactly as you had it (the default) |
 
@@ -154,7 +159,7 @@ Windows Terminal is never edited: a **fragment** at
 profile per registered repo (`startingDirectory`, `colorScheme`, `tabColor: <accent>`, `tabTitle`, the user's
 shell). Opening a project from the tab dropdown is one click, in its colour, in its directory. `ad-fleet status`
 gains an `accent` column from the same config and the dashboard tile (#96, #131) paints its border in it — the
-accent says *which project*, the status chip says *what state*, and the chip's colour never changes.
+accent says *which project*, the status chip says *what state*, and the chip's *role* never changes.
 
 ## Command surface
 

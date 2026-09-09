@@ -83,6 +83,8 @@ pncli config init      # if not done (pncli keeps the Jira token; we only borrow
 ad-setup               # guided: pncli import, data sources, Power BI tools/workspaces
 #    ad-setup --quick  # fast path: auto-accepts unambiguous detected facts (single DSN, found tools)
 #    ad-setup --export-defaults team.json / ad-setup --import team.json  # share non-secret team defaults
+ad-theme gallery       # preview terminal themes (greens, dark, eye-relief, matrix, ...)
+#    ad-setup --only theme  # customize theme, directory hook, WT fragment, or Oh My Posh
 ad-doctor              # any time: offline health check (session-bootstrap runs it)
 ad-setup --patch       # after any fail row: re-asks ONLY the settings behind it, nothing else
 ```
@@ -186,12 +188,15 @@ python -m pytest -q
 | `agentdata/jira_cache.py` | the changelog cache (`ad-jira cache`): one SQLite file per project, keyed on each issue's `updated` stamp, so the second pull of a long JQL costs one search |
 | `agentdata/dpm/` | DPM → consumer handoff contract: read-only run root, reference resolution, versioned refusals, job manifest with lineage (`ad-dpm`) |
 | `agentdata/graph/` | code graph extraction, queries, human-approval gate, findings, and guard (`ad-graph`) |
+| `agentdata/sorting/` | `ad-sort`: organizing a folder of files into a structure — a plan an agent writes and a person applies, by name only, copying and never moving ([docs/sorting.md](docs/sorting.md)) |
 | `agentdata/dpm/extract.py` | field extraction over DPM-routed text: the field list is an input, and the engine is a seam (`simple` label matching, or an Azure Content Understanding analyzer) that downstream output does not see |
 | `docs/pbi-tools-parts.md` | what was learned from pbi-tools (AGPL) and re-implemented as behaviour |
 | `docs/data-format-policy.md` | the determinant: which format, when |
 | `docs/setup.md` | what the wizard configures, env overrides, Windows notes |
 | `docs/windows-verification.md` | laptop-only verification runbook (pncli, Jira, drivers, TE2, dscmd, Desktop) with paste-back instructions |
 | `docs/plan-luna-pipeline.md` | approved design for the Power BI / UAT / SQL-guardrail phase (implemented) |
+| `docs/plan-cli-theming.md` | planned design for CLI theming (epic #135): the palette model, the host matrix, one theme per project |
+| `docs/plan-desk-refactor.md` | planned refactor of the fleet dashboard on Windows: the run you are in, movable tiles, HIG chrome, and one palette shared with the terminal |
 | `prompts/remediate-from-friction.prompt.md` | offline frontier-model repair loop |
 | `agentdata/templates/project-stub/` | the project stub `ad-setup --project` writes (ships in the wheel) |
 

@@ -4,6 +4,39 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## Unreleased
+
+**New: CLI Theming & Onboarding (#135 Epic: #136, #153, #137, #138, #139, #140).** 11 curated terminal colour palettes
+with contrast-checked text and status invariants (`greens`, `reds`, `eye-relief`, `eye-relief-day`, `nfl-browns`, `dark`,
+`vanta-black`, `matrix`, `blues`, `sand`, `none`, and seeded `random`). Live terminal recolour via standard OSC 4/10/11/12
+sequences and Win32 `SetConsoleScreenBufferInfoEx`. One theme per project with zero-Python directory hooks (`hook.ps1`,
+`hook.sh`, `hook.lua`) compiled from fleet registry entries, plus Windows Terminal fragments and Oh My Posh integration.
+Integrated into `ad-setup` as the `theme` step right after `console`, with 6 `ad-doctor` checks (`theme/default`, `theme/hook`,
+`theme/terminal`, `theme/oh-my-posh`, `theme/clink`, `theme/nerd-font`, all `ok` or `warn`, never failing).
+**Nothing to do after updating**, unless you want a theme — preview and configure with:
+`ad-theme gallery` and `ad-setup --only theme`.
+
+
+**New: `ad-sort` — organizing a folder of files.** An agent asked to sort a delivery of documents had no sanctioned way
+to do it, and correctly stopped: canonical rule 12 makes writing outside `.agent/` a stop condition. This is the
+sanctioned way, and it keeps that rule rather than carving an exception in it. `ad-sort plan` reads a folder, decides
+where each file would go under a rule set somebody supplied, and writes `.agent/out/<heap>-sort-plan.{json,md}` — it
+opens no document and copies nothing. `ad-sort apply` is a separate command and it is a person's: it re-fingerprints
+the folder, refuses a plan written against a different one, and **copies rather than moves**, so the folder it read is
+still there afterwards. Two files wanting one destination is a refusal, never a `(2)` suffix. **Nothing to do after
+updating**, unless you want it: new skill `file-organize`, a new router row, and `docs/sorting.md`. Never sort a DPM
+run root or into one — it is read-only and fingerprinted.
+
+**And the structure RDSD-22488 actually asks for.** `ad-sort dpm-plan` / `dpm-apply` build the DPM remediation tree on
+the M: drive: `<ticket>/<loan>/raw_docs/` as canonical evidence, `<loan>/metadata/document_manifest.csv` tracing every
+filed document back to the download it came from, and `views/doc_type/` and `views/file_description/` beside them as
+**hardlinks**, so a view costs no storage and deleting a whole view tree cannot touch a document. The fields come from
+retrieval's own JSONL (`--catalog LSS=…`, `IMZ` the same; **LIS is refused until somebody describes its records**).
+A second run files nothing again — the manifest is what makes retrieval unrepeated. The administrative report counts
+documents per loan, how many could not be viewed, and the TIFF conversion queue; which loans returned *nothing* needs
+`--loans <population>`, and says so rather than reporting zero without it. `ad-sort probe --at <path>` answers the one
+thing a mapped drive letter cannot: whether that volume makes hardlinks at all. **TIFF is queued, never converted.**
+
 ## 0.7.0
 
 Three roadmap epics, and the first of them changes what `ad-jira changelog` does when a pull goes wrong.

@@ -1,4 +1,4 @@
-import json, os, sys
+import builtins, json, os, sys
 import pytest
 from agentdata import config as C
 from agentdata.setup import wizard as W
@@ -860,4 +860,119 @@ def test_project_step_tests_runner_check(capsys, tmp_path):
     out = capsys.readouterr().out
     assert "tests/runner" in out
     assert "ok" in out
+
+
+def test_theme_step_appears_after_console():
+    steps = [s.key for s in W.registry()]
+    assert "theme" in steps
+    console_idx = steps.index("console")
+    theme_idx = steps.index("theme")
+    assert theme_idx == console_idx + 1
+
+
+def test_theme_step_quick(cfg_path, capsys, monkeypatch):
+    monkeypatch.setattr(W, "has_tty", lambda: True)
+    C.save({})
+    det = FakeDet()
+    rc = W.run_setup(["--only", "theme", "--quick", "--offline"], det)
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert rc == 0
+    assert "[quick] theme: left as is" in combined
+    cfg = json.loads(cfg_path.read_text())
+    assert "theme" not in cfg or "default" not in cfg.get("theme", {})
+
+
+def test_theme_step_non_interactive_set(cfg_path, capsys, monkeypatch):
+    C.save({})
+    det = FakeDet()
+    written_files = []
+    real_open = builtins.open
+
+    def recording_open(file, mode="r", *args, **kwargs):
+        if any(m in mode for m in ("w", "a", "+")):
+            written_files.append(str(file))
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", recording_open)
+    rc = W.run_setup(["--only", "theme", "--non-interactive", "--set", "theme.default=greens", "--offline"], det)
+    assert rc == 0
+    cfg = json.loads(cfg_path.read_text())
+    assert cfg.get("theme", {}).get("default") == "greens"
+    # Filter out config/agentdata JSON writes
+    non_cfg_writes = [f for f in written_files if not ("agentdata.json" in f or "config.json" in f)]
+    assert non_cfg_writes == [], f"Expected no install writes, got {non_cfg_writes}"
+
+
+def test_theme_step_scripted_yes_produces_exact_writes(cfg_path, capsys, tmp_path, monkeypatch):
+    from agentdata import omp, theme_project
+    fake_home = str(tmp_path / "home")
+    fake_local = str(tmp_path / "localappdata")
+    monkeypatch.setenv("USERPROFILE", fake_home)
+    monkeypatch.setenv("HOME", fake_home)
+    monkeypatch.setenv("LOCALAPPDATA", fake_local)
+    monkeypatch.setattr(os.path, "expanduser", lambda p: p.replace("~", fake_home) if p.startswith("~") else p)
+
+    written_files = []
+    real_open = builtins.open
+
+    def recording_open(file, mode="r", *args, **kwargs):
+        if any(m in mode for m in ("w", "a", "+")):
+            written_files.append(os.path.normpath(str(file)))
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", recording_open)
+
+    det = FakeDet()
+    C.save({})
+    sets = [
+        "--set", "theme.default=greens",
+        "--set", "theme.apply=true",
+        "--set", "theme.hook=true",
+        "--set", "theme.terminal=true",
+        "--set", "theme.omp=true",
+    ]
+    rc = W.run_setup(["--only", "theme", "--non-interactive", *sets, "--offline"], det)
+    assert rc == 0
+
+    non_cfg = [f for f in written_files if not f.endswith("config.json")]
+    # Exactly the expected outputs: hook.ps1, hook.sh, hook.lua, startup hook, WT fragment, omp json, startup omp
+    basenames = [os.path.basename(f) for f in non_cfg]
+    assert any(b.startswith("hook.ps1") for b in basenames)
+    assert any(b.startswith("hook.sh") for b in basenames)
+    assert any(b.startswith("hook.lua") for b in basenames)
+    assert any(b.startswith("agentdata.json.") for b in basenames)
+    assert any(b.startswith("greens.omp.json") for b in basenames)
+
+
+def test_theme_doctor_checks_no_failures(cfg_path, capsys):
+    C.save({})
+    det = FakeDet()
+    ctx = W.Context(cfg={}, det=det, ask=W.AnswerPrompter({}))
+    theme_step = next(s for s in W.registry() if s.key == "theme")
+    found = theme_step.detect(ctx)
+    theme_step.check(ctx, found)
+
+    checks = {c.name: c for c in ctx.checks if c.step == "theme"}
+    expected = {"default", "hook", "terminal", "oh-my-posh", "clink", "nerd-font"}
+    assert set(checks.keys()) == expected
+    for name, c in checks.items():
+        assert c.status in ("ok", "warn"), f"Check {name} has status {c.status}, expected ok/warn"
+        assert c.status != "fail"
+
+    # Full doctor run exits 0 for theme
+    rc = W.run_doctor(["--only", "theme"], det)
+    assert rc == 0
+
+
+def test_theme_patch_reasks_only_warn_settings(cfg_path, capsys, tmp_path, monkeypatch):
+    C.save({"theme": {"default": "greens"}})
+    det = FakeDet()
+    # theme.default is set ("ok"), but hook and terminal are not installed ("warn")
+    # Patching theme should re-ask only hook and terminal, NOT default
+    rc = W.run_setup(["--patch", "theme", "--non-interactive", "--offline"], det)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "theme.default" not in out
+
 

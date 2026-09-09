@@ -21,7 +21,9 @@ var source = null;
    the parameter on the URL it prints, so the operator never has to type one. */
 var LAYOUTS = ["grid", "roles", "screens"];
 var VIEWS = ["board", "agents", "verify"];
-var LAYOUT = LAYOUTS.indexOf(PARAMS.get("layout")) >= 0 ? PARAMS.get("layout") : "grid";
+var rawLayout = PARAMS.get("layout");
+var unknownLayout = (rawLayout && LAYOUTS.indexOf(rawLayout) < 0) ? rawLayout : null;
+var LAYOUT = unknownLayout ? "grid" : (rawLayout || "grid");
 var VIEW = VIEWS.indexOf(PARAMS.get("view")) >= 0 ? PARAMS.get("view")
                                                   : (LAYOUT === "roles" ? "agents" : "");
 var SCREEN = Math.max(0, Math.min(9, Number(PARAMS.get("screen")) || 0));
@@ -53,6 +55,14 @@ function age(seconds) {
   if (seconds < 90) return seconds + "s";
   if (seconds < 5400) return Math.floor(seconds / 60) + "m";
   return Math.floor(seconds / 3600) + "h";
+}
+
+function ageChip(seconds) {
+  if (seconds == null || seconds < 0) return { text: "", stale: false };
+  if (seconds < 3600) return { text: "< 1h", stale: false };
+  if (seconds < 86400) return { text: "today", stale: false };
+  if (seconds < 172800) return { text: "yesterday", stale: false };
+  return { text: "> 2d", stale: true };
 }
 
 /* --------------------------------------------------------------------------- drawing one tile */
@@ -129,21 +139,95 @@ function makeTile(row, index) {
   // repo name or a double click: one gesture per meaning.
   el.addEventListener("click", function () { choose(row.repo); });
 
-  // A ticket dropped on a tile is a dispatch. `preventDefault` on dragover is what makes an
-  // element a drop target at all -- without it the browser refuses the drop and nothing happens,
-  // silently, which looks exactly like a broken feature.
+  // Drag and drop for tile reordering and Jira ticket dropping
+  el.draggable = true;
+  el.addEventListener("dragstart", function (e) {
+    if (["INPUT", "BUTTON", "SELECT"].indexOf(e.target.tagName) >= 0) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.setData("application/x-agentdata-tile", row.repo);
+    e.dataTransfer.effectAllowed = "move";
+    el.classList.add("is-dragging");
+  });
+  el.addEventListener("dragend", function () {
+    el.classList.remove("is-dragging");
+    document.querySelectorAll(".tile").forEach(function (t) {
+      t.classList.remove("drop-before", "drop-after", "drop-target");
+    });
+  });
+
   el.addEventListener("dragover", function (e) {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    el.classList.add("drop-target");
+    var isTileDrag = Array.from(e.dataTransfer.types || []).indexOf("application/x-agentdata-tile") >= 0;
+    if (isTileDrag) {
+      e.dataTransfer.dropEffect = "move";
+      var rect = el.getBoundingClientRect();
+      var before = (e.clientX - rect.left) < (rect.width / 2);
+      el.classList.toggle("drop-before", before);
+      el.classList.toggle("drop-after", !before);
+    } else {
+      e.dataTransfer.dropEffect = "copy";
+      el.classList.add("drop-target");
+    }
   });
-  el.addEventListener("dragleave", function () { el.classList.remove("drop-target"); });
+
+  el.addEventListener("dragleave", function () {
+    el.classList.remove("drop-target", "drop-before", "drop-after");
+  });
+
   el.addEventListener("drop", function (e) {
     e.preventDefault();
-    el.classList.remove("drop-target");
+    var isTileDrag = el.classList.contains("drop-before") || el.classList.contains("drop-after");
+    var droppedRepo = e.dataTransfer.getData("application/x-agentdata-tile");
+    var dropBefore = el.classList.contains("drop-before");
+    el.classList.remove("drop-target", "drop-before", "drop-after");
+
+    if (droppedRepo && droppedRepo !== row.repo) {
+      var order = getEffectiveOrder();
+      var fromIdx = order.indexOf(droppedRepo);
+      if (fromIdx >= 0) order.splice(fromIdx, 1);
+      var toIdx = order.indexOf(row.repo);
+      if (!dropBefore) toIdx += 1;
+      order.splice(toIdx, 0, droppedRepo);
+      post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
+        if (r && r.ok) desk.desk = r;
+        reorderDomTiles();
+      });
+      reorderDomTiles();
+      return;
+    }
+
     var key = (e.dataTransfer.getData("text/plain") || "").trim();
     if (key) dispatch(key, row.repo);
   });
+
+  // Keyboard navigation on tile (Alt+Left / Alt+Right)
+  el.addEventListener("keydown", function (e) {
+    if (e.altKey && e.key === "ArrowLeft") {
+      moveTile(row.repo, -1);
+      e.preventDefault();
+    } else if (e.altKey && e.key === "ArrowRight") {
+      moveTile(row.repo, 1);
+      e.preventDefault();
+    }
+  });
+
+  var pinBtn = el.querySelector(".pintoggle");
+  if (pinBtn) {
+    pinBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      toggleTilePin(row.repo);
+    });
+  }
+
+  var sizeBtn = el.querySelector(".sizetoggle");
+  if (sizeBtn) {
+    sizeBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      toggleTileSize(row.repo);
+    });
+  }
 
   var say = el.querySelector(".say");
   el.querySelector(".send").addEventListener("click", function () {
@@ -185,17 +269,62 @@ function action(el, what, body) {
 }
 
 function drawTile(el, row, approvals) {
-  el.className = "tile state-" + row.state + (el.classList.contains("is-focused") ? " is-focused" : "");
+  var isSupervised = row.supervised !== false;
+  var displayState = row.state;
+  if (!isSupervised && (row.state === "idle" || row.last_event_age_s > 120)) {
+    displayState = "not_supervised";
+  }
+  el.className = "tile state-" + displayState + (el.classList.contains("is-focused") ? " is-focused" : "");
+  if (row.accent) el.style.borderTopColor = row.accent;
   // `needs-human` is the class focus mode filters on, and it comes from #94's fold rather than from
   // anything this page works out for itself: the chip, the toast and the filter must agree.
   el.classList.toggle("needs-human", !!row.needs_human);
   el.tabIndex = 0;
   var chip = el.querySelector(".chip");
-  chip.className = "chip " + row.state;
-  text(chip, row.state.replace(/_/g, " "));
+  if (displayState === "not_supervised") {
+    chip.className = "chip not-supervised";
+    text(chip, "not supervised");
+  } else {
+    chip.className = "chip " + row.state;
+    text(chip, row.state.replace(/_/g, " "));
+  }
   text(el.querySelector(".ticket"), row.ticket || row.jira_project || "");
-  text(el.querySelector(".why"), row.why || "");
-  text(el.querySelector(".age"), row.last_event_age_s >= 0 ? age(row.last_event_age_s) : "");
+
+  var whyText = row.why || "";
+  if (!isSupervised && row.not_supervised_sentence) {
+    whyText = row.not_supervised_sentence;
+  }
+  text(el.querySelector(".why"), whyText);
+
+  var ageEl = el.querySelector(".age");
+  if (row.last_event_age_s >= 0) {
+    var ac = ageChip(row.last_event_age_s);
+    text(ageEl, ac.text);
+    ageEl.classList.toggle("stale", ac.stale);
+  } else {
+    text(ageEl, "");
+    ageEl.classList.remove("stale");
+  }
+
+  var earlierEl = el.querySelector(".earlier");
+  if (earlierEl) {
+    var earlierRuns = row.earlier || [];
+    if (earlierRuns.length > 0) {
+      earlierEl.hidden = false;
+      text(earlierEl.querySelector(".earlierhead"), "earlier runs (" + earlierRuns.length + ")");
+      var listEl = earlierEl.querySelector(".earlierlist");
+      while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+      earlierRuns.forEach(function (r) {
+        var li = document.createElement("li");
+        text(li, "Run #" + r.n + ": " + (r.ticket ? r.ticket + " · " : "") + r.state +
+                 " (" + (r.started ? r.started.slice(11, 16) : "") +
+                 (r.ended ? " – " + r.ended.slice(11, 16) : "") + ")");
+        listEl.appendChild(li);
+      });
+    } else {
+      earlierEl.hidden = true;
+    }
+  }
 
   var mine = approvals.filter(function (a) { return a.repo === row.repo; })[0];
   var card = el.querySelector(".approval");
@@ -240,6 +369,12 @@ function refresh() {
     text(document.getElementById("counts"),
          data.repos.length + " agents" + (need ? "  ·  " + need + " need you" : ""));
     if (data.desk) desk.desk = data.desk;
+    if (data.theme) {
+      var sel = document.getElementById("theme");
+      if (sel && data.theme.theme) sel.value = data.theme.theme === "none" ? "" : data.theme.theme;
+      applyTheme(data.theme.css, data.theme.theme);
+      applySkin(data.theme.skin);
+    }
     place();
     title(need);
     return data;
@@ -280,6 +415,22 @@ function connect() {
     desk.desk = JSON.parse(m.data);
     place();
     if (VIEW === "verify" || LAYOUT === "screens") deskSoon();
+  });
+  source.addEventListener("theme", function (m) {
+    try {
+      var d = JSON.parse(m.data);
+      var select = document.getElementById("theme");
+      if (select && d.theme) select.value = d.theme === "none" ? "" : d.theme;
+      applyTheme(d.css, d.theme);
+      applySkin(d.skin);
+      if (d.accents) {
+        Object.keys(d.accents).forEach(function (repo) {
+          if (tiles.has(repo)) {
+            tiles.get(repo).el.style.borderTopColor = d.accents[repo];
+          }
+        });
+      }
+    } catch (err) {}
   });
   source.addEventListener("tick", function () {
     link.className = "dot live";
@@ -349,36 +500,50 @@ document.addEventListener("keydown", function (e) {
 
 /* ------------------------------------------------------------------------------------- theming */
 
-function applyTheme(colors) {
+function applyTheme(cssVars, themeName) {
   var root = document.documentElement;
-  ["bg", "panel", "text", "muted", "accent", "line", "select"].forEach(function (k) {
-    if (colors && colors[k]) root.style.setProperty("--" + k, colors[k]);
-    else root.style.removeProperty("--" + k);
-  });
-  if (colors) root.setAttribute("data-theme", "custom");
-  else root.removeAttribute("data-theme");
+  var tokens = ["--bg", "--text", "--panel", "--line", "--select", "--muted", "--accent",
+                "--focus", "--running", "--waiting", "--human", "--done", "--idle"];
+  if (cssVars && themeName && themeName !== "none") {
+    tokens.forEach(function (k) {
+      if (cssVars[k]) root.style.setProperty(k, cssVars[k]);
+      else root.style.removeProperty(k);
+    });
+    root.setAttribute("data-theme", "custom");
+  } else {
+    tokens.forEach(function (k) { root.style.removeProperty(k); });
+    root.removeAttribute("data-theme");
+  }
+}
+
+function applySkin(skinName) {
+  var link = document.head.querySelector("link[data-skin]");
+  if (!skinName || skinName === "none") {
+    if (link) link.remove();
+    return;
+  }
+  if (!link) {
+    link = document.createElement("link");
+    link.setAttribute("data-skin", "true");
+    link.rel = "stylesheet";
+    document.head.appendChild(link);
+  }
+  link.href = q("/static/skins/" + skinName + "/skin.css");
 }
 
 function loadThemes() {
   var select = document.getElementById("theme");
   return fetch(q("/api/themes")).then(function (r) { return r.json(); }).then(function (data) {
+    while (select.options.length > 1) select.remove(1);
     (data.themes || []).forEach(function (t) {
       var option = document.createElement("option");
       option.value = t.name;
       text(option, t.name);
       select.appendChild(option);
     });
-    var saved = null;
-    try { saved = localStorage.getItem("fleet.theme"); } catch (e) { saved = null; }
-    select.value = saved && Array.prototype.some.call(select.options, function (o) {
-      return o.value === saved;
-    }) ? saved : "";
     select.addEventListener("change", function () {
-      var chosen = (data.themes || []).filter(function (t) { return t.name === select.value; })[0];
-      applyTheme(chosen ? chosen.colors : null);
-      try { localStorage.setItem("fleet.theme", select.value); } catch (e) { /* private window */ }
+      post("theme", { theme: select.value });
     });
-    select.dispatchEvent(new Event("change"));
   }).catch(function () { /* themes are decoration; the page works without them */ });
 }
 
@@ -492,7 +657,13 @@ function loadNotifications() {
 
 function drawer(open) {
   var el = document.getElementById("drawer");
-  el.hidden = open === undefined ? !el.hidden : !open;
+  var show = open === undefined ? el.hidden : open;
+  if (show) {
+    document.getElementById("board").hidden = true;
+    document.getElementById("unsorted").hidden = true;
+    document.getElementById("found").hidden = true;
+  }
+  el.hidden = !show;
   if (!el.hidden) loadNotifications();
 }
 
@@ -646,7 +817,13 @@ function loadHistory() {
 
 function boardPanel(open) {
   var el = document.getElementById("board");
-  el.hidden = open === undefined ? !el.hidden : !open;
+  var show = open === undefined ? el.hidden : open;
+  if (show) {
+    document.getElementById("drawer").hidden = true;
+    document.getElementById("unsorted").hidden = true;
+    document.getElementById("found").hidden = true;
+  }
+  el.hidden = !show;
   if (!el.hidden) { loadBoard(false); loadHistory(); }
 }
 
@@ -954,7 +1131,13 @@ function drawTray() {
 
 function trayPanel(open) {
   var el = document.getElementById("unsorted");
-  el.hidden = open === undefined ? !el.hidden : !open;
+  var show = open === undefined ? el.hidden : open;
+  if (show) {
+    document.getElementById("board").hidden = true;
+    document.getElementById("drawer").hidden = true;
+    document.getElementById("found").hidden = true;
+  }
+  el.hidden = !show;
   if (!el.hidden) loadDesk();
 }
 
@@ -1011,7 +1194,13 @@ var findSoon = (function () {
 })();
 
 function foundPanel(open) {
-  document.getElementById("found").hidden = !open;
+  var el = document.getElementById("found");
+  if (open) {
+    document.getElementById("board").hidden = true;
+    document.getElementById("drawer").hidden = true;
+    document.getElementById("unsorted").hidden = true;
+  }
+  el.hidden = !open;
 }
 
 document.getElementById("find").addEventListener("input", findSoon);
@@ -1023,13 +1212,137 @@ document.getElementById("closefound").addEventListener("click", function () { fo
    because the point is that the *other* windows hear about it: clicking a tile on the left monitor
    is what changes the centre one. */
 function choose(name) {
-  if (desk.desk.selected === name) return Promise.resolve();
+  if (desk.desk.selected === name) {
+    drawInspector(name);
+    return Promise.resolve();
+  }
   desk.desk = Object.assign({}, desk.desk, { selected: name });
   place();
+  drawInspector(name);
   return post("select", { repo: name }).then(function (r) {
     if (r && r.ok) desk.desk = { selected: r.selected, screens: r.screens, version: r.version };
     place();
+    drawInspector(name);
   });
+}
+
+function drawInspector(name) {
+  var el = document.getElementById("inspector");
+  if (!el) return;
+  if (!name || !tiles.has(name)) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  text(document.getElementById("inspectorrepo"), name);
+  var body = document.getElementById("inspectordetails");
+  while (body.firstChild) body.removeChild(body.firstChild);
+
+  var p = desk.projects[name] || {};
+  var facts = document.createElement("div");
+  facts.className = "facts";
+  [
+    ["project", name],
+    ["jira", p.jira_project || "—"],
+    ["ticket", p.ticket || "—"],
+    ["phase", p.phase || "—"],
+    ["branch", p.branch || "—"]
+  ].forEach(function (row) {
+    var k = document.createElement("span");
+    k.className = "k";
+    text(k, row[0]);
+    var v = document.createElement("span");
+    v.className = "v";
+    text(v, row[1]);
+    facts.appendChild(k);
+    facts.appendChild(v);
+  });
+  body.appendChild(facts);
+}
+
+document.getElementById("closeinspector").addEventListener("click", function () {
+  document.getElementById("inspector").hidden = true;
+});
+
+function getLayoutArrangement() {
+  var arr = (desk.desk && desk.desk.arrangement) || {};
+  return arr[LAYOUT] || { order: [], size: {}, pinned: [] };
+}
+
+function getEffectiveOrder() {
+  var curArr = getLayoutArrangement();
+  var pinned = curArr.pinned || [];
+  var order = (curArr.order || []).filter(function (n) { return tiles.has(n); });
+  Array.from(tiles.keys()).forEach(function (n) {
+    if (order.indexOf(n) < 0) order.push(n);
+  });
+  var result = [];
+  pinned.forEach(function (p) { if (tiles.has(p)) result.push(p); });
+  order.forEach(function (o) { if (result.indexOf(o) < 0) result.push(o); });
+  return result;
+}
+
+function reorderDomTiles() {
+  var grid = document.getElementById("grid");
+  if (!grid) return;
+  var order = getEffectiveOrder();
+  var curArr = getLayoutArrangement();
+  var sizes = curArr.size || {};
+  var pinned = curArr.pinned || [];
+
+  order.forEach(function (name, index) {
+    var entry = tiles.get(name);
+    if (entry && entry.el) {
+      grid.appendChild(entry.el);
+      text(entry.el.querySelector(".n"), index + 1);
+      var sz = sizes[name] || 1;
+      entry.el.classList.toggle("size-2", sz === 2);
+      var szBtn = entry.el.querySelector(".sizetoggle");
+      if (szBtn) text(szBtn, sz === 2 ? "2x" : "1x");
+      var isPinned = pinned.indexOf(name) >= 0;
+      entry.el.classList.toggle("is-pinned", isPinned);
+      var pBtn = entry.el.querySelector(".pintoggle");
+      if (pBtn) pBtn.classList.toggle("active", isPinned);
+    }
+  });
+}
+
+function moveTile(repo, dir) {
+  var order = getEffectiveOrder();
+  var idx = order.indexOf(repo);
+  if (idx < 0) return;
+  var targetIdx = idx + dir;
+  if (targetIdx < 0 || targetIdx >= order.length) return;
+  order.splice(idx, 1);
+  order.splice(targetIdx, 0, repo);
+  post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
+    if (r && r.ok) desk.desk = r;
+    reorderDomTiles();
+  });
+  reorderDomTiles();
+}
+
+function toggleTileSize(repo) {
+  var curArr = getLayoutArrangement();
+  var sizes = Object.assign({}, curArr.size || {});
+  sizes[repo] = (sizes[repo] === 2) ? 1 : 2;
+  post("arrange", { layout: LAYOUT, size: sizes }).then(function (r) {
+    if (r && r.ok) desk.desk = r;
+    reorderDomTiles();
+  });
+  reorderDomTiles();
+}
+
+function toggleTilePin(repo) {
+  var curArr = getLayoutArrangement();
+  var pinned = (curArr.pinned || []).slice();
+  var idx = pinned.indexOf(repo);
+  if (idx >= 0) pinned.splice(idx, 1); else pinned.push(repo);
+  post("arrange", { layout: LAYOUT, pinned: pinned }).then(function (r) {
+    if (r && r.ok) desk.desk = r;
+    reorderDomTiles();
+  });
+  reorderDomTiles();
 }
 
 /* Which project this window is showing, when it is showing exactly one. `screens` is the shared
@@ -1064,6 +1377,7 @@ function place() {
     entry.el.classList.toggle("is-solo", name === one);
     entry.el.classList.toggle("is-selected", name === desk.desk.selected);
   });
+  reorderDomTiles();
   if (one) {
     // Opened once, not on every draw: a window that reopens a panel the operator just closed is
     // the kind of thing that gets a dashboard turned off.
@@ -1077,9 +1391,13 @@ function place() {
   var need = 0;
   tiles.forEach(function (entry) { if (entry.el.classList.contains("needs-human")) need += 1; });
   document.getElementById("nonefocus").hidden = !(needsOnly && !one && need === 0 && tiles.size > 0);
-  text(document.getElementById("view"),
-       LAYOUT + (VIEW ? " · " + VIEW : "") + (SCREEN ? " · screen " + SCREEN : "") +
-       (one ? " · " + one : ""));
+  if (unknownLayout) {
+    text(document.getElementById("view"), "unknown layout '" + unknownLayout + "', using grid");
+  } else {
+    text(document.getElementById("view"),
+         LAYOUT + (VIEW ? " · " + VIEW : "") + (SCREEN ? " · screen " + SCREEN : "") +
+         (one ? " · " + one : ""));
+  }
   drawSwap(one);
 }
 
@@ -1096,8 +1414,41 @@ function go(params) {
   Object.keys(params).forEach(function (k) {
     if (params[k]) u.set(k, params[k]); else u.delete(k);
   });
-  location.search = u.toString();
+  var rawL = u.get("layout");
+  unknownLayout = (rawL && LAYOUTS.indexOf(rawL) < 0) ? rawL : null;
+  LAYOUT = unknownLayout ? "grid" : (rawL || "grid");
+  VIEW = VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : (LAYOUT === "roles" ? "agents" : "");
+  SCREEN = Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
+  var qs = u.toString();
+  var newUrl = location.pathname + (qs ? "?" + qs : "");
+  history.pushState({}, "", newUrl);
+  updateLayoutSegments();
+  place();
 }
+
+function updateLayoutSegments() {
+  var segs = document.querySelectorAll("#layoutgroup .segment");
+  segs.forEach(function (btn) {
+    var active = btn.dataset.layout === LAYOUT;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-checked", String(active));
+  });
+  var select = document.getElementById("layout");
+  if (select) {
+    select.value = LAYOUT + "|" + (VIEW || "") + "|" + (SCREEN || 0);
+  }
+}
+
+window.addEventListener("popstate", function () {
+  var u = new URLSearchParams(location.search);
+  var rawL = u.get("layout");
+  unknownLayout = (rawL && LAYOUTS.indexOf(rawL) < 0) ? rawL : null;
+  LAYOUT = unknownLayout ? "grid" : (rawL || "grid");
+  VIEW = VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : (LAYOUT === "roles" ? "agents" : "");
+  SCREEN = Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
+  updateLayoutSegments();
+  place();
+});
 
 var CHOICES = [
   ["grid", "", 0, "grid — every tile, one screen"],
@@ -1123,6 +1474,14 @@ var CHOICES = [
     var parts = select.value.split("|");
     go({ layout: parts[0], view: parts[1], screen: parts[2] === "0" ? "" : parts[2] });
   });
+
+  var segs = document.querySelectorAll("#layoutgroup .segment");
+  segs.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      go({ layout: btn.dataset.layout, view: "", screen: "" });
+    });
+  });
+  updateLayoutSegments();
 })();
 
 /* Layout C's swap. The pinning is server state, so moving a project onto this monitor takes it off

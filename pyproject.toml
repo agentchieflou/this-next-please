@@ -67,13 +67,15 @@ ad-test = "agentdata.cli_test:main"
 ad-argv = "agentdata.cli_argv:main"
 ad-fleet = "agentdata.cli_fleet:main"
 ad-metrics = "agentdata.cli_metrics:main"
+ad-sort = "agentdata.cli_sort:main"
+ad-theme = "agentdata.cli_theme:main"
 
 [tool.setuptools.packages.find]
 include = ["agentdata*"]
 
 [tool.setuptools.package-data]
 # the project stub and external tool definitions must ship in the wheel: `ad-setup --project` runs on laptops with no repo checkout
-agentdata = ["templates/project-stub/*", "templates/external-tool/*", "pbip/*.ps1", "fleet/static/*", "templates/pycharm/*"]
+agentdata = ["templates/project-stub/*", "templates/external-tool/*", "pbip/*.ps1", "fleet/static/*", "fleet/static/**/*", "templates/pycharm/*"]
 
 [tool.pytest.ini_options]
 norecursedirs = ["tests/fixtures", "fixtures", ".*", "build", "dist"]
@@ -89,6 +91,7 @@ markers = [
     "posix: only meaningful off nt",
     "real_home: opts out of the isolated_home fixture; for tests about the real checkout",
     "network: reaches the network. Nothing carries this today -- the marker exists so that adding one is a decision",
+    "browser: Playwright browser tests for the fleet Desk (deselect with -m 'not browser')",
 ]
 # an unregistered marker is a typo that silently selects nothing. No `-m` here: a second `-m` on
 # the command line replaces it rather than combining, and the laptop suite gates itself on
