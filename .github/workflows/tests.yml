@@ -35,6 +35,12 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -e ".[dev]"
+      # The dashboard is HTML that four embedders have to render, and the defects it has shipped
+      # (a panel that could not be closed, a tile that could not be clicked) are invisible to any
+      # test that reads the source instead of the page. Chromium is the engine under Edge,
+      # PyCharm's JCEF and VS Code's Simple Browser, so one browser covers all three hosts.
+      - name: a browser, so tests/test_fleet_desk*.py run instead of skipping
+        run: python -m playwright install --with-deps chromium
       - run: python -m pytest -q ${{ matrix.select }}
       - name: the console scripts and the module form must both work
         run: |
@@ -96,6 +102,14 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: pip install -e ".[dev]"
         shell: pwsh
+
+      # #146 asked for this harness on WINDOWS specifically: the dashboard's job is to render in
+      # Edge, PyCharm's JCEF window and VS Code's Simple Browser on the operator's laptop, and all
+      # three are Chromium. The 15-minute cap is why only one leg pays for the download.
+      - name: a browser, so tests/test_fleet_desk*.py run instead of skipping
+        if: matrix.python == '3.14'
+        shell: pwsh
+        run: python -m playwright install chromium
 
       # the suite. The slow marker builds wheels and venvs: run it on the laptop's Python, on the OS
       # where packaging actually goes wrong.

@@ -11,7 +11,7 @@ body {
   background-attachment: fixed;
 }
 
-header, footer, .tile, .inspector, .sidebars aside {
+header, footer, .tile, #side, #side > aside {
   background: rgba(27, 34, 44, 0.55) !important;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -20,7 +20,7 @@ header, footer, .tile, .inspector, .sidebars aside {
 }
 
 .tile {
-  border-top: 3px solid var(--accent) !important;
+  border-left: 4px solid var(--accent) !important;
 }
 
 /* Status chips, accent borders, and focus rings remain solid and fully opaque */
@@ -37,9 +37,18 @@ header, footer, .tile, .inspector, .sidebars aside {
 
 /* HIG Accessibility: Reduced transparency fallback */
 @media (prefers-reduced-transparency: reduce) {
-  header, footer, .tile, .inspector, .sidebars aside {
+  header, footer, .tile, #side, #side > aside {
     background: var(--panel) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
 }
+
+/* The toolbar and the footer are repainted above, so everything written ON them is repainted here
+   too. Leaving these to the palette put the group labels, the brand, the live dot and the whole
+   key map in a colour chosen for the panel and rendered on a texture, where they disappeared. */
+header, footer { color: #E6EDF3 !important; }
+header h1, header .glabel, header .dot,
+footer, footer #counts, footer .keys { color: rgba(230,237,243,.72) !important; }
+header h1 { color: #E6EDF3 !important; }
+#notice { color: var(--waiting) !important; }

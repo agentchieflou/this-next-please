@@ -8,46 +8,58 @@
 </head>
 <body>
 <header class="toolbar">
-  <!-- Group 1: Which window -->
+  <!-- HIG *Toolbars*: three groups, each labelled, grouped by meaning, never a settings panel. -->
+  <h1>fleet</h1>
+  <span id="link" class="dot" title="event stream">connecting</span>
+
   <div class="toolbar-group group-window">
-    <h1>fleet</h1>
-    <span id="link" class="dot" title="event stream">connecting</span>
-    <span id="view" class="muted" title="this window's layout"></span>
-    <label for="find" class="sr">search every project</label>
-    <input id="find" type="search" placeholder="where is … (/)" title="search the catalogue: ad-fleet where">
-  </div>
-
-  <span class="spacer"></span>
-
-  <!-- Group 2: What to see -->
-  <div class="toolbar-group group-view">
-    <div class="segmented" id="layoutgroup" role="radiogroup" aria-label="layout modes">
-      <button type="button" class="segment active" data-layout="grid" aria-checked="true" title="grid — every tile">grid</button>
-      <button type="button" class="segment" data-layout="roles" aria-checked="false" title="roles — 3 synchronized views">roles</button>
-      <button type="button" class="segment" data-layout="screens" aria-checked="false" title="screens — 1 project per screen">screens</button>
+    <span class="glabel">window</span>
+    <div class="segmented" id="layoutgroup" role="radiogroup" aria-label="layout">
+      <button type="button" class="segment active" data-layout="grid" aria-checked="true" title="every tile on one screen">grid</button>
+      <button type="button" class="segment" data-layout="roles" aria-checked="false" title="three windows that agree on one project">roles</button>
+      <button type="button" class="segment" data-layout="screens" aria-checked="false" title="one project per monitor">screens</button>
     </div>
-    <label for="layout" class="sr">layout</label>
-    <select id="layout" title="which of the four screens this window is"></select>
+    <!-- The second segment: which of the set THIS window is. Only roles and screens have one. -->
+    <div class="segmented" id="viewgroup" role="radiogroup" aria-label="this window" hidden></div>
     <label for="swap" class="sr">project on this screen</label>
     <select id="swap" hidden title="put another project on this screen"></select>
-    <button id="focus" aria-pressed="false" title="show only the agents that need you"><kbd>f</kbd> focus</button>
-    <button id="unfocus" hidden>back to grid <kbd>Esc</kbd></button>
   </div>
 
   <span class="spacer"></span>
 
-  <!-- Group 3: What needs me -->
-  <div class="toolbar-group group-actions">
-    <button id="boardtoggle" title="your Jira tickets"><kbd>b</kbd> board</button>
-    <button id="traytoggle" title="files Downloads is offering"><kbd>i</kbd> inbox</button>
-    <button id="bell" title="notifications"><span id="bellcount">0</span> new</button>
+  <div class="toolbar-group group-view">
+    <span class="glabel">see</span>
+    <label for="find" class="sr">search every project</label>
+    <input id="find" type="search" placeholder="where is … (/)" title="search the catalogue: ad-fleet where">
+    <button id="sidetoggle" aria-pressed="false" title="the sidebar: board, inbox, notifications, where, project">sidebar</button>
     <label for="theme" class="sr">theme</label>
-    <select id="theme" title="page theme"><option value="">system</option></select>
+    <select id="theme" title="palette — shared with this project&#39;s terminal"><option value="none">system</option></select>
+    <label for="skin" class="sr">skin</label>
+    <select id="skin" title="skin — how the page is rendered; the terminal keeps the palette"><option value="none">no skin</option></select>
+  </div>
+
+  <span class="spacer"></span>
+
+  <div class="toolbar-group group-actions">
+    <span class="glabel">needs me</span>
+    <button id="focus" aria-pressed="false" title="show only the agents that need you"><kbd>f</kbd> focus</button>
+    <button id="unfocus" hidden>back to grid <kbd>Esc</kbd></button>
     <button id="chime" aria-pressed="false" title="sound on a notification">chime off</button>
+    <button id="bell" title="notifications"><span id="bellcount">0</span> new</button>
   </div>
 </header>
 
-<div id="sidebars" class="sidebars">
+<div class="workspace">
+<main id="grid" aria-live="polite"></main>
+
+<aside id="side" hidden aria-label="sidebar">
+  <div class="segmented side-tabs" role="tablist">
+    <button type="button" class="segment" data-section="board" title="your Jira tickets">board <kbd>b</kbd></button>
+    <button type="button" class="segment" data-section="unsorted" title="files Downloads is offering">inbox <kbd>i</kbd></button>
+    <button type="button" class="segment" data-section="drawer" title="notifications">alerts <kbd>n</kbd></button>
+    <button type="button" class="segment" data-section="found" title="search the catalogue">where <kbd>/</kbd></button>
+    <button type="button" class="segment" data-section="inspector" title="the selected project">project</button>
+  </div>
 <aside id="found" hidden aria-label="search results">
   <div class="drawer-head">
     <strong>where</strong>
@@ -104,19 +116,18 @@
     <ol id="refusedrows"></ol>
   </details>
 </aside>
-</div>
 
-<main id="grid" aria-live="polite"></main>
-
-<aside id="inspector" hidden aria-label="selected project inspector">
+<aside id="inspector" hidden aria-label="the selected project">
   <div class="drawer-head">
-    <strong>inspector</strong>
+    <strong>project</strong>
     <span id="inspectorrepo" class="repo"></span>
     <span class="spacer"></span>
     <button id="closeinspector">close <kbd>Esc</kbd></button>
   </div>
   <div id="inspectordetails" class="inspectorbody"></div>
 </aside>
+</aside>
+</div>
 
 <p id="empty" hidden>
   No repositories registered. Run <code>ad-fleet repo add --scan &lt;folder&gt;</code>, then reload.
@@ -125,26 +136,34 @@
 
 <footer>
   <span id="counts"></span>
+  <span id="notice" class="notice" hidden></span>
   <span class="spacer"></span>
-  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus a tile · <kbd>f</kbd> only what needs you · <kbd>/</kbd> where · <kbd>i</kbd> inbox · <kbd>a</kbd> approve · <kbd>b</kbd> board · <kbd>n</kbd> notifications · <kbd>Esc</kbd> grid</span>
+  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus · <kbd>f</kbd> only what needs you · <kbd>/</kbd> where · <kbd>i</kbd> inbox · <kbd>b</kbd> board · <kbd>n</kbd> alerts · <kbd>a</kbd> approve · <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile · <kbd>Alt</kbd>+<kbd>Home</kbd> pin · <kbd>Alt</kbd>+<kbd>Enter</kbd> width · <kbd>Esc</kbd> grid</span>
 </footer>
 
 <template id="tile">
   <section class="tile" tabindex="0">
-    <div class="head">
+    <div class="head" draggable="true" title="drag to reorder — Alt+←/→ without a mouse">
+      <span class="grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span class="n"></span>
       <strong class="repo"></strong>
       <span class="chip"></span>
       <span class="ticket"></span>
       <span class="spacer"></span>
       <span class="badge" hidden title="unread notifications for this agent"></span>
-      <span class="age" title="age of the last event"></span>
-      <button class="pintoggle" type="button" title="pin tile first">📌</button>
-      <button class="sizetoggle" type="button" title="toggle tile width (1x / 2x)">1x</button>
+      <button class="pintoggle" type="button" title="pin this tile first (Alt+Home)" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"></path><path d="M12 15v6"></path></svg>
+        <span class="sr">pin</span>
+      </button>
+      <button class="sizetoggle" type="button" title="one column or two (Alt+Enter)" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"></path><path d="M8 8l-4 4 4 4"></path><path d="M16 8l4 4-4 4"></path></svg>
+        <span class="sr">width</span>
+      </button>
     </div>
+    <!-- Which run this transcript belongs to. #147: a transcript with no era read as live. -->
+    <p class="runline"></p>
     <p class="why"></p>
     <div class="cells" aria-label="the project's own state"></div>
-    <div class="rail" aria-label="where this project lives"></div>
     <div class="approval" hidden>
       <div class="approval-head">waiting for you: <span class="kind"></span></div>
       <div class="summary"></div>
@@ -159,19 +178,6 @@
     <details class="earlier" hidden>
       <summary class="earlierhead">earlier runs</summary>
       <ol class="earlierlist"></ol>
-    </details>
-    <ol class="tray" hidden aria-label="files offered to this project"></ol>
-    <details class="verify" hidden>
-      <summary class="verifyhead">verify</summary>
-      <pre class="verifybody"></pre>
-      <ol class="verifymore"></ol>
-    </details>
-    <details class="about">
-      <summary>what is this project</summary>
-      <div class="facts"></div>
-      <ol class="friction"></ol>
-      <ol class="pbip"></ol>
-      <p class="missing muted"></p>
     </details>
     <div class="row bottom">
       <input class="say" type="text" placeholder="reply, or a ticket key to start">

@@ -35,6 +35,13 @@
 
 * { box-sizing: border-box; }
 
+/* The `hidden` attribute has to win, and until this rule it did not. Every panel below sets
+   `display: flex`, and an id selector outranks the user-agent `[hidden] { display: none }` rule --
+   so a drawer the page had "closed" stayed on the glass, and, being fixed and full height, went on
+   swallowing the clicks meant for the tiles underneath it. `el.hidden = true` is how this page
+   closes everything, so it means what it says here or it means nothing. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font: 13px/1.45 var(--ui);
@@ -48,7 +55,8 @@ body {
 header, footer {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 6px 12px;
   padding: 6px 14px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
@@ -59,6 +67,18 @@ header, footer {
   align-items: center;
   gap: 8px;
 }
+/* HIG *Toolbars*: a group of commands says what it is for. Twelve controls in one unlabelled row
+   is a settings panel, which is what the toolbar is not. */
+.toolbar-group .glabel {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap;
+}
+.toolbar-group > * { white-space: nowrap; }
+#find { flex: 0 1 auto; width: clamp(120px, 16vw, 240px); min-width: 90px; }
+#notice { color: var(--waiting); font: 11px var(--mono); }
+/* Under about 1100px the group labels are the first thing that can go: the controls they name are
+   all titled and keyboard-reachable, and a wrapped toolbar is worse than an unlabelled one. */
+@media (max-width: 1100px) { .toolbar-group .glabel { display: none; } }
 .segmented {
   display: inline-flex;
   align-items: center;
@@ -118,6 +138,39 @@ input { min-width: 0; }
 
 /* ------------------------------------------------------------------ the grid, and one big tile */
 
+/* HIG *Split views*: auxiliary content sits BESIDE the main content and does not cover it. The
+   panels used to be four fixed drawers at the same edge, overlapping each other and the grid. */
+.workspace { display: flex; flex: 1 1 auto; min-height: 0; }
+
+#side {
+  flex: 0 0 clamp(300px, 28vw, 440px);
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border-left: 1px solid var(--line);
+}
+.side-tabs {
+  display: flex; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.side-tabs .segment { flex: 1 1 auto; justify-content: center; min-height: 28px; }
+/* Each section fills the sidebar; `[hidden]` above is what keeps the other four out of the way. */
+#side > aside {
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+  padding: 8px 10px; overflow: auto; background: var(--panel);
+}
+/* The laptop view (`?layout=screens` with no screen) is the board and the tray and no tiles, so
+   the sidebar becomes the window rather than a strip down the side of an empty grid. */
+body.panels #side { flex: 1 1 auto; border-left: 0; }
+
+/* A narrow window -- JCEF's tool window, Simple Browser in a split -- cannot afford a column
+   beside the grid, so the sidebar goes back to being an overlay there and says so with a shadow. */
+@media (max-width: 900px) {
+  #side {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 20;
+    width: min(420px, 92vw); flex-basis: auto;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, .18);
+  }
+}
+
 main {
   flex: 1 1 auto;
   display: grid;
@@ -130,47 +183,82 @@ main {
 body.focused main { grid-template-columns: 1fr; }
 body.focused .tile:not(.is-focused) { display: none; }
 
+/* The left edge is the PROJECT's accent and nothing else; the chip is the state. One stripe
+   carrying two meanings is how a desk of four monitors starts lying: the same red would mean
+   "this project" on one screen and "this needs you" on the next. #150 fixes the roles --
+   accent says *which project*, chip says *what state* -- and the accent is the same hex the
+   project's terminal is painted in. */
 .tile {
   display: flex; flex-direction: column; min-height: 240px; max-height: 60vh;
   background: var(--panel); border: 1px solid var(--line);
-  border-top: 3px solid var(--accent);
-  border-left: 3px solid var(--idle); border-radius: 6px; padding: 8px 10px;
+  border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 10px;
 }
 body.focused .tile.is-focused { max-height: none; }
-.tile.state-running          { border-left-color: var(--running); }
-.tile.state-waiting_approval { border-left-color: var(--waiting); }
-.tile.state-needs_human,
-.tile.state-blocked,
-.tile.state-error            { border-left-color: var(--human); }
-.tile.state-done             { border-left-color: var(--done); }
-.tile.state-starting,
-.tile.state-idle             { border-left-color: var(--idle); }
-.tile.state-not_supervised   { border-left-color: var(--muted); }
-.tile.is-selected {
-  outline: 2px solid var(--accent);
-  box-shadow: 0 0 0 3px var(--select);
-}
+/* The selection is one, unmistakable, and never in a state colour (HIG *Focus and selection*). */
+.tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
 
-.head { display: flex; align-items: center; gap: 8px; }
+.head { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+
+/* The drag handle. HIG *Drag and drop*: direct manipulation needs an affordance -- a tile that is
+   draggable everywhere and says so nowhere is a tile nobody drags (and one whose transcript text
+   can never be selected). Only the header carries `draggable`. */
+.grip {
+  flex: 0 0 auto; width: 12px; height: 18px; cursor: grab;
+  display: grid; grid-template-columns: repeat(2, 3px); gap: 3px 3px;
+  align-content: center; justify-content: center; color: var(--line);
+}
+.grip i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; display: block; }
+.head:hover .grip { color: var(--muted); }
+.grip:active { cursor: grabbing; }
+
+/* Which run this transcript belongs to. Without it the tile shows a transcript with no era, which
+   is how a two-day-old run read as live. */
+.runline {
+  margin: 2px 0 0; color: var(--muted); font: 11px var(--mono);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.runline.cold { font-style: italic; }
 .head .n {
   font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line);
   border-radius: 3px; padding: 0 4px;
 }
-.repo { cursor: pointer; }
-.ticket, .age { color: var(--muted); font: 11px var(--mono); }
-.age.stale { opacity: 0.55; }
+.repo {
+  cursor: pointer; flex: 0 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.head > * { flex-shrink: 0; }
+.head .chip, .head .ticket { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticket { color: var(--muted); font: 11px var(--mono); }
+/* Every state carries its own age, inside the chip, because "done" without "2d" is the bug. */
+.chipage { opacity: .8; font-weight: 400; }
+.chip.stale .chipage { text-decoration: underline dotted; }
 
+/* 28px is the HIG desktop floor for a hit target; 20px was below it. */
 .head .pintoggle, .head .sizetoggle {
-  font: 10px var(--mono); padding: 1px 4px; min-height: 20px; min-width: 20px;
-  border-radius: 3px; background: transparent; border: 1px solid var(--line);
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 6px; min-height: 28px; min-width: 28px;
+  border-radius: 4px; background: transparent; border: 1px solid transparent;
   color: var(--muted); cursor: pointer;
+}
+.head .pintoggle svg, .head .sizetoggle svg {
+  width: 16px; height: 16px; fill: none; stroke: currentColor;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
 .head .pintoggle:hover, .head .sizetoggle:hover { border-color: var(--accent); color: var(--text); }
 .head .pintoggle.active { background: var(--select); color: var(--accent); border-color: var(--accent); }
 
 .tile.size-2 { grid-column: span 2; }
-.tile.drop-before { border-left: 4px solid var(--accent) !important; }
-.tile.drop-after { border-right: 4px solid var(--accent) !important; }
+
+/* Where the tile will land, shown before the drop (HIG *Drag and drop*). An insertion line, not a
+   recolour of the neighbour's edge: the edges already carry the project accent, and a drop hint
+   that repaints them would say the project changed. */
+.tile.drop-before, .tile.drop-after { position: relative; }
+.tile.drop-before::after, .tile.drop-after::after {
+  content: ""; position: absolute; top: -2px; bottom: -2px; width: 3px;
+  background: var(--focus, var(--accent)); border-radius: 2px; pointer-events: none;
+}
+.tile.drop-before::after { left: -7px; }
+.tile.drop-after::after { right: -7px; }
 .tile.is-dragging { opacity: 0.45; }
 
 .chip {
@@ -246,12 +334,8 @@ body.focused .tile.is-focused { max-height: none; }
   background: var(--human); color: #fff;
 }
 
-#drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 92vw); z-index: 20;
-  background: var(--panel); border-left: 1px solid var(--line);
-  display: flex; flex-direction: column; padding: 8px 10px;
-  box-shadow: -8px 0 24px rgba(0, 0, 0, .18);
-}
+/* One sidebar, five sections, one open at a time -- see `#side` below. These were five fixed
+   overlays at the same edge, stacked on each other and on the grid. */
 .drawer-head { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; }
 #notes { flex: 1 1 auto; overflow: auto; margin: 0; padding: 0; list-style: none; }
 #notes li {
@@ -268,12 +352,7 @@ body.focused .tile.is-focused { max-height: none; }
 
 /* ------------------------------------------------------------------------ the Jira board (#98) */
 
-#board {
-  position: fixed; top: 0; left: 0; bottom: 0; width: min(460px, 94vw); z-index: 20;
-  background: var(--panel); border-right: 1px solid var(--line);
-  display: flex; flex-direction: column; padding: 8px 10px;
-  box-shadow: 8px 0 24px rgba(0, 0, 0, .18);
-}
+
 #boardsearch { margin: 4px 0 6px; }
 #tickets { flex: 1 1 auto; overflow: auto; margin: 0; padding: 0; list-style: none; }
 #tickets li {
@@ -349,12 +428,7 @@ body.focused .tile.is-focused { max-height: none; }
 .pbip li { padding: 2px 0; color: var(--muted); }
 .missing { margin: 6px 0 0; }
 
-#found {
-  position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 94vw); z-index: 21;
-  background: var(--panel); border-left: 1px solid var(--line);
-  display: flex; flex-direction: column; padding: 8px 10px;
-  box-shadow: -8px 0 24px rgba(0, 0, 0, .18);
-}
+
 #hits { flex: 1 1 auto; overflow: auto; margin: 0; padding: 0; list-style: none; }
 #hits li { padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 #hits li:hover { background: var(--select); }
@@ -374,12 +448,7 @@ body.focused .tile.is-focused { max-height: none; }
 .tray .meta, #loose .meta, #refusedrows .why { color: var(--muted); }
 .tray button, #loose button { font: 11px var(--ui); padding: 0 6px; }
 
-#unsorted {
-  position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 94vw); z-index: 20;
-  background: var(--panel); border-left: 1px solid var(--line);
-  display: flex; flex-direction: column; padding: 8px 10px;
-  box-shadow: -8px 0 24px rgba(0, 0, 0, .18);
-}
+
 #loose { flex: 1 1 auto; overflow: auto; margin: 0; padding: 0; list-style: none; font: 11px var(--mono); }
 #refused { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; max-height: 34%; overflow: auto; }
 #refused summary { cursor: pointer; color: var(--muted); font-size: 11px; }
@@ -405,11 +474,7 @@ body.solo .tile.is-solo { max-height: none; }
 body.solo .transcript { max-height: 34vh; }
 
 body.panels main, body.panels #empty { display: none; }
-body.panels #board, body.panels #unsorted {
-  position: static; width: auto; flex: 1 1 auto; min-height: 0; z-index: auto;
-  border: 0; border-top: 1px solid var(--line); box-shadow: none;
-}
-body.panels #unsorted { flex: 0 1 40%; }
+
 body.panels #closeboard, body.panels #closetray, body.panels #boardtoggle,
 body.panels #traytoggle { display: none; }
 
@@ -420,12 +485,7 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
    one of a set, and four windows that look alike is the tab problem again, one level up. */
 #view { display: none; }
 
-#inspector {
-  position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 94vw); z-index: 22;
-  background: var(--panel); border-left: 1px solid var(--line);
-  display: flex; flex-direction: column; padding: 8px 10px;
-  box-shadow: -8px 0 24px rgba(0, 0, 0, .18); overflow-y: auto;
-}
+
 .inspectorbody { padding: 8px 0; display: flex; flex-direction: column; gap: 12px; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -437,3 +497,28 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
 }
 
 body.layout-roles #view, body.layout-screens #view { display: inline; }
+
+/* ------------------------------------------------------- the inspector's project detail (#148) */
+
+#inspectordetails .rail { display: flex; flex-wrap: wrap; gap: 6px; }
+#inspectordetails .rail a, #inspectordetails .rail button {
+  font: 11px var(--ui); padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--accent); text-decoration: none; min-height: 28px;
+  display: inline-flex; align-items: center;
+}
+#inspectordetails .rail a:hover { border-color: var(--accent); }
+#inspectordetails .verifybody {
+  margin: 0; padding: 6px; max-height: 220px; overflow: auto; white-space: pre-wrap;
+  font: 11px/1.45 var(--mono); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 4px;
+}
+#inspectordetails .tray { margin: 0; padding: 0; list-style: none; font: 11px var(--mono); }
+#inspectordetails .facts {
+  display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px;
+  font: 11px var(--mono); overflow-wrap: anywhere;
+}
+#inspectordetails .facts .k { color: var(--muted); }
+#inspectordetails .frictionrow {
+  margin: 0; padding: 2px 0 2px 8px; border-left: 3px solid var(--human);
+  font: 11px var(--mono); white-space: pre-wrap;
+}

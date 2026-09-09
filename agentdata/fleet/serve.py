@@ -33,6 +33,7 @@ number of monitors the operator happens to own. The selected project lives here 
 same stream, which is what makes clicking a tile on the left monitor change the centre one.
 """
 from __future__ import annotations
+import calendar
 import hmac
 import json
 import mimetypes
@@ -109,6 +110,30 @@ class ServeError(Exception):
 # --------------------------------------------------------------------------------- the API layer
 
 
+# When this process started, so a tile can say whether its run belongs to the session the operator
+# is looking at or to one from before they sat down. `E.stamp()` is UTC, second resolution, and the
+# whole stream already agrees on it.
+SERVER_STARTED = E.stamp()
+
+
+def age_of_stamp(stamp: str) -> int:
+    """Seconds since an `events.stamp()` timestamp, or -1 when there is nothing to measure.
+
+    The supervisor only knows the age of the log it is tailing, so it answers -1 for every agent it
+    is not currently running -- which is most of them, most of the time, and is why every chip on
+    the page rendered with an empty age. The fold already carries the timestamp of the last event
+    it saw (`classify()` returns it as `at`); this turns that into the number the tile shows.
+
+    `calendar.timegm`, not `time.mktime`: the stamps are UTC and mktime would read them as local.
+    """
+    if not stamp:
+        return -1
+    try:
+        return max(0, int(time.time() - calendar.timegm(time.strptime(stamp[:19], "%Y-%m-%dT%H:%M:%S"))))
+    except (ValueError, TypeError):
+        return -1
+
+
 def format_age_str(seconds: int | float) -> str:
     """Format seconds into human readable elapsed age string."""
     if seconds < 0:
@@ -164,6 +189,9 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
     curr_run = {
         "n": len(started_indices),
         "started": start_ev.get("ts", ""),
+        # Did this run begin in the session the operator is looking at? A tile whose newest run
+        # predates `ad-fleet serve` is showing history, and has to say so.
+        "since_start": bool(start_ev.get("ts", "") >= SERVER_STARTED),
         "resumed": bool(start_data.get("resumed", False)),
         "session": curr_derived.get("session") or start_data.get("session", ""),
         "ticket": curr_derived.get("ticket") or start_ev.get("ticket", ""),
@@ -209,16 +237,32 @@ def fleet_snapshot() -> dict:
         curr_run, earlier = split_runs(stream, live=is_live)
         derived = agentstate.derive(curr_run["events"], live=is_live) if curr_run["events"] else agentstate.derive(stream, live=is_live)
 
+        # The supervisor's age covers only the log it is tailing, so it is -1 for every agent that
+        # is not running right now. The fold's own `at` covers the rest.
         last_age_s = row.get("last_event_age_s", -1)
+        if last_age_s < 0:
+            last_age_s = age_of_stamp(derived.get("at", ""))
+
         pid = row.get("pid", 0)
         is_supervised = bool(pid and is_live)
-        if not is_supervised or (last_age_s > 120 and not is_live):
-            is_supervised = False
+
+        # The sentence says "nothing is supervised now". It may therefore only appear where that is
+        # the WHOLE truth. An agent that stopped with a question still needs the human, and a tile
+        # that says "needs you" in its chip and "nothing is supervised" in the same breath is the
+        # contradiction #147 exists to remove: one of the two has to be wrong, and the operator
+        # cannot tell which. So the sentence is for QUIET agents only -- done, idle, starting, and
+        # a turn left open by a process that is gone. Everything `needs_the_human` covers keeps its
+        # own state and its own sentence, and the age beside the chip carries the staleness.
+        quiet = not agentstate.needs_the_human(derived["state"])
+        if not is_supervised and quiet:
             if not stream or not curr_run["started"]:
-                not_supervised_sentence = "this agent is not supervised"
+                not_supervised_sentence = "no run yet; nothing is supervised"
+            elif not curr_run.get("since_start"):
+                age_text = format_age_str(last_age_s) if last_age_s >= 0 else "some time ago"
+                not_supervised_sentence = f"last run ended {age_text}; nothing is supervised now"
             else:
                 age_text = format_age_str(last_age_s) if last_age_s >= 0 else "recently"
-                not_supervised_sentence = f"last run ended {age_text}; nothing is supervised now"
+                not_supervised_sentence = f"the last run ended {age_text}; nothing is supervised now"
         else:
             not_supervised_sentence = ""
 
