@@ -243,6 +243,15 @@ def fleet_snapshot() -> dict:
     if not isinstance(proj_theme_map, dict):
         proj_theme_map = {}
 
+    # Sessions the fleet did not start (#2), worked out once for the whole snapshot rather than per
+    # row: the process listing behind this is a PowerShell call on Windows, and it is cached besides.
+    from . import adopt as A
+
+    try:
+        offers = {c["repo"]: c for c in A.candidates(registry)}
+    except Exception:                    # noqa: BLE001 - never let this stop a dashboard drawing
+        offers = {}
+
     for row in supervisor.status():
         name = row["repo"]
         try:
@@ -263,7 +272,13 @@ def fleet_snapshot() -> dict:
             last_age_s = age_of_stamp(derived.get("at", ""))
 
         pid = row.get("pid", 0)
-        is_supervised = bool(pid and is_live)
+        # An adopted session is supervised in the sense the tile cares about -- somebody is working
+        # in that checkout right now -- even where this platform would not name its pid. Requiring a
+        # pid here would have every adopted Windows session draw as "nothing is supervised", which
+        # is the exact lie #2 exists to remove.
+        external_lock = supervisor.read_lock(name) if is_live else {}
+        is_external = bool(external_lock.get("external"))
+        is_supervised = bool(is_live and (pid or is_external))
 
         # The sentence says "nothing is supervised now". It may therefore only appear where that is
         # the WHOLE truth. An agent that stopped with a question still needs the human, and a tile
@@ -304,6 +319,11 @@ def fleet_snapshot() -> dict:
                      "accent": accent,
                      "pid": pid, "last_event_age_s": last_age_s,
                      "supervised": is_supervised,
+                     # Whose session this is. `external` says the fleet adopted one it did not
+                     # start; `adoptable` says there is one here it could. Never both.
+                     "external": is_external,
+                     "external_how": external_lock.get("how", "") if is_external else "",
+                     "adoptable": offers.get(name) if not is_external else None,
                      "not_supervised_sentence": not_supervised_sentence,
                      "earlier": earlier,
                      **derived,
@@ -940,6 +960,14 @@ def act(what: str, body: dict) -> dict:
         from .. import config as C
 
         return supervisor.reset(repo, cfg=C.load(), force=bool(body.get("force")))
+    if what == "adopt":
+        from . import adopt as A
+
+        return A.adopt(repo, pid=int(body.get("pid") or 0))
+    if what == "release":
+        from . import adopt as A
+
+        return A.release(repo)
     if what in ("approve", "deny"):
         id = str(body.get("id") or "")
         state = approval.APPROVED if what == "approve" else approval.DENIED
@@ -976,8 +1004,8 @@ def act(what: str, body: dict) -> dict:
         C.save(cfg)
         return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
-                     "start | send | stop | reset | approve | deny | select | arrange | attach | "
-                     "dismiss | theme")
+                     "start | send | stop | reset | adopt | release | approve | deny | select | "
+                     "arrange | attach | dismiss | theme")
 
 
 def _sweep(url: str) -> list[dict]:

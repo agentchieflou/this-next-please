@@ -113,7 +113,17 @@ def live(name: str) -> dict:
     *after* it has said what happened.
     """
     lock = read_lock(name)
-    return lock if lock and pid_alive(int(lock.get("pid") or 0)) else {}
+    if not lock:
+        return {}
+    if lock.get("external"):
+        # A session the fleet did not start (#2). It is live on the same terms it was adopted on:
+        # by its pid where the platform would name one, and otherwise by the checkout still being
+        # written to. `adopt.still_there` holds both, and reads the path out of the lock rather than
+        # the registry -- this runs on every status poll, and `Registry()` re-parses its file.
+        from . import adopt
+
+        return lock if adopt.still_there(lock) else {}
+    return lock if pid_alive(int(lock.get("pid") or 0)) else {}
 
 
 # --------------------------------------------------------------------------------- the events
@@ -413,7 +423,15 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
     reg = registry or Registry()
     repo = reg.get(name)
 
-    if live(name):
+    current = live(name)
+    if current.get("external"):
+        # An adopted session is somebody else's process. There is no pipe to its stdin, so a message
+        # sent here would go nowhere -- and a Send button that silently does nothing is worse than
+        # one that refuses and says where to type instead.
+        raise SupervisorError(f"{name} is running a session the fleet did not start",
+                              "type in that window. `ad-fleet release` hands it back, and then the "
+                              "fleet can drive this repository again")
+    if current:
         raise SupervisorError(f"{name} is mid-turn",
                               "wait for the turn to finish, or `ad-fleet stop` it first")
 
@@ -514,6 +532,14 @@ def stop(name: str, *, wait: float = 10.0, registry: Registry | None = None) -> 
         return {"repo": name, "stopped": False, "detail": "no live agent"}
 
     pid = int(lock.get("pid") or 0)
+    if lock.get("external") and not pid:
+        # Adopted from the evidence of a checkout being written to, on a platform that would not say
+        # which process was doing it. There is nothing here to kill, and `kill_tree(0)` means "this
+        # process group" -- which is the fleet, and on a CI runner was once the test suite above it.
+        raise SupervisorError(
+            f"{name} is running a session the fleet did not start, and this machine will not say "
+            f"which process it is",
+            "close that window yourself. `ad-fleet release` then hands the repository back")
     proc.kill_tree(pid)
 
     deadline = time.time() + wait

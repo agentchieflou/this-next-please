@@ -134,6 +134,32 @@ def cmd_reset(a) -> int:
                                     "next": f"ad-fleet status --repo {a.repo}"})
 
 
+def cmd_adopt(a) -> int:
+    """Take on a session the fleet did not start, so the tile stops showing an older one."""
+    from .fleet import adopt as A
+
+    if a.list:
+        rows = A.candidates()
+        return _emit("ad-fleet adopt", {"found": len(rows), "sessions": rows,
+                                        "next": "ad-fleet adopt <repo>" if rows else ""})
+    try:
+        out = A.adopt(a.repo, pid=a.pid)
+    except (RegistryError, A.AdoptError) as e:
+        return _refuse("ad-fleet adopt", e)
+    return _emit("ad-fleet adopt", {**out, "next": f"ad-fleet status --repo {a.repo}"})
+
+
+def cmd_release(a) -> int:
+    """Hand an adopted session back. Never touches a lock the supervisor wrote."""
+    from .fleet import adopt as A
+
+    try:
+        out = A.release(a.repo)
+    except (RegistryError, A.AdoptError) as e:
+        return _refuse("ad-fleet release", e)
+    return _emit("ad-fleet release", out)
+
+
 def cmd_gc(a) -> int:
     result = L.gc(a.days)
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet gc", "days": a.days,
@@ -1080,6 +1106,17 @@ def build_parser() -> argparse.ArgumentParser:
     again.add_argument("--force", action="store_true",
                        help="restart past `fleet.max_restarts`")
     again.set_defaults(fn=cmd_restart)
+
+    take = sub.add_parser("adopt", help="take on a session running outside the fleet")
+    take.add_argument("repo", nargs="?", default="")
+    take.add_argument("--list", action="store_true", help="show what could be adopted, and change nothing")
+    take.add_argument("--pid", type=int, default=0,
+                      help="the process to record, where this machine will not say which it is")
+    take.set_defaults(fn=cmd_adopt)
+
+    give = sub.add_parser("release", help="hand an adopted session back to whoever started it")
+    give.add_argument("repo")
+    give.set_defaults(fn=cmd_release)
 
     unblock = sub.add_parser("reset", help="unblock a stuck agent: stop it, then resume its session")
     unblock.add_argument("repo")

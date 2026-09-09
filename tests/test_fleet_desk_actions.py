@@ -310,3 +310,236 @@ def test_a_viewer_who_asked_for_less_motion_gets_no_transform_at_all(desk):
             .filter(t => t.style.transform).length""")
         assert stuck == 0
         browser.close()
+
+
+# --------------------------------------------------- sessions the fleet did not start (#2)
+
+
+def _touch(path: str, age_s: float = 0.0) -> None:
+    """Make a file look like it was written `age_s` ago. Adoption turns on exactly this."""
+    when = time.time() - age_s
+    os.utime(path, (when, when))
+
+
+def test_a_checkout_being_written_to_is_what_makes_a_session_adoptable(fleet_home, tmp_path):  # noqa: F811
+    """`.agent/state.json` has one writer, so its mtime is the last moment an agent said anything.
+
+    That is the whole detector on Windows, where a process's working directory is not readable
+    without native calls this package will not make. It is a weaker claim than matching a process to
+    a folder, which is why the row carries `how` and the page prints it.
+    """
+    from agentdata.fleet import adopt as A
+
+    repo = make_project(tmp_path / "busy", phase="working", ticket="RDSD-7")
+    Registry().add(repo, name="busy")
+    state = os.path.join(repo, ".agent", "state.json")
+
+    _touch(state, 5)
+    assert 0 <= A.activity_age(repo) < 60
+
+    rows = A.candidates(processes=[])
+    assert [r["repo"] for r in rows] == ["busy"]
+    assert rows[0]["how"] == "inferred from recent activity"
+    assert rows[0]["pid"] == 0, "no process listing on this platform means no pid to claim"
+
+    # Yesterday's session is not this morning's.
+    _touch(state, 3 * A.FRESH_S)
+    assert A.candidates(processes=[]) == []
+
+
+def test_a_process_in_the_checkout_is_matched_exactly(fleet_home, tmp_path):  # noqa: F811
+    """Where the platform gives a working directory, the claim is exact and says so."""
+    from agentdata.fleet import adopt as A
+
+    repo = make_project(tmp_path / "exact", phase="working")
+    Registry().add(repo, name="exact")
+    _touch(os.path.join(repo, ".agent", "state.json"), 3)
+
+    rows = A.candidates(processes=[{"pid": 4321, "cmdline": "node copilot", "cwd": repo}])
+    assert rows[0]["pid"] == 4321
+    assert rows[0]["how"] == "matched by working directory"
+
+
+def test_adopting_supersedes_the_stale_run_the_fleet_last_started(fleet_home, tmp_path):  # noqa: F811
+    """The complaint behind #2: the tile showed a cached session, not the one being worked in.
+
+    Before adoption the fleet's newest knowledge of this repo is a run that ended; the row says
+    nothing is supervised. After it, the row is supervised and a new run has begun -- which is what
+    makes the transcript stop reading as a continuation of the old one.
+    """
+    from agentdata.fleet import adopt as A
+
+    repo = make_project(tmp_path / "outside", phase="working", ticket="RDSD-8")
+    Registry().add(repo, name="outside")
+    E.append("outside", [
+        E.event("outside", "started", {"prompt": "an old fleet run"}, ticket="RDSD-2"),
+        E.event("outside", "exited", {"exit_code": 0}),
+    ])
+    _drain_and_age("outside", 2 * 86400)
+
+    before = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "outside"][0]
+    assert before["supervised"] is False
+    assert before["not_supervised_sentence"], "this is the stale, unsupervised tile"
+    assert before["adoptable"], "and the fleet can see there is something to adopt"
+    old_run = before["run"]["n"]
+
+    _touch(os.path.join(repo, ".agent", "state.json"), 3)
+    out = A.adopt("outside", pid=0)
+    assert out["external"] is True
+
+    after = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "outside"][0]
+    assert after["supervised"] is True, "an adopted session is somebody working in that checkout now"
+    assert after["external"] is True
+    assert after["not_supervised_sentence"] == "", "and it is no longer told nothing is supervised"
+    assert after["adoptable"] is None, "it is adopted; there is nothing left to offer"
+    assert after["run"]["n"] > old_run, "the adopted session is a new run, not more of the old one"
+
+
+def test_one_checkout_still_holds_one_agent(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    """Adoption does not get to break the rule the lock exists for."""
+    from agentdata.fleet import adopt as A
+
+    repo = make_project(tmp_path / "taken", phase="working")
+    Registry().add(repo, name="taken")
+    _touch(os.path.join(repo, ".agent", "state.json"), 3)
+    monkeypatch.setattr(supervisor, "live", lambda name: {"pid": 777, "repo": name})
+
+    with pytest.raises(A.AdoptError) as refusal:
+        A.adopt("taken")
+    assert "already running an agent" in refusal.value.msg
+    assert A.candidates() == [], "nor is one offered for a repo the fleet is already driving"
+
+
+def test_a_quiet_checkout_cannot_be_adopted(fleet_home, tmp_path):  # noqa: F811
+    """The evidence is the activity. With none, there is nothing to take on, and it says so."""
+    from agentdata.fleet import adopt as A
+
+    repo = make_project(tmp_path / "still", phase="done")
+    Registry().add(repo, name="still")
+    _touch(os.path.join(repo, ".agent", "state.json"), 5 * A.FRESH_S)
+    with pytest.raises(A.AdoptError) as refusal:
+        A.adopt("still")
+    assert "nothing has been written" in refusal.value.msg
+
+
+def test_an_adopted_session_refuses_the_controls_it_cannot_honour(fleet_home, tmp_path):  # noqa: F811
+    """There is no pipe to somebody else's stdin, and `kill_tree(0)` is our own process group.
+
+    A Send button that silently does nothing is worse than one that says where to type; and the
+    kill path is the one that once took out a CI runner's own test suite, so a lock with no pid must
+    never reach it.
+    """
+    from agentdata.fleet import adopt as A
+
+    repo = make_project(tmp_path / "theirs", phase="working")
+    Registry().add(repo, name="theirs")
+    _touch(os.path.join(repo, ".agent", "state.json"), 3)
+    A.adopt("theirs", pid=0)
+
+    with pytest.raises(supervisor.SupervisorError) as sending:
+        supervisor.send("theirs", "hello")
+    assert "did not start" in sending.value.msg
+    assert "type in that window" in sending.value.hint
+
+    with pytest.raises(supervisor.SupervisorError) as stopping:
+        supervisor.stop("theirs")
+    assert "will not say which process" in stopping.value.msg
+
+
+def test_release_hands_back_only_what_was_adopted(fleet_home, tmp_path):  # noqa: F811
+    """A release that could clear a real lock would let `start` launch a second agent over a live
+    one, which is the failure the lock exists to prevent."""
+    from agentdata.fleet import adopt as A
+
+    repo = make_project(tmp_path / "mixed", phase="working")
+    Registry().add(repo, name="mixed")
+    _touch(os.path.join(repo, ".agent", "state.json"), 3)
+
+    A.adopt("mixed")
+    assert A.is_external("mixed")
+    assert A.release("mixed")["released"] is True
+    assert not A.is_external("mixed")
+
+    supervisor.write_lock("mixed", {"pid": 999, "repo": "mixed", "path": repo})
+    with pytest.raises(A.AdoptError) as refusal:
+        A.release("mixed")
+    assert "the fleet started" in refusal.value.msg
+    assert supervisor.read_lock("mixed").get("pid") == 999, "the real lock is untouched"
+
+
+def test_the_process_listing_is_cached_because_windows_spawns_powershell_for_it(monkeypatch):
+    """`fleet_snapshot` runs several times a second for every window on every screen."""
+    from agentdata.fleet import adopt as A
+
+    calls = []
+    monkeypatch.setattr(A, "_posix_processes", lambda: calls.append(1) or [])
+    monkeypatch.setattr(A, "_windows_processes", lambda: calls.append(1) or [])
+    A._cache["at"], A._cache["rows"] = 0.0, []
+
+    A.agent_processes()
+    A.agent_processes()
+    A.agent_processes()
+    assert len(calls) == 1, "three polls, one listing"
+    A.agent_processes(max_age=0)
+    assert len(calls) == 2, "and an explicit adopt can still force a fresh one"
+
+
+@pytest.fixture()
+def outside_desk(fleet_home, tmp_path):                         # noqa: F811
+    """A repo whose checkout is being written to by something the fleet did not start."""
+    busy = make_project(tmp_path / "busy", phase="working", ticket="RDSD-3")
+    Registry().add(busy, name="busy")
+    E.append("busy", [
+        E.event("busy", "started", {"prompt": "an old fleet run"}),
+        E.event("busy", "exited", {"exit_code": 0}),
+    ])
+    _drain_and_age("busy", 2 * 86400)
+    _touch(os.path.join(busy, ".agent", "state.json"), 4)
+    server, token = S.build(0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/?t={token}"
+    try:
+        yield url
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_desk):
+    """#2, from the operator's side.
+
+    They have a `copilot` going in a `cmd.exe` window; the tile for that repository was showing the
+    last run the *fleet* started, days old, and saying nothing was supervised. The page now says
+    there is something here it did not start, and one click makes that session the repository's
+    current one.
+    """
+    playwright_module = pytest.importorskip("playwright.sync_api")
+    with playwright_module.sync_playwright() as p:
+        browser, page, errors = _page(p, outside_desk)
+
+        strip = page.query_selector('.tile[data-repo="busy"] .outside')
+        assert strip is not None
+        box = strip.bounding_box()
+        assert box and box["width"] > 0, "the offer is on the screen, not merely in the template"
+        offer = page.inner_text('.tile[data-repo="busy"] .outside')
+        assert "the fleet did not start" in offer, offer
+        assert "inferred from recent activity" in offer, "it says how strong the claim is"
+
+        page.click('.tile[data-repo="busy"] .adopt')
+        page.wait_for_timeout(900)
+
+        after = page.inner_text('.tile[data-repo="busy"] .outside')
+        assert "is driving this repo" in after, after
+        assert page.inner_text('.tile[data-repo="busy"] .adopt').strip() == "hand it back"
+        # Nothing on the tile may still claim the repository is unsupervised.
+        assert "nothing is supervised" not in page.inner_text('.tile[data-repo="busy"] .why')
+        # And the controls that cannot reach somebody else's stdin say so instead of lying.
+        assert page.get_attribute('.tile[data-repo="busy"] .send', "disabled") is not None
+
+        page.click('.tile[data-repo="busy"] .adopt')            # hand it back
+        page.wait_for_timeout(900)
+        assert "the fleet did not start" in page.inner_text('.tile[data-repo="busy"] .outside')
+        assert not errors, errors

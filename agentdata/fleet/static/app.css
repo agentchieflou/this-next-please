@@ -507,6 +507,20 @@ body.needs-only .tile.held:not(.needs-human) .head .repo { color: var(--text); }
 body.needs-only .tile.held:not(.needs-human) .holdnote { display: flex; }
 .holdnote button { font-size: 11px; padding: 1px 8px; }
 
+/* A session the fleet did not start (#2). An offer, not an alarm: nothing is wrong, the fleet has
+   simply noticed something it does not own. Once adopted the same strip stays, saying so, because
+   "this repo is being driven from another window" is the fact the tile exists to carry. */
+.outside {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 6px; padding: 4px 8px; border-radius: 4px;
+  font-size: 12px; color: var(--text);
+  background: var(--select); border: 1px dashed var(--line);
+}
+.outside[hidden] { display: none; }
+.outside.mine { border-style: solid; border-color: var(--running); }
+.outside .outsidewhy { flex: 1 1 auto; min-width: 0; }
+.outside button { font-size: 11px; padding: 1px 8px; white-space: nowrap; }
+
 body.solo main { grid-template-columns: 1fr; }
 body.solo .tile:not(.is-solo) { display: none; }
 body.solo .tile.is-solo { max-height: none; }

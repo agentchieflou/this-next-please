@@ -266,6 +266,15 @@ function makeTile(row, index) {
     });
   }
 
+  var adoptBtn = el.querySelector(".adopt");
+  if (adoptBtn) {
+    adoptBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var what = adoptBtn.dataset.what === "release" ? "release" : "adopt";
+      action(el, what, { repo: row.repo, pid: Number(adoptBtn.dataset.pid || 0) });
+    });
+  }
+
   var releaseBtn = el.querySelector(".release");
   if (releaseBtn) {
     releaseBtn.addEventListener("click", function (e) {
@@ -380,6 +389,48 @@ function drawTile(el, row, approvals) {
   text(el.querySelector(".ticket"), row.ticket || row.jira_project || "");
 
   text(el.querySelector(".why"), cold ? row.not_supervised_sentence : (row.why || ""));
+
+  /* A session in this checkout that the fleet did not start (#2). Two states, never both: one it
+     could take on, and one it already has. The `how` is shown rather than hidden because "we found
+     the process and it is in that folder" and "that folder is being written to and a Copilot is
+     running somewhere" are different claims, and the operator should be told which they have. */
+  var outside = el.querySelector(".outside");
+  if (outside) {
+    var offer = row.adoptable;
+    var adoptBtn = outside.querySelector(".adopt");
+    if (row.external) {
+      outside.hidden = false;
+      outside.classList.add("mine");
+      text(outside.querySelector(".outsidewhy"),
+           "a session outside the fleet is driving this repo" +
+           (row.pid ? " (pid " + row.pid + ")" : "") +
+           (row.external_how ? " — " + row.external_how : ""));
+      text(adoptBtn, "hand it back");
+      adoptBtn.dataset.what = "release";
+      adoptBtn.title = "stop treating that session as this repo's current one";
+    } else if (offer) {
+      outside.hidden = false;
+      outside.classList.remove("mine");
+      text(outside.querySelector(".outsidewhy"),
+           "something is working in this checkout that the fleet did not start" +
+           (offer.pid ? " (pid " + offer.pid + ")" : "") +
+           " — last wrote " + age(offer.active_age_s) + " ago, " + offer.how);
+      text(adoptBtn, "adopt it");
+      adoptBtn.dataset.what = "adopt";
+      adoptBtn.dataset.pid = String(offer.pid || 0);
+      adoptBtn.title = "make that session this repo's current one, instead of the last run the fleet started";
+    } else {
+      outside.hidden = true;
+    }
+  }
+  // An adopted session has no pipe to its stdin, so the controls that would write to it say so
+  // rather than being offered and silently doing nothing.
+  ["send", "start"].forEach(function (cls) {
+    var btn = el.querySelector("." + cls);
+    if (!btn) return;
+    btn.disabled = !!row.external;
+    btn.title = row.external ? "type in that window — this session is not the fleet's to drive" : "";
+  });
 
   // Which run this transcript belongs to. Without it, a two-day-old run reads as live.
   var run = row.run || {};
