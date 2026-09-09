@@ -29,7 +29,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 | PR, branch, push, commit | `bitbucket-pr` |
 | Confluence, document, write-up, page | `confluence-publish` |
 | move / transition / close / reopen a ticket, "mark it done", "put it in review" | `jira-transition` |
-| sort / organize / file a folder of documents, "where should these go", a delivery to arrange | `file-organize` |
+| sort / organize / file a folder of documents, "where should these go", a DPM document delivery to arrange | `file-organize` |
 | progress saved?, "where was I" | `state-update` |
 
 4. Output one line: `→ <skill>: <reason in ≤ 12 words>`. Then invoke it.

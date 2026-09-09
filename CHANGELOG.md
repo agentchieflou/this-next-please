@@ -16,6 +16,16 @@ still there afterwards. Two files wanting one destination is a refusal, never a 
 updating**, unless you want it: new skill `file-organize`, a new router row, and `docs/sorting.md`. Never sort a DPM
 run root or into one — it is read-only and fingerprinted.
 
+**And the structure RDSD-22488 actually asks for.** `ad-sort dpm-plan` / `dpm-apply` build the DPM remediation tree on
+the M: drive: `<ticket>/<loan>/raw_docs/` as canonical evidence, `<loan>/metadata/document_manifest.csv` tracing every
+filed document back to the download it came from, and `views/doc_type/` and `views/file_description/` beside them as
+**hardlinks**, so a view costs no storage and deleting a whole view tree cannot touch a document. The fields come from
+retrieval's own JSONL (`--catalog LSS=…`, `IMZ` the same; **LIS is refused until somebody describes its records**).
+A second run files nothing again — the manifest is what makes retrieval unrepeated. The administrative report counts
+documents per loan, how many could not be viewed, and the TIFF conversion queue; which loans returned *nothing* needs
+`--loans <population>`, and says so rather than reporting zero without it. `ad-sort probe --at <path>` answers the one
+thing a mapped drive letter cannot: whether that volume makes hardlinks at all. **TIFF is queued, never converted.**
+
 ## 0.7.0
 
 Three roadmap epics, and the first of them changes what `ad-jira changelog` does when a pull goes wrong.
