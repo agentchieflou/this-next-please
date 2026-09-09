@@ -114,8 +114,9 @@ def check(rules) -> dict:
     if not isinstance(listed, list) or not listed:
         raise SortError("bad_rules", "the rules file lists no rules",
                         "a heap with no rules would be entirely unmatched, which is a plan nobody needs")
-    if os.path.isabs(os.path.expanduser(rules.get("into", "sorted") or "sorted")):
-        raise SortError("absolute_into", f'top-level "into" is absolute: {rules["into"]}',
+    into_val = str(rules.get("into", "sorted") or "sorted")
+    if into_val.startswith(("/", "\\")) or os.path.isabs(os.path.expanduser(into_val)) or bool(os.path.splitdrive(into_val)[0]):
+        raise SortError("absolute_into", f'top-level "into" is absolute: {rules.get("into")}',
                         "it is resolved against --dest, so it must be relative")
     return {"version": VERSION, "into": rules.get("into", "sorted") or "sorted",
             "rules": [_check_rule(r, i) for i, r in enumerate(listed)]}
