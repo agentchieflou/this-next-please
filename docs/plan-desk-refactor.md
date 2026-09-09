@@ -1,6 +1,7 @@
 # Plan: the desk on Windows — the dashboard shows the run you are in, its tiles move, and it wears the terminal's theme
 
-_Status: PLANNED (2026-09-09) — epic #145 (slices #146–#151), a refactor under #122 tied to the CLI theming epic #135. Nothing below is
+_Status: PLANNED (2026-09-09) — epic #145 (slices #146–#151, and the skin tier #154–#157), a refactor under #122 tied to the CLI
+theming epic #135 (which gains five more palettes in #153). Nothing below is
 built yet. Every design choice cites the section of Apple's Human Interface Guidelines it applies, and every
 one is still judged on the real screens, the way #133 and #135 are judged._
 
@@ -143,6 +144,46 @@ event, so every window on every screen recolours with the terminal beside it. `/
 themes from `theme.py` and the `.icls` parser goes; `themes/pycharm/` stays what it is — editor schemes for
 PyCharm — and a later slice of #135 may generate them from the same palette.
 
+## The vertical: eleven palettes and three skins
+
+The operator approved the mock-ups and asked for the theme list to go further. Eight more were named, and they
+fall into two tiers that this plan keeps apart on purpose:
+
+| Tier | What changes | 1:1 with the terminal? | Where it lives |
+|---|---|---|---|
+| **Palette** | colour only — one `Theme` constant | **yes**, by construction: the same hex reaches OSC 10/11, the prompt and `theme.css()` | #136's model; #153 adds `dark`, `vanta-black`, `matrix`, `blues`, `sand` |
+| **Skin** | how the page is *rendered* — materials, tiled textures, sprites, a pixel font | **no**, and it says so: a skin rides on a base palette that the terminal gets; the material is the page's alone | #154 (the tier) and one slice per skin: #155 `glass`, #156 `voxel`, #157 `farmstead` |
+
+Palettes are cheap and land under #136's check unchanged; the seeds and their contrast against the derived panel
+and selection colours are in the canvas. Two are proof themes for the status rule beside `reds`: on `matrix`
+`fail` is red because it is the one thing on the screen that is not green, and `vanta-black` is allowed a true
+black ground only because its text is not pure white.
+
+### Skins
+
+A skin is **one more stylesheet over the same DOM**: the three skin boards in the canvas are the approved grid
+with nothing but CSS and hand-drawn SVG swapped in, which is the test every skin has to keep passing — a skin
+that needs a page change is not a skin. The contract, from #154:
+
+- `theme.skin` in `~/.agentdata/config.json`, `none` by default; `/api/themes` lists skins with their `base`
+  palette and byte size; the page adds one `<link>` to `/static/skins/<name>/skin.css` when a skin is chosen
+  and nothing loads until then, so the base page keeps its 200 KB budget and each skin gets its own (150 KB,
+  font included).
+- **Textures and sprites are original, hand-authored `<rect>` pixel art committed to the repo**, never a bitmap
+  copied from anywhere. The block-building and farming looks the operator asked for by name are *inspirations
+  named in the skin's `why`*; their fonts, tilesets and sprites are their owners' and do not ship. A test
+  refuses any raster in a skin directory.
+- The status contract from #150 is untouched: role, colour and glyph. A skin only **adds** — a status block in
+  `voxel`, a crop stage in `farmstead` — and never replaces the glyph (HIG *Color*: never colour alone).
+- `theme.check()` grows a composited form: a skin declares the effective panel it produces (glass over ground,
+  the slab texture's mean) and text, `muted` and every status role are checked against *that*.
+- HIG *Materials* and *Accessibility* are the fallbacks: `prefers-reduced-transparency` turns a translucent
+  panel opaque, `prefers-reduced-motion` stops any animation a skin adds, and motion is off by default anyway —
+  a moving field beside a terminal is the attention cost this epic exists to remove.
+- One OFL-licensed pixel font at most per skin, subset to Latin, with its `LICENSE` beside it; nothing under 11
+  points; text shadows and ink colours are tuned for the texture (the first `voxel` pass put body text on the
+  stone tile and it did not read — the slab is two close greys for that reason).
+
 ## Slices
 
 | # | Slice | Fixes | HIG sections | After |
@@ -152,6 +193,10 @@ PyCharm — and a later slice of #135 may generate them from the same palette.
 | C #148 | the chrome: a toolbar of three groups, a segmented layout picker that switches with `pushState` and no reload, one sidebar with four sections instead of four drawers, one inspector for the selected project, hit targets and focus rings | poor experience of the options | Toolbars, Segmented controls, Sidebars, Split views, Focus and selection, Typography, Accessibility | A |
 | D #149 | the arrangement: drag to reorder, size toggle, pin, keyboard equivalents, per-layout arrangement in `desk.json`, shared through the `desk` event | tiles cannot move | Drag and drop, Layout, Windows | B, C |
 | E #150 | one palette: `theme.css()`, `/api/themes` from `theme.py`, the choice from `config.json`, the tile accent per project, the status chips on the theme's checked map, a `theme` SSE event, the contrast check run on every rendered token pair | two theme systems | Color | #136, #139, C |
+| G #154 | the skin tier: `theme.skin`, on-demand skin stylesheets as package data, the pixel-art and licence rules, the composited contrast check, reduced-transparency and reduced-motion fallbacks | two theme tiers with no line between them | Materials, Color, Accessibility | E |
+| H #155 | `glass`: translucent panels over a ground washed in the projects' own accents; opaque under reduced transparency | — | Materials | G |
+| I #156 | `voxel`: 8-pixel tiles, bevelled slab controls, a status block per role, a hotbar key map; original art in the spirit of a block-building game | — | Color, Accessibility | G |
+| J #157 | `farmstead`: paper and wood, the state as a crop stage beside the chip; original art in the spirit of a pixel farming game; motion off by default | — | Color, Accessibility | G |
 | F #151 | retire the layouts the sitting did not choose: once #133 records the decision, the default moves in the three places the test keeps in step, the unused two are removed a month later, and `docs/fleet-layouts.md` becomes the record | — | — | #133's decision, D |
 
 ## Ground rules (inherited from #91, #122 and #135)
@@ -174,7 +219,8 @@ PyCharm — and a later slice of #135 may generate them from the same palette.
 ## Build order
 
 #146 (harness) → #147 (the run) → #148 (chrome) → #149 (arrangement) → #150 (one palette, after #136 and #139
-exist) → #151 (after #133's sitting is written up). B and C are independent of each other once A is in; D needs both.
+exist; #153's five palettes ride in with it) → #154 (the skin tier) → #155 `glass` → #156 `voxel` → #157
+`farmstead` → #151 (after #133's sitting is written up, whenever that is). B and C are independent of each other once A is in; D needs both.
 
 ## Open questions, to be answered on the laptop and recorded in the slice
 
