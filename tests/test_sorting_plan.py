@@ -24,7 +24,7 @@ def heap_of(tmp_path, names, *, folder="heap") -> str:
     d = tmp_path / folder
     d.mkdir(parents=True, exist_ok=True)
     for name in names:
-        (d / name).write_text("some bytes\n", encoding="utf-8")
+        (d / name).write_bytes(b"some bytes\n")
     return str(d)
 
 

@@ -28,8 +28,8 @@ def test_a_directory_that_cannot_be_written_says_so_rather_than_raising(tmp_path
         answer = L.probe(str(blocked))
     finally:
         blocked.chmod(0o700)
-    if os.geteuid() == 0:
-        pytest.skip("running as root, which ignores the mode bits this test sets")
+    if getattr(os, "geteuid", lambda: -1)() == 0 or os.name == "nt":
+        pytest.skip("running as root or on Windows, which ignores the mode bits this test sets")
     assert answer["writable"] is False and "cannot create a file" in answer["evidence"]
 
 
