@@ -123,3 +123,13 @@ def test_fleet_snapshot_carries_run_earlier_and_supervision(fleet_home, tmp_path
     # Since no active pid/live supervisor process, it is not supervised:
     assert repo_row["supervised"] is False
     assert "not supervised" in repo_row["not_supervised_sentence"].lower() or "last run ended" in repo_row["not_supervised_sentence"].lower()
+
+
+def test_hig_chrome_toolbar_and_inspector():
+    static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agentdata", "fleet", "static")
+    html = open(os.path.join(static_dir, "index.html"), encoding="utf-8").read()
+    assert "toolbar-group group-window" in html
+    assert "toolbar-group group-view" in html
+    assert "toolbar-group group-actions" in html
+    assert 'id="layoutgroup"' in html
+    assert 'id="inspector"' in html

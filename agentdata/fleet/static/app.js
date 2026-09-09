@@ -544,7 +544,13 @@ function loadNotifications() {
 
 function drawer(open) {
   var el = document.getElementById("drawer");
-  el.hidden = open === undefined ? !el.hidden : !open;
+  var show = open === undefined ? el.hidden : open;
+  if (show) {
+    document.getElementById("board").hidden = true;
+    document.getElementById("unsorted").hidden = true;
+    document.getElementById("found").hidden = true;
+  }
+  el.hidden = !show;
   if (!el.hidden) loadNotifications();
 }
 
@@ -698,7 +704,13 @@ function loadHistory() {
 
 function boardPanel(open) {
   var el = document.getElementById("board");
-  el.hidden = open === undefined ? !el.hidden : !open;
+  var show = open === undefined ? el.hidden : open;
+  if (show) {
+    document.getElementById("drawer").hidden = true;
+    document.getElementById("unsorted").hidden = true;
+    document.getElementById("found").hidden = true;
+  }
+  el.hidden = !show;
   if (!el.hidden) { loadBoard(false); loadHistory(); }
 }
 
@@ -1006,7 +1018,13 @@ function drawTray() {
 
 function trayPanel(open) {
   var el = document.getElementById("unsorted");
-  el.hidden = open === undefined ? !el.hidden : !open;
+  var show = open === undefined ? el.hidden : open;
+  if (show) {
+    document.getElementById("board").hidden = true;
+    document.getElementById("drawer").hidden = true;
+    document.getElementById("found").hidden = true;
+  }
+  el.hidden = !show;
   if (!el.hidden) loadDesk();
 }
 
@@ -1063,7 +1081,13 @@ var findSoon = (function () {
 })();
 
 function foundPanel(open) {
-  document.getElementById("found").hidden = !open;
+  var el = document.getElementById("found");
+  if (open) {
+    document.getElementById("board").hidden = true;
+    document.getElementById("drawer").hidden = true;
+    document.getElementById("unsorted").hidden = true;
+  }
+  el.hidden = !open;
 }
 
 document.getElementById("find").addEventListener("input", findSoon);
@@ -1075,14 +1099,57 @@ document.getElementById("closefound").addEventListener("click", function () { fo
    because the point is that the *other* windows hear about it: clicking a tile on the left monitor
    is what changes the centre one. */
 function choose(name) {
-  if (desk.desk.selected === name) return Promise.resolve();
+  if (desk.desk.selected === name) {
+    drawInspector(name);
+    return Promise.resolve();
+  }
   desk.desk = Object.assign({}, desk.desk, { selected: name });
   place();
+  drawInspector(name);
   return post("select", { repo: name }).then(function (r) {
     if (r && r.ok) desk.desk = { selected: r.selected, screens: r.screens, version: r.version };
     place();
+    drawInspector(name);
   });
 }
+
+function drawInspector(name) {
+  var el = document.getElementById("inspector");
+  if (!el) return;
+  if (!name || !tiles.has(name)) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  text(document.getElementById("inspectorrepo"), name);
+  var body = document.getElementById("inspectordetails");
+  while (body.firstChild) body.removeChild(body.firstChild);
+
+  var p = desk.projects[name] || {};
+  var facts = document.createElement("div");
+  facts.className = "facts";
+  [
+    ["project", name],
+    ["jira", p.jira_project || "—"],
+    ["ticket", p.ticket || "—"],
+    ["phase", p.phase || "—"],
+    ["branch", p.branch || "—"]
+  ].forEach(function (row) {
+    var k = document.createElement("span");
+    k.className = "k";
+    text(k, row[0]);
+    var v = document.createElement("span");
+    v.className = "v";
+    text(v, row[1]);
+    facts.appendChild(k);
+    facts.appendChild(v);
+  });
+  body.appendChild(facts);
+}
+
+document.getElementById("closeinspector").addEventListener("click", function () {
+  document.getElementById("inspector").hidden = true;
+});
 
 /* Which project this window is showing, when it is showing exactly one. `screens` is the shared
    pinning; a screen with nothing pinned falls back to the Nth registered repo, so opening
@@ -1148,8 +1215,37 @@ function go(params) {
   Object.keys(params).forEach(function (k) {
     if (params[k]) u.set(k, params[k]); else u.delete(k);
   });
-  location.search = u.toString();
+  LAYOUT = LAYOUTS.indexOf(u.get("layout")) >= 0 ? u.get("layout") : "grid";
+  VIEW = VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : (LAYOUT === "roles" ? "agents" : "");
+  SCREEN = Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
+  var qs = u.toString();
+  var newUrl = location.pathname + (qs ? "?" + qs : "");
+  history.pushState({}, "", newUrl);
+  updateLayoutSegments();
+  place();
 }
+
+function updateLayoutSegments() {
+  var segs = document.querySelectorAll("#layoutgroup .segment");
+  segs.forEach(function (btn) {
+    var active = btn.dataset.layout === LAYOUT;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-checked", String(active));
+  });
+  var select = document.getElementById("layout");
+  if (select) {
+    select.value = LAYOUT + "|" + (VIEW || "") + "|" + (SCREEN || 0);
+  }
+}
+
+window.addEventListener("popstate", function () {
+  var u = new URLSearchParams(location.search);
+  LAYOUT = LAYOUTS.indexOf(u.get("layout")) >= 0 ? u.get("layout") : "grid";
+  VIEW = VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : (LAYOUT === "roles" ? "agents" : "");
+  SCREEN = Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
+  updateLayoutSegments();
+  place();
+});
 
 var CHOICES = [
   ["grid", "", 0, "grid — every tile, one screen"],
@@ -1175,6 +1271,14 @@ var CHOICES = [
     var parts = select.value.split("|");
     go({ layout: parts[0], view: parts[1], screen: parts[2] === "0" ? "" : parts[2] });
   });
+
+  var segs = document.querySelectorAll("#layoutgroup .segment");
+  segs.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      go({ layout: btn.dataset.layout, view: "", screen: "" });
+    });
+  });
+  updateLayoutSegments();
 })();
 
 /* Layout C's swap. The pinning is server state, so moving a project onto this monitor takes it off
