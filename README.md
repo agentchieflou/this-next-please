@@ -192,6 +192,8 @@ python -m pytest -q
 | `docs/setup.md` | what the wizard configures, env overrides, Windows notes |
 | `docs/windows-verification.md` | laptop-only verification runbook (pncli, Jira, drivers, TE2, dscmd, Desktop) with paste-back instructions |
 | `docs/plan-luna-pipeline.md` | approved design for the Power BI / UAT / SQL-guardrail phase (implemented) |
+| `docs/plan-cli-theming.md` | planned design for CLI theming (epic #135): the palette model, the host matrix, one theme per project |
+| `docs/plan-desk-refactor.md` | planned refactor of the fleet dashboard on Windows: the run you are in, movable tiles, HIG chrome, and one palette shared with the terminal |
 | `prompts/remediate-from-friction.prompt.md` | offline frontier-model repair loop |
 | `agentdata/templates/project-stub/` | the project stub `ad-setup --project` writes (ships in the wheel) |
 

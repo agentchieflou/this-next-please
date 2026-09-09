@@ -5,6 +5,10 @@
 > default that shipped is `grid`, pending that sitting.** The two others stay reachable by URL for a
 > month afterwards, then go if nobody used them. Fill in §The sitting below and the decision becomes
 > a line of code (`LAYOUTS[0]`) rather than an opinion.
+>
+> **What the Windows sitting found first** is written up in [plan-desk-refactor.md](plan-desk-refactor.md):
+> the tiles show the last supervised run as if it were now, they cannot be moved, and the picker reloads the
+> page. Those are fixed by that plan's slices, and the layout decision still belongs here.
 
 The friction is not the number of monitors. It is **one tab per system per project**: eight
 bookmarks on the centre screen, a ticket on the right, a terminal on the left, Downloads on the
