@@ -936,6 +936,10 @@ def act(what: str, body: dict) -> dict:
         return {"repo": repo, "pid": lock["pid"]}
     if what == "stop":
         return supervisor.stop(repo)
+    if what == "reset":
+        from .. import config as C
+
+        return supervisor.reset(repo, cfg=C.load(), force=bool(body.get("force")))
     if what in ("approve", "deny"):
         id = str(body.get("id") or "")
         state = approval.APPROVED if what == "approve" else approval.DENIED
@@ -972,7 +976,8 @@ def act(what: str, body: dict) -> dict:
         C.save(cfg)
         return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
-                     "start | send | stop | approve | deny | select | arrange | attach | dismiss | theme")
+                     "start | send | stop | reset | approve | deny | select | arrange | attach | "
+                     "dismiss | theme")
 
 
 def _sweep(url: str) -> list[dict]:

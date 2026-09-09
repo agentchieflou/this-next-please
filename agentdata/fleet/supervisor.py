@@ -528,6 +528,46 @@ def stop(name: str, *, wait: float = 10.0, registry: Registry | None = None) -> 
                       f"nothing starts a second agent beside it"}
 
 
+def reset(name: str, *, cfg: dict | None = None, registry: Registry | None = None,
+          exe: str | None = None, force: bool = False, wait: float = 10.0) -> dict:
+    """Unblock this agent: end whatever is holding the checkout, then resume the same session.
+
+    The two-command dance -- `ad-fleet stop <repo>` and then `ad-fleet start <repo>` -- is the thing
+    the operator could not work out from the dashboard, and no wonder: neither command is named
+    after the problem. What they have is an agent that has stopped answering, in a `cmd.exe` window
+    they may not even be able to find, and what they want is for it to go again. That is one
+    intention, so it is one call, and the page can put one button on it.
+
+    It is `stop` and then `restart`, in that order, with the failures kept rather than smoothed
+    over, because both halves can legitimately refuse:
+
+    * a process that will not die keeps its lock, and this returns that refusal untouched. Starting
+      a second agent beside a live one is the failure the lock exists to prevent, and "the reset
+      button did nothing visible" is a far better outcome than two agents editing one working tree.
+    * `restart` resumes rather than starts fresh -- `--resume <session>`, so the agent keeps the
+      ticket it has read and the plan it has made -- and it is bounded by `fleet.max_restarts`. A
+      refusal there is reported with its hint, and the caller may pass `force` to spend one more.
+
+    Nothing here is new behaviour. It is the two verbs the operator was already expected to run,
+    with the ordering and the reasons built in instead of written in a document.
+    """
+    reg = registry or Registry()
+    reg.get(name)                       # an unknown name is a typo; say so before killing anything
+
+    ended = stop(name, wait=wait, registry=reg)
+    if ended.get("pid") and not ended.get("stopped"):
+        # Still alive after the kill. `stop` kept the lock on purpose; respect it.
+        raise SupervisorError(
+            f"{name} would not stop: {ended.get('detail', 'the process is still running')}",
+            "nothing was restarted -- a second agent beside a live one would edit the same "
+            "working tree. Close that window, or end the process, and reset again")
+
+    lock = restart(name, cfg=cfg, registry=reg, exe=exe, force=force)
+    return {"repo": name, "stopped": bool(ended.get("stopped")), "pid": lock["pid"],
+            "session": lock.get("session", ""), "ticket": lock.get("ticket", ""),
+            "summary": lock.get("summary", ""), "restarts": lock.get("restarts", 1)}
+
+
 def status(registry: Registry | None = None) -> list[dict]:
     reg = registry or Registry()
     # Notice the dead before reporting on them: a killed process leaves a lock behind, and a row

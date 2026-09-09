@@ -118,6 +118,22 @@ def cmd_restart(a) -> int:
                                       "restarts": lock.get("restarts", 1)})
 
 
+def cmd_reset(a) -> int:
+    """Stop and resume in one verb, because "it is stuck, make it go again" is one intention.
+
+    The dashboard's Reset button calls the same function, so the two cannot drift.
+    """
+    try:
+        out = supervisor.reset(a.repo, cfg=C.load(), force=a.force)
+    except (RegistryError, supervisor.SupervisorError, launch.LaunchError) as e:
+        return _refuse("ad-fleet reset", e)
+    return _emit("ad-fleet reset", {"repo": a.repo, "stopped": out["stopped"], "pid": out["pid"],
+                                    "session": out.get("session", ""),
+                                    "ticket": out.get("ticket", ""),
+                                    "restarts": out.get("restarts", 1),
+                                    "next": f"ad-fleet status --repo {a.repo}"})
+
+
 def cmd_gc(a) -> int:
     result = L.gc(a.days)
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet gc", "days": a.days,
@@ -1064,6 +1080,12 @@ def build_parser() -> argparse.ArgumentParser:
     again.add_argument("--force", action="store_true",
                        help="restart past `fleet.max_restarts`")
     again.set_defaults(fn=cmd_restart)
+
+    unblock = sub.add_parser("reset", help="unblock a stuck agent: stop it, then resume its session")
+    unblock.add_argument("repo")
+    unblock.add_argument("--force", action="store_true",
+                         help="resume past `fleet.max_restarts`")
+    unblock.set_defaults(fn=cmd_reset)
 
     collect = sub.add_parser("gc", help="prune rotated logs and answered approvals")
     collect.add_argument("--days", type=int, default=L.DEFAULT_GC_DAYS,
