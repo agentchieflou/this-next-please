@@ -1,6 +1,6 @@
 # Plan: the desk on Windows — the dashboard shows the run you are in, its tiles move, and it wears the terminal's theme
 
-_Status: PLANNED (2026-09-09) — a refactor epic under #122, tied to the CLI theming epic #135. Nothing below is
+_Status: PLANNED (2026-09-09) — epic #145 (slices #146–#151), a refactor under #122 tied to the CLI theming epic #135. Nothing below is
 built yet. Every design choice cites the section of Apple's Human Interface Guidelines it applies, and every
 one is still judged on the real screens, the way #133 and #135 are judged._
 
@@ -147,12 +147,12 @@ PyCharm — and a later slice of #135 may generate them from the same palette.
 
 | # | Slice | Fixes | HIG sections | After |
 |---|---|---|---|---|
-| A | the browser harness: a Playwright smoke on CI, Chromium only, dev-only, that loads each layout, focus mode and the selected-project sync across two pages — #133's missing acceptance criterion — plus the Windows laptop rows | nothing yet; every later slice lands with a browser test | — | — |
-| B | the run you are in: run boundaries in `fleet_snapshot()`, the current run's transcript, the state stamped with its age, earlier runs folded, the "not supervised" sentence, `desk.json` persistence of the selection | stale tiles | Feedback, Loading, Windows (state restoration) | A |
-| C | the chrome: a toolbar of three groups, a segmented layout picker that switches with `pushState` and no reload, one sidebar with four sections instead of four drawers, one inspector for the selected project, hit targets and focus rings | poor experience of the options | Toolbars, Segmented controls, Sidebars, Split views, Focus and selection, Typography, Accessibility | A |
-| D | the arrangement: drag to reorder, size toggle, pin, keyboard equivalents, per-layout arrangement in `desk.json`, shared through the `desk` event | tiles cannot move | Drag and drop, Layout, Windows | B, C |
-| E | one palette: `theme.css()`, `/api/themes` from `theme.py`, the choice from `config.json`, the tile accent per project, the status chips on the theme's checked map, a `theme` SSE event, the contrast check run on every rendered token pair | two theme systems | Color | #136, #139, C |
-| F | retire the layouts the sitting did not choose: once #133 records the decision, the default moves in the three places the test keeps in step, the unused two are removed a month later, and `docs/fleet-layouts.md` becomes the record | — | — | #133's decision, D |
+| A #146 | the browser harness: a Playwright smoke on CI, Chromium only, dev-only, that loads each layout, focus mode and the selected-project sync across two pages — #133's missing acceptance criterion — plus the Windows laptop rows | nothing yet; every later slice lands with a browser test | — | — |
+| B #147 | the run you are in: run boundaries in `fleet_snapshot()`, the current run's transcript, the state stamped with its age, earlier runs folded, the "not supervised" sentence, `desk.json` persistence of the selection | stale tiles | Feedback, Loading, Windows (state restoration) | A |
+| C #148 | the chrome: a toolbar of three groups, a segmented layout picker that switches with `pushState` and no reload, one sidebar with four sections instead of four drawers, one inspector for the selected project, hit targets and focus rings | poor experience of the options | Toolbars, Segmented controls, Sidebars, Split views, Focus and selection, Typography, Accessibility | A |
+| D #149 | the arrangement: drag to reorder, size toggle, pin, keyboard equivalents, per-layout arrangement in `desk.json`, shared through the `desk` event | tiles cannot move | Drag and drop, Layout, Windows | B, C |
+| E #150 | one palette: `theme.css()`, `/api/themes` from `theme.py`, the choice from `config.json`, the tile accent per project, the status chips on the theme's checked map, a `theme` SSE event, the contrast check run on every rendered token pair | two theme systems | Color | #136, #139, C |
+| F #151 | retire the layouts the sitting did not choose: once #133 records the decision, the default moves in the three places the test keeps in step, the unused two are removed a month later, and `docs/fleet-layouts.md` becomes the record | — | — | #133's decision, D |
 
 ## Ground rules (inherited from #91, #122 and #135)
 
@@ -173,8 +173,8 @@ PyCharm — and a later slice of #135 may generate them from the same palette.
 
 ## Build order
 
-A (harness) → B (the run) → C (chrome) → D (arrangement) → E (one palette, after #136 and #139 exist) →
-F (after #133's sitting is written up). B and C are independent of each other once A is in; D needs both.
+#146 (harness) → #147 (the run) → #148 (chrome) → #149 (arrangement) → #150 (one palette, after #136 and #139
+exist) → #151 (after #133's sitting is written up). B and C are independent of each other once A is in; D needs both.
 
 ## Open questions, to be answered on the laptop and recorded in the slice
 
