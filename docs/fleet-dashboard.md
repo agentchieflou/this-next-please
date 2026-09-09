@@ -63,7 +63,9 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 | Approval card | appears when that agent is waiting; the **dry-run payload in full**, Approve / Deny |
 | Transcript | assistant text, tool calls, denials, phase changes — the current run only |
 | Earlier runs | one collapsed row per earlier run with the state it ended in; never replayed as live |
-| Bottom row | reply box (→ `send`), Start (a ticket key in the same box), Stop |
+| Outside strip | a session in this checkout the fleet did not start: what it is, how sure we are, and *adopt it* |
+| Held note | in focus mode only, on a tile you acted on: why it is still here, and *let it go* |
+| Bottom row | reply box (→ `send`), Start (a ticket key in the same box), **Reset**, Stop |
 
 The **sidebar** sits beside the grid and holds five sections, one open at a time: the Jira **board**
 (`b`), the Downloads **inbox** (`i`), **alerts** (`n`), **where** (`/`, `ad-fleet where` over the
@@ -77,7 +79,51 @@ chime, the bell). A cell that fails to poll goes **grey with the error in a tool
 a link with no fact behind it is absent, never broken.
 
 The grid follows the number of registered repositories: four repos, four tiles. Click a repo name
-(or double-click a tile) and it fills the window; `Esc` returns to the grid.
+(or double-click a tile) and it fills the window; `Esc` returns to the grid. Tiles that change place
+**travel** there rather than jumping, so you can see that the tile you were reading is the same one,
+lower down; only the paint moves, so the grid is in its final state throughout and a click during the
+movement lands where you aimed it. `prefers-reduced-motion` turns it off.
+
+### Reset, and why it is one button
+
+`Reset` is `stop` and then `restart` — end whatever is holding the checkout, then resume *the same
+session*, so the agent keeps the ticket it has read and the plan it has made. It exists because the
+two commands were the answer and nobody could find the question: an agent stops answering in a
+console window, and neither `ad-fleet stop` nor `ad-fleet start` is named after that. Both halves may
+still refuse. A process that outlives the kill keeps its lock and nothing is started beside it — two
+agents in one working tree is what the lock exists to prevent — and `fleet.max_restarts` refuses past
+its limit, at which point the button reads *Reset anyway* and one more press spends the extra turn.
+Never a silent force.
+
+### Held tiles
+
+Focus mode shows the agents the fold says need a person. Answering one is exactly what stops it
+needing you, so a reply used to hide the tile it was typed into: the action's only visible outcome
+was that the thing you were working on vanished. A tile you have acted on is **held** — still on
+screen, dimmed, saying which action held it — until you release it or leave focus mode. A held tile
+that goes back to needing somebody drops the note and reads as a normal demand again; it never takes
+the credit for a question it did not answer.
+
+### Sessions the fleet did not start
+
+A `copilot` running in a console window is an agent working in a registered checkout that the fleet
+knows nothing about, so the tile drew the last run *the fleet* started and said nothing was
+supervised. The page finds those and offers to **adopt** one, which makes it that repository's
+current run.
+
+You cannot drag the console window in — a window drag carries no process identity, and a dropped
+folder's real path is deliberately withheld from web pages — so the portal finds the session instead.
+On POSIX it matches a process to a checkout by its working directory and says `matched by working
+directory`. On Windows a working directory is not readable without native calls this package will not
+make, so the evidence is the checkout itself: `.agent/state.json` has exactly one writer, and a state
+file touched in the last few minutes is a session somebody is having right now. That reads `inferred
+from recent activity`, and it is labelled differently because it is a weaker claim.
+
+Adoption **supersedes; it does not supervise.** The fleet did not start that process, has no pipe to
+its stdin and may not know its pid, so Send and Start are disabled and say where to type instead of
+being offered and quietly doing nothing. One checkout still holds one agent: a repo the fleet is
+already running an agent in cannot adopt a second. *Hand it back* releases it, and only ever removes
+a lock the fleet did not create.
 
 The same page has three arrangements and a focus mode, chosen by the query string —
 `ad-fleet serve --layout grid|roles|screens`. Which one is the default is **still being decided on
@@ -148,6 +194,9 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/start` | `{repo, ticket?, prompt?, force?}` |
 | POST | `/api/send` | `{repo, message}` |
 | POST | `/api/stop` | `{repo}` |
+| POST | `/api/reset` | `{repo, force?}` — stop, then resume the same session |
+| POST | `/api/adopt` | `{repo, pid?}` — take on a session the fleet did not start |
+| POST | `/api/release` | `{repo}` — hand an adopted session back |
 | POST | `/api/approve` | `{id, reason?}` |
 | POST | `/api/deny` | `{id, reason}` |
 | POST | `/api/select` | `{repo?, screens?}` — the project every window agrees on ([fleet-layouts.md](fleet-layouts.md)) |
