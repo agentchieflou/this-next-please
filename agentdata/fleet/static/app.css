@@ -494,7 +494,7 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
 
 /* Which window is this? The grid has nothing to say -- it is the whole fleet. Every other layout is
    one of a set, and four windows that look alike is the tab problem again, one level up. */
-#view { display: none; }
+
 
 
 .inspectorbody { padding: 8px 0; display: flex; flex-direction: column; gap: 12px; }
@@ -507,7 +507,7 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
   }
 }
 
-body.layout-roles #view, body.layout-screens #view { display: inline; }
+/* `#view` used to name which window this was; the segmented picker says it now. */
 
 /* ------------------------------------------------------- the inspector's project detail (#148) */
 

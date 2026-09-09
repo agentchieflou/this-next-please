@@ -1512,11 +1512,12 @@ function go(params) {
   Object.keys(params).forEach(function (k) {
     if (params[k]) u.set(k, params[k]); else u.delete(k);
   });
-  var rawL = u.get("layout");
-  unknownLayout = (rawL && LAYOUTS.indexOf(rawL) < 0) ? rawL : null;
-  LAYOUT = unknownLayout ? "grid" : (rawL || "grid");
-  VIEW = VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : (LAYOUT === "roles" ? "agents" : "");
-  SCREEN = Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
+  readLocation(u);
+  // The URL is the window's identity, so it has to say only true things: a `view` left over from
+  // `roles` on a `screens` URL put `view-verify` and `layout-screens` on the body together and
+  // titled the window "fleet - verify" when it was a screen.
+  if (LAYOUT !== "roles") u.delete("view"); else u.set("view", VIEW);
+  if (LAYOUT !== "screens" || !SCREEN) u.delete("screen");
   var qs = u.toString();
   var newUrl = location.pathname + (qs ? "?" + qs : "");
   history.pushState({}, "", newUrl);
@@ -1543,13 +1544,31 @@ function updateLayoutSegments() {
   var group = document.getElementById("viewgroup");
   var rows = VIEW_SEGMENTS[LAYOUT];
   group.hidden = !rows;
+  if (!rows) {
+    while (group.firstChild) group.removeChild(group.firstChild);
+    return;
+  }
+  // Rebuilt only when the set of choices actually changes. Tearing these down on every draw
+  // destroyed the button the operator had just clicked, which drops the focus to `<body>` -- the
+  // same trap `reorderDomTiles` documents for tiles.
+  var want = LAYOUT + ":" + rows.map(function (r) { return r[0]; }).join(",");
+  if (group.dataset.built === want) {
+    Array.prototype.forEach.call(group.children, function (btn) {
+      var on = LAYOUT === "roles" ? (VIEW === btn.dataset.value)
+                                  : (String(SCREEN || "") === btn.dataset.value);
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-checked", String(on));
+    });
+    return;
+  }
+  group.dataset.built = want;
   while (group.firstChild) group.removeChild(group.firstChild);
-  if (!rows) return;
   rows.forEach(function (row) {
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "segment";
     btn.setAttribute("role", "radio");
+    btn.dataset.value = row[0];
     var mine = LAYOUT === "roles" ? (VIEW === row[0]) : (String(SCREEN || "") === row[0]);
     btn.classList.toggle("active", mine);
     btn.setAttribute("aria-checked", String(mine));
@@ -1562,13 +1581,20 @@ function updateLayoutSegments() {
   });
 }
 
-window.addEventListener("popstate", function () {
-  var u = new URLSearchParams(location.search);
+/* Which window this is, read from the query string. `go()` and the back button both come through
+   here so the two cannot drift apart. A `view` is only meaningful under `roles` and a `screen` only
+   under `screens`; anything else is dropped rather than carried into a layout it means nothing in. */
+function readLocation(u) {
   var rawL = u.get("layout");
   unknownLayout = (rawL && LAYOUTS.indexOf(rawL) < 0) ? rawL : null;
   LAYOUT = unknownLayout ? "grid" : (rawL || "grid");
-  VIEW = VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : (LAYOUT === "roles" ? "agents" : "");
-  SCREEN = Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
+  VIEW = LAYOUT !== "roles" ? ""
+       : (VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : "agents");
+  SCREEN = LAYOUT !== "screens" ? 0 : Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
+}
+
+window.addEventListener("popstate", function () {
+  readLocation(new URLSearchParams(location.search));
   updateLayoutSegments();
   place();
 });

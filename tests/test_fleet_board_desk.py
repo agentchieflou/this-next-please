@@ -713,13 +713,21 @@ def test_every_class_the_layout_sets_is_a_class_it_also_clears():
 
 def test_every_arrangement_the_url_can_ask_for_is_actually_styled():
     """The layouts are body classes over one stylesheet -- one page, three arrangements. A class the
-    script sets and the sheet does not style is a layout that silently renders as the grid.
+    script sets to *change the layout* and the sheet does not style is a layout that silently
+    renders as the grid, so each of those is asserted here.
 
-    `layout-grid` is not here on purpose: the grid *is* the stylesheet's own arrangement, and a rule
-    for it would be a rule that says "do what you already do"."""
+    `layout-grid`, `layout-roles` and `layout-screens` are deliberately not in that list. They name
+    which arrangement the window is, and nothing more: what actually moves is `view-agents` (the
+    left monitor's narrower columns), `solo` (one project filling the window) and `panels` (the
+    laptop's board and tray). They earn their place as the window's identity in the DOM -- the
+    browser tests read them, and a skin can target an arrangement through them without the page
+    changing -- and a rule for them would be a rule that says "do what you already do"."""
     css = open(APP_CSS, encoding="utf-8").read()
-    for name in ("layout-roles", "layout-screens", "view-agents", "solo", "panels", "needs-only"):
+    js = open(APP_JS, encoding="utf-8").read()
+    for name in ("view-agents", "solo", "panels", "needs-only"):
         assert f"body.{name}" in css, f"{name} is set by app.js and styled nowhere"
+    for name in ("layout-grid", "layout-roles", "layout-screens"):
+        assert f'"{name}"' in js, f"{name} is the window's identity and app.js must still set it"
     # Layout B's centre and right windows, and every screen of layout C, are these two between them.
     assert "body.solo .tile:not(.is-solo) { display: none; }" in css
     assert "body.panels main, body.panels #empty { display: none; }" in css
