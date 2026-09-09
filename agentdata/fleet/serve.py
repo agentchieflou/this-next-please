@@ -243,6 +243,15 @@ def fleet_snapshot() -> dict:
     if not isinstance(proj_theme_map, dict):
         proj_theme_map = {}
 
+    # Sessions the fleet did not start (#2), worked out once for the whole snapshot rather than per
+    # row: the process listing behind this is a PowerShell call on Windows, and it is cached besides.
+    from . import adopt as A
+
+    try:
+        offers = {c["repo"]: c for c in A.candidates(registry)}
+    except Exception:                    # noqa: BLE001 - never let this stop a dashboard drawing
+        offers = {}
+
     for row in supervisor.status():
         name = row["repo"]
         try:
@@ -263,7 +272,13 @@ def fleet_snapshot() -> dict:
             last_age_s = age_of_stamp(derived.get("at", ""))
 
         pid = row.get("pid", 0)
-        is_supervised = bool(pid and is_live)
+        # An adopted session is supervised in the sense the tile cares about -- somebody is working
+        # in that checkout right now -- even where this platform would not name its pid. Requiring a
+        # pid here would have every adopted Windows session draw as "nothing is supervised", which
+        # is the exact lie #2 exists to remove.
+        external_lock = supervisor.read_lock(name) if is_live else {}
+        is_external = bool(external_lock.get("external"))
+        is_supervised = bool(is_live and (pid or is_external))
 
         # The sentence says "nothing is supervised now". It may therefore only appear where that is
         # the WHOLE truth. An agent that stopped with a question still needs the human, and a tile
@@ -304,6 +319,11 @@ def fleet_snapshot() -> dict:
                      "accent": accent,
                      "pid": pid, "last_event_age_s": last_age_s,
                      "supervised": is_supervised,
+                     # Whose session this is. `external` says the fleet adopted one it did not
+                     # start; `adoptable` says there is one here it could. Never both.
+                     "external": is_external,
+                     "external_how": external_lock.get("how", "") if is_external else "",
+                     "adoptable": offers.get(name) if not is_external else None,
                      "not_supervised_sentence": not_supervised_sentence,
                      "earlier": earlier,
                      **derived,
@@ -624,9 +644,17 @@ def theme_state() -> dict:
     # (#154). Choosing `glass` while the palette is still "follow the system" put a skin designed
     # for a dark ground on a light one, which is unreadable rather than merely wrong. When the
     # operator has not chosen a palette, the skin's base is the honest answer.
+    # Skins drive palettes (#4). A variant is a skin drawn against a particular ground -- Nether is
+    # red because the art is red -- so while a skin is on, its variant's base IS the palette, and
+    # not merely the fallback when the operator has not chosen one. Leaving the choice open was the
+    # #154 bug with more ways to hit it: frosted glass designed for a dark ground rendered on a
+    # light one is unreadable rather than merely wrong, and every extra free combination is one more
+    # pairing nothing has checked the contrast of. Bound this way the set of reachable combinations
+    # is exactly the set of variants, and `tests/test_fleet_skins.py` checks all of them.
     skin_info = skins.get_skin(skin_name) if skin_name and skin_name != "none" else None
-    if skin_info and default_name == "none":
-        default_name = skin_info.get("base") or "none"
+    if skin_info:
+        default_name = skin_info.get("base") or default_name
+        skin_name = skin_info["full"]
 
     t = theme_or_none(default_name)
     css_vars = T.to_css(t) if t and t.name != "none" else {}
@@ -649,6 +677,10 @@ def theme_state() -> dict:
     return {
         "theme": default_name,
         "skin": skin_name,
+        # Split out as well as joined: the page fetches one stylesheet per skin and switches the
+        # variant with an attribute, so it needs the two halves without having to parse the name.
+        "skin_family": skin_info["name"] if skin_info else "",
+        "skin_variant": skin_info["variant"] if skin_info else "",
         "css": css_vars,
         "accents": accents,
     }
@@ -936,6 +968,18 @@ def act(what: str, body: dict) -> dict:
         return {"repo": repo, "pid": lock["pid"]}
     if what == "stop":
         return supervisor.stop(repo)
+    if what == "reset":
+        from .. import config as C
+
+        return supervisor.reset(repo, cfg=C.load(), force=bool(body.get("force")))
+    if what == "adopt":
+        from . import adopt as A
+
+        return A.adopt(repo, pid=int(body.get("pid") or 0))
+    if what == "release":
+        from . import adopt as A
+
+        return A.release(repo)
     if what in ("approve", "deny"):
         id = str(body.get("id") or "")
         state = approval.APPROVED if what == "approve" else approval.DENIED
@@ -967,12 +1011,22 @@ def act(what: str, body: dict) -> dict:
             theme_val = str(body["theme"]).strip()
             cfg["theme"]["default"] = theme_val if theme_val else "none"
         if "skin" in body:
+            from . import skins
+
             skin_val = str(body["skin"]).strip()
             cfg["theme"]["skin"] = skin_val if skin_val else "none"
+            # Choosing a skin chooses its ground with it, and writes that palette to the config the
+            # terminal reads -- so the prompt beside the dashboard moves to Nether too. This is what
+            # "skins drive themes" means in the one file both of them read.
+            chosen = skins.get_skin(cfg["theme"]["skin"]) if skin_val and skin_val != "none" else None
+            if chosen:
+                cfg["theme"]["skin"] = chosen["full"]
+                cfg["theme"]["default"] = chosen["base"]
         C.save(cfg)
         return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
-                     "start | send | stop | approve | deny | select | arrange | attach | dismiss | theme")
+                     "start | send | stop | reset | adopt | release | approve | deny | select | "
+                     "arrange | attach | dismiss | theme")
 
 
 def _sweep(url: str) -> list[dict]:

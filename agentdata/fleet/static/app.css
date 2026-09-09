@@ -269,6 +269,13 @@ body.focused .tile.is-focused { max-height: none; }
 .tile.drop-after::after { right: -7px; }
 .tile.is-dragging { opacity: 0.45; }
 
+/* A tile travelling to a new place in the order (#5). The class is added by `playFlip` only for the
+   one frame the tile is inverted, so a tile at rest carries no transition -- dragging one must stay
+   immediate. The global `prefers-reduced-motion` block below zeroes the duration, and the script
+   skips the measurement entirely, so a viewer who asked for less motion gets a plain reorder. */
+.tile.flip { transition: transform 260ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+.tile.is-dragging.flip { transition: none; }
+
 .chip {
   font: 11px var(--mono); border-radius: 10px; padding: 1px 8px;
   background: var(--select); color: var(--text);
@@ -473,8 +480,46 @@ body.focused .tile.is-focused { max-height: none; }
 .tile.needs-human .head .repo { color: var(--human); }
 
 /* Focus mode. Not applied in the solo views: hiding the one tile the window exists to show would
-   leave an empty monitor. */
-body.needs-only:not(.solo) .tile:not(.needs-human) { display: none; }
+   leave an empty monitor.
+
+   `.held` is the exception that makes focus mode usable. Answering an agent is precisely what stops
+   it needing you, so without this the tile the operator had just replied to matched
+   `:not(.needs-human)` and was hidden *by their own reply* -- the action's only visible outcome was
+   the disappearance of the thing they acted on, which reads as data loss rather than as success
+   (HIG *Feedback*: the result of an action has to be visible). A tile the operator acted on is
+   therefore held until they leave focus mode or release it. */
+body.needs-only:not(.solo) .tile:not(.needs-human):not(.held) { display: none; }
+
+/* Held, and saying so. Dimmed rather than hidden: it is no longer a demand on the operator, but it
+   is still theirs to watch. A held tile that has gone back to needing somebody is not dimmed and
+   does not carry the note -- it is on screen on its own merit again, and "held because you replied"
+   over a fresh question would be taking the credit for it. */
+body.needs-only .tile.held:not(.needs-human) { opacity: 0.82; }
+body.needs-only .tile.held:not(.needs-human) .head .repo { color: var(--text); }
+.holdnote {
+  display: none;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  align-items: center;
+  gap: 8px;
+}
+body.needs-only .tile.held:not(.needs-human) .holdnote { display: flex; }
+.holdnote button { font-size: 11px; padding: 1px 8px; }
+
+/* A session the fleet did not start (#2). An offer, not an alarm: nothing is wrong, the fleet has
+   simply noticed something it does not own. Once adopted the same strip stays, saying so, because
+   "this repo is being driven from another window" is the fact the tile exists to carry. */
+.outside {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 6px; padding: 4px 8px; border-radius: 4px;
+  font-size: 12px; color: var(--text);
+  background: var(--select); border: 1px dashed var(--line);
+}
+.outside[hidden] { display: none; }
+.outside.mine { border-style: solid; border-color: var(--running); }
+.outside .outsidewhy { flex: 1 1 auto; min-width: 0; }
+.outside button { font-size: 11px; padding: 1px 8px; white-space: nowrap; }
 
 body.solo main { grid-template-columns: 1fr; }
 body.solo .tile:not(.is-solo) { display: none; }

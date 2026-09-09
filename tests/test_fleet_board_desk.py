@@ -751,11 +751,19 @@ def test_the_page_offers_every_layout_without_typing_a_url():
 
 def test_focus_mode_hides_every_tile_but_the_ones_that_need_a_person():
     """The one thing on #133 that is not a layout. It filters on `needs-human`, which comes from
-    #94's fold -- the same flag the chip and the toast use, so the three cannot disagree."""
+    #94's fold -- the same flag the chip and the toast use, so the three cannot disagree.
+
+    The filter has exactly one exception, and it is written here rather than left to be discovered:
+    a tile the operator has just acted on is `held`, because answering an agent is what stops it
+    needing you and the reply would otherwise hide the tile it was typed into. What that looks like
+    from the operator's side is covered in `test_fleet_desk_actions.py`, in a browser; this only
+    holds the line that the two classes the rule turns on are still the ones the script sets.
+    """
     js = open(APP_JS, encoding="utf-8").read()
     css = open(APP_CSS, encoding="utf-8").read()
     assert 'el.classList.toggle("needs-human", !!row.needs_human);' in js
-    assert "body.needs-only:not(.solo) .tile:not(.needs-human) { display: none; }" in css
+    assert 'el.classList.toggle("held", held.has(row.repo));' in js
+    assert "body.needs-only:not(.solo) .tile:not(.needs-human):not(.held) { display: none; }" in css
     assert 'if (e.key === "f") { focusMode(); return; }' in js
 
 

@@ -162,6 +162,10 @@
     </div>
     <!-- Which run this transcript belongs to. #147: a transcript with no era read as live. -->
     <p class="runline"></p>
+    <!-- Why this tile is still on screen in focus mode after it stopped needing you. -->
+    <p class="holdnote"><span class="holdwhy"></span><button type="button" class="release">let it go</button></p>
+    <!-- A session running in this checkout that the fleet did not start (#2). -->
+    <p class="outside" hidden><span class="outsidewhy"></span><button type="button" class="adopt"></button></p>
     <p class="why"></p>
     <div class="cells" aria-label="the project's own state"></div>
     <div class="approval" hidden>
@@ -183,6 +187,9 @@
       <input class="say" type="text" placeholder="reply, or a ticket key to start">
       <button class="send">Send</button>
       <button class="start">Start</button>
+      <!-- One button for the two commands the operator could not work out from here: end whatever
+           is holding the checkout, then resume the same session. -->
+      <button class="reset" title="unblock it: end the stuck process and resume the same session">Reset</button>
       <button class="stop">Stop</button>
     </div>
     <p class="err" hidden></p>

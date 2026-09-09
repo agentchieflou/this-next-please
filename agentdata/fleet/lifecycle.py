@@ -109,10 +109,18 @@ def reap(name: str, *, cfg: dict | None = None) -> list[dict]:
     from . import supervisor
 
     lock = supervisor.read_lock(name)
-    if not lock or supervisor.pid_alive(int(lock.get("pid") or 0)):
+    # `live`, not `pid_alive`: an adopted session (#2) may have no pid this platform will name, and
+    # is alive on the evidence of its checkout still being written to. Asking `pid_alive(0)` reaped
+    # every adopted session on the first status poll after it was taken on.
+    if not lock or supervisor.live(name):
         return []
 
     supervisor.clear_lock(name)
+    if lock.get("external"):
+        # Somebody else's process, which has stopped. The fleet never held its stderr and never saw
+        # it start, so it has nothing truthful to say about why it ended -- and "crashed" is the
+        # word this function reaches for when a stream does not end in `exited`. Say nothing.
+        return []
     stream = E.read(name)
     if stream and stream[-1].get("kind") in ("exited", "error"):
         return []                                   # it ended properly; nothing to report

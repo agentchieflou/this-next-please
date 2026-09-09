@@ -33,6 +33,28 @@ var desk = { projects: {}, offers: {}, unsorted: [], not_offered: [], folders: [
 var pendingDesk = null;
 var needsOnly = false;
 
+/* Repos the operator has acted on, and the word for what they did.
+   Answering an agent is what stops it needing you, so in focus mode a reply hid the very tile it
+   was typed into: the only visible outcome of pressing Send was that the thing vanished. These are
+   held on screen until focus mode is left or the tile is released, so an action's result is
+   something the operator can see rather than something they have to go and find. */
+var held = new Map();           // repo -> what was done ("replied", "started", ...)
+
+var HELD_WORDS = { send: "replied", start: "started", stop: "stopped",
+                   reset: "reset", approve: "approved", deny: "denied" };
+
+function hold(repo, what) {
+  if (!repo || !HELD_WORDS[what]) return;
+  held.set(repo, HELD_WORDS[what]);
+}
+
+function release(repo) {
+  held.delete(repo);
+  if (tiles.has(repo)) tiles.get(repo).el.classList.remove("held");
+  place();
+}
+
+
 function q(path, params) {
   var u = new URL(path, location.origin);
   u.searchParams.set("t", TOKEN);
@@ -244,6 +266,23 @@ function makeTile(row, index) {
     });
   }
 
+  var adoptBtn = el.querySelector(".adopt");
+  if (adoptBtn) {
+    adoptBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var what = adoptBtn.dataset.what === "release" ? "release" : "adopt";
+      action(el, what, { repo: row.repo, pid: Number(adoptBtn.dataset.pid || 0) });
+    });
+  }
+
+  var releaseBtn = el.querySelector(".release");
+  if (releaseBtn) {
+    releaseBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      release(row.repo);
+    });
+  }
+
   var say = el.querySelector(".say");
   el.querySelector(".send").addEventListener("click", function () {
     action(el, "send", { repo: row.repo, message: say.value }).then(function () { say.value = ""; });
@@ -256,6 +295,27 @@ function makeTile(row, index) {
   });
   el.querySelector(".stop").addEventListener("click", function () {
     action(el, "stop", { repo: row.repo });
+  });
+
+  /* Reset is stop-then-resume, which is what the operator was previously expected to spell as two
+     commands in a terminal they had to go and find. `restart` is bounded by `fleet.max_restarts`
+     and refuses past it -- correctly, since an agent that has died twice the same way will die a
+     third time -- so the refusal is shown and the button becomes the second, deliberate press that
+     spends the extra turn. Two clicks, never a silent `force`. */
+  var resetBtn = el.querySelector(".reset");
+  resetBtn.addEventListener("click", function () {
+    var forcing = resetBtn.dataset.force === "1";
+    action(el, "reset", { repo: row.repo, force: forcing }).then(function (r) {
+      if (r && !r.ok && !forcing && /--force|worth another turn/.test(r.hint || "")) {
+        resetBtn.dataset.force = "1";
+        text(resetBtn, "Reset anyway");
+        resetBtn.title = "it has already been restarted this many times — press again to spend one more";
+        return;
+      }
+      resetBtn.dataset.force = "";
+      text(resetBtn, "Reset");
+      resetBtn.title = "unblock it: end the stuck process and resume the same session";
+    });
   });
   el.querySelector(".approve").addEventListener("click", function () {
     action(el, "approve", { id: el.dataset.approval, reason: el.querySelector(".reason").value });
@@ -278,6 +338,9 @@ function action(el, what, body) {
   fail(el, "");
   return post(what, body).then(function (r) {
     if (!r.ok) fail(el, r.error + (r.hint ? " — " + r.hint : ""));
+    // Only a *successful* action holds the tile. A refusal leaves the agent exactly as it was, so
+    // the tile is still whatever focus mode already thought it was, and the error is on the tile.
+    else hold((body && body.repo) || el.dataset.repo, what);
     refresh();
     return r;
   }).catch(function (e) { fail(el, String(e)); });
@@ -297,6 +360,18 @@ function drawTile(el, row, approvals) {
   // `needs-human` is the class focus mode filters on, and it comes from #94's fold rather than from
   // anything this page works out for itself: the chip, the toast and the filter must agree.
   el.classList.toggle("needs-human", !!row.needs_human);
+  /* The hold is NOT dropped when the agent needs the human. It was, briefly, and that only delayed
+     the disappearance: pressing Send refreshes at once, and for the moment before the agent opens
+     its turn it is still the blocked agent it was -- so the hold was deleted on that first refresh
+     and the tile vanished a second later, when the turn started. An agent needing the human again
+     is on screen on its own merit anyway; all the hold has to do is stop claiming the credit, which
+     the stylesheet handles by showing the note only while the tile is not asking for anything. */
+  el.classList.toggle("held", held.has(row.repo));
+  var holdNote = el.querySelector(".holdnote");
+  if (holdNote) {
+    text(holdNote.querySelector(".holdwhy"),
+         "held here because you " + (held.get(row.repo) || "acted") + " — it no longer needs you");
+  }
   el.tabIndex = 0;
   // Every state carries its own age, in the chip, because a verdict with no date is the bug.
   var ac = ageChip(row.last_event_age_s);
@@ -314,6 +389,48 @@ function drawTile(el, row, approvals) {
   text(el.querySelector(".ticket"), row.ticket || row.jira_project || "");
 
   text(el.querySelector(".why"), cold ? row.not_supervised_sentence : (row.why || ""));
+
+  /* A session in this checkout that the fleet did not start (#2). Two states, never both: one it
+     could take on, and one it already has. The `how` is shown rather than hidden because "we found
+     the process and it is in that folder" and "that folder is being written to and a Copilot is
+     running somewhere" are different claims, and the operator should be told which they have. */
+  var outside = el.querySelector(".outside");
+  if (outside) {
+    var offer = row.adoptable;
+    var adoptBtn = outside.querySelector(".adopt");
+    if (row.external) {
+      outside.hidden = false;
+      outside.classList.add("mine");
+      text(outside.querySelector(".outsidewhy"),
+           "a session outside the fleet is driving this repo" +
+           (row.pid ? " (pid " + row.pid + ")" : "") +
+           (row.external_how ? " — " + row.external_how : ""));
+      text(adoptBtn, "hand it back");
+      adoptBtn.dataset.what = "release";
+      adoptBtn.title = "stop treating that session as this repo's current one";
+    } else if (offer) {
+      outside.hidden = false;
+      outside.classList.remove("mine");
+      text(outside.querySelector(".outsidewhy"),
+           "something is working in this checkout that the fleet did not start" +
+           (offer.pid ? " (pid " + offer.pid + ")" : "") +
+           " — last wrote " + age(offer.active_age_s) + " ago, " + offer.how);
+      text(adoptBtn, "adopt it");
+      adoptBtn.dataset.what = "adopt";
+      adoptBtn.dataset.pid = String(offer.pid || 0);
+      adoptBtn.title = "make that session this repo's current one, instead of the last run the fleet started";
+    } else {
+      outside.hidden = true;
+    }
+  }
+  // An adopted session has no pipe to its stdin, so the controls that would write to it say so
+  // rather than being offered and silently doing nothing.
+  ["send", "start"].forEach(function (cls) {
+    var btn = el.querySelector("." + cls);
+    if (!btn) return;
+    btn.disabled = !!row.external;
+    btn.title = row.external ? "type in that window — this session is not the fleet's to drive" : "";
+  });
 
   // Which run this transcript belongs to. Without it, a two-day-old run reads as live.
   var run = row.run || {};
@@ -395,7 +512,8 @@ function refresh() {
     });
     var need = data.repos.filter(function (r) { return r.needs_human; }).length;
     text(document.getElementById("counts"),
-         data.repos.length + " agents" + (need ? "  ·  " + need + " need you" : ""));
+         data.repos.length + " agents" + (need ? "  ·  " + need + " need you" : "") +
+         (needsOnly && held.size ? "  ·  " + held.size + " held" : ""));
     if (data.desk) desk.desk = data.desk;
     if (data.theme) {
       applyTheme(data.theme.css, data.theme.theme);
@@ -546,10 +664,20 @@ function applyTheme(cssVars, themeName) {
   }
 }
 
+/* A skin is one stylesheet; a VARIANT is that same stylesheet drawn against a different palette,
+   selected by an attribute rather than by a second file. Nether and Overworld share every bevel and
+   every sprite and differ in their colours, so shipping them as two stylesheets would be shipping
+   the same art twice and letting the two copies drift. Switching variant therefore re-paints
+   without a fetch, and only changing skin loads anything. */
 function applySkin(skinName) {
   var link = document.head.querySelector("link[data-skin]");
-  if (!skinName || skinName === "none") {
+  var parts = String(skinName || "").split(":");
+  var family = parts[0];
+  var variant = parts[1] || "";
+  if (!family || family === "none") {
     if (link) link.remove();
+    document.body.removeAttribute("data-skin");
+    document.body.removeAttribute("data-skin-variant");
     return;
   }
   if (!link) {
@@ -558,7 +686,11 @@ function applySkin(skinName) {
     link.rel = "stylesheet";
     document.head.appendChild(link);
   }
-  link.href = q("/static/skins/" + skinName + "/skin.css");
+  var href = q("/static/skins/" + family + "/skin.css");
+  if (link.href !== href) link.href = href;   // re-assigning re-fetches and flashes the page
+  document.body.setAttribute("data-skin", family);
+  if (variant) document.body.setAttribute("data-skin-variant", variant);
+  else document.body.removeAttribute("data-skin-variant");
 }
 
 /* Two controls, two tiers, and the difference is the point (#150, #154).
@@ -586,14 +718,32 @@ function loadThemes() {
     });
     themeSel.addEventListener("change", function () { post("theme", { theme: themeSel.value }); });
 
+    /* One control, not two. A variant is not independent of its skin -- "Nether" means nothing on
+       its own, and a second picker offering it beside Farmstead would be offering a combination
+       that does not exist. Grouping them says the same thing the model does: pick a skin, and its
+       ground comes with it. A skin with one variant lists as a single option. */
     while (skinSel.options.length > 1) skinSel.remove(1);
     (data.skins || []).forEach(function (k) {
       if (k.name === "none") return;
-      var option = document.createElement("option");
-      option.value = k.name;
-      text(option, k.title || k.name);
-      option.title = (k.why || "") + (k.base ? "  ·  palette: " + k.base : "");
-      skinSel.appendChild(option);
+      var vs = k.variants || [];
+      if (vs.length < 2) {
+        var single = document.createElement("option");
+        single.value = vs.length ? vs[0].full : k.name;
+        text(single, k.title || k.name);
+        single.title = (k.why || "") + (k.base ? "  ·  palette: " + k.base : "");
+        skinSel.appendChild(single);
+        return;
+      }
+      var group = document.createElement("optgroup");
+      group.label = k.title || k.name;
+      vs.forEach(function (v) {
+        var option = document.createElement("option");
+        option.value = v.full;
+        text(option, v.title || v.name);
+        option.title = (v.why || "") + "  ·  palette: " + v.base;
+        group.appendChild(option);
+      });
+      skinSel.appendChild(group);
     });
     skinSel.addEventListener("change", function () { post("theme", { skin: skinSel.value }); });
     reflectTheme(data.current || data.theme);
@@ -608,6 +758,16 @@ function reflectTheme(cur) {
   var skinSel = document.getElementById("skin");
   if (themeSel && cur.theme) themeSel.value = cur.theme;
   if (skinSel) skinSel.value = cur.skin || "none";
+  /* While a skin is on, the palette is the skin's -- so the palette picker shows what is being
+     rendered and says why it is not taking instructions, rather than accepting a choice the server
+     would then override. Turning the skin off hands it back. */
+  if (themeSel) {
+    var bound = !!(cur.skin && cur.skin !== "none");
+    themeSel.disabled = bound;
+    themeSel.title = bound
+      ? "the palette comes from the skin — choose “no skin” to pick one yourself"
+      : "palette — shared with this project's terminal";
+  }
 }
 
 refresh().then(function () {
@@ -1355,6 +1515,13 @@ function reorderDomTiles() {
   var focused = document.activeElement;
   var refocus = needsMove && focused && focused.closest && focused.closest(".tile") ? focused : null;
 
+  // FLIP, first half: where every tile is *now*, before the DOM moves. A tile that reorders by
+  // `appendChild` alone teleports, and a grid that reshuffles itself while agents are talking reads
+  // as flicker rather than as movement -- the operator cannot see that the tile they were reading
+  // is the same tile, only lower down. Measured only when something is actually moving, and not at
+  // all when the viewer has asked for less of it.
+  var first = (needsMove && !reduceMotion()) ? measureTiles() : null;
+
   order.forEach(function (name, index) {
     var entry = tiles.get(name);
     if (entry && entry.el) {
@@ -1378,7 +1545,57 @@ function reorderDomTiles() {
       }
     }
   });
+  if (first) playFlip(first);
   if (refocus) refocus.focus();
+}
+
+/* ------------------------------------------------------------------ moving tiles, visibly (#5) */
+
+function reduceMotion() {
+  return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+
+/* Only tiles that are actually laid out. A hidden one -- focus mode, or a solo view -- has a zero
+   rect, and animating from nowhere to somewhere is a tile flying in from the corner of the screen
+   for no reason the operator can see. */
+function measureTiles() {
+  var seen = new Map();
+  tiles.forEach(function (entry, name) {
+    var box = entry.el.getBoundingClientRect();
+    if (box.width > 0 && box.height > 0) seen.set(name, box);
+  });
+  return seen;
+}
+
+/* FLIP, second half: put each tile back where it was with a transform, then let it travel to where
+   the DOM has already placed it. The layout is never animated -- only the paint -- so the grid is
+   in its final state throughout, and a click during the movement lands on the tile the operator is
+   aiming at rather than on wherever it used to be. */
+function playFlip(first) {
+  var moved = [];
+  tiles.forEach(function (entry, name) {
+    var was = first.get(name);
+    if (!was) return;
+    var now = entry.el.getBoundingClientRect();
+    if (now.width <= 0) return;
+    var dx = was.left - now.left;
+    var dy = was.top - now.top;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    entry.el.classList.remove("flip");
+    entry.el.style.transform = "translate(" + dx + "px, " + dy + "px)";
+    moved.push(entry.el);
+  });
+  if (!moved.length) return;
+  // Two frames, not one: the inverted transform has to be painted before the transition is armed,
+  // or the browser coalesces the two styles and nothing moves at all.
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      moved.forEach(function (el) {
+        el.classList.add("flip");
+        el.style.transform = "";
+      });
+    });
+  });
 }
 
 /* Pinned tiles come first, always -- so a move has to happen inside the block the tile is in.
@@ -1487,7 +1704,10 @@ function place() {
   }
   var need = 0;
   tiles.forEach(function (entry) { if (entry.el.classList.contains("needs-human")) need += 1; });
-  document.getElementById("nonefocus").hidden = !(needsOnly && !one && need === 0 && tiles.size > 0);
+  // "Nothing needs you" is only true of an EMPTY screen. Held tiles are still on it, so the prompt
+  // to leave focus mode would be sitting under the very tiles it claims are not there.
+  document.getElementById("nonefocus").hidden =
+    !(needsOnly && !one && need === 0 && held.size === 0 && tiles.size > 0);
   var notice = document.getElementById("notice");
   if (unknownLayout) {
     text(notice, "unknown layout '" + unknownLayout + "' — showing grid");
@@ -1650,6 +1870,9 @@ function focusMode(on) {
   needsOnly = on === undefined ? !needsOnly : !!on;
   document.getElementById("focus").setAttribute("aria-pressed", String(needsOnly));
   try { localStorage.setItem("fleet.needsonly", needsOnly ? "1" : "0"); } catch (e) { /* private */ }
+  // Leaving focus mode is the operator saying they are done with this pass, so the tiles being
+  // held for them are let go. Otherwise the next `f` would open on the last visit's leftovers.
+  if (!needsOnly) held.clear();
   place();
 }
 

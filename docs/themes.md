@@ -102,12 +102,51 @@ A **skin** is one more stylesheet over the same DOM: the approved grid with CSS 
 
 ### Available Skins
 
-| Skin | Base Palette | Inspiration & Materials | HIG Rule Applied |
-|---|---|---|---|
-| `none` | system | Default clean HIG interface | Clean baseline |
-| `glass` | `dark` | Translucent frosted acrylic `backdrop-filter: blur(16px)` panels over soft project-accent radial washes. Solid status chips and focus rings. | *Materials*: translucent material blurs what is behind it and adapts to light and dark while keeping content legible. |
-| `voxel` | `matrix` | Tiled 8×8 `<rect>` dirt/stone textures, 2px bevelled slab controls, 10px accent borders, and 12px status blocks before glyphs. Inspired by block-building games; zero copied assets. | *Visual Design*: bold tactile geometry and unmistakable state indicators across a room. |
-| `farmstead` | `sand` | Warm cream paper `#FBF3E0`, 4px wooden frames `#6E4A28`, tan controls with 3px press shadows, journal-style inspector, and 5 crop-stage sprites (seed, sprout, sun, bloom, wilted) carrying state. Inspired by pixel farming games; zero copied assets. | *Color & Redundancy*: never colour alone; crop stages provide a second redundant carrier for agent status. |
+| Skin | Inspiration & Materials | HIG Rule Applied |
+|---|---|---|
+| `none` | Default clean HIG interface | Clean baseline |
+| `glass` | Translucent frosted acrylic `backdrop-filter: blur(16px)` panels over soft project-accent radial washes. Solid status chips and focus rings. | *Materials*: translucent material blurs what is behind it and adapts to light and dark while keeping content legible. |
+| `voxel` | Tiled 8×8 `<rect>` dirt/stone textures, 2px bevelled slab controls, 10px accent borders, and 12px status blocks before glyphs. Inspired by block-building games; zero copied assets. | *Visual Design*: bold tactile geometry and unmistakable state indicators across a room. |
+| `farmstead` | Warm cream paper, 4px wooden frames, tan controls with 3px press shadows, journal-style inspector, and 5 crop-stage sprites (seed, sprout, sun, bloom, wilted) carrying state. Inspired by pixel farming games; zero copied assets. | *Color & Redundancy*: never colour alone; crop stages provide a second redundant carrier for agent status. |
+
+A variant re-colours the surfaces and nothing else. The status chips and the crop stages are
+deliberately **not** among them: a chip means the same thing in every world, and a `fail` that were
+red in one and orange in another would be a state the operator has to translate before reading it.
+
+### Skins and their worlds
+
+A skin has **variants**, and each variant names the palette it is drawn against. The asymmetry is
+the model: every skin has palette variants, and no palette needs to know that any skin exists. A
+texture is designed for a ground — Nether is red because the art is red — so **choosing a skin
+chooses the palette with it**, in the same `~/.agentdata/config.json` the terminal reads. While a
+skin is on, the palette picker shows what is being rendered and says why it is not taking
+instructions; turning the skin off hands it back.
+
+That binding is what makes the accessibility claim checkable. With the two pickers independent
+there were eleven palettes against four skins of possible pairings and nothing had measured most of
+them; bound, the set of reachable combinations *is* the set of variants below, and
+`tests/test_fleet_skins.py` runs `theme.check` over every row — text ≥ 4.5:1 and ≤ 19:1, each status
+role ≥ 3:1, `ok`/`fail` at least 30° apart in hue — against the **composited panel**, the colour the
+text is actually read on once the frost or the texture has been painted, rather than against the
+palette's own ground. A browser test then applies each variant for real and compares the panel
+colour the engine computes with the one declared here, so a variant cannot be measured in Python and
+missing from the stylesheet.
+
+Selected as `<skin>` or `<skin>:<variant>`; a bare skin name means its default variant, and an
+unknown variant falls back to the default rather than taking the page down.
+
+| Name | Variant | Base palette | Ground | Composited panel | Text contrast | Why |
+|---|---|---|---|---|---|---|
+| `glass:smoke` | Smoke *(default)* | `dark` | `#14171A` | `#1B222C` | 12.9:1 | neutral graphite behind the frost |
+| `glass:azure` | Azure | `blues` | `#0B1B33` | `#16243D` | 12.0:1 | cold blue depth, the darkest of the three |
+| `glass:noir` | Noir | `vanta-black` | `#000000` | `#121212` | 11.2:1 | near-black, for a room with the lights off |
+| `glass:frost` | Frost | `eye-relief-day` | `#F2ECDC` | `#EDE6D6` | 9.2:1 | the light one: warm paper under the same frost |
+| `voxel:overworld` | Overworld *(default)* | `matrix` | `#020A03` | `#1E221E` | 10.7:1 | grass, stone and daylight |
+| `voxel:nether` | Nether | `reds` | `#400000` | `#2A1512` | 12.9:1 | netherrack and firelight |
+| `voxel:end` | The End | `vanta-black` | `#000000` | `#16121C` | 11.0:1 | endstone and void |
+| `farmstead:daytime` | Daytime *(default)* | `sand` | `#EFE6D2` | `#E8DDC3` | 9.4:1 | sunlight on paper and wood |
+| `farmstead:cave` | Cave | `eye-relief` | `#2B2A27` | `#33302A` | 8.3:1 | lamplight underground |
+| `farmstead:rainy` | Rainy day | `blues` | `#0B1B33` | `#16243D` | 12.0:1 | a wet afternoon indoors |
 
 ## An Agent Never Sees This
 

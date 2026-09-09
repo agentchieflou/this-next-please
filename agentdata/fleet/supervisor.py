@@ -113,7 +113,17 @@ def live(name: str) -> dict:
     *after* it has said what happened.
     """
     lock = read_lock(name)
-    return lock if lock and pid_alive(int(lock.get("pid") or 0)) else {}
+    if not lock:
+        return {}
+    if lock.get("external"):
+        # A session the fleet did not start (#2). It is live on the same terms it was adopted on:
+        # by its pid where the platform would name one, and otherwise by the checkout still being
+        # written to. `adopt.still_there` holds both, and reads the path out of the lock rather than
+        # the registry -- this runs on every status poll, and `Registry()` re-parses its file.
+        from . import adopt
+
+        return lock if adopt.still_there(lock) else {}
+    return lock if pid_alive(int(lock.get("pid") or 0)) else {}
 
 
 # --------------------------------------------------------------------------------- the events
@@ -413,7 +423,15 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
     reg = registry or Registry()
     repo = reg.get(name)
 
-    if live(name):
+    current = live(name)
+    if current.get("external"):
+        # An adopted session is somebody else's process. There is no pipe to its stdin, so a message
+        # sent here would go nowhere -- and a Send button that silently does nothing is worse than
+        # one that refuses and says where to type instead.
+        raise SupervisorError(f"{name} is running a session the fleet did not start",
+                              "type in that window. `ad-fleet release` hands it back, and then the "
+                              "fleet can drive this repository again")
+    if current:
         raise SupervisorError(f"{name} is mid-turn",
                               "wait for the turn to finish, or `ad-fleet stop` it first")
 
@@ -514,6 +532,14 @@ def stop(name: str, *, wait: float = 10.0, registry: Registry | None = None) -> 
         return {"repo": name, "stopped": False, "detail": "no live agent"}
 
     pid = int(lock.get("pid") or 0)
+    if lock.get("external") and not pid:
+        # Adopted from the evidence of a checkout being written to, on a platform that would not say
+        # which process was doing it. There is nothing here to kill, and `kill_tree(0)` means "this
+        # process group" -- which is the fleet, and on a CI runner was once the test suite above it.
+        raise SupervisorError(
+            f"{name} is running a session the fleet did not start, and this machine will not say "
+            f"which process it is",
+            "close that window yourself. `ad-fleet release` then hands the repository back")
     proc.kill_tree(pid)
 
     deadline = time.time() + wait
@@ -526,6 +552,46 @@ def stop(name: str, *, wait: float = 10.0, registry: Registry | None = None) -> 
     return {"repo": name, "stopped": False, "pid": pid,
             "detail": f"pid {pid} was still alive {wait:.0f}s after the kill; the lock is kept so "
                       f"nothing starts a second agent beside it"}
+
+
+def reset(name: str, *, cfg: dict | None = None, registry: Registry | None = None,
+          exe: str | None = None, force: bool = False, wait: float = 10.0) -> dict:
+    """Unblock this agent: end whatever is holding the checkout, then resume the same session.
+
+    The two-command dance -- `ad-fleet stop <repo>` and then `ad-fleet start <repo>` -- is the thing
+    the operator could not work out from the dashboard, and no wonder: neither command is named
+    after the problem. What they have is an agent that has stopped answering, in a `cmd.exe` window
+    they may not even be able to find, and what they want is for it to go again. That is one
+    intention, so it is one call, and the page can put one button on it.
+
+    It is `stop` and then `restart`, in that order, with the failures kept rather than smoothed
+    over, because both halves can legitimately refuse:
+
+    * a process that will not die keeps its lock, and this returns that refusal untouched. Starting
+      a second agent beside a live one is the failure the lock exists to prevent, and "the reset
+      button did nothing visible" is a far better outcome than two agents editing one working tree.
+    * `restart` resumes rather than starts fresh -- `--resume <session>`, so the agent keeps the
+      ticket it has read and the plan it has made -- and it is bounded by `fleet.max_restarts`. A
+      refusal there is reported with its hint, and the caller may pass `force` to spend one more.
+
+    Nothing here is new behaviour. It is the two verbs the operator was already expected to run,
+    with the ordering and the reasons built in instead of written in a document.
+    """
+    reg = registry or Registry()
+    reg.get(name)                       # an unknown name is a typo; say so before killing anything
+
+    ended = stop(name, wait=wait, registry=reg)
+    if ended.get("pid") and not ended.get("stopped"):
+        # Still alive after the kill. `stop` kept the lock on purpose; respect it.
+        raise SupervisorError(
+            f"{name} would not stop: {ended.get('detail', 'the process is still running')}",
+            "nothing was restarted -- a second agent beside a live one would edit the same "
+            "working tree. Close that window, or end the process, and reset again")
+
+    lock = restart(name, cfg=cfg, registry=reg, exe=exe, force=force)
+    return {"repo": name, "stopped": bool(ended.get("stopped")), "pid": lock["pid"],
+            "session": lock.get("session", ""), "ticket": lock.get("ticket", ""),
+            "summary": lock.get("summary", ""), "restarts": lock.get("restarts", 1)}
 
 
 def status(registry: Registry | None = None) -> list[dict]:

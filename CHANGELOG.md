@@ -4,6 +4,53 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.9.0
+
+**Acting on an agent no longer hides it (#3).** Focus mode shows what the fold says needs a person, and replying is
+precisely what stops an agent needing one — so answering an agent removed the tile you had just answered, at the
+instant of the click. The only visible outcome of pressing Send was that the thing you were working on disappeared,
+and operators went looking for it in the `where` scan, which is where you go when you believe you have lost
+something. A tile you have acted on is now **held** on screen, saying why, until you let it go or leave focus mode.
+
+**One button for "it is stuck, make it go again" (#1).** Unblocking an agent meant `ad-fleet stop` and then
+`ad-fleet start`, neither of which is named after the problem, in a terminal you had to go and find. That is one
+intention, so it is now one verb — a **Reset** button on every tile, and `ad-fleet reset` — which is stop-then-resume
+with both refusals kept: a process that will not die keeps its lock and nothing is started beside it, and
+`fleet.max_restarts` still refuses, with the button becoming the second, deliberate press that spends one more turn.
+
+**The portal can see, and take on, a session it did not start (#2).** A `copilot` going in a `cmd.exe` window is an
+agent working in a registered checkout that the fleet knew nothing about, so the tile drew the last run the *fleet*
+had started — days old — and said nothing was supervised. The dashboard now finds those sessions and offers to adopt
+one, which makes it the repository's current run. Dragging a console window into a browser cannot work (a window drag
+carries no process identity, and a dropped folder's real path is withheld from pages), so the portal finds the
+session instead of being handed it: on POSIX by the process's working directory, and on Windows — where a working
+directory is not readable without native calls this package will not make — from `.agent/state.json`, which has
+exactly one writer. The two claims are labelled differently everywhere they are shown, because one is weaker than
+the other. Adoption supersedes; it does not pretend to supervise: there is no pipe to somebody else's stdin, so Send
+says where to type instead. `ad-fleet adopt --list`, `ad-fleet adopt <repo>`, `ad-fleet release <repo>`.
+
+**Tiles move instead of teleporting (#5).** A grid that reshuffles while agents are talking read as flicker; you
+could not see that the tile you were reading was the same tile, lower down. Only the paint is animated, so the grid
+is in its final state throughout and a click during the movement lands on the tile you are aiming at.
+`prefers-reduced-motion` skips the measurement as well as the transition.
+
+**Skins drive palettes, and every skin has worlds (#4).** Voxel gets Overworld, Nether and The End; Farmstead gets
+Daytime, Cave and Rainy day; Glass gets Smoke, Azure, Noir and Frost — the last light, which the skin never had.
+Choosing a skin now chooses its palette, written to the same `~/.agentdata/config.json` the terminal reads, so the
+prompt beside the dashboard moves too. #154 bound the palette only when you had chosen none, which left the same
+defect one click away: pick `glass`, then pick `sand`, and frosted glass built for a dark ground is on a light one
+again.
+
+That binding is what makes the accessibility claim checkable. With the pickers independent there were eleven
+palettes against four skins of pairings and nothing had measured most of them; bound, the reachable set *is* the ten
+variants, and all ten are checked — text between 4.5:1 and 19:1, each status role at 3:1, `ok` and `fail` 30° apart —
+against the composited panel, the colour text is actually read on once the frost or texture is painted. Glass's panel
+fills are solved backwards from that number rather than chosen by eye, and a browser test applies all ten for real,
+so a variant cannot be measured in Python and missing from the stylesheet.
+
+**Nothing to do on update.** No new dependency and no `ad-setup --patch`. A `theme.skin` of `glass` in your config
+keeps working and now means `glass:smoke`.
+
 ## 0.8.0
 
 **Fixed: the Desk was unusable, and the tests said it was fine (#145: #146, #147, #148, #149, #150, #154–#157).**
