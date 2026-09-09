@@ -21,7 +21,9 @@ var source = null;
    the parameter on the URL it prints, so the operator never has to type one. */
 var LAYOUTS = ["grid", "roles", "screens"];
 var VIEWS = ["board", "agents", "verify"];
-var LAYOUT = LAYOUTS.indexOf(PARAMS.get("layout")) >= 0 ? PARAMS.get("layout") : "grid";
+var rawLayout = PARAMS.get("layout");
+var unknownLayout = (rawLayout && LAYOUTS.indexOf(rawLayout) < 0) ? rawLayout : null;
+var LAYOUT = unknownLayout ? "grid" : (rawLayout || "grid");
 var VIEW = VIEWS.indexOf(PARAMS.get("view")) >= 0 ? PARAMS.get("view")
                                                   : (LAYOUT === "roles" ? "agents" : "");
 var SCREEN = Math.max(0, Math.min(9, Number(PARAMS.get("screen")) || 0));
@@ -1389,9 +1391,13 @@ function place() {
   var need = 0;
   tiles.forEach(function (entry) { if (entry.el.classList.contains("needs-human")) need += 1; });
   document.getElementById("nonefocus").hidden = !(needsOnly && !one && need === 0 && tiles.size > 0);
-  text(document.getElementById("view"),
-       LAYOUT + (VIEW ? " · " + VIEW : "") + (SCREEN ? " · screen " + SCREEN : "") +
-       (one ? " · " + one : ""));
+  if (unknownLayout) {
+    text(document.getElementById("view"), "unknown layout '" + unknownLayout + "', using grid");
+  } else {
+    text(document.getElementById("view"),
+         LAYOUT + (VIEW ? " · " + VIEW : "") + (SCREEN ? " · screen " + SCREEN : "") +
+         (one ? " · " + one : ""));
+  }
   drawSwap(one);
 }
 
@@ -1408,7 +1414,9 @@ function go(params) {
   Object.keys(params).forEach(function (k) {
     if (params[k]) u.set(k, params[k]); else u.delete(k);
   });
-  LAYOUT = LAYOUTS.indexOf(u.get("layout")) >= 0 ? u.get("layout") : "grid";
+  var rawL = u.get("layout");
+  unknownLayout = (rawL && LAYOUTS.indexOf(rawL) < 0) ? rawL : null;
+  LAYOUT = unknownLayout ? "grid" : (rawL || "grid");
   VIEW = VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : (LAYOUT === "roles" ? "agents" : "");
   SCREEN = Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
   var qs = u.toString();
@@ -1433,7 +1441,9 @@ function updateLayoutSegments() {
 
 window.addEventListener("popstate", function () {
   var u = new URLSearchParams(location.search);
-  LAYOUT = LAYOUTS.indexOf(u.get("layout")) >= 0 ? u.get("layout") : "grid";
+  var rawL = u.get("layout");
+  unknownLayout = (rawL && LAYOUTS.indexOf(rawL) < 0) ? rawL : null;
+  LAYOUT = unknownLayout ? "grid" : (rawL || "grid");
   VIEW = VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : (LAYOUT === "roles" ? "agents" : "");
   SCREEN = Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
   updateLayoutSegments();

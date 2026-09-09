@@ -71,9 +71,9 @@ error in a tooltip**, never wrong; a link with no fact behind it is absent, neve
 The grid follows the number of registered repositories: four repos, four tiles. Click a repo name
 (or double-click a tile) and it fills the window; `Esc` returns to the grid.
 
-The same page has three arrangements and a focus mode, chosen by the query string —
-`ad-fleet serve --layout grid|roles|screens`. Which one is the default is being decided on the real
-screens: [fleet-layouts.md](fleet-layouts.md).
+The default layout is `grid` (chosen in the four-screen sitting: [fleet-layouts.md](fleet-layouts.md)).
+`roles` and `screens` are retired. An unknown `?layout=` falls back to `grid` with a notice in the
+toolbar. Focus mode (`f`) filters to only agents that need human attention.
 
 Chip colours are fixed across every theme, because a chip that means "needs you" has to be the same
 red everywhere or the colour stops being information:

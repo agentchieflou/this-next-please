@@ -73,6 +73,14 @@ def test_desk_static_assets_exist():
     assert os.path.getsize(js_path) > 1000
 
 
+def test_desk_unknown_layout_fallback_contract():
+    """Verify app.js handles unknown ?layout= by falling back to grid with a sentence."""
+    js_path = os.path.join(STATIC, "app.js")
+    js = open(js_path, encoding="utf-8").read()
+    assert "unknown layout" in js
+    assert "using grid" in js or "grid" in js
+
+
 # --------------------------------------------------------------------------------- Playwright browser tests
 
 
@@ -121,5 +129,37 @@ def test_desk_browser_layouts_and_sync(running_desk):
         if tiles1:
             tiles1[0].click()
             time.sleep(0.5)
+
+        browser.close()
+
+
+@pytest.mark.browser
+def test_desk_browser_unknown_layout_fallback(running_desk):
+    """An unknown ?layout= parameter shows the default layout (grid) with a sentence in the toolbar."""
+    playwright_module = pytest.importorskip("playwright.sync_api")
+    sync_playwright = playwright_module.sync_playwright
+
+    base, token, _ = running_desk
+    url = f"{base}/?t={token}&layout=superwide"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
+
+        errors = []
+        page.on("pageerror", lambda exc: errors.append(str(exc)))
+
+        res = page.goto(url)
+        assert res.status == 200
+        page.wait_for_selector("#view", timeout=5000)
+
+        assert not errors, f"Page JS errors: {errors}"
+        view_text = page.inner_text("#view")
+        assert "unknown layout" in view_text
+        assert "grid" in view_text
+
+        # Verify grid is rendered
+        assert page.query_selector(".grid, #grid") is not None
 
         browser.close()
