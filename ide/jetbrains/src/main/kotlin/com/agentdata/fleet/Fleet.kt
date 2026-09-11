@@ -139,6 +139,46 @@ object Fleet {
         }
     }
 
+    /**
+     * Give the agent some files (#167).
+     *
+     * The shell posts *paths* and nothing else. Which checkout owns them, whether any may be
+     * scoped, and what to do when they belong to a different one than the selected tile are all
+     * the server's. A shell that decided any of that would be a second place the rule lives.
+     */
+    fun giveToAgent(record: Record, paths: List<String>): Pair<Boolean, String> {
+        return try {
+            val connection = URI("http://127.0.0.1:${record.port}/api/scope?t=${record.token}")
+                .toURL().openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.connectTimeout = 5000
+            connection.readTimeout = 60_000
+            connection.setRequestProperty("Content-Type", "application/json")
+            val payload = Gson().toJson(mapOf("paths" to paths))
+            connection.outputStream.use { it.write(payload.toByteArray(StandardCharsets.UTF_8)) }
+            val stream = if (connection.responseCode < 400) connection.inputStream else connection.errorStream
+            val answer = stream.use { it.readBytes().toString(StandardCharsets.UTF_8) }
+            val json = JsonParser.parseString(answer).asJsonObject
+            if (json.get("ok")?.asBoolean == true) {
+                val scoped = json.getAsJsonArray("scoped")
+                val said = scoped?.joinToString(", ") {
+                    val row = it.asJsonObject
+                    "${row.getAsJsonArray("paths")?.size() ?: 0} to ${row.get("repo")?.asString}"
+                } ?: ""
+                true to said
+            } else {
+                // The server's refusal verbatim, for the reason `startAgent` gives it verbatim.
+                false to listOfNotNull(
+                    json.get("error")?.asString,
+                    json.get("hint")?.asString
+                ).joinToString(" — ")
+            }
+        } catch (e: Exception) {
+            false to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
     fun startAgent(record: Record, repo: String, ticket: String): Pair<Boolean, String> {
         return try {
             val connection = URI("http://127.0.0.1:${record.port}/api/start?t=${record.token}")

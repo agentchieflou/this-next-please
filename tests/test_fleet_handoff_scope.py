@@ -303,3 +303,49 @@ def test_a_file_that_is_not_the_repos_offers_a_copy_and_says_so(fleet_home, tmp_
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+# ------------------------------------------------------- paths from a shell (#167)
+
+
+def test_the_server_maps_a_path_to_the_checkout_that_owns_it(fleet_home, tmp_path):
+    """Acceptance criterion: a shell posts paths and the server decides which checkout owns them."""
+    repo = _checkout(tmp_path)
+    out = S.act("scope", {"paths": [os.path.join(repo, "models", "Velocity.tmdl")]})
+    assert out["scoped"][0]["repo"] == "luna"
+    assert out["scoped"][0]["paths"] == ["models/Velocity.tmdl"]
+    assert out["outside"] == []
+    rows = SC.read_scope(repo, "RDSD-118")
+    assert rows[0]["how"] == "ide", "where it came from is recorded, not guessed at later"
+
+
+def test_a_path_outside_every_checkout_is_refused_with_its_code(fleet_home, tmp_path):
+    """Acceptance criterion: a path in no registered checkout is refused."""
+    _checkout(tmp_path)
+    stray = tmp_path / "elsewhere" / "notes.md"
+    os.makedirs(stray.parent, exist_ok=True)
+    stray.write_text("not in any checkout\n", encoding="utf-8")
+    with pytest.raises(S.ServeError) as caught:
+        S.act("scope", {"paths": [str(stray)]})
+    assert caught.value.code == "wrong_repo"
+    assert "repo add" in caught.value.hint
+
+
+def test_files_of_another_checkout_than_the_selected_tile_are_refused_by_name(fleet_home, tmp_path):
+    """Acceptance criterion: a path in repo A while tile B is selected is refused, naming A."""
+    repo_a = _checkout(tmp_path, name="luna")
+    _checkout(tmp_path, name="mars")
+    with pytest.raises(S.ServeError) as caught:
+        S.act("scope", {"paths": [os.path.join(repo_a, "models", "Velocity.tmdl")],
+                        "selected": "mars"})
+    assert caught.value.code == "scope_wrong_repo"
+    assert "luna" in caught.value.msg and "luna" in caught.value.hint
+
+
+def test_the_deepest_checkout_wins_so_a_nested_one_is_its_own_project(fleet_home, tmp_path):
+    """A worktree inside its main checkout is its own project, not its parent's."""
+    outer = _checkout(tmp_path, name="outer")
+    inner = make_project(os.path.join(outer, "wt", "feature"), ticket="RDSD-9")
+    Registry().add(inner, name="inner")
+    owner = SC.owner_of(os.path.join(inner, "AGENTS.md"))
+    assert owner is not None and owner.name == "inner"

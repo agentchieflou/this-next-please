@@ -261,6 +261,21 @@ def test_neither_shell_is_shipped_in_the_python_wheel():
     assert "ide/" not in body, "the shells are IDE artefacts, not package data"
 
 
+def test_a_shell_posts_paths_and_nothing_else():
+    """Step 8 (#167): a host with file paths may hand them over, and may not decide anything.
+
+    The temptation is for a shell to work out which checkout a file belongs to, or to skip a file
+    it thinks the agent should not read. Both would be a second place the rule lives, and the two
+    would drift. So the shells post to `/api/scope` and name no file type, no size, and no
+    repository rule.
+    """
+    for name, body in shells().items():
+        assert "/api/scope" in body, f"{name} has no way to give the agent a file"
+        for forbidden in (".tmdl", ".pbix", ".xlsx", "max_mb", " MB", "scope_wrong_repo",
+                          "ls-files", "jira_project"):
+            assert forbidden not in body, f"{name} names {forbidden!r}: that decision is the server's"
+
+
 def test_the_doc_carries_the_contract_a_third_host_would_follow():
     text = read(DOC)
     assert "What a shell must do" in text

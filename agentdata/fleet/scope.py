@@ -249,6 +249,62 @@ def add(repo_name: str, repo_path: str, ticket: str, paths: list[str], *, why: s
     return event
 
 
+def owner_of(path: str, registry=None):
+    """Which registered checkout contains this absolute path, if any. (#167)
+
+    The shells post *paths*, because an IDE has one and the page never will, and the decision about
+    which checkout a path belongs to is the server's -- a shell that decided it would be a shell
+    with a rule in it, which `tests/test_fleet_shells.py` exists to prevent.
+
+    Longest match wins, so a worktree nested inside its main checkout is its own project rather
+    than its parent's. Real paths on both sides: a symlinked route to a checkout is that checkout.
+    """
+    from .registry import Registry, RegistryError
+
+    try:
+        repos = list((registry or Registry()).sorted())
+    except RegistryError:
+        return None
+    try:
+        here = textio.norm_path(os.path.realpath(os.path.abspath(path)))
+    except OSError:
+        here = textio.norm_path(os.path.abspath(path))
+    best = None
+    for repo in repos:
+        try:
+            root = textio.norm_path(os.path.realpath(repo.path))
+        except OSError:
+            root = textio.norm_path(repo.path)
+        if here == root or here.lower().startswith(root.lower() + "/"):
+            if best is None or len(root) > len(textio.norm_path(os.path.realpath(best.path))):
+                best = repo
+    return best
+
+
+def relative_to(repo_path: str, path: str) -> str:
+    """The repository-relative spelling a scope row records."""
+    try:
+        root = os.path.realpath(repo_path)
+        here = os.path.realpath(os.path.abspath(path))
+    except OSError:
+        root, here = repo_path, os.path.abspath(path)
+    return textio.norm_path(os.path.relpath(here, root))
+
+
+def group_by_checkout(paths: list[str], registry=None) -> tuple[dict, list[str]]:
+    """Map absolute paths onto the checkouts that own them. Returns `(by_repo, orphans)`."""
+    by_repo: dict = {}
+    orphans: list[str] = []
+    for path in paths:
+        repo = owner_of(path, registry=registry)
+        if repo is None:
+            orphans.append(textio.norm_path(path))
+            continue
+        by_repo.setdefault(repo.name, {"repo": repo, "paths": []})
+        by_repo[repo.name]["paths"].append(relative_to(repo.path, path))
+    return by_repo, orphans
+
+
 def _refuse_unscopable(rel: str) -> None:
     """What may never be scoped, whichever channel asked.
 

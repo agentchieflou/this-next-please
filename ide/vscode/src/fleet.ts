@@ -268,6 +268,46 @@ export async function startAgent(record: ServeRecord, repo: string, ticket: stri
   });
 }
 
+/**
+ * Give the agent some files (#167).
+ *
+ * The shell posts *paths* and nothing else. Which checkout owns them, whether any of them may be
+ * scoped at all, and what to do when they belong to a different one than the selected tile are all
+ * the server's -- a shell that decided any of that would be a second place the rule lives, and the
+ * two would eventually disagree. The answer is shown in the server's own words.
+ */
+export async function giveToAgent(record: ServeRecord, paths: string[], selected?: string):
+  Promise<{ ok: boolean; error?: string; hint?: string; scoped?: { repo: string; paths: string[] }[]; outside?: string[] }> {
+  return new Promise((resolve) => {
+    const payload = JSON.stringify({ paths, selected: selected || "" });
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port: record.port,
+        path: `/api/scope?t=${encodeURIComponent(record.token)}`,
+        method: "POST",
+        timeout: 30000,
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (c: Buffer) => chunks.push(c));
+        response.on("end", () => {
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+          } catch {
+            resolve({ ok: false, error: `the server answered ${response.statusCode}` });
+          }
+        });
+      }
+    );
+    request.on("timeout", () => request.destroy(new Error("timeout")));
+    request.on("error", (e) => resolve({ ok: false, error: String(e) }));
+    request.write(payload);
+    request.end();
+  });
+}
+
 /** The repositories the fleet knows, so a command can offer the current folder if it is one. */
 export async function repos(record: ServeRecord): Promise<{ repo: string; path: string }[]> {
   try {

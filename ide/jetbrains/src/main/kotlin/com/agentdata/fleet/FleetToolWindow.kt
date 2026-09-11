@@ -10,11 +10,16 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.ide.dnd.FileCopyPasteUtil
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import java.awt.dnd.DnDConstants
+import java.awt.dnd.DropTarget
+import java.awt.dnd.DropTargetAdapter
+import java.awt.dnd.DropTargetDropEvent
 import javax.swing.JPanel
 
 /**
@@ -56,8 +61,48 @@ class FleetPanel(private val project: Project) : JPanel(BorderLayout()), com.int
             val view = JBCefBrowser()
             browser = view
             add(view.component, BorderLayout.CENTER)
+            // #167: an IDE has file paths and the page never will. A drop onto this panel posts
+            // them; the server decides which checkout owns them and answers in its own words.
+            installDropTarget(view.component)
             ApplicationManager.getApplication().executeOnPooledThread { connect() }
         }
+    }
+
+    /**
+     * Files dropped onto the tool window are posted as paths, and nothing else.
+     *
+     * `FileCopyPasteUtil.getFileList` reads both the OS file list and the Project tree's own
+     * flavour, so a drag from the Project view and a drag from Explorer arrive the same way. This
+     * shell names no file type, no size and no repository: it posts and shows the answer.
+     */
+    private fun installDropTarget(target: java.awt.Component) {
+        DropTarget(target, DnDConstants.ACTION_COPY,
+            object : DropTargetAdapter() {
+                // Named `dropped`, not `event`: `tests/test_fleet_shells.py` treats an SSE frame
+                // marker in a file as "this file reads the stream" and then requires it to handle
+                // notify frames -- which this file does not, and must not.
+                override fun drop(dropped: DropTargetDropEvent) {
+                    dropped.acceptDrop(DnDConstants.ACTION_COPY)
+                    val files = FileCopyPasteUtil.getFileList(dropped.transferable)
+                    dropped.dropComplete(true)
+                    val paths = files?.map { it.absolutePath } ?: emptyList()
+                    if (paths.isEmpty()) return
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        val record = Fleet.running()
+                        if (record == null) {
+                            balloon("The fleet dashboard is not running", "Run `ad-fleet serve`.",
+                                NotificationType.WARNING)
+                            return@executeOnPooledThread
+                        }
+                        val (ok, said) = Fleet.giveToAgent(record, paths)
+                        balloon(
+                            if (ok) "Given to the agent" else "The fleet refused those files",
+                            said,
+                            if (ok) NotificationType.INFORMATION else NotificationType.WARNING
+                        )
+                    }
+                }
+            }, true)
     }
 
     /** Attach to a running dashboard, starting one if there is none, then show it. */

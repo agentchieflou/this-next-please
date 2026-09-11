@@ -1170,6 +1170,33 @@ def act(what: str, body: dict) -> dict:
     if what == "scope":
         from . import scope as SCOPE
 
+        # Absolute paths and no repository: a shell posted them (#167). The server decides which
+        # checkout owns each one, because a shell that decided would be a shell with a rule in it.
+        raw = [str(p) for p in (body.get("paths") or [])]
+        if not repo and any(os.path.isabs(p) for p in raw):
+            by_repo, orphans = SCOPE.group_by_checkout(raw)
+            if orphans and not by_repo:
+                raise ServeError(
+                    f"{os.path.basename(orphans[0])} is not inside any registered checkout",
+                    "`ad-fleet repo add <path>` for the checkout it lives in, then try again",
+                    code="wrong_repo")
+            selected = str(body.get("selected") or "")
+            if selected and selected not in by_repo:
+                owner = next(iter(by_repo))
+                raise ServeError(
+                    f"those files belong to {owner}, and {selected} is the selected tile",
+                    f"select {owner} and drop them there, or give them to {owner} from its own tile",
+                    code="scope_wrong_repo")
+            out = []
+            for name, group in by_repo.items():
+                target = group["repo"]
+                ticket = str(body.get("ticket") or "") or (target.state().get("active_ticket") or "")
+                ev = SCOPE.add(name, target.path, ticket, group["paths"],
+                               why=str(body.get("why") or "given from the IDE"),
+                               how="ide", queued=bool(supervisor.live(name)))
+                out.append({"repo": name, "ticket": ticket, **(ev.get("data") or {})})
+            return {"scoped": out, "outside": orphans}
+
         target = _repo_record(repo)
         ticket = str(body.get("ticket") or "") or (target.state().get("active_ticket") or "")
         live = supervisor.live(target.name)

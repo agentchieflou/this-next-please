@@ -56,6 +56,8 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Handoff | a scope path is `.agent/out/` or credential-shaped | `refused: scope_refused`, exit 2, naming the path | `test_fleet_handoff_scope.py::test_the_agents_own_output_and_anything_credential_shaped_are_refused` |
 | Handoff | a scope or resolve names an unregistered repository | `refused: wrong_repo`, exit 2 | `test_fleet_handoff_scope.py::test_an_unregistered_repo_is_refused_with_a_code` |
 | Handoff | an uploaded copy is over `fleet.attach.max_mb` | `refused`, exit 2, naming the cap and the alternative | `test_fleet_handoff_scope.py::test_attach_bytes_lands_in_agent_in_and_is_capped` |
+| Handoff | a shell posts a path in no registered checkout | `refused: wrong_repo`, naming `ad-fleet repo add` | `test_fleet_handoff_scope.py::test_a_path_outside_every_checkout_is_refused_with_its_code` |
+| Handoff | a shell posts paths of a checkout other than the selected tile | `refused: scope_wrong_repo`, naming the owner | `test_fleet_handoff_scope.py::test_files_of_another_checkout_than_the_selected_tile_are_refused_by_name` |
 | Ask | `ad-state answer` names an id that is not open | `refused`, exit 2, listing the open ids | `test_fleet_handoff_ask.py::test_ad_state_ask_and_answer_round_trip_from_a_terminal` |
 | Approval gate | an operator denied the write | `refused: approval_denied`, exit 2, quoting the reason | `test_fleet_approval.py::test_ad_jira_transition_refuses_on_a_denial_and_never_posts` |
 | Approval gate | nobody answered within `fleet.approval_timeout` | `refused: approval_timeout`, exit 2, naming `ad-fleet approve <id>` | `test_fleet_approval.py::test_a_timeout_says_how_to_release_it_and_that_re_running_is_safe` |
