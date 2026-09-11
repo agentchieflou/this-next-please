@@ -85,14 +85,25 @@ class Fold:
             # The record, not only the sentence (#165): `classify` has to tell a question the agent
             # stopped on from an assumption it stated and carried on with, and the tile has to show
             # the choices. `question` keeps meaning the sentence, so an older event still folds.
-            self.questions.append(str(data.get("question") or ""))
-            self.asked.append({"id": str(data.get("id") or ""),
-                               "q": str(data.get("question") or ""),
-                               "choices": list(data.get("choices") or []),
-                               "default": str(data.get("default") or ""),
-                               "want": str(data.get("want") or "decision"),
-                               "assume": str(data.get("assume") or ""),
-                               "blocking": bool(data.get("blocking", True))})
+            record = {"id": str(data.get("id") or ""),
+                      "q": str(data.get("question") or ""),
+                      "choices": list(data.get("choices") or []),
+                      "default": str(data.get("default") or ""),
+                      "want": str(data.get("want") or "decision"),
+                      "assume": str(data.get("assume") or ""),
+                      "blocking": bool(data.get("blocking", True))}
+            # Replaced by id, never appended twice. One state change is reported by two writers on
+            # purpose -- `ad-state` emits it the moment it saves, so the dashboard does not wait for
+            # a poll, and `events.refresh` diffs the same change again against its own cursor -- and
+            # the stream is additive, so both stay. A fold that appended showed the operator one
+            # question twice and asked them to answer it twice (#169).
+            for i, existing in enumerate(self.asked):
+                if (existing["id"] or existing["q"]) == (record["id"] or record["q"]):
+                    self.asked[i] = record
+                    break
+            else:
+                self.asked.append(record)
+                self.questions.append(record["q"])
         elif kind == "question_answered":
             qid, text = str(data.get("id") or ""), str(data.get("question") or "")
             self.asked = [q for q in self.asked

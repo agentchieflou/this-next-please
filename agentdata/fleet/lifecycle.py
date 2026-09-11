@@ -138,8 +138,15 @@ def reap(name: str, *, slept: bool = False) -> list[dict]:
         # word this function reaches for when a stream does not end in `exited`. Say nothing.
         return []
     stream = E.read(name)
-    if stream and stream[-1].get("kind") in ("exited", "error"):
-        return []                                   # it ended properly; nothing to report
+    # Anywhere in the current run, not only last. A state change written *after* the process
+    # exited -- an `ad-state` the agent ran on its way out, or the same change reported a second
+    # time by `events.refresh`'s own diff -- put another kind at the end, and a run that finished
+    # cleanly was then reported as a crash (#169).
+    for ev in reversed(stream):
+        if ev.get("kind") in ("exited", "error"):
+            return []                               # it ended properly; nothing to report
+        if ev.get("kind") == "started":
+            break
 
     stderr = tail_stderr(name)
     ticket = lock.get("ticket", "")

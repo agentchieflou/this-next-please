@@ -576,6 +576,9 @@ def _refresh(name: str, repo_path: str, repo_state: dict | None, raw_path: str) 
         fresh.extend(from_state(previous, repo_state, name))
         cursor["state"] = {k: repo_state.get(k) for k in WATCHED}
         cursor["state"]["open_questions"] = list(repo_state.get("open_questions") or [])
+        # Remembered like the open ones. Without it every refresh diffed today's answers against an
+        # empty list and reported each of them again -- for good, since the list only grows (#169).
+        cursor["state"]["answered_questions"] = list(repo_state.get("answered_questions") or [])
         cursor["state"]["artifacts"] = list(repo_state.get("artifacts") or [])
 
     if repo_path:

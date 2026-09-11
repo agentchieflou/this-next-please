@@ -1,9 +1,11 @@
 # Plan: the handoff — a ticket dropped on a tile is picked up, questioned once, given its files, and worked
 
-_Status: PLANNED (2026-09-11) — epic #162 (slices #163–#169), under #91 (the fleet) and #122 (the desk), a
-sibling of #145. Nothing below is built. Every browser claim is to be measured on the laptop in Edge, PyCharm's
-JCEF window and VS Code's Simple Browser, the way #145's were, and every measurement is recorded in the slice that
-made it._
+_Status: IMPLEMENTED (2026-09-11) — epic #162 (slices #163–#169), under #91 (the fleet) and #122 (the desk), a
+sibling of #145. Every slice is built and covered, including the demo (`tests/test_fleet_demo_handoff.py`). Every
+browser claim below is still to be **measured** on the laptop in Edge, PyCharm's JCEF window and VS Code's Simple
+Browser, the way #145's were: the rows are in
+[windows-verification.md](windows-verification.md#the-handoff-162-and-sessions-170-what-only-the-laptop-can-answer),
+each one marked *not yet measured* until a host and a date are written against it._
 
 ## Why this exists
 
@@ -85,7 +87,7 @@ the server, spends no premium request, and reads only what the fleet already hol
 |---|---|---|
 | key, repo match, Done | `board.suggest`, `supervisor.check_ticket` (unchanged) | the existing refusals, with a structured `code` |
 | description | one `ad-pncli jira get <KEY>` per drop, cached for `fleet.board_ttl` | `412 words` / `two lines` / `empty` |
-| acceptance criteria | a heuristic over the description — numbered or checkbox list, "AC", *Given/When/Then* — or a field pinned by `ad-jira fields --pin acceptance_criteria` | `4 found` / `none found` |
+| acceptance criteria | a heuristic over the description alone — a heading, a checkbox or numbered list, or *Given/When/Then* (`preflight.criteria_found`). A count, never the text: a card that pasted the criteria would be showing the operator a second, staler copy of the ticket | `4 found` / `none found` |
 | comments, attachments | counts from the same fetch, when pncli returns them (open question) | `3 comments, the last by you yesterday` — the place a human has often already answered |
 | names it mentions | capitalised and quoted names in summary and description, looked up with the catalogue's `where` | `mentions Velocity — luna's MODEL.md declares it`; and when the match is in a *different* repo than the tile, that is said |
 | history | `board.history` for this key | `dispatched twice; ended blocked both times: "a decision on whether RDSD-118 covers UAT"` |

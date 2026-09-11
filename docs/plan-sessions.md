@@ -1,9 +1,11 @@
 # Plan: sessions — the desk remembers where every agent is, and every session is a thing you can find again
 
-_Status: PLANNED (2026-09-11) — epic #170 (slices #171–#176), under #91 (the fleet) and #122 (the desk), a
-sibling of #145 and #162. Nothing below is built. Every page claim is to be measured on the laptop in Edge, PyCharm's JCEF
-window and VS Code's Simple Browser, the way #145's were, and every measurement is recorded in the slice that made
-it._
+_Status: IMPLEMENTED (2026-09-11) — epic #170 (slices #171–#176), under #91 (the fleet) and #122 (the desk), a
+sibling of #145 and #162. Every slice is built and covered, including the demo
+(`tests/test_fleet_demo_sessions.py`). Every page claim below is still to be **measured** on the laptop in Edge,
+PyCharm's JCEF window and VS Code's Simple Browser, the way #145's were: the rows are in
+[windows-verification.md](windows-verification.md#the-handoff-162-and-sessions-170-what-only-the-laptop-can-answer),
+each one marked *not yet measured* until a host and a date are written against it._
 
 ## Why this exists
 
