@@ -20,12 +20,13 @@ history all see it without a second channel.
 from __future__ import annotations
 import os
 import re
+import shutil
 import time
 
 from .. import config as C
 from .. import textio
 from . import agentstate, events as E
-from .registry import Registry, RegistryError, agent_dir
+from .registry import Registry, RegistryError, agent_dir, fleet_dir
 
 # How long a gap between two heartbeats means the machine slept rather than the fleet being busy.
 # Two minutes: a turn can legitimately take that long, an idle poll never can.
@@ -41,6 +42,21 @@ DEFAULT_GC_DAYS = 14
 # the ticket in its session, and repeating it invites a second plan over the first.
 RESUME_PROMPT = ("You were interrupted. Read your own last messages, say in one line where you got "
                  "to, and continue. Do not start the ticket again.")
+
+
+def answers_prompt(answers: list[tuple[str, str]]) -> str:
+    """The resume that carries the operator's answers -- all of them, in one turn.
+
+    One respawn per answer would be one premium request per answer (the spike measured a trivial
+    turn at a third of one), and it would train the operator to answer one question at a time. So
+    the card sends every answer together and this is the sentence that delivers them.
+
+    It says *record each* rather than *act on each*: `ad-state answer` is what actually clears the
+    block, and an agent that continued without recording would stop again on its next bootstrap.
+    """
+    said = "; ".join(f"{qid}: {text}" for qid, text in answers)
+    return (f"Answers to your questions -- {said}. Record each with `ad-state answer <id> \"<text>\"`, "
+            f"then continue the ticket from where you stopped.")
 
 # The Copilot CLI's own words when the token has expired, measured in the #92 spike. Matched
 # loosely on purpose: the wording moves between releases and the *class* of failure is what matters.
@@ -95,8 +111,8 @@ def looks_like_auth_trouble(text: str) -> bool:
 # ------------------------------------------------------------------- a process that just stopped
 
 
-def reap(name: str, *, cfg: dict | None = None) -> list[dict]:
-    """Notice an agent whose process is gone, and say why in its own stream.
+def reap(name: str, *, slept: bool = False) -> list[dict]:
+    """Look at the lock and the process; if the process is gone, clean the lock and emit the event.
 
     Called wherever the fleet looks at an agent. It is idempotent: an agent already reaped has no
     lock, and one still running is left alone.
@@ -122,12 +138,25 @@ def reap(name: str, *, cfg: dict | None = None) -> list[dict]:
         # word this function reaches for when a stream does not end in `exited`. Say nothing.
         return []
     stream = E.read(name)
-    if stream and stream[-1].get("kind") in ("exited", "error"):
-        return []                                   # it ended properly; nothing to report
+    # Anywhere in the current run, not only last. A state change written *after* the process
+    # exited -- an `ad-state` the agent ran on its way out, or the same change reported a second
+    # time by `events.refresh`'s own diff -- put another kind at the end, and a run that finished
+    # cleanly was then reported as a crash (#169).
+    for ev in reversed(stream):
+        if ev.get("kind") in ("exited", "error"):
+            return []                               # it ended properly; nothing to report
+        if ev.get("kind") == "started":
+            break
 
     stderr = tail_stderr(name)
     ticket = lock.get("ticket", "")
-    if looks_like_auth_trouble(stderr):
+    if slept:
+        # The laptop slept and the process is gone: one exited event naming sleep, and no error.
+        fresh = [E.event(name, "exited", {"exit_code": None,
+                                          "why": "the laptop slept",
+                                          "reason": "the laptop slept"},
+                         ticket=ticket)]
+    elif looks_like_auth_trouble(stderr):
         # One clear answer and no retry: relaunching an agent whose token expired burns premium
         # requests in a loop and produces the same failure every time.
         fresh = [E.event(name, "error", {"exit_code": None, "reason": "copilot login expired",
@@ -151,14 +180,14 @@ def reap(name: str, *, cfg: dict | None = None) -> list[dict]:
     return fresh
 
 
-def reap_all(*, registry: Registry | None = None) -> dict[str, list[dict]]:
+def reap_all(*, registry: Registry | None = None, slept: bool = False) -> dict[str, list[dict]]:
     out = {}
     try:
         names = [r.name for r in (registry or Registry()).sorted()]
     except RegistryError:
         return out
     for name in names:
-        found = reap(name)
+        found = reap(name, slept=slept)
         if found:
             out[name] = found
     return out
@@ -294,5 +323,58 @@ def gc(days: int = DEFAULT_GC_DAYS, *, registry: Registry | None = None,
             except OSError:
                 pass
 
+    orphans = _orphan_agent_dirs(names, cutoff)
+    for directory in orphans:
+        try:
+            shutil.rmtree(directory)
+            removed.append(textio.norm_path(directory))
+        except OSError:
+            pass
+
     approval._prune(days)
-    return {"removed": removed, "days": days, "kept_running": kept_running}
+    return {"removed": removed, "days": days, "kept_running": kept_running,
+            "orphans": [textio.norm_path(d) for d in orphans]}
+
+
+def _orphan_agent_dirs(names: list[str], cutoff: float) -> list[str]:
+    """Agent directories belonging to no registered repository, untouched since the cutoff (#175).
+
+    `repo rm` leaves one behind on purpose -- it holds the stream `ad-fleet history` reads and the
+    sessions that could still be resumed if the checkout is registered again -- but nothing ever
+    listed the `agents/` directory itself, so once a name left the registry its folder could never
+    be reached again at any age. `repo rm` now names it, and this is what takes it.
+
+    Whole-directory, and only when *everything* in it is older than the cutoff: half a pruned
+    transcript is worse than a folder that is slightly too big, which is the same reason the live
+    `events.norm.jsonl` of a registered agent is never a candidate.
+    """
+    from . import supervisor
+
+    root = os.path.join(fleet_dir(), "agents")
+    keep = {textio.safe_name(n) for n in names}
+    out = []
+    try:
+        entries = sorted(os.listdir(root))
+    except OSError:
+        return out
+    for entry in entries:
+        directory = os.path.join(root, entry)
+        if entry in keep or not os.path.isdir(directory):
+            continue
+        if supervisor.live(entry):
+            continue                          # unregistered and still running: not litter, a bug
+        if _newest_mtime(directory) >= cutoff:
+            continue
+        out.append(directory)
+    return out
+
+
+def _newest_mtime(directory: str) -> float:
+    newest = 0.0
+    for dirpath, _dirs, files in os.walk(directory):
+        for name in [*files, ""]:
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(dirpath, name)))
+            except OSError:
+                pass
+    return newest

@@ -175,6 +175,14 @@ new server work.
 7. **Check `contract` on `/api/ping`** against your own and raise exactly one balloon on a mismatch.
    A shell built against an older contract mis-renders quietly, which is the kind of bug that gets
    blamed on the dashboard for a week.
+8. **Post paths, decide nothing** (#167). A host that has file paths -- an IDE always does, a browser
+   never will -- may hand them to the agent with `POST /api/scope {paths: [...]}`, absolute, with no
+   `repo`. The server maps each path to the registered checkout that contains it (longest match, real
+   paths on both sides, so a worktree nested in its main checkout is its own project), refuses one
+   that is in no checkout with `wrong_repo`, refuses `.agent/out/` and anything credential-shaped
+   with `scope_refused`, and answers `scope_wrong_repo` when they belong to a different checkout than
+   the selected tile. A shell names no file type, no size and no repository rule: it posts, and shows
+   the answer in the server's own words.
 
 **A shell contains no rule logic.** Which agents need a person, what to say and when to stay quiet
 are `agentdata/fleet/notify.py`'s, and a second implementation in Kotlin or TypeScript would

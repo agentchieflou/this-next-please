@@ -49,8 +49,30 @@
   </div>
 </header>
 
+<div id="away-strip" class="away-strip" hidden>
+  <div class="away-content">
+    <span class="away-title">Since you were away:</span>
+    <ul class="away-lines" id="away-lines"></ul>
+  </div>
+  <button type="button" id="dismiss-away" class="dismiss-away" title="dismiss">dismiss</button>
+</div>
+
 <div class="workspace">
 <main id="grid" aria-live="polite"></main>
+
+<!-- #173: everything that is not on the glass, so a hidden tile is never a lost one. Zoomed,
+     hidden, or gone from the registry -- one chip each, one click back. -->
+<div id="dock" class="dock" hidden aria-label="tiles that are not on the glass">
+  <span class="dock-label"></span>
+  <ul class="dock-chips">
+    <li class="dock-chip" hidden>
+      <button type="button" class="dock-open">
+        <span class="dc-name"></span><span class="dc-chip"></span><span class="dc-badge" hidden></span>
+      </button>
+    </li>
+  </ul>
+  <button type="button" id="showall" class="dock-showall">show all</button>
+</div>
 
 <aside id="side" hidden aria-label="sidebar">
   <div class="segmented side-tabs" role="tablist">
@@ -138,7 +160,7 @@
   <span id="counts"></span>
   <span id="notice" class="notice" hidden></span>
   <span class="spacer"></span>
-  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus · <kbd>f</kbd> only what needs you · <kbd>/</kbd> where · <kbd>i</kbd> inbox · <kbd>b</kbd> board · <kbd>n</kbd> alerts · <kbd>a</kbd> approve · <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile · <kbd>Alt</kbd>+<kbd>Home</kbd> pin · <kbd>Alt</kbd>+<kbd>Enter</kbd> width · <kbd>Esc</kbd> grid</span>
+  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus · <kbd>f</kbd> only what needs you · <kbd>/</kbd> where · <kbd>i</kbd> inbox · <kbd>b</kbd> board · <kbd>n</kbd> alerts · <kbd>a</kbd> approve · <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile · <kbd>Alt</kbd>+<kbd>Home</kbd> pin · <kbd>Alt</kbd>+<kbd>Enter</kbd> width · <kbd>h</kbd> hide · <kbd>Alt</kbd>+<kbd>[</kbd><kbd>]</kbd> sessions · <kbd>Alt</kbd>+<kbd>N</kbd> new session · <kbd>Esc</kbd> grid</span>
 </footer>
 
 <template id="tile">
@@ -155,6 +177,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"></path><path d="M12 15v6"></path></svg>
         <span class="sr">pin</span>
       </button>
+      <button class="hidetoggle" type="button" title="take this tile off the glass (h) — it keeps its place and the dock brings it back">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg>
+        <span class="sr">hide</span>
+      </button>
       <button class="sizetoggle" type="button" title="one column or two (Alt+Enter)" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"></path><path d="M8 8l-4 4 4 4"></path><path d="M16 8l4 4-4 4"></path></svg>
         <span class="sr">width</span>
@@ -162,11 +188,75 @@
     </div>
     <!-- Which run this transcript belongs to. #147: a transcript with no era read as live. -->
     <p class="runline"></p>
+    <!-- #174: the switcher. The main tab is this checkout's live session -- where the transcript,
+         the reply box and the cards are. The tabs beside it are the project's other checkouts
+         (#175), each with its own agent and its own chip. Every tab is a button, because a tab
+         that cannot be reached from the keyboard is a window somebody loses. -->
+    <div class="strip" role="tablist" aria-label="sessions and checkouts">
+      <button class="main-tab tab" type="button" role="tab" aria-selected="true">main</button>
+      <!-- One sibling checkout, cloned per checkout. In the markup rather than built by hand so a
+           test can keep the two files in step, the way the tile itself is. -->
+      <button class="sib-tab tab" type="button" role="tab" aria-selected="false" hidden></button>
+      <button class="earlier-tab tab" type="button" aria-expanded="false" hidden></button>
+      <button class="new-tab tab" type="button"
+              title="a clean session beside this one, resumable either way (Alt+N)">+ new</button>
+    </div>
+    <!-- This checkout's other sessions, from `sessions.json`. Opening one is a GET and nothing
+         else: choosing a session must never spawn an agent. -->
+    <ul class="sessions" hidden>
+      <li class="session-row" hidden>
+        <button type="button" class="ss-open">
+          <span class="ss-title"></span>
+          <span class="ss-chip"></span>
+          <span class="ss-when"></span>
+          <span class="ss-cost"></span>
+        </button>
+      </li>
+    </ul>
     <!-- Why this tile is still on screen in focus mode after it stopped needing you. -->
     <p class="holdnote"><span class="holdwhy"></span><button type="button" class="release">let it go</button></p>
     <!-- A session running in this checkout that the fleet did not start (#2). -->
     <p class="outside" hidden><span class="outsidewhy"></span><button type="button" class="adopt"></button></p>
     <p class="why"></p>
+    <!-- #168: what the run edited, against what it was given. -->
+    <p class="scopereport" hidden></p>
+    <!-- #164: a drop opens this instead of launching. Every row is something a person would have
+         checked before delegating, and the pre-flight behind it spends no premium request. -->
+    <div class="dispatch" hidden>
+      <div class="dispatch-head">
+        <span class="dispatch-key"></span>
+        <span class="verdict"></span>
+        <button type="button" class="dispatch-close" title="cancel (Esc)">×</button>
+      </div>
+      <ul class="dispatch-rows"></ul>
+      <label class="dispatch-brieflabel" for="brief">what should it know? (optional)</label>
+      <textarea class="brief" rows="3" placeholder="the window, the gotcha, the thing the ticket does not say"></textarea>
+      <div class="row">
+        <button type="button" class="dispatch-go">Start</button>
+        <span class="dispatch-note"></span>
+      </div>
+    </div>
+    <!-- #166: files the operator dropped, resolved to this checkout by their git blob hash. -->
+    <div class="scope" hidden>
+      <div class="scope-head">
+        <span class="scope-title">scope</span>
+        <span class="scope-note"></span>
+        <button type="button" class="scope-close" title="close">×</button>
+      </div>
+      <ul class="scope-rows">
+        <li class="scope-row" hidden>
+          <span class="sc-name"></span>
+          <span class="sc-path"></span>
+          <span class="sc-how"></span>
+          <span class="sc-why"></span>
+          <select class="sc-pick" hidden></select>
+          <button type="button" class="sc-attach" hidden>attach a copy</button>
+        </li>
+      </ul>
+      <div class="row">
+        <button type="button" class="scope-tell" hidden>tell it now</button>
+      </div>
+    </div>
     <div class="cells" aria-label="the project's own state"></div>
     <div class="approval" hidden>
       <div class="approval-head">waiting for you: <span class="kind"></span></div>
@@ -178,7 +268,43 @@
         <button class="deny">Deny</button>
       </div>
     </div>
+    <!-- #165: the agent's open questions, as records. Beside the approval card on purpose: both
+         are "the tile is asking you something", and one shape for that is learned once. One Send
+         answers all of them, because one respawn per answer is one premium request per answer. -->
+    <div class="asks" hidden>
+      <div class="asks-head">it asked you: <span class="asks-n"></span></div>
+      <!-- One question, cloned per open question. In the markup rather than built by hand in the
+           script so the two files can be kept in step by a test, the way the tile itself is. -->
+      <ol class="asks-list">
+        <li class="ask" hidden>
+          <p class="ask-q"></p>
+          <div class="ask-choices"></div>
+          <input class="ask-answer" type="text" placeholder="your answer">
+        </li>
+      </ol>
+      <div class="row">
+        <button type="button" class="asks-send">Send</button>
+        <span class="asks-note"></span>
+      </div>
+    </div>
+    <!-- What it assumed and carried on with. Not a state: a row to overturn at leisure. -->
+    <ul class="assumed" hidden>
+      <li class="assumption" hidden><span class="assumption-what"></span><button type="button" class="overturn">not that</button></li>
+    </ul>
     <ol class="transcript"></ol>
+    <!-- An earlier session's transcript, read from history. A second list rather than the live one
+         redrawn, so the live one keeps filling behind it and going back is instant and complete
+         rather than a reload with a hole in it. -->
+    <ol class="history" hidden></ol>
+    <!-- A session that is not the live one is read-only: one sentence saying how it ended, and one
+         button that would make it this checkout's again. Everything else would write to a
+         conversation nobody is holding. -->
+    <p class="readonly" hidden>
+      <span class="ro-what"></span>
+      <button type="button" class="ro-resume">Resume here</button>
+      <button type="button" class="ro-back">back to the live session</button>
+      <span class="ro-note"></span>
+    </p>
     <details class="earlier" hidden>
       <summary class="earlierhead">earlier runs</summary>
       <ol class="earlierlist"></ol>

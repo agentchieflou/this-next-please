@@ -104,6 +104,77 @@ screen, dimmed, saying which action held it — until you release it or leave fo
 that goes back to needing somebody drops the note and reads as a normal demand again; it never takes
 the credit for a question it did not answer.
 
+### The switcher — the main tab and the ones beside it (#174)
+
+The earlier-run rows were text with no handler, and the only session-changing gesture in the whole
+page was *adopt* — which then disabled Send. A session you had finished with was something you
+could read about and not open, and *I started it in a terminal yesterday* had no answer at all.
+
+Under the run line there is a **tab strip**:
+
+```
+[ main · running · 4m ]  [ feature/RDSD-118 · needs you · 20m ]  [ earlier (3) ]  [ + new ]
+```
+
+* The **main tab** is this checkout's live session — where the transcript, the reply box and the
+  cards are.
+* The tabs beside it are the project's **other checkouts** (#175), each with its own agent, its own
+  branch and its own chip — a tile is still one working tree. Clicking one selects that checkout's
+  tile; the strip stays, so the way back is one click and never `Esc`.
+* **earlier (n)** lists this checkout's other sessions — title, how it ended, when, what it cost.
+  The count comes off the event stream the tile already has, not off `sessions.json`, which exists
+  only once somebody has rebuilt it; a tab reading *earlier (0)* over three real sessions would be
+  worse than no tab.
+* Choosing one shows its transcript **read-only** from history (`GET /api/transcript`), with the
+  reply box *gone* rather than disabled — a box you can type in that cannot send is a worse answer
+  than no box — replaced by one sentence and one button: *this session ended blocked · 2 days ago ·
+  **Resume here***. The live transcript is hidden, never thrown away, so going back is instant and
+  whole.
+* **Resume here** is `start --resume <id>`. With nothing live it runs. With an agent live it is the
+  supervisor's own refusal and its own hint, and the button becomes the two-press *Stop and
+  resume*, the way *Reset anyway* is a second, deliberate press. Never two agents in one working
+  tree, and never a silent force.
+* **+ new** is `start --new`: a clean session in this checkout, the previous one still listed and
+  still resumable.
+* `Alt`+`[` / `Alt`+`]` walk the strip and `Alt`+`N` is *new*. Every tab is a real button, so the
+  strip is reachable by Tab as well.
+
+A session is **not** a contiguous slice of the stream — `--resume` opens a new run on the same
+conversation, and runs of another session can sit between them — so a transcript is gathered by the
+id its runs carry, never by position.
+
+Resuming is refused outright where a process the fleet did not start can be **named** in that
+checkout, in the adopt strip's own words. Only where it can be named: *this folder was written to
+in the last quarter of an hour* is evidence of somebody saving a file, and refusing every resume on
+that would refuse nearly all of them.
+
+### The dock — where a tile went (#173)
+
+Five `display:none` rules and one `.remove()` used to take a tile off the glass as a side effect of
+a mode — zoom, focus mode, a solo window, the laptop's narrow view, and a repository leaving the
+registry — and nothing anywhere said where it had gone. The operator's own answer was to reload the
+page and hope.
+
+The **dock** is a strip along the bottom with one chip per tile that is not on the glass. Each chip
+says the repo name, the state the tile was in and how old it is, and how many transcript lines have
+arrived since you last looked. One click puts it back, and the chip knows *why* it went, so it
+undoes the right thing: a hidden tile is unhidden, one quieted by focus mode leaves focus mode, one
+zoomed past unzooms. A chip for a repository that has **left the registry** says so and offers the
+`ad-fleet repo add <path>` that would bring it back, rather than the tile simply being gone.
+
+A project's checkouts are hidden and pinned as one, so they leave the glass together and come back
+as **one chip** saying how many it brings — two chips for one piece of work would be two things to
+click for one decision.
+
+A chip whose agent **needs a person** is red and chimes like the tile would — but that case should
+not arise from hiding, because a tile that needs somebody is on the glass whatever the arrangement
+says. *Show all* empties `hidden` in one press.
+
+`#tile=<repo>` — the anchor the Windows toasts and both IDE shells use — **reopens** a hidden tile
+rather than quietly doing nothing, and the footer says it did. An anchor naming a repository with no
+tile now says *no tile for 'x' — is it still registered?*; it used to do nothing at all, which read
+as the dashboard having hung.
+
 ### Sessions the fleet did not start
 
 A `copilot` running in a console window is an agent working in a registered checkout that the fleet
@@ -145,8 +216,11 @@ red everywhere or the colour stops being information:
 
 | Key | Does |
 | --- | --- |
-| `1`–`9` | focus that tile |
+| `1`–`9` | focus that tile — counting what is **on the glass** |
 | `f` | focus mode: only the agents that need you |
+| `h` | hide the tile the keyboard is on; its chip is in the dock |
+| `Alt`+`[` / `Alt`+`]` | walk the tile's session strip |
+| `Alt`+`N` | a clean session in this checkout, beside the one it is on |
 | `/` | the search box — `where` over the catalogue |
 | `i` | the sidebar's inbox |
 | `a` | approve the focused tile's pending write |
@@ -158,7 +232,8 @@ red everywhere or the colour stops being information:
 | `Esc` | close the sidebar, or back to the grid (or out of a text box) |
 
 The number on a tile is the key that focuses it, and it follows the arrangement: move a tile and its
-number moves with it. Every drag gesture has a keyboard equivalent, because a desk that can only be
+number moves with it, and a tile that is off the glass has no number at all — a digit that zoomed a
+tile a mode was already hiding left a blank window, because zoom hides every other tile. Every drag gesture has a keyboard equivalent, because a desk that can only be
 arranged with a mouse cannot be arranged by someone who is typing.
 
 Deny has no shortcut on purpose: it needs a reason typed, and a one-key refusal with an empty
@@ -200,7 +275,15 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/approve` | `{id, reason?}` |
 | POST | `/api/deny` | `{id, reason}` |
 | POST | `/api/select` | `{repo?, screens?}` — the project every window agrees on ([fleet-layouts.md](fleet-layouts.md)) |
+| POST | `/api/arrange` | `{layout, order?, size?, pinned?, hidden?}` — the desk, shared by every window (#173) |
 | POST | `/api/attach` | `{id, repo}` — copies one Downloads file into `<repo>/.agent/in/<KEY>/` |
+| POST | `/api/answer` | `{repo, answers: [{id, answer}]}` — every answer in one resume (#165) |
+| POST | `/api/scope/resolve` | `{repo, files: [{name, size, sha}]}` — which of this checkout's files these are (#166) |
+| POST | `/api/scope` | `{repo, paths, why, how}` — append them to `.agent/in/<KEY>/scope.toon` |
+| POST | `/api/attach-bytes` | `{repo, name, bytes}` — the one route that carries bytes, on a click |
+| GET | `/api/sessions` | `?repo=` — this checkout's sessions, folded from the stream on the click |
+| GET | `/api/transcript` | `?repo=&session=&limit=&before=` — one session's lines, read-only, paged from the end (#174) |
+| GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164) |
 | POST | `/api/dismiss` | `{id}` — stop offering that file until it is downloaded again |
 
 `select` and `dismiss` change nothing on disk inside a repository. `attach` is the single exception

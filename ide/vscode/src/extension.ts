@@ -15,6 +15,7 @@ import {
   Notification,
   NotificationStream,
   ServeRecord,
+  giveToAgent,
   needingHuman,
   ping,
   repos,
@@ -191,6 +192,40 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       await provider?.render(typeof repo === "string" ? repo : "");
       provider?.reveal();
+    })
+  );
+
+  context.subscriptions.push(
+    // #167: the operator has files selected in the Explorer and the fleet has no way to see them.
+    // The shell posts their paths; the server says which checkout owns them and what it did. Every
+    // outcome is shown in the server's own words -- this shell names no rule of its own.
+    vscode.commands.registerCommand("fleet.give", async (clicked?: vscode.Uri, selection?: vscode.Uri[]) => {
+      const r = await connect(true);
+      if (!r) {
+        return;
+      }
+      const chosen = (selection && selection.length ? selection : clicked ? [clicked] : [])
+        .filter((u) => u.scheme === "file")
+        .map((u) => u.fsPath);
+      const paths = chosen.length
+        ? chosen
+        : (vscode.window.activeTextEditor?.document.uri.scheme === "file"
+            ? [vscode.window.activeTextEditor.document.uri.fsPath]
+            : []);
+      if (!paths.length) {
+        void vscode.window.showWarningMessage("Select a file in the Explorer, or open one, then try again.");
+        return;
+      }
+      const answer = await giveToAgent(r, paths);
+      if (!answer.ok) {
+        void vscode.window.showWarningMessage(
+          [answer.error, answer.hint].filter(Boolean).join(" — ")
+        );
+        return;
+      }
+      const given = (answer.scoped ?? []).map((s) => `${s.paths.length} to ${s.repo}`).join(", ");
+      void vscode.window.showInformationMessage(given ? `Gave ${given}.` : "Nothing new to give.");
+      await provider?.render();
     })
   );
 

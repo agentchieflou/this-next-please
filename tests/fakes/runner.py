@@ -106,6 +106,13 @@ def play(entry: dict, argv: list[str]) -> int:
     deny = _flag_values(argv, "--deny-tool")
     resumed = bool(_flag_values(argv, "--resume"))
     session = _one(argv, "--resume") or entry.get("session") or "fake-session-1"
+    if not resumed and entry.get("fresh_session"):
+        # `ad-fleet start --new` is the fleet passing no `--resume`, and a real `copilot` answers
+        # that with a conversation it has never used before. A transcript with one fixed id made
+        # two clean starts look like one session, which is exactly what the session index (#171)
+        # and the switcher (#174) are built to tell apart. The pid is the fake's own, so it is
+        # different for every launch and readable in a failure.
+        session = f"{session}-{os.getpid()}"
     steps = entry.get("resume_steps" if resumed and entry.get("resume_steps") else "steps") or []
 
     calls = 0
@@ -146,7 +153,12 @@ def play(entry: dict, argv: list[str]) -> int:
         if "exit" in step:
             break
 
+    # A resumed turn is where the work usually happens, so it may report its own edits. Without
+    # this, the files a run changed after being unblocked were reported as the first turn's --
+    # which is to say, none (#168, #169).
     usage = entry.get("usage", {"premiumRequests": 1.0, "codeChanges": {"filesModified": []}})
+    if resumed and entry.get("resume_usage"):
+        usage = entry["resume_usage"]
     emit({"type": "result", "sessionId": session, "exitCode": int(entry.get("returncode", 0)),
           "usage": usage})
     _write_usage(argv, usage)

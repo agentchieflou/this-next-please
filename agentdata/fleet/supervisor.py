@@ -1,4 +1,4 @@
-"""Starting, watching and stopping one agent per repository.
+"""Starting, watching and stopping one agent per registered working tree.
 
 One agent per repo, enforced by a lock file rather than by hope: two `copilot` processes in one
 checkout would both edit the same working tree and both believe they owned `.agent/state.json`.
@@ -14,6 +14,7 @@ import time
 
 from .. import proc
 from .. import textio
+from . import handoff as H
 from . import lifecycle
 from .launch import child_env, launch_command, prompt_for
 from .registry import Registry, Repo, RegistryError, agent_dir, fleet_dir
@@ -22,15 +23,16 @@ LOCK = "agent.json"
 EVENTS = "events.jsonl"
 STDERR = "stderr.log"
 USAGE = "usage.json"
-TERMINAL_PHASES = ("", "idle", "done", "closed", "merged")
+from .agentstate import TERMINAL_PHASES
 DONE_CATEGORIES = ("done",)     # Jira's statusCategory key, not a status name: names vary per project
 
 
 class SupervisorError(Exception):
-    def __init__(self, msg: str, hint: str = ""):
+    def __init__(self, msg: str, hint: str = "", code: str = ""):
         super().__init__(msg)
         self.msg = msg
         self.hint = hint
+        self.code = code
 
 
 # ------------------------------------------------------------------------------- the lock file
@@ -184,17 +186,36 @@ def _is_denial(event: dict) -> bool:
 
 
 def session_id(events: list[dict] | str) -> str:
-    """The id `--resume` takes, from the last `result` event.
+    """The id `--resume` takes, from the normalized stream or the last `result` event.
 
-    `sessionId` is read at the top level, not under `data`: `result` is the one event that is not
-    shaped `{type, id, parentId, timestamp, data}` -- measured, see the catalogue in
-    docs/fleet-spike.md.
+    `sessionId` is read from the normalized stream first so rotation does not lose it, and respects
+    fresh start boundaries so a failed start does not resume yesterday's session.
     """
-    stream = read_events(events, raw=True, limit=0) if isinstance(events, str) else events
+    from . import events as E
+
+    if isinstance(events, str):
+        try:
+            E.refresh(events)
+        except Exception:
+            pass
+        stream = E.read(events)
+    else:
+        stream = events
+
     for event in reversed(stream):
-        if _is_result(event) and event.get("sessionId"):
+        kind = event.get("kind")
+        if kind == "session_id":
+            sid = (event.get("data") or {}).get("session")
+            if sid:
+                return str(sid)
+        elif kind == "started":
+            data = event.get("data") or {}
+            if not data.get("resumed") or data.get("new"):
+                return str(data.get("session") or "")
+        elif _is_result(event) and event.get("sessionId"):
             return str(event["sessionId"])
     return ""
+
 
 
 def _last_turn(events: list[dict]) -> list[dict]:
@@ -312,7 +333,7 @@ def _spawn(repo: Repo, name: str, argv, exe: str | None = None) -> subprocess.Po
                                 env=child_env(name, fleet_dir()), **kwargs)
 
 
-def _emit_started(name: str, lock: dict, *, resumed: bool = False) -> None:
+def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = False) -> None:
     """Put the launch itself into the normalized stream.
 
     Without this the stream begins mid-narrative -- the first thing anyone downstream sees is the
@@ -325,7 +346,7 @@ def _emit_started(name: str, lock: dict, *, resumed: bool = False) -> None:
         E.append(name, [E.event(name, "started",
                                 {"pid": lock.get("pid"), "prompt": (lock.get("prompt") or "")[:400],
                                  "summary": lock.get("summary", ""),
-                                 "resumed": resumed, "session": lock.get("session", "")},
+                                 "resumed": resumed, "new": new, "session": lock.get("session", "")},
                                 ticket=lock.get("ticket", ""))])
     except Exception:  # noqa: BLE001 - a missing breadcrumb must never fail a launch
         from ..log import debug_exc
@@ -355,7 +376,8 @@ def check_ticket(repo: Repo, key: str, *, cross_project: bool = False, board_row
     if project and declared and project != declared and not cross_project:
         raise SupervisorError(
             f"{key} is a {project} ticket and {repo.name} declares jira_project {declared}",
-            f"start it on the {project} checkout, or pass --cross-project if this is deliberate")
+            f"start it on the {project} checkout, or pass --cross-project if this is deliberate",
+            code="cross_project")
 
     row = find(board_rows or [], key)
     if not row:
@@ -364,13 +386,16 @@ def check_ticket(repo: Repo, key: str, *, cross_project: bool = False, board_row
         raise SupervisorError(
             f"{key} is already {row.get('status') or 'Done'}",
             "an agent given a finished ticket has nothing to do and will invent something; "
-            "pass --force if you mean to re-open the work")
+            "pass --force if you mean to re-open the work",
+            code="ticket_done")
     return str(row.get("summary") or "")
 
 
 def start(name: str, *, key: str | None = None, prompt: str | None = None, force: bool = False,
           cfg: dict | None = None, registry: Registry | None = None, exe: str | None = None,
-          cross_project: bool = False, board_rows=None, summary: str = "") -> dict:
+          cross_project: bool = False, board_rows=None, summary: str = "",
+          resume: str | None = None, new: bool = False, brief: str | None = None,
+          brief_by: str = "operator") -> dict:
     reg = registry or Registry()
     repo = reg.get(name)
     if key:
@@ -383,38 +408,70 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
             raise SupervisorError(
                 f"{name} already has a live agent (pid {lock.get('pid')}, ticket "
                 f"{lock.get('ticket') or 'none'})",
-                f"one agent per repository. Use `ad-fleet send {name} \"…\"` to talk to it, or "
-                f"`ad-fleet stop {name}` first")
+                f"one agent per working tree. Use `ad-fleet send {name} \"…\"` to talk to it, or "
+                f"`ad-fleet stop {name}` first",
+                code="live_agent")
         # --force means "replace it", never "run a second one beside it": two agents in one
         # checkout would both edit the same working tree.
         stopped = stop(name)
         if not stopped.get("stopped"):
             raise SupervisorError(
                 f"{name}'s existing agent (pid {lock.get('pid')}) would not stop",
-                "stop it by hand, then start again")
+                "stop it by hand, then start again",
+                code="live_agent")
+
+    # Resuming into a checkout that something else is already working in would put two agents in
+    # one working tree -- the thing the lock exists to prevent, except that this one has no lock to
+    # catch it, because the console window that owns it never took one (#174). Only where a real
+    # process can be *named* in this checkout: "the folder was written to recently" is evidence of
+    # somebody saving a file, and refusing a resume on that would refuse most of them. The words
+    # are the adopt strip's own, because it is the same claim about the same process.
+    if resume and not lock:
+        from . import adopt as A
+
+        try:
+            foreign = [c for c in A.candidates(reg) if c["repo"] == name and c.get("pid")]
+        except Exception:                    # noqa: BLE001 - a process listing must never block a start
+            foreign = []
+        if foreign:
+            raise SupervisorError(
+                f"something is working in {name} that the fleet did not start "
+                f"(pid {foreign[0]['pid']}, {foreign[0]['how']})",
+                f"close that window, or `ad-fleet adopt {name}` and then resume it — two agents in "
+                f"one working tree is what this refuses",
+                code="foreign_session")
 
     repo_state = repo.state()
     active, phase = repo_state.get("active_ticket", ""), repo_state.get("phase", "")
-    if active and phase not in TERMINAL_PHASES and (key is None or active != key) and not force:
+    if active and phase not in TERMINAL_PHASES and phase not in ("", "idle") and (key is None or active != key) and not force:
         raise SupervisorError(
             f"{name} is mid-ticket: {active} is in phase {phase!r}",
             f"finish or park it first, or pass --force to start "
-            f"{key or 'a new prompt'} anyway")
+            f"{key or 'a new prompt'} anyway",
+            code="mid_ticket")
 
-    text = prompt_for(key, prompt, cfg, summary=summary)
+    # The brief is written *before* the spawn, and a failure to write it refuses the start. The
+    # operator has just typed the one thing nothing else in the system knows; launching an agent
+    # that was promised it and will not find it is worse than not launching at all.
+    if brief is not None:
+        H.write_brief(name, repo.path, key or "", brief, by=brief_by)
+
+    text = prompt_for(key, prompt, cfg, summary=summary,
+                      handoff=H.prompt_line(repo.path, key or ""))
     _rotate(name, cfg)
     directory = agent_dir(name)
 
     argv = launch_command("copilot", repo.path, text,
                           log_dir=os.path.join(directory, "logs"),
-                          cfg=cfg, usage_file=os.path.join(directory, USAGE))
+                          cfg=cfg, usage_file=os.path.join(directory, USAGE),
+                          session=resume)
     child = _spawn(repo, name, argv, exe)
 
     lock = {"pid": child.pid, "repo": name, "path": repo.path, "ticket": key or "",
-            "summary": summary, "prompt": text, "started": time.time(),
+            "summary": summary, "prompt": text, "session": resume or "", "started": time.time(),
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
     write_lock(name, lock)
-    _emit_started(name, lock)
+    _emit_started(name, lock, resumed=bool(resume), new=bool(new or not resume))
     return lock
 
 
@@ -430,10 +487,12 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
         # one that refuses and says where to type instead.
         raise SupervisorError(f"{name} is running a session the fleet did not start",
                               "type in that window. `ad-fleet release` hands it back, and then the "
-                              "fleet can drive this repository again")
+                              "fleet can drive this repository again",
+                              code="external_session")
     if current:
         raise SupervisorError(f"{name} is mid-turn",
-                              "wait for the turn to finish, or `ad-fleet stop` it first")
+                              "wait for the turn to finish, or `ad-fleet stop` it first",
+                              code="mid_turn")
 
     # Before the turn, never during one: stopping an agent halfway through a thought leaves the
     # repository in whatever state it had reached, and the money is spent either way.
@@ -442,12 +501,14 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
         raise SupervisorError(
             f"{name} has spent {used:g} of its {budget:g} premium-request budget",
             f"raise `fleet.budget_per_agent`, or pass --force for this one turn. "
-            f"`ad-fleet history` shows where it went")
+            f"`ad-fleet history` shows where it went",
+            code="budget_exceeded")
 
     session = session_id(name)
     if not session:
         raise SupervisorError(f"{name} has no session to continue",
-                              f"start one with `ad-fleet start {name} <TICKET>`")
+                              f"start one with `ad-fleet start {name} <TICKET>`",
+                              code="no_session")
 
     directory = agent_dir(name)
     argv = launch_command("copilot", repo.path, message,
@@ -483,16 +544,18 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
     # ticket live in it, and losing them would make `max_restarts` unenforceable and hand the
     # resumed agent no ticket.
     lock = read_lock(name) or {}
-    lifecycle.reap(name, cfg=cfg)
+    lifecycle.reap(name)
 
     if live(name):
         raise SupervisorError(f"{name} is already running (pid {read_lock(name).get('pid')})",
-                              f"`ad-fleet stop {name}` first if it is stuck")
+                              f"`ad-fleet stop {name}` first if it is stuck",
+                              code="live_agent")
 
     session = session_id(name)
     if not session:
         raise SupervisorError(f"{name} has no session to resume",
-                              f"start one with `ad-fleet start {name} <TICKET>`")
+                              f"start one with `ad-fleet start {name} <TICKET>`",
+                              code="no_session")
 
     limit = lifecycle.settings(cfg)["max_restarts"]
     done = int(lock.get("restarts") or 0)
@@ -500,7 +563,8 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
         raise SupervisorError(
             f"{name} has already been restarted {done} time(s) on session {session}",
             "an agent that fails twice the same way will fail a third time. Read "
-            f"`ad-fleet logs {name}`, then pass --force if it is worth another turn")
+            f"`ad-fleet logs {name}`, then pass --force if it is worth another turn",
+            code="max_restarts")
 
     directory = agent_dir(name)
     text = lifecycle.RESUME_PROMPT
@@ -601,7 +665,11 @@ def status(registry: Registry | None = None) -> list[dict]:
     lifecycle.reap_all(registry=reg)
     rows = []
     for repo in reg.sorted():
-        row = {"repo": repo.name, "path": repo.path, "jira_project": repo.jira_project}
+        # `project` rides beside `repo` rather than replacing it: the lock, the agent directory and
+        # the events are all per working tree, and the project is only what says two of them are
+        # the same piece of work (#175). One agent per registered working tree.
+        row = {"repo": repo.name, "project": repo.project, "path": repo.path,
+               "worktree_of": repo.worktree_of, "jira_project": repo.jira_project}
         row.update(agent_state(repo.name, repo))
         rows.append(row)
     return rows

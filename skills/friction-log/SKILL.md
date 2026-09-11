@@ -12,7 +12,7 @@ project: <state.project>
 ticket: <state.active_ticket>
 skill_in_use: <skill name>
 type: ambiguity | loop | contradiction | tool-error | missing-info | contract
-severity: blocker | friction | nit
+severity: blocker | friction | nit      # REQUIRED. `nit` does not stop the agent; the other two do.
 model: <your model id>
 ---
 ## What I was doing

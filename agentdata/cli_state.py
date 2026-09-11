@@ -70,6 +70,59 @@ def cmd_set(a) -> int:
     return 0
 
 
+def _questions_report(st: dict, source: str, path: str) -> int:
+    rows = [[q.get("id", ""), S.question_text(q),
+             " | ".join(q.get("choices") or []) or "-",
+             q.get("default") or "-", q.get("want") or "-",
+             "blocking" if S.is_blocking(q) else "assumed"]
+            for q in (st.get("open_questions") or []) if isinstance(q, dict)]
+    if policy.pretty():
+        ui.facts([("path", path), ("phase", st.get("phase")),
+                  ("open_questions", len(st.get("open_questions") or []))], title=source)
+        if rows:
+            ui.table(["id", "question", "choices", "default", "want", "kind"], rows, title="open questions")
+        ui.note(S.line(st))
+    else:
+        print(toon.encode({"meta": {"ok": True, "source": source, "path": path,
+                                    "phase": st.get("phase"),
+                                    "blocked_from": st.get("blocked_from") or "",
+                                    "open_questions": len(st.get("open_questions") or [])}}))
+        if rows:
+            print(toon.table("open_questions", ["id", "question", "choices", "default", "want", "kind"], rows))
+        print(S.line(st))
+    return 0
+
+
+def cmd_ask(a) -> int:
+    """Ask the operator something, as a record rather than a sentence.
+
+    Without `--assume` the question is blocking: the phase becomes `blocked` and the one it came
+    from is kept, so answering can put it back. With `--assume` the agent has stated its default and
+    carried on, and the tile shows the assumption for the operator to overturn at leisure.
+    """
+    st = S.load(a.file)
+    record = {"q": a.question, "choices": list(a.choice or []), "default": a.default or "",
+              "want": a.want or "", "about": a.about or "", "blocking": not a.assume}
+    if a.assume:
+        record["assume"] = a.assume
+    S.apply(st, {}, asks=[record])
+    path = S.save(st, a.file)
+    return _questions_report(st, "ad-state ask", path)
+
+
+def cmd_answer(a) -> int:
+    """Record the operator's answer, and leave `blocked` when nothing blocking is left."""
+    st = S.load(a.file)
+    known = {str(q.get("id") or "") for q in (st.get("open_questions") or []) if isinstance(q, dict)}
+    if a.id not in known:
+        raise S.StateError(f"no open question with id {a.id!r}",
+                           "run `ad-state show` for the open questions and their ids"
+                           + (f"; open now: {', '.join(sorted(known))}" if known else ""))
+    S.apply(st, {}, answers={a.id: a.answer})
+    path = S.save(st, a.file)
+    return _questions_report(st, "ad-state answer", path)
+
+
 def main(argv: list[str] | None = None) -> int:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-state", description=__doc__)
@@ -94,6 +147,26 @@ def main(argv: list[str] | None = None) -> int:
                    help="record a file handed to this session, normally under .agent/in/<KEY>/ (repeatable)")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(func=cmd_set)
+
+    # A question is a record, not a sentence (#165). Without --assume it blocks and remembers the
+    # phase it interrupted; with --assume the agent states its default and keeps working.
+    p = sub.add_parser("ask", help="ask the operator something and stop, or state an assumption and continue")
+    p.add_argument("question", help="the question, in one sentence")
+    p.add_argument("--choice", action="append", help="an answer to offer (repeatable); the operator picks one")
+    p.add_argument("--default", help="the choice to take if nobody answers")
+    p.add_argument("--want", choices=["decision", "file", "value"], default="decision",
+                   help="what would answer this: a decision, a file, or a value")
+    p.add_argument("--about", help="what this question is about (a path, a measure, a ticket)")
+    p.add_argument("--assume", metavar="ASSUMPTION",
+                   help="state a safe, reversible default and CONTINUE instead of blocking")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
+    p.set_defaults(func=cmd_ask)
+
+    p = sub.add_parser("answer", help="record the operator's answer to an open question")
+    p.add_argument("id", help="the question's id, e.g. q1")
+    p.add_argument("answer", help="what the operator said")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read")
+    p.set_defaults(func=cmd_answer)
     completion.autocomplete(ap)
     a = ap.parse_args(argv)
     if getattr(a, "pretty", False):

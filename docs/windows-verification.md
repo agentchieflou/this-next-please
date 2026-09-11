@@ -903,3 +903,56 @@ Pass:
 - `ad-setup --patch theme` re-prompts only for warn rows.
 
 Paste: the output of `ad-doctor --only theme` and `ad-theme show --cwd`.
+
+## The handoff (#162) and sessions (#170): what only the laptop can answer
+
+Everything in these two epics that could be proven on Linux CI is proven — the pre-flight card, the
+question records, the blob-hash resolve, the scope report, the session fold, the transcript route,
+the desk's survival, the arrangement, and the two demos (`tests/test_fleet_demo_handoff.py` and
+`tests/test_fleet_demo_sessions.py`, both `-m slow`). What is left is every claim about a *host*: a
+browser's drag payload, an embedded webview, a real Copilot session store, and a real `git
+worktree`.
+
+Fill in the **Host** and **Date** columns as you go, or write *not yet measured* — never leave a row
+blank, because a blank row and an unmeasured one look identical six weeks later. A failure here
+becomes `tests/regressions/test_<short>.py` naming the host, the way this runbook's other sections
+work.
+
+### The handoff
+
+| # | What to do | What it must do | Host | Date |
+|---|---|---|---|---|
+| H1 | Drag a file from Explorer onto a tile in Edge, PyCharm's JCEF window and VS Code's Simple Browser | the drop reads `dataTransfer.files`; the page sends **only** name, size and the git blob hash, never a path | _not yet measured_ | — |
+| H2 | Same drop, for a file that is *not* in any registered checkout | the row offers *attach a copy* and nothing is uploaded until it is clicked | _not yet measured_ | — |
+| H3 | Same drop, for a file whose contents match two paths in the checkout | the row offers the choice rather than guessing | _not yet measured_ | — |
+| H4 | `Fleet: give to the agent` from the VS Code Explorer with three files selected | the shell posts the paths and the *server* says whose they are; the shell names no rule | _not yet measured_ | — |
+| H5 | The PyCharm action with a file open and nothing selected | the open editor's file is what is given | _not yet measured_ | — |
+| H6 | Drop a Jira ticket from the board onto a tile | the dispatch card opens rather than an agent launching, and the pre-flight spends no premium request | _not yet measured_ | — |
+| H7 | Answer two questions in one *Send* against a real `copilot` | one resume, one premium request — not one per answer | _not yet measured_ | — |
+| H8 | A real run that edits a file outside the scope it was given | the tile says `edited N · 1 outside`, and nothing was refused | _not yet measured_ | — |
+
+### Sessions
+
+| # | What to do | What it must do | Host | Date |
+|---|---|---|---|---|
+| S1 | Open `~/.copilot/session-store.db` read-only and print `PRAGMA table_info(sessions)` | records the real schema, and **whether it carries a working directory** — the open question the `store` source turns on | _not yet measured_ | — |
+| S2 | Two agents running at once against that store | both sessions are listed, and the reader never takes a write lock | _not yet measured_ | — |
+| S3 | `ad-fleet start <repo> --resume <id>` from a *different* working directory | the resumed conversation is the one named, not the one whose cwd it was launched from | _not yet measured_ | — |
+| S4 | JCEF and Simple Browser, with `?w=left` in the URL | the window keeps its name across a reload and a server restart | _not yet measured_ | — |
+| S5 | A `git worktree` checked out **inside** its main checkout | it wears its own colour, not its parent's — the shell hook's rules are longest path first | _not yet measured_ | — |
+| S6 | Two checkouts of one project on the desk | hiding one hides both, and the dock shows one chip saying *2 checkouts* | _not yet measured_ | — |
+| S7 | Reorder tiles during a sitting, then press the number printed on one | the number that focuses a tile is the number on it — #149 chose the current rule, so measure before changing it | _not yet measured_ | — |
+| S8 | Close the desk with `Ctrl-C` and reopen it | the arrangement, the selection, the hidden set and each named window's own state all come back | _not yet measured_ | — |
+| S9 | Leave a window closed while two tiles change state, then reopen it | the *since you were away* strip names both changes and no more | _not yet measured_ | — |
+
+### The open questions these rows answer
+
+- **Does Copilot's session store carry a working directory?** (S1) `sessions.read_store_sessions`
+  matches on `cwd` when the column exists and falls back to `repository`; if the schema has neither,
+  a `store` session cannot be tied to a checkout at all and the source has to say so.
+- **Is `hidden` the right thing to share between windows?** (S6, S8) It ships shared, like the rest
+  of the arrangement. The sitting decides whether a per-window override is wanted; the plan says so
+  rather than pretending the question is settled.
+- **Do tile numbers renumber on reorder?** (S7) They follow the arrangement today, deliberately
+  (#149). A key that changes under the hand is not a key, so this is measured on the laptop before
+  it is changed.

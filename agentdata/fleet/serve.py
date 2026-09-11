@@ -43,12 +43,13 @@ import secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from .. import textio
-from . import (agentstate, approval, board as B, catalogue as CAT, events as E, inbox as IN,
-               links as LK, notify as N, poll as P, supervisor)
+from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
+               inbox as IN, lifecycle, links as LK, notify as N, poll as P, supervisor)
 from .registry import Registry, RegistryError, fleet_dir
+from .scope import ScopeError as SCOPE_ERROR
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 SERVE_FILE = "serve.json"
@@ -120,10 +121,13 @@ def _tokenize_css_urls(css: str, token: str) -> str:
 
 
 class ServeError(Exception):
-    def __init__(self, msg: str, hint: str = ""):
+    def __init__(self, msg: str, hint: str = "", code: str = "", hint_code: str = ""):
         super().__init__(msg)
         self.msg = msg
         self.hint = hint
+        # The structured refusal every 409 carries (#163), so the page switches on a code rather
+        # than matching a regex against prose that anyone may reword.
+        self.code = code or hint_code
 
 
 # --------------------------------------------------------------------------------- the API layer
@@ -167,6 +171,64 @@ def format_age_str(seconds: int | float) -> str:
     return f"{days} days ago" if days > 1 else "yesterday"
 
 
+def stream_runs(stream: list[dict]) -> list[list[dict]]:
+    """The stream cut into runs, a run beginning at every `started` event.
+
+    The same cut `split_runs` and `sessions.fold_stream` make. It is here as one function because
+    the switcher (#174) needs a third caller of it, and three private copies of "where does a run
+    begin" is how the tile and the report came to count different things.
+    """
+    from . import runs as R
+
+    starts = [i for i, ev in enumerate(stream) if R.is_run_start(ev)]
+    if not starts:
+        return [list(stream)] if stream else []
+    return [stream[start:(starts[i + 1] if i + 1 < len(starts) else len(stream))]
+            for i, start in enumerate(starts)]
+
+
+def run_session(run_events: list[dict]) -> str:
+    """Which session a run belongs to: the id it announced, or the one it was resumed onto."""
+    for ev in run_events:
+        if ev.get("kind") == "session_id":
+            sid = str((ev.get("data") or {}).get("session") or "")
+            if sid:
+                return sid
+    first = run_events[0] if run_events else {}
+    return str((first.get("data") or {}).get("session") or "")
+
+
+def transcript_for(name: str, session: str, *, limit: int = 200,
+                   before: int = 0) -> dict:
+    """One session's transcript, read from history and paged backwards (#174).
+
+    A session is **not** a contiguous slice of the stream: `--resume` opens a new run on the same
+    conversation, and runs of other sessions can sit between them. Runs are therefore chosen by the
+    id they carry rather than by where they are, which is also why this cannot be done by slicing
+    `earlier[]`.
+
+    Paged from the end, because that is the end an operator reads first: `before` is a `seq` to stop
+    short of, and `cursor` comes back as the `before` for the page above this one.
+    """
+    stream = E.read(name)
+    picked: list[dict] = []
+    for run in stream_runs(stream):
+        if run_session(run) == session:
+            picked.extend(run)
+    if before:
+        picked = [ev for ev in picked if int(ev.get("seq") or 0) < before]
+    more = len(picked) > limit
+    page = picked[-limit:] if limit > 0 else picked
+    cursor = int(page[0].get("seq") or 0) if page else 0
+    derived = agentstate.derive(picked, live=False) if picked else {}
+    return {"repo": name, "session": session, "events": page, "more": more,
+            "cursor": cursor, "total": len(picked),
+            "runs": sum(1 for run in stream_runs(stream) if run_session(run) == session),
+            "state": derived.get("state", ""), "why": derived.get("why", ""),
+            "ticket": derived.get("ticket", ""),
+            "at": derived.get("at", "")}
+
+
 def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]]:
     """Split an event stream into the current run and earlier runs summary.
 
@@ -174,16 +236,19 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
     Returns:
         (current_run_dict, earlier_runs_list)
     """
+    from . import runs as R
+
     if not stream:
         return ({"n": 0, "started": "", "resumed": False, "session": "",
-                 "ticket": "", "live": live, "events": []}, [])
+                 "session_title": "", "ticket": "", "live": live, "events": []}, [])
 
-    started_indices = [i for i, ev in enumerate(stream) if ev.get("kind") == "started"]
+    started_indices = [i for i, ev in enumerate(stream) if R.is_run_start(ev)]
+    repo_name = stream[0].get("repo", "") if stream else ""
     if not started_indices:
         d = agentstate.derive(stream, live=live)
         return ({"n": 1, "started": stream[0].get("ts", ""), "resumed": False,
-                 "session": d.get("session", ""), "ticket": d.get("ticket", ""),
-                 "live": live, "events": stream}, [])
+                 "session": d.get("session", ""), "session_title": "",
+                 "ticket": d.get("ticket", ""), "live": live, "events": stream}, [])
 
     earlier = []
     for idx, start_i in enumerate(started_indices[:-1]):
@@ -198,6 +263,7 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
             "ended": end_ev.get("ts", ""),
             "state": d["state"],
             "ticket": d.get("ticket", ""),
+            "session": d.get("session") or (start_ev.get("data") or {}).get("session", ""),
         })
 
     last_start_i = started_indices[-1]
@@ -205,6 +271,18 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
     curr_derived = agentstate.derive(curr_events, live=live)
     start_ev = stream[last_start_i]
     start_data = start_ev.get("data") or {}
+    curr_sess = curr_derived.get("session") or start_data.get("session", "")
+    curr_title = ""
+    if repo_name and curr_sess:
+        try:
+            from . import sessions as S
+            for s in S.load_sessions(repo_name):
+                if s.get("id") == curr_sess:
+                    curr_title = s.get("title", "")
+                    break
+        except Exception:
+            pass
+
     curr_run = {
         "n": len(started_indices),
         "started": start_ev.get("ts", ""),
@@ -212,7 +290,8 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         # predates `ad-fleet serve` is showing history, and has to say so.
         "since_start": bool(start_ev.get("ts", "") >= SERVER_STARTED),
         "resumed": bool(start_data.get("resumed", False)),
-        "session": curr_derived.get("session") or start_data.get("session", ""),
+        "session": curr_sess,
+        "session_title": curr_title,
         "ticket": curr_derived.get("ticket") or start_ev.get("ticket", ""),
         "live": live,
         "events": curr_events,
@@ -254,7 +333,8 @@ def fleet_snapshot() -> dict:
 
     for row in supervisor.status():
         name = row["repo"]
-        try:
+        repo = None                          # rebound per row: a lookup that raised used to leave
+        try:                                 # the previous row's repository in hand
             repo = registry.get(name) if registry is not None else None
             if repo is not None:
                 E.refresh(name, repo.path, repo_state=repo.state())
@@ -300,21 +380,29 @@ def fleet_snapshot() -> dict:
         else:
             not_supervised_sentence = ""
 
-        # Resolve project accent
-        proj_entry = proj_theme_map.get(name) or proj_theme_map.get(os.path.abspath(row.get("path", "")))
+        # Resolve project accent. The project key first, then this checkout's own name: two
+        # working trees of one repository wear one colour (#175).
+        project = repo.project if repo is not None else name
+        proj_entry = (proj_theme_map.get(project) or proj_theme_map.get(name)
+                      or proj_theme_map.get(os.path.abspath(row.get("path", ""))))
         if isinstance(proj_entry, dict) and "accent" in proj_entry:
             accent = proj_entry["accent"]
         elif isinstance(proj_entry, dict) and "theme" in proj_entry:
-            pt = theme_or_none(proj_entry["theme"], seed=name)
+            pt = theme_or_none(proj_entry["theme"], seed=project)
             accent = pt.accent or "#3FB950"
         elif isinstance(proj_entry, str) and proj_entry:
-            pt = theme_or_none(proj_entry, seed=name)
+            pt = theme_or_none(proj_entry, seed=project)
             accent = pt.accent or "#3FB950"
         else:
             pt = theme_or_none(default_theme_name, seed=name)
             accent = pt.accent or "#3FB950"
 
         rows.append({"repo": name, "path": row.get("path", ""),
+                     # Which project this checkout is one of, and the checkouts beside it. A tile
+                     # is still one working tree with one agent; the strip is how the operator gets
+                     # from one to the next without hunting for its tile (#175).
+                     "project": row.get("project", "") or name,
+                     "worktree_of": row.get("worktree_of", ""),
                      "jira_project": row.get("jira_project", ""),
                      "accent": accent,
                      "pid": pid, "last_event_age_s": last_age_s,
@@ -326,7 +414,18 @@ def fleet_snapshot() -> dict:
                      "adoptable": offers.get(name) if not is_external else None,
                      "not_supervised_sentence": not_supervised_sentence,
                      "earlier": earlier,
+                     # How many *other* sessions this checkout has, for the switcher's `earlier (n)`
+                     # tab (#174). Counted off the stream that is already in hand rather than from
+                     # `sessions.json`, which exists only once somebody has rebuilt it -- a tab that
+                     # said `earlier (0)` over three real sessions is worse than no tab at all. The
+                     # rows themselves come from `/api/sessions`, on the click.
+                     "sessions_n": len({sid for sid in
+                                        (run_session(run) for run in stream_runs(stream))
+                                        if sid and sid != (curr_run.get("session") or "")}),
                      **derived,
+                     # What it edited against what it was given (#168). Advice to the model and a
+                     # report to the human: nothing here refuses an edit, it only says what happened.
+                     "scope_report": _scope_report(row.get("path", ""), derived),
                      "last_seq": stream[-1]["seq"] if stream else 0,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
                      # The project's own state (#131), beside the agent's. Named `polls` and not
@@ -340,9 +439,39 @@ def fleet_snapshot() -> dict:
                      # so that the page could take its length.
                      "run": {**curr_run, "events": None, "events_n": len(curr_run["events"])},
                      "recent": curr_run["events"][-40:] if curr_run["events"] else stream[-40:]})
+
+    _add_siblings(rows)
+    from .. import config as C
+
+    # `fleet.preflight: false` restores #98's immediate start: a drop launches instead of opening
+    # the dispatch card. Absent means on, because the card is the recoverable direction.
     return {"repos": rows, "approvals": approval.pending(), "fleet_dir": fleet_dir(),
             "desk": desk_state(), "theme": theme_state(),
+            "preflight": C.get(C.load(), "fleet.preflight") is not False,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
+
+
+def _add_siblings(rows: list[dict]) -> None:
+    """The other checkouts of each row's project, for the switcher's strip (#175).
+
+    A tile is still **one working tree with one agent** -- the lock, the events and the session are
+    all per checkout. The strip is only how the operator gets from one to the next without hunting
+    the grid for its tile, so each sibling carries just enough to be a readable tab: the branch it
+    is on, the state its agent is in, and how old that is.
+    """
+    by_project: dict[str, list[dict]] = {}
+    for row in rows:
+        by_project.setdefault(row.get("project") or row["repo"], []).append(row)
+    for row in rows:
+        project = row.get("project") or row["repo"]
+        row["siblings"] = [
+            {"repo": other["repo"],
+             "branch": ((other.get("polls") or {}).get("git") or {}).get("value", {}).get("branch", ""),
+             "path": other.get("path", ""),
+             "state": other.get("state", ""),
+             "needs_human": other.get("needs_human", False),
+             "age": format_age_str(other.get("last_event_age_s", -1))}
+            for other in by_project.get(project, []) if other["repo"] != row["repo"]]
 
 
 # ------------------------------------------------------------------- the desk (#130 #131 #132)
@@ -367,10 +496,11 @@ _selection = {
     "version": 0,
     "at": "",
     "arrangement": {
-        "grid": {"order": [], "size": {}, "pinned": []},
-        "roles": {"order": []},
-        "screens": {"order": []},
+        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
+        "roles": {"order": [], "hidden": []},
+        "screens": {"order": [], "hidden": []},
     },
+    "windows": {},
 }
 
 
@@ -413,6 +543,11 @@ def _load_desk() -> None:
                     _selection["arrangement"] = {
                         k: dict(v) if isinstance(v, dict) else v for k, v in arr.items()
                     }
+                wins = data.get("windows")
+                if isinstance(wins, dict):
+                    _selection["windows"] = {
+                        k: dict(v) if isinstance(v, dict) else v for k, v in wins.items()
+                    }
         except Exception:
             pass
 
@@ -435,17 +570,17 @@ def _fresh() -> dict:
     """
     here = fleet_dir()
     if _desk["dir"] and _desk["dir"] != here:
-        reset()
+        forget_desk()
     if not _desk["dir"]:
         _load_desk()
     _desk["dir"] = here
     return _desk
 
 
-def reset() -> None:
-    """Drop the shared handles and the selection. Called when the fleet moves under a live process."""
-    global _desk_loaded
-    _desk_loaded = False
+def drop_handles() -> None:
+    """Drop the shared handles (poller, inbox, catalogue) on shutdown.
+    Preserves desk.json and selection in memory.
+    """
     with _desk_lock:
         cat = _desk.get("catalogue")
         if cat is not None:
@@ -455,18 +590,32 @@ def reset() -> None:
                 pass
         _desk.update(dir="", poller=None, inbox=None, catalogue=None, last_tick=0.0,
                      last_fold=0.0)
+
+
+def forget_desk() -> None:
+    """Drop handles and blank selection. Called only when the fleet moves under a live process."""
+    global _desk_loaded
+    _desk_loaded = False
+    drop_handles()
+    with _desk_lock:
         _selection.update(
             selected="",
             screens=[],
             version=_selection["version"] + 1,
             at=E.stamp(),
             arrangement={
-                "grid": {"order": [], "size": {}, "pinned": []},
-                "roles": {"order": []},
-                "screens": {"order": []},
+                "grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
+                "roles": {"order": [], "hidden": []},
+                "screens": {"order": [], "hidden": []},
             },
+            windows={},
         )
         _save_desk()
+
+
+def reset() -> None:
+    """Backwards compatibility alias for forget_desk()."""
+    forget_desk()
 
 
 
@@ -602,6 +751,7 @@ def desk_state() -> dict:
     _ensure_desk_loaded()
     with _desk_lock:
         arr = _selection.get("arrangement") or {}
+        wins = _selection.get("windows") or {}
         return {
             "selected": _selection["selected"],
             "screens": list(_selection["screens"]),
@@ -609,6 +759,9 @@ def desk_state() -> dict:
             "at": _selection["at"],
             "arrangement": {
                 k: dict(v) if isinstance(v, dict) else v for k, v in arr.items()
+            },
+            "windows": {
+                k: dict(v) if isinstance(v, dict) else v for k, v in wins.items()
             },
         }
 
@@ -706,12 +859,18 @@ def select(selected=None, screens=None) -> dict:
         return desk_state()
 
 
-def arrange(layout: str, *, order=None, size=None, pinned=None) -> dict:
-    """Set the tile arrangement for a layout, persisted in desk.json and pushed down the SSE stream."""
+def arrange(layout: str, *, order=None, size=None, pinned=None, hidden=None) -> dict:
+    """Set the tile arrangement for a layout, persisted in desk.json and pushed down the SSE stream.
+
+    `hidden` joins `order`, `size` and `pinned` (#173). Shared across windows like the rest of the
+    arrangement -- whether it should be per window instead is a question for the sitting, and the
+    plan says so; this is the default that ships.
+    """
     _ensure_desk_loaded()
     with _desk_lock:
         arr = _selection.setdefault("arrangement", {})
-        cur = arr.setdefault(layout, {"order": [], "size": {}, "pinned": []})
+        cur = arr.setdefault(layout, {"order": [], "size": {}, "pinned": [], "hidden": []})
+        cur.setdefault("hidden", [])
         changed = False
         if order is not None and cur.get("order") != list(order):
             cur["order"] = [str(x) for x in order]
@@ -719,8 +878,100 @@ def arrange(layout: str, *, order=None, size=None, pinned=None) -> dict:
         if size is not None and cur.get("size") != dict(size):
             cur["size"] = {str(k): int(v) for k, v in size.items()}
             changed = True
-        if pinned is not None and cur.get("pinned") != list(pinned):
-            cur["pinned"] = [str(x) for x in pinned]
+        # Pinned and hidden are per *project* (#175): two working trees of one repository are one
+        # piece of work, and putting half of it away -- or pinning half of it first -- is an
+        # arrangement nobody asked for. Expanded here rather than in the page, so `ad-fleet hide`
+        # and every open window agree by construction.
+        if pinned is not None:
+            want = _whole_projects(pinned)
+            if cur.get("pinned") != want:
+                cur["pinned"] = want
+                changed = True
+        if hidden is not None:
+            want = _whole_projects(hidden)
+            if cur.get("hidden") != want:
+                cur["hidden"] = want
+                changed = True
+        if changed:
+            _selection["version"] += 1
+            _selection["at"] = E.stamp()
+            _save_desk()
+        return desk_state()
+
+
+def _whole_projects(names) -> list[str]:
+    """Every checkout of every project named here, in the order the names arrived.
+
+    A name the registry does not know comes through untouched: an arrangement outlives a
+    registration, and silently dropping a tile's place because the checkout is unregistered today
+    would lose the operator's desk the moment a drive was disconnected.
+    """
+    wanted = [str(n) for n in names]
+    try:
+        repos = Registry().sorted()
+    except (RegistryError, OSError):
+        return wanted
+    project_of = {r.name: r.project for r in repos}
+    checkouts: dict[str, list[str]] = {}
+    for repo in repos:
+        checkouts.setdefault(repo.project, []).append(repo.name)
+
+    out: list[str] = []
+    for name in wanted:
+        for member in checkouts.get(project_of.get(name, ""), [name]):
+            if member not in out:
+                out.append(member)
+    return out
+
+
+def update_window(w: str = "main", **kwargs) -> dict:
+    """Set per-window state in desk.json and push down the SSE stream."""
+    _ensure_desk_loaded()
+    w = str(w or "main")
+    with _desk_lock:
+        wins = _selection.setdefault("windows", {})
+        win = wins.setdefault(w, {
+            "layout": "grid",
+            "view": "all",
+            "screen": 0,
+            "focus": False,
+            "zoomed": "",
+            "section": "tickets",
+            "held": [],
+            "read": {},
+            "seen": "",
+        })
+        changed = False
+        if "layout" in kwargs and win.get("layout") != str(kwargs["layout"] or ""):
+            win["layout"] = str(kwargs["layout"] or "")
+            changed = True
+        if "view" in kwargs and win.get("view") != str(kwargs["view"] or ""):
+            win["view"] = str(kwargs["view"] or "")
+            changed = True
+        if "screen" in kwargs and win.get("screen") != int(kwargs["screen"] or 0):
+            win["screen"] = int(kwargs["screen"] or 0)
+            changed = True
+        if "focus" in kwargs and win.get("focus") != bool(kwargs["focus"]):
+            win["focus"] = bool(kwargs["focus"])
+            changed = True
+        if "zoomed" in kwargs and win.get("zoomed") != str(kwargs["zoomed"] or ""):
+            win["zoomed"] = str(kwargs["zoomed"] or "")
+            changed = True
+        if "section" in kwargs and win.get("section") != str(kwargs["section"] or ""):
+            win["section"] = str(kwargs["section"] or "")
+            changed = True
+        if "held" in kwargs:
+            new_held = [str(x) for x in kwargs["held"] or []]
+            if win.get("held") != new_held:
+                win["held"] = new_held
+                changed = True
+        if "read" in kwargs and isinstance(kwargs["read"], dict):
+            new_read = {str(k): int(v) for k, v in kwargs["read"].items()}
+            if win.get("read") != new_read:
+                win["read"] = new_read
+                changed = True
+        if "seen" in kwargs and win.get("seen") != str(kwargs["seen"] or ""):
+            win["seen"] = str(kwargs["seen"] or "")
             changed = True
         if changed:
             _selection["version"] += 1
@@ -861,15 +1112,26 @@ def show_for(name: str) -> dict:
         facts = CAT._facts(repo.path)
     state = repo.state()
     rail = LK.links_for(repo, facts, state)
-    return {"project": name, "name": name, "path": textio.norm_path(repo.path),
+    cells = poll_state(name)
+    # The branch from the poll's git cell, which shells out *in this checkout* and is therefore
+    # already worktree-correct. The catalogue's own `branch` came from the index, and an index
+    # entry is written once for a repository -- so two worktrees of it read the same branch, which
+    # is the one string they most need to differ in. The catalogue's `_inside` wall (realpath every
+    # read, refuse anything outside the repository) is not touched for the sake of one string.
+    polled = ((cells.get("git") or {}).get("value") or {}).get("branch") or ""
+    return {"project": repo.project, "name": name, "repo": name,
+            "path": textio.norm_path(repo.path),
+            "worktree_of": repo.worktree_of,
             "indexed": indexed, "jira_project": repo.jira_project,
-            "branch": shown.get("branch", ""), "last_indexed": shown.get("last_indexed", ""),
+            "branch": polled or shown.get("branch", ""),
+            "branch_from": "poll" if polled else ("index" if shown.get("branch") else ""),
+            "last_indexed": shown.get("last_indexed", ""),
             "facts": tile_facts(facts), "state": state,
             "friction": (shown.get("friction") or [])[:DESK_LIMIT],
             "pbip": shown.get("pbip") or [],
             "links": LK.present(rail), "missing": [r for r in rail if not r.get("url")],
             "missing_keys": LK.missing_keys(rail),
-            "polls": poll_state(name), "verify": verify_for(repo)}
+            "polls": cells, "verify": verify_for(repo)}
 
 
 def desk_snapshot() -> dict:
@@ -945,6 +1207,106 @@ def _offer(id: str):
                         "it was moved, renamed or re-saved; reload the tray and try again")
 
 
+def _scope_report(repo_path: str, derived: dict) -> dict:
+    """`edited 2 · 1 outside the scope you gave it`, or nothing when no scope was given."""
+    from . import scope as SCOPE
+
+    files = derived.get("files_modified") or []
+    ticket = derived.get("ticket") or ""
+    if not files or not ticket or not repo_path:
+        return {}
+    try:
+        card = SCOPE.report(repo_path, ticket, files)
+    except OSError:
+        return {}
+    if not card.get("given"):
+        return {}
+    return card
+
+
+def _repo_record(name: str):
+    """The registered checkout, or the refusal the CLI would give."""
+    if not name:
+        raise ServeError("no repository named", "pass `repo`", hint_code="wrong_repo")
+    try:
+        return Registry().get(name)
+    except (RegistryError, KeyError):
+        raise ServeError(f"{name!r} is not a registered repository",
+                         "`ad-fleet repo add <path>` first, then reload",
+                         hint_code="wrong_repo") from None
+
+
+def _scope_cap() -> int:
+    from .. import config as C
+
+    try:
+        return int(C.get(C.load(), "fleet.scope.max_hash_mb") or 64) * 1024 * 1024
+    except (TypeError, ValueError):
+        return 64 * 1024 * 1024
+
+
+def _attach_cap() -> int:
+    from .. import config as C
+
+    try:
+        return int(C.get(C.load(), "fleet.attach.max_mb") or 10) * 1024 * 1024
+    except (TypeError, ValueError):
+        return 10 * 1024 * 1024
+
+
+def _attach_bytes(body: dict) -> dict:
+    """A file that is not the repository's, copied in because the operator asked for it.
+
+    Base64 in a JSON body rather than multipart, because the page has no build step and the server
+    is `http.server`: one encoder on each side beats a parser nobody would otherwise need.
+    """
+    import base64
+
+    from . import scope as SCOPE
+
+    target = _repo_record(str(body.get("repo") or ""))
+    ticket = str(body.get("ticket") or "") or (target.state().get("active_ticket") or "")
+    name = textio.safe_name(os.path.basename(str(body.get("name") or "")))
+    if not name:
+        raise ServeError("the file has no usable name", "rename it and drop it again")
+    try:
+        blob = base64.b64decode(str(body.get("bytes") or ""), validate=True)
+    except (ValueError, TypeError):
+        raise ServeError("the upload was not readable", "drop the file again") from None
+    cap = _attach_cap()
+    if len(blob) > cap:
+        raise ServeError(f"{name} is {len(blob) // 1024 // 1024} MB; the cap is {cap // 1024 // 1024} MB",
+                         "raise `fleet.attach.max_mb`, or put the file in the checkout and drop it "
+                         "from there so it is scoped rather than copied")
+
+    folder = HO.in_dir(target.path, ticket)
+    dest = os.path.join(folder, name)
+    root = textio.norm_path(os.path.join(target.path, *HO.IN_DIR.split("/")))
+    if not textio.norm_path(dest).startswith(root + "/"):
+        raise ServeError(f"refusing to write {name} outside {HO.IN_DIR}",
+                         "rename the file to something without path separators and retry")
+    SCOPE._refuse_unscopable(os.path.join(HO.IN_DIR, HO.key_for(ticket), name))
+    try:
+        os.makedirs(textio.longpath(folder), exist_ok=True)
+        with open(textio.longpath(dest), "wb") as handle:
+            handle.write(blob)
+    except OSError as e:
+        raise ServeError(f"could not write {name}: {e.strerror or e}",
+                         "check the disk and the repository's permissions") from None
+
+    rel = textio.norm_path(os.path.join(HO.IN_DIR, HO.key_for(ticket), name))
+    why = HO.ask_ad_state(target.path, rel)
+    data = {"file": textio.norm_path(dest), "name": name, "dir": HO.rel_in_dir(ticket),
+            "source": "drop", "size": len(blob), "project": target.name,
+            "attached": True, "recorded": not why, "why": why}
+    ev = E.event(target.name, IN.ATTACHED, data, ticket=ticket)
+    try:
+        E.append(target.name, [ev])
+    except OSError:
+        pass
+    return {**data, **ev}
+
+
 def act(what: str, body: dict) -> dict:
     """One action. The same function the CLI verb calls, so the two cannot drift apart."""
     repo = str(body.get("repo") or "")
@@ -955,9 +1317,12 @@ def act(what: str, body: dict) -> dict:
                                 prompt=body.get("prompt") or None,
                                 force=bool(body.get("force")), cfg=C.load(),
                                 cross_project=bool(body.get("cross_project")),
-                                board_rows=(B.read_cache() or {}).get("rows") or [])
+                                board_rows=(B.read_cache() or {}).get("rows") or [],
+                                resume=body.get("resume") or None,
+                                new=bool(body.get("new")),
+                                brief=body.get("brief") or None)
         return {"repo": repo, "pid": lock["pid"], "ticket": lock.get("ticket", ""),
-                "summary": lock.get("summary", "")}
+                "summary": lock.get("summary", ""), "session": lock.get("session", "")}
     if what == "send":
         from .. import config as C
 
@@ -966,6 +1331,73 @@ def act(what: str, body: dict) -> dict:
             raise ServeError("nothing to send", "type a message first")
         lock = supervisor.send(repo, message, cfg=C.load())
         return {"repo": repo, "pid": lock["pid"]}
+    if what == "scope/resolve":
+        # Hashes in, paths out. Nothing is written and nothing is uploaded: the page has sent the
+        # git object name of each dropped file and is asking which of its own files that is.
+        from . import scope as SCOPE
+
+        target = _repo_record(repo)
+        return {"repo": target.name,
+                "files": SCOPE.resolve(target.path, list(body.get("files") or []),
+                                       max_bytes=_scope_cap())}
+    if what == "scope":
+        from . import scope as SCOPE
+
+        # Absolute paths and no repository: a shell posted them (#167). The server decides which
+        # checkout owns each one, because a shell that decided would be a shell with a rule in it.
+        raw = [str(p) for p in (body.get("paths") or [])]
+        if not repo and any(os.path.isabs(p) for p in raw):
+            by_repo, orphans = SCOPE.group_by_checkout(raw)
+            if orphans and not by_repo:
+                raise ServeError(
+                    f"{os.path.basename(orphans[0])} is not inside any registered checkout",
+                    "`ad-fleet repo add <path>` for the checkout it lives in, then try again",
+                    code="wrong_repo")
+            selected = str(body.get("selected") or "")
+            if selected and selected not in by_repo:
+                owner = next(iter(by_repo))
+                raise ServeError(
+                    f"those files belong to {owner}, and {selected} is the selected tile",
+                    f"select {owner} and drop them there, or give them to {owner} from its own tile",
+                    code="scope_wrong_repo")
+            out = []
+            for name, group in by_repo.items():
+                target = group["repo"]
+                ticket = str(body.get("ticket") or "") or (target.state().get("active_ticket") or "")
+                ev = SCOPE.add(name, target.path, ticket, group["paths"],
+                               why=str(body.get("why") or "given from the IDE"),
+                               how="ide", queued=bool(supervisor.live(name)))
+                out.append({"repo": name, "ticket": ticket, **(ev.get("data") or {})})
+            return {"scoped": out, "outside": orphans}
+
+        target = _repo_record(repo)
+        ticket = str(body.get("ticket") or "") or (target.state().get("active_ticket") or "")
+        live = supervisor.live(target.name)
+        ev = SCOPE.add(target.name, target.path, ticket,
+                       [str(p) for p in (body.get("paths") or [])],
+                       why=str(body.get("why") or "dropped on the tile"),
+                       how=str(body.get("how") or SCOPE.BY_HASH),
+                       queued=bool(live))
+        return {"repo": target.name, "ticket": ticket, **(ev.get("data") or {}), **ev}
+    if what == "attach-bytes":
+        # The one route that carries bytes, and the only way a file that is *not* the repository's
+        # reaches it. A click, a copy into `.agent/in/<KEY>/`, an `inbox.attached` event -- the
+        # Downloads tray's rules, with `source: "drop"`.
+        return _attach_bytes(body)
+    if what == "answer":
+        # Every answer the operator typed, in one resume. `send` is the transport, because a reply
+        # to a stopped agent has always been a respawn with `--resume` -- there is no pipe to an
+        # agent's stdin. What is new is that N answers cost one turn instead of N.
+        from .. import config as C
+
+        answers = [(str(a.get("id") or ""), str(a.get("answer") or ""))
+                   for a in (body.get("answers") or [])
+                   if str(a.get("id") or "") and str(a.get("answer") or "").strip()]
+        if not answers:
+            raise ServeError("nothing to answer",
+                             "pick a choice or type an answer for at least one question")
+        lock = supervisor.send(repo, lifecycle.answers_prompt(answers), cfg=C.load())
+        return {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers]}
     if what == "stop":
         return supervisor.stop(repo)
     if what == "reset":
@@ -992,13 +1424,24 @@ def act(what: str, body: dict) -> dict:
         return arrange(str(body.get("layout") or "grid"),
                        order=body.get("order"),
                        size=body.get("size"),
-                       pinned=body.get("pinned"))
+                       pinned=body.get("pinned"),
+                       hidden=body.get("hidden"))
+    if what == "window":
+        w = str(body.get("w") or "main")
+        kwargs = {k: v for k, v in body.items() if k != "w"}
+        return update_window(w, **kwargs)
     if what == "attach":
         # The single exception in the epic's "nothing is written outside ~/.agentdata/fleet without
         # a click": this is the click. `Inbox.attach` does the copy and holds the rule that it lands
         # inside `<repo>/.agent/in/` and nowhere else.
         box, offer = _offer(str(body.get("id") or ""))
-        return box.attach(offer, repo)
+        ev = box.attach(offer, repo)
+        data = ev.get("data") or {}
+        return {"attached": data.get("attached", False),
+                "dir": data.get("dir", ""),
+                "why": data.get("why", ""),
+                "file": data.get("file", ""),
+                **ev}
     if what == "dismiss":
         box, offer = _offer(str(body.get("id") or ""))
         box.dismiss(offer)
@@ -1186,8 +1629,11 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, payload: dict, code: int = 200) -> None:
         self._send(code, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
 
-    def _refuse(self, code: int, error: str, hint: str = "") -> None:
-        self._json({"ok": False, "error": error, "hint": hint}, code)
+    def _refuse(self, code: int, error: str, hint: str = "", refusal_code: str = "") -> None:
+        payload = {"ok": False, "error": error, "hint": hint}
+        if code == 409 or refusal_code:
+            payload["code"] = refusal_code or "refused"
+        self._json(payload, code)
 
     # ---------------------------------------------------------------------- GET
 
@@ -1218,8 +1664,14 @@ class Handler(BaseHTTPRequestHandler):
                                    "port": self.server.server_address[1],
                                    "version": version_string().split()[1],
                                    "contract": CONTRACT})
+            forward = [(k, v[0] if isinstance(v, list) and len(v) == 1 else v)
+                       for k, vs in query.items() if k != "t"
+                       for v in (vs if isinstance(vs, list) else [vs])]
+            dest = f"/?t={self.token}"
+            if forward:
+                dest += f"&{urlencode(forward)}"
             self.send_response(302)
-            self.send_header("Location", f"/?t={self.token}")
+            self.send_header("Location", dest)
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -1254,6 +1706,57 @@ class Handler(BaseHTTPRequestHandler):
             since = (query.get("since") or ["7d"])[0]
             return self._json({"ok": True, "since": since,
                                "runs": B.history(since=B.since_seconds(since))})
+        if route == "/api/sessions":
+            from . import sessions as SESS
+
+            repo_name = (query.get("repo") or [""])[0]
+            if not repo_name:
+                return self._refuse(400, "repo required", "pass ?repo=<name>")
+            try:
+                repo_path = Registry().get(repo_name).path
+            except (RegistryError, OSError):
+                # An unregistered name still gets its folded sessions -- the stream outlives the
+                # registration -- it just gets none of Copilot's own store, which is keyed on the
+                # checkout this no longer knows the path of.
+                repo_path = ""
+            # Rebuilt on the click rather than read once and kept: the index is a fold of the
+            # stream, so a session opened since the file was last written would be missing from the
+            # very list that exists to find it again. Hand-set titles survive the rebuild.
+            try:
+                rows = SESS.rebuild_sessions(repo_name, repo_path=repo_path)
+            except OSError:
+                rows = SESS.load_sessions(repo_name)
+            return self._json({"ok": True, "repo": repo_name, "sessions": rows})
+        if route == "/api/transcript":
+            # Read-only, and the whole point of it: choosing an earlier session must never spawn
+            # anything. A GET cannot, which is why *Resume here* is a second, deliberate press on
+            # `/api/start` rather than something this route does on the way past (#174).
+            repo_name = (query.get("repo") or [""])[0]
+            session_id = (query.get("session") or [""])[0]
+            if not repo_name or not session_id:
+                return self._refuse(400, "repo and session required",
+                                    "pass ?repo=<name>&session=<id>")
+            try:
+                limit = int((query.get("limit") or ["200"])[0])
+            except ValueError:
+                limit = 200
+            try:
+                before = int((query.get("before") or ["0"])[0])
+            except ValueError:
+                before = 0
+            return self._json({"ok": True,
+                               **transcript_for(repo_name, session_id,
+                                                limit=max(1, min(limit, 1000)), before=before)})
+        if route == "/api/preflight":
+            # Read-only and it spends no premium request, which is the whole reason a drop can
+            # afford to ask it. Every failure inside is a grey row, so this cannot 500 on an
+            # unreachable Jira -- the card says `unknown` and Start stays enabled.
+            from . import preflight as PF
+
+            key = (query.get("key") or [""])[0]
+            if not key:
+                return self._refuse(400, "key required", "pass ?key=<TICKET>")
+            return self._json(PF.preflight(key, (query.get("repo") or [""])[0]))
         if route == "/api/notifications":
             try:
                 limit = int((query.get("limit") or ["50"])[0])
@@ -1371,8 +1874,15 @@ class Handler(BaseHTTPRequestHandler):
         if not route.startswith("/api/"):
             return self._refuse(404, f"no route {route}")
         length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_BODY:
-            return self._refuse(413, "body too large")
+        # One route carries bytes, and only that one. Everything else on this server is a small
+        # JSON object, and a 64 kB cap on all of them is what keeps a local server uninteresting to
+        # a hostile tab. `attach-bytes` is the operator clicking *attach a copy*, so it gets the
+        # configured attachment cap and nothing more.
+        cap = _attach_cap() + 64 * 1024 if route == "/api/attach-bytes" else MAX_BODY
+        if length > cap:
+            return self._refuse(413, "body too large",
+                                "raise `fleet.attach.max_mb`, or drop the file from inside the "
+                                "checkout so it is scoped rather than copied")
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
         except ValueError:
@@ -1383,9 +1893,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             return self._json({"ok": True, "action": what, **act(what, body)})
         except (ServeError, RegistryError, supervisor.SupervisorError,
-                approval.ApprovalError, IN.InboxError, CAT.CatalogueError) as e:
+                approval.ApprovalError, IN.InboxError, CAT.CatalogueError,
+                HO.HandoffError, SCOPE_ERROR) as e:
             # The same refusal the CLI gives, with the same hint. One vocabulary.
-            return self._refuse(409, e.msg, getattr(e, "hint", ""))
+            ref_code = getattr(e, "code", "") or "refused"
+            return self._refuse(409, e.msg, getattr(e, "hint", ""), refusal_code=ref_code)
         except Exception as e:               # noqa: BLE001 - a button must never 500 silently
             from ..log import debug_exc
 
@@ -1480,4 +1992,4 @@ def run(server: ThreadingHTTPServer) -> None:
         server.shutdown()
         server.server_close()
         forget()
-        reset()          # the poller, the inbox and the catalogue handle are this run's, not the next's
+        drop_handles()   # the poller, the inbox and the catalogue handle are this run's, not the next's

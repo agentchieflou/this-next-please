@@ -1,0 +1,105 @@
+{
+  "source": "synthesized",
+  "note": "the #169 demo: a session that names the ticket it is on, asks one question with two choices, states one assumption and carries on, and then edits only what it was given. Shapes from docs/fleet-spike.md (#92); content invented, because the recorded runs carry a tenant's ticket keys and hostnames.",
+  "captured": "2026-09-11",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-handoff",
+  "usage": {
+    "premiumRequests": 0.5,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "resume_usage": {
+    "premiumRequests": 1.5,
+    "codeChanges": {
+      "filesModified": [
+        "model/measures.tmdl",
+        "model/tables.tmdl"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Read the brief and the two files I was given.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "ad-state set phase=triaged active_ticket=RDSD-402"
+    },
+    {
+      "run": "ad-state ask \"Which workspace is UAT?\" --choice \"UAT\" --choice \"PROD\" --about \"the refresh target\""
+    },
+    {
+      "run": "ad-state ask \"The ticket does not say which refresh window\" --assume \"the nightly one\""
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "One question I cannot answer myself, and one thing I assumed and carried on with.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ],
+  "resume_steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "1"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "UAT it is. Editing the two files I was given and nothing else.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "ad-state answer q1 \"UAT\""
+    },
+    {
+      "run": "ad-state set phase=optimizing"
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "1"
+        }
+      }
+    }
+  ]
+}

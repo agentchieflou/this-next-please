@@ -41,7 +41,7 @@ KINDS = (
     "turn_started", "assistant_text", "tool_call", "tool_result", "denied", "turn_ended",
     "session_id", "cost", "exited", "error", "raw",
     # .agent/state.json, via `ad-state`
-    "phase_changed", "question_opened", "artifact", "pr_open",
+    "phase_changed", "question_opened", "question_answered", "artifact", "pr_open",
     # .agent/friction/
     "friction",
     # reserved for the approval gate (#95); `agentstate.derive` already folds them, so the gate is
@@ -54,6 +54,8 @@ KINDS = (
     # the Downloads tray (#132). The one write the fleet makes inside a repository, so it is in
     # the history like everything else.
     "inbox.attached",
+    # the handoff pipeline (#162)
+    "handoff.brief", "scope.added",
 )
 
 # The same shape `config.py` refuses to store, reused rather than re-invented: a value under a key
@@ -197,6 +199,54 @@ def from_copilot(raw: dict, repo: str, ticket: str = "") -> list[dict]:
 WATCHED = ("phase", "active_ticket", "pr_url")
 
 
+def _q_key(q) -> str:
+    """How a question is identified across two reads of `state.json`: its id, else its text."""
+    if isinstance(q, dict):
+        return str(q.get("id") or "") or str(q.get("q") or "")
+    return str(q or "")
+
+
+def _q_payload(q) -> dict:
+    """`question_opened.data`, grown additively at schema 1.
+
+    `question` keeps meaning exactly what it meant -- the sentence a person reads -- so every reader
+    written against the old shape keeps working. The rest is new and optional.
+    """
+    if not isinstance(q, dict):
+        return {"question": str(q or ""), "id": "", "choices": [], "default": "",
+                "want": "decision", "blocking": True}
+    return {"question": str(q.get("q") or ""), "id": str(q.get("id") or ""),
+            "choices": list(q.get("choices") or []), "default": str(q.get("default") or ""),
+            "want": str(q.get("want") or "decision"),
+            "blocking": bool(q.get("blocking", True)),
+            "assume": str(q.get("assume") or "")}
+
+
+def _question_events(previous: dict, current: dict, repo: str, ticket: str) -> list[dict]:
+    was = {_q_key(q): q for q in (previous.get("open_questions") or [])}
+    now = {_q_key(q): q for q in (current.get("open_questions") or [])}
+    out = []
+    for key, q in now.items():
+        if key not in was:
+            out.append(event(repo, "question_opened", _q_payload(q), ticket=ticket))
+    # An answered question leaves `open_questions` for `answered_questions`, which is where the
+    # answer's own text is: a question that merely disappeared (`--clear-questions`, a human
+    # deciding it no longer applies) is not an answer and does not get reported as one.
+    was_done = {_q_key(q) for q in (previous.get("answered_questions") or [])}
+    for q in (current.get("answered_questions") or []):
+        if _q_key(q) in was_done:
+            continue
+        out.append(event(repo, "question_answered",
+                         {"id": _q_key(q), "question": question_text_of(q),
+                          "answer": str(q.get("answer") or "") if isinstance(q, dict) else "",
+                          "by": "operator"}, ticket=ticket))
+    return out
+
+
+def question_text_of(q) -> str:
+    return str(q.get("q") or "") if isinstance(q, dict) else str(q or "")
+
+
 def from_state(previous: dict, current: dict, repo: str) -> list[dict]:
     """What changed in the repo's own state. `ad-state` is its only writer; we only read."""
     out = []
@@ -205,10 +255,11 @@ def from_state(previous: dict, current: dict, repo: str) -> list[dict]:
         out.append(event(repo, "phase_changed",
                          {"from": previous.get("phase", ""), "to": current.get("phase", "")},
                          ticket=ticket))
-    grew = len(current.get("open_questions") or []) - len(previous.get("open_questions") or [])
-    if grew > 0:
-        for q in (current.get("open_questions") or [])[-grew:]:
-            out.append(event(repo, "question_opened", {"question": q}, ticket=ticket))
+    # Questions are records now (#165), and the diff has to be by id rather than by length: a turn
+    # that answers one and asks another leaves the list the same length, and the old length check
+    # would have reported neither. A bare string still works and still opens a blocking question,
+    # because a skill written before #165 must keep behaving as it did.
+    out += _question_events(previous, current, repo, ticket)
     added = len(current.get("artifacts") or []) - len(previous.get("artifacts") or [])
     if added > 0:
         for a in (current.get("artifacts") or [])[-added:]:
@@ -219,6 +270,8 @@ def from_state(previous: dict, current: dict, repo: str) -> list[dict]:
 
 
 UNBLOCK = re.compile(r"##\s*What would unblock me\s*\n+(.+?)(?:\n#|\Z)", re.S | re.I)
+# The front-matter line `severity: blocker | friction | nit`, as one of those three words.
+SEVERITY = re.compile(r"^severity:\s*(blocker|friction|nit)\s*$", re.I | re.M)
 
 
 def friction_event(path: str, repo: str, ticket: str = "") -> dict:
@@ -233,8 +286,13 @@ def friction_event(path: str, repo: str, ticket: str = "") -> dict:
         body = ""
     match = UNBLOCK.search(body)
     unblock = " ".join((match.group(1) if match else "").split())[:400]
+    # `severity` was in the template from the start and read by nothing, so a `nit` stopped an
+    # agent exactly as hard as a `blocker`. The fold reads it now (#165); an older file with no
+    # severity line still blocks, which is what it always did.
+    sev = SEVERITY.search(body)
     return event(repo, "friction", {"file": textio.norm_path(path),
                                     "skill": os.path.basename(path),
+                                    "severity": (sev.group(1).strip().lower() if sev else ""),
                                     "unblock": unblock}, ticket=ticket)
 
 
@@ -518,6 +576,9 @@ def _refresh(name: str, repo_path: str, repo_state: dict | None, raw_path: str) 
         fresh.extend(from_state(previous, repo_state, name))
         cursor["state"] = {k: repo_state.get(k) for k in WATCHED}
         cursor["state"]["open_questions"] = list(repo_state.get("open_questions") or [])
+        # Remembered like the open ones. Without it every refresh diffed today's answers against an
+        # empty list and reported each of them again -- for good, since the list only grows (#169).
+        cursor["state"]["answered_questions"] = list(repo_state.get("answered_questions") or [])
         cursor["state"]["artifacts"] = list(repo_state.get("artifacts") or [])
 
     if repo_path:

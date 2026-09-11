@@ -40,7 +40,7 @@ from dataclasses import dataclass
 
 from .. import config as C
 from .. import textio
-from .registry import Registry
+from .registry import Registry, _stem, worktree_main
 
 # Directory names never worth walking into. A deny-list is only safe here because it is a *speed*
 # measure on top of the marker rule, not the safety rule: nothing inside these is read either way.
@@ -56,7 +56,11 @@ MARKERS = ("AGENTS.md", ".agent", "pyproject.toml", "*.pbip")
 # The complete set of files this module may open, relative to a candidate. Asserted by the suite,
 # which compares the names it recorded case-insensitively -- the marker is matched that way, so on
 # Linux the file actually opened may be spelled `agents.md`, and it is the same allow-list of two.
-READS = ("AGENTS.md", ".git/HEAD")
+#: `.git` is here for the worktree case only (#175): when it is a *file* it holds one `gitdir:`
+#: line, and reading that line is reading this candidate's own file. What follows it is path
+#: arithmetic and an `isdir` -- nothing inside the main checkout is ever opened, which is the rule
+#: this module is built around and not a softening of it.
+READS = ("AGENTS.md", ".git/HEAD", ".git")
 
 # `ref: refs/heads/<branch>` is the attached case; a bare 40-hex line is a detached HEAD.
 _HEAD_REF = re.compile(r"^ref:\s*refs/heads/(.+?)\s*$")
@@ -94,6 +98,7 @@ class Candidate:
     last_commit_age_days: int | None = None
     already_registered: bool = False
     reparse: bool = False
+    worktree_of: str = ""
     why: str = ""
 
     @property
@@ -107,7 +112,7 @@ class Candidate:
                 "jira_project": self.jira_project, "pbip": self.pbip,
                 "last_commit_age_days": self.last_commit_age_days,
                 "already_registered": self.already_registered, "reparse": self.reparse,
-                "why": self.why}
+                "worktree_of": self.worktree_of, "why": self.why}
 
 
 # ------------------------------------------------------------------------------- Windows paths
@@ -320,6 +325,7 @@ def scan(folder, depth: int = 2, registry: Registry | None = None, on_skip=None)
 
     reg = registry if registry is not None else Registry()
     registered = {r.path: r.name for r in reg.sorted()}
+    by_path = {r.path.rstrip("/\\").lower(): r for r in reg.sorted()}
 
     hits: list[tuple[str, bool, dict[str, str], list]] = []
     seen: set[str] = set()
@@ -369,6 +375,14 @@ def scan(folder, depth: int = 2, registry: Registry | None = None, on_skip=None)
         branch = _branch(git_dir) if os.path.isdir(git_dir) else ""
         parent = os.path.basename(os.path.dirname(path.rstrip("/\\")))
         base = os.path.basename(path.rstrip("/\\")) or norm
+
+        # A `git worktree` of something already registered is a second working tree of one project,
+        # not a stranger. Proposed under the same name `repo add` would give it, so the line the
+        # human approves and the row that gets written say the same thing (#175).
+        main = worktree_main(path) if os.path.isfile(git_dir) else ""
+        sibling = by_path.get(main.rstrip("/\\").lower()) if main else None
+        if sibling:
+            base = f"{sibling.project}-{_stem(base, sibling.project)}"
         name = registered_as or _unique(base, taken, parent)
         taken.add(name)
 
@@ -383,17 +397,22 @@ def scan(folder, depth: int = 2, registry: Registry | None = None, on_skip=None)
             last_commit_age_days=_last_commit_age_days(git_dir, branch) if os.path.isdir(git_dir) else None,
             already_registered=bool(registered_as),
             reparse=reparse,
+            worktree_of=main,
         )
-        c.why = _why(c, markers, registered_as)
+        c.why = _why(c, markers, registered_as, sibling)
         out.append(c)
     return out
 
 
-def _why(c: Candidate, markers: dict[str, str], registered_as: str) -> str:
+def _why(c: Candidate, markers: dict[str, str], registered_as: str, sibling=None) -> str:
     """The one line the human decides on. Flags win over markers; markers are the fallback."""
     flags: list[str] = []
     if registered_as:
         flags.append(f"already registered as {registered_as}")
+    if sibling is not None:
+        flags.append(f"a worktree of {sibling.project}; would be registered as a checkout of it")
+    elif c.worktree_of:
+        flags.append("a git worktree; its main checkout is not registered here")
     if c.reparse:
         flags.append("mapped, junction or synced path; not followed")
     if not c.ready:

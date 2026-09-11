@@ -119,8 +119,28 @@ fleet makes inside a repository, it happens only on a click, and it is logged as
 
 ## The rules
 
-**One agent per repository**, enforced by a lock rather than by hope — two `copilot` processes in
-one checkout would both edit the same working tree and both believe they owned `.agent/state.json`.
+**One agent per registered working tree**, enforced by a lock rather than by hope — two `copilot`
+processes in one checkout would both edit the same working tree and both believe they owned
+`.agent/state.json`. A working tree, not a repository: two `git worktree` checkouts of one
+repository are two agents, two locks, two branches and two event streams. What says they are the
+same piece of work is one field, `project`, which defaults to the checkout's own name — so every
+registry written before it groups each repository as its own project by definition.
+
+`ad-fleet repo add <path>` of a worktree follows its `.git` file's one `gitdir:` line back to the
+main checkout, and if *that* checkout is registered, registers this one as `<project>-<folder>` with
+the same `project`. It is the only place that pointer is ever followed, it is followed at a person's
+explicit add, and the answer is written down so nothing at runtime follows it again — the scan's
+rule stands: an unattended walk reads no second repository's internals. `--project <name>` says it
+by hand; `ad-fleet repo list` prints the column.
+
+Two checkouts of one project share a colour (in the terminal hook and on the tiles), are hidden and
+pinned as one on the desk, sit beside each other as tabs on each other's tile, and a Downloads file
+naming a ticket goes to the checkout that is *on* that ticket rather than to the unsorted tray. The
+fleet never creates a checkout: `git worktree add` is the operator's, in git or the IDE.
+
+`ad-fleet repo rm` leaves the agent's own directory behind — it holds the stream `ad-fleet history`
+reads and the sessions that could still be resumed — and now says where it is. `ad-fleet gc` takes
+it once everything in it is past the cutoff.
 
 **The repository belongs to the agent.** The fleet writes only under `~/.agentdata/fleet/`. Nothing
 in `.agent/` is written by anything but the agent's own `ad-state`, and there is a test that walks
@@ -177,7 +197,7 @@ And when a tile is wrong rather than the fleet:
 | --- | --- | --- |
 | `error` | the last turn exited non-zero, or the process vanished | `ad-fleet logs <repo>`, then `ad-fleet restart <repo>` |
 | `blocked` | a friction log, or `phase=blocked` | the *why* is the sentence to act on |
-| `needs_human` | a refused tool, or it asked and stopped | `ad-fleet send <repo> "…"` |
+| `needs_human` | a refused tool, or it asked and stopped | answer it: `ad-fleet answer <repo> <id> "…"`, or `ad-fleet send <repo> "…"` |
 | `waiting_approval` | a write is one click away | `ad-fleet approve <id>`, or the tile |
 | `running` forever | it really is running | `ad-fleet logs <repo>`; `stop` if it is stuck |
 

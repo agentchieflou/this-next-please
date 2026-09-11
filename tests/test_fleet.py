@@ -66,6 +66,7 @@ def test_an_unknown_repo_names_the_ones_that_exist(fleet_home, tmp_path):
     with pytest.raises(RegistryError) as e:
         Registry().get("nope")
     assert "known" in e.value.hint, e.value.hint
+    assert e.value.code == "wrong_repo"
 
 
 def test_two_repos_cannot_share_a_name(fleet_home, tmp_path):
@@ -218,6 +219,7 @@ def test_a_second_start_is_refused_while_an_agent_is_live(fleet_home, tmp_path, 
         supervisor.start("a", key="RDSD-1", exe=_fake_copilot(tmp_path))
     assert "already has a live agent" in e.value.msg
     assert "RDSD-9" in e.value.msg and "ad-fleet stop a" in e.value.hint
+    assert e.value.code == "live_agent"
 
 
 def test_a_stale_lock_does_not_block_the_repo_forever(fleet_home, tmp_path, monkeypatch):
@@ -274,6 +276,7 @@ def test_starting_a_different_ticket_mid_ticket_is_refused_without_force(fleet_h
         supervisor.start("a", key="RDSD-8", exe=_fake_copilot(tmp_path))
     assert "RDSD-7" in e.value.msg and "triaged" in e.value.msg
     assert "--force" in e.value.hint
+    assert e.value.code == "mid_ticket"
 
 
 def test_status_reads_each_repos_own_state(fleet_home, tmp_path):
@@ -384,3 +387,37 @@ def _settle(name: str, seconds: float = 20.0) -> None:
         if not supervisor.live(name):
             return
         time.sleep(0.1)
+
+
+def test_terminal_phase_tuples_are_one_object_and_accepted_by_ad_state(tmp_path):
+    from agentdata.fleet import agentstate
+    from agentdata import state as S, cli_state
+
+    assert supervisor.TERMINAL_PHASES is agentstate.TERMINAL_PHASES, (
+        "supervisor.TERMINAL_PHASES and agentstate.TERMINAL_PHASES must be the exact same object"
+    )
+    for phase in supervisor.TERMINAL_PHASES:
+        res = S.apply({"phase": "idle"}, {"phase": phase})
+        assert res.get("phase") == phase, f"ad-state apply failed for phase {phase}"
+        p = str(tmp_path / f"state-{phase}.json")
+        S.save({"phase": "idle"}, p)
+        code = cli_state.main(["--file", p, "set", f"phase={phase}"])
+        assert code == 0, f"ad-state CLI rejected phase {phase}"
+
+
+def test_cross_project_ticket_is_refused(fleet_home, tmp_path):
+    repo = make_project(tmp_path / "repo-a", project="RDSD")
+    r = Registry().add(repo, name="a")
+    with pytest.raises(supervisor.SupervisorError) as e:
+        supervisor.check_ticket(r, "DATAENG-9")
+    assert e.value.code == "cross_project"
+
+
+def test_done_ticket_is_refused(fleet_home, tmp_path):
+    from agentdata.fleet import board as B
+    repo = make_project(tmp_path / "repo-a")
+    r = Registry().add(repo, name="a")
+    rows = B.normalize([{"key": "RDSD-101", "fields": {"summary": "Done already", "status": {"name": "Done", "statusCategory": {"key": "done"}}}}])
+    with pytest.raises(supervisor.SupervisorError) as e:
+        supervisor.check_ticket(r, "RDSD-101", board_rows=rows)
+    assert e.value.code == "ticket_done"

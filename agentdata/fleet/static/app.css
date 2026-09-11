@@ -140,6 +140,72 @@ input { min-width: 0; }
 
 /* HIG *Split views*: auxiliary content sits BESIDE the main content and does not cover it. The
    panels used to be four fixed drawers at the same edge, overlapping each other and the grid. */
+.away-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: var(--select);
+  border-bottom: 1px solid var(--line);
+  font: 12px/1.4 var(--ui);
+  gap: 12px;
+  flex: 0 0 auto;
+}
+.away-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.away-title {
+  font-weight: 600;
+  color: var(--text);
+}
+.away-lines {
+  display: flex;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+}
+.away-line {
+  display: inline-flex;
+  gap: 4px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--panel);
+}
+.away-line:hover {
+  background: var(--bg);
+}
+.away-line .repo {
+  font-weight: 600;
+  font-family: var(--mono);
+}
+.away-line .desc {
+  color: var(--muted);
+}
+.away-line .when {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.dismiss-away {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.dismiss-away:hover {
+  color: var(--text);
+  border-color: var(--text);
+}
+
 .workspace { display: flex; flex: 1 1 auto; min-height: 0; }
 
 #side {
@@ -218,6 +284,53 @@ body.focused .tile.is-focused { max-height: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .runline.cold { font-style: italic; }
+
+/* ------------------------------------------------------------------------- the switcher (#174) */
+
+/* A tab view, in HIG's sense: the main tab is where the work is, the ones beside it are the same
+   project somewhere else, and *earlier* is this checkout's own history. Every tab is a button, so
+   the strip is reachable by Tab and by Alt+[ / Alt+]. */
+.strip {
+  display: flex; gap: 4px; margin: 4px 0 0; flex-wrap: wrap; align-items: center;
+}
+.tab {
+  font: 11px var(--mono); color: var(--muted); background: transparent;
+  border: 1px solid var(--line); border-bottom-color: transparent;
+  border-radius: 4px 4px 0 0; padding: 2px 8px; cursor: pointer;
+  max-width: 16rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tab:hover { color: var(--text); }
+.tab.is-on { color: var(--text); background: var(--panel); border-color: var(--accent); }
+.tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.sessions { margin: 4px 0 0; padding: 0; list-style: none; font: 11px var(--mono); }
+.session-row { margin: 0; padding: 0; }
+.ss-open {
+  display: flex; gap: 8px; width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: 0; border-bottom: 1px solid var(--line);
+  color: var(--text); font: inherit; padding: 3px 0;
+}
+.ss-open:hover { background: var(--select); }
+.ss-open:disabled { color: var(--muted); cursor: default; }
+.ss-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ss-chip, .ss-when, .ss-cost { color: var(--muted); flex: 0 0 auto; }
+
+/* The read-only pane. The reply box is not disabled, it is *gone*: a box you can type in that
+   cannot send is a worse answer than no box. */
+.readonly {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  margin: 6px 0 0; font: 11px var(--mono); color: var(--muted);
+}
+.ro-what { flex: 1 1 12rem; min-width: 0; color: var(--text); }
+.ro-note { flex: 1 1 100%; color: var(--human); }
+.history {
+  flex: 1 1 auto; overflow: auto; margin: 8px 0 0; padding: 0; list-style: none;
+  font: 12px/1.5 var(--mono); border-top: 1px dashed var(--line); opacity: .92;
+}
+.history li { padding: 3px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; }
+.history li:last-child { border-bottom: 0; }
+.history .k { color: var(--muted); flex: 0 0 96px; }
+.history .v { white-space: pre-wrap; overflow-wrap: anywhere; }
 .head .n {
   font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line);
   border-radius: 3px; padding: 0 4px;
@@ -577,4 +690,144 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
 #inspectordetails .frictionrow {
   margin: 0; padding: 2px 0 2px 8px; border-left: 3px solid var(--human);
   font: 11px var(--mono); white-space: pre-wrap;
+}
+
+/* ---------------------------------------------------------- the dispatch card (#164)
+   A drop opens this instead of launching. It borrows the approval card's shape on purpose: both
+   are "the tile is asking you something before anything irreversible happens", and one shape for
+   that means the operator learns it once. The accent is the focus colour rather than a status
+   colour -- nothing here is an agent state, and the status palette must keep meaning what it
+   means (`docs/plan-desk-refactor.md` §One palette). */
+.dispatch {
+  margin-top: 8px; padding: 8px; border: 1px solid var(--focus); border-radius: 5px;
+  background: var(--select);
+}
+.dispatch-head { display: flex; align-items: baseline; gap: 8px; }
+.dispatch-key { font-weight: 600; }
+.dispatch-close {
+  margin-left: auto; min-width: 28px; min-height: 28px; line-height: 1;
+  background: none; border: 1px solid var(--line); color: var(--text);
+}
+.verdict {
+  font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; color: var(--muted);
+}
+/* Never colour alone: each verdict carries its word, and the tint only reinforces it. */
+.verdict.v-ready { color: var(--done); border-color: var(--done); }
+.verdict.v-thin { color: var(--waiting); border-color: var(--waiting); }
+.verdict.v-blocked { color: var(--human); border-color: var(--human); }
+.verdict.v-unknown { color: var(--muted); }
+.dispatch-rows { list-style: none; margin: 6px 0; padding: 0; }
+.dispatch-row { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--line); }
+.dispatch-row:last-child { border-bottom: 0; }
+.dr-name { color: var(--muted); min-width: 9ch; }
+.dr-value { font-variant-numeric: tabular-nums; }
+.dr-why { color: var(--muted); margin-left: auto; text-align: right; }
+.dispatch-row.r-thin .dr-value { color: var(--waiting); }
+.dispatch-row.r-blocked .dr-value { color: var(--human); }
+.dispatch-row.r-unknown .dr-value { color: var(--muted); }
+.dispatch-brieflabel { display: block; color: var(--muted); margin-top: 4px; }
+.dispatch .brief {
+  width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 4px; font: inherit;
+}
+.dispatch-note { color: var(--muted); align-self: center; }
+
+/* ------------------------------------------------------------ the question card (#165)
+   The approval card's shape again: the tile is asking you something before anything irreversible
+   happens. It wears `--human` because an unanswered blocking question *is* "needs you" -- the same
+   red the chip uses, so the card and the chip agree at a glance. */
+.asks {
+  margin-top: 8px; padding: 8px; border: 1px solid var(--human); border-radius: 5px;
+  background: var(--select);
+}
+.asks-head { font-weight: 600; color: var(--human); }
+.asks-list { list-style: none; margin: 6px 0; padding: 0; }
+.ask { padding: 4px 0; border-bottom: 1px solid var(--line); }
+.ask:last-child { border-bottom: 0; }
+.ask-q { margin: 0 0 4px; }
+.ask-choice {
+  min-height: 28px; margin: 0 4px 4px 0; padding: 2px 10px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 4px;
+}
+.ask-choice[aria-pressed="true"] { border-color: var(--focus); background: var(--select); font-weight: 600; }
+.ask-answer {
+  width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 4px; font: inherit;
+}
+.asks-note { color: var(--muted); align-self: center; }
+/* An assumption is not a state, so it is a quiet row rather than a card: the agent said what it
+   was doing and kept working, and the operator overturns it only if it is wrong. */
+.assumed { list-style: none; margin: 6px 0 0; padding: 0; }
+.assumption {
+  display: flex; gap: 8px; align-items: baseline;
+  color: var(--waiting); border-left: 2px solid var(--waiting); padding-left: 6px;
+}
+.overturn {
+  margin-left: auto; min-height: 28px; background: none; color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
+}
+
+/* ------------------------------------------------------------------ the scope card (#166)
+   The tile has drawn a dashed "copy" outline on any non-tile drag since #98; until #166 a dropped
+   file produced that outline and nothing else. This is what it produces now. */
+.scope {
+  margin-top: 8px; padding: 8px; border: 1px dashed var(--focus); border-radius: 5px;
+  background: var(--select);
+}
+.scope-head { display: flex; align-items: baseline; gap: 8px; }
+.scope-title { font-weight: 600; }
+.scope-note { color: var(--muted); }
+.scope-close {
+  margin-left: auto; min-width: 28px; min-height: 28px; line-height: 1;
+  background: none; border: 1px solid var(--line); color: var(--text);
+}
+.scope-rows { list-style: none; margin: 6px 0; padding: 0; }
+.scope-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 2px 0; }
+.sc-name { min-width: 12ch; }
+.sc-path { font-family: ui-monospace, Consolas, monospace; }
+/* `fingerprint` and `name` are not the same claim, and the weaker one says so. */
+.sc-how {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px;
+}
+.sc-why { color: var(--muted); margin-left: auto; }
+.scope-row.s-resolved .sc-path { color: var(--done); }
+.scope-row.s-ambiguous .sc-path { color: var(--waiting); }
+.scope-row.s-unmatched .sc-name { color: var(--muted); }
+.sc-attach, .scope-tell {
+  min-height: 28px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
+}
+
+/* The scope report (#168): a sentence, not a state. `outside` is worth noticing and is never an
+   error -- an agent that had to go outside the scope to do the work was probably right to. */
+.scopereport { color: var(--muted); margin: 2px 0; }
+.scopereport.outside { color: var(--waiting); }
+
+/* ------------------------------------------------------------------------ the dock (#173)
+   Everything that is not on the glass, so a hidden tile is never a lost one. It sits under the
+   grid rather than over it -- a strip that covered content would be the drawer problem #148 fixed. */
+.tile.is-hidden { display: none; }
+.dock {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 8px; border-top: 1px solid var(--line); background: var(--panel);
+}
+.dock-label { color: var(--muted); font-size: 12px; }
+.dock-chips { list-style: none; display: flex; gap: 6px; flex-wrap: wrap; margin: 0; padding: 0; }
+.dock-open {
+  display: flex; align-items: baseline; gap: 6px; min-height: 28px; padding: 2px 8px;
+  background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 14px;
+}
+.dc-chip { color: var(--muted); font-size: 12px; }
+.dc-badge {
+  background: var(--human); color: var(--bg); border-radius: 8px; padding: 0 5px; font-size: 11px;
+}
+/* A chip for an agent that needs a person is the same red its tile would be: hiding a demand is
+   how a demand gets missed, and the dock is where a hidden one has to still be visible. */
+.dock-chip.needs-human .dock-open { border-color: var(--human); color: var(--human); }
+.dock-chip.departed .dock-open { border-style: dashed; color: var(--muted); }
+.dock-showall {
+  margin-left: auto; min-height: 28px; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
 }

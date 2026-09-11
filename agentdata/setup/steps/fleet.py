@@ -240,6 +240,7 @@ class FleetStep(Step):
         self._check_inbox(ctx, found)
         self._check_polls(ctx, found)
         self._check_notifications(ctx, found)
+        self._check_session_store(ctx, found)
 
     def _check_copilot(self, ctx: Context, found: dict) -> None:
         version = found.get("version") or ""
@@ -543,6 +544,12 @@ class FleetStep(Step):
         ctx.add(self.key, "rules", "ok", rules,
                 keys=("fleet.notify.cooldown", "fleet.notify.idle_minutes",
                       "fleet.notify.quiet_hours"))
+
+    def _check_session_store(self, ctx: Context, found: dict) -> None:
+        from ...fleet import sessions as S
+
+        status, detail, hint = S.store_status()
+        ctx.add(self.key, "session store", status, detail, hint, keys=())
 
     def ask(self, ctx: Context, found: dict) -> None:
         s = found["settings"]

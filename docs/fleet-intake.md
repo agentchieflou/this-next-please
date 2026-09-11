@@ -38,12 +38,65 @@ answers — each of which the panel shows honestly rather than papering over:
 | several declare it | a **pick one** with a button per repo | guessing would eventually start the wrong checkout, and twenty minutes of an agent editing the wrong repository is expensive and quiet |
 | none declares it | `` `ad-fleet repo add <path>` for the DATAENG checkout `` | the repository is not registered yet, which is a one-line fix worth naming |
 
+## The dispatch card (#164)
+
+A drop used to be a launch. It opens a **card** on the tile instead, and the start is the card's
+button. The card is built by a pre-flight that runs on the server, **spends no premium request**,
+and reads only what the fleet already holds or can fetch once:
+
+| Row | Source | Says |
+| --- | --- | --- |
+| ticket, repo | `board.suggest`, `supervisor.check_ticket` | the existing guard rails, with their `code` |
+| description | one `ad-pncli jira get <KEY>`, cached for `fleet.board_ttl` | `412 words` / `4 words` / `empty` |
+| criteria | a heuristic over the description — numbered, checkbox, an *Acceptance Criteria* heading, or *Given/When/Then* | `3 found` / `none found` |
+| comments, attachments | counts from the same read | where a human has often already answered |
+| mentions | the names it mentions, through the catalogue | `Velocity — luna declares it`, and when the match is in **another** repo, that |
+| history | `ad-fleet history` for this key | `dispatched 2 times; ended blocked` |
+| here | `.agent/in/<KEY>/`, and a `feature/<KEY>-*` branch | `2 files already attached` |
+
+The verdict is one of four words, from one table in one function — the first rule that matches wins,
+and a refusal outranks an unreadable source, which outranks a judgement:
+
+| Verdict | Means | The button |
+| --- | --- | --- |
+| `ready` | nothing to flag | *Start* |
+| `thin` | short or empty description, no criteria found, or a history that ended blocked | *Start anyway*, with the brief box focused |
+| `blocked` | one of the guard rails above would refuse | *Start anyway* — the refusal is still the server's to give |
+| `unknown` | a source could not be read | *Start anyway* — the pre-flight is a courtesy |
+
+**Being unable to reach Jira never blocks a start**, exactly as the Done check never has: the rows
+go grey with the error in their `why`, the verdict reads `unknown`, and the button still works.
+
+```bash
+ad-fleet preflight RDSD-118 --repo luna
+```
+
+prints the same card as TOON, and exits 0 whatever the verdict — a verdict is an answer, not a
+refusal. `fleet.preflight: false` restores the immediate start this section replaced.
+
+### The brief
+
+The card's text box is the operator's own words, and they are new information that exists nowhere
+else — not a stale copy of Jira. On *Start* they are written to `.agent/in/<KEY>/brief.md` with
+`by`, `at` and `ticket` in front matter, recorded as a `handoff.brief` event, and the `inputs` line
+is *asked* of `ad-state` the way [the inbox asks it](fleet.md). Then the agent is spawned.
+
+```bash
+ad-fleet start luna RDSD-118 --brief "the window is the last full sprint; ignore UAT"
+ad-fleet start luna RDSD-118 --brief-file .agent/notes/rdsd-118.md
+```
+
+**A brief that cannot be written refuses the start.** The operator has just typed the one thing
+nothing else in the system knows; launching an agent that was promised it and will not find it is
+worse than not launching. See [fleet-handoff.md](fleet-handoff.md) for the directory's five rules.
+
 ## The panel
 
 Press `b`. Search filters by key, summary or status. Then either:
 
-* **drag a ticket onto a tile** — any tile, including one whose project does not match; the guard
-  rails below still apply, and the page offers the override once rather than silently applying it;
+* **drag a ticket onto a tile** — any tile, including one whose project does not match; this opens
+  the dispatch card above, the guard rails below still apply, and the page offers the cross-project
+  override once rather than silently applying it;
 * **click "start on `<repo>`"** on the row, which appears once per candidate repository.
 
 `refresh` asks Jira now instead of using the cache — the same as `ad-fleet board --refresh`.
@@ -110,7 +163,8 @@ an agent.
 | --- | --- | --- |
 | `fleet.jql` | `assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC` | which tickets the board shows |
 | `fleet.jql_fields` | `key,summary,status,priority,issuetype,updated` | what it asks Jira for |
-| `fleet.board_ttl` | `120` | seconds a fetched board is reused |
+| `fleet.board_ttl` | `120` | seconds a fetched board is reused — and a pre-flight's issue read with it |
+| `fleet.preflight` | `true` | a drop opens the dispatch card; `false` starts immediately, as it did before #164 |
 
 The TTL is not a detail. The board is a *view of a queue*, not a live feed: a ticket that appeared
 thirty seconds ago is not urgent, and a search per tile per tick is how a shared Jira instance

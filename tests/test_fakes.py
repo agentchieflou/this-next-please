@@ -110,6 +110,23 @@ def test_a_missing_pncli_names_the_npm_package(monkeypatch, tmp_path):
     assert "npm install -g @kolatts/pncli" in e.value.hint
 
 
+def test_ad_pncli_jira_comments_verb_and_options(monkeypatch):
+    from agentdata.model import AgentTable
+    from agentdata import cli
+
+    monkeypatch.setattr(sys, "argv", ["ad-pncli", "jira", "comments"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main_pncli()
+    assert exc.value.code == 2
+
+    called = []
+    dummy = AgentTable(name="comments", columns=["author", "body"], rows=[{"author": "alice", "body": "looks good"}])
+    monkeypatch.setattr("agentdata.connectors.pncli.get_comments", lambda key: (called.append(key), dummy)[1])
+    monkeypatch.setattr(sys, "argv", ["ad-pncli", "jira", "comments", "RDSD-101"])
+    cli.main_pncli()
+    assert called == ["RDSD-101"]
+
+
 def test_where_reports_the_resolved_launcher(monkeypatch, tmp_path):
     exe = _pncli_env(monkeypatch, tmp_path, "version")
     info = P.where()

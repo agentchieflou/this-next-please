@@ -209,6 +209,7 @@ class Poller:
         self._seen: dict[str, dict[str, str]] = {}
         self._counts: dict[str, dict[str, int]] = {"requests": {}, "errors": {}, "stood_down": {}}
         self._day = ""
+        self._last_tick_time = self.now()
         self._load()
 
     # ---- what the dashboard reads -------------------------------------------------------------
@@ -253,6 +254,11 @@ class Poller:
         an exception except swallow it one level higher.
         """
         now = self.now() if now is None else float(now)
+        from . import lifecycle
+        if lifecycle.slept(self._last_tick_time, now):
+            lifecycle.reap_all(registry=self.registry, slept=True)
+        self._last_tick_time = now
+
         self._roll_day(now)
         repos = list(self.registry.sorted())
         out: list[dict] = []

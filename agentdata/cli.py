@@ -74,12 +74,13 @@ def main_pncli() -> None:
     utf8_stdout()
     ap = argparse.ArgumentParser(prog="ad-pncli",
         description="ad-pncli jira search --jql '<JQL>' | ad-pncli jira get <KEY> | "
+                    "ad-pncli jira comments <KEY> | "
                     "ad-pncli raw [--body-file page.html] <pncli args...> | ad-pncli where")
     version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
     j = sub.add_parser("jira", help="search issues by JQL, or read one issue (pncli's named options are built here)")
-    j.add_argument("verb", choices=["search", "get"]); j.add_argument("target", nargs="?", help="issue key for `get`, JQL for `search`")
-    j.add_argument("--jql", default=None); j.add_argument("--key", default=None, help="issue key for `get`")
+    j.add_argument("verb", choices=["search", "get", "comments"]); j.add_argument("target", nargs="?", help="issue key for `get` / `comments`, JQL for `search`")
+    j.add_argument("--jql", default=None); j.add_argument("--key", default=None, help="issue key for `get` / `comments`")
     j.add_argument("--fields", default=None); j.add_argument("--max-results", type=int, default=500)
     j.add_argument("--raw", action="store_true")
     r = sub.add_parser("raw", help="any pncli command; result list normalized by policy")
@@ -105,6 +106,11 @@ def main_pncli() -> None:
             if not key:
                 print(error("no issue key", "ad-pncli jira get <KEY> (pncli's own option is --key; ad-pncli passes it for you)", "pncli")); sys.exit(2)
             print(render(P.get_issue(key, a.fields.split(",") if a.fields else None), raw=a.raw))
+        elif a.cmd == "jira" and a.verb == "comments":
+            key = a.key or a.target
+            if not key:
+                print(error("no issue key", "ad-pncli jira comments <KEY> (pncli's own option is --key; ad-pncli passes it for you)", "pncli")); sys.exit(2)
+            print(render(P.get_comments(key), raw=a.raw))
         elif a.cmd == "jira":
             jql = a.jql or a.target
             if not jql:

@@ -51,6 +51,10 @@
       {
         "command": "fleet.reload",
         "title": "Fleet: Reload the dashboard"
+      },
+      {
+        "command": "fleet.give",
+        "title": "Fleet: Give to the agent"
       }
     ],
     "configuration": {
@@ -72,6 +76,21 @@
           "description": "Raise a VS Code notification when an agent needs you."
         }
       }
+    },
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "fleet.give",
+          "group": "7_modification",
+          "when": "!explorerResourceIsRoot"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "fleet.give",
+          "group": "1_run"
+        }
+      ]
     }
   },
   "scripts": {

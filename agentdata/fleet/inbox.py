@@ -75,6 +75,26 @@ SIZE_CAP = 25 * 1024 * 1024
 # `notes-v2-3.md` into the ticket key `V2-3`; a real export keeps the key as Jira wrote it.
 TICKET_RE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 
+
+def _within(tied, key: str, tickets: dict):
+    """One of several checkouts of **one** project, or `None` (#175).
+
+    A tie between two *projects* is a question with no answer, and unsorted is the honest
+    reply -- a wrong attach is a file in the wrong agent's inputs and there is no undo for the
+    confusion. A tie between two working trees of one project is a different thing entirely:
+    it is the same work, and it has an answer. Whichever checkout is on that ticket, and
+    failing that the primary -- the one the project is named after. A worktree is not an
+    ambiguity.
+    """
+    if len({r.project for r in tied}) != 1:
+        return None
+    if key:
+        on_it = [r for r in tied if tickets.get(r.name) == key]
+        if len(on_it) == 1:
+            return on_it[0]
+    primary = [r for r in tied if r.name == r.project]
+    return primary[0] if len(primary) == 1 else None
+
 # A download still in flight. Offering one produces a truncated file in a repository and a confused
 # agent, and the file will be along in a second under its real name anyway.
 PARTIAL_SUFFIXES = (".crdownload", ".partial", ".part", ".download", ".tmp", ".!ut")
@@ -365,14 +385,21 @@ class Inbox:
         # gets the right folder even when the human, not the match, chose the repository.
         seen_key = keys[0] if keys else ""
         for key in keys:
-            for repo in repos:
-                if tickets.get(repo.name) == key:
-                    return repo.name, key, f"{key} is {repo.name}'s active ticket"
+            on_it = [r for r in repos if tickets.get(r.name) == key]
+            if on_it:
+                # Two working trees of one project can both be on this ticket. That is not an
+                # ambiguity about which project, so it is not a coin toss either (#175).
+                chosen = (_within(on_it, key, tickets) or on_it[0]) if len(on_it) > 1 else on_it[0]
+                return chosen.name, key, f"{key} is {chosen.name}'s active ticket"
             prefix = key.split("-", 1)[0]
             owners = [r for r in repos if (r.jira_project or "").upper() == prefix]
             if len(owners) == 1:
                 return owners[0].name, key, f"{prefix} is {owners[0].name}'s jira_project"
             if len(owners) > 1:
+                pick = _within(owners, key, tickets)
+                if pick is not None:
+                    return pick.name, key, (f"{prefix} is {pick.project}'s jira_project, and "
+                                            f"{pick.name} is the checkout of it that answers")
                 listed = " and ".join(r.name for r in owners)
                 return "", key, f"unsorted: {listed} both use the jira_project {prefix}"
 
@@ -386,6 +413,10 @@ class Inbox:
             best = [r for r in named if len(r.name) == longest]
             if len(best) == 1:
                 return best[0].name, seen_key, f"the name contains the project name {best[0].name}"
+            pick = _within(best, seen_key, tickets)
+            if pick is not None:
+                return pick.name, seen_key, (f"the name contains {pick.project}, and {pick.name} "
+                                             f"is the checkout of it that answers")
             listed = " and ".join(r.name for r in best)
             return "", seen_key, f"unsorted: {listed} both match the name"
         return "", seen_key, "unsorted: nothing in the name names a registered project"

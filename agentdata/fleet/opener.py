@@ -22,6 +22,7 @@ import os
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from .. import proc, textio
@@ -115,14 +116,25 @@ def start_server(port: int = 8765) -> dict:
                     "start it in its own window to see why: `ad-fleet serve`")
 
 
-def url_of(record: dict) -> str:
-    return str(record.get("url") or "")
+def url_of(record: dict, window: str = "") -> str:
+    base = str(record.get("url") or "")
+    if not base:
+        return ""
+    if window:
+        sep = "&" if "?" in base else "?"
+        return f"{base}{sep}w={urllib.parse.quote(window)}"
+    return base
 
 
-def open_url(record: dict) -> str:
+def open_url(record: dict, window: str = "") -> str:
     """The stable, tokenless address: bookmarkable, bindable to a key, and safe to write down."""
     port = int(record.get("port") or 0)
-    return f"http://127.0.0.1:{port}/open" if port else ""
+    if not port:
+        return ""
+    base = f"http://127.0.0.1:{port}/open"
+    if window:
+        return f"{base}?w={urllib.parse.quote(window)}"
+    return base
 
 
 # ---------------------------------------------------------------------------- the clipboard
@@ -180,13 +192,13 @@ def edge_exe() -> str:
     return ""
 
 
-def open_in(where: str, record: dict, *, launcher_dir: str = "") -> dict:
+def open_in(where: str, record: dict, *, launcher_dir: str = "", window: str = "") -> dict:
     """Put the dashboard in front of the operator, and say exactly what was done.
 
     Every branch returns a row rather than printing one, so `ad-fleet open` and any later caller
     report the same thing -- including the branches that could not do it and fell back.
     """
-    url, stable = url_of(record), open_in_url(record)
+    url, stable = url_of(record, window=window), open_in_url(record, window=window)
     if where == "browser":
         import webbrowser
 
@@ -227,9 +239,9 @@ def open_in(where: str, record: dict, *, launcher_dir: str = "") -> dict:
     raise OpenError(f"unknown target {where!r}", "one of " + " | ".join(WHERE))
 
 
-def open_in_url(record: dict) -> str:
+def open_in_url(record: dict, window: str = "") -> str:
     """What to hand a person: the stable address, falling back to the tokened one."""
-    return open_url(record) or url_of(record)
+    return open_url(record, window=window) or url_of(record, window=window)
 
 
 def _fallback(url: str, why: str, hint: str) -> dict:

@@ -27,18 +27,20 @@ from . import textio
 from . import toon
 from . import ui
 from .console import prompt as ask_line, utf8_stdout
-from .fleet import (agentstate, approval, board as B, catalogue as CAT, events as E, inbox as IN,
-                    launch, lifecycle as L, links as LK, notify as N, opener as O, poll as P,
-                    scan as SC, serve as S, supervisor)
-from .fleet.registry import Registry, RegistryError, fleet_dir
+from .fleet import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff,
+                    inbox as IN, launch, lifecycle as L, links as LK, notify as N, opener as O,
+                    poll as P, preflight as PF, scan as SC, serve as S, supervisor)
+from .fleet.registry import Registry, RegistryError, agent_dir, fleet_dir
 from .version import add_version, version_string
 
 EXIT_OK, EXIT_FAILED, EXIT_REFUSED = 0, 1, 2
 
 
 def _refuse(source: str, err) -> int:
-    print(toon.encode({"meta": {"ok": False, "source": source, "error": err.msg,
-                                "hint": getattr(err, "hint", "")}}))
+    code = getattr(err, "code", "") or "refused"
+    meta = {"ok": False, "source": source, "error": err.msg,
+            "hint": getattr(err, "hint", ""), "refused": code, "code": code}
+    print(toon.encode({"meta": meta}))
     return EXIT_REFUSED
 
 
@@ -61,11 +63,17 @@ def cmd_repo_add(a) -> int:
             "`ad-fleet repo add <path>`, or `ad-fleet repo add --scan <parent folder>` to be "
             "shown every project under one folder"))
     try:
-        repo = Registry().add(a.path, a.name)
+        repo = Registry().add(a.path, a.name, project=getattr(a, "project", None))
     except RegistryError as e:
         return _refuse("ad-fleet repo add", e)
     return _emit("ad-fleet repo add", {"repo": repo.name, "path": repo.path,
                                        "jira_project": repo.jira_project or "",
+                                       # Two working trees of one repository are two agents and one
+                                       # project (#175). Said here because this is where the fleet
+                                       # decided it, and a name it chose without saying why is a
+                                       # name the operator has to guess at.
+                                       "project": repo.project,
+                                       "worktree_of": repo.worktree_of,
                                        "fleet_dir": fleet_dir()})
 
 
@@ -74,18 +82,27 @@ def cmd_repo_rm(a) -> int:
         repo = Registry().remove(a.name)
     except RegistryError as e:
         return _refuse("ad-fleet repo rm", e)
-    return _emit("ad-fleet repo rm", {"repo": repo.name, "path": repo.path})
+    # The agent's own directory stays: it holds the event stream `ad-fleet history` reads, and the
+    # sessions that could still be resumed if the checkout is registered again. Named, because an
+    # unregistered agent's directory is otherwise a folder nobody knows to look at (#175).
+    return _emit("ad-fleet repo rm", {"repo": repo.name, "path": repo.path,
+                                      "agent_dir": agent_dir(repo.name),
+                                      "next": f"`ad-fleet gc --days 0` takes it, or "
+                                              f"`ad-fleet repo add {repo.path}` brings it back"})
 
 
 def cmd_repo_list(a) -> int:
     reg = Registry()
-    rows = [[r.name, r.path, r.jira_project or "", r.added or ""] for r in reg.sorted()]
+    rows = [[r.name, r.project, r.path, r.jira_project or "", r.added or ""] for r in reg.sorted()]
+    cols = ["repo", "project", "path", "jira", "added"]
     if ui.on():
-        ui.table(["repo", "path", "jira", "added"], rows, title="fleet repositories")
+        ui.table(cols, rows, title="fleet repositories")
         return EXIT_OK
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet repo list",
-                                "repos": len(rows), "fleet_dir": fleet_dir()}}))
-    print(toon.table("repos", ["repo", "path", "jira", "added"], rows))
+                                "repos": len(rows),
+                                "projects": len({r.project for r in reg.sorted()}),
+                                "fleet_dir": fleet_dir()}}))
+    print(toon.table("repos", cols, rows))
     return EXIT_OK
 
 
@@ -94,15 +111,81 @@ def cmd_start(a) -> int:
     # The board is consulted only if it is already cached. Being unable to reach Jira must never
     # stop an operator starting an agent -- the guard rails it feeds are a courtesy, not a gate.
     rows = (B.read_cache() or {}).get("rows") or []
+    brief = getattr(a, "brief", None)
+    brief_file = getattr(a, "brief_file", None)
     try:
+        if brief_file:
+            if brief:
+                raise handoff.HandoffError(
+                    "pass --brief or --brief-file, not both",
+                    "one brief per dispatch; the file wins nothing over the flag, so choose",
+                    code="brief_ambiguous")
+            brief = handoff.read_brief_file(brief_file)
         lock = supervisor.start(a.repo, key=a.ticket, prompt=a.prompt, force=a.force, cfg=cfg,
-                                cross_project=a.cross_project, board_rows=rows)
-    except (RegistryError, supervisor.SupervisorError, launch.LaunchError) as e:
+                                cross_project=a.cross_project, board_rows=rows,
+                                resume=getattr(a, "resume", None), new=getattr(a, "new", False),
+                                brief=brief)
+    except (RegistryError, supervisor.SupervisorError, launch.LaunchError,
+            handoff.HandoffError) as e:
         return _refuse("ad-fleet start", e)
     return _emit("ad-fleet start", {"repo": a.repo, "ticket": lock.get("ticket", ""),
                                     "summary": lock.get("summary", ""),
+                                    "session": lock.get("session", ""),
                                     "pid": lock["pid"], "prompt": lock["prompt"],
                                     "next": f"ad-fleet status --repo {a.repo}"})
+
+
+def cmd_answer(a) -> int:
+    """Answer one of an agent's open questions, and let it continue.
+
+    The page sends every answer in one resume; from a terminal one at a time is the natural shape,
+    and both call `serve.act("answer", ...)` so the two cannot drift apart.
+    """
+    try:
+        out = S.act("answer", {"repo": a.repo, "answers": [{"id": a.id, "answer": a.answer}]})
+    except (RegistryError, supervisor.SupervisorError, S.ServeError) as e:
+        return _refuse("ad-fleet answer", e)
+    return _emit("ad-fleet answer", {"repo": a.repo, "answered": ", ".join(out.get("answered") or []),
+                                     "pid": out.get("pid"),
+                                     "next": f"ad-fleet status --repo {a.repo}"})
+
+
+def cmd_hide(a) -> int:
+    """Take a tile off the glass, or put it back. The dock holds what is off it (#173).
+
+    `hide` and `show` are one function because they are one edit to one list, and two would be two
+    places to keep the rule that a tile needing a person is shown regardless.
+    """
+    layout = getattr(a, "layout", "") or "grid"
+    arrangement = (S.desk_state().get("arrangement") or {}).get(layout) or {}
+    hidden = list(arrangement.get("hidden") or [])
+    want_hidden = bool(getattr(a, "hide", True))
+    if want_hidden and a.repo not in hidden:
+        hidden.append(a.repo)
+    if not want_hidden and a.repo in hidden:
+        hidden.remove(a.repo)
+    S.arrange(layout, hidden=hidden)
+    return _emit("ad-fleet " + ("hide" if want_hidden else "unhide"),
+                 {"repo": a.repo, "layout": layout, "hidden": ", ".join(hidden) or "-",
+                  "note": "a tile that needs a person is shown whatever this says"})
+
+
+def cmd_preflight(a) -> int:
+    """Is this ticket ready to hand over? The dispatch card, as TOON.
+
+    Exit 0 whatever the verdict, `blocked` included: a verdict is an answer, not a refusal. The
+    refusal happens at `ad-fleet start`, in the same words, and this verb exists so the operator can
+    read them before spending a turn rather than after.
+    """
+    card = PF.preflight(a.ticket, getattr(a, "repo", "") or "")
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet preflight",
+                                "ticket": card["key"], "repo": card["repo"] or "-",
+                                "verdict": card["verdict"], "rows": len(card["rows"]),
+                                "cost": "no premium request"}}))
+    print(toon.table("preflight", ["row", "value", "verdict", "why"],
+                     [[r["row"], r["value"], r["verdict"], r.get("why") or "-"]
+                      for r in card["rows"]]))
+    return EXIT_OK
 
 
 def cmd_restart(a) -> int:
@@ -165,7 +248,9 @@ def cmd_gc(a) -> int:
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet gc", "days": a.days,
                                 "removed": len(result["removed"]),
                                 "left_alone": ", ".join(result["kept_running"]) or "none",
-                                "note": "rotated logs and answered approvals only; a live "
+                                "orphans": len(result.get("orphans") or []),
+                                "note": "rotated logs, answered approvals, and the agent "
+                                        "directories of repositories no longer registered; a live "
                                         "`events.norm.jsonl` is what `ad-fleet history` reads"}}))
     print(toon.table("removed", ["path"], [[p] for p in result["removed"]]))
     return EXIT_OK
@@ -215,7 +300,7 @@ def cmd_stop(a) -> int:
     return EXIT_OK
 
 
-COLUMNS = ["repo", "agent", "ticket", "phase", "turns", "premium_requests", "budget",
+COLUMNS = ["repo", "agent", "ticket", "session", "phase", "turns", "premium_requests", "budget",
            "denied_tools", "last_event", "pid", "accent"]
 
 
@@ -288,6 +373,43 @@ def _skills_warning() -> str:
         return ""
 
 
+def cmd_sessions(a) -> int:
+    from .fleet import sessions as S
+
+    reg = Registry()
+    try:
+        repo = reg.get(a.repo)
+    except RegistryError as e:
+        return _refuse("ad-fleet sessions", e)
+
+    if getattr(a, "rename_verb", None) == "rename" and getattr(a, "rename_id", None) and getattr(a, "rename_title", None):
+        try:
+            renamed = S.rename_session(a.repo, a.rename_id, a.rename_title)
+        except KeyError as e:
+            return _refuse("ad-fleet sessions", e)
+        return _emit("ad-fleet sessions rename", {"repo": a.repo, "session": renamed})
+
+    if getattr(a, "rebuild", False):
+        rows = S.rebuild_sessions(a.repo, repo_path=repo.path)
+    else:
+        rows = S.load_sessions(a.repo)
+        if not rows:
+            rows = S.rebuild_sessions(a.repo, repo_path=repo.path)
+
+    cols = ["id", "title", "ticket", "first_seen", "last_seen", "runs", "ended", "cost", "source"]
+    table_rows = [[r.get("id", ""), r.get("title", ""), r.get("ticket", "") or "-",
+                   str(r.get("first_seen", ""))[:16], str(r.get("last_seen", ""))[:16],
+                   r.get("runs", 1), r.get("ended", "") or "-", r.get("cost", 0.0),
+                   r.get("source", "fleet")] for r in rows]
+    if ui.on():
+        ui.table(cols, table_rows, title=f"fleet sessions: {a.repo}")
+        return EXIT_OK
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet sessions",
+                                "repo": a.repo, "sessions": len(rows)}}))
+    print(toon.table("sessions", cols, table_rows))
+    return EXIT_OK
+
+
 def cmd_logs(a) -> int:
     try:
         Registry().get(a.repo)
@@ -326,7 +448,7 @@ def cmd_logs(a) -> int:
 # The proposal's columns, in the order #129 fixes them. `why` is last because it is the only one
 # that is a sentence: everything left of it is a fact the operator can scan down.
 SCAN_COLUMNS = ["path", "name", "branch", "has_agents_md", "has_state", "jira_project", "pbip",
-                "last_commit_age_days", "already_registered", "why"]
+                "last_commit_age_days", "already_registered", "worktree_of", "why"]
 
 # `ad-fleet serve --layout roles` is `?layout=roles` on the page. The flag is this file's and the
 # rendering is the dashboard's, so the query parameter's name is written down once, here, rather
@@ -572,6 +694,16 @@ def cmd_show(a) -> int:
         return _refuse("ad-fleet show", e)
     finally:
         cat.close()
+
+    # The catalogue writes one entry per *repository*, and its branch reader will not follow a
+    # worktree's `gitdir:` pointer -- rightly, that is a second repository's internals. So a
+    # worktree's row carried a blank branch, which is the one string two checkouts most need to
+    # differ in. Read here, in the checkout, the same way the poll does (#175).
+    if not data.get("branch"):
+        try:
+            data["branch"] = P.read_git(Registry().get(a.project)).get("branch", "")
+        except Exception:                    # noqa: BLE001 - a blank branch must never fail a show
+            pass
 
     facts, state = data["facts"], data["state"]
     rail = LK.links_for(data, facts, state)
@@ -854,6 +986,22 @@ def cmd_events(a) -> int:
     return EXIT_OK
 
 
+def _remembered_windows() -> list[str]:
+    try:
+        from .registry import fleet_dir
+        from .serve import DESK_FILE
+        desk_path = os.path.join(fleet_dir(), DESK_FILE)
+        if os.path.isfile(desk_path):
+            with open(desk_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            wins = data.get("windows")
+            if isinstance(wins, dict) and wins:
+                return list(wins.keys())
+    except Exception:
+        pass
+    return ["main"]
+
+
 def cmd_open(a) -> int:
     """Put the dashboard in front of the operator, starting one if none is up.
 
@@ -870,7 +1018,14 @@ def cmd_open(a) -> int:
             return _refuse("ad-fleet open", e)
 
     try:
-        did = O.open_in(a.where, record, launcher_dir=a.write_launcher or "")
+        if getattr(a, "all", False):
+            wins = _remembered_windows()
+            dids = [O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w) for w in wins]
+            return _emit("ad-fleet open", {"where": a.where, "server": "started" if started else "already up",
+                                           "port": record.get("port"), "windows": wins,
+                                           "opened": [d.get("opened") for d in dids]})
+        w = getattr(a, "window", "") or ""
+        did = O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w)
     except O.OpenError as e:
         return _refuse("ad-fleet open", e)
 
@@ -902,13 +1057,15 @@ def cmd_board(a) -> int:
 
 def cmd_history(a) -> int:
     rows = B.history(since=B.since_seconds(a.since))
-    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet history", "runs": len(rows),
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet history", "dispatches": len(rows),
+                                "runs": len(rows),
                                 "since": a.since,
                                 "premium_requests": round(sum(r["premium_requests"] for r in rows), 2)}}))
-    print(toon.table("history", ["started", "repo", "ticket", "summary", "state", "phase",
-                                 "turns", "premium_requests"],
-                     [[str(r["started"])[:16], r["repo"], r["ticket"] or "-", r["summary"][:50],
-                       r["state"], r["phase"] or "-", r["turns"], r["premium_requests"]]
+    print(toon.table("history", ["started", "repo", "ticket", "session", "summary", "state", "phase",
+                                 "turns", "premium_requests", "edited"],
+                     [[str(r["started"])[:16], r["repo"], r["ticket"] or "-", r.get("session") or "-",
+                       r["summary"][:50], r["state"], r["phase"] or "-", r["turns"], r["premium_requests"],
+                       len(r.get("files_modified") or [])]
                       for r in rows]))
     return EXIT_OK
 
@@ -1069,6 +1226,9 @@ def build_parser() -> argparse.ArgumentParser:
     add = repo_sub.add_parser("add", help="register a repository (needs AGENTS.md and .agent/state.json)")
     add.add_argument("path", nargs="?")
     add.add_argument("--name", help="what the fleet calls it (default: the folder name)")
+    add.add_argument("--project", metavar="NAME",
+                     help="which project this checkout is one of (default: a git worktree takes "
+                          "the registered main checkout's project, and anything else is its own)")
     add.add_argument("--scan", metavar="FOLDER",
                      help="propose every project under FOLDER instead, and ask about each")
     add.add_argument("--depth", type=int, default=2,
@@ -1093,7 +1253,35 @@ def build_parser() -> argparse.ArgumentParser:
                        help="start a ticket whose project is not this repo's jira_project")
     start.add_argument("--force", action="store_true",
                        help="start even if the repo is mid-ticket or holds a stale lock")
+    start.add_argument("--resume", help="resume a specific session by id")
+    start.add_argument("--new", action="store_true", help="start a clean session beside the previous one")
+    start.add_argument("--brief", help="what the agent should know, in your own words; written to "
+                                       ".agent/in/<KEY>/brief.md before the agent starts")
+    start.add_argument("--brief-file", dest="brief_file", metavar="PATH",
+                       help="the same, read from a file")
     start.set_defaults(fn=cmd_start)
+
+    ans = sub.add_parser("answer", help="answer an agent's open question so it can continue")
+    ans.add_argument("repo")
+    ans.add_argument("id", help="the question's id, as `ad-fleet status` and the tile show it")
+    ans.add_argument("answer", help="what to tell it")
+    ans.set_defaults(fn=cmd_answer)
+
+    # `unhide`, not `show`: `ad-fleet show <project>` has meant "print this project's facts" since
+    # #130, and a shipped verb does not get its meaning changed under the operator for the sake of
+    # a symmetric name. `docs/plan-sessions.md` said `show`; this is the correction.
+    for verb, helptext in (("hide", "take a tile off the glass; the dock brings it back"),
+                           ("unhide", "put a hidden tile back on the glass")):
+        h = sub.add_parser(verb, help=helptext)
+        h.add_argument("repo")
+        h.add_argument("--layout", default="grid", choices=LAYOUTS,
+                       help="which arrangement (default grid)")
+        h.set_defaults(fn=cmd_hide, hide=(verb == "hide"))
+
+    pf = sub.add_parser("preflight", help="is this ticket ready to hand over? (spends no premium request)")
+    pf.add_argument("ticket")
+    pf.add_argument("--repo", help="the checkout it would start on (default: the one that declares its project)")
+    pf.set_defaults(fn=cmd_preflight)
 
     send = sub.add_parser("send", help="continue an agent's session with another message")
     send.add_argument("repo")
@@ -1178,6 +1366,8 @@ def build_parser() -> argparse.ArgumentParser:
     opn.add_argument("--port", type=int, default=8765, help="port to start a server on if none is up")
     opn.add_argument("--write-launcher", dest="write_launcher", metavar="DIR",
                      help="write fleet.html into DIR, for an IDE that only opens files")
+    opn.add_argument("--window", "-w", help="which named window to open (e.g. main, left)")
+    opn.add_argument("--all", action="store_true", help="open every window the desk remembers")
     opn.set_defaults(fn=cmd_open)
 
     brd = sub.add_parser("board", help="your Jira tickets, and which repo each one belongs to")
@@ -1188,6 +1378,14 @@ def build_parser() -> argparse.ArgumentParser:
     hist = sub.add_parser("history", help="what was dispatched, how it ended, what it cost")
     hist.add_argument("--since", default="7d", help="7d | 12h | 90m (default 7d)")
     hist.set_defaults(fn=cmd_history)
+
+    sess = sub.add_parser("sessions", help="list or rebuild sessions for a repository")
+    sess.add_argument("repo")
+    sess.add_argument("--rebuild", action="store_true", help="rebuild sessions.json from events.norm.jsonl")
+    sess.add_argument("rename_verb", nargs="?", choices=["rename"], help=argparse.SUPPRESS)
+    sess.add_argument("rename_id", nargs="?", help=argparse.SUPPRESS)
+    sess.add_argument("rename_title", nargs="?", help=argparse.SUPPRESS)
+    sess.set_defaults(fn=cmd_sessions)
 
     note = sub.add_parser("notify", help="what the fleet would tell you, and what it has")
     note.add_argument("what", nargs="?", default="list", choices=["list", "test", "tail"],

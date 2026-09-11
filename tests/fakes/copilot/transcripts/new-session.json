@@ -1,0 +1,72 @@
+{
+  "source": "synthesized",
+  "note": "the #176 demo: a clean session beside the previous one. `fresh_session` mints a new id per launch, which is what a real `copilot` does when the fleet passes no `--resume`.",
+  "captured": "2026-09-11",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-clean",
+  "fresh_session": true,
+  "usage": {
+    "premiumRequests": 0.25,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "A clean session in this checkout.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ],
+  "resume_steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "1"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Picking up where this session left off.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "1"
+        }
+      }
+    }
+  ]
+}

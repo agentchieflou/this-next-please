@@ -183,6 +183,14 @@ def activity_age(repo_path: str) -> int:
     return max(0, int(time.time() - newest))
 
 
+def _session_for_adopt(repo_name: str, repo_path: str, jira_project: str = "") -> str:
+    from . import sessions, supervisor
+    store_sess = sessions.read_store_sessions(repo_path, repo_name=repo_name, jira_project=jira_project)
+    if store_sess:
+        return store_sess[0]["id"]
+    return supervisor.session_id(repo_name)
+
+
 def candidates(registry: Registry | None = None, *, processes: list[dict] | None = None) -> list[dict]:
     """Registered repositories that appear to have a session the fleet did not start.
 
@@ -225,7 +233,32 @@ def candidates(registry: Registry | None = None, *, processes: list[dict] | None
 
         out.append({"repo": repo.name, "path": repo.path, "pid": chosen["pid"],
                     "cmdline": chosen["cmdline"][:200], "how": how, "active_age_s": age,
-                    "session": supervisor.session_id(repo.name)})
+                    "session": _session_for_adopt(repo.name, repo.path, getattr(repo, "jira_project", ""))})
+    return out
+
+
+def discover(*, registry: Registry | None = None) -> list[dict]:
+    reg = registry or Registry()
+    out = []
+    for repo in reg.sorted():
+        age = activity_age(repo.path)
+        if age < 0 or age > FRESH_S:
+            continue
+        here = textio.norm_path(repo.path).rstrip("/\\").lower()
+        matched = [r for r in agent_processes()
+                   if r.get("cwd") and textio.norm_path(r["cwd"]).rstrip("/\\").lower() == here]
+        if matched:
+            chosen = matched[0]
+            how = "matched by working directory"
+        else:
+            # No process listing at all (refused, or none matched) and yet the checkout is being
+            # written to. Still worth offering: the writing is the evidence, not the listing.
+            chosen = {"pid": 0, "cmdline": "", "cwd": ""}
+            how = "inferred from recent activity"
+
+        out.append({"repo": repo.name, "path": repo.path, "pid": chosen["pid"],
+                    "cmdline": chosen["cmdline"][:200], "how": how, "active_age_s": age,
+                    "session": _session_for_adopt(repo.name, repo.path, getattr(repo, "jira_project", ""))})
     return out
 
 
@@ -266,13 +299,15 @@ def adopt(name: str, *, registry: Registry | None = None, pid: int = 0) -> dict:
                 break
 
     how = "matched by working directory" if pid else "inferred from recent activity"
+    session = _session_for_adopt(name, repo.path, getattr(repo, "jira_project", ""))
     lock = {"pid": int(pid or 0), "how": how, "repo": name, "path": repo.path,
-            "session": supervisor.session_id(name), "ticket": repo.state().get("active_ticket", ""),
+            "session": session, "ticket": repo.state().get("active_ticket", ""),
             "external": True, "adopted_at": E.stamp(), "started": time.time(),
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "restarts": 0, "launch": []}
     supervisor.write_lock(name, lock)
     E.append(name, [E.event(name, "started",
                             {"external": True, "pid": lock["pid"], "adopted": True,
+                             "session": lock["session"],
                              "why": "a session the fleet did not start was adopted"},
                             ticket=lock["ticket"])])
     return {"repo": name, "pid": lock["pid"], "session": lock["session"], "how": how,

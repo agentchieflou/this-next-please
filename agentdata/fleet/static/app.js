@@ -27,11 +27,33 @@ var LAYOUT = unknownLayout ? "grid" : (rawLayout || "grid");
 var VIEW = VIEWS.indexOf(PARAMS.get("view")) >= 0 ? PARAMS.get("view")
                                                   : (LAYOUT === "roles" ? "agents" : "");
 var SCREEN = Math.max(0, Math.min(9, Number(PARAMS.get("screen")) || 0));
+var W_NAME = PARAMS.get("w") || "main";
 
 var desk = { projects: {}, offers: {}, unsorted: [], not_offered: [], folders: [],
              desk: { selected: "", screens: [] } };
 var pendingDesk = null;
 var needsOnly = false;
+var readCursors = {};
+var streamDead = false;
+var awayShown = false;
+var appliedInitialWindow = false;
+/* Whether a drop opens the dispatch card (#164) or launches the way #98 did. The server's
+   `fleet.preflight` decides; until the first `/api/fleet` answers, the card is the default,
+   because showing a card and starting from it is the recoverable direction to be wrong in. */
+var PREFLIGHT = true;
+
+function saveWindow(patch) {
+  var body = Object.assign({ w: W_NAME }, patch);
+  return post("window", body).catch(function () {});
+}
+
+function rehome() {
+  var dest = "/open?w=" + encodeURIComponent(W_NAME) +
+             "&layout=" + encodeURIComponent(LAYOUT) +
+             "&view=" + encodeURIComponent(VIEW) +
+             "&screen=" + encodeURIComponent(SCREEN);
+  window.location.href = dest;
+}
 
 /* Repos the operator has acted on, and the word for what they did.
    Answering an agent is what stops it needing you, so in focus mode a reply hid the very tile it
@@ -46,11 +68,13 @@ var HELD_WORDS = { send: "replied", start: "started", stop: "stopped",
 function hold(repo, what) {
   if (!repo || !HELD_WORDS[what]) return;
   held.set(repo, HELD_WORDS[what]);
+  saveWindow({ held: Array.from(held.keys()) });
 }
 
 function release(repo) {
   held.delete(repo);
   if (tiles.has(repo)) tiles.get(repo).el.classList.remove("held");
+  saveWindow({ held: Array.from(held.keys()) });
   place();
 }
 
@@ -67,7 +91,12 @@ function post(action, body) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {})
-  }).then(function (r) { return r.json(); });
+  }).then(function (r) {
+    if (r.status === 403 && streamDead) {
+      rehome();
+    }
+    return r.json();
+  });
 }
 
 function text(el, value) { el.textContent = value == null ? "" : String(value); }
@@ -133,10 +162,16 @@ var SHOWN = {
 };
 
 function append(el, ev) {
+  appendTo(el.querySelector(".transcript"), ev);
+}
+
+/* One renderer for both lists. The read-only pane draws the same lines from the same fold as the
+   live tile, because a session that looked different when you came back to it would read as a
+   different session (#174). */
+function appendTo(list, ev) {
   if (!SHOWN[ev.kind]) return;
   var body = line(ev);
   if (!body) return;
-  var list = el.querySelector(".transcript");
   var li = document.createElement("li");
   li.className = ev.kind;
   var k = document.createElement("span");
@@ -147,9 +182,12 @@ function append(el, ev) {
   text(v, body);                                  // textContent, never markup: this is agent output
   li.appendChild(k);
   li.appendChild(v);
+  var wasAtBottom = (list.scrollHeight - list.scrollTop - list.clientHeight) <= 40;
   list.appendChild(li);
   while (list.children.length > 200) list.removeChild(list.firstChild);
-  list.scrollTop = list.scrollHeight;
+  if (wasAtBottom) {
+    list.scrollTop = list.scrollHeight;
+  }
 }
 
 function makeTile(row, index) {
@@ -159,6 +197,14 @@ function makeTile(row, index) {
   text(repoEl, row.repo);
   repoEl.title = row.repo;
   el.dataset.repo = row.repo;
+
+  var list = el.querySelector(".transcript");
+  var repoName = row.repo;
+  list.addEventListener("scroll", function () {
+    try {
+      sessionStorage.setItem("fleet.scroll." + repoName, String(list.scrollTop));
+    } catch (e) {}
+  });
 
   el.querySelector(".repo").addEventListener("click", function () { focus(row.repo); });
   el.addEventListener("dblclick", function () { focus(row.repo); });
@@ -237,9 +283,73 @@ function makeTile(row, index) {
       return;
     }
 
-    var key = (e.dataTransfer.getData("text/plain") || "").trim();
-    if (key) dispatch(key, row.repo);
+    // Files first (#166): the tile has promised a copy on `dragover` since #98, and until now that
+    // promise was empty -- the outline appeared and nothing happened.
+    if ((e.dataTransfer.files && e.dataTransfer.files.length) ||
+        Array.prototype.some.call(e.dataTransfer.items || [], function (i) { return i.kind === "file"; })) {
+      filesFromDrop(e.dataTransfer).then(function (files) {
+        if (files.length) scopeDrop(el, row.repo, files);
+      });
+      return;
+    }
+
+    var key = (e.dataTransfer.getData("application/x-agentdata-ticket") || e.dataTransfer.getData("text/plain") || "").trim();
+    if (key) { if (PREFLIGHT) dispatchCard(key, row.repo); else dispatch(key, row.repo); }
   });
+
+  /* The dispatch card's own three controls (#164). `Enter` in the brief box starts; `Esc` cancels,
+     the way `Esc` leaves every other thing on this page. */
+  /* One Send for every answer typed (#165): N answers cost one turn, not N. */
+  el.querySelector(".asks-send").addEventListener("click", function () {
+    var answers = [];
+    Array.prototype.forEach.call(el.querySelectorAll(".asks-list .ask"), function (li) {
+      var value = li.querySelector(".ask-answer").value.trim();
+      if (value) answers.push({ id: li.dataset.qid, answer: value });
+    });
+    if (!answers.length) {
+      text(el.querySelector(".asks-note"), "pick a choice or type an answer first");
+      return;
+    }
+    text(el.querySelector(".asks-note"), "");
+    action(el, "answer", { repo: row.repo, answers: answers });
+  });
+
+  el.querySelector(".hidetoggle").addEventListener("click", function (e) {
+    e.stopPropagation();
+    setHidden(row.repo, true);
+  });
+
+  el.querySelector(".scope-close").addEventListener("click", function () {
+    el.querySelector(".scope").hidden = true;
+  });
+  el.querySelector(".scope-tell").addEventListener("click", function () {
+    action(el, "send", { repo: row.repo, message:
+      "New files are in the scope under .agent/in/; read scope.toon before continuing." });
+  });
+
+  el.querySelector(".dispatch-close").addEventListener("click", function () { closeDispatch(el); });
+  el.querySelector(".dispatch-go").addEventListener("click", function () {
+    var card = el.querySelector(".dispatch");
+    dispatch(card.dataset.key || "", row.repo, el.querySelector(".brief").value.trim());
+  });
+  el.querySelector(".brief").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { el.querySelector(".dispatch-go").click(); e.preventDefault(); }
+    else if (e.key === "Escape") { closeDispatch(el); e.stopPropagation(); }
+  });
+
+  /* #174: the switcher's four buttons. The rows behind *earlier* are fetched on the click rather
+     than on every poll -- nobody is reading them until they ask for them. */
+  el.querySelector(".earlier-tab").addEventListener("click", function () {
+    openSessions(el, row.repo);
+  });
+  el.querySelector(".main-tab").addEventListener("click", function () {
+    el.querySelector(".sessions").hidden = true;
+    el.querySelector(".earlier-tab").setAttribute("aria-expanded", "false");
+    if (viewing(el)) backToLive(el);
+  });
+  el.querySelector(".new-tab").addEventListener("click", function () { newSession(el, row.repo); });
+  el.querySelector(".ro-resume").addEventListener("click", function () { resumeHere(el, row.repo); });
+  el.querySelector(".ro-back").addEventListener("click", function () { backToLive(el); });
 
   /* Every drag gesture has a keyboard equivalent, and the footer key map lists all four. */
   el.addEventListener("keydown", function (e) {
@@ -248,6 +358,10 @@ function makeTile(row, index) {
     else if (e.key === "ArrowRight") { moveTile(row.repo, 1); e.preventDefault(); }
     else if (e.key === "Home") { toggleTilePin(row.repo); e.preventDefault(); }
     else if (e.key === "Enter") { toggleTileSize(row.repo); e.preventDefault(); }
+    // The strip, without a mouse. `[` and `]` walk it; `N` is a clean session beside this one.
+    else if (e.key === "[") { stepStrip(el, -1); e.preventDefault(); }
+    else if (e.key === "]") { stepStrip(el, 1); e.preventDefault(); }
+    else if (e.key === "n" || e.key === "N") { newSession(el, row.repo); e.preventDefault(); }
   });
 
   var pinBtn = el.querySelector(".pintoggle");
@@ -346,6 +460,100 @@ function action(el, what, body) {
   }).catch(function (e) { fail(el, String(e)); });
 }
 
+/* ------------------------------------------------------------------- the question card (#165)
+
+   The agent's open questions, as records: choices as buttons, a box for anything else, one Send.
+   Answering used to be a free-text reply the agent had no way to tie to what it asked, and which
+   did not unblock it -- `open_questions` persisted until `--clear-questions`, which no skill ran on
+   resume, so the next bootstrap stopped on the same block. */
+
+function drawAsks(el, row) {
+  var card = el.querySelector(".asks");
+  var list = card.querySelector(".asks-list");
+  var open = (row.asked || []).filter(function (q) { return q.blocking !== false; });
+  var assumed = row.assumed || [];
+
+  if (!open.length) {
+    card.hidden = true;
+  } else {
+    card.hidden = false;
+    text(card.querySelector(".asks-n"), open.length === 1 ? "1 question" : open.length + " questions");
+    // Redraw only when the set changed: the operator may be mid-sentence in one of these boxes,
+    // and a refresh every few seconds that threw the typing away would make the card unusable.
+    var signature = open.map(function (q) { return q.id + ":" + q.q; }).join("|");
+    if (list.dataset.signature !== signature) {
+      list.dataset.signature = signature;
+      var pattern = list.querySelector(".ask");
+      while (list.children.length > 1) list.removeChild(list.lastChild);
+      open.forEach(function (q) {
+        var li = pattern.cloneNode(true);
+        li.hidden = false;
+        li.dataset.qid = q.id || "";
+        text(li.querySelector(".ask-q"), q.q || "");
+        var picked = li.querySelector(".ask-answer");
+        picked.placeholder = q.want === "file" ? "a path, or drop the file on this tile" : "your answer";
+        var choices = li.querySelector(".ask-choices");
+        (q.choices || []).forEach(function (choice) {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.className = "ask-choice";
+          text(b, choice + (choice === q.default ? " (default)" : ""));
+          b.setAttribute("aria-pressed", "false");
+          b.addEventListener("click", function () {
+            picked.value = choice;
+            Array.prototype.forEach.call(choices.children, function (other) {
+              other.setAttribute("aria-pressed", String(other === b));
+            });
+          });
+          choices.appendChild(b);
+        });
+        list.appendChild(li);
+      });
+    }
+  }
+
+  var strip = el.querySelector(".assumed");
+  if (!assumed.length) {
+    strip.hidden = true;
+  } else {
+    strip.hidden = false;
+    var shape = strip.querySelector(".assumption");
+    while (strip.children.length > 1) strip.removeChild(strip.lastChild);
+    assumed.forEach(function (q) {
+      var li = shape.cloneNode(true);
+      li.hidden = false;
+      text(li.querySelector(".assumption-what"), "assumed: " + (q.assume || q.default || q.q));
+      li.querySelector(".overturn").addEventListener("click", function () {
+        var say = el.querySelector(".say");
+        say.value = "That assumption is wrong: " + (q.assume || q.q) + ". ";
+        say.focus();
+      });
+      strip.appendChild(li);
+    });
+  }
+}
+
+/* What it edited against what it was given (#168). Advice to the model and a report to the human:
+   nothing here refused an edit, and an agent that went outside the scope was probably right to --
+   the operator simply wants to know. */
+function drawScopeReport(el, row) {
+  var strip = el.querySelector(".scopereport");
+  var card = row.scope_report || {};
+  if (!card.edited) { strip.hidden = true; return; }
+  strip.hidden = false;
+  var said = "edited " + card.edited;
+  if (card.outside && card.outside.length) {
+    said += " · " + card.outside.length + " outside the scope you gave it";
+    strip.className = "scopereport outside";
+    strip.title = card.outside.join("\n");
+  } else {
+    said += " · all inside the scope you gave it";
+    strip.className = "scopereport";
+    strip.title = "";
+  }
+  text(strip, said);
+}
+
 function drawTile(el, row, approvals) {
   /* Three things have to agree here or the tile lies: the chip, the sentence under it, and the
      age. The server decides which agents are quiet enough to be called unsupervised (it is the
@@ -434,13 +642,19 @@ function drawTile(el, row, approvals) {
 
   // Which run this transcript belongs to. Without it, a two-day-old run reads as live.
   var run = row.run || {};
+  // Which session the live tile is on, so the switcher can leave it out of *earlier* rather than
+  // offering the operator the one they are already looking at (#174).
+  el.dataset.session = run.session || "";
   var runline = el.querySelector(".runline");
   if (runline) {
     var bits = [];
     if (run.n) bits.push("run " + run.n);
     if (run.started) bits.push("started " + String(run.started).slice(11, 16));
     if (run.resumed) bits.push("resumed");
-    if (run.session) bits.push("session " + String(run.session).slice(0, 8));
+    if (run.session) {
+      var sessLabel = run.session_title ? run.session_title : "session " + String(run.session).slice(0, 8);
+      bits.push(sessLabel);
+    }
     if (run.events_n) bits.push(run.events_n + " events");
     // The era, last, because it is the qualifier: which run, then whether it is still this one.
     if (!run.n) bits = ["no run yet"];
@@ -448,9 +662,19 @@ function drawTile(el, row, approvals) {
     else if (!run.since_start) bits.push("before this session");
     else bits.push("ended");
     text(runline, bits.join(" · "));
-    runline.title = bits.join(" · ");          // the line truncates; the whole of it stays reachable
+    runline.title = (run.session ? "session " + run.session + " (click to copy)\n" : "") + bits.join(" · ");
     runline.classList.toggle("cold", cold);
+    if (run.session) {
+      runline.onclick = function() {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(run.session);
+        }
+      };
+      runline.style.cursor = "pointer";
+    }
   }
+
+  drawStrip(el, row);
 
   var earlierEl = el.querySelector(".earlier");
   if (earlierEl) {
@@ -481,14 +705,311 @@ function drawTile(el, row, approvals) {
     text(el.querySelector(".summary"), mine.summary || "");
     text(el.querySelector(".payload"), JSON.stringify(mine.payload || {}, null, 2));
   }
+  drawAsks(el, row);
+  drawScopeReport(el, row);
   drawCells(el, row.polls || {});
 }
 
-/* -------------------------------------------------------------------------------- the whole page */
+/* ------------------------------------------------------------------------- the switcher (#174) */
+
+/* The earlier-run rows were text with no handler, and the only session-changing gesture in the
+   whole page was *adopt* -- which then disabled Send. So a session you had finished with was a
+   thing you could read about and not open, and *I started it in a terminal yesterday* had no
+   answer at all.
+
+   The strip is a tab view: the main tab is this checkout's live session, the tabs beside it are the
+   project's other checkouts (#175 fills them in; before it, `siblings` is empty and the strip is
+   one tab and *earlier*), then *earlier (n)* and *+ new*. Reading a session is a GET and nothing
+   else -- choosing one must never spawn an agent -- and making one live again is a second,
+   deliberate press, the way *Reset anyway* is. */
+
+function viewing(el) {
+  return el.dataset.viewing || "";
+}
+
+/* One sentence, in the words the page has: how it ended and when. The *refusal* to resume is the
+   server's own sentence, never this one -- a second opinion about why something was refused is how
+   an operator ends up with two explanations of one rule. */
+function endedSentence(data) {
+  var state = data.state || "ended";
+  var when = whenIso(data.at);
+  return "this session ended " + state + (when ? " · " + when : "");
+}
+
+function whenIso(ts) {
+  if (!ts) return "";
+  var t = new Date(ts).getTime();
+  if (isNaN(t)) return "";
+  return age(Math.max(0, Math.round((Date.now() - t) / 1000))) + " ago";
+}
+
+function drawStrip(el, row) {
+  var strip = el.querySelector(".strip");
+  if (!strip) return;
+  var pattern = strip.querySelector(".sib-tab");
+  var main = strip.querySelector(".main-tab");
+  var earlierTab = strip.querySelector(".earlier-tab");
+  var open = viewing(el);
+
+  var run = row.run || {};
+  var bits = ["main"];
+  if (row.state) bits.push(row.state);
+  if (row.last_event_age_s >= 0) bits.push(age(row.last_event_age_s));
+  text(main, bits.join(" · "));
+  main.title = run.session ? "session " + run.session : "this checkout's live session";
+  main.setAttribute("aria-selected", String(!open));
+  main.classList.toggle("is-on", !open);
+
+  // Sibling checkouts of the same project (#175). Empty until that slice lands, which is why the
+  // strip has to read as finished with one tab on it rather than as a row of missing things.
+  while (strip.querySelectorAll(".sib-tab").length > 1) {
+    strip.removeChild(strip.querySelectorAll(".sib-tab")[1]);
+  }
+  (row.siblings || []).forEach(function (sib) {
+    var tab = pattern.cloneNode(true);
+    tab.hidden = false;
+    text(tab, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
+    tab.title = "the same project, checked out at " + (sib.path || sib.repo);
+    tab.addEventListener("click", function () { focus(sib.repo); });
+    strip.insertBefore(tab, earlierTab);
+  });
+
+  var n = row.sessions_n || 0;
+  earlierTab.hidden = !n;
+  text(earlierTab, "earlier (" + n + ")");
+  earlierTab.setAttribute("aria-selected", String(!!open));
+  earlierTab.classList.toggle("is-on", !!open);
+}
+
+/* The rows, on the click rather than on every poll: this is a disk read and a fold, and nobody is
+   looking at it until they ask. */
+function openSessions(el, repo) {
+  var list = el.querySelector(".sessions");
+  var tab = el.querySelector(".earlier-tab");
+  if (!list.hidden) { list.hidden = true; tab.setAttribute("aria-expanded", "false"); return; }
+  fetch(q("/api/sessions", { repo: repo })).then(function (r) { return r.json(); })
+    .then(function (data) {
+      var pattern = list.querySelector(".session-row");
+      while (list.children.length > 1) list.removeChild(list.lastChild);
+      var rows = (data && data.sessions) || [];
+      var current = (el.dataset.session || "");
+      rows.filter(function (row) { return row.id !== current; }).forEach(function (row) {
+        var li = pattern.cloneNode(true);
+        li.hidden = false;
+        text(li.querySelector(".ss-title"), row.title || row.ticket || row.id.slice(0, 8));
+        text(li.querySelector(".ss-chip"), row.ended || "");
+        text(li.querySelector(".ss-when"), whenIso(row.last_seen));
+        text(li.querySelector(".ss-cost"),
+             row.cost ? Number(row.cost).toFixed(2) + " premium" : "");
+        var button = li.querySelector(".ss-open");
+        button.title = (row.source === "store"
+          ? "a console window may still own this; close it first — "
+          : "") + "session " + row.id;
+        button.addEventListener("click", function () { showSession(el, repo, row); });
+        list.appendChild(li);
+      });
+      if (!rows.length) {
+        var empty = pattern.cloneNode(true);
+        empty.hidden = false;
+        text(empty.querySelector(".ss-title"), "no earlier sessions in this checkout");
+        empty.querySelector(".ss-open").disabled = true;
+        list.appendChild(empty);
+      }
+      list.hidden = false;
+      tab.setAttribute("aria-expanded", "true");
+    });
+}
+
+/* Read-only, from history. The live transcript is hidden rather than replaced, so it keeps filling
+   behind this and going back is instant and whole rather than a reload with a hole in it. */
+function showSession(el, repo, session) {
+  fetch(q("/api/transcript", { repo: repo, session: session.id }))
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (!data || !data.ok) return;
+      el.dataset.viewing = session.id;
+      var history = el.querySelector(".history");
+      while (history.firstChild) history.removeChild(history.firstChild);
+      (data.events || []).forEach(function (ev) { appendTo(history, ev); });
+      el.querySelector(".transcript").hidden = true;
+      history.hidden = false;
+      el.querySelector(".sessions").hidden = true;
+      el.querySelector(".earlier-tab").setAttribute("aria-expanded", "false");
+      var pane = el.querySelector(".readonly");
+      pane.hidden = false;
+      text(el.querySelector(".ro-what"),
+           (session.title ? session.title + " — " : "") + endedSentence(data));
+      var resume = el.querySelector(".ro-resume");
+      text(resume, "Resume here");
+      resume.dataset.armed = "";
+      text(el.querySelector(".ro-note"),
+           session.source === "store"
+             ? "a console window may still own this; close it first"
+             : "");
+      el.querySelector(".row.bottom").hidden = true;
+      var entry = tiles.get(repo);
+      if (entry && entry.row) drawStrip(el, entry.row);
+    });
+}
+
+/* `Alt+[` and `Alt+]` walk the strip. The tabs are real buttons in document order, so stepping is
+   moving the keyboard to the next one and pressing it -- there is no second model of "which tab is
+   selected" that could disagree with the one the page is showing. */
+function stepStrip(el, dir) {
+  var tabs = [].slice.call(el.querySelectorAll(".strip .tab"))
+               .filter(function (t) { return !t.hidden; });
+  if (!tabs.length) return;
+  var here = tabs.indexOf(document.activeElement);
+  if (here < 0) {
+    here = tabs.indexOf(el.querySelector(".strip .tab.is-on"));
+    if (here < 0) here = 0;
+  }
+  var next = tabs[(here + dir + tabs.length) % tabs.length];
+  next.focus();
+  next.click();
+}
+
+function backToLive(el) {
+  el.dataset.viewing = "";
+  el.querySelector(".history").hidden = true;
+  el.querySelector(".transcript").hidden = false;
+  el.querySelector(".readonly").hidden = true;
+  el.querySelector(".row.bottom").hidden = false;
+  var entry = tiles.get(el.dataset.repo);
+  if (entry && entry.row) drawStrip(el, entry.row);
+}
+
+/* Making an earlier session the live one. When nothing is running it simply runs; when something
+   is, it is the supervisor's own refusal with the supervisor's own hint, and the button becomes a
+   second, deliberate press -- never a silent force, and never two agents in one working tree. */
+function resumeHere(el, repo) {
+  var button = el.querySelector(".ro-resume");
+  var note = el.querySelector(".ro-note");
+  var armed = button.dataset.armed === "1";
+  post("start", { repo: repo, resume: viewing(el), force: armed }).then(function (r) {
+    if (r && r.ok) {
+      button.dataset.armed = "";
+      backToLive(el);
+      refresh();
+      return;
+    }
+    text(note, [r && r.error, r && r.hint].filter(Boolean).join(" — "));
+    if (r && r.code === "live_agent") {
+      button.dataset.armed = "1";
+      text(button, "Stop and resume");
+    }
+  });
+}
+
+function newSession(el, repo) {
+  var note = el.querySelector(".ro-note");
+  post("start", { repo: repo, "new": true }).then(function (r) {
+    if (r && r.ok) { backToLive(el); refresh(); return; }
+    var said = [r && r.error, r && r.hint].filter(Boolean).join(" — ");
+    if (!el.querySelector(".readonly").hidden) text(note, said);
+    else { text(el.querySelector(".err"), said); el.querySelector(".err").hidden = false; }
+  });
+}
+
+/* ------------------------------------------------------------------------------- the whole page */
+
+function checkAway(prevSeen) {
+  if (!prevSeen || awayShown) return;
+  awayShown = true;
+  fetch(q("/api/notifications", { limit: 50 })).then(function (r) {
+    return r.json();
+  }).then(function (data) {
+    if (!data.ok || !data.notifications) return;
+    var seenTime = new Date(prevSeen).getTime();
+    if (isNaN(seenTime)) return;
+
+    var byRepo = new Map();
+    data.notifications.forEach(function (n) {
+      if (!n.at || !n.repo) return;
+      var nTime = new Date(n.at).getTime();
+      if (nTime > seenTime) {
+        byRepo.set(n.repo, n);
+      }
+    });
+
+    var strip = document.getElementById("away-strip");
+    var list = document.getElementById("away-lines");
+    if (!strip || !list || byRepo.size === 0) return;
+
+    while (list.firstChild) list.removeChild(list.firstChild);
+    byRepo.forEach(function (item) {
+      var li = document.createElement("li");
+      li.className = "away-line";
+      var repoSpan = document.createElement("span");
+      repoSpan.className = "repo";
+      text(repoSpan, item.repo + ":");
+      var descSpan = document.createElement("span");
+      descSpan.className = "desc";
+      text(descSpan, item.body || item.title || item.state);
+      var whenSpan = document.createElement("span");
+      whenSpan.className = "when";
+      text(whenSpan, " · " + (item.at ? String(item.at).slice(11, 19) : ""));
+      li.appendChild(repoSpan);
+      li.appendChild(descSpan);
+      li.appendChild(whenSpan);
+      li.addEventListener("click", function () {
+        if (tiles.has(item.repo)) focus(item.repo);
+      });
+      list.appendChild(li);
+    });
+    strip.hidden = false;
+  }).catch(function () {});
+}
+
+var dismissBtn = document.getElementById("dismiss-away");
+if (dismissBtn) {
+  dismissBtn.addEventListener("click", function () {
+    var strip = document.getElementById("away-strip");
+    if (strip) strip.hidden = true;
+  });
+}
+
+function applyWindow(win) {
+  if (!win) return;
+  if (!appliedInitialWindow) {
+    appliedInitialWindow = true;
+    if (win.seen) {
+      checkAway(win.seen);
+    }
+    saveWindow({ seen: new Date().toISOString(), layout: LAYOUT, view: VIEW, screen: SCREEN });
+  }
+  if (win.focus !== undefined && win.focus !== needsOnly) {
+    focusMode(win.focus, true);
+  }
+  if (win.zoomed !== undefined && win.zoomed !== focused) {
+    if (win.zoomed && tiles.has(win.zoomed)) {
+      focus(win.zoomed, true);
+    } else if (!win.zoomed && focused) {
+      unfocus(true);
+    }
+  }
+  if (win.section && win.section !== lastSection) {
+    section(win.section, true, true);
+  }
+  if (Array.isArray(win.held)) {
+    win.held.forEach(function (repo) {
+      if (!held.has(repo)) held.set(repo, "held");
+    });
+  }
+  if (win.read && typeof win.read === "object") {
+    Object.assign(readCursors, win.read);
+  }
+}
 
 function refresh() {
   if (pendingRefresh) return pendingRefresh;
-  pendingRefresh = fetch(q("/api/fleet")).then(function (r) { return r.json(); }).then(function (data) {
+  pendingRefresh = fetch(q("/api/fleet")).then(function (r) {
+    if (r.status === 403 && streamDead) {
+      rehome();
+      return { ok: false, repos: [] };
+    }
+    return r.json();
+  }).then(function (data) {
     pendingRefresh = null;
     if (!data.ok) return;
     var grid = document.getElementById("grid");
@@ -501,11 +1022,23 @@ function refresh() {
         entry = { el: el, seq: 0 };
         tiles.set(row.repo, entry);
         (row.recent || []).forEach(function (ev) { append(el, ev); entry.seq = ev.seq; });
+        try {
+          var savedScroll = sessionStorage.getItem("fleet.scroll." + row.repo);
+          if (savedScroll !== null) {
+            entry.el.querySelector(".transcript").scrollTop = Number(savedScroll);
+          }
+        } catch (e) {}
       }
+      entry.row = row;
+      departed.delete(row.repo);
       drawTile(entry.el, row, data.approvals || []);
     });
     tiles.forEach(function (entry, name) {
       if (!data.repos.some(function (r) { return r.repo === name; })) {
+        // Removed from the registry. Its tile goes, but not silently: it keeps a dock chip naming
+        // the command that restores it, because a transcript disappearing with no explanation is
+        // exactly the "where did it go" this slice exists to answer.
+        departed.set(name, { path: (entry.row && entry.row.path) || "<path>" });
         entry.el.remove();
         tiles.delete(name);
       }
@@ -514,12 +1047,18 @@ function refresh() {
     text(document.getElementById("counts"),
          data.repos.length + " agents" + (need ? "  ·  " + need + " need you" : "") +
          (needsOnly && held.size ? "  ·  " + held.size + " held" : ""));
-    if (data.desk) desk.desk = data.desk;
+    if (data.desk) {
+      desk.desk = data.desk;
+      if (data.desk.windows && data.desk.windows[W_NAME]) {
+        applyWindow(data.desk.windows[W_NAME]);
+      }
+    }
     if (data.theme) {
       applyTheme(data.theme.css, data.theme.theme);
       applySkin(data.theme.skin);
       reflectTheme(data.theme);
     }
+    if (typeof data.preflight === "boolean") PREFLIGHT = data.preflight;
     place();
     title(need);
     return data;
@@ -558,6 +1097,9 @@ function connect() {
   // monitor that joined late never sits on a different project than the one beside it.
   source.addEventListener("desk", function (m) {
     desk.desk = JSON.parse(m.data);
+    if (desk.desk.windows && desk.desk.windows[W_NAME]) {
+      applyWindow(desk.desk.windows[W_NAME]);
+    }
     place();
     if (VIEW === "verify" || LAYOUT === "screens") deskSoon();
   });
@@ -582,8 +1124,9 @@ function connect() {
     link.className = "dot live";
     text(link, "live");
   });
-  source.onopen = function () { link.className = "dot live"; text(link, "live"); };
+  source.onopen = function () { streamDead = false; link.className = "dot live"; text(link, "live"); };
   source.onerror = function () {
+    streamDead = true;
     link.className = "dot lost";
     text(link, "reconnecting");
     // EventSource reconnects on its own, but the page must not trust what it drew in between.
@@ -593,23 +1136,29 @@ function connect() {
 
 /* ------------------------------------------------------------------- focus mode and the keyboard */
 
-function focus(name) {
+function focus(name, skipPost) {
   focused = name;
   document.body.classList.add("focused");
   document.getElementById("unfocus").hidden = false;
   tiles.forEach(function (entry, key) { entry.el.classList.toggle("is-focused", key === name); });
   unread.delete(name);                       // looking at it is what "read" means
+  var entry = tiles.get(name);
+  if (entry && entry.seq) {
+    readCursors[name] = entry.seq;
+  }
   bell();
   drawer(false);
   if (location.hash !== "#tile=" + name) history.replaceState(null, "", "#tile=" + name);
+  if (!skipPost) saveWindow({ zoomed: name, read: readCursors });
 }
 
-function unfocus() {
+function unfocus(skipPost) {
   focused = null;
   document.body.classList.remove("focused");
   document.getElementById("unfocus").hidden = true;
   tiles.forEach(function (entry) { entry.el.classList.remove("is-focused"); });
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  if (!skipPost) saveWindow({ zoomed: "" });
 }
 
 /* A toast launches `…/?t=…#tile=luna`, so the click lands on the agent that needs the operator
@@ -617,7 +1166,25 @@ function unfocus() {
    open and the shell simply re-focuses it with a new hash. */
 function followHash() {
   var m = /^#tile=(.+)$/.exec(location.hash || "");
-  if (m && tiles.has(decodeURIComponent(m[1]))) focus(decodeURIComponent(m[1]));
+  if (!m) return;
+  var name = decodeURIComponent(m[1]);
+  if (!tiles.has(name)) {
+    // A toast for a repository with no tile used to do nothing at all: the window simply sat there
+    // while the operator waited for something to happen (#173).
+    say("no tile for '" + name + "' — is it still registered?");
+    return;
+  }
+  // A hidden tile is reopened by an anchor rather than silently ignored, and the footer says so:
+  // the toast said this agent needs somebody, and the operator asked to see it.
+  if (isHidden(name)) {
+    setHidden(name, false);
+    say(name + " was hidden — reopened");
+  }
+  // Only if the mode is what is keeping it off the glass. An anchor almost always names a tile
+  // that needs somebody -- which focus mode is showing already -- and turning the mode off to
+  // reach a tile that was never hidden throws away the pass the operator was in the middle of.
+  if (quieted(name)) focusMode(false);
+  focus(name);
 }
 
 window.addEventListener("hashchange", followHash);
@@ -631,10 +1198,23 @@ document.addEventListener("keydown", function (e) {
   if (/^[1-9]$/.test(e.key)) {
     // The number printed on a tile comes from the arrangement, so the key that focuses it must
     // too. Reading registry order here meant that the moment anything was moved or pinned, the
-    // badge said 3 and pressing 3 focused something else.
-    var name = getEffectiveOrder()[Number(e.key) - 1];
-    if (name) focus(name);
+    // badge said 3 and pressing 3 focused something else. The *visible* order (#173), so a digit
+    // can no longer zoom a tile that is not on the glass -- which blanked the window, because zoom
+    // hides every other tile and focus mode was already hiding that one.
+    var name = visibleOrder()[Number(e.key) - 1];
+    if (!name) return;
+    // Zooming a tile focus mode is quieting was a blank window: zoom hides every other tile and
+    // the mode was already hiding this one. The operator pressed the number printed on that tile,
+    // so the mode gives way rather than the window going dark -- the same answer `#tile=` gives.
+    if (quieted(name)) focusMode(false);
+    focus(name);
     return;
+  }
+  if (e.key === "h") {
+    // Hide the tile the operator is on. Every drag gesture has a keyboard equivalent, and so does
+    // this one -- a desk that can only be arranged with a mouse cannot be arranged by someone typing.
+    var onTile = document.activeElement && document.activeElement.closest && document.activeElement.closest(".tile");
+    if (onTile && onTile.dataset.repo) { setHidden(onTile.dataset.repo, true); return; }
   }
   if (e.key === "n") { section("drawer"); return; }
   if (e.key === "b") { section("board"); return; }
@@ -774,8 +1354,10 @@ refresh().then(function () {
   connect();
   loadThemes();
   loadNotifications();
-  loadDesk();
-  followHash();
+  // The anchor is answered *after* the desk, not beside it: whether a tile is hidden is the
+  // server's arrangement, and a `#tile=` that lands before that has loaded reads every tile as on
+  // the glass -- so the one thing it was asked to do, reopen a tile that is not, it did not (#173).
+  loadDesk().then(followHash);
   if (LAYOUT === "roles" && VIEW === "board") boardPanel(true);
   if (LAYOUT === "screens" && !SCREEN) { boardPanel(true); trayPanel(true); }
 });
@@ -905,7 +1487,7 @@ function syncSide() {
 }
 
 /* `open` undefined toggles, true opens, false closes. Opening one closes the rest. */
-function section(id, open) {
+function section(id, open, skipPost) {
   var el = document.getElementById(id);
   if (!el) return false;
   var want = open === undefined ? el.hidden : !!open;
@@ -921,6 +1503,7 @@ function section(id, open) {
     if (id === "unsorted") loadDesk();
     if (id === "inspector") drawInspector(desk.desk.selected);
   }
+  if (!skipPost) saveWindow({ section: want ? id : "" });
   return want;
 }
 
@@ -930,6 +1513,7 @@ function closeSide() {
     if (n) n.hidden = true;
   });
   syncSide();
+  saveWindow({ section: "" });
 }
 
 function drawer(open) { return section("drawer", open); }
@@ -1012,6 +1596,7 @@ function ticketRow(row) {
 
   li.addEventListener("dragstart", function (e) {
     li.classList.add("dragging");
+    e.dataTransfer.setData("application/x-agentdata-ticket", row.key);
     e.dataTransfer.setData("text/plain", row.key);
     e.dataTransfer.effectAllowed = "copy";
   });
@@ -1019,16 +1604,255 @@ function ticketRow(row) {
   return li;
 }
 
-function dispatch(key, repo) {
+/* -------------------------------------------------------------------- the scope, by hash (#166)
+
+   A file dropped on a tile used to light the tile up and do nothing: `drop` read `text/plain` only.
+   The page still never learns a path -- no browser gives one, in any of the three embedders this
+   page has to render in -- so it does not ask for one. It computes git's own object name for the
+   bytes and asks the server which of the checkout's files has it. Nothing but that hash leaves the
+   page until the operator clicks *attach a copy*. */
+
+var SCOPE_MAX_HASH = 64 * 1024 * 1024;   /* fleet.scope.max_hash_mb, from /api/fleet */
+var SCOPE_MAX_FILES = 200;
+
+/* SHA-1, because that is the hash git names objects with. `crypto.subtle` where the origin is a
+   secure context -- loopback is one -- and this otherwise, because VS Code's Simple Browser renders
+   the page inside a webview whose context we do not get to assume. No CDN: the page has no build
+   step and nothing it fetches from the internet arrives behind the corporate proxy. */
+function sha1Bytes(bytes) {
+  var ml = bytes.length * 8;
+  var withPad = new Uint8Array((((bytes.length + 8) >> 6) + 1) * 64);
+  withPad.set(bytes);
+  withPad[bytes.length] = 0x80;
+  var view = new DataView(withPad.buffer);
+  view.setUint32(withPad.length - 4, ml >>> 0, false);
+  view.setUint32(withPad.length - 8, Math.floor(ml / 4294967296), false);
+
+  var h = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
+  var w = new Int32Array(80);
+  var rol = function (n, s) { return (n << s) | (n >>> (32 - s)); };
+  for (var i = 0; i < withPad.length; i += 64) {
+    for (var j = 0; j < 16; j++) w[j] = view.getInt32(i + j * 4, false);
+    for (j = 16; j < 80; j++) w[j] = rol(w[j - 3] ^ w[j - 8] ^ w[j - 14] ^ w[j - 16], 1);
+    var a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+    for (j = 0; j < 80; j++) {
+      var f, k;
+      if (j < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
+      else if (j < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
+      else if (j < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
+      else { f = b ^ c ^ d; k = 0xCA62C1D6; }
+      var t = (rol(a, 5) + f + e + k + w[j]) | 0;
+      e = d; d = c; c = rol(b, 30); b = a; a = t;
+    }
+    h[0] = (h[0] + a) | 0; h[1] = (h[1] + b) | 0; h[2] = (h[2] + c) | 0;
+    h[3] = (h[3] + d) | 0; h[4] = (h[4] + e) | 0;
+  }
+  return h.map(function (n) { return ("00000000" + (n >>> 0).toString(16)).slice(-8); }).join("");
+}
+
+function blobSha(file) {
+  return file.arrayBuffer().then(function (buffer) {
+    var body = new Uint8Array(buffer);
+    var header = new TextEncoder().encode("blob " + body.length + "\0");
+    var joined = new Uint8Array(header.length + body.length);
+    joined.set(header);
+    joined.set(body, header.length);
+    if (window.crypto && window.crypto.subtle && window.crypto.subtle.digest) {
+      return window.crypto.subtle.digest("SHA-1", joined).then(function (digest) {
+        return Array.prototype.map.call(new Uint8Array(digest), function (b) {
+          return ("0" + b.toString(16)).slice(-2);
+        }).join("");
+      }).catch(function () { return sha1Bytes(joined); });
+    }
+    return sha1Bytes(joined);
+  });
+}
+
+/* A dropped folder is the same trick over its files. `webkitGetAsEntry` is the only way to read
+   one, and it is in every engine this page runs on. */
+function filesFromDrop(dt) {
+  var items = Array.prototype.slice.call(dt.items || []);
+  var entries = items.map(function (i) { return i.webkitGetAsEntry && i.webkitGetAsEntry(); })
+                     .filter(function (e) { return e && e.isDirectory; });
+  if (!entries.length) return Promise.resolve(Array.prototype.slice.call(dt.files || []));
+
+  var out = [];
+  var walk = function (dir) {
+    return new Promise(function (done) {
+      dir.createReader().readEntries(function (children) {
+        Promise.all(children.map(function (child) {
+          if (out.length >= SCOPE_MAX_FILES) return Promise.resolve();
+          if (child.isDirectory) return walk(child);
+          return new Promise(function (got) { child.file(function (f) { out.push(f); got(); }, got); });
+        })).then(done);
+      }, function () { done(); });
+    });
+  };
+  return Promise.all(entries.map(walk)).then(function () { return out.slice(0, SCOPE_MAX_FILES); });
+}
+
+function scopeDrop(el, repo, files) {
+  var card = el.querySelector(".scope");
+  var rows = card.querySelector(".scope-rows");
+  var pattern = rows.querySelector(".scope-row");
+  card.hidden = false;
+  text(card.querySelector(".scope-note"), "reading " + files.length + " file" + (files.length === 1 ? "" : "s") + "…");
+
+  return Promise.all(files.map(function (f) {
+    if (f.size > SCOPE_MAX_HASH) {
+      // Too big to hash without freezing the tab. Name and size is the weaker claim, and it is
+      // labelled as one wherever it is shown -- the way adoption labels its two.
+      return Promise.resolve({ name: f.name, size: f.size, sha: "" });
+    }
+    return blobSha(f).then(function (sha) { return { name: f.name, size: f.size, sha: sha }; });
+  })).then(function (asked) {
+    return post("scope/resolve", { repo: repo, files: asked }).then(function (r) {
+      while (rows.children.length > 1) rows.removeChild(rows.lastChild);
+      if (!r || !r.ok) {
+        text(card.querySelector(".scope-note"), (r && r.error) || "the scope could not be read");
+        return r;
+      }
+      var resolved = [];
+      (r.files || []).forEach(function (item, i) {
+        var li = pattern.cloneNode(true);
+        li.hidden = false;
+        li.className = "scope-row s-" + item.status;
+        text(li.querySelector(".sc-name"), item.name);
+        text(li.querySelector(".sc-path"), item.paths && item.paths.length ? item.paths[0] : "");
+        text(li.querySelector(".sc-how"), item.how || "");
+        text(li.querySelector(".sc-why"), item.why || "");
+        if (item.status === "resolved") resolved.push(item.paths[0]);
+        if (item.status === "ambiguous") {
+          var pick = li.querySelector(".sc-pick");
+          pick.hidden = false;
+          item.paths.forEach(function (p) {
+            var o = document.createElement("option");
+            o.value = p; text(o, p); pick.appendChild(o);
+          });
+          resolved.push(item.paths[0]);
+          pick.addEventListener("change", function () {
+            resolved[resolved.indexOf(li.dataset.chosen || item.paths[0])] = pick.value;
+            li.dataset.chosen = pick.value;
+          });
+          li.dataset.chosen = item.paths[0];
+        }
+        if (item.status === "unmatched") {
+          // Not this repository's file. The only route that moves bytes, and only on this click.
+          var attach = li.querySelector(".sc-attach");
+          attach.hidden = false;
+          attach.addEventListener("click", function () {
+            var f = files[i];
+            f.arrayBuffer().then(function (buf) {
+              var bin = "";
+              var view = new Uint8Array(buf);
+              for (var n = 0; n < view.length; n++) bin += String.fromCharCode(view[n]);
+              return post("attach-bytes", { repo: repo, name: f.name, bytes: btoa(bin) });
+            }).then(function (a) {
+              text(li.querySelector(".sc-why"), a && a.ok ? "attached → " + a.dir : ((a && a.error) || "refused"));
+              if (a && a.ok) attach.hidden = true;
+            });
+          });
+        }
+        rows.appendChild(li);
+      });
+      if (!resolved.length) {
+        text(card.querySelector(".scope-note"), "not a file of " + repo);
+        return r;
+      }
+      return post("scope", { repo: repo, paths: resolved, why: "dropped on the tile" })
+        .then(function (added) {
+          text(card.querySelector(".scope-note"),
+               added && added.ok
+                 ? (added.queued ? "queued for its next turn" : "given to " + repo)
+                 : ((added && added.error) || "the scope could not be written"));
+          var tell = card.querySelector(".scope-tell");
+          tell.hidden = !(added && added.ok && added.queued === false);
+          return added;
+        });
+    });
+  }).catch(function () {
+    text(card.querySelector(".scope-note"), "the files could not be read");
+  });
+}
+
+/* ------------------------------------------------------------------ the dispatch card (#164)
+
+   A drop used to be a launch. It opens this instead: the rows a person would have checked before
+   delegating, gathered by a server-side pre-flight that spends no premium request, and one button.
+   `fleet.preflight: false` restores #98's immediate start for anyone who preferred it. */
+
+function dispatchCard(key, repo) {
+  var entry = tiles.get(repo);
+  if (!entry) return dispatch(key, repo);
+  var el = entry.el;
+  var card = el.querySelector(".dispatch");
+  var rows = card.querySelector(".dispatch-rows");
+  var brief = card.querySelector(".brief");
+
+  text(card.querySelector(".dispatch-key"), key + " → " + repo);
+  text(card.querySelector(".verdict"), "reading…");
+  card.querySelector(".verdict").className = "verdict";
+  while (rows.firstChild) rows.removeChild(rows.firstChild);
+  brief.value = "";
+  card.hidden = false;
+  card.dataset.key = key;
+
+  fetch(q("/api/preflight", { key: key, repo: repo })).then(function (r) {
+    return r.json();
+  }).then(function (card_data) {
+    if (card.dataset.key !== key) return;           // a second drop overtook this one
+    var verdict = (card_data && card_data.verdict) || "unknown";
+    var chip = card.querySelector(".verdict");
+    text(chip, verdict);
+    chip.className = "verdict v-" + verdict;
+    (card_data.rows || []).forEach(function (r) {
+      var li = document.createElement("li");
+      li.className = "dispatch-row r-" + (r.verdict || "ready");
+      var n = document.createElement("span"); n.className = "dr-name"; text(n, r.row);
+      var v = document.createElement("span"); v.className = "dr-value"; text(v, r.value);
+      li.appendChild(n); li.appendChild(v);
+      if (r.why) { var w = document.createElement("span"); w.className = "dr-why"; text(w, r.why); li.appendChild(w); }
+      rows.appendChild(li);
+    });
+    // `thin` is the one verdict that asks for something: the brief box takes the focus and the
+    // button says so. `blocked` still offers the press, because the refusal is the server's to
+    // give in its own words and the operator may hold an override the card does not know about.
+    var go = card.querySelector(".dispatch-go");
+    text(go, verdict === "ready" ? "Start" : "Start anyway");
+    text(card.querySelector(".dispatch-note"),
+         verdict === "thin" ? "thin — a brief is what makes this worth a turn"
+         : verdict === "unknown" ? "some rows could not be read; Start still works"
+         : "");
+    if (verdict === "thin" || verdict === "blocked") brief.focus();
+  }).catch(function () {
+    if (card.dataset.key !== key) return;
+    text(card.querySelector(".verdict"), "unknown");
+    text(card.querySelector(".dispatch-note"), "the pre-flight could not be read; Start still works");
+  });
+}
+
+function closeDispatch(el) {
+  var card = el.querySelector(".dispatch");
+  if (card) { card.hidden = true; card.dataset.key = ""; }
+}
+
+function dispatch(key, repo, brief) {
   var entry = tiles.get(repo);
   var el = entry ? entry.el : document.body;
-  return action(el, "start", { repo: repo, ticket: key }).then(function (r) {
-    if (r && r.ok) { boardPanel(false); focus(repo); }
-    else if (r && !r.ok && /jira_project/.test(r.error || "")) {
+  var body = { repo: repo, ticket: key };
+  if (brief) body.brief = brief;
+  return action(el, "start", body).then(function (r) {
+    if (r && r.ok) { boardPanel(false); closeDispatch(el); focus(repo); }
+    else if (r && !r.ok && (r.code === "cross_project" || /jira_project/.test(r.error || ""))) {
       // The one refusal worth offering an override for in the page: the operator can see both
       // projects on screen and is better placed than the guard to say it is deliberate.
       if (confirm(r.error + "\n\nStart it anyway?")) {
-        action(el, "start", { repo: repo, ticket: key, cross_project: true });
+        var again = { repo: repo, ticket: key, cross_project: true };
+        if (brief) again.brief = brief;
+        action(el, "start", again).then(function (r2) {
+          if (r2 && r2.ok) closeDispatch(el);
+          return r2;
+        });
       }
     }
     return r;
@@ -1103,12 +1927,24 @@ document.getElementById("boardsearch").addEventListener("input", function () { d
    All of it comes from one `/api/desk` on a slow clock rather than a fetch per tile: four screens
    of tiles is four screens of requests otherwise, and none of this is urgent. */
 
+function registryChanged(order) {
+  if (!Array.isArray(order)) return false;
+  if (order.length !== tiles.size) return true;
+  return order.some(function (name) { return !tiles.has(name); });
+}
+
 function loadDesk() {
   if (pendingDesk) return pendingDesk;
   pendingDesk = fetch(q("/api/desk")).then(function (r) { return r.json(); }).then(function (data) {
     pendingDesk = null;
     if (!data.ok) return;
     desk = data;
+    // `ad-fleet repo add` and `repo rm` in a terminal change which tiles exist, and neither is an
+    // agent event -- so the stream never mentions it and the grid kept drawing a repository that
+    // had left, or never drew one that had arrived, until somebody reloaded the page. The desk's
+    // own slow clock already carries the registry's list, so a disagreement is what asks
+    // `/api/fleet` again (#173).
+    if (registryChanged(data.order)) refresh();
     // The project's own detail is the inspector's, and the inspector draws the selected one.
     drawInspector(desk.desk.selected);
     drawTray();
@@ -1209,8 +2045,12 @@ function offerRow(row, repo) {
       var target = repo || (where && where.value);
       if (!target) return;
       post("attach", { id: row.id, repo: target }).then(function (r) {
-        text(meta, r.ok ? (r.attached ? "attached → " + r.dir : (r.why || "already there"))
-                        : (r.error || "refused"));
+        var d = (r && r.data) ? r.data : r;
+        var attached = r ? (r.attached !== undefined ? r.attached : (d && d.attached)) : false;
+        var dir = r ? (r.dir || (d && d.dir) || "") : "";
+        var why = r ? (r.why || (d && d.why) || "") : "";
+        text(meta, r && r.ok ? (attached ? "attached → " + dir : (why || "already there"))
+                        : (r ? (r.error || "refused") : "refused"));
         loadDesk();
       });
     });
@@ -1498,6 +2338,42 @@ function getEffectiveOrder() {
   return result;
 }
 
+/* Hidden, and never hiding what needs a person (#173).
+
+   A hidden tile keeps its slot in `order`, so reopening puts it back where it was. The one rule
+   that overrides the operator's own choice is the fold's: a tile that needs somebody is on the
+   glass whatever the arrangement says, because hiding a demand is how a demand gets missed. */
+function isHidden(name) {
+  var entry = tiles.get(name);
+  if (entry && entry.el.classList.contains("needs-human")) return false;
+  return ((getLayoutArrangement().hidden) || []).indexOf(name) >= 0;
+}
+
+function visibleOrder() {
+  return getEffectiveOrder().filter(function (n) { return !isHidden(n); });
+}
+
+/* Focus mode is not part of the arrangement -- it quiets tiles with a class while `hidden` stays
+   where the operator put it -- so this is "a mode is keeping it off the glass right now" and
+   `isHidden` is "the operator put it away". A tile being held is one the operator asked to keep
+   through the pass, so the mode is not quieting that one. */
+function quieted(name) {
+  if (!needsOnly) return false;
+  var entry = tiles.get(name);
+  return !!entry && !entry.el.classList.contains("needs-human") && !held.has(name);
+}
+
+function setHidden(name, hide) {
+  var curArr = getLayoutArrangement();
+  var next = ((curArr.hidden) || []).slice();
+  var at = next.indexOf(name);
+  if (hide && at < 0) next.push(name);
+  if (!hide && at >= 0) next.splice(at, 1);
+  post("arrange", { layout: LAYOUT, hidden: next }).then(function (r) {
+    if (r && r.ok) { mergeDesk(r); place(); }
+  });
+}
+
 /* Moving an element with `appendChild` takes the focus off it -- so a grid that re-appends every
    tile on every draw (and the stream draws several times a second while an agent is talking) took
    the focus off the tile the operator had just selected, and Alt+arrow reached nothing. The order
@@ -1509,6 +2385,7 @@ function reorderDomTiles() {
   var curArr = getLayoutArrangement();
   var sizes = curArr.size || {};
   var pinned = curArr.pinned || [];
+  var shown = visibleOrder();
 
   var inDom = Array.prototype.map.call(grid.children, function (el) { return el.dataset.repo; });
   var needsMove = inDom.join("\u0000") !== order.filter(function (n) { return tiles.has(n); }).join("\u0000");
@@ -1526,7 +2403,12 @@ function reorderDomTiles() {
     var entry = tiles.get(name);
     if (entry && entry.el) {
       if (needsMove) grid.appendChild(entry.el);
-      text(entry.el.querySelector(".n"), index + 1);
+      // Hidden is a class rather than `el.hidden`, so the tile keeps its slot in `order` and
+      // reopening puts it back where it was rather than at the end.
+      var off = shown.indexOf(name) < 0;
+      entry.el.classList.toggle("is-hidden", off);
+      // The number is the key that focuses it, so it counts what is on the glass.
+      text(entry.el.querySelector(".n"), off ? "" : String(shown.indexOf(name) + 1));
       var sz = sizes[name] || 1;
       entry.el.classList.toggle("size-2", sz === 2);
       var szBtn = entry.el.querySelector(".sizetoggle");
@@ -1611,8 +2493,13 @@ function moveTile(repo, dir) {
     : getEffectiveOrder().filter(function (n) { return pinned.indexOf(n) < 0; });
 
   var idx = block.indexOf(repo);
+  if (idx < 0) return;
+  // One press, one *visible* slot. A hidden tile keeps its place in `order` -- that is how
+  // reopening puts it back where it was -- so stepping by one index swapped the tile with
+  // something nobody can see, and the key read as having done nothing at all (#173).
   var target = idx + dir;
-  if (idx < 0 || target < 0 || target >= block.length) return;
+  while (target >= 0 && target < block.length && isHidden(block[target])) target += dir;
+  if (target < 0 || target >= block.length) return;
   block.splice(idx, 1);
   block.splice(target, 0, repo);
 
@@ -1674,6 +2561,100 @@ function solo() {
 /* The one function that decides what this window shows. Body classes only: the stylesheet is the
    layout, and every arrangement is the same DOM, so a tile cannot mean one thing on one screen and
    something else on another. */
+/* The dock (#173): one chip per tile that is not on the glass.
+
+   Five `display:none` rules and one `.remove()` used to take tiles away as side effects of modes --
+   zoom, focus mode, a solo window, the laptop view, and a repository leaving the registry -- and
+   nothing said where they went. Everything off the glass is a chip here, and a chip is one click
+   from being back. A chip that needs a person is red and chimes like the tile would: hiding a
+   demand is how a demand gets missed, which is the one rule the operator's own choice cannot
+   override. */
+var departed = new Map();      /* repos that left the registry, kept a day so their tile is not just gone */
+
+function drawDock() {
+  var dock = document.getElementById("dock");
+  var list = dock.querySelector(".dock-chips");
+  var pattern = list.querySelector(".dock-chip");
+  var zoomed = document.body.classList.contains("focused");
+  var shown = visibleOrder();
+
+  var off = [];
+  getEffectiveOrder().forEach(function (name) {
+    var entry = tiles.get(name);
+    if (!entry) return;
+    if (zoomed) {
+      // While one tile fills the window, the other eight are the ones you cannot see.
+      if (!entry.el.classList.contains("is-focused")) off.push({ name: name, why: "zoomed past" });
+      return;
+    }
+    if (shown.indexOf(name) < 0) off.push({ name: name, why: "hidden" });
+    else if (quieted(name)) off.push({ name: name, why: "quiet" });
+  });
+  departed.forEach(function (row, name) { off.push({ name: name, why: "removed", gone: row }); });
+
+  while (list.children.length > 1) list.removeChild(list.lastChild);
+  if (!off.length) { dock.hidden = true; return; }
+  dock.hidden = false;
+  text(dock.querySelector(".dock-label"), off.length + " not on the glass");
+
+  // One chip per project (#175). A project's checkouts are hidden and pinned as one, so they leave
+  // the glass together, and two chips for one piece of work is two things to click for one
+  // decision. The chip says how many come back, so nobody is surprised by the second tile.
+  var chips = [];
+  var groups = new Map();
+  off.forEach(function (item) {
+    var entry = tiles.get(item.name);
+    var project = (entry && entry.row && entry.row.project) || item.name;
+    var key = project + "\u0000" + item.why;
+    var group = groups.get(key);
+    if (group) { group.members.push(item.name); return; }
+    group = { project: project, members: [item.name], why: item.why,
+              gone: item.gone, name: item.name };
+    groups.set(key, group);
+    chips.push(group);
+  });
+
+  chips.forEach(function (item) {
+    var li = pattern.cloneNode(true);
+    li.hidden = false;
+    var several = item.members.length > 1;
+    var entry = tiles.get(item.name);
+    var row = entry ? entry.row : null;
+    var needs = item.members.some(function (name) {
+      var e = tiles.get(name);
+      return !!e && e.el.classList.contains("needs-human");
+    });
+    li.className = "dock-chip" + (needs ? " needs-human" : "") + (item.gone ? " departed" : "");
+    text(li.querySelector(".dc-name"), several ? item.project : item.name);
+    text(li.querySelector(".dc-chip"),
+         several ? item.members.length + " checkouts"
+                 : item.gone ? "removed from the registry"
+                 : needs ? ((row && row.why) || "needs you")
+                 : ((row && row.state ? row.state : "") + (row && row.at ? " · " + age(ageOf(row)) : "")));
+    var badge = li.querySelector(".dc-badge");
+    var unreadN = item.members.reduce(function (n, name) { return n + (unread.get(name) || 0); }, 0);
+    badge.hidden = !unreadN;
+    text(badge, String(unreadN));
+    var button = li.querySelector(".dock-open");
+    button.title = item.gone
+      ? "`ad-fleet repo add " + item.gone.path + "` restores it"
+      : several ? "show " + item.project + ": " + item.members.join(", ")
+      : (needs ? (row && row.why) || "needs you" : "show " + item.name);
+    button.addEventListener("click", function () {
+      if (item.gone) return;
+      if (item.why === "hidden") setHidden(item.name, false);
+      else if (item.why === "quiet") focusMode(false);
+      else unfocus();
+      focus(item.name);
+    });
+    list.appendChild(li);
+  });
+}
+
+function ageOf(row) {
+  return row && typeof row.last_event_age_s === "number" ? row.last_event_age_s : 0;
+}
+
 function place() {
   var body = document.body;
   var one = solo();
@@ -1708,7 +2689,39 @@ function place() {
   // to leave focus mode would be sitting under the very tiles it claims are not there.
   document.getElementById("nonefocus").hidden =
     !(needsOnly && !one && need === 0 && held.size === 0 && tiles.size > 0);
+  drawNotice();
+  drawSwap(one);
+  drawDock();
+}
+
+/* The footer's one line, and one owner (#173).
+
+   `place()` runs several times a second while the stream is talking, and it used to clear this
+   element on every draw -- so a message written by anything else lived a few milliseconds and the
+   operator never saw it. A line said here holds the footer for its few seconds; the layout's own
+   standing warning takes it back when they pass. */
+var saidLine = "";
+var saidUntil = 0;
+var sayTimer = null;
+
+function say(message, seconds) {
+  saidLine = message;
+  saidUntil = Date.now() + (seconds || 6) * 1000;
+  if (sayTimer) clearTimeout(sayTimer);
+  // The stream usually redraws long before this, but a quiet fleet does not -- and a footer that
+  // keeps saying "reopened" ten minutes later is worse than one that says nothing.
+  sayTimer = setTimeout(function () { sayTimer = null; drawNotice(); }, (seconds || 6) * 1000 + 50);
+  drawNotice();
+}
+
+function drawNotice() {
   var notice = document.getElementById("notice");
+  if (saidLine && Date.now() < saidUntil) {
+    text(notice, saidLine);
+    notice.hidden = false;
+    return;
+  }
+  saidLine = "";
   if (unknownLayout) {
     text(notice, "unknown layout '" + unknownLayout + "' — showing grid");
     notice.hidden = false;
@@ -1716,7 +2729,6 @@ function place() {
     text(notice, "");
     notice.hidden = true;
   }
-  drawSwap(one);
 }
 
 /* The tab bar is the friction, so the window's own title says which screen it is. */
@@ -1866,20 +2878,30 @@ document.getElementById("swap").addEventListener("change", function () {
 /* The fourth thing #133 asks for, and the only one that is not a layout: hide every tile except
    the ones #94 says need a person. The alternative to arranging tabs is having fewer to look at.
    Toggled with `f`, remembered per window, and printed in the footer's key map. */
-function focusMode(on) {
+function focusMode(on, skipPost) {
   needsOnly = on === undefined ? !needsOnly : !!on;
   document.getElementById("focus").setAttribute("aria-pressed", String(needsOnly));
-  try { localStorage.setItem("fleet.needsonly", needsOnly ? "1" : "0"); } catch (e) { /* private */ }
   // Leaving focus mode is the operator saying they are done with this pass, so the tiles being
   // held for them are let go. Otherwise the next `f` would open on the last visit's leftovers.
-  if (!needsOnly) held.clear();
+  // The record is emptied in the *same* write as the mode, because the `desk` event this save
+  // rides back down would otherwise re-hydrate the set through `applyWindow` -- which merges the
+  // record's `held` additively, so a clear that is not posted is undone a tick later.
+  var patch = { focus: needsOnly };
+  if (!needsOnly) {
+    held.clear();
+    patch.held = [];
+  }
+  if (!skipPost) saveWindow(patch);
   place();
 }
 
-document.getElementById("focus").addEventListener("click", function () { focusMode(); });
+document.getElementById("showall").addEventListener("click", function () {
+  post("arrange", { layout: LAYOUT, hidden: [] }).then(function (r) {
+    if (r && r.ok) { mergeDesk(r); if (needsOnly) focusMode(false); else place(); }
+  });
+});
 
-try { needsOnly = localStorage.getItem("fleet.needsonly") === "1"; } catch (e) { needsOnly = false; }
-document.getElementById("focus").setAttribute("aria-pressed", String(needsOnly));
+document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 
 document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);

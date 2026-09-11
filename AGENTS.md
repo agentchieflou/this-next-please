@@ -18,7 +18,10 @@ Scope: every project that installs these skills. Do not restate these in project
 9. Commit messages: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
 
 ## Stop conditions (invoke `friction-log`, then STOP)
-10. Acceptance criteria ambiguous (missing date window, undefined term, two plausible readings).
+10. Acceptance criteria ambiguous. **Two readings that lead to different work** → `ad-state ask` with the two
+    readings as `--choice`, then `friction-log`, then STOP. **A missing detail a safe, reversible default
+    settles** (a date window nobody will dispute, an obvious unit) → `ad-state ask "<assumption>" --assume
+    "<the default>"`, say so in one line, and CONTINUE. Never assume something you cannot undo.
 11. You issued the same tool call twice with the same args.
 12. You are about to write anything outside the current branch or `.agent/`.
 13. A tool returned `"ok": false` twice in a row.
