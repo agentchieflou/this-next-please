@@ -2038,10 +2038,17 @@ document.getElementById("swap").addEventListener("change", function () {
 function focusMode(on, skipPost) {
   needsOnly = on === undefined ? !needsOnly : !!on;
   document.getElementById("focus").setAttribute("aria-pressed", String(needsOnly));
-  if (!skipPost) saveWindow({ focus: needsOnly });
   // Leaving focus mode is the operator saying they are done with this pass, so the tiles being
   // held for them are let go. Otherwise the next `f` would open on the last visit's leftovers.
-  if (!needsOnly) held.clear();
+  // The record is emptied in the *same* write as the mode, because the `desk` event this save
+  // rides back down would otherwise re-hydrate the set through `applyWindow` -- which merges the
+  // record's `held` additively, so a clear that is not posted is undone a tick later.
+  var patch = { focus: needsOnly };
+  if (!needsOnly) {
+    held.clear();
+    patch.held = [];
+  }
+  if (!skipPost) saveWindow(patch);
   place();
 }
 

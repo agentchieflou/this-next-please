@@ -30,6 +30,29 @@ from test_fleet_desk_regressions import _drain_and_age
 from test_fleet_events import fleet_home  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def _own_desk_globals(monkeypatch):
+    """Every test here gets the desk module's globals to itself, and gives them back.
+
+    `_selection` and `_desk_loaded` are process-wide, which is right in production -- one
+    `ad-fleet serve` has one fleet directory for its life, and `_fresh()` drops the handles if that
+    ever changes. In a suite it is not: each test gets a fresh temporary fleet directory, and
+    `_ensure_desk_loaded` returns early on the flag the *previous* test set, so the second test in
+    the file inherits the first one's selection and window records instead of reading its own
+    `desk.json`. Every test in this file passed alone and two of them failed when the file ran
+    whole, which is exactly what that looks like from the outside.
+    """
+    monkeypatch.setattr(S, "_desk_loaded", False)
+    monkeypatch.setattr(S, "_selection", {
+        "selected": "", "screens": [], "version": 0, "at": "",
+        "arrangement": {"grid": {"order": [], "size": {}, "pinned": []},
+                        "roles": {"order": []}, "screens": {"order": []}},
+        "windows": {},
+    })
+    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
+                                         catalogue=None, last_tick=0.0, last_fold=0.0))
+
+
 # ----------------------------------------------------------- shutdown and desk persistence
 
 
@@ -229,7 +252,11 @@ def _page(p, url):
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(url, wait_until="domcontentloaded")
-    page.wait_for_selector(".tile", timeout=15000)
+    # A *painted* tile, not the first one in the DOM. A window that restores a zoom hides every
+    # other tile (`app.css` `body.focused .tile:not(.is-focused)`), and a bare `.tile` wait resolves
+    # to the first match and then waits for that one to be visible -- which, in exactly the state
+    # this file exists to test, it never will be.
+    page.wait_for_selector(".tile:visible", timeout=15000)
     page.wait_for_timeout(500)
     return browser, page, errors
 
