@@ -284,6 +284,53 @@ body.focused .tile.is-focused { max-height: none; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .runline.cold { font-style: italic; }
+
+/* ------------------------------------------------------------------------- the switcher (#174) */
+
+/* A tab view, in HIG's sense: the main tab is where the work is, the ones beside it are the same
+   project somewhere else, and *earlier* is this checkout's own history. Every tab is a button, so
+   the strip is reachable by Tab and by Alt+[ / Alt+]. */
+.strip {
+  display: flex; gap: 4px; margin: 4px 0 0; flex-wrap: wrap; align-items: center;
+}
+.tab {
+  font: 11px var(--mono); color: var(--muted); background: transparent;
+  border: 1px solid var(--line); border-bottom-color: transparent;
+  border-radius: 4px 4px 0 0; padding: 2px 8px; cursor: pointer;
+  max-width: 16rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tab:hover { color: var(--text); }
+.tab.is-on { color: var(--text); background: var(--panel); border-color: var(--accent); }
+.tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+.sessions { margin: 4px 0 0; padding: 0; list-style: none; font: 11px var(--mono); }
+.session-row { margin: 0; padding: 0; }
+.ss-open {
+  display: flex; gap: 8px; width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: 0; border-bottom: 1px solid var(--line);
+  color: var(--text); font: inherit; padding: 3px 0;
+}
+.ss-open:hover { background: var(--select); }
+.ss-open:disabled { color: var(--muted); cursor: default; }
+.ss-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ss-chip, .ss-when, .ss-cost { color: var(--muted); flex: 0 0 auto; }
+
+/* The read-only pane. The reply box is not disabled, it is *gone*: a box you can type in that
+   cannot send is a worse answer than no box. */
+.readonly {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  margin: 6px 0 0; font: 11px var(--mono); color: var(--muted);
+}
+.ro-what { flex: 1 1 12rem; min-width: 0; color: var(--text); }
+.ro-note { flex: 1 1 100%; color: var(--human); }
+.history {
+  flex: 1 1 auto; overflow: auto; margin: 8px 0 0; padding: 0; list-style: none;
+  font: 12px/1.5 var(--mono); border-top: 1px dashed var(--line); opacity: .92;
+}
+.history li { padding: 3px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; }
+.history li:last-child { border-bottom: 0; }
+.history .k { color: var(--muted); flex: 0 0 96px; }
+.history .v { white-space: pre-wrap; overflow-wrap: anywhere; }
 .head .n {
   font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line);
   border-radius: 3px; padding: 0 4px;

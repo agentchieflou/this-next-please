@@ -420,6 +420,27 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
                 "stop it by hand, then start again",
                 code="live_agent")
 
+    # Resuming into a checkout that something else is already working in would put two agents in
+    # one working tree -- the thing the lock exists to prevent, except that this one has no lock to
+    # catch it, because the console window that owns it never took one (#174). Only where a real
+    # process can be *named* in this checkout: "the folder was written to recently" is evidence of
+    # somebody saving a file, and refusing a resume on that would refuse most of them. The words
+    # are the adopt strip's own, because it is the same claim about the same process.
+    if resume and not lock:
+        from . import adopt as A
+
+        try:
+            foreign = [c for c in A.candidates(reg) if c["repo"] == name and c.get("pid")]
+        except Exception:                    # noqa: BLE001 - a process listing must never block a start
+            foreign = []
+        if foreign:
+            raise SupervisorError(
+                f"something is working in {name} that the fleet did not start "
+                f"(pid {foreign[0]['pid']}, {foreign[0]['how']})",
+                f"close that window, or `ad-fleet adopt {name}` and then resume it — two agents in "
+                f"one working tree is what this refuses",
+                code="foreign_session")
+
     repo_state = repo.state()
     active, phase = repo_state.get("active_ticket", ""), repo_state.get("phase", "")
     if active and phase not in TERMINAL_PHASES and phase not in ("", "idle") and (key is None or active != key) and not force:

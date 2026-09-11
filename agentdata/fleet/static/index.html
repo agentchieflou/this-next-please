@@ -160,7 +160,7 @@
   <span id="counts"></span>
   <span id="notice" class="notice" hidden></span>
   <span class="spacer"></span>
-  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus · <kbd>f</kbd> only what needs you · <kbd>/</kbd> where · <kbd>i</kbd> inbox · <kbd>b</kbd> board · <kbd>n</kbd> alerts · <kbd>a</kbd> approve · <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile · <kbd>Alt</kbd>+<kbd>Home</kbd> pin · <kbd>Alt</kbd>+<kbd>Enter</kbd> width · <kbd>Esc</kbd> grid</span>
+  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus · <kbd>f</kbd> only what needs you · <kbd>/</kbd> where · <kbd>i</kbd> inbox · <kbd>b</kbd> board · <kbd>n</kbd> alerts · <kbd>a</kbd> approve · <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile · <kbd>Alt</kbd>+<kbd>Home</kbd> pin · <kbd>Alt</kbd>+<kbd>Enter</kbd> width · <kbd>h</kbd> hide · <kbd>Alt</kbd>+<kbd>[</kbd><kbd>]</kbd> sessions · <kbd>Alt</kbd>+<kbd>N</kbd> new session · <kbd>Esc</kbd> grid</span>
 </footer>
 
 <template id="tile">
@@ -188,6 +188,31 @@
     </div>
     <!-- Which run this transcript belongs to. #147: a transcript with no era read as live. -->
     <p class="runline"></p>
+    <!-- #174: the switcher. The main tab is this checkout's live session -- where the transcript,
+         the reply box and the cards are. The tabs beside it are the project's other checkouts
+         (#175), each with its own agent and its own chip. Every tab is a button, because a tab
+         that cannot be reached from the keyboard is a window somebody loses. -->
+    <div class="strip" role="tablist" aria-label="sessions and checkouts">
+      <button class="main-tab tab" type="button" role="tab" aria-selected="true">main</button>
+      <!-- One sibling checkout, cloned per checkout. In the markup rather than built by hand so a
+           test can keep the two files in step, the way the tile itself is. -->
+      <button class="sib-tab tab" type="button" role="tab" aria-selected="false" hidden></button>
+      <button class="earlier-tab tab" type="button" aria-expanded="false" hidden></button>
+      <button class="new-tab tab" type="button"
+              title="a clean session beside this one, resumable either way (Alt+N)">+ new</button>
+    </div>
+    <!-- This checkout's other sessions, from `sessions.json`. Opening one is a GET and nothing
+         else: choosing a session must never spawn an agent. -->
+    <ul class="sessions" hidden>
+      <li class="session-row" hidden>
+        <button type="button" class="ss-open">
+          <span class="ss-title"></span>
+          <span class="ss-chip"></span>
+          <span class="ss-when"></span>
+          <span class="ss-cost"></span>
+        </button>
+      </li>
+    </ul>
     <!-- Why this tile is still on screen in focus mode after it stopped needing you. -->
     <p class="holdnote"><span class="holdwhy"></span><button type="button" class="release">let it go</button></p>
     <!-- A session running in this checkout that the fleet did not start (#2). -->
@@ -267,6 +292,19 @@
       <li class="assumption" hidden><span class="assumption-what"></span><button type="button" class="overturn">not that</button></li>
     </ul>
     <ol class="transcript"></ol>
+    <!-- An earlier session's transcript, read from history. A second list rather than the live one
+         redrawn, so the live one keeps filling behind it and going back is instant and complete
+         rather than a reload with a hole in it. -->
+    <ol class="history" hidden></ol>
+    <!-- A session that is not the live one is read-only: one sentence saying how it ended, and one
+         button that would make it this checkout's again. Everything else would write to a
+         conversation nobody is holding. -->
+    <p class="readonly" hidden>
+      <span class="ro-what"></span>
+      <button type="button" class="ro-resume">Resume here</button>
+      <button type="button" class="ro-back">back to the live session</button>
+      <span class="ro-note"></span>
+    </p>
     <details class="earlier" hidden>
       <summary class="earlierhead">earlier runs</summary>
       <ol class="earlierlist"></ol>

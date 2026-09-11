@@ -171,6 +171,64 @@ def format_age_str(seconds: int | float) -> str:
     return f"{days} days ago" if days > 1 else "yesterday"
 
 
+def stream_runs(stream: list[dict]) -> list[list[dict]]:
+    """The stream cut into runs, a run beginning at every `started` event.
+
+    The same cut `split_runs` and `sessions.fold_stream` make. It is here as one function because
+    the switcher (#174) needs a third caller of it, and three private copies of "where does a run
+    begin" is how the tile and the report came to count different things.
+    """
+    from . import runs as R
+
+    starts = [i for i, ev in enumerate(stream) if R.is_run_start(ev)]
+    if not starts:
+        return [list(stream)] if stream else []
+    return [stream[start:(starts[i + 1] if i + 1 < len(starts) else len(stream))]
+            for i, start in enumerate(starts)]
+
+
+def run_session(run_events: list[dict]) -> str:
+    """Which session a run belongs to: the id it announced, or the one it was resumed onto."""
+    for ev in run_events:
+        if ev.get("kind") == "session_id":
+            sid = str((ev.get("data") or {}).get("session") or "")
+            if sid:
+                return sid
+    first = run_events[0] if run_events else {}
+    return str((first.get("data") or {}).get("session") or "")
+
+
+def transcript_for(name: str, session: str, *, limit: int = 200,
+                   before: int = 0) -> dict:
+    """One session's transcript, read from history and paged backwards (#174).
+
+    A session is **not** a contiguous slice of the stream: `--resume` opens a new run on the same
+    conversation, and runs of other sessions can sit between them. Runs are therefore chosen by the
+    id they carry rather than by where they are, which is also why this cannot be done by slicing
+    `earlier[]`.
+
+    Paged from the end, because that is the end an operator reads first: `before` is a `seq` to stop
+    short of, and `cursor` comes back as the `before` for the page above this one.
+    """
+    stream = E.read(name)
+    picked: list[dict] = []
+    for run in stream_runs(stream):
+        if run_session(run) == session:
+            picked.extend(run)
+    if before:
+        picked = [ev for ev in picked if int(ev.get("seq") or 0) < before]
+    more = len(picked) > limit
+    page = picked[-limit:] if limit > 0 else picked
+    cursor = int(page[0].get("seq") or 0) if page else 0
+    derived = agentstate.derive(picked, live=False) if picked else {}
+    return {"repo": name, "session": session, "events": page, "more": more,
+            "cursor": cursor, "total": len(picked),
+            "runs": sum(1 for run in stream_runs(stream) if run_session(run) == session),
+            "state": derived.get("state", ""), "why": derived.get("why", ""),
+            "ticket": derived.get("ticket", ""),
+            "at": derived.get("at", "")}
+
+
 def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]]:
     """Split an event stream into the current run and earlier runs summary.
 
@@ -347,6 +405,14 @@ def fleet_snapshot() -> dict:
                      "adoptable": offers.get(name) if not is_external else None,
                      "not_supervised_sentence": not_supervised_sentence,
                      "earlier": earlier,
+                     # How many *other* sessions this checkout has, for the switcher's `earlier (n)`
+                     # tab (#174). Counted off the stream that is already in hand rather than from
+                     # `sessions.json`, which exists only once somebody has rebuilt it -- a tab that
+                     # said `earlier (0)` over three real sessions is worse than no tab at all. The
+                     # rows themselves come from `/api/sessions`, on the click.
+                     "sessions_n": len({sid for sid in
+                                        (run_session(run) for run in stream_runs(stream))
+                                        if sid and sid != (curr_run.get("session") or "")}),
                      **derived,
                      # What it edited against what it was given (#168). Advice to the model and a
                      # report to the human: nothing here refuses an edit, it only says what happened.
@@ -1563,16 +1629,46 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "since": since,
                                "runs": B.history(since=B.since_seconds(since))})
         if route == "/api/sessions":
-            from . import sessions as S
+            from . import sessions as SESS
+
             repo_name = (query.get("repo") or [""])[0]
             if not repo_name:
                 return self._refuse(400, "repo required", "pass ?repo=<name>")
-            rows = S.load_sessions(repo_name)
-            if not rows:
-                reg = registry()
-                repo_path = reg.get(repo_name).path if reg and repo_name in [r.name for r in reg.repos] else ""
-                rows = S.rebuild_sessions(repo_name, repo_path=repo_path)
+            try:
+                repo_path = Registry().get(repo_name).path
+            except (RegistryError, OSError):
+                # An unregistered name still gets its folded sessions -- the stream outlives the
+                # registration -- it just gets none of Copilot's own store, which is keyed on the
+                # checkout this no longer knows the path of.
+                repo_path = ""
+            # Rebuilt on the click rather than read once and kept: the index is a fold of the
+            # stream, so a session opened since the file was last written would be missing from the
+            # very list that exists to find it again. Hand-set titles survive the rebuild.
+            try:
+                rows = SESS.rebuild_sessions(repo_name, repo_path=repo_path)
+            except OSError:
+                rows = SESS.load_sessions(repo_name)
             return self._json({"ok": True, "repo": repo_name, "sessions": rows})
+        if route == "/api/transcript":
+            # Read-only, and the whole point of it: choosing an earlier session must never spawn
+            # anything. A GET cannot, which is why *Resume here* is a second, deliberate press on
+            # `/api/start` rather than something this route does on the way past (#174).
+            repo_name = (query.get("repo") or [""])[0]
+            session_id = (query.get("session") or [""])[0]
+            if not repo_name or not session_id:
+                return self._refuse(400, "repo and session required",
+                                    "pass ?repo=<name>&session=<id>")
+            try:
+                limit = int((query.get("limit") or ["200"])[0])
+            except ValueError:
+                limit = 200
+            try:
+                before = int((query.get("before") or ["0"])[0])
+            except ValueError:
+                before = 0
+            return self._json({"ok": True,
+                               **transcript_for(repo_name, session_id,
+                                                limit=max(1, min(limit, 1000)), before=before)})
         if route == "/api/preflight":
             # Read-only and it spends no premium request, which is the whole reason a drop can
             # afford to ask it. Every failure inside is a grey row, so this cannot 500 on an

@@ -162,10 +162,16 @@ var SHOWN = {
 };
 
 function append(el, ev) {
+  appendTo(el.querySelector(".transcript"), ev);
+}
+
+/* One renderer for both lists. The read-only pane draws the same lines from the same fold as the
+   live tile, because a session that looked different when you came back to it would read as a
+   different session (#174). */
+function appendTo(list, ev) {
   if (!SHOWN[ev.kind]) return;
   var body = line(ev);
   if (!body) return;
-  var list = el.querySelector(".transcript");
   var li = document.createElement("li");
   li.className = ev.kind;
   var k = document.createElement("span");
@@ -331,6 +337,20 @@ function makeTile(row, index) {
     else if (e.key === "Escape") { closeDispatch(el); e.stopPropagation(); }
   });
 
+  /* #174: the switcher's four buttons. The rows behind *earlier* are fetched on the click rather
+     than on every poll -- nobody is reading them until they ask for them. */
+  el.querySelector(".earlier-tab").addEventListener("click", function () {
+    openSessions(el, row.repo);
+  });
+  el.querySelector(".main-tab").addEventListener("click", function () {
+    el.querySelector(".sessions").hidden = true;
+    el.querySelector(".earlier-tab").setAttribute("aria-expanded", "false");
+    if (viewing(el)) backToLive(el);
+  });
+  el.querySelector(".new-tab").addEventListener("click", function () { newSession(el, row.repo); });
+  el.querySelector(".ro-resume").addEventListener("click", function () { resumeHere(el, row.repo); });
+  el.querySelector(".ro-back").addEventListener("click", function () { backToLive(el); });
+
   /* Every drag gesture has a keyboard equivalent, and the footer key map lists all four. */
   el.addEventListener("keydown", function (e) {
     if (!e.altKey) return;
@@ -338,6 +358,10 @@ function makeTile(row, index) {
     else if (e.key === "ArrowRight") { moveTile(row.repo, 1); e.preventDefault(); }
     else if (e.key === "Home") { toggleTilePin(row.repo); e.preventDefault(); }
     else if (e.key === "Enter") { toggleTileSize(row.repo); e.preventDefault(); }
+    // The strip, without a mouse. `[` and `]` walk it; `N` is a clean session beside this one.
+    else if (e.key === "[") { stepStrip(el, -1); e.preventDefault(); }
+    else if (e.key === "]") { stepStrip(el, 1); e.preventDefault(); }
+    else if (e.key === "n" || e.key === "N") { newSession(el, row.repo); e.preventDefault(); }
   });
 
   var pinBtn = el.querySelector(".pintoggle");
@@ -618,6 +642,9 @@ function drawTile(el, row, approvals) {
 
   // Which run this transcript belongs to. Without it, a two-day-old run reads as live.
   var run = row.run || {};
+  // Which session the live tile is on, so the switcher can leave it out of *earlier* rather than
+  // offering the operator the one they are already looking at (#174).
+  el.dataset.session = run.session || "";
   var runline = el.querySelector(".runline");
   if (runline) {
     var bits = [];
@@ -646,6 +673,8 @@ function drawTile(el, row, approvals) {
       runline.style.cursor = "pointer";
     }
   }
+
+  drawStrip(el, row);
 
   var earlierEl = el.querySelector(".earlier");
   if (earlierEl) {
@@ -681,7 +710,208 @@ function drawTile(el, row, approvals) {
   drawCells(el, row.polls || {});
 }
 
-/* -------------------------------------------------------------------------------- the whole page */
+/* ------------------------------------------------------------------------- the switcher (#174) */
+
+/* The earlier-run rows were text with no handler, and the only session-changing gesture in the
+   whole page was *adopt* -- which then disabled Send. So a session you had finished with was a
+   thing you could read about and not open, and *I started it in a terminal yesterday* had no
+   answer at all.
+
+   The strip is a tab view: the main tab is this checkout's live session, the tabs beside it are the
+   project's other checkouts (#175 fills them in; before it, `siblings` is empty and the strip is
+   one tab and *earlier*), then *earlier (n)* and *+ new*. Reading a session is a GET and nothing
+   else -- choosing one must never spawn an agent -- and making one live again is a second,
+   deliberate press, the way *Reset anyway* is. */
+
+function viewing(el) {
+  return el.dataset.viewing || "";
+}
+
+/* One sentence, in the words the page has: how it ended and when. The *refusal* to resume is the
+   server's own sentence, never this one -- a second opinion about why something was refused is how
+   an operator ends up with two explanations of one rule. */
+function endedSentence(data) {
+  var state = data.state || "ended";
+  var when = whenIso(data.at);
+  return "this session ended " + state + (when ? " · " + when : "");
+}
+
+function whenIso(ts) {
+  if (!ts) return "";
+  var t = new Date(ts).getTime();
+  if (isNaN(t)) return "";
+  return age(Math.max(0, Math.round((Date.now() - t) / 1000))) + " ago";
+}
+
+function drawStrip(el, row) {
+  var strip = el.querySelector(".strip");
+  if (!strip) return;
+  var pattern = strip.querySelector(".sib-tab");
+  var main = strip.querySelector(".main-tab");
+  var earlierTab = strip.querySelector(".earlier-tab");
+  var open = viewing(el);
+
+  var run = row.run || {};
+  var bits = ["main"];
+  if (row.state) bits.push(row.state);
+  if (row.last_event_age_s >= 0) bits.push(age(row.last_event_age_s));
+  text(main, bits.join(" · "));
+  main.title = run.session ? "session " + run.session : "this checkout's live session";
+  main.setAttribute("aria-selected", String(!open));
+  main.classList.toggle("is-on", !open);
+
+  // Sibling checkouts of the same project (#175). Empty until that slice lands, which is why the
+  // strip has to read as finished with one tab on it rather than as a row of missing things.
+  while (strip.querySelectorAll(".sib-tab").length > 1) {
+    strip.removeChild(strip.querySelectorAll(".sib-tab")[1]);
+  }
+  (row.siblings || []).forEach(function (sib) {
+    var tab = pattern.cloneNode(true);
+    tab.hidden = false;
+    text(tab, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
+    tab.title = "the same project, checked out at " + (sib.path || sib.repo);
+    tab.addEventListener("click", function () { focus(sib.repo); });
+    strip.insertBefore(tab, earlierTab);
+  });
+
+  var n = row.sessions_n || 0;
+  earlierTab.hidden = !n;
+  text(earlierTab, "earlier (" + n + ")");
+  earlierTab.setAttribute("aria-selected", String(!!open));
+  earlierTab.classList.toggle("is-on", !!open);
+}
+
+/* The rows, on the click rather than on every poll: this is a disk read and a fold, and nobody is
+   looking at it until they ask. */
+function openSessions(el, repo) {
+  var list = el.querySelector(".sessions");
+  var tab = el.querySelector(".earlier-tab");
+  if (!list.hidden) { list.hidden = true; tab.setAttribute("aria-expanded", "false"); return; }
+  fetch(q("/api/sessions", { repo: repo })).then(function (r) { return r.json(); })
+    .then(function (data) {
+      var pattern = list.querySelector(".session-row");
+      while (list.children.length > 1) list.removeChild(list.lastChild);
+      var rows = (data && data.sessions) || [];
+      var current = (el.dataset.session || "");
+      rows.filter(function (row) { return row.id !== current; }).forEach(function (row) {
+        var li = pattern.cloneNode(true);
+        li.hidden = false;
+        text(li.querySelector(".ss-title"), row.title || row.ticket || row.id.slice(0, 8));
+        text(li.querySelector(".ss-chip"), row.ended || "");
+        text(li.querySelector(".ss-when"), whenIso(row.last_seen));
+        text(li.querySelector(".ss-cost"),
+             row.cost ? Number(row.cost).toFixed(2) + " premium" : "");
+        var button = li.querySelector(".ss-open");
+        button.title = (row.source === "store"
+          ? "a console window may still own this; close it first — "
+          : "") + "session " + row.id;
+        button.addEventListener("click", function () { showSession(el, repo, row); });
+        list.appendChild(li);
+      });
+      if (!rows.length) {
+        var empty = pattern.cloneNode(true);
+        empty.hidden = false;
+        text(empty.querySelector(".ss-title"), "no earlier sessions in this checkout");
+        empty.querySelector(".ss-open").disabled = true;
+        list.appendChild(empty);
+      }
+      list.hidden = false;
+      tab.setAttribute("aria-expanded", "true");
+    });
+}
+
+/* Read-only, from history. The live transcript is hidden rather than replaced, so it keeps filling
+   behind this and going back is instant and whole rather than a reload with a hole in it. */
+function showSession(el, repo, session) {
+  fetch(q("/api/transcript", { repo: repo, session: session.id }))
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (!data || !data.ok) return;
+      el.dataset.viewing = session.id;
+      var history = el.querySelector(".history");
+      while (history.firstChild) history.removeChild(history.firstChild);
+      (data.events || []).forEach(function (ev) { appendTo(history, ev); });
+      el.querySelector(".transcript").hidden = true;
+      history.hidden = false;
+      el.querySelector(".sessions").hidden = true;
+      el.querySelector(".earlier-tab").setAttribute("aria-expanded", "false");
+      var pane = el.querySelector(".readonly");
+      pane.hidden = false;
+      text(el.querySelector(".ro-what"),
+           (session.title ? session.title + " — " : "") + endedSentence(data));
+      var resume = el.querySelector(".ro-resume");
+      text(resume, "Resume here");
+      resume.dataset.armed = "";
+      text(el.querySelector(".ro-note"),
+           session.source === "store"
+             ? "a console window may still own this; close it first"
+             : "");
+      el.querySelector(".row.bottom").hidden = true;
+      var entry = tiles.get(repo);
+      if (entry && entry.row) drawStrip(el, entry.row);
+    });
+}
+
+/* `Alt+[` and `Alt+]` walk the strip. The tabs are real buttons in document order, so stepping is
+   moving the keyboard to the next one and pressing it -- there is no second model of "which tab is
+   selected" that could disagree with the one the page is showing. */
+function stepStrip(el, dir) {
+  var tabs = [].slice.call(el.querySelectorAll(".strip .tab"))
+               .filter(function (t) { return !t.hidden; });
+  if (!tabs.length) return;
+  var here = tabs.indexOf(document.activeElement);
+  if (here < 0) {
+    here = tabs.indexOf(el.querySelector(".strip .tab.is-on"));
+    if (here < 0) here = 0;
+  }
+  var next = tabs[(here + dir + tabs.length) % tabs.length];
+  next.focus();
+  next.click();
+}
+
+function backToLive(el) {
+  el.dataset.viewing = "";
+  el.querySelector(".history").hidden = true;
+  el.querySelector(".transcript").hidden = false;
+  el.querySelector(".readonly").hidden = true;
+  el.querySelector(".row.bottom").hidden = false;
+  var entry = tiles.get(el.dataset.repo);
+  if (entry && entry.row) drawStrip(el, entry.row);
+}
+
+/* Making an earlier session the live one. When nothing is running it simply runs; when something
+   is, it is the supervisor's own refusal with the supervisor's own hint, and the button becomes a
+   second, deliberate press -- never a silent force, and never two agents in one working tree. */
+function resumeHere(el, repo) {
+  var button = el.querySelector(".ro-resume");
+  var note = el.querySelector(".ro-note");
+  var armed = button.dataset.armed === "1";
+  post("start", { repo: repo, resume: viewing(el), force: armed }).then(function (r) {
+    if (r && r.ok) {
+      button.dataset.armed = "";
+      backToLive(el);
+      refresh();
+      return;
+    }
+    text(note, [r && r.error, r && r.hint].filter(Boolean).join(" — "));
+    if (r && r.code === "live_agent") {
+      button.dataset.armed = "1";
+      text(button, "Stop and resume");
+    }
+  });
+}
+
+function newSession(el, repo) {
+  var note = el.querySelector(".ro-note");
+  post("start", { repo: repo, "new": true }).then(function (r) {
+    if (r && r.ok) { backToLive(el); refresh(); return; }
+    var said = [r && r.error, r && r.hint].filter(Boolean).join(" — ");
+    if (!el.querySelector(".readonly").hidden) text(note, said);
+    else { text(el.querySelector(".err"), said); el.querySelector(".err").hidden = false; }
+  });
+}
+
+/* ------------------------------------------------------------------------------- the whole page */
 
 function checkAway(prevSeen) {
   if (!prevSeen || awayShown) return;

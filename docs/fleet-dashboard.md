@@ -104,6 +104,50 @@ screen, dimmed, saying which action held it — until you release it or leave fo
 that goes back to needing somebody drops the note and reads as a normal demand again; it never takes
 the credit for a question it did not answer.
 
+### The switcher — the main tab and the ones beside it (#174)
+
+The earlier-run rows were text with no handler, and the only session-changing gesture in the whole
+page was *adopt* — which then disabled Send. A session you had finished with was something you
+could read about and not open, and *I started it in a terminal yesterday* had no answer at all.
+
+Under the run line there is a **tab strip**:
+
+```
+[ main · running · 4m ]  [ feature/RDSD-118 · needs you · 20m ]  [ earlier (3) ]  [ + new ]
+```
+
+* The **main tab** is this checkout's live session — where the transcript, the reply box and the
+  cards are.
+* The tabs beside it are the project's **other checkouts** ([#175](../docs/plan-sessions.md)), each
+  with its own agent and its own chip. Clicking one selects that checkout's tile; the strip stays,
+  so the way back is one click and never `Esc`.
+* **earlier (n)** lists this checkout's other sessions — title, how it ended, when, what it cost.
+  The count comes off the event stream the tile already has, not off `sessions.json`, which exists
+  only once somebody has rebuilt it; a tab reading *earlier (0)* over three real sessions would be
+  worse than no tab.
+* Choosing one shows its transcript **read-only** from history (`GET /api/transcript`), with the
+  reply box *gone* rather than disabled — a box you can type in that cannot send is a worse answer
+  than no box — replaced by one sentence and one button: *this session ended blocked · 2 days ago ·
+  **Resume here***. The live transcript is hidden, never thrown away, so going back is instant and
+  whole.
+* **Resume here** is `start --resume <id>`. With nothing live it runs. With an agent live it is the
+  supervisor's own refusal and its own hint, and the button becomes the two-press *Stop and
+  resume*, the way *Reset anyway* is a second, deliberate press. Never two agents in one working
+  tree, and never a silent force.
+* **+ new** is `start --new`: a clean session in this checkout, the previous one still listed and
+  still resumable.
+* `Alt`+`[` / `Alt`+`]` walk the strip and `Alt`+`N` is *new*. Every tab is a real button, so the
+  strip is reachable by Tab as well.
+
+A session is **not** a contiguous slice of the stream — `--resume` opens a new run on the same
+conversation, and runs of another session can sit between them — so a transcript is gathered by the
+id its runs carry, never by position.
+
+Resuming is refused outright where a process the fleet did not start can be **named** in that
+checkout, in the adopt strip's own words. Only where it can be named: *this folder was written to
+in the last quarter of an hour* is evidence of somebody saving a file, and refusing every resume on
+that would refuse nearly all of them.
+
 ### The dock — where a tile went (#173)
 
 Five `display:none` rules and one `.remove()` used to take a tile off the glass as a side effect of
@@ -171,6 +215,8 @@ red everywhere or the colour stops being information:
 | `1`–`9` | focus that tile — counting what is **on the glass** |
 | `f` | focus mode: only the agents that need you |
 | `h` | hide the tile the keyboard is on; its chip is in the dock |
+| `Alt`+`[` / `Alt`+`]` | walk the tile's session strip |
+| `Alt`+`N` | a clean session in this checkout, beside the one it is on |
 | `/` | the search box — `where` over the catalogue |
 | `i` | the sidebar's inbox |
 | `a` | approve the focused tile's pending write |
@@ -231,6 +277,8 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/scope/resolve` | `{repo, files: [{name, size, sha}]}` — which of this checkout's files these are (#166) |
 | POST | `/api/scope` | `{repo, paths, why, how}` — append them to `.agent/in/<KEY>/scope.toon` |
 | POST | `/api/attach-bytes` | `{repo, name, bytes}` — the one route that carries bytes, on a click |
+| GET | `/api/sessions` | `?repo=` — this checkout's sessions, folded from the stream on the click |
+| GET | `/api/transcript` | `?repo=&session=&limit=&before=` — one session's lines, read-only, paged from the end (#174) |
 | GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164) |
 | POST | `/api/dismiss` | `{id}` — stop offering that file until it is downloaded again |
 
