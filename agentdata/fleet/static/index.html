@@ -175,6 +175,22 @@
     <!-- A session running in this checkout that the fleet did not start (#2). -->
     <p class="outside" hidden><span class="outsidewhy"></span><button type="button" class="adopt"></button></p>
     <p class="why"></p>
+    <!-- #164: a drop opens this instead of launching. Every row is something a person would have
+         checked before delegating, and the pre-flight behind it spends no premium request. -->
+    <div class="dispatch" hidden>
+      <div class="dispatch-head">
+        <span class="dispatch-key"></span>
+        <span class="verdict"></span>
+        <button type="button" class="dispatch-close" title="cancel (Esc)">×</button>
+      </div>
+      <ul class="dispatch-rows"></ul>
+      <label class="dispatch-brieflabel" for="brief">what should it know? (optional)</label>
+      <textarea class="brief" rows="3" placeholder="the window, the gotcha, the thing the ticket does not say"></textarea>
+      <div class="row">
+        <button type="button" class="dispatch-go">Start</button>
+        <span class="dispatch-note"></span>
+      </div>
+    </div>
     <div class="cells" aria-label="the project's own state"></div>
     <div class="approval" hidden>
       <div class="approval-head">waiting for you: <span class="kind"></span></div>

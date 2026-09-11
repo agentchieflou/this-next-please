@@ -102,7 +102,12 @@ FORBIDDEN_FLAGS = ("--allow-all", "--allow-all-tools", "--allow-all-paths", "--a
 # template works either way. Deliberately nothing more than the key and one line: `jira-triage` does
 # the reading through `ad-pncli`, as its SKILL.md says, and a fleet that pasted acceptance criteria
 # into the prompt would be a second, staler copy of the ticket for the agent to trust.
-DEFAULT_PROMPT = "Ticket {key}{summary}. Invoke skill session-bootstrap, then router."
+#
+# `{handoff}` is the same shape: a sentence naming `.agent/in/<KEY>/` and what is in it when the
+# operator left something there, and empty when they did not. It says a directory and a count and
+# never the content, for the same reason -- a prompt carrying the brief would be a copy of it for
+# the agent to trust instead of a file for the agent to read.
+DEFAULT_PROMPT = "Ticket {key}{summary}.{handoff} Invoke skill session-bootstrap, then router."
 
 
 class _Blanks(dict):
@@ -174,13 +179,14 @@ def check_no_blanket_permission(patterns: list[str]) -> None:
 
 
 def prompt_for(key: str | None, prompt: str | None, cfg: dict | None = None,
-               summary: str = "") -> str:
+               summary: str = "", handoff: str = "") -> str:
     """The one turn's prompt. An explicit `--prompt` always wins; otherwise the template."""
     if prompt:
         return prompt
     template = C.get(cfg or {}, "fleet.prompt_template") or DEFAULT_PROMPT
     tidy = " ".join((summary or "").split())[:200]
-    fields = _Blanks(key=key or "", summary=f": {tidy}" if tidy else "")
+    fields = _Blanks(key=key or "", summary=f": {tidy}" if tidy else "",
+                     handoff=handoff or "")
     try:
         return template.format_map(fields)
     except (IndexError, ValueError):

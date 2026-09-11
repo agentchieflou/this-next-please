@@ -37,6 +37,10 @@ var readCursors = {};
 var streamDead = false;
 var awayShown = false;
 var appliedInitialWindow = false;
+/* Whether a drop opens the dispatch card (#164) or launches the way #98 did. The server's
+   `fleet.preflight` decides; until the first `/api/fleet` answers, the card is the default,
+   because showing a card and starting from it is the recoverable direction to be wrong in. */
+var PREFLIGHT = true;
 
 function saveWindow(patch) {
   var body = Object.assign({ w: W_NAME }, patch);
@@ -274,7 +278,19 @@ function makeTile(row, index) {
     }
 
     var key = (e.dataTransfer.getData("application/x-agentdata-ticket") || e.dataTransfer.getData("text/plain") || "").trim();
-    if (key) dispatch(key, row.repo);
+    if (key) { if (PREFLIGHT) dispatchCard(key, row.repo); else dispatch(key, row.repo); }
+  });
+
+  /* The dispatch card's own three controls (#164). `Enter` in the brief box starts; `Esc` cancels,
+     the way `Esc` leaves every other thing on this page. */
+  el.querySelector(".dispatch-close").addEventListener("click", function () { closeDispatch(el); });
+  el.querySelector(".dispatch-go").addEventListener("click", function () {
+    var card = el.querySelector(".dispatch");
+    dispatch(card.dataset.key || "", row.repo, el.querySelector(".brief").value.trim());
+  });
+  el.querySelector(".brief").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { el.querySelector(".dispatch-go").click(); e.preventDefault(); }
+    else if (e.key === "Escape") { closeDispatch(el); e.stopPropagation(); }
   });
 
   /* Every drag gesture has a keyboard equivalent, and the footer key map lists all four. */
@@ -672,6 +688,7 @@ function refresh() {
       applySkin(data.theme.skin);
       reflectTheme(data.theme);
     }
+    if (typeof data.preflight === "boolean") PREFLIGHT = data.preflight;
     place();
     title(need);
     return data;
@@ -1184,16 +1201,84 @@ function ticketRow(row) {
   return li;
 }
 
-function dispatch(key, repo) {
+/* ------------------------------------------------------------------ the dispatch card (#164)
+
+   A drop used to be a launch. It opens this instead: the rows a person would have checked before
+   delegating, gathered by a server-side pre-flight that spends no premium request, and one button.
+   `fleet.preflight: false` restores #98's immediate start for anyone who preferred it. */
+
+function dispatchCard(key, repo) {
+  var entry = tiles.get(repo);
+  if (!entry) return dispatch(key, repo);
+  var el = entry.el;
+  var card = el.querySelector(".dispatch");
+  var rows = card.querySelector(".dispatch-rows");
+  var brief = card.querySelector(".brief");
+
+  text(card.querySelector(".dispatch-key"), key + " → " + repo);
+  text(card.querySelector(".verdict"), "reading…");
+  card.querySelector(".verdict").className = "verdict";
+  while (rows.firstChild) rows.removeChild(rows.firstChild);
+  brief.value = "";
+  card.hidden = false;
+  card.dataset.key = key;
+
+  fetch(q("/api/preflight", { key: key, repo: repo })).then(function (r) {
+    return r.json();
+  }).then(function (card_data) {
+    if (card.dataset.key !== key) return;           // a second drop overtook this one
+    var verdict = (card_data && card_data.verdict) || "unknown";
+    var chip = card.querySelector(".verdict");
+    text(chip, verdict);
+    chip.className = "verdict v-" + verdict;
+    (card_data.rows || []).forEach(function (r) {
+      var li = document.createElement("li");
+      li.className = "dispatch-row r-" + (r.verdict || "ready");
+      var n = document.createElement("span"); n.className = "dr-name"; text(n, r.row);
+      var v = document.createElement("span"); v.className = "dr-value"; text(v, r.value);
+      li.appendChild(n); li.appendChild(v);
+      if (r.why) { var w = document.createElement("span"); w.className = "dr-why"; text(w, r.why); li.appendChild(w); }
+      rows.appendChild(li);
+    });
+    // `thin` is the one verdict that asks for something: the brief box takes the focus and the
+    // button says so. `blocked` still offers the press, because the refusal is the server's to
+    // give in its own words and the operator may hold an override the card does not know about.
+    var go = card.querySelector(".dispatch-go");
+    text(go, verdict === "ready" ? "Start" : "Start anyway");
+    text(card.querySelector(".dispatch-note"),
+         verdict === "thin" ? "thin — a brief is what makes this worth a turn"
+         : verdict === "unknown" ? "some rows could not be read; Start still works"
+         : "");
+    if (verdict === "thin" || verdict === "blocked") brief.focus();
+  }).catch(function () {
+    if (card.dataset.key !== key) return;
+    text(card.querySelector(".verdict"), "unknown");
+    text(card.querySelector(".dispatch-note"), "the pre-flight could not be read; Start still works");
+  });
+}
+
+function closeDispatch(el) {
+  var card = el.querySelector(".dispatch");
+  if (card) { card.hidden = true; card.dataset.key = ""; }
+}
+
+function dispatch(key, repo, brief) {
   var entry = tiles.get(repo);
   var el = entry ? entry.el : document.body;
-  return action(el, "start", { repo: repo, ticket: key }).then(function (r) {
-    if (r && r.ok) { boardPanel(false); focus(repo); }
+  var body = { repo: repo, ticket: key };
+  if (brief) body.brief = brief;
+  return action(el, "start", body).then(function (r) {
+    if (r && r.ok) { boardPanel(false); closeDispatch(el); focus(repo); }
     else if (r && !r.ok && (r.code === "cross_project" || /jira_project/.test(r.error || ""))) {
       // The one refusal worth offering an override for in the page: the operator can see both
       // projects on screen and is better placed than the guard to say it is deliberate.
       if (confirm(r.error + "\n\nStart it anyway?")) {
-        action(el, "start", { repo: repo, ticket: key, cross_project: true });
+        var again = { repo: repo, ticket: key, cross_project: true };
+        if (brief) again.brief = brief;
+        action(el, "start", again).then(function (r2) {
+          if (r2 && r2.ok) closeDispatch(el);
+          return r2;
+        });
       }
     }
     return r;

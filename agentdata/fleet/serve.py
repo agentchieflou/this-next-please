@@ -46,8 +46,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from .. import textio
-from . import (agentstate, approval, board as B, catalogue as CAT, events as E, inbox as IN,
-               links as LK, notify as N, poll as P, supervisor)
+from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
+               inbox as IN, links as LK, notify as N, poll as P, supervisor)
 from .registry import Registry, RegistryError, fleet_dir
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -357,8 +357,13 @@ def fleet_snapshot() -> dict:
                      # so that the page could take its length.
                      "run": {**curr_run, "events": None, "events_n": len(curr_run["events"])},
                      "recent": curr_run["events"][-40:] if curr_run["events"] else stream[-40:]})
+    from .. import config as C
+
+    # `fleet.preflight: false` restores #98's immediate start: a drop launches instead of opening
+    # the dispatch card. Absent means on, because the card is the recoverable direction.
     return {"repos": rows, "approvals": approval.pending(), "fleet_dir": fleet_dir(),
             "desk": desk_state(), "theme": theme_state(),
+            "preflight": C.get(C.load(), "fleet.preflight") is not False,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
 
 
@@ -1054,7 +1059,8 @@ def act(what: str, body: dict) -> dict:
                                 cross_project=bool(body.get("cross_project")),
                                 board_rows=(B.read_cache() or {}).get("rows") or [],
                                 resume=body.get("resume") or None,
-                                new=bool(body.get("new")))
+                                new=bool(body.get("new")),
+                                brief=body.get("brief") or None)
         return {"repo": repo, "pid": lock["pid"], "ticket": lock.get("ticket", ""),
                 "summary": lock.get("summary", ""), "session": lock.get("session", "")}
     if what == "send":
@@ -1383,6 +1389,16 @@ class Handler(BaseHTTPRequestHandler):
                 repo_path = reg.get(repo_name).path if reg and repo_name in [r.name for r in reg.repos] else ""
                 rows = S.rebuild_sessions(repo_name, repo_path=repo_path)
             return self._json({"ok": True, "repo": repo_name, "sessions": rows})
+        if route == "/api/preflight":
+            # Read-only and it spends no premium request, which is the whole reason a drop can
+            # afford to ask it. Every failure inside is a grey row, so this cannot 500 on an
+            # unreachable Jira -- the card says `unknown` and Start stays enabled.
+            from . import preflight as PF
+
+            key = (query.get("key") or [""])[0]
+            if not key:
+                return self._refuse(400, "key required", "pass ?key=<TICKET>")
+            return self._json(PF.preflight(key, (query.get("repo") or [""])[0]))
         if route == "/api/notifications":
             try:
                 limit = int((query.get("limit") or ["50"])[0])
@@ -1512,7 +1528,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             return self._json({"ok": True, "action": what, **act(what, body)})
         except (ServeError, RegistryError, supervisor.SupervisorError,
-                approval.ApprovalError, IN.InboxError, CAT.CatalogueError) as e:
+                approval.ApprovalError, IN.InboxError, CAT.CatalogueError,
+                HO.HandoffError) as e:
             # The same refusal the CLI gives, with the same hint. One vocabulary.
             ref_code = getattr(e, "code", "") or "refused"
             return self._refuse(409, e.msg, getattr(e, "hint", ""), refusal_code=ref_code)

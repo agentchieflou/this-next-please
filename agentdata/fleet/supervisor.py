@@ -14,6 +14,7 @@ import time
 
 from .. import proc
 from .. import textio
+from . import handoff as H
 from . import lifecycle
 from .launch import child_env, launch_command, prompt_for
 from .registry import Registry, Repo, RegistryError, agent_dir, fleet_dir
@@ -393,7 +394,8 @@ def check_ticket(repo: Repo, key: str, *, cross_project: bool = False, board_row
 def start(name: str, *, key: str | None = None, prompt: str | None = None, force: bool = False,
           cfg: dict | None = None, registry: Registry | None = None, exe: str | None = None,
           cross_project: bool = False, board_rows=None, summary: str = "",
-          resume: str | None = None, new: bool = False) -> dict:
+          resume: str | None = None, new: bool = False, brief: str | None = None,
+          brief_by: str = "operator") -> dict:
     reg = registry or Registry()
     repo = reg.get(name)
     if key:
@@ -427,7 +429,14 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
             f"{key or 'a new prompt'} anyway",
             code="mid_ticket")
 
-    text = prompt_for(key, prompt, cfg, summary=summary)
+    # The brief is written *before* the spawn, and a failure to write it refuses the start. The
+    # operator has just typed the one thing nothing else in the system knows; launching an agent
+    # that was promised it and will not find it is worse than not launching at all.
+    if brief is not None:
+        H.write_brief(name, repo.path, key or "", brief, by=brief_by)
+
+    text = prompt_for(key, prompt, cfg, summary=summary,
+                      handoff=H.prompt_line(repo.path, key or ""))
     _rotate(name, cfg)
     directory = agent_dir(name)
 

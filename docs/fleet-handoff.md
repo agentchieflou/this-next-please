@@ -45,7 +45,18 @@ Emits `inbox.attached {name, dir, file, source, size}`.
 
 ## The `{handoff}` placeholder
 
-`launch.DEFAULT_PROMPT` and custom `fleet.prompt_template` templates support an optional `{handoff}` placeholder.
-When present, it expands to a concise sentence naming the handoff folder and what is in it:
-`Context files and scope are available in .agent/in/<KEY>/ (brief.md, N scope files, M attached files). Read these first.`
-If `.agent/in/<KEY>/` has no files, `{handoff}` expands to empty string, ensuring full backwards compatibility.
+`launch.DEFAULT_PROMPT` and any `fleet.prompt_template` support an optional `{handoff}` placeholder.
+When the directory holds something, it expands to one sentence naming the directory and counting
+what is in it:
+
+```
+ The operator left a brief and 2 files under .agent/in/RDSD-118/; read them before the ticket.
+```
+
+**A count and a directory, never the content.** The prompt stays one line, and a fleet that pasted
+the brief into it would hand the agent a copy to trust instead of a file to read — the same reason
+[fleet-intake.md](fleet-intake.md) gives for keeping acceptance criteria out of it.
+
+When `.agent/in/<KEY>/` is empty, `{handoff}` expands to nothing, and a template written before the
+placeholder existed keeps working unchanged — `_Blanks` makes an unknown field empty rather than an
+exception, exactly as it does for `{summary}`.

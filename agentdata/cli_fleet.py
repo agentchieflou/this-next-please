@@ -27,9 +27,9 @@ from . import textio
 from . import toon
 from . import ui
 from .console import prompt as ask_line, utf8_stdout
-from .fleet import (agentstate, approval, board as B, catalogue as CAT, events as E, inbox as IN,
-                    launch, lifecycle as L, links as LK, notify as N, opener as O, poll as P,
-                    scan as SC, serve as S, supervisor)
+from .fleet import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff,
+                    inbox as IN, launch, lifecycle as L, links as LK, notify as N, opener as O,
+                    poll as P, preflight as PF, scan as SC, serve as S, supervisor)
 from .fleet.registry import Registry, RegistryError, fleet_dir
 from .version import add_version, version_string
 
@@ -96,17 +96,46 @@ def cmd_start(a) -> int:
     # The board is consulted only if it is already cached. Being unable to reach Jira must never
     # stop an operator starting an agent -- the guard rails it feeds are a courtesy, not a gate.
     rows = (B.read_cache() or {}).get("rows") or []
+    brief = getattr(a, "brief", None)
+    brief_file = getattr(a, "brief_file", None)
     try:
+        if brief_file:
+            if brief:
+                raise handoff.HandoffError(
+                    "pass --brief or --brief-file, not both",
+                    "one brief per dispatch; the file wins nothing over the flag, so choose",
+                    code="brief_ambiguous")
+            brief = handoff.read_brief_file(brief_file)
         lock = supervisor.start(a.repo, key=a.ticket, prompt=a.prompt, force=a.force, cfg=cfg,
                                 cross_project=a.cross_project, board_rows=rows,
-                                resume=getattr(a, "resume", None), new=getattr(a, "new", False))
-    except (RegistryError, supervisor.SupervisorError, launch.LaunchError) as e:
+                                resume=getattr(a, "resume", None), new=getattr(a, "new", False),
+                                brief=brief)
+    except (RegistryError, supervisor.SupervisorError, launch.LaunchError,
+            handoff.HandoffError) as e:
         return _refuse("ad-fleet start", e)
     return _emit("ad-fleet start", {"repo": a.repo, "ticket": lock.get("ticket", ""),
                                     "summary": lock.get("summary", ""),
                                     "session": lock.get("session", ""),
                                     "pid": lock["pid"], "prompt": lock["prompt"],
                                     "next": f"ad-fleet status --repo {a.repo}"})
+
+
+def cmd_preflight(a) -> int:
+    """Is this ticket ready to hand over? The dispatch card, as TOON.
+
+    Exit 0 whatever the verdict, `blocked` included: a verdict is an answer, not a refusal. The
+    refusal happens at `ad-fleet start`, in the same words, and this verb exists so the operator can
+    read them before spending a turn rather than after.
+    """
+    card = PF.preflight(a.ticket, getattr(a, "repo", "") or "")
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet preflight",
+                                "ticket": card["key"], "repo": card["repo"] or "-",
+                                "verdict": card["verdict"], "rows": len(card["rows"]),
+                                "cost": "no premium request"}}))
+    print(toon.table("preflight", ["row", "value", "verdict", "why"],
+                     [[r["row"], r["value"], r["verdict"], r.get("why") or "-"]
+                      for r in card["rows"]]))
+    return EXIT_OK
 
 
 def cmd_restart(a) -> int:
@@ -1160,7 +1189,16 @@ def build_parser() -> argparse.ArgumentParser:
                        help="start even if the repo is mid-ticket or holds a stale lock")
     start.add_argument("--resume", help="resume a specific session by id")
     start.add_argument("--new", action="store_true", help="start a clean session beside the previous one")
+    start.add_argument("--brief", help="what the agent should know, in your own words; written to "
+                                       ".agent/in/<KEY>/brief.md before the agent starts")
+    start.add_argument("--brief-file", dest="brief_file", metavar="PATH",
+                       help="the same, read from a file")
     start.set_defaults(fn=cmd_start)
+
+    pf = sub.add_parser("preflight", help="is this ticket ready to hand over? (spends no premium request)")
+    pf.add_argument("ticket")
+    pf.add_argument("--repo", help="the checkout it would start on (default: the one that declares its project)")
+    pf.set_defaults(fn=cmd_preflight)
 
     send = sub.add_parser("send", help="continue an agent's session with another message")
     send.add_argument("repo")

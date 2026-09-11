@@ -644,3 +644,44 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
   margin: 0; padding: 2px 0 2px 8px; border-left: 3px solid var(--human);
   font: 11px var(--mono); white-space: pre-wrap;
 }
+
+/* ---------------------------------------------------------- the dispatch card (#164)
+   A drop opens this instead of launching. It borrows the approval card's shape on purpose: both
+   are "the tile is asking you something before anything irreversible happens", and one shape for
+   that means the operator learns it once. The accent is the focus colour rather than a status
+   colour -- nothing here is an agent state, and the status palette must keep meaning what it
+   means (`docs/plan-desk-refactor.md` §One palette). */
+.dispatch {
+  margin-top: 8px; padding: 8px; border: 1px solid var(--focus); border-radius: 5px;
+  background: var(--select);
+}
+.dispatch-head { display: flex; align-items: baseline; gap: 8px; }
+.dispatch-key { font-weight: 600; }
+.dispatch-close {
+  margin-left: auto; min-width: 28px; min-height: 28px; line-height: 1;
+  background: none; border: 1px solid var(--line); color: var(--text);
+}
+.verdict {
+  font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; color: var(--muted);
+}
+/* Never colour alone: each verdict carries its word, and the tint only reinforces it. */
+.verdict.v-ready { color: var(--done); border-color: var(--done); }
+.verdict.v-thin { color: var(--waiting); border-color: var(--waiting); }
+.verdict.v-blocked { color: var(--human); border-color: var(--human); }
+.verdict.v-unknown { color: var(--muted); }
+.dispatch-rows { list-style: none; margin: 6px 0; padding: 0; }
+.dispatch-row { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--line); }
+.dispatch-row:last-child { border-bottom: 0; }
+.dr-name { color: var(--muted); min-width: 9ch; }
+.dr-value { font-variant-numeric: tabular-nums; }
+.dr-why { color: var(--muted); margin-left: auto; text-align: right; }
+.dispatch-row.r-thin .dr-value { color: var(--waiting); }
+.dispatch-row.r-blocked .dr-value { color: var(--human); }
+.dispatch-row.r-unknown .dr-value { color: var(--muted); }
+.dispatch-brieflabel { display: block; color: var(--muted); margin-top: 4px; }
+.dispatch .brief {
+  width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 4px; font: inherit;
+}
+.dispatch-note { color: var(--muted); align-self: center; }
