@@ -94,6 +94,30 @@ ones that need a person.** The alternative to organising tabs is having fewer th
 
 The rest of the keyboard is in [fleet-dashboard.md](fleet-dashboard.md) §Keyboard.
 
+## Hidden tiles — the operator's own arrangement (`h`) (#173)
+
+Focus mode decides for you; **hiding** is you deciding. `hidden` is a list beside `order`, `size`
+and `pinned` in `arrangement[layout]`, so it is the server's and every window on this fleet agrees
+on it — a tile put away on the laptop is put away on the wall screen too, and it is still put away
+tomorrow.
+
+* `h` hides the tile the keyboard is on; the `−` on its header does the same with a mouse.
+  `ad-fleet hide <repo>` and `ad-fleet unhide <repo>` do it from a terminal, and print the list.
+* A hidden tile **keeps its slot in `order`**, so reopening it puts it back between the two tiles it
+  was between rather than at the end.
+* **A tile that needs a person is on the glass whatever `hidden` says.** Hiding a demand is how a
+  demand gets missed, and it is the one rule the operator's own arrangement does not get to
+  override. The fold decides "needs a person", not the page.
+* `1`–`9` count what is on the glass, so a digit can no longer zoom a tile no mode is showing —
+  which used to leave a blank window, because zoom hides every other tile and a mode was already
+  hiding that one. Pressing the number printed on a tile focus mode is quieting leaves focus mode
+  rather than going dark.
+* `hidden` is additive: an arrangement written before this slice has no such key, and loads.
+
+Nothing is taken away silently. Everything off the glass — hidden, quieted by focus mode, zoomed
+past, or a repository that has left the registry — is a **chip in the dock** along the bottom, and a
+chip is one click from being back. See [fleet-dashboard.md](fleet-dashboard.md) §The dock.
+
 ## What is shared between windows, and what is not
 
 | Thing | Where it lives | Why |

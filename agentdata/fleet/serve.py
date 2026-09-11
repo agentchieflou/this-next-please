@@ -396,9 +396,9 @@ _selection = {
     "version": 0,
     "at": "",
     "arrangement": {
-        "grid": {"order": [], "size": {}, "pinned": []},
-        "roles": {"order": []},
-        "screens": {"order": []},
+        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
+        "roles": {"order": [], "hidden": []},
+        "screens": {"order": [], "hidden": []},
     },
     "windows": {},
 }
@@ -504,9 +504,9 @@ def forget_desk() -> None:
             version=_selection["version"] + 1,
             at=E.stamp(),
             arrangement={
-                "grid": {"order": [], "size": {}, "pinned": []},
-                "roles": {"order": []},
-                "screens": {"order": []},
+                "grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
+                "roles": {"order": [], "hidden": []},
+                "screens": {"order": [], "hidden": []},
             },
             windows={},
         )
@@ -759,12 +759,18 @@ def select(selected=None, screens=None) -> dict:
         return desk_state()
 
 
-def arrange(layout: str, *, order=None, size=None, pinned=None) -> dict:
-    """Set the tile arrangement for a layout, persisted in desk.json and pushed down the SSE stream."""
+def arrange(layout: str, *, order=None, size=None, pinned=None, hidden=None) -> dict:
+    """Set the tile arrangement for a layout, persisted in desk.json and pushed down the SSE stream.
+
+    `hidden` joins `order`, `size` and `pinned` (#173). Shared across windows like the rest of the
+    arrangement -- whether it should be per window instead is a question for the sitting, and the
+    plan says so; this is the default that ships.
+    """
     _ensure_desk_loaded()
     with _desk_lock:
         arr = _selection.setdefault("arrangement", {})
-        cur = arr.setdefault(layout, {"order": [], "size": {}, "pinned": []})
+        cur = arr.setdefault(layout, {"order": [], "size": {}, "pinned": [], "hidden": []})
+        cur.setdefault("hidden", [])
         changed = False
         if order is not None and cur.get("order") != list(order):
             cur["order"] = [str(x) for x in order]
@@ -774,6 +780,9 @@ def arrange(layout: str, *, order=None, size=None, pinned=None) -> dict:
             changed = True
         if pinned is not None and cur.get("pinned") != list(pinned):
             cur["pinned"] = [str(x) for x in pinned]
+            changed = True
+        if hidden is not None and cur.get("hidden") != list(hidden):
+            cur["hidden"] = [str(x) for x in hidden]
             changed = True
         if changed:
             _selection["version"] += 1
@@ -1271,7 +1280,8 @@ def act(what: str, body: dict) -> dict:
         return arrange(str(body.get("layout") or "grid"),
                        order=body.get("order"),
                        size=body.get("size"),
-                       pinned=body.get("pinned"))
+                       pinned=body.get("pinned"),
+                       hidden=body.get("hidden"))
     if what == "window":
         w = str(body.get("w") or "main")
         kwargs = {k: v for k, v in body.items() if k != "w"}

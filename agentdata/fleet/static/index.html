@@ -60,6 +60,20 @@
 <div class="workspace">
 <main id="grid" aria-live="polite"></main>
 
+<!-- #173: everything that is not on the glass, so a hidden tile is never a lost one. Zoomed,
+     hidden, or gone from the registry -- one chip each, one click back. -->
+<div id="dock" class="dock" hidden aria-label="tiles that are not on the glass">
+  <span class="dock-label"></span>
+  <ul class="dock-chips">
+    <li class="dock-chip" hidden>
+      <button type="button" class="dock-open">
+        <span class="dc-name"></span><span class="dc-chip"></span><span class="dc-badge" hidden></span>
+      </button>
+    </li>
+  </ul>
+  <button type="button" id="showall" class="dock-showall">show all</button>
+</div>
+
 <aside id="side" hidden aria-label="sidebar">
   <div class="segmented side-tabs" role="tablist">
     <button type="button" role="tab" class="segment" data-section="board" title="your Jira tickets">board <kbd>b</kbd></button>
@@ -162,6 +176,10 @@
       <button class="pintoggle" type="button" title="pin this tile first (Alt+Home)" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"></path><path d="M12 15v6"></path></svg>
         <span class="sr">pin</span>
+      </button>
+      <button class="hidetoggle" type="button" title="take this tile off the glass (h) — it keeps its place and the dock brings it back">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg>
+        <span class="sr">hide</span>
       </button>
       <button class="sizetoggle" type="button" title="one column or two (Alt+Enter)" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"></path><path d="M8 8l-4 4 4 4"></path><path d="M16 8l4 4-4 4"></path></svg>

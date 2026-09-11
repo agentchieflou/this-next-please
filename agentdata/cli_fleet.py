@@ -135,6 +135,26 @@ def cmd_answer(a) -> int:
                                      "next": f"ad-fleet status --repo {a.repo}"})
 
 
+def cmd_hide(a) -> int:
+    """Take a tile off the glass, or put it back. The dock holds what is off it (#173).
+
+    `hide` and `show` are one function because they are one edit to one list, and two would be two
+    places to keep the rule that a tile needing a person is shown regardless.
+    """
+    layout = getattr(a, "layout", "") or "grid"
+    arrangement = (S.desk_state().get("arrangement") or {}).get(layout) or {}
+    hidden = list(arrangement.get("hidden") or [])
+    want_hidden = bool(getattr(a, "hide", True))
+    if want_hidden and a.repo not in hidden:
+        hidden.append(a.repo)
+    if not want_hidden and a.repo in hidden:
+        hidden.remove(a.repo)
+    S.arrange(layout, hidden=hidden)
+    return _emit("ad-fleet " + ("hide" if want_hidden else "unhide"),
+                 {"repo": a.repo, "layout": layout, "hidden": ", ".join(hidden) or "-",
+                  "note": "a tile that needs a person is shown whatever this says"})
+
+
 def cmd_preflight(a) -> int:
     """Is this ticket ready to hand over? The dispatch card, as TOON.
 
@@ -1216,6 +1236,17 @@ def build_parser() -> argparse.ArgumentParser:
     ans.add_argument("id", help="the question's id, as `ad-fleet status` and the tile show it")
     ans.add_argument("answer", help="what to tell it")
     ans.set_defaults(fn=cmd_answer)
+
+    # `unhide`, not `show`: `ad-fleet show <project>` has meant "print this project's facts" since
+    # #130, and a shipped verb does not get its meaning changed under the operator for the sake of
+    # a symmetric name. `docs/plan-sessions.md` said `show`; this is the correction.
+    for verb, helptext in (("hide", "take a tile off the glass; the dock brings it back"),
+                           ("unhide", "put a hidden tile back on the glass")):
+        h = sub.add_parser(verb, help=helptext)
+        h.add_argument("repo")
+        h.add_argument("--layout", default="grid", choices=LAYOUTS,
+                       help="which arrangement (default grid)")
+        h.set_defaults(fn=cmd_hide, hide=(verb == "hide"))
 
     pf = sub.add_parser("preflight", help="is this ticket ready to hand over? (spends no premium request)")
     pf.add_argument("ticket")

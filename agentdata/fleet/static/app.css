@@ -757,3 +757,30 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
    error -- an agent that had to go outside the scope to do the work was probably right to. */
 .scopereport { color: var(--muted); margin: 2px 0; }
 .scopereport.outside { color: var(--waiting); }
+
+/* ------------------------------------------------------------------------ the dock (#173)
+   Everything that is not on the glass, so a hidden tile is never a lost one. It sits under the
+   grid rather than over it -- a strip that covered content would be the drawer problem #148 fixed. */
+.tile.is-hidden { display: none; }
+.dock {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 8px; border-top: 1px solid var(--line); background: var(--panel);
+}
+.dock-label { color: var(--muted); font-size: 12px; }
+.dock-chips { list-style: none; display: flex; gap: 6px; flex-wrap: wrap; margin: 0; padding: 0; }
+.dock-open {
+  display: flex; align-items: baseline; gap: 6px; min-height: 28px; padding: 2px 8px;
+  background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 14px;
+}
+.dc-chip { color: var(--muted); font-size: 12px; }
+.dc-badge {
+  background: var(--human); color: var(--bg); border-radius: 8px; padding: 0 5px; font-size: 11px;
+}
+/* A chip for an agent that needs a person is the same red its tile would be: hiding a demand is
+   how a demand gets missed, and the dock is where a hidden one has to still be visible. */
+.dock-chip.needs-human .dock-open { border-color: var(--human); color: var(--human); }
+.dock-chip.departed .dock-open { border-style: dashed; color: var(--muted); }
+.dock-showall {
+  margin-left: auto; min-height: 28px; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
+}

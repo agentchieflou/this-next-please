@@ -426,7 +426,7 @@ Plan section: §Hide and reopen. After #172.
 | `agentdata/fleet/notify.py` | 244 | the toast launches `#tile=<repo>` |
 | `agentdata/fleet/agentstate.py` | 165–167 | `needs_the_human()` — the one predicate the dock rule uses |
 
-**Build.** `hidden` per layout in `arrangement`, `arrange` accepting it, `ad-fleet hide`/`show`, the header
+**Build.** `hidden` per layout in `arrangement`, `arrange` accepting it, `ad-fleet hide`/`unhide`, the header
 button and `h`; the dock (chips with state, age, badge; click reopens in place; *show all*; the zoomed case; registry
 departures kept a day with the restoring command; arrivals announced); the never-hide table (red chip and chime;
 shown in focus mode with a note; anchors reopen or say *no tile*); digits and `Alt+←/→` over the visible order;

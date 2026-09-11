@@ -272,7 +272,7 @@ read back.
 **The API:** `GET /api/sessions?repo=`, `GET /api/transcript?repo=&session=`, `POST /api/window`,
 `POST /api/start {…, resume?, new?}`, `GET /open?w=`; `arrange` accepts `hidden`. Every one is an `ad-fleet` verb
 first: `sessions [--rebuild] [rename <id> "<title>"]`, `start --resume <id> | --new`, `open --window <w> | --all`,
-`hide <repo>` / `show <repo>`.
+`hide <repo>` / `unhide <repo>`.
 
 ## Slices
 
@@ -353,7 +353,7 @@ mode and chime are in `localStorage`; the zoom is a hash; held, unread and the o
 rules and one `.remove()` take tiles away as side effects of modes.
 
 **Build this.**
-1. `hidden` in `arrangement[layout]`, `POST /api/arrange` accepting it, `ad-fleet hide <repo>` / `show <repo>`;
+1. `hidden` in `arrangement[layout]`, `POST /api/arrange` accepting it, `ad-fleet hide <repo>` / `unhide <repo>`;
    the header button and `h`; the slot in `order` kept.
 2. The dock: chips with state, age and badge; click to reopen; *show all*; keyboard-reachable; collapsed to a
    count when empty; the zoomed case shows the others; registry departures and arrivals announced there.

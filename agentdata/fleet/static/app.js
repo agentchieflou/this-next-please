@@ -308,6 +308,11 @@ function makeTile(row, index) {
     action(el, "answer", { repo: row.repo, answers: answers });
   });
 
+  el.querySelector(".hidetoggle").addEventListener("click", function (e) {
+    e.stopPropagation();
+    setHidden(row.repo, true);
+  });
+
   el.querySelector(".scope-close").addEventListener("click", function () {
     el.querySelector(".scope").hidden = true;
   });
@@ -794,10 +799,16 @@ function refresh() {
           }
         } catch (e) {}
       }
+      entry.row = row;
+      departed.delete(row.repo);
       drawTile(entry.el, row, data.approvals || []);
     });
     tiles.forEach(function (entry, name) {
       if (!data.repos.some(function (r) { return r.repo === name; })) {
+        // Removed from the registry. Its tile goes, but not silently: it keeps a dock chip naming
+        // the command that restores it, because a transcript disappearing with no explanation is
+        // exactly the "where did it go" this slice exists to answer.
+        departed.set(name, { path: (entry.row && entry.row.path) || "<path>" });
         entry.el.remove();
         tiles.delete(name);
       }
@@ -925,7 +936,25 @@ function unfocus(skipPost) {
    open and the shell simply re-focuses it with a new hash. */
 function followHash() {
   var m = /^#tile=(.+)$/.exec(location.hash || "");
-  if (m && tiles.has(decodeURIComponent(m[1]))) focus(decodeURIComponent(m[1]));
+  if (!m) return;
+  var name = decodeURIComponent(m[1]);
+  if (!tiles.has(name)) {
+    // A toast for a repository with no tile used to do nothing at all: the window simply sat there
+    // while the operator waited for something to happen (#173).
+    say("no tile for '" + name + "' — is it still registered?");
+    return;
+  }
+  // A hidden tile is reopened by an anchor rather than silently ignored, and the footer says so:
+  // the toast said this agent needs somebody, and the operator asked to see it.
+  if (isHidden(name)) {
+    setHidden(name, false);
+    say(name + " was hidden — reopened");
+  }
+  // Only if the mode is what is keeping it off the glass. An anchor almost always names a tile
+  // that needs somebody -- which focus mode is showing already -- and turning the mode off to
+  // reach a tile that was never hidden throws away the pass the operator was in the middle of.
+  if (quieted(name)) focusMode(false);
+  focus(name);
 }
 
 window.addEventListener("hashchange", followHash);
@@ -939,10 +968,23 @@ document.addEventListener("keydown", function (e) {
   if (/^[1-9]$/.test(e.key)) {
     // The number printed on a tile comes from the arrangement, so the key that focuses it must
     // too. Reading registry order here meant that the moment anything was moved or pinned, the
-    // badge said 3 and pressing 3 focused something else.
-    var name = getEffectiveOrder()[Number(e.key) - 1];
-    if (name) focus(name);
+    // badge said 3 and pressing 3 focused something else. The *visible* order (#173), so a digit
+    // can no longer zoom a tile that is not on the glass -- which blanked the window, because zoom
+    // hides every other tile and focus mode was already hiding that one.
+    var name = visibleOrder()[Number(e.key) - 1];
+    if (!name) return;
+    // Zooming a tile focus mode is quieting was a blank window: zoom hides every other tile and
+    // the mode was already hiding this one. The operator pressed the number printed on that tile,
+    // so the mode gives way rather than the window going dark -- the same answer `#tile=` gives.
+    if (quieted(name)) focusMode(false);
+    focus(name);
     return;
+  }
+  if (e.key === "h") {
+    // Hide the tile the operator is on. Every drag gesture has a keyboard equivalent, and so does
+    // this one -- a desk that can only be arranged with a mouse cannot be arranged by someone typing.
+    var onTile = document.activeElement && document.activeElement.closest && document.activeElement.closest(".tile");
+    if (onTile && onTile.dataset.repo) { setHidden(onTile.dataset.repo, true); return; }
   }
   if (e.key === "n") { section("drawer"); return; }
   if (e.key === "b") { section("board"); return; }
@@ -1082,8 +1124,10 @@ refresh().then(function () {
   connect();
   loadThemes();
   loadNotifications();
-  loadDesk();
-  followHash();
+  // The anchor is answered *after* the desk, not beside it: whether a tile is hidden is the
+  // server's arrangement, and a `#tile=` that lands before that has loaded reads every tile as on
+  // the glass -- so the one thing it was asked to do, reopen a tile that is not, it did not (#173).
+  loadDesk().then(followHash);
   if (LAYOUT === "roles" && VIEW === "board") boardPanel(true);
   if (LAYOUT === "screens" && !SCREEN) { boardPanel(true); trayPanel(true); }
 });
@@ -2052,6 +2096,42 @@ function getEffectiveOrder() {
   return result;
 }
 
+/* Hidden, and never hiding what needs a person (#173).
+
+   A hidden tile keeps its slot in `order`, so reopening puts it back where it was. The one rule
+   that overrides the operator's own choice is the fold's: a tile that needs somebody is on the
+   glass whatever the arrangement says, because hiding a demand is how a demand gets missed. */
+function isHidden(name) {
+  var entry = tiles.get(name);
+  if (entry && entry.el.classList.contains("needs-human")) return false;
+  return ((getLayoutArrangement().hidden) || []).indexOf(name) >= 0;
+}
+
+function visibleOrder() {
+  return getEffectiveOrder().filter(function (n) { return !isHidden(n); });
+}
+
+/* Focus mode is not part of the arrangement -- it quiets tiles with a class while `hidden` stays
+   where the operator put it -- so this is "a mode is keeping it off the glass right now" and
+   `isHidden` is "the operator put it away". A tile being held is one the operator asked to keep
+   through the pass, so the mode is not quieting that one. */
+function quieted(name) {
+  if (!needsOnly) return false;
+  var entry = tiles.get(name);
+  return !!entry && !entry.el.classList.contains("needs-human") && !held.has(name);
+}
+
+function setHidden(name, hide) {
+  var curArr = getLayoutArrangement();
+  var next = ((curArr.hidden) || []).slice();
+  var at = next.indexOf(name);
+  if (hide && at < 0) next.push(name);
+  if (!hide && at >= 0) next.splice(at, 1);
+  post("arrange", { layout: LAYOUT, hidden: next }).then(function (r) {
+    if (r && r.ok) { mergeDesk(r); place(); }
+  });
+}
+
 /* Moving an element with `appendChild` takes the focus off it -- so a grid that re-appends every
    tile on every draw (and the stream draws several times a second while an agent is talking) took
    the focus off the tile the operator had just selected, and Alt+arrow reached nothing. The order
@@ -2063,6 +2143,7 @@ function reorderDomTiles() {
   var curArr = getLayoutArrangement();
   var sizes = curArr.size || {};
   var pinned = curArr.pinned || [];
+  var shown = visibleOrder();
 
   var inDom = Array.prototype.map.call(grid.children, function (el) { return el.dataset.repo; });
   var needsMove = inDom.join("\u0000") !== order.filter(function (n) { return tiles.has(n); }).join("\u0000");
@@ -2080,7 +2161,12 @@ function reorderDomTiles() {
     var entry = tiles.get(name);
     if (entry && entry.el) {
       if (needsMove) grid.appendChild(entry.el);
-      text(entry.el.querySelector(".n"), index + 1);
+      // Hidden is a class rather than `el.hidden`, so the tile keeps its slot in `order` and
+      // reopening puts it back where it was rather than at the end.
+      var off = shown.indexOf(name) < 0;
+      entry.el.classList.toggle("is-hidden", off);
+      // The number is the key that focuses it, so it counts what is on the glass.
+      text(entry.el.querySelector(".n"), off ? "" : String(shown.indexOf(name) + 1));
       var sz = sizes[name] || 1;
       entry.el.classList.toggle("size-2", sz === 2);
       var szBtn = entry.el.querySelector(".sizetoggle");
@@ -2228,6 +2314,76 @@ function solo() {
 /* The one function that decides what this window shows. Body classes only: the stylesheet is the
    layout, and every arrangement is the same DOM, so a tile cannot mean one thing on one screen and
    something else on another. */
+/* The dock (#173): one chip per tile that is not on the glass.
+
+   Five `display:none` rules and one `.remove()` used to take tiles away as side effects of modes --
+   zoom, focus mode, a solo window, the laptop view, and a repository leaving the registry -- and
+   nothing said where they went. Everything off the glass is a chip here, and a chip is one click
+   from being back. A chip that needs a person is red and chimes like the tile would: hiding a
+   demand is how a demand gets missed, which is the one rule the operator's own choice cannot
+   override. */
+var departed = new Map();      /* repos that left the registry, kept a day so their tile is not just gone */
+
+function drawDock() {
+  var dock = document.getElementById("dock");
+  var list = dock.querySelector(".dock-chips");
+  var pattern = list.querySelector(".dock-chip");
+  var zoomed = document.body.classList.contains("focused");
+  var shown = visibleOrder();
+
+  var off = [];
+  getEffectiveOrder().forEach(function (name) {
+    var entry = tiles.get(name);
+    if (!entry) return;
+    if (zoomed) {
+      // While one tile fills the window, the other eight are the ones you cannot see.
+      if (!entry.el.classList.contains("is-focused")) off.push({ name: name, why: "zoomed past" });
+      return;
+    }
+    if (shown.indexOf(name) < 0) off.push({ name: name, why: "hidden" });
+    else if (quieted(name)) off.push({ name: name, why: "quiet" });
+  });
+  departed.forEach(function (row, name) { off.push({ name: name, why: "removed", gone: row }); });
+
+  while (list.children.length > 1) list.removeChild(list.lastChild);
+  if (!off.length) { dock.hidden = true; return; }
+  dock.hidden = false;
+  text(dock.querySelector(".dock-label"), off.length + " not on the glass");
+
+  off.forEach(function (item) {
+    var li = pattern.cloneNode(true);
+    li.hidden = false;
+    var entry = tiles.get(item.name);
+    var row = entry ? entry.row : null;
+    var needs = entry && entry.el.classList.contains("needs-human");
+    li.className = "dock-chip" + (needs ? " needs-human" : "") + (item.gone ? " departed" : "");
+    text(li.querySelector(".dc-name"), item.name);
+    text(li.querySelector(".dc-chip"),
+         item.gone ? "removed from the registry"
+                   : ((row && row.state ? row.state : "") + (row && row.at ? " · " + age(ageOf(row)) : "")));
+    var badge = li.querySelector(".dc-badge");
+    var unreadN = unread.get(item.name) || 0;
+    badge.hidden = !unreadN;
+    text(badge, String(unreadN));
+    var button = li.querySelector(".dock-open");
+    button.title = item.gone
+      ? "`ad-fleet repo add " + item.gone.path + "` restores it"
+      : (needs ? (row && row.why) || "needs you" : "show " + item.name);
+    button.addEventListener("click", function () {
+      if (item.gone) return;
+      if (item.why === "hidden") setHidden(item.name, false);
+      else if (item.why === "quiet") focusMode(false);
+      else unfocus();
+      focus(item.name);
+    });
+    list.appendChild(li);
+  });
+}
+
+function ageOf(row) {
+  return row && typeof row.last_event_age_s === "number" ? row.last_event_age_s : 0;
+}
+
 function place() {
   var body = document.body;
   var one = solo();
@@ -2262,7 +2418,39 @@ function place() {
   // to leave focus mode would be sitting under the very tiles it claims are not there.
   document.getElementById("nonefocus").hidden =
     !(needsOnly && !one && need === 0 && held.size === 0 && tiles.size > 0);
+  drawNotice();
+  drawSwap(one);
+  drawDock();
+}
+
+/* The footer's one line, and one owner (#173).
+
+   `place()` runs several times a second while the stream is talking, and it used to clear this
+   element on every draw -- so a message written by anything else lived a few milliseconds and the
+   operator never saw it. A line said here holds the footer for its few seconds; the layout's own
+   standing warning takes it back when they pass. */
+var saidLine = "";
+var saidUntil = 0;
+var sayTimer = null;
+
+function say(message, seconds) {
+  saidLine = message;
+  saidUntil = Date.now() + (seconds || 6) * 1000;
+  if (sayTimer) clearTimeout(sayTimer);
+  // The stream usually redraws long before this, but a quiet fleet does not -- and a footer that
+  // keeps saying "reopened" ten minutes later is worse than one that says nothing.
+  sayTimer = setTimeout(function () { sayTimer = null; drawNotice(); }, (seconds || 6) * 1000 + 50);
+  drawNotice();
+}
+
+function drawNotice() {
   var notice = document.getElementById("notice");
+  if (saidLine && Date.now() < saidUntil) {
+    text(notice, saidLine);
+    notice.hidden = false;
+    return;
+  }
+  saidLine = "";
   if (unknownLayout) {
     text(notice, "unknown layout '" + unknownLayout + "' — showing grid");
     notice.hidden = false;
@@ -2270,7 +2458,6 @@ function place() {
     text(notice, "");
     notice.hidden = true;
   }
-  drawSwap(one);
 }
 
 /* The tab bar is the friction, so the window's own title says which screen it is. */
@@ -2436,6 +2623,12 @@ function focusMode(on, skipPost) {
   if (!skipPost) saveWindow(patch);
   place();
 }
+
+document.getElementById("showall").addEventListener("click", function () {
+  post("arrange", { layout: LAYOUT, hidden: [] }).then(function (r) {
+    if (r && r.ok) { mergeDesk(r); if (needsOnly) focusMode(false); else place(); }
+  });
+});
 
 document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 

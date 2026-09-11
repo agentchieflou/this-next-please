@@ -104,6 +104,29 @@ screen, dimmed, saying which action held it — until you release it or leave fo
 that goes back to needing somebody drops the note and reads as a normal demand again; it never takes
 the credit for a question it did not answer.
 
+### The dock — where a tile went (#173)
+
+Five `display:none` rules and one `.remove()` used to take a tile off the glass as a side effect of
+a mode — zoom, focus mode, a solo window, the laptop's narrow view, and a repository leaving the
+registry — and nothing anywhere said where it had gone. The operator's own answer was to reload the
+page and hope.
+
+The **dock** is a strip along the bottom with one chip per tile that is not on the glass. Each chip
+says the repo name, the state the tile was in and how old it is, and how many transcript lines have
+arrived since you last looked. One click puts it back, and the chip knows *why* it went, so it
+undoes the right thing: a hidden tile is unhidden, one quieted by focus mode leaves focus mode, one
+zoomed past unzooms. A chip for a repository that has **left the registry** says so and offers the
+`ad-fleet repo add <path>` that would bring it back, rather than the tile simply being gone.
+
+A chip whose agent **needs a person** is red and chimes like the tile would — but that case should
+not arise from hiding, because a tile that needs somebody is on the glass whatever the arrangement
+says. *Show all* empties `hidden` in one press.
+
+`#tile=<repo>` — the anchor the Windows toasts and both IDE shells use — **reopens** a hidden tile
+rather than quietly doing nothing, and the footer says it did. An anchor naming a repository with no
+tile now says *no tile for 'x' — is it still registered?*; it used to do nothing at all, which read
+as the dashboard having hung.
+
 ### Sessions the fleet did not start
 
 A `copilot` running in a console window is an agent working in a registered checkout that the fleet
@@ -145,8 +168,9 @@ red everywhere or the colour stops being information:
 
 | Key | Does |
 | --- | --- |
-| `1`–`9` | focus that tile |
+| `1`–`9` | focus that tile — counting what is **on the glass** |
 | `f` | focus mode: only the agents that need you |
+| `h` | hide the tile the keyboard is on; its chip is in the dock |
 | `/` | the search box — `where` over the catalogue |
 | `i` | the sidebar's inbox |
 | `a` | approve the focused tile's pending write |
@@ -158,7 +182,8 @@ red everywhere or the colour stops being information:
 | `Esc` | close the sidebar, or back to the grid (or out of a text box) |
 
 The number on a tile is the key that focuses it, and it follows the arrangement: move a tile and its
-number moves with it. Every drag gesture has a keyboard equivalent, because a desk that can only be
+number moves with it, and a tile that is off the glass has no number at all — a digit that zoomed a
+tile a mode was already hiding left a blank window, because zoom hides every other tile. Every drag gesture has a keyboard equivalent, because a desk that can only be
 arranged with a mouse cannot be arranged by someone who is typing.
 
 Deny has no shortcut on purpose: it needs a reason typed, and a one-key refusal with an empty
@@ -200,6 +225,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/approve` | `{id, reason?}` |
 | POST | `/api/deny` | `{id, reason}` |
 | POST | `/api/select` | `{repo?, screens?}` — the project every window agrees on ([fleet-layouts.md](fleet-layouts.md)) |
+| POST | `/api/arrange` | `{layout, order?, size?, pinned?, hidden?}` — the desk, shared by every window (#173) |
 | POST | `/api/attach` | `{id, repo}` — copies one Downloads file into `<repo>/.agent/in/<KEY>/` |
 | POST | `/api/answer` | `{repo, answers: [{id, answer}]}` — every answer in one resume (#165) |
 | POST | `/api/scope/resolve` | `{repo, files: [{name, size, sha}]}` — which of this checkout's files these are (#166) |
