@@ -20,12 +20,13 @@ history all see it without a second channel.
 from __future__ import annotations
 import os
 import re
+import shutil
 import time
 
 from .. import config as C
 from .. import textio
 from . import agentstate, events as E
-from .registry import Registry, RegistryError, agent_dir
+from .registry import Registry, RegistryError, agent_dir, fleet_dir
 
 # How long a gap between two heartbeats means the machine slept rather than the fleet being busy.
 # Two minutes: a turn can legitimately take that long, an idle poll never can.
@@ -315,5 +316,58 @@ def gc(days: int = DEFAULT_GC_DAYS, *, registry: Registry | None = None,
             except OSError:
                 pass
 
+    orphans = _orphan_agent_dirs(names, cutoff)
+    for directory in orphans:
+        try:
+            shutil.rmtree(directory)
+            removed.append(textio.norm_path(directory))
+        except OSError:
+            pass
+
     approval._prune(days)
-    return {"removed": removed, "days": days, "kept_running": kept_running}
+    return {"removed": removed, "days": days, "kept_running": kept_running,
+            "orphans": [textio.norm_path(d) for d in orphans]}
+
+
+def _orphan_agent_dirs(names: list[str], cutoff: float) -> list[str]:
+    """Agent directories belonging to no registered repository, untouched since the cutoff (#175).
+
+    `repo rm` leaves one behind on purpose -- it holds the stream `ad-fleet history` reads and the
+    sessions that could still be resumed if the checkout is registered again -- but nothing ever
+    listed the `agents/` directory itself, so once a name left the registry its folder could never
+    be reached again at any age. `repo rm` now names it, and this is what takes it.
+
+    Whole-directory, and only when *everything* in it is older than the cutoff: half a pruned
+    transcript is worse than a folder that is slightly too big, which is the same reason the live
+    `events.norm.jsonl` of a registered agent is never a candidate.
+    """
+    from . import supervisor
+
+    root = os.path.join(fleet_dir(), "agents")
+    keep = {textio.safe_name(n) for n in names}
+    out = []
+    try:
+        entries = sorted(os.listdir(root))
+    except OSError:
+        return out
+    for entry in entries:
+        directory = os.path.join(root, entry)
+        if entry in keep or not os.path.isdir(directory):
+            continue
+        if supervisor.live(entry):
+            continue                          # unregistered and still running: not litter, a bug
+        if _newest_mtime(directory) >= cutoff:
+            continue
+        out.append(directory)
+    return out
+
+
+def _newest_mtime(directory: str) -> float:
+    newest = 0.0
+    for dirpath, _dirs, files in os.walk(directory):
+        for name in [*files, ""]:
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(dirpath, name)))
+            except OSError:
+                pass
+    return newest

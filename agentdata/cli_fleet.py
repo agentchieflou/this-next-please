@@ -30,7 +30,7 @@ from .console import prompt as ask_line, utf8_stdout
 from .fleet import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff,
                     inbox as IN, launch, lifecycle as L, links as LK, notify as N, opener as O,
                     poll as P, preflight as PF, scan as SC, serve as S, supervisor)
-from .fleet.registry import Registry, RegistryError, fleet_dir
+from .fleet.registry import Registry, RegistryError, agent_dir, fleet_dir
 from .version import add_version, version_string
 
 EXIT_OK, EXIT_FAILED, EXIT_REFUSED = 0, 1, 2
@@ -63,11 +63,17 @@ def cmd_repo_add(a) -> int:
             "`ad-fleet repo add <path>`, or `ad-fleet repo add --scan <parent folder>` to be "
             "shown every project under one folder"))
     try:
-        repo = Registry().add(a.path, a.name)
+        repo = Registry().add(a.path, a.name, project=getattr(a, "project", None))
     except RegistryError as e:
         return _refuse("ad-fleet repo add", e)
     return _emit("ad-fleet repo add", {"repo": repo.name, "path": repo.path,
                                        "jira_project": repo.jira_project or "",
+                                       # Two working trees of one repository are two agents and one
+                                       # project (#175). Said here because this is where the fleet
+                                       # decided it, and a name it chose without saying why is a
+                                       # name the operator has to guess at.
+                                       "project": repo.project,
+                                       "worktree_of": repo.worktree_of,
                                        "fleet_dir": fleet_dir()})
 
 
@@ -76,18 +82,27 @@ def cmd_repo_rm(a) -> int:
         repo = Registry().remove(a.name)
     except RegistryError as e:
         return _refuse("ad-fleet repo rm", e)
-    return _emit("ad-fleet repo rm", {"repo": repo.name, "path": repo.path})
+    # The agent's own directory stays: it holds the event stream `ad-fleet history` reads, and the
+    # sessions that could still be resumed if the checkout is registered again. Named, because an
+    # unregistered agent's directory is otherwise a folder nobody knows to look at (#175).
+    return _emit("ad-fleet repo rm", {"repo": repo.name, "path": repo.path,
+                                      "agent_dir": agent_dir(repo.name),
+                                      "next": f"`ad-fleet gc --days 0` takes it, or "
+                                              f"`ad-fleet repo add {repo.path}` brings it back"})
 
 
 def cmd_repo_list(a) -> int:
     reg = Registry()
-    rows = [[r.name, r.path, r.jira_project or "", r.added or ""] for r in reg.sorted()]
+    rows = [[r.name, r.project, r.path, r.jira_project or "", r.added or ""] for r in reg.sorted()]
+    cols = ["repo", "project", "path", "jira", "added"]
     if ui.on():
-        ui.table(["repo", "path", "jira", "added"], rows, title="fleet repositories")
+        ui.table(cols, rows, title="fleet repositories")
         return EXIT_OK
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet repo list",
-                                "repos": len(rows), "fleet_dir": fleet_dir()}}))
-    print(toon.table("repos", ["repo", "path", "jira", "added"], rows))
+                                "repos": len(rows),
+                                "projects": len({r.project for r in reg.sorted()}),
+                                "fleet_dir": fleet_dir()}}))
+    print(toon.table("repos", cols, rows))
     return EXIT_OK
 
 
@@ -233,7 +248,9 @@ def cmd_gc(a) -> int:
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet gc", "days": a.days,
                                 "removed": len(result["removed"]),
                                 "left_alone": ", ".join(result["kept_running"]) or "none",
-                                "note": "rotated logs and answered approvals only; a live "
+                                "orphans": len(result.get("orphans") or []),
+                                "note": "rotated logs, answered approvals, and the agent "
+                                        "directories of repositories no longer registered; a live "
                                         "`events.norm.jsonl` is what `ad-fleet history` reads"}}))
     print(toon.table("removed", ["path"], [[p] for p in result["removed"]]))
     return EXIT_OK
@@ -431,7 +448,7 @@ def cmd_logs(a) -> int:
 # The proposal's columns, in the order #129 fixes them. `why` is last because it is the only one
 # that is a sentence: everything left of it is a fact the operator can scan down.
 SCAN_COLUMNS = ["path", "name", "branch", "has_agents_md", "has_state", "jira_project", "pbip",
-                "last_commit_age_days", "already_registered", "why"]
+                "last_commit_age_days", "already_registered", "worktree_of", "why"]
 
 # `ad-fleet serve --layout roles` is `?layout=roles` on the page. The flag is this file's and the
 # rendering is the dashboard's, so the query parameter's name is written down once, here, rather
@@ -677,6 +694,16 @@ def cmd_show(a) -> int:
         return _refuse("ad-fleet show", e)
     finally:
         cat.close()
+
+    # The catalogue writes one entry per *repository*, and its branch reader will not follow a
+    # worktree's `gitdir:` pointer -- rightly, that is a second repository's internals. So a
+    # worktree's row carried a blank branch, which is the one string two checkouts most need to
+    # differ in. Read here, in the checkout, the same way the poll does (#175).
+    if not data.get("branch"):
+        try:
+            data["branch"] = P.read_git(Registry().get(a.project)).get("branch", "")
+        except Exception:                    # noqa: BLE001 - a blank branch must never fail a show
+            pass
 
     facts, state = data["facts"], data["state"]
     rail = LK.links_for(data, facts, state)
@@ -1199,6 +1226,9 @@ def build_parser() -> argparse.ArgumentParser:
     add = repo_sub.add_parser("add", help="register a repository (needs AGENTS.md and .agent/state.json)")
     add.add_argument("path", nargs="?")
     add.add_argument("--name", help="what the fleet calls it (default: the folder name)")
+    add.add_argument("--project", metavar="NAME",
+                     help="which project this checkout is one of (default: a git worktree takes "
+                          "the registered main checkout's project, and anything else is its own)")
     add.add_argument("--scan", metavar="FOLDER",
                      help="propose every project under FOLDER instead, and ask about each")
     add.add_argument("--depth", type=int, default=2,

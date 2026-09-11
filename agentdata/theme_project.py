@@ -47,19 +47,30 @@ def resolve_project_themes() -> list[dict[str, Any]]:
     reg = Registry()
     entries = []
     for r in reg.repos.values():
-        theme_name = proj_map.get(r.name) or proj_map.get(os.path.abspath(r.path)) or default_theme_name
+        # One colour per *project*, not per checkout (#175): two working trees of one repository
+        # are the same work, and the operator recognises the project by its colour. The project key
+        # is consulted first, and the seed is the project too -- otherwise an unconfigured project
+        # derived a different colour for each of its checkouts, which is the same failure with
+        # extra steps.
+        theme_name = (proj_map.get(r.project) or proj_map.get(r.name)
+                      or proj_map.get(os.path.abspath(r.path)) or default_theme_name)
         try:
-            t = theme.get(theme_name, seed=r.name)
+            t = theme.get(theme_name, seed=r.project)
         except Exception:
             t = theme.GREENS
         entries.append({
             "name": r.name,
+            "project": r.project,
             "path": textio.norm_path(os.path.abspath(r.path)),
             "theme_name": t.name,
             "theme": t,
             "accent": t.accent or "#3FB950",
             "escapes": theme.escapes(t),
         })
+    # Longest path first. The hooks match a directory by prefix, so a worktree checked out *inside*
+    # its main checkout would otherwise be recoloured by the parent's rule before its own is
+    # reached, and the two would be indistinguishable in the one place they most need not to be.
+    entries.sort(key=lambda e: (-len(e["path"]), e["name"]))
     return entries
 
 

@@ -333,7 +333,8 @@ def fleet_snapshot() -> dict:
 
     for row in supervisor.status():
         name = row["repo"]
-        try:
+        repo = None                          # rebound per row: a lookup that raised used to leave
+        try:                                 # the previous row's repository in hand
             repo = registry.get(name) if registry is not None else None
             if repo is not None:
                 E.refresh(name, repo.path, repo_state=repo.state())
@@ -379,21 +380,29 @@ def fleet_snapshot() -> dict:
         else:
             not_supervised_sentence = ""
 
-        # Resolve project accent
-        proj_entry = proj_theme_map.get(name) or proj_theme_map.get(os.path.abspath(row.get("path", "")))
+        # Resolve project accent. The project key first, then this checkout's own name: two
+        # working trees of one repository wear one colour (#175).
+        project = repo.project if repo is not None else name
+        proj_entry = (proj_theme_map.get(project) or proj_theme_map.get(name)
+                      or proj_theme_map.get(os.path.abspath(row.get("path", ""))))
         if isinstance(proj_entry, dict) and "accent" in proj_entry:
             accent = proj_entry["accent"]
         elif isinstance(proj_entry, dict) and "theme" in proj_entry:
-            pt = theme_or_none(proj_entry["theme"], seed=name)
+            pt = theme_or_none(proj_entry["theme"], seed=project)
             accent = pt.accent or "#3FB950"
         elif isinstance(proj_entry, str) and proj_entry:
-            pt = theme_or_none(proj_entry, seed=name)
+            pt = theme_or_none(proj_entry, seed=project)
             accent = pt.accent or "#3FB950"
         else:
             pt = theme_or_none(default_theme_name, seed=name)
             accent = pt.accent or "#3FB950"
 
         rows.append({"repo": name, "path": row.get("path", ""),
+                     # Which project this checkout is one of, and the checkouts beside it. A tile
+                     # is still one working tree with one agent; the strip is how the operator gets
+                     # from one to the next without hunting for its tile (#175).
+                     "project": row.get("project", "") or name,
+                     "worktree_of": row.get("worktree_of", ""),
                      "jira_project": row.get("jira_project", ""),
                      "accent": accent,
                      "pid": pid, "last_event_age_s": last_age_s,
@@ -430,6 +439,8 @@ def fleet_snapshot() -> dict:
                      # so that the page could take its length.
                      "run": {**curr_run, "events": None, "events_n": len(curr_run["events"])},
                      "recent": curr_run["events"][-40:] if curr_run["events"] else stream[-40:]})
+
+    _add_siblings(rows)
     from .. import config as C
 
     # `fleet.preflight: false` restores #98's immediate start: a drop launches instead of opening
@@ -438,6 +449,29 @@ def fleet_snapshot() -> dict:
             "desk": desk_state(), "theme": theme_state(),
             "preflight": C.get(C.load(), "fleet.preflight") is not False,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
+
+
+def _add_siblings(rows: list[dict]) -> None:
+    """The other checkouts of each row's project, for the switcher's strip (#175).
+
+    A tile is still **one working tree with one agent** -- the lock, the events and the session are
+    all per checkout. The strip is only how the operator gets from one to the next without hunting
+    the grid for its tile, so each sibling carries just enough to be a readable tab: the branch it
+    is on, the state its agent is in, and how old that is.
+    """
+    by_project: dict[str, list[dict]] = {}
+    for row in rows:
+        by_project.setdefault(row.get("project") or row["repo"], []).append(row)
+    for row in rows:
+        project = row.get("project") or row["repo"]
+        row["siblings"] = [
+            {"repo": other["repo"],
+             "branch": ((other.get("polls") or {}).get("git") or {}).get("value", {}).get("branch", ""),
+             "path": other.get("path", ""),
+             "state": other.get("state", ""),
+             "needs_human": other.get("needs_human", False),
+             "age": format_age_str(other.get("last_event_age_s", -1))}
+            for other in by_project.get(project, []) if other["repo"] != row["repo"]]
 
 
 # ------------------------------------------------------------------- the desk (#130 #131 #132)
@@ -844,17 +878,50 @@ def arrange(layout: str, *, order=None, size=None, pinned=None, hidden=None) -> 
         if size is not None and cur.get("size") != dict(size):
             cur["size"] = {str(k): int(v) for k, v in size.items()}
             changed = True
-        if pinned is not None and cur.get("pinned") != list(pinned):
-            cur["pinned"] = [str(x) for x in pinned]
-            changed = True
-        if hidden is not None and cur.get("hidden") != list(hidden):
-            cur["hidden"] = [str(x) for x in hidden]
-            changed = True
+        # Pinned and hidden are per *project* (#175): two working trees of one repository are one
+        # piece of work, and putting half of it away -- or pinning half of it first -- is an
+        # arrangement nobody asked for. Expanded here rather than in the page, so `ad-fleet hide`
+        # and every open window agree by construction.
+        if pinned is not None:
+            want = _whole_projects(pinned)
+            if cur.get("pinned") != want:
+                cur["pinned"] = want
+                changed = True
+        if hidden is not None:
+            want = _whole_projects(hidden)
+            if cur.get("hidden") != want:
+                cur["hidden"] = want
+                changed = True
         if changed:
             _selection["version"] += 1
             _selection["at"] = E.stamp()
             _save_desk()
         return desk_state()
+
+
+def _whole_projects(names) -> list[str]:
+    """Every checkout of every project named here, in the order the names arrived.
+
+    A name the registry does not know comes through untouched: an arrangement outlives a
+    registration, and silently dropping a tile's place because the checkout is unregistered today
+    would lose the operator's desk the moment a drive was disconnected.
+    """
+    wanted = [str(n) for n in names]
+    try:
+        repos = Registry().sorted()
+    except (RegistryError, OSError):
+        return wanted
+    project_of = {r.name: r.project for r in repos}
+    checkouts: dict[str, list[str]] = {}
+    for repo in repos:
+        checkouts.setdefault(repo.project, []).append(repo.name)
+
+    out: list[str] = []
+    for name in wanted:
+        for member in checkouts.get(project_of.get(name, ""), [name]):
+            if member not in out:
+                out.append(member)
+    return out
 
 
 def update_window(w: str = "main", **kwargs) -> dict:
@@ -1045,15 +1112,26 @@ def show_for(name: str) -> dict:
         facts = CAT._facts(repo.path)
     state = repo.state()
     rail = LK.links_for(repo, facts, state)
-    return {"project": name, "name": name, "path": textio.norm_path(repo.path),
+    cells = poll_state(name)
+    # The branch from the poll's git cell, which shells out *in this checkout* and is therefore
+    # already worktree-correct. The catalogue's own `branch` came from the index, and an index
+    # entry is written once for a repository -- so two worktrees of it read the same branch, which
+    # is the one string they most need to differ in. The catalogue's `_inside` wall (realpath every
+    # read, refuse anything outside the repository) is not touched for the sake of one string.
+    polled = ((cells.get("git") or {}).get("value") or {}).get("branch") or ""
+    return {"project": repo.project, "name": name, "repo": name,
+            "path": textio.norm_path(repo.path),
+            "worktree_of": repo.worktree_of,
             "indexed": indexed, "jira_project": repo.jira_project,
-            "branch": shown.get("branch", ""), "last_indexed": shown.get("last_indexed", ""),
+            "branch": polled or shown.get("branch", ""),
+            "branch_from": "poll" if polled else ("index" if shown.get("branch") else ""),
+            "last_indexed": shown.get("last_indexed", ""),
             "facts": tile_facts(facts), "state": state,
             "friction": (shown.get("friction") or [])[:DESK_LIMIT],
             "pbip": shown.get("pbip") or [],
             "links": LK.present(rail), "missing": [r for r in rail if not r.get("url")],
             "missing_keys": LK.missing_keys(rail),
-            "polls": poll_state(name), "verify": verify_for(repo)}
+            "polls": cells, "verify": verify_for(repo)}
 
 
 def desk_snapshot() -> dict:

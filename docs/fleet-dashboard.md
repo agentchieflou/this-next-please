@@ -118,9 +118,9 @@ Under the run line there is a **tab strip**:
 
 * The **main tab** is this checkout's live session — where the transcript, the reply box and the
   cards are.
-* The tabs beside it are the project's **other checkouts** ([#175](../docs/plan-sessions.md)), each
-  with its own agent and its own chip. Clicking one selects that checkout's tile; the strip stays,
-  so the way back is one click and never `Esc`.
+* The tabs beside it are the project's **other checkouts** (#175), each with its own agent, its own
+  branch and its own chip — a tile is still one working tree. Clicking one selects that checkout's
+  tile; the strip stays, so the way back is one click and never `Esc`.
 * **earlier (n)** lists this checkout's other sessions — title, how it ended, when, what it cost.
   The count comes off the event stream the tile already has, not off `sessions.json`, which exists
   only once somebody has rebuilt it; a tab reading *earlier (0)* over three real sessions would be
@@ -161,6 +161,10 @@ arrived since you last looked. One click puts it back, and the chip knows *why* 
 undoes the right thing: a hidden tile is unhidden, one quieted by focus mode leaves focus mode, one
 zoomed past unzooms. A chip for a repository that has **left the registry** says so and offers the
 `ad-fleet repo add <path>` that would bring it back, rather than the tile simply being gone.
+
+A project's checkouts are hidden and pinned as one, so they leave the glass together and come back
+as **one chip** saying how many it brings — two chips for one piece of work would be two things to
+click for one decision.
 
 A chip whose agent **needs a person** is red and chimes like the tile would — but that case should
 not arise from hiding, because a tile that needs somebody is on the glass whatever the arrangement

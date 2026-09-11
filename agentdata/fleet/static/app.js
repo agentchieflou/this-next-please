@@ -2597,25 +2597,48 @@ function drawDock() {
   dock.hidden = false;
   text(dock.querySelector(".dock-label"), off.length + " not on the glass");
 
+  // One chip per project (#175). A project's checkouts are hidden and pinned as one, so they leave
+  // the glass together, and two chips for one piece of work is two things to click for one
+  // decision. The chip says how many come back, so nobody is surprised by the second tile.
+  var chips = [];
+  var groups = new Map();
   off.forEach(function (item) {
+    var entry = tiles.get(item.name);
+    var project = (entry && entry.row && entry.row.project) || item.name;
+    var key = project + "\u0000" + item.why;
+    var group = groups.get(key);
+    if (group) { group.members.push(item.name); return; }
+    group = { project: project, members: [item.name], why: item.why,
+              gone: item.gone, name: item.name };
+    groups.set(key, group);
+    chips.push(group);
+  });
+
+  chips.forEach(function (item) {
     var li = pattern.cloneNode(true);
     li.hidden = false;
+    var several = item.members.length > 1;
     var entry = tiles.get(item.name);
     var row = entry ? entry.row : null;
-    var needs = entry && entry.el.classList.contains("needs-human");
+    var needs = item.members.some(function (name) {
+      var e = tiles.get(name);
+      return !!e && e.el.classList.contains("needs-human");
+    });
     li.className = "dock-chip" + (needs ? " needs-human" : "") + (item.gone ? " departed" : "");
-    text(li.querySelector(".dc-name"), item.name);
+    text(li.querySelector(".dc-name"), several ? item.project : item.name);
     text(li.querySelector(".dc-chip"),
-         item.gone ? "removed from the registry"
-                   : needs ? ((row && row.why) || "needs you")
-                   : ((row && row.state ? row.state : "") + (row && row.at ? " · " + age(ageOf(row)) : "")));
+         several ? item.members.length + " checkouts"
+                 : item.gone ? "removed from the registry"
+                 : needs ? ((row && row.why) || "needs you")
+                 : ((row && row.state ? row.state : "") + (row && row.at ? " · " + age(ageOf(row)) : "")));
     var badge = li.querySelector(".dc-badge");
-    var unreadN = unread.get(item.name) || 0;
+    var unreadN = item.members.reduce(function (n, name) { return n + (unread.get(name) || 0); }, 0);
     badge.hidden = !unreadN;
     text(badge, String(unreadN));
     var button = li.querySelector(".dock-open");
     button.title = item.gone
       ? "`ad-fleet repo add " + item.gone.path + "` restores it"
+      : several ? "show " + item.project + ": " + item.members.join(", ")
       : (needs ? (row && row.why) || "needs you" : "show " + item.name);
     button.addEventListener("click", function () {
       if (item.gone) return;

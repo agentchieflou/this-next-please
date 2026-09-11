@@ -1,4 +1,4 @@
-"""Starting, watching and stopping one agent per repository.
+"""Starting, watching and stopping one agent per registered working tree.
 
 One agent per repo, enforced by a lock file rather than by hope: two `copilot` processes in one
 checkout would both edit the same working tree and both believe they owned `.agent/state.json`.
@@ -408,7 +408,7 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
             raise SupervisorError(
                 f"{name} already has a live agent (pid {lock.get('pid')}, ticket "
                 f"{lock.get('ticket') or 'none'})",
-                f"one agent per repository. Use `ad-fleet send {name} \"…\"` to talk to it, or "
+                f"one agent per working tree. Use `ad-fleet send {name} \"…\"` to talk to it, or "
                 f"`ad-fleet stop {name}` first",
                 code="live_agent")
         # --force means "replace it", never "run a second one beside it": two agents in one
@@ -665,7 +665,11 @@ def status(registry: Registry | None = None) -> list[dict]:
     lifecycle.reap_all(registry=reg)
     rows = []
     for repo in reg.sorted():
-        row = {"repo": repo.name, "path": repo.path, "jira_project": repo.jira_project}
+        # `project` rides beside `repo` rather than replacing it: the lock, the agent directory and
+        # the events are all per working tree, and the project is only what says two of them are
+        # the same piece of work (#175). One agent per registered working tree.
+        row = {"repo": repo.name, "project": repo.project, "path": repo.path,
+               "worktree_of": repo.worktree_of, "jira_project": repo.jira_project}
         row.update(agent_state(repo.name, repo))
         rows.append(row)
     return rows

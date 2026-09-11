@@ -114,6 +114,11 @@ tomorrow.
   rather than going dark.
 * `hidden` is additive: an arrangement written before this slice has no such key, and loads.
 
+`hidden` and `pinned` are per **project**: two `git worktree` checkouts of one repository are one
+piece of work, and putting half of it away — or pinning half of it first — is an arrangement nobody
+asked for. Expanded on the server, so `ad-fleet hide` and every open window agree by construction,
+and a name the registry no longer knows keeps its place rather than being dropped from the desk.
+
 Nothing is taken away silently. Everything off the glass — hidden, quieted by focus mode, zoomed
 past, or a repository that has left the registry — is a **chip in the dock** along the bottom, and a
 chip is one click from being back. See [fleet-dashboard.md](fleet-dashboard.md) §The dock.
