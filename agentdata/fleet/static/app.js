@@ -283,6 +283,21 @@ function makeTile(row, index) {
 
   /* The dispatch card's own three controls (#164). `Enter` in the brief box starts; `Esc` cancels,
      the way `Esc` leaves every other thing on this page. */
+  /* One Send for every answer typed (#165): N answers cost one turn, not N. */
+  el.querySelector(".asks-send").addEventListener("click", function () {
+    var answers = [];
+    Array.prototype.forEach.call(el.querySelectorAll(".asks-list .ask"), function (li) {
+      var value = li.querySelector(".ask-answer").value.trim();
+      if (value) answers.push({ id: li.dataset.qid, answer: value });
+    });
+    if (!answers.length) {
+      text(el.querySelector(".asks-note"), "pick a choice or type an answer first");
+      return;
+    }
+    text(el.querySelector(".asks-note"), "");
+    action(el, "answer", { repo: row.repo, answers: answers });
+  });
+
   el.querySelector(".dispatch-close").addEventListener("click", function () { closeDispatch(el); });
   el.querySelector(".dispatch-go").addEventListener("click", function () {
     var card = el.querySelector(".dispatch");
@@ -396,6 +411,79 @@ function action(el, what, body) {
     refresh();
     return r;
   }).catch(function (e) { fail(el, String(e)); });
+}
+
+/* ------------------------------------------------------------------- the question card (#165)
+
+   The agent's open questions, as records: choices as buttons, a box for anything else, one Send.
+   Answering used to be a free-text reply the agent had no way to tie to what it asked, and which
+   did not unblock it -- `open_questions` persisted until `--clear-questions`, which no skill ran on
+   resume, so the next bootstrap stopped on the same block. */
+
+function drawAsks(el, row) {
+  var card = el.querySelector(".asks");
+  var list = card.querySelector(".asks-list");
+  var open = (row.asked || []).filter(function (q) { return q.blocking !== false; });
+  var assumed = row.assumed || [];
+
+  if (!open.length) {
+    card.hidden = true;
+  } else {
+    card.hidden = false;
+    text(card.querySelector(".asks-n"), open.length === 1 ? "1 question" : open.length + " questions");
+    // Redraw only when the set changed: the operator may be mid-sentence in one of these boxes,
+    // and a refresh every few seconds that threw the typing away would make the card unusable.
+    var signature = open.map(function (q) { return q.id + ":" + q.q; }).join("|");
+    if (list.dataset.signature !== signature) {
+      list.dataset.signature = signature;
+      var pattern = list.querySelector(".ask");
+      while (list.children.length > 1) list.removeChild(list.lastChild);
+      open.forEach(function (q) {
+        var li = pattern.cloneNode(true);
+        li.hidden = false;
+        li.dataset.qid = q.id || "";
+        text(li.querySelector(".ask-q"), q.q || "");
+        var picked = li.querySelector(".ask-answer");
+        picked.placeholder = q.want === "file" ? "a path, or drop the file on this tile" : "your answer";
+        var choices = li.querySelector(".ask-choices");
+        (q.choices || []).forEach(function (choice) {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.className = "ask-choice";
+          text(b, choice + (choice === q.default ? " (default)" : ""));
+          b.setAttribute("aria-pressed", "false");
+          b.addEventListener("click", function () {
+            picked.value = choice;
+            Array.prototype.forEach.call(choices.children, function (other) {
+              other.setAttribute("aria-pressed", String(other === b));
+            });
+          });
+          choices.appendChild(b);
+        });
+        list.appendChild(li);
+      });
+    }
+  }
+
+  var strip = el.querySelector(".assumed");
+  if (!assumed.length) {
+    strip.hidden = true;
+  } else {
+    strip.hidden = false;
+    var shape = strip.querySelector(".assumption");
+    while (strip.children.length > 1) strip.removeChild(strip.lastChild);
+    assumed.forEach(function (q) {
+      var li = shape.cloneNode(true);
+      li.hidden = false;
+      text(li.querySelector(".assumption-what"), "assumed: " + (q.assume || q.default || q.q));
+      li.querySelector(".overturn").addEventListener("click", function () {
+        var say = el.querySelector(".say");
+        say.value = "That assumption is wrong: " + (q.assume || q.q) + ". ";
+        say.focus();
+      });
+      strip.appendChild(li);
+    });
+  }
 }
 
 function drawTile(el, row, approvals) {
@@ -544,6 +632,7 @@ function drawTile(el, row, approvals) {
     text(el.querySelector(".summary"), mine.summary || "");
     text(el.querySelector(".payload"), JSON.stringify(mine.payload || {}, null, 2));
   }
+  drawAsks(el, row);
   drawCells(el, row.polls || {});
 }
 

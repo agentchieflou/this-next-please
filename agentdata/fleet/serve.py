@@ -47,7 +47,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
-               inbox as IN, links as LK, notify as N, poll as P, supervisor)
+               inbox as IN, lifecycle, links as LK, notify as N, poll as P, supervisor)
 from .registry import Registry, RegistryError, fleet_dir
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -1071,6 +1071,20 @@ def act(what: str, body: dict) -> dict:
             raise ServeError("nothing to send", "type a message first")
         lock = supervisor.send(repo, message, cfg=C.load())
         return {"repo": repo, "pid": lock["pid"]}
+    if what == "answer":
+        # Every answer the operator typed, in one resume. `send` is the transport, because a reply
+        # to a stopped agent has always been a respawn with `--resume` -- there is no pipe to an
+        # agent's stdin. What is new is that N answers cost one turn instead of N.
+        from .. import config as C
+
+        answers = [(str(a.get("id") or ""), str(a.get("answer") or ""))
+                   for a in (body.get("answers") or [])
+                   if str(a.get("id") or "") and str(a.get("answer") or "").strip()]
+        if not answers:
+            raise ServeError("nothing to answer",
+                             "pick a choice or type an answer for at least one question")
+        lock = supervisor.send(repo, lifecycle.answers_prompt(answers), cfg=C.load())
+        return {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers]}
     if what == "stop":
         return supervisor.stop(repo)
     if what == "reset":

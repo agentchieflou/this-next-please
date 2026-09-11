@@ -5,7 +5,8 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 # Router
 
 1. Use the `phase`, `active_ticket` and `open_questions` `session-bootstrap` handed you **if it invoked you in this same turn**. Otherwise read `.agent/state.json` — on every later task in the session you must, because a skill has run since and state changes.
-2. If `open_questions` is non-empty → invoke `friction-log`. STOP.
+2. If `open_questions` holds a **blocking** entry with no `answered` stamp → invoke `friction-log`. STOP.
+   An entry carrying `assume` is one the agent stated and continued on: it is not a stop.
 3. Match the user's request to ONE row. First match wins.
 
 | Request mentions | Invoke |

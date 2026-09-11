@@ -120,6 +120,21 @@ def cmd_start(a) -> int:
                                     "next": f"ad-fleet status --repo {a.repo}"})
 
 
+def cmd_answer(a) -> int:
+    """Answer one of an agent's open questions, and let it continue.
+
+    The page sends every answer in one resume; from a terminal one at a time is the natural shape,
+    and both call `serve.act("answer", ...)` so the two cannot drift apart.
+    """
+    try:
+        out = S.act("answer", {"repo": a.repo, "answers": [{"id": a.id, "answer": a.answer}]})
+    except (RegistryError, supervisor.SupervisorError, S.ServeError) as e:
+        return _refuse("ad-fleet answer", e)
+    return _emit("ad-fleet answer", {"repo": a.repo, "answered": ", ".join(out.get("answered") or []),
+                                     "pid": out.get("pid"),
+                                     "next": f"ad-fleet status --repo {a.repo}"})
+
+
 def cmd_preflight(a) -> int:
     """Is this ticket ready to hand over? The dispatch card, as TOON.
 
@@ -1194,6 +1209,12 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--brief-file", dest="brief_file", metavar="PATH",
                        help="the same, read from a file")
     start.set_defaults(fn=cmd_start)
+
+    ans = sub.add_parser("answer", help="answer an agent's open question so it can continue")
+    ans.add_argument("repo")
+    ans.add_argument("id", help="the question's id, as `ad-fleet status` and the tile show it")
+    ans.add_argument("answer", help="what to tell it")
+    ans.set_defaults(fn=cmd_answer)
 
     pf = sub.add_parser("preflight", help="is this ticket ready to hand over? (spends no premium request)")
     pf.add_argument("ticket")

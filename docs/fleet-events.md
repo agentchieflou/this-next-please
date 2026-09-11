@@ -145,10 +145,27 @@ never fails the save.
 ```
 
 **`question_opened`** — one per question added to `open_questions`. Grown at schema 1 with
-optional `id, choices, default, want, blocking` beside `question`.
+optional `id, choices, default, want, blocking, assume` beside `question`.
+
+`question` keeps meaning exactly what it always meant — the sentence a person reads — so a reader
+written before #165 keeps working. `id` is what an answer names; `choices` and `default` are what
+the card offers; `want` is `decision | file | value`, which is how the card knows whether to show a
+drop zone; and `blocking` is the difference between *stop* and *urge*. A question carrying `assume`
+is one the agent stated and continued on, and it changes no state at all.
 
 ```json
-{"schema": 1, "seq": 16, "ts": "2026-01-04T09:33:01", "repo": "luna", "ticket": "RDSD-118", "kind": "question_opened", "data": {"question": "Does RDSD-118 cover the UAT workspace too?", "id": "q1", "choices": ["prod", "uat", "both"], "default": "both", "want": "choice", "blocking": true}}
+{"schema": 1, "seq": 16, "ts": "2026-01-04T09:33:01", "repo": "luna", "ticket": "RDSD-118", "kind": "question_opened", "data": {"question": "Does RDSD-118 cover the UAT workspace too?", "id": "q1", "choices": ["yes", "no, production only"], "default": "yes", "want": "decision", "blocking": true, "assume": ""}}
+```
+
+**`question_answered`** — the operator answered one, and the agent may continue.
+
+Emitted from the state diff exactly as `question_opened` is: `ad-state answer` moves the record out
+of `open_questions` into `answered_questions`, which is where the answer's own text lives. A
+question that merely *disappeared* — `--clear-questions`, or a human deciding it no longer applies
+— is not an answer and is not reported as one.
+
+```json
+{"schema": 1, "seq": 17, "ts": "2026-01-04T09:41:12", "repo": "luna", "ticket": "RDSD-118", "kind": "question_answered", "data": {"id": "q1", "question": "Does RDSD-118 cover the UAT workspace too?", "answer": "yes, and the UAT workspace too", "by": "operator"}}
 ```
 
 **`artifact`** — something was produced worth looking at.
@@ -168,7 +185,10 @@ optional `id, choices, default, want, blocking` beside `question`.
 **`friction`** — a skill hit something it could not resolve and wrote a STOP. The *What would
 unblock me* sentence is lifted out, because that sentence is the whole reason the operator is being
 shown this tile. The file is read through `textio`, so one written with a BOM or in UTF-16 by an
-older PowerShell is the same event as a clean one. Grown at schema 1 with optional `severity: "blocker" | "nit"`.
+older PowerShell is the same event as a clean one. Grown at schema 1 with optional `severity: "blocker" | "friction" | "nit"`, which was in the
+template from the beginning and read by nothing — so a `nit` somebody left for later stopped an
+agent exactly as hard as a contradiction. The fold reads it now: `nit` does not fold as `blocked`;
+`blocker`, `friction` and an absent line do, so an older file keeps behaving as it did.
 
 ```json
 {"schema": 1, "seq": 19, "ts": "2026-01-04T09:36:44", "repo": "luna", "ticket": "RDSD-118", "kind": "friction", "data": {"file": "C:/work/luna/.agent/friction/20260104-jira-triage.md", "skill": "20260104-jira-triage.md", "unblock": "A decision on whether RDSD-118 covers the UAT environment.", "severity": "blocker"}}

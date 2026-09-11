@@ -202,6 +202,29 @@
         <button class="deny">Deny</button>
       </div>
     </div>
+    <!-- #165: the agent's open questions, as records. Beside the approval card on purpose: both
+         are "the tile is asking you something", and one shape for that is learned once. One Send
+         answers all of them, because one respawn per answer is one premium request per answer. -->
+    <div class="asks" hidden>
+      <div class="asks-head">it asked you: <span class="asks-n"></span></div>
+      <!-- One question, cloned per open question. In the markup rather than built by hand in the
+           script so the two files can be kept in step by a test, the way the tile itself is. -->
+      <ol class="asks-list">
+        <li class="ask" hidden>
+          <p class="ask-q"></p>
+          <div class="ask-choices"></div>
+          <input class="ask-answer" type="text" placeholder="your answer">
+        </li>
+      </ol>
+      <div class="row">
+        <button type="button" class="asks-send">Send</button>
+        <span class="asks-note"></span>
+      </div>
+    </div>
+    <!-- What it assumed and carried on with. Not a state: a row to overturn at leisure. -->
+    <ul class="assumed" hidden>
+      <li class="assumption" hidden><span class="assumption-what"></span><button type="button" class="overturn">not that</button></li>
+    </ul>
     <ol class="transcript"></ol>
     <details class="earlier" hidden>
       <summary class="earlierhead">earlier runs</summary>

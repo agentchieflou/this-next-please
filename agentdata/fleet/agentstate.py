@@ -32,7 +32,8 @@ class Fold:
     """
 
     __slots__ = ("phase", "ticket", "session", "premium", "turns", "last_text", "denied",
-                 "frictions", "questions", "approvals", "errors", "turn_open", "seen", "last_ts")
+                 "frictions", "questions", "approvals", "errors", "turn_open", "seen", "last_ts",
+                 "asked")
 
     def __init__(self) -> None:
         self.phase = self.ticket = self.session = self.last_text = ""
@@ -41,6 +42,7 @@ class Fold:
         self.denied: list[dict] = []
         self.frictions: list[dict] = []
         self.questions: list[str] = []
+        self.asked: list[dict] = []
         self.approvals: list[dict] = []
         self.errors: list[dict] = []
         self.turn_open = False
@@ -76,7 +78,22 @@ class Fold:
         elif kind == "friction":
             self.frictions.append(ev)
         elif kind == "question_opened":
+            # The record, not only the sentence (#165): `classify` has to tell a question the agent
+            # stopped on from an assumption it stated and carried on with, and the tile has to show
+            # the choices. `question` keeps meaning the sentence, so an older event still folds.
             self.questions.append(str(data.get("question") or ""))
+            self.asked.append({"id": str(data.get("id") or ""),
+                               "q": str(data.get("question") or ""),
+                               "choices": list(data.get("choices") or []),
+                               "default": str(data.get("default") or ""),
+                               "want": str(data.get("want") or "decision"),
+                               "assume": str(data.get("assume") or ""),
+                               "blocking": bool(data.get("blocking", True))})
+        elif kind == "question_answered":
+            qid, text = str(data.get("id") or ""), str(data.get("question") or "")
+            self.asked = [q for q in self.asked
+                          if (q["id"] or q["q"]) != (qid or text)]
+            self.questions = [q for q in self.questions if q != text] if text else self.questions
         elif kind == "phase_changed":
             self.phase = str(data.get("to") or "")
         elif kind == "session_id":
@@ -95,6 +112,24 @@ class Fold:
         return self
 
 
+# A friction log says how much it hurts. Until #165 nothing read it, so a `nit` stopped an agent
+# exactly as hard as a `blocker` -- one tile, one red chip, one interruption, for a note somebody
+# left for later. Only these two fold as `blocked`.
+BLOCKING_SEVERITIES = ("blocker", "friction", "")
+
+
+def blocking_frictions(f: "Fold") -> list[dict]:
+    return [ev for ev in f.frictions
+            if str((ev.get("data") or {}).get("severity") or "").strip().lower()
+            in BLOCKING_SEVERITIES]
+
+
+def blocking_questions(f: "Fold") -> list[dict]:
+    """The open questions the agent actually stopped on."""
+    return [q for q in f.asked if q.get("blocking", True)] or (
+        [{"id": "", "q": q, "choices": [], "blocking": True} for q in f.questions] if not f.asked else [])
+
+
 def classify(f: Fold, *, live: bool = False) -> dict:
     """(state, why, plus the facts a tile shows). `live` is "a process is running right now".
 
@@ -108,8 +143,9 @@ def classify(f: Fold, *, live: bool = False) -> dict:
         state, why = "error", f"the last turn exited {code}"
     elif f.approvals:
         state, why = "waiting_approval", "a write is waiting for one click"
-    elif f.frictions:
-        unblock = (f.frictions[-1].get("data") or {}).get("unblock") or ""
+    elif blocking_frictions(f):
+        data = blocking_frictions(f)[-1].get("data") or {}
+        unblock = data.get("unblock") or ""
         state, why = "blocked", unblock or "a skill wrote a friction log and stopped"
     elif f.phase == "blocked":
         # An agent asking a question sets `phase=blocked --question "…"` in one command, so the
@@ -117,12 +153,21 @@ def classify(f: Fold, *, live: bool = False) -> dict:
         # was blocked -- while giving the operator the sentence they can act on instead of
         # "something is blocked, go and look".
         state = "blocked"
-        why = f.questions[-1] if f.questions else "state.json says the phase is blocked"
+        open_now = blocking_questions(f)
+        why = (open_now[-1]["q"] if open_now
+               else (f.questions[-1] if f.questions else "state.json says the phase is blocked"))
     elif f.denied:
         message = (f.denied[-1].get("data") or {}).get("message") or ""
         state, why = "needs_human", message or "a tool the agent may not run was refused"
-    elif f.questions:
-        state, why = "needs_human", f.questions[-1]
+    elif blocking_questions(f):
+        state, why = "needs_human", blocking_questions(f)[-1]["q"]
+    elif f.asked and not blocking_questions(f):
+        # Every open question is an assumption the agent stated and continued on. That is *not*
+        # a state: the tile shows the assumption as a row the operator can overturn at leisure,
+        # and the agent is doing exactly what it said it would. Falling through here is the
+        # difference between "urge" and "stop", and it is the whole point of `--assume`.
+        state, why = ("idle", "the last turn ended with nothing outstanding") \
+            if not f.last_text.endswith(_ASK_ENDINGS) else ("needs_human", f.last_text[-200:])
     elif f.last_text.endswith(_ASK_ENDINGS):
         state, why = "needs_human", f.last_text[-200:]
     elif f.phase in TERMINAL_PHASES:
@@ -134,7 +179,9 @@ def classify(f: Fold, *, live: bool = False) -> dict:
 
     return {"state": state, "why": why, "phase": f.phase, "ticket": f.ticket,
             "session": f.session, "turns": f.turns, "premium_requests": round(f.premium, 2),
-            "denied": len(f.denied), "questions": len(f.questions),
+            "denied": len(f.denied), "questions": len(blocking_questions(f)),
+            "asked": [dict(q) for q in f.asked],
+            "assumed": [dict(q) for q in f.asked if not q.get("blocking", True)],
             "frictions": len(f.frictions), "at": f.last_ts}
 
 

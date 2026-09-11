@@ -177,7 +177,7 @@ And when a tile is wrong rather than the fleet:
 | --- | --- | --- |
 | `error` | the last turn exited non-zero, or the process vanished | `ad-fleet logs <repo>`, then `ad-fleet restart <repo>` |
 | `blocked` | a friction log, or `phase=blocked` | the *why* is the sentence to act on |
-| `needs_human` | a refused tool, or it asked and stopped | `ad-fleet send <repo> "…"` |
+| `needs_human` | a refused tool, or it asked and stopped | answer it: `ad-fleet answer <repo> <id> "…"`, or `ad-fleet send <repo> "…"` |
 | `waiting_approval` | a write is one click away | `ad-fleet approve <id>`, or the tile |
 | `running` forever | it really is running | `ad-fleet logs <repo>`; `stop` if it is stuck |
 

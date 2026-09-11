@@ -42,6 +42,21 @@ DEFAULT_GC_DAYS = 14
 RESUME_PROMPT = ("You were interrupted. Read your own last messages, say in one line where you got "
                  "to, and continue. Do not start the ticket again.")
 
+
+def answers_prompt(answers: list[tuple[str, str]]) -> str:
+    """The resume that carries the operator's answers -- all of them, in one turn.
+
+    One respawn per answer would be one premium request per answer (the spike measured a trivial
+    turn at a third of one), and it would train the operator to answer one question at a time. So
+    the card sends every answer together and this is the sentence that delivers them.
+
+    It says *record each* rather than *act on each*: `ad-state answer` is what actually clears the
+    block, and an agent that continued without recording would stop again on its next bootstrap.
+    """
+    said = "; ".join(f"{qid}: {text}" for qid, text in answers)
+    return (f"Answers to your questions -- {said}. Record each with `ad-state answer <id> \"<text>\"`, "
+            f"then continue the ticket from where you stopped.")
+
 # The Copilot CLI's own words when the token has expired, measured in the #92 spike. Matched
 # loosely on purpose: the wording moves between releases and the *class* of failure is what matters.
 AUTH_TROUBLE = re.compile(

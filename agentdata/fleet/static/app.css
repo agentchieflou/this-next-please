@@ -685,3 +685,38 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
   border: 1px solid var(--line); border-radius: 4px; padding: 4px; font: inherit;
 }
 .dispatch-note { color: var(--muted); align-self: center; }
+
+/* ------------------------------------------------------------ the question card (#165)
+   The approval card's shape again: the tile is asking you something before anything irreversible
+   happens. It wears `--human` because an unanswered blocking question *is* "needs you" -- the same
+   red the chip uses, so the card and the chip agree at a glance. */
+.asks {
+  margin-top: 8px; padding: 8px; border: 1px solid var(--human); border-radius: 5px;
+  background: var(--select);
+}
+.asks-head { font-weight: 600; color: var(--human); }
+.asks-list { list-style: none; margin: 6px 0; padding: 0; }
+.ask { padding: 4px 0; border-bottom: 1px solid var(--line); }
+.ask:last-child { border-bottom: 0; }
+.ask-q { margin: 0 0 4px; }
+.ask-choice {
+  min-height: 28px; margin: 0 4px 4px 0; padding: 2px 10px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 4px;
+}
+.ask-choice[aria-pressed="true"] { border-color: var(--focus); background: var(--select); font-weight: 600; }
+.ask-answer {
+  width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 4px; font: inherit;
+}
+.asks-note { color: var(--muted); align-self: center; }
+/* An assumption is not a state, so it is a quiet row rather than a card: the agent said what it
+   was doing and kept working, and the operator overturns it only if it is wrong. */
+.assumed { list-style: none; margin: 6px 0 0; padding: 0; }
+.assumption {
+  display: flex; gap: 8px; align-items: baseline;
+  color: var(--waiting); border-left: 2px solid var(--waiting); padding-left: 6px;
+}
+.overturn {
+  margin-left: auto; min-height: 28px; background: none; color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
+}
