@@ -22,15 +22,16 @@ LOCK = "agent.json"
 EVENTS = "events.jsonl"
 STDERR = "stderr.log"
 USAGE = "usage.json"
-TERMINAL_PHASES = ("", "idle", "done", "closed", "merged")
+from .agentstate import TERMINAL_PHASES
 DONE_CATEGORIES = ("done",)     # Jira's statusCategory key, not a status name: names vary per project
 
 
 class SupervisorError(Exception):
-    def __init__(self, msg: str, hint: str = ""):
+    def __init__(self, msg: str, hint: str = "", code: str = ""):
         super().__init__(msg)
         self.msg = msg
         self.hint = hint
+        self.code = code
 
 
 # ------------------------------------------------------------------------------- the lock file
@@ -374,7 +375,8 @@ def check_ticket(repo: Repo, key: str, *, cross_project: bool = False, board_row
     if project and declared and project != declared and not cross_project:
         raise SupervisorError(
             f"{key} is a {project} ticket and {repo.name} declares jira_project {declared}",
-            f"start it on the {project} checkout, or pass --cross-project if this is deliberate")
+            f"start it on the {project} checkout, or pass --cross-project if this is deliberate",
+            code="cross_project")
 
     row = find(board_rows or [], key)
     if not row:
@@ -383,7 +385,8 @@ def check_ticket(repo: Repo, key: str, *, cross_project: bool = False, board_row
         raise SupervisorError(
             f"{key} is already {row.get('status') or 'Done'}",
             "an agent given a finished ticket has nothing to do and will invent something; "
-            "pass --force if you mean to re-open the work")
+            "pass --force if you mean to re-open the work",
+            code="ticket_done")
     return str(row.get("summary") or "")
 
 
@@ -404,22 +407,25 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
                 f"{name} already has a live agent (pid {lock.get('pid')}, ticket "
                 f"{lock.get('ticket') or 'none'})",
                 f"one agent per repository. Use `ad-fleet send {name} \"…\"` to talk to it, or "
-                f"`ad-fleet stop {name}` first")
+                f"`ad-fleet stop {name}` first",
+                code="live_agent")
         # --force means "replace it", never "run a second one beside it": two agents in one
         # checkout would both edit the same working tree.
         stopped = stop(name)
         if not stopped.get("stopped"):
             raise SupervisorError(
                 f"{name}'s existing agent (pid {lock.get('pid')}) would not stop",
-                "stop it by hand, then start again")
+                "stop it by hand, then start again",
+                code="live_agent")
 
     repo_state = repo.state()
     active, phase = repo_state.get("active_ticket", ""), repo_state.get("phase", "")
-    if active and phase not in TERMINAL_PHASES and (key is None or active != key) and not force:
+    if active and phase not in TERMINAL_PHASES and phase not in ("", "idle") and (key is None or active != key) and not force:
         raise SupervisorError(
             f"{name} is mid-ticket: {active} is in phase {phase!r}",
             f"finish or park it first, or pass --force to start "
-            f"{key or 'a new prompt'} anyway")
+            f"{key or 'a new prompt'} anyway",
+            code="mid_ticket")
 
     text = prompt_for(key, prompt, cfg, summary=summary)
     _rotate(name, cfg)
@@ -451,10 +457,12 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
         # one that refuses and says where to type instead.
         raise SupervisorError(f"{name} is running a session the fleet did not start",
                               "type in that window. `ad-fleet release` hands it back, and then the "
-                              "fleet can drive this repository again")
+                              "fleet can drive this repository again",
+                              code="external_session")
     if current:
         raise SupervisorError(f"{name} is mid-turn",
-                              "wait for the turn to finish, or `ad-fleet stop` it first")
+                              "wait for the turn to finish, or `ad-fleet stop` it first",
+                              code="mid_turn")
 
     # Before the turn, never during one: stopping an agent halfway through a thought leaves the
     # repository in whatever state it had reached, and the money is spent either way.
@@ -463,12 +471,14 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
         raise SupervisorError(
             f"{name} has spent {used:g} of its {budget:g} premium-request budget",
             f"raise `fleet.budget_per_agent`, or pass --force for this one turn. "
-            f"`ad-fleet history` shows where it went")
+            f"`ad-fleet history` shows where it went",
+            code="budget_exceeded")
 
     session = session_id(name)
     if not session:
         raise SupervisorError(f"{name} has no session to continue",
-                              f"start one with `ad-fleet start {name} <TICKET>`")
+                              f"start one with `ad-fleet start {name} <TICKET>`",
+                              code="no_session")
 
     directory = agent_dir(name)
     argv = launch_command("copilot", repo.path, message,
@@ -508,12 +518,14 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
 
     if live(name):
         raise SupervisorError(f"{name} is already running (pid {read_lock(name).get('pid')})",
-                              f"`ad-fleet stop {name}` first if it is stuck")
+                              f"`ad-fleet stop {name}` first if it is stuck",
+                              code="live_agent")
 
     session = session_id(name)
     if not session:
         raise SupervisorError(f"{name} has no session to resume",
-                              f"start one with `ad-fleet start {name} <TICKET>`")
+                              f"start one with `ad-fleet start {name} <TICKET>`",
+                              code="no_session")
 
     limit = lifecycle.settings(cfg)["max_restarts"]
     done = int(lock.get("restarts") or 0)
@@ -521,7 +533,8 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
         raise SupervisorError(
             f"{name} has already been restarted {done} time(s) on session {session}",
             "an agent that fails twice the same way will fail a third time. Read "
-            f"`ad-fleet logs {name}`, then pass --force if it is worth another turn")
+            f"`ad-fleet logs {name}`, then pass --force if it is worth another turn",
+            code="max_restarts")
 
     directory = agent_dir(name)
     text = lifecycle.RESUME_PROMPT

@@ -61,10 +61,11 @@ Three sources feed one stream.
 
 **`started`** — `ad-fleet start` or `ad-fleet send` launched a process. The stream begins here, so
 "never launched" is distinguishable from "launched and silent". Grown at schema 1 with `new: true`
-for unresumed/fresh starts, and `session` populated on adopted starts when supplied by the store.
+for unresumed/fresh starts, `session` populated on adopted starts when supplied by the store, and
+optional `answers: [ids]` and `scope: n` from the handoff pipeline (#162).
 
 ```json
-{"schema": 1, "seq": 1, "ts": "2026-01-04T09:30:02", "repo": "luna", "ticket": "RDSD-118", "kind": "started", "data": {"pid": 24188, "prompt": "Work RDSD-118 end to end.", "resumed": false, "new": true, "session": ""}}
+{"schema": 1, "seq": 1, "ts": "2026-01-04T09:30:02", "repo": "luna", "ticket": "RDSD-118", "kind": "started", "data": {"pid": 24188, "prompt": "Work RDSD-118 end to end.", "resumed": false, "new": true, "session": "", "answers": ["q1"], "scope": 3}}
 ```
 
 ### From the Copilot CLI's JSONL
@@ -143,10 +144,11 @@ never fails the save.
 {"schema": 1, "seq": 15, "ts": "2026-01-04T09:32:10", "repo": "luna", "ticket": "RDSD-118", "kind": "phase_changed", "data": {"from": "triaged", "to": "optimizing"}}
 ```
 
-**`question_opened`** — one per question added to `open_questions`.
+**`question_opened`** — one per question added to `open_questions`. Grown at schema 1 with
+optional `id, choices, default, want, blocking` beside `question`.
 
 ```json
-{"schema": 1, "seq": 16, "ts": "2026-01-04T09:33:01", "repo": "luna", "ticket": "RDSD-118", "kind": "question_opened", "data": {"question": "Does RDSD-118 cover the UAT workspace too?"}}
+{"schema": 1, "seq": 16, "ts": "2026-01-04T09:33:01", "repo": "luna", "ticket": "RDSD-118", "kind": "question_opened", "data": {"question": "Does RDSD-118 cover the UAT workspace too?", "id": "q1", "choices": ["prod", "uat", "both"], "default": "both", "want": "choice", "blocking": true}}
 ```
 
 **`artifact`** — something was produced worth looking at.
@@ -166,10 +168,10 @@ never fails the save.
 **`friction`** — a skill hit something it could not resolve and wrote a STOP. The *What would
 unblock me* sentence is lifted out, because that sentence is the whole reason the operator is being
 shown this tile. The file is read through `textio`, so one written with a BOM or in UTF-16 by an
-older PowerShell is the same event as a clean one.
+older PowerShell is the same event as a clean one. Grown at schema 1 with optional `severity: "blocker" | "nit"`.
 
 ```json
-{"schema": 1, "seq": 19, "ts": "2026-01-04T09:36:44", "repo": "luna", "ticket": "RDSD-118", "kind": "friction", "data": {"file": "C:/work/luna/.agent/friction/20260104-jira-triage.md", "skill": "20260104-jira-triage.md", "unblock": "A decision on whether RDSD-118 covers the UAT environment."}}
+{"schema": 1, "seq": 19, "ts": "2026-01-04T09:36:44", "repo": "luna", "ticket": "RDSD-118", "kind": "friction", "data": {"file": "C:/work/luna/.agent/friction/20260104-jira-triage.md", "skill": "20260104-jira-triage.md", "unblock": "A decision on whether RDSD-118 covers the UAT environment.", "severity": "blocker"}}
 ```
 
 ### Reserved for the approval gate (#95)
@@ -207,6 +209,29 @@ be as visible as everything else the operator did not type themselves.
 {"schema": 1, "seq": 23, "ts": "2026-01-04T09:42:05", "repo": "luna", "ticket": "RDSD-118", "kind": "project.refresh_finished", "data": {"dataset": "RDSD Crew Level Reporting", "status": "Completed", "ended": "2026-01-04T09:41:58"}}
 {"schema": 1, "seq": 24, "ts": "2026-01-04T09:44:12", "repo": "luna", "ticket": "RDSD-118", "kind": "project.pr_merged", "data": {"url": "https://github.com/example/luna/pull/42", "by": "reviewer"}}
 {"schema": 1, "seq": 25, "ts": "2026-01-04T09:45:01", "repo": "luna", "ticket": "RDSD-118", "kind": "inbox.attached", "data": {"name": "RDSD-118-export.md", "dest": ".agent/in/RDSD-118/RDSD-118-export.md", "from": "C:/Users/operator/Downloads/RDSD-118-export.md"}}
+```
+
+### From the handoff pipeline (#162)
+
+**`question_answered`** — an operator answered an open question (`ad-fleet answer` or the tile's question card).
+Carries `id, answer, by`.
+
+```json
+{"schema": 1, "seq": 26, "ts": "2026-01-04T09:45:10", "repo": "luna", "ticket": "RDSD-118", "kind": "question_answered", "data": {"id": "q1", "answer": "prod", "by": "operator"}}
+```
+
+**`handoff.brief`** — operator provided a brief at dispatch (`start --brief` or the pre-flight card).
+Carries `path, words, by`.
+
+```json
+{"schema": 1, "seq": 27, "ts": "2026-01-04T09:45:15", "repo": "luna", "ticket": "RDSD-118", "kind": "handoff.brief", "data": {"path": ".agent/in/RDSD-118/brief.md", "words": 42, "by": "operator"}}
+```
+
+**`scope.added`** — file paths were added to the ticket scope (`POST /api/scope` or IDE shell).
+Carries `paths, how, by, queued`.
+
+```json
+{"schema": 1, "seq": 28, "ts": "2026-01-04T09:45:20", "repo": "luna", "ticket": "RDSD-118", "kind": "scope.added", "data": {"paths": ["models/RDSD.SemanticModel/definition/tables/Velocity.tmdl"], "how": "fingerprint", "by": "operator", "queued": false}}
 ```
 
 ## The state a tile shows

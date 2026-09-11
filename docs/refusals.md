@@ -45,8 +45,11 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Update | the skills half would delete a folder that is not ours | left alone, reported | `test_update_windows.py::test_only_our_own_skills_are_removed` |
 | Update | the CLI half is asked for through the `ad-update` launcher on Windows | `refused`, exit 2, naming the module form | `test_lifecycle.py::test_the_install_and_update_lifecycle` |
 | Fleet | a folder has no `AGENTS.md` or `.agent/state.json` | `refused`, exit 2, naming `ad-setup --project .` | `test_fleet.py::test_a_folder_that_is_not_a_project_is_refused` |
-| Fleet | a repository already has a live agent | `refused`, exit 2, naming the running ticket | `test_fleet.py::test_a_second_start_is_refused_while_an_agent_is_live` |
-| Fleet | the repository is mid-ticket in a non-terminal phase | `refused`, exit 2, naming the ticket and phase | `test_fleet.py::test_starting_a_different_ticket_mid_ticket_is_refused_without_force` |
+| Fleet | a repository already has a live agent | `refused: live_agent`, exit 2, naming the running ticket | `test_fleet.py::test_a_second_start_is_refused_while_an_agent_is_live` |
+| Fleet | the repository is mid-ticket in a non-terminal phase | `refused: mid_ticket`, exit 2, naming the ticket and phase | `test_fleet.py::test_starting_a_different_ticket_mid_ticket_is_refused_without_force` |
+| Fleet | ticket project does not match repository's declared jira_project | `refused: cross_project`, exit 2, naming both projects | `test_fleet.py::test_cross_project_ticket_is_refused` |
+| Fleet | ticket is in a Done statusCategory on the board | `refused: ticket_done`, exit 2, naming the status | `test_fleet.py::test_done_ticket_is_refused` |
+| Fleet | named repository is not registered in the fleet | `refused: wrong_repo`, exit 2, listing registered | `test_fleet.py::test_an_unknown_repo_names_the_ones_that_exist` |
 | Fleet | configuration asks for `--allow-all` or `--yolo` | `refused`, exit 2, naming the pattern | `test_fleet.py::test_a_config_that_asks_for_blanket_permission_is_refused_by_name` |
 | Approval gate | an operator denied the write | `refused: approval_denied`, exit 2, quoting the reason | `test_fleet_approval.py::test_ad_jira_transition_refuses_on_a_denial_and_never_posts` |
 | Approval gate | nobody answered within `fleet.approval_timeout` | `refused: approval_timeout`, exit 2, naming `ad-fleet approve <id>` | `test_fleet_approval.py::test_a_timeout_says_how_to_release_it_and_that_re_running_is_safe` |

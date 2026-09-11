@@ -6,7 +6,7 @@ description: "Use immediately after any skill finishes a step, to record progres
 
 1. `ad-state show` (or `python -m agentdata state show`). It prints the state and one line: `state: phase=<phase> ticket=<ticket>`.
 2. `ad-state set <key=value ...> [--artifact <path>=<what>]... [--question "<text>"]... [--clear-questions] [--tool <key>=<YYYY-MM-DD>]`. Allowed:
-   - `phase=idle | triaged | querying | validating | documenting | pr_open | blocked | done`
+   - `phase=idle | triaged | querying | optimizing | validating | documenting | pr_open | blocked | done | closed | merged`
    - `active_ticket=`, `branch=`, `pr_url=`, `confluence_url=`: a string, or `null` to clear
    - `--artifact .agent/out/<file>=<what it is>` once per file produced this step (`--run-id <id>` from the TOON `meta`)
    - `--question "<what would unblock me>"` together with `phase=blocked`; `--clear-questions` once unblocked

@@ -41,7 +41,7 @@ KINDS = (
     "turn_started", "assistant_text", "tool_call", "tool_result", "denied", "turn_ended",
     "session_id", "cost", "exited", "error", "raw",
     # .agent/state.json, via `ad-state`
-    "phase_changed", "question_opened", "artifact", "pr_open",
+    "phase_changed", "question_opened", "question_answered", "artifact", "pr_open",
     # .agent/friction/
     "friction",
     # reserved for the approval gate (#95); `agentstate.derive` already folds them, so the gate is
@@ -54,6 +54,8 @@ KINDS = (
     # the Downloads tray (#132). The one write the fleet makes inside a repository, so it is in
     # the history like everything else.
     "inbox.attached",
+    # the handoff pipeline (#162)
+    "handoff.brief", "scope.added",
 )
 
 # The same shape `config.py` refuses to store, reused rather than re-invented: a value under a key

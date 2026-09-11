@@ -19,10 +19,13 @@ AGENT_ENV = "AGENTDATA_FLEET_AGENT"
 class RegistryError(Exception):
     """Refused, with a hint. Carries the `ok: false` wording the CLI prints."""
 
-    def __init__(self, msg: str, hint: str = ""):
+    def __init__(self, msg: str, hint: str = "", code: str = ""):
         super().__init__(msg)
         self.msg = msg
         self.hint = hint
+        self.code = code or ("not_a_project" if "not an agent project" in msg else
+                             "repo_exists" if "already registered" in msg else
+                             "wrong_repo" if "no repo named" in msg else "refused")
 
 
 def fleet_dir() -> str:

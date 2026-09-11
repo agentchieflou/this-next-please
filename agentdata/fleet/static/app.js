@@ -237,7 +237,7 @@ function makeTile(row, index) {
       return;
     }
 
-    var key = (e.dataTransfer.getData("text/plain") || "").trim();
+    var key = (e.dataTransfer.getData("application/x-agentdata-ticket") || e.dataTransfer.getData("text/plain") || "").trim();
     if (key) dispatch(key, row.repo);
   });
 
@@ -1023,6 +1023,7 @@ function ticketRow(row) {
 
   li.addEventListener("dragstart", function (e) {
     li.classList.add("dragging");
+    e.dataTransfer.setData("application/x-agentdata-ticket", row.key);
     e.dataTransfer.setData("text/plain", row.key);
     e.dataTransfer.effectAllowed = "copy";
   });
@@ -1035,7 +1036,7 @@ function dispatch(key, repo) {
   var el = entry ? entry.el : document.body;
   return action(el, "start", { repo: repo, ticket: key }).then(function (r) {
     if (r && r.ok) { boardPanel(false); focus(repo); }
-    else if (r && !r.ok && /jira_project/.test(r.error || "")) {
+    else if (r && !r.ok && (r.code === "cross_project" || /jira_project/.test(r.error || ""))) {
       // The one refusal worth offering an override for in the page: the operator can see both
       // projects on screen and is better placed than the guard to say it is deliberate.
       if (confirm(r.error + "\n\nStart it anyway?")) {
@@ -1220,8 +1221,12 @@ function offerRow(row, repo) {
       var target = repo || (where && where.value);
       if (!target) return;
       post("attach", { id: row.id, repo: target }).then(function (r) {
-        text(meta, r.ok ? (r.attached ? "attached → " + r.dir : (r.why || "already there"))
-                        : (r.error || "refused"));
+        var d = (r && r.data) ? r.data : r;
+        var attached = r ? (r.attached !== undefined ? r.attached : (d && d.attached)) : false;
+        var dir = r ? (r.dir || (d && d.dir) || "") : "";
+        var why = r ? (r.why || (d && d.why) || "") : "";
+        text(meta, r && r.ok ? (attached ? "attached → " + dir : (why || "already there"))
+                        : (r ? (r.error || "refused") : "refused"));
         loadDesk();
       });
     });

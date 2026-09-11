@@ -124,6 +124,15 @@ def get_issue(key: str, fields: list[str] | None = None) -> AgentTable:
     return t
 
 
+def get_comments(key: str) -> AgentTable:
+    """Read comments on an issue. `jira comments --key <KEY>`."""
+    payload, el = run(["jira", "comments", "--key", key])
+    recs = extract_records(payload)
+    t = AgentTable.from_records(recs, name="comments", source=f"pncli jira comments --key {key}", raw=payload)
+    t.elapsed_s = el
+    return t
+
+
 def run(args: list[str], timeout: int = 120, cfg: dict | None = None) -> tuple[dict | list, float]:
     cfg = C.load() if cfg is None else cfg
     hint = install_hint(cfg)

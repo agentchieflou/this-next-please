@@ -183,6 +183,14 @@ def activity_age(repo_path: str) -> int:
     return max(0, int(time.time() - newest))
 
 
+def _session_for_adopt(repo_name: str, repo_path: str, jira_project: str = "") -> str:
+    from . import sessions, supervisor
+    store_sess = sessions.read_store_sessions(repo_path, repo_name=repo_name, jira_project=jira_project)
+    if store_sess:
+        return store_sess[0]["id"]
+    return supervisor.session_id(repo_name)
+
+
 def candidates(registry: Registry | None = None, *, processes: list[dict] | None = None) -> list[dict]:
     """Registered repositories that appear to have a session the fleet did not start.
 
@@ -217,12 +225,16 @@ def candidates(registry: Registry | None = None, *, processes: list[dict] | None
             # say which process is in which directory. Adoptable, without a pid, and labelled.
             chosen = {"pid": 0, "cmdline": running[0].get("cmdline", ""), "cwd": ""}
             how = "inferred from recent activity"
-def _session_for_adopt(repo_name: str, repo_path: str, jira_project: str = "") -> str:
-    from . import sessions, supervisor
-    store_sess = sessions.read_store_sessions(repo_path, repo_name=repo_name, jira_project=jira_project)
-    if store_sess:
-        return store_sess[0]["id"]
-    return supervisor.session_id(repo_name)
+        else:
+            # No process listing at all (refused, or none matched) and yet the checkout is being
+            # written to. Still worth offering: the writing is the evidence, not the listing.
+            chosen = {"pid": 0, "cmdline": "", "cwd": ""}
+            how = "inferred from recent activity"
+
+        out.append({"repo": repo.name, "path": repo.path, "pid": chosen["pid"],
+                    "cmdline": chosen["cmdline"][:200], "how": how, "active_age_s": age,
+                    "session": _session_for_adopt(repo.name, repo.path, getattr(repo, "jira_project", ""))})
+    return out
 
 
 def discover(*, registry: Registry | None = None) -> list[dict]:

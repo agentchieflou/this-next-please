@@ -531,3 +531,39 @@ def test_a_broken_fleet_emit_never_fails_the_save(tmp_path, monkeypatch):
     path = str(tmp_path / "state.json")
     S.save({"phase": "triaged"}, path)
     assert json.loads(open(path, encoding="utf-8").read())["phase"] == "triaged"
+
+
+@pytest.mark.parametrize("kind,data", [
+    ("question_answered", {"id": "q1", "answer": "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345", "by": "operator"}),
+    ("handoff.brief", {"path": ".agent/in/RDSD-1/brief.md", "words": 42, "api_key": "secret1234secret1234", "by": "operator"}),
+    ("scope.added", {"paths": ["model.tmdl"], "how": "fingerprint", "client_secret": "xyz", "by": "operator", "queued": False}),
+])
+def test_new_handoff_event_kinds_are_redacted_and_resumable(fleet_home, tmp_path, kind, data):
+    repo = make_project(tmp_path / "repo-a")
+    Registry().add(repo, name="a")
+
+    # 1. Redaction
+    ev = E.event("a", kind, data, ticket="RDSD-1")
+    raw_json = json.dumps(ev)
+    assert "ghp_SECRET" not in raw_json
+    assert "secret1234" not in raw_json
+    assert "xyz" not in raw_json
+    assert E.REDACTED in raw_json
+
+    # 2. Appended and resumable by seq
+    E.append("a", [ev])
+    read_back = E.read("a")
+    assert len(read_back) == 1
+    assert read_back[0]["kind"] == kind
+    seq = read_back[0]["seq"]
+    assert seq >= 1
+
+    # Resuming with since
+    assert E.read("a", since=seq) == []
+    assert E.read("a", since=seq - 1) == read_back
+
+    # 3. Older fold ignores it rather than raising
+    fold = agentstate.Fold()
+    fold.add(read_back[0])
+    st = agentstate.classify(fold)
+    assert st["state"] in agentstate.STATES

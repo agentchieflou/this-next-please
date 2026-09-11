@@ -562,3 +562,61 @@ def test_the_saved_desk_comes_back_whatever_the_first_request_was(fleet_home, tm
     assert state["selected"] == "beta", "the selection did not survive"
     assert state["arrangement"]["grid"]["order"] == ["beta", "alpha"], state
     assert state["arrangement"]["grid"]["pinned"] == ["beta"], state
+
+
+def test_cross_project_override_appears_when_refusal_text_is_reworded(desk, monkeypatch):
+    """When a start returns 409 with code: 'cross_project', the override prompt appears
+    even when the refusal error string does not contain 'jira_project'."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    from agentdata.fleet import supervisor
+
+    def reworded_check_ticket(repo, key, **kw):
+        raise supervisor.SupervisorError(
+            f"{key} is on a different board than {repo.name}",
+            "start it on the other checkout, or pass --cross-project if deliberate",
+            code="cross_project"
+        )
+    monkeypatch.setattr(supervisor, "check_ticket", reworded_check_ticket)
+
+    with sync_playwright() as p:
+        browser, page, errors = _page(p, desk)
+        page.evaluate("""() => {
+            window._confirmed = [];
+            window.confirm = (msg) => { window._confirmed.push(msg); return false; };
+        }""")
+        page.evaluate("() => dispatch('DATAENG-9', 'asks')")
+        page.wait_for_timeout(500)
+        confirmed = page.evaluate("() => window._confirmed")
+        assert len(confirmed) == 1, "confirm dialog did not appear for reworded cross_project refusal"
+        assert "different board" in confirmed[0]
+        assert "Start it anyway?" in confirmed[0]
+        browser.close()
+
+
+def test_successful_attach_reads_attached_arrow(desk):
+    """A successful attach renders 'attached → ...', and not 'already there'."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, errors = _page(p, desk)
+        result = page.evaluate("""() => {
+            const meta = document.createElement("span");
+            const r = { ok: true, data: { attached: true, dir: ".agent/in/RDSD-118", file: "foo.csv" } };
+            const d = (r && r.data) ? r.data : r;
+            const attached = r ? (r.attached !== undefined ? r.attached : (d && d.attached)) : false;
+            const dir = r ? (r.dir || (d && d.dir) || "") : "";
+            const why = r ? (r.why || (d && d.why) || "") : "";
+            text(meta, r && r.ok ? (attached ? "attached → " + dir : (why || "already there"))
+                                 : (r ? (r.error || "refused") : "refused"));
+            return meta.textContent;
+        }""")
+        assert "attached → .agent/in/RDSD-118" in result, f"expected 'attached → ...', got {result!r}"
+        browser.close()
+
+
+def test_offline_app_js_cross_project_and_attach_contract():
+    """Offline contract test asserting app.js switches on code === 'cross_project' and unwraps r.data."""
+    js = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
+    assert 'r.code === "cross_project"' in js
+    assert 'r.data' in js
+    assert 'application/x-agentdata-ticket' in js

@@ -196,3 +196,43 @@ def test_desk_browser_unknown_layout_fallback(running_desk):
         assert page.query_selector(".grid, #grid") is not None
 
         browser.close()
+
+
+def dispatch_drop_files(page, selector: str, files: list[dict]):
+    """Build a DataTransfer with files in page context and dispatch dragover and drop on selector.
+
+    files: list of {"name": str, "content": str, "type": str}
+    """
+    page.evaluate(
+        """([sel, files]) => {
+            const dt = new DataTransfer();
+            for (const f of files) {
+                const blob = new Blob([f.content || ""], { type: f.type || "text/plain" });
+                const file = new File([blob], f.name, { type: f.type || "text/plain", lastModified: Date.now() });
+                dt.items.add(file);
+            }
+            const el = document.querySelector(sel);
+            if (!el) throw new Error("no element matching " + sel);
+            el.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+            el.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+        }""",
+        [selector, files]
+    )
+
+
+def dispatch_drop_ticket(page, selector: str, key: str, custom_type: bool = True):
+    """Build a DataTransfer with ticket and dispatch dragover and drop on selector."""
+    page.evaluate(
+        """([sel, key, custom]) => {
+            const dt = new DataTransfer();
+            if (custom) {
+                dt.setData("application/x-agentdata-ticket", key);
+            }
+            dt.setData("text/plain", key);
+            const el = document.querySelector(sel);
+            if (!el) throw new Error("no element matching " + sel);
+            el.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+            el.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+        }""",
+        [selector, key, custom_type]
+    )

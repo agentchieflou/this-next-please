@@ -1017,7 +1017,13 @@ def act(what: str, body: dict) -> dict:
         # a click": this is the click. `Inbox.attach` does the copy and holds the rule that it lands
         # inside `<repo>/.agent/in/` and nowhere else.
         box, offer = _offer(str(body.get("id") or ""))
-        return box.attach(offer, repo)
+        ev = box.attach(offer, repo)
+        data = ev.get("data") or {}
+        return {"attached": data.get("attached", False),
+                "dir": data.get("dir", ""),
+                "why": data.get("why", ""),
+                "file": data.get("file", ""),
+                **ev}
     if what == "dismiss":
         box, offer = _offer(str(body.get("id") or ""))
         box.dismiss(offer)
@@ -1205,8 +1211,11 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, payload: dict, code: int = 200) -> None:
         self._send(code, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
 
-    def _refuse(self, code: int, error: str, hint: str = "") -> None:
-        self._json({"ok": False, "error": error, "hint": hint}, code)
+    def _refuse(self, code: int, error: str, hint: str = "", refusal_code: str = "") -> None:
+        payload = {"ok": False, "error": error, "hint": hint}
+        if code == 409 or refusal_code:
+            payload["code"] = refusal_code or "refused"
+        self._json(payload, code)
 
     # ---------------------------------------------------------------------- GET
 
@@ -1415,7 +1424,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ServeError, RegistryError, supervisor.SupervisorError,
                 approval.ApprovalError, IN.InboxError, CAT.CatalogueError) as e:
             # The same refusal the CLI gives, with the same hint. One vocabulary.
-            return self._refuse(409, e.msg, getattr(e, "hint", ""))
+            ref_code = getattr(e, "code", "") or "refused"
+            return self._refuse(409, e.msg, getattr(e, "hint", ""), refusal_code=ref_code)
         except Exception as e:               # noqa: BLE001 - a button must never 500 silently
             from ..log import debug_exc
 

@@ -37,8 +37,10 @@ EXIT_OK, EXIT_FAILED, EXIT_REFUSED = 0, 1, 2
 
 
 def _refuse(source: str, err) -> int:
-    print(toon.encode({"meta": {"ok": False, "source": source, "error": err.msg,
-                                "hint": getattr(err, "hint", "")}}))
+    code = getattr(err, "code", "") or "refused"
+    meta = {"ok": False, "source": source, "error": err.msg,
+            "hint": getattr(err, "hint", ""), "refused": code, "code": code}
+    print(toon.encode({"meta": meta}))
     return EXIT_REFUSED
 
 
@@ -942,6 +944,7 @@ def cmd_board(a) -> int:
 def cmd_history(a) -> int:
     rows = B.history(since=B.since_seconds(a.since))
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet history", "dispatches": len(rows),
+                                "runs": len(rows),
                                 "since": a.since,
                                 "premium_requests": round(sum(r["premium_requests"] for r in rows), 2)}}))
     print(toon.table("history", ["started", "repo", "ticket", "session", "summary", "state", "phase",
