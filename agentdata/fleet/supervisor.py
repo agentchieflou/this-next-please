@@ -184,17 +184,36 @@ def _is_denial(event: dict) -> bool:
 
 
 def session_id(events: list[dict] | str) -> str:
-    """The id `--resume` takes, from the last `result` event.
+    """The id `--resume` takes, from the normalized stream or the last `result` event.
 
-    `sessionId` is read at the top level, not under `data`: `result` is the one event that is not
-    shaped `{type, id, parentId, timestamp, data}` -- measured, see the catalogue in
-    docs/fleet-spike.md.
+    `sessionId` is read from the normalized stream first so rotation does not lose it, and respects
+    fresh start boundaries so a failed start does not resume yesterday's session.
     """
-    stream = read_events(events, raw=True, limit=0) if isinstance(events, str) else events
+    from . import events as E
+
+    if isinstance(events, str):
+        try:
+            E.refresh(events)
+        except Exception:
+            pass
+        stream = E.read(events)
+    else:
+        stream = events
+
     for event in reversed(stream):
-        if _is_result(event) and event.get("sessionId"):
+        kind = event.get("kind")
+        if kind == "session_id":
+            sid = (event.get("data") or {}).get("session")
+            if sid:
+                return str(sid)
+        elif kind == "started":
+            data = event.get("data") or {}
+            if not data.get("resumed") or data.get("new"):
+                return str(data.get("session") or "")
+        elif _is_result(event) and event.get("sessionId"):
             return str(event["sessionId"])
     return ""
+
 
 
 def _last_turn(events: list[dict]) -> list[dict]:
@@ -312,7 +331,7 @@ def _spawn(repo: Repo, name: str, argv, exe: str | None = None) -> subprocess.Po
                                 env=child_env(name, fleet_dir()), **kwargs)
 
 
-def _emit_started(name: str, lock: dict, *, resumed: bool = False) -> None:
+def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = False) -> None:
     """Put the launch itself into the normalized stream.
 
     Without this the stream begins mid-narrative -- the first thing anyone downstream sees is the
@@ -325,7 +344,7 @@ def _emit_started(name: str, lock: dict, *, resumed: bool = False) -> None:
         E.append(name, [E.event(name, "started",
                                 {"pid": lock.get("pid"), "prompt": (lock.get("prompt") or "")[:400],
                                  "summary": lock.get("summary", ""),
-                                 "resumed": resumed, "session": lock.get("session", "")},
+                                 "resumed": resumed, "new": new, "session": lock.get("session", "")},
                                 ticket=lock.get("ticket", ""))])
     except Exception:  # noqa: BLE001 - a missing breadcrumb must never fail a launch
         from ..log import debug_exc
@@ -370,7 +389,8 @@ def check_ticket(repo: Repo, key: str, *, cross_project: bool = False, board_row
 
 def start(name: str, *, key: str | None = None, prompt: str | None = None, force: bool = False,
           cfg: dict | None = None, registry: Registry | None = None, exe: str | None = None,
-          cross_project: bool = False, board_rows=None, summary: str = "") -> dict:
+          cross_project: bool = False, board_rows=None, summary: str = "",
+          resume: str | None = None, new: bool = False) -> dict:
     reg = registry or Registry()
     repo = reg.get(name)
     if key:
@@ -407,14 +427,15 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
 
     argv = launch_command("copilot", repo.path, text,
                           log_dir=os.path.join(directory, "logs"),
-                          cfg=cfg, usage_file=os.path.join(directory, USAGE))
+                          cfg=cfg, usage_file=os.path.join(directory, USAGE),
+                          session=resume)
     child = _spawn(repo, name, argv, exe)
 
     lock = {"pid": child.pid, "repo": name, "path": repo.path, "ticket": key or "",
-            "summary": summary, "prompt": text, "started": time.time(),
+            "summary": summary, "prompt": text, "session": resume or "", "started": time.time(),
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
     write_lock(name, lock)
-    _emit_started(name, lock)
+    _emit_started(name, lock, resumed=bool(resume), new=bool(new or not resume))
     return lock
 
 

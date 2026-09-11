@@ -96,11 +96,13 @@ def cmd_start(a) -> int:
     rows = (B.read_cache() or {}).get("rows") or []
     try:
         lock = supervisor.start(a.repo, key=a.ticket, prompt=a.prompt, force=a.force, cfg=cfg,
-                                cross_project=a.cross_project, board_rows=rows)
+                                cross_project=a.cross_project, board_rows=rows,
+                                resume=getattr(a, "resume", None), new=getattr(a, "new", False))
     except (RegistryError, supervisor.SupervisorError, launch.LaunchError) as e:
         return _refuse("ad-fleet start", e)
     return _emit("ad-fleet start", {"repo": a.repo, "ticket": lock.get("ticket", ""),
                                     "summary": lock.get("summary", ""),
+                                    "session": lock.get("session", ""),
                                     "pid": lock["pid"], "prompt": lock["prompt"],
                                     "next": f"ad-fleet status --repo {a.repo}"})
 
@@ -215,7 +217,7 @@ def cmd_stop(a) -> int:
     return EXIT_OK
 
 
-COLUMNS = ["repo", "agent", "ticket", "phase", "turns", "premium_requests", "budget",
+COLUMNS = ["repo", "agent", "ticket", "session", "phase", "turns", "premium_requests", "budget",
            "denied_tools", "last_event", "pid", "accent"]
 
 
@@ -286,6 +288,43 @@ def _skills_warning() -> str:
                 f"at session start: `ad-update --skills`, then `ad-fleet restart <repo>`")
     except Exception:                        # noqa: BLE001 - a status row must never fail the command
         return ""
+
+
+def cmd_sessions(a) -> int:
+    from .fleet import sessions as S
+
+    reg = Registry()
+    try:
+        repo = reg.get(a.repo)
+    except RegistryError as e:
+        return _refuse("ad-fleet sessions", e)
+
+    if getattr(a, "rename_verb", None) == "rename" and getattr(a, "rename_id", None) and getattr(a, "rename_title", None):
+        try:
+            renamed = S.rename_session(a.repo, a.rename_id, a.rename_title)
+        except KeyError as e:
+            return _refuse("ad-fleet sessions", e)
+        return _emit("ad-fleet sessions rename", {"repo": a.repo, "session": renamed})
+
+    if getattr(a, "rebuild", False):
+        rows = S.rebuild_sessions(a.repo, repo_path=repo.path)
+    else:
+        rows = S.load_sessions(a.repo)
+        if not rows:
+            rows = S.rebuild_sessions(a.repo, repo_path=repo.path)
+
+    cols = ["id", "title", "ticket", "first_seen", "last_seen", "runs", "ended", "cost", "source"]
+    table_rows = [[r.get("id", ""), r.get("title", ""), r.get("ticket", "") or "-",
+                   str(r.get("first_seen", ""))[:16], str(r.get("last_seen", ""))[:16],
+                   r.get("runs", 1), r.get("ended", "") or "-", r.get("cost", 0.0),
+                   r.get("source", "fleet")] for r in rows]
+    if ui.on():
+        ui.table(cols, table_rows, title=f"fleet sessions: {a.repo}")
+        return EXIT_OK
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet sessions",
+                                "repo": a.repo, "sessions": len(rows)}}))
+    print(toon.table("sessions", cols, table_rows))
+    return EXIT_OK
 
 
 def cmd_logs(a) -> int:
@@ -902,13 +941,13 @@ def cmd_board(a) -> int:
 
 def cmd_history(a) -> int:
     rows = B.history(since=B.since_seconds(a.since))
-    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet history", "runs": len(rows),
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet history", "dispatches": len(rows),
                                 "since": a.since,
                                 "premium_requests": round(sum(r["premium_requests"] for r in rows), 2)}}))
-    print(toon.table("history", ["started", "repo", "ticket", "summary", "state", "phase",
+    print(toon.table("history", ["started", "repo", "ticket", "session", "summary", "state", "phase",
                                  "turns", "premium_requests"],
-                     [[str(r["started"])[:16], r["repo"], r["ticket"] or "-", r["summary"][:50],
-                       r["state"], r["phase"] or "-", r["turns"], r["premium_requests"]]
+                     [[str(r["started"])[:16], r["repo"], r["ticket"] or "-", r.get("session") or "-",
+                       r["summary"][:50], r["state"], r["phase"] or "-", r["turns"], r["premium_requests"]]
                       for r in rows]))
     return EXIT_OK
 
@@ -1093,6 +1132,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="start a ticket whose project is not this repo's jira_project")
     start.add_argument("--force", action="store_true",
                        help="start even if the repo is mid-ticket or holds a stale lock")
+    start.add_argument("--resume", help="resume a specific session by id")
+    start.add_argument("--new", action="store_true", help="start a clean session beside the previous one")
     start.set_defaults(fn=cmd_start)
 
     send = sub.add_parser("send", help="continue an agent's session with another message")
@@ -1188,6 +1229,14 @@ def build_parser() -> argparse.ArgumentParser:
     hist = sub.add_parser("history", help="what was dispatched, how it ended, what it cost")
     hist.add_argument("--since", default="7d", help="7d | 12h | 90m (default 7d)")
     hist.set_defaults(fn=cmd_history)
+
+    sess = sub.add_parser("sessions", help="list or rebuild sessions for a repository")
+    sess.add_argument("repo")
+    sess.add_argument("--rebuild", action="store_true", help="rebuild sessions.json from events.norm.jsonl")
+    sess.add_argument("rename_verb", nargs="?", choices=["rename"], help=argparse.SUPPRESS)
+    sess.add_argument("rename_id", nargs="?", help=argparse.SUPPRESS)
+    sess.add_argument("rename_title", nargs="?", help=argparse.SUPPRESS)
+    sess.set_defaults(fn=cmd_sessions)
 
     note = sub.add_parser("notify", help="what the fleet would tell you, and what it has")
     note.add_argument("what", nargs="?", default="list", choices=["list", "test", "tail"],

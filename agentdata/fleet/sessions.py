@@ -1,0 +1,301 @@
+"""The session index: folds events.norm.jsonl into sessions.json.
+
+A session is a thing with an id, a title, a ticket, and an ending.
+The index is a fold of history -- rebuildable from disk, never the source of truth.
+"""
+from __future__ import annotations
+import json
+import os
+import shutil
+import sqlite3
+import tempfile
+import time
+from typing import Any
+
+from .. import textio
+from . import agentstate, events as E
+from .registry import agent_dir, fleet_dir
+
+
+def store_path() -> str:
+    """Location of Copilot's own session store."""
+    return os.environ.get("COPILOT_SESSION_STORE") or os.path.expanduser("~/.copilot/session-store.db")
+
+
+def store_status() -> tuple[str, str, str]:
+    """Check whether Copilot's session store is present and readable.
+
+    Returns:
+        (status, message, hint) where status is 'ok', 'warn', or 'skip'.
+    """
+    path = store_path()
+    if not os.path.isfile(path):
+        return "skip", "none", "Copilot session store (~/.copilot/session-store.db) not found"
+    try:
+        conn = _connect_ro(path)
+        try:
+            cur = conn.execute("SELECT count(*) FROM sessions")
+            row = cur.fetchone()
+            count = int(row[0]) if row else 0
+            return "ok", f"{count} session(s)", ""
+        finally:
+            conn.close()
+    except Exception as e:
+        return "warn", "not readable", f"could not read {path}: {e}"
+
+
+def _connect_ro(path: str) -> sqlite3.Connection:
+    """Connect read-only to a SQLite database, falling back to a temp copy if locked."""
+    try:
+        norm = textio.norm_path(os.path.abspath(path))
+        uri = f"file:{norm}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=1.0)
+        conn.execute("PRAGMA query_only = ON")
+        return conn
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        # Locked or inaccessible via URI; copy-on-read fallback
+        tmp = tempfile.NamedTemporaryFile(prefix="copilot_store_", suffix=".db", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+        try:
+            shutil.copy2(path, tmp_path)
+            conn = sqlite3.connect(tmp_path, timeout=1.0)
+            conn.execute("PRAGMA query_only = ON")
+            return conn
+        except Exception:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            raise
+
+
+def read_store_sessions(repo_path: str = "", *, repo_name: str = "",
+                        jira_project: str = "") -> list[dict]:
+    """Read sessions belonging to a repository from Copilot's store.
+
+    Read-only; never writes to the store.
+    """
+    path = store_path()
+    if not os.path.isfile(path):
+        return []
+    try:
+        conn = _connect_ro(path)
+    except Exception:
+        return []
+
+    out = []
+    norm_repo = textio.norm_path(os.path.abspath(repo_path)).rstrip("/\\").lower() if repo_path else ""
+    try:
+        cur = conn.cursor()
+        # Verify schema carries required columns
+        cols = [col[1] for col in cur.execute("PRAGMA table_info(sessions)").fetchall()]
+        if "id" not in cols:
+            return []
+        select_cols = ["id", "summary", "created_at", "updated_at"]
+        has_cwd = "cwd" in cols
+        has_repo = "repository" in cols
+        if has_cwd:
+            select_cols.append("cwd")
+        if has_repo:
+            select_cols.append("repository")
+
+        query = f"SELECT {', '.join(select_cols)} FROM sessions ORDER BY updated_at DESC"
+        cur.execute(query)
+        for row in cur.fetchall():
+            rec = dict(zip(select_cols, row))
+            sid = rec.get("id") or ""
+            if not sid:
+                continue
+            cwd = textio.norm_path(rec.get("cwd") or "").rstrip("/\\").lower() if has_cwd else ""
+            repository = str(rec.get("repository") or "") if has_repo else ""
+
+            matched = False
+            if norm_repo and cwd and cwd == norm_repo:
+                matched = True
+            elif repository and (repository.lower() == repo_name.lower() or
+                                 (jira_project and repository.lower() == jira_project.lower())):
+                matched = True
+
+            if matched:
+                out.append({
+                    "id": sid,
+                    "title": rec.get("summary") or "(console) copilot in this checkout",
+                    "ticket": "",
+                    "first_seen": rec.get("created_at") or "",
+                    "last_seen": rec.get("updated_at") or "",
+                    "runs": 1,
+                    "ended": "",
+                    "cost": 0.0,
+                    "source": "store",
+                })
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return out
+
+
+def sessions_path(name: str) -> str:
+    """Path to sessions.json for an agent."""
+    return os.path.join(agent_dir(name), "sessions.json")
+
+
+def load_sessions(name: str) -> list[dict]:
+    """Load the sessions list for an agent."""
+    p = sessions_path(name)
+    if not os.path.isfile(p):
+        return []
+    try:
+        data = json.loads(textio.read_text(p))
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []
+
+
+def save_sessions(name: str, sessions: list[dict]) -> None:
+    """Save the sessions list deterministically."""
+    p = sessions_path(name)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    text = json.dumps(sessions, indent=2, ensure_ascii=False) + "\n"
+    textio.write_text(p, text)
+
+
+def fold_stream(stream: list[dict], existing_titles: dict[str, str] | None = None) -> list[dict]:
+    """Fold a normalized event stream into session records.
+
+    A session starts when an id is seen (via session_id or started.data.session).
+    Cost is the high-water mark (maximum), never a sum.
+    """
+    titles = existing_titles or {}
+    sessions_by_id: dict[str, dict] = {}
+    order: list[str] = []
+
+    # Break stream into runs at each 'started' event
+    started_indices = [i for i, ev in enumerate(stream) if ev.get("kind") == "started"]
+    if not started_indices and stream:
+        runs = [stream]
+    else:
+        runs = []
+        for idx, start_i in enumerate(started_indices):
+            end_i = started_indices[idx + 1] if idx + 1 < len(started_indices) else len(stream)
+            runs.append(stream[start_i:end_i])
+
+    for run_events in runs:
+        if not run_events:
+            continue
+        first_ev = run_events[0]
+        start_data = first_ev.get("data") or {}
+
+        # Look for session_id in this run
+        sid = ""
+        for ev in run_events:
+            if ev.get("kind") == "session_id":
+                sid = (ev.get("data") or {}).get("session", "")
+                if sid:
+                    break
+        if not sid:
+            sid = start_data.get("session", "")
+
+        if not sid:
+            # A run that died before emitting a session_id
+            continue
+
+        ticket = first_ev.get("ticket") or ""
+        summary = start_data.get("summary") or ""
+        is_adopted = bool(start_data.get("adopted") or start_data.get("external"))
+        source = "adopted" if is_adopted else "fleet"
+
+        # Derive state of this run
+        derived = agentstate.derive(run_events, live=False)
+        ended_state = derived.get("state") or "done"
+        if not ticket:
+            ticket = derived.get("ticket") or ""
+
+        run_cost = float(derived.get("premium_requests") or 0.0)
+        # Also check cost events directly
+        for ev in run_events:
+            if ev.get("kind") == "cost":
+                c = float((ev.get("data") or {}).get("premium_requests") or 0.0)
+                if c > run_cost:
+                    run_cost = c
+
+        first_ts = run_events[0].get("ts", "")
+        last_ts = run_events[-1].get("ts", "") or first_ts
+
+        if sid not in sessions_by_id:
+            title = titles.get(sid) or (f"{ticket} {summary}".strip() if summary else ticket)
+            sessions_by_id[sid] = {
+                "id": sid,
+                "title": title,
+                "ticket": ticket,
+                "first_seen": first_ts,
+                "last_seen": last_ts,
+                "runs": 1,
+                "ended": ended_state,
+                "cost": run_cost,
+                "source": source,
+            }
+            order.append(sid)
+        else:
+            rec = sessions_by_id[sid]
+            rec["runs"] += 1
+            if ticket and not rec["ticket"]:
+                rec["ticket"] = ticket
+            if last_ts > rec["last_seen"]:
+                rec["last_seen"] = last_ts
+                rec["ended"] = ended_state
+            if run_cost > rec["cost"]:
+                rec["cost"] = run_cost
+
+    out = [sessions_by_id[sid] for sid in order]
+    return out
+
+
+def rebuild_sessions(name: str, repo_path: str = "") -> list[dict]:
+    """Rebuild sessions.json from events.norm.jsonl, preserving custom titles."""
+    existing = load_sessions(name)
+    existing_titles = {s["id"]: s["title"] for s in existing if s.get("title")}
+
+    stream = E.read(name)
+    sessions = fold_stream(stream, existing_titles)
+
+    # Incorporate store sessions if available
+    if repo_path:
+        store_sessions = read_store_sessions(repo_path, repo_name=name)
+        seen_ids = {s["id"] for s in sessions}
+        for ss in store_sessions:
+            if ss["id"] not in seen_ids:
+                sessions.append(ss)
+                seen_ids.add(ss["id"])
+
+    save_sessions(name, sessions)
+    return sessions
+
+
+def rename_session(name: str, session_id: str, title: str) -> dict:
+    """Rename a session, preserving the title across future rebuilds."""
+    sessions = load_sessions(name)
+    found = None
+    for s in sessions:
+        if s["id"] == session_id:
+            s["title"] = title
+            found = s
+            break
+    if not found:
+        # If not found in current sessions.json, check if it can be created/rebuilt
+        sessions = rebuild_sessions(name)
+        for s in sessions:
+            if s["id"] == session_id:
+                s["title"] = title
+                found = s
+                break
+    if not found:
+        raise KeyError(f"session {session_id} not found for repo {name}")
+    save_sessions(name, sessions)
+    return found

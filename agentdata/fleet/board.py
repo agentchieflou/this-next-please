@@ -209,7 +209,7 @@ def history(*, since: int = 7 * 86400, registry: Registry | None = None,
     """
     import calendar
 
-    from . import agentstate, events as E
+    from . import agentstate, events as E, runs as R
 
     cutoff = (now or time.time()) - since
     out: list[dict] = []
@@ -224,8 +224,7 @@ def history(*, since: int = 7 * 86400, registry: Registry | None = None,
         fold = agentstate.Fold()
         for ev in stream:
             fold.add(ev)
-            kind = ev.get("kind")
-            if kind == "started" and not (ev.get("data") or {}).get("resumed"):
+            if R.is_dispatch_start(ev):
                 # A new dispatch closes the previous one, however it ended -- a run with no `exited`
                 # is a run that was killed, and hiding it would hide exactly the interesting case.
                 if run:
@@ -234,7 +233,7 @@ def history(*, since: int = 7 * 86400, registry: Registry | None = None,
                        "summary": (ev.get("data") or {}).get("summary", ""),
                        "started": ev.get("ts", ""), "ended": "", "seq": ev.get("seq", 0)}
                 fold = agentstate.Fold().add(ev)
-            elif run and kind in ("exited", "error"):
+            elif run and ev.get("kind") in ("exited", "error"):
                 run["ended"] = ev.get("ts", "")
         if run:
             out.append(_close(run, fold))
@@ -253,5 +252,6 @@ def _close(run: dict, fold) -> dict:
 
     final = agentstate.classify(fold)
     return {**run, "state": final["state"], "phase": final["phase"],
+            "session": fold.session or "",
             "premium_requests": final["premium_requests"], "turns": final["turns"],
             "pr_url": run.get("pr_url", "")}

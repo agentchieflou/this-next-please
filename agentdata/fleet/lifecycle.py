@@ -95,8 +95,8 @@ def looks_like_auth_trouble(text: str) -> bool:
 # ------------------------------------------------------------------- a process that just stopped
 
 
-def reap(name: str, *, cfg: dict | None = None) -> list[dict]:
-    """Notice an agent whose process is gone, and say why in its own stream.
+def reap(name: str, *, slept: bool = False) -> list[dict]:
+    """Look at the lock and the process; if the process is gone, clean the lock and emit the event.
 
     Called wherever the fleet looks at an agent. It is idempotent: an agent already reaped has no
     lock, and one still running is left alone.
@@ -127,7 +127,13 @@ def reap(name: str, *, cfg: dict | None = None) -> list[dict]:
 
     stderr = tail_stderr(name)
     ticket = lock.get("ticket", "")
-    if looks_like_auth_trouble(stderr):
+    if slept:
+        # The laptop slept and the process is gone: one exited event naming sleep, and no error.
+        fresh = [E.event(name, "exited", {"exit_code": None,
+                                          "why": "the laptop slept",
+                                          "reason": "the laptop slept"},
+                         ticket=ticket)]
+    elif looks_like_auth_trouble(stderr):
         # One clear answer and no retry: relaunching an agent whose token expired burns premium
         # requests in a loop and produces the same failure every time.
         fresh = [E.event(name, "error", {"exit_code": None, "reason": "copilot login expired",
@@ -151,14 +157,14 @@ def reap(name: str, *, cfg: dict | None = None) -> list[dict]:
     return fresh
 
 
-def reap_all(*, registry: Registry | None = None) -> dict[str, list[dict]]:
+def reap_all(*, registry: Registry | None = None, slept: bool = False) -> dict[str, list[dict]]:
     out = {}
     try:
         names = [r.name for r in (registry or Registry()).sorted()]
     except RegistryError:
         return out
     for name in names:
-        found = reap(name)
+        found = reap(name, slept=slept)
         if found:
             out[name] = found
     return out

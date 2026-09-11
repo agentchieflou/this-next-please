@@ -60,10 +60,11 @@ Three sources feed one stream.
 ### From the supervisor
 
 **`started`** — `ad-fleet start` or `ad-fleet send` launched a process. The stream begins here, so
-"never launched" is distinguishable from "launched and silent".
+"never launched" is distinguishable from "launched and silent". Grown at schema 1 with `new: true`
+for unresumed/fresh starts, and `session` populated on adopted starts when supplied by the store.
 
 ```json
-{"schema": 1, "seq": 1, "ts": "2026-01-04T09:30:02", "repo": "luna", "ticket": "RDSD-118", "kind": "started", "data": {"pid": 24188, "prompt": "Work RDSD-118 end to end.", "resumed": false, "session": ""}}
+{"schema": 1, "seq": 1, "ts": "2026-01-04T09:30:02", "repo": "luna", "ticket": "RDSD-118", "kind": "started", "data": {"pid": 24188, "prompt": "Work RDSD-118 end to end.", "resumed": false, "new": true, "session": ""}}
 ```
 
 ### From the Copilot CLI's JSONL
@@ -114,9 +115,10 @@ reader takes the maximum and never a sum. Adding checkpoints up would multiply t
 
 **`exited`** / **`error`** — the process finished. Exit 0 is `exited`; anything else is `error`.
 Both carry the files the run modified, which is what a diff-before-you-trust view needs.
+`exited` also carries `why` (e.g. `"the laptop slept"` when a process terminated during sleep).
 
 ```json
-{"schema": 1, "seq": 12, "ts": "2026-01-04T09:31:41", "repo": "luna", "ticket": "RDSD-118", "kind": "exited", "data": {"exit_code": 0, "files_modified": ["reports/sales.Report/definition/pages/p1.json"]}}
+{"schema": 1, "seq": 12, "ts": "2026-01-04T09:31:41", "repo": "luna", "ticket": "RDSD-118", "kind": "exited", "data": {"exit_code": 0, "files_modified": ["reports/sales.Report/definition/pages/p1.json"], "why": ""}}
 {"schema": 1, "seq": 13, "ts": "2026-01-04T09:44:02", "repo": "luna", "ticket": "RDSD-118", "kind": "error", "data": {"exit_code": 1, "files_modified": []}}
 ```
 

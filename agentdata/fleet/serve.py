@@ -174,16 +174,19 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
     Returns:
         (current_run_dict, earlier_runs_list)
     """
+    from . import runs as R
+
     if not stream:
         return ({"n": 0, "started": "", "resumed": False, "session": "",
-                 "ticket": "", "live": live, "events": []}, [])
+                 "session_title": "", "ticket": "", "live": live, "events": []}, [])
 
-    started_indices = [i for i, ev in enumerate(stream) if ev.get("kind") == "started"]
+    started_indices = [i for i, ev in enumerate(stream) if R.is_run_start(ev)]
+    repo_name = stream[0].get("repo", "") if stream else ""
     if not started_indices:
         d = agentstate.derive(stream, live=live)
         return ({"n": 1, "started": stream[0].get("ts", ""), "resumed": False,
-                 "session": d.get("session", ""), "ticket": d.get("ticket", ""),
-                 "live": live, "events": stream}, [])
+                 "session": d.get("session", ""), "session_title": "",
+                 "ticket": d.get("ticket", ""), "live": live, "events": stream}, [])
 
     earlier = []
     for idx, start_i in enumerate(started_indices[:-1]):
@@ -198,6 +201,7 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
             "ended": end_ev.get("ts", ""),
             "state": d["state"],
             "ticket": d.get("ticket", ""),
+            "session": d.get("session") or (start_ev.get("data") or {}).get("session", ""),
         })
 
     last_start_i = started_indices[-1]
@@ -205,6 +209,18 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
     curr_derived = agentstate.derive(curr_events, live=live)
     start_ev = stream[last_start_i]
     start_data = start_ev.get("data") or {}
+    curr_sess = curr_derived.get("session") or start_data.get("session", "")
+    curr_title = ""
+    if repo_name and curr_sess:
+        try:
+            from . import sessions as S
+            for s in S.load_sessions(repo_name):
+                if s.get("id") == curr_sess:
+                    curr_title = s.get("title", "")
+                    break
+        except Exception:
+            pass
+
     curr_run = {
         "n": len(started_indices),
         "started": start_ev.get("ts", ""),
@@ -212,7 +228,8 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         # predates `ad-fleet serve` is showing history, and has to say so.
         "since_start": bool(start_ev.get("ts", "") >= SERVER_STARTED),
         "resumed": bool(start_data.get("resumed", False)),
-        "session": curr_derived.get("session") or start_data.get("session", ""),
+        "session": curr_sess,
+        "session_title": curr_title,
         "ticket": curr_derived.get("ticket") or start_ev.get("ticket", ""),
         "live": live,
         "events": curr_events,
@@ -955,9 +972,11 @@ def act(what: str, body: dict) -> dict:
                                 prompt=body.get("prompt") or None,
                                 force=bool(body.get("force")), cfg=C.load(),
                                 cross_project=bool(body.get("cross_project")),
-                                board_rows=(B.read_cache() or {}).get("rows") or [])
+                                board_rows=(B.read_cache() or {}).get("rows") or [],
+                                resume=body.get("resume") or None,
+                                new=bool(body.get("new")))
         return {"repo": repo, "pid": lock["pid"], "ticket": lock.get("ticket", ""),
-                "summary": lock.get("summary", "")}
+                "summary": lock.get("summary", ""), "session": lock.get("session", "")}
     if what == "send":
         from .. import config as C
 
@@ -1254,6 +1273,17 @@ class Handler(BaseHTTPRequestHandler):
             since = (query.get("since") or ["7d"])[0]
             return self._json({"ok": True, "since": since,
                                "runs": B.history(since=B.since_seconds(since))})
+        if route == "/api/sessions":
+            from . import sessions as S
+            repo_name = (query.get("repo") or [""])[0]
+            if not repo_name:
+                return self._refuse(400, "repo required", "pass ?repo=<name>")
+            rows = S.load_sessions(repo_name)
+            if not rows:
+                reg = registry()
+                repo_path = reg.get(repo_name).path if reg and repo_name in [r.name for r in reg.repos] else ""
+                rows = S.rebuild_sessions(repo_name, repo_path=repo_path)
+            return self._json({"ok": True, "repo": repo_name, "sessions": rows})
         if route == "/api/notifications":
             try:
                 limit = int((query.get("limit") or ["50"])[0])

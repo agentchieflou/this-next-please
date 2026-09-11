@@ -440,7 +440,10 @@ function drawTile(el, row, approvals) {
     if (run.n) bits.push("run " + run.n);
     if (run.started) bits.push("started " + String(run.started).slice(11, 16));
     if (run.resumed) bits.push("resumed");
-    if (run.session) bits.push("session " + String(run.session).slice(0, 8));
+    if (run.session) {
+      var sessLabel = run.session_title ? run.session_title : "session " + String(run.session).slice(0, 8);
+      bits.push(sessLabel);
+    }
     if (run.events_n) bits.push(run.events_n + " events");
     // The era, last, because it is the qualifier: which run, then whether it is still this one.
     if (!run.n) bits = ["no run yet"];
@@ -448,8 +451,16 @@ function drawTile(el, row, approvals) {
     else if (!run.since_start) bits.push("before this session");
     else bits.push("ended");
     text(runline, bits.join(" · "));
-    runline.title = bits.join(" · ");          // the line truncates; the whole of it stays reachable
+    runline.title = (run.session ? "session " + run.session + " (click to copy)\n" : "") + bits.join(" · ");
     runline.classList.toggle("cold", cold);
+    if (run.session) {
+      runline.onclick = function() {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(run.session);
+        }
+      };
+      runline.style.cursor = "pointer";
+    }
   }
 
   var earlierEl = el.querySelector(".earlier");
