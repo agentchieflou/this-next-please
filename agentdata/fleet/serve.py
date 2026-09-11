@@ -348,6 +348,9 @@ def fleet_snapshot() -> dict:
                      "not_supervised_sentence": not_supervised_sentence,
                      "earlier": earlier,
                      **derived,
+                     # What it edited against what it was given (#168). Advice to the model and a
+                     # report to the human: nothing here refuses an edit, it only says what happened.
+                     "scope_report": _scope_report(row.get("path", ""), derived),
                      "last_seq": stream[-1]["seq"] if stream else 0,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
                      # The project's own state (#131), beside the agent's. Named `polls` and not
@@ -1049,6 +1052,23 @@ def _offer(id: str):
             return box, offer
     raise IN.InboxError(f"no file with id {id!r} in the inbox now",
                         "it was moved, renamed or re-saved; reload the tray and try again")
+
+
+def _scope_report(repo_path: str, derived: dict) -> dict:
+    """`edited 2 · 1 outside the scope you gave it`, or nothing when no scope was given."""
+    from . import scope as SCOPE
+
+    files = derived.get("files_modified") or []
+    ticket = derived.get("ticket") or ""
+    if not files or not ticket or not repo_path:
+        return {}
+    try:
+        card = SCOPE.report(repo_path, ticket, files)
+    except OSError:
+        return {}
+    if not card.get("given"):
+        return {}
+    return card
 
 
 def _repo_record(name: str):

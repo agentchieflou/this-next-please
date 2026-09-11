@@ -1015,9 +1015,10 @@ def cmd_history(a) -> int:
                                 "since": a.since,
                                 "premium_requests": round(sum(r["premium_requests"] for r in rows), 2)}}))
     print(toon.table("history", ["started", "repo", "ticket", "session", "summary", "state", "phase",
-                                 "turns", "premium_requests"],
+                                 "turns", "premium_requests", "edited"],
                      [[str(r["started"])[:16], r["repo"], r["ticket"] or "-", r.get("session") or "-",
-                       r["summary"][:50], r["state"], r["phase"] or "-", r["turns"], r["premium_requests"]]
+                       r["summary"][:50], r["state"], r["phase"] or "-", r["turns"], r["premium_requests"],
+                       len(r.get("files_modified") or [])]
                       for r in rows]))
     return EXIT_OK
 

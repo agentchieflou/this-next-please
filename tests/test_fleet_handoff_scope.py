@@ -349,3 +349,72 @@ def test_the_deepest_checkout_wins_so_a_nested_one_is_its_own_project(fleet_home
     Registry().add(inner, name="inner")
     owner = SC.owner_of(os.path.join(inner, "AGENTS.md"))
     assert owner is not None and owner.name == "inner"
+
+
+# -------------------------------------------------- the agent honours the scope (#168)
+
+
+def test_the_exit_says_what_was_edited_outside_the_scope(fleet_home, tmp_path):
+    """Acceptance criterion: a run that edits a file outside the scope ends with the tile saying so,
+    from events alone."""
+    repo = _checkout(tmp_path)
+    SC.add("luna", repo, "RDSD-118", ["models/Velocity.tmdl"])
+    E.append("luna", [
+        E.event("luna", "started", {"pid": 1}, ticket="RDSD-118"),
+        E.event("luna", "exited", {"exit_code": 0,
+                                   "files_modified": ["models/Velocity.tmdl", "reports/p3.json"]},
+                ticket="RDSD-118"),
+    ])
+    row = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "luna"][0]
+    assert row["scope_report"] == {"given": 1, "edited": 2,
+                                   "outside": ["reports/p3.json"],
+                                   "inside": ["models/Velocity.tmdl"]}
+
+
+def test_a_run_inside_its_scope_reports_nothing_outside(fleet_home, tmp_path):
+    repo = _checkout(tmp_path)
+    SC.add("luna", repo, "RDSD-118", ["models/Velocity.tmdl", "notes.md"])
+    E.append("luna", [
+        E.event("luna", "started", {"pid": 1}, ticket="RDSD-118"),
+        E.event("luna", "exited", {"exit_code": 0, "files_modified": ["models/Velocity.tmdl"]},
+                ticket="RDSD-118"),
+    ])
+    row = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "luna"][0]
+    assert row["scope_report"]["outside"] == []
+
+
+def test_no_scope_means_no_report_rather_than_an_empty_one(fleet_home, tmp_path):
+    """A run nobody gave a scope to has nothing to be measured against, and saying `0 outside`
+    would read as a claim that somebody had."""
+    _checkout(tmp_path)
+    E.append("luna", [
+        E.event("luna", "started", {"pid": 1}, ticket="RDSD-118"),
+        E.event("luna", "exited", {"exit_code": 0, "files_modified": ["anything.py"]},
+                ticket="RDSD-118"),
+    ])
+    row = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "luna"][0]
+    assert row["scope_report"] == {}
+
+
+def test_history_counts_what_each_dispatch_edited(fleet_home, tmp_path):
+    """`ad-fleet history` and the tile answer the same question from the same events."""
+    from agentdata.fleet import board as B
+
+    _checkout(tmp_path)
+    E.append("luna", [
+        E.event("luna", "started", {"pid": 1, "resumed": False}, ticket="RDSD-118"),
+        E.event("luna", "exited", {"exit_code": 0, "files_modified": ["a.py", "b.py"]},
+                ticket="RDSD-118"),
+    ])
+    [run] = B.history()
+    assert run["files_modified"] == ["a.py", "b.py"]
+
+
+def test_the_skills_read_the_handoff_directory():
+    """The plumbing reached the agent's doorstep in #132 and no skill opened the door."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bootstrap = open(os.path.join(root, "skills", "session-bootstrap", "SKILL.md"), encoding="utf-8").read()
+    triage = open(os.path.join(root, "skills", "jira-triage", "SKILL.md"), encoding="utf-8").read()
+    assert ".agent/in/" in bootstrap and "brief.md" in bootstrap
+    assert "scope.toon" in triage and "ad-graph refs" in triage
+    assert "not a fence" in triage, "the scope is advice; nothing here refuses an edit"

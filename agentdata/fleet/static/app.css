@@ -752,3 +752,8 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
   min-height: 28px; background: var(--panel); color: var(--text);
   border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
 }
+
+/* The scope report (#168): a sentence, not a state. `outside` is worth noticing and is never an
+   error -- an agent that had to go outside the scope to do the work was probably right to. */
+.scopereport { color: var(--muted); margin: 2px 0; }
+.scopereport.outside { color: var(--waiting); }

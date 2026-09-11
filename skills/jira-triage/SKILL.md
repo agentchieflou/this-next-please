@@ -12,6 +12,9 @@ description: "Use when given a Jira ticket key, asked \"what's next\", or asked 
    --choice "<reading A>" --choice "<reading B>"`, then `friction-log` type `ambiguity` quoting the line,
    STOP. **A safe, reversible default settles it** → `ad-state ask "<assumption>" --assume "<default>"`,
    print it in one line, CONTINUE (AGENTS.md rule 10).
-5. Decide type: `data-fix | model-change | report | investigation`. Branch: `feature/<KEY>-<slug≤4 words>`.
-6. Invoke `state-update`: `active_ticket=<KEY>`, `branch`, `phase=triaged`.
-7. Print the ≤6 lines + branch. Hand off: investigation/UAT → `uat-jira-vs-source`; model-change → `pbip-projection` (which leads to `tmdl-edit` → `pbi-validate` → `pbi-deploy-te2`; never deploy without validating); otherwise → `router`.
+5. If `.agent/in/<KEY>/scope.toon` exists, those files are **where to start**: read them first, and widen with
+   `ad-graph refs <symbol>` rather than by browsing. Announce in one line before you edit anything outside it.
+   The scope is advice, not a fence — going outside it is allowed and is reported, never refused.
+6. Decide type: `data-fix | model-change | report | investigation`. Branch: `feature/<KEY>-<slug≤4 words>`.
+7. Invoke `state-update`: `active_ticket=<KEY>`, `branch`, `phase=triaged`.
+8. Print the ≤6 lines + branch. Hand off: investigation/UAT → `uat-jira-vs-source`; model-change → `pbip-projection` (which leads to `tmdl-edit` → `pbi-validate` → `pbi-deploy-te2`; never deploy without validating); otherwise → `router`.

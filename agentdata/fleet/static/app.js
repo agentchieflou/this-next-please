@@ -504,6 +504,27 @@ function drawAsks(el, row) {
   }
 }
 
+/* What it edited against what it was given (#168). Advice to the model and a report to the human:
+   nothing here refused an edit, and an agent that went outside the scope was probably right to --
+   the operator simply wants to know. */
+function drawScopeReport(el, row) {
+  var strip = el.querySelector(".scopereport");
+  var card = row.scope_report || {};
+  if (!card.edited) { strip.hidden = true; return; }
+  strip.hidden = false;
+  var said = "edited " + card.edited;
+  if (card.outside && card.outside.length) {
+    said += " · " + card.outside.length + " outside the scope you gave it";
+    strip.className = "scopereport outside";
+    strip.title = card.outside.join("\n");
+  } else {
+    said += " · all inside the scope you gave it";
+    strip.className = "scopereport";
+    strip.title = "";
+  }
+  text(strip, said);
+}
+
 function drawTile(el, row, approvals) {
   /* Three things have to agree here or the tile lies: the chip, the sentence under it, and the
      age. The server decides which agents are quiet enough to be called unsupervised (it is the
@@ -651,6 +672,7 @@ function drawTile(el, row, approvals) {
     text(el.querySelector(".payload"), JSON.stringify(mine.payload || {}, null, 2));
   }
   drawAsks(el, row);
+  drawScopeReport(el, row);
   drawCells(el, row.polls || {});
 }
 

@@ -254,4 +254,7 @@ def _close(run: dict, fold) -> dict:
     return {**run, "state": final["state"], "phase": final["phase"],
             "session": fold.session or "",
             "premium_requests": final["premium_requests"], "turns": final["turns"],
+            # What the run edited, so `ad-fleet history` and the tile answer the same question from
+            # the same events rather than from two bookkeeping files somebody has to keep in step.
+            "files_modified": list(final.get("files_modified") or []),
             "pr_url": run.get("pr_url", "")}

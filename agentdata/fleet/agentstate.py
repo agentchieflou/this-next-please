@@ -33,7 +33,7 @@ class Fold:
 
     __slots__ = ("phase", "ticket", "session", "premium", "turns", "last_text", "denied",
                  "frictions", "questions", "approvals", "errors", "turn_open", "seen", "last_ts",
-                 "asked")
+                 "asked", "files")
 
     def __init__(self) -> None:
         self.phase = self.ticket = self.session = self.last_text = ""
@@ -43,6 +43,7 @@ class Fold:
         self.frictions: list[dict] = []
         self.questions: list[str] = []
         self.asked: list[dict] = []
+        self.files: list[str] = []
         self.approvals: list[dict] = []
         self.errors: list[dict] = []
         self.turn_open = False
@@ -56,6 +57,9 @@ class Fold:
         if ev.get("ticket"):
             self.ticket = ev["ticket"]
         if kind in ("exited", "error"):
+            # What the run edited, kept so the tile can compare it with what it was *given* (#168).
+            # The CLI reports this on the way out; nothing else has to be written for the report.
+            self.files = [str(f) for f in (data.get("files_modified") or [])]
             # A standalone `if`, not part of the chain below, because these two must both close the
             # turn *and* be classified. A process that ended has no turn in flight, whatever the
             # last `turn_start` implied -- and without this a crashed agent reads as `running`
@@ -181,6 +185,7 @@ def classify(f: Fold, *, live: bool = False) -> dict:
             "session": f.session, "turns": f.turns, "premium_requests": round(f.premium, 2),
             "denied": len(f.denied), "questions": len(blocking_questions(f)),
             "asked": [dict(q) for q in f.asked],
+            "files_modified": list(f.files),
             "assumed": [dict(q) for q in f.asked if not q.get("blocking", True)],
             "frictions": len(f.frictions), "at": f.last_ts}
 

@@ -249,6 +249,23 @@ def add(repo_name: str, repo_path: str, ticket: str, paths: list[str], *, why: s
     return event
 
 
+def report(repo_path: str, ticket: str, files_modified: list[str]) -> dict:
+    """What the run edited, against what it was given. (#168)
+
+    Not a refusal and not a guard: the scope is advice to the model and a report to the human. An
+    agent that had to go outside the scope to do the work was probably right to, and the operator
+    wants to know, which is a different thing from being stopped.
+
+    Read from events that already exist -- `exited`/`error` carry `files_modified` -- so this is a
+    comparison rather than a new thing to write.
+    """
+    given = {row["path"] for row in read_scope(repo_path, ticket)}
+    edited = [textio.norm_path(str(f)).lstrip("/") for f in (files_modified or []) if str(f).strip()]
+    outside = [f for f in edited if f not in given]
+    return {"given": len(given), "edited": len(edited), "outside": outside,
+            "inside": [f for f in edited if f in given]}
+
+
 def owner_of(path: str, registry=None):
     """Which registered checkout contains this absolute path, if any. (#167)
 
