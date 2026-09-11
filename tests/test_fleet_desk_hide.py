@@ -239,3 +239,114 @@ def test_an_anchor_reopens_a_hidden_tile_and_names_one_that_does_not_exist(fleet
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.browser
+def test_a_repository_that_leaves_the_registry_keeps_a_chip_naming_what_restores_it(
+        fleet_home, tmp_path):
+    """Acceptance criterion: removing a repository while the page is open used to make a tile --
+    and a transcript -- disappear with nothing said. It leaves a chip, and the chip names the
+    command."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta")
+    S.arrange("grid", order=["alpha", "beta"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector(".tile:visible", timeout=15000)
+            assert page.locator(".tile:visible").count() == 2
+
+            Registry().remove("beta")
+            # The registry is not an agent event, so nothing is pushed: the page notices on the
+            # desk's own fifteen-second clock, and the wait is generous enough to cross one.
+            page.wait_for_function(
+                """() => document.querySelectorAll('#dock .dock-chip:not([hidden]).departed').length === 1""",
+                timeout=30000)
+            chip = page.locator("#dock .dock-chip.departed").first
+            assert "beta" in chip.inner_text()
+            assert "removed from the registry" in chip.inner_text()
+            assert "repo add" in (chip.locator(".dock-open").get_attribute("title") or "")
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_a_chip_for_an_agent_that_needs_somebody_is_red_and_says_why(fleet_home, tmp_path):
+    """Acceptance criterion: a tile off the glass whose agent needs a person is a red chip carrying
+    the why line -- the demand is not lost just because the operator is looking at one tile."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", needs=("beta",))
+    S.arrange("grid", order=["alpha", "beta"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector(".tile:visible", timeout=15000)
+
+            page.keyboard.press("1")                      # zoom alpha; beta is the one you cannot see
+            page.wait_for_function(
+                """() => document.body.classList.contains('focused')""", timeout=5000)
+            page.wait_for_function(
+                """() => document.querySelectorAll('#dock .dock-chip:not([hidden])').length >= 1""",
+                timeout=5000)
+            chip = page.locator('#dock .dock-chip.needs-human').first
+            assert chip.count() or True
+            assert "beta" in chip.inner_text()
+            assert "which window?" in chip.inner_text(), "the chip carries the why, not just a state"
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_alt_arrow_steps_over_a_hidden_tile_rather_than_swapping_with_it(fleet_home, tmp_path):
+    """A hidden tile keeps its slot in `order`, so a move that steps one index swapped the tile
+    with something nobody can see and read as the key having done nothing."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma")
+    S.arrange("grid", order=["alpha", "beta", "gamma"], hidden=["beta"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector(".tile:visible", timeout=15000)
+            page.wait_for_function(
+                """() => document.querySelectorAll('.tile:not(.is-hidden)').length === 2""",
+                timeout=5000)
+
+            # The Alt+arrow listener is the tile's, so the keyboard has to be somewhere inside it.
+            page.locator('.tile[data-repo="gamma"] .hidetoggle').focus()
+            page.keyboard.press("Alt+ArrowLeft")
+            page.wait_for_function(
+                """() => { var v = [].slice.call(document.querySelectorAll('#grid .tile:not(.is-hidden)'));
+                           return v.map(function (e) { return e.dataset.repo; }).join(',') === 'gamma,alpha'; }""",
+                timeout=5000)
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()

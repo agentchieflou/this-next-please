@@ -1697,12 +1697,24 @@ document.getElementById("boardsearch").addEventListener("input", function () { d
    All of it comes from one `/api/desk` on a slow clock rather than a fetch per tile: four screens
    of tiles is four screens of requests otherwise, and none of this is urgent. */
 
+function registryChanged(order) {
+  if (!Array.isArray(order)) return false;
+  if (order.length !== tiles.size) return true;
+  return order.some(function (name) { return !tiles.has(name); });
+}
+
 function loadDesk() {
   if (pendingDesk) return pendingDesk;
   pendingDesk = fetch(q("/api/desk")).then(function (r) { return r.json(); }).then(function (data) {
     pendingDesk = null;
     if (!data.ok) return;
     desk = data;
+    // `ad-fleet repo add` and `repo rm` in a terminal change which tiles exist, and neither is an
+    // agent event -- so the stream never mentions it and the grid kept drawing a repository that
+    // had left, or never drew one that had arrived, until somebody reloaded the page. The desk's
+    // own slow clock already carries the registry's list, so a disagreement is what asks
+    // `/api/fleet` again (#173).
+    if (registryChanged(data.order)) refresh();
     // The project's own detail is the inspector's, and the inspector draws the selected one.
     drawInspector(desk.desk.selected);
     drawTray();
@@ -2251,8 +2263,13 @@ function moveTile(repo, dir) {
     : getEffectiveOrder().filter(function (n) { return pinned.indexOf(n) < 0; });
 
   var idx = block.indexOf(repo);
+  if (idx < 0) return;
+  // One press, one *visible* slot. A hidden tile keeps its place in `order` -- that is how
+  // reopening puts it back where it was -- so stepping by one index swapped the tile with
+  // something nobody can see, and the key read as having done nothing at all (#173).
   var target = idx + dir;
-  if (idx < 0 || target < 0 || target >= block.length) return;
+  while (target >= 0 && target < block.length && isHidden(block[target])) target += dir;
+  if (target < 0 || target >= block.length) return;
   block.splice(idx, 1);
   block.splice(target, 0, repo);
 
@@ -2360,6 +2377,7 @@ function drawDock() {
     text(li.querySelector(".dc-name"), item.name);
     text(li.querySelector(".dc-chip"),
          item.gone ? "removed from the registry"
+                   : needs ? ((row && row.why) || "needs you")
                    : ((row && row.state ? row.state : "") + (row && row.at ? " · " + age(ageOf(row)) : "")));
     var badge = li.querySelector(".dc-badge");
     var unreadN = unread.get(item.name) || 0;
