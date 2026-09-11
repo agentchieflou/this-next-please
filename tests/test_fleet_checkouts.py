@@ -26,6 +26,24 @@ def fleet_home(tmp_path, monkeypatch):
     return tmp_path / "fleet"
 
 
+@pytest.fixture(autouse=True)
+def _own_desk_globals(monkeypatch):
+    """The desk module's globals are process-wide, which is right for a server and wrong for a
+    suite that gives every test a fresh fleet directory. CI shuffles the order twice on purpose,
+    so a fixture that borrows these has to give them back. Same reasoning as
+    `tests/test_fleet_desk_sessions_b.py`."""
+    monkeypatch.setattr(S, "_desk_loaded", False)
+    monkeypatch.setattr(S, "_selection", {
+        "selected": "", "screens": [], "version": 0, "at": "",
+        "arrangement": {"grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
+                        "roles": {"order": [], "hidden": []},
+                        "screens": {"order": [], "hidden": []}},
+        "windows": {},
+    })
+    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
+                                         catalogue=None, last_tick=0.0, last_fold=0.0))
+
+
 def _worktree(tmp_path, main_path, folder="luna-hotfix", ticket="RDSD-2"):
     """A checkout whose `.git` is a file pointing back into the main checkout, as git writes it."""
     os.makedirs(os.path.join(main_path, ".git", "worktrees", "hotfix"), exist_ok=True)
@@ -326,7 +344,7 @@ def test_a_checkout_with_no_poll_running_still_answers(fleet_home, tmp_path, mon
 
 
 @pytest.mark.browser
-def test_the_strip_carries_the_other_checkouts_of_this_project(fleet_home, tmp_path, monkeypatch):
+def test_the_strip_carries_the_other_checkouts_of_this_project(fleet_home, tmp_path):
     """The tabs beside the main one are the project's other checkouts, each with its own agent and
     its own chip. Clicking one selects that checkout's tile -- the strip stays, so the way back is
     one click and never `Esc`."""
@@ -334,17 +352,6 @@ def test_the_strip_carries_the_other_checkouts_of_this_project(fleet_home, tmp_p
     import threading
 
     from agentdata.fleet import events as E
-
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
 
     main = make_project(tmp_path / "luna", ticket="RDSD-1")
     tree = _worktree(tmp_path, main)
