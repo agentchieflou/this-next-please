@@ -191,6 +191,27 @@
         <span class="dispatch-note"></span>
       </div>
     </div>
+    <!-- #166: files the operator dropped, resolved to this checkout by their git blob hash. -->
+    <div class="scope" hidden>
+      <div class="scope-head">
+        <span class="scope-title">scope</span>
+        <span class="scope-note"></span>
+        <button type="button" class="scope-close" title="close">×</button>
+      </div>
+      <ul class="scope-rows">
+        <li class="scope-row" hidden>
+          <span class="sc-name"></span>
+          <span class="sc-path"></span>
+          <span class="sc-how"></span>
+          <span class="sc-why"></span>
+          <select class="sc-pick" hidden></select>
+          <button type="button" class="sc-attach" hidden>attach a copy</button>
+        </li>
+      </ul>
+      <div class="row">
+        <button type="button" class="scope-tell" hidden>tell it now</button>
+      </div>
+    </div>
     <div class="cells" aria-label="the project's own state"></div>
     <div class="approval" hidden>
       <div class="approval-head">waiting for you: <span class="kind"></span></div>

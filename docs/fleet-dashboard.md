@@ -201,6 +201,11 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/deny` | `{id, reason}` |
 | POST | `/api/select` | `{repo?, screens?}` — the project every window agrees on ([fleet-layouts.md](fleet-layouts.md)) |
 | POST | `/api/attach` | `{id, repo}` — copies one Downloads file into `<repo>/.agent/in/<KEY>/` |
+| POST | `/api/answer` | `{repo, answers: [{id, answer}]}` — every answer in one resume (#165) |
+| POST | `/api/scope/resolve` | `{repo, files: [{name, size, sha}]}` — which of this checkout's files these are (#166) |
+| POST | `/api/scope` | `{repo, paths, why, how}` — append them to `.agent/in/<KEY>/scope.toon` |
+| POST | `/api/attach-bytes` | `{repo, name, bytes}` — the one route that carries bytes, on a click |
+| GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164) |
 | POST | `/api/dismiss` | `{id}` — stop offering that file until it is downloaded again |
 
 `select` and `dismiss` change nothing on disk inside a repository. `attach` is the single exception

@@ -277,6 +277,16 @@ function makeTile(row, index) {
       return;
     }
 
+    // Files first (#166): the tile has promised a copy on `dragover` since #98, and until now that
+    // promise was empty -- the outline appeared and nothing happened.
+    if ((e.dataTransfer.files && e.dataTransfer.files.length) ||
+        Array.prototype.some.call(e.dataTransfer.items || [], function (i) { return i.kind === "file"; })) {
+      filesFromDrop(e.dataTransfer).then(function (files) {
+        if (files.length) scopeDrop(el, row.repo, files);
+      });
+      return;
+    }
+
     var key = (e.dataTransfer.getData("application/x-agentdata-ticket") || e.dataTransfer.getData("text/plain") || "").trim();
     if (key) { if (PREFLIGHT) dispatchCard(key, row.repo); else dispatch(key, row.repo); }
   });
@@ -296,6 +306,14 @@ function makeTile(row, index) {
     }
     text(el.querySelector(".asks-note"), "");
     action(el, "answer", { repo: row.repo, answers: answers });
+  });
+
+  el.querySelector(".scope-close").addEventListener("click", function () {
+    el.querySelector(".scope").hidden = true;
+  });
+  el.querySelector(".scope-tell").addEventListener("click", function () {
+    action(el, "send", { repo: row.repo, message:
+      "New files are in the scope under .agent/in/; read scope.toon before continuing." });
   });
 
   el.querySelector(".dispatch-close").addEventListener("click", function () { closeDispatch(el); });
@@ -1288,6 +1306,177 @@ function ticketRow(row) {
   });
   li.addEventListener("dragend", function () { li.classList.remove("dragging"); });
   return li;
+}
+
+/* -------------------------------------------------------------------- the scope, by hash (#166)
+
+   A file dropped on a tile used to light the tile up and do nothing: `drop` read `text/plain` only.
+   The page still never learns a path -- no browser gives one, in any of the three embedders this
+   page has to render in -- so it does not ask for one. It computes git's own object name for the
+   bytes and asks the server which of the checkout's files has it. Nothing but that hash leaves the
+   page until the operator clicks *attach a copy*. */
+
+var SCOPE_MAX_HASH = 64 * 1024 * 1024;   /* fleet.scope.max_hash_mb, from /api/fleet */
+var SCOPE_MAX_FILES = 200;
+
+/* SHA-1, because that is the hash git names objects with. `crypto.subtle` where the origin is a
+   secure context -- loopback is one -- and this otherwise, because VS Code's Simple Browser renders
+   the page inside a webview whose context we do not get to assume. No CDN: the page has no build
+   step and nothing it fetches from the internet arrives behind the corporate proxy. */
+function sha1Bytes(bytes) {
+  var ml = bytes.length * 8;
+  var withPad = new Uint8Array((((bytes.length + 8) >> 6) + 1) * 64);
+  withPad.set(bytes);
+  withPad[bytes.length] = 0x80;
+  var view = new DataView(withPad.buffer);
+  view.setUint32(withPad.length - 4, ml >>> 0, false);
+  view.setUint32(withPad.length - 8, Math.floor(ml / 4294967296), false);
+
+  var h = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
+  var w = new Int32Array(80);
+  var rol = function (n, s) { return (n << s) | (n >>> (32 - s)); };
+  for (var i = 0; i < withPad.length; i += 64) {
+    for (var j = 0; j < 16; j++) w[j] = view.getInt32(i + j * 4, false);
+    for (j = 16; j < 80; j++) w[j] = rol(w[j - 3] ^ w[j - 8] ^ w[j - 14] ^ w[j - 16], 1);
+    var a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+    for (j = 0; j < 80; j++) {
+      var f, k;
+      if (j < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
+      else if (j < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
+      else if (j < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
+      else { f = b ^ c ^ d; k = 0xCA62C1D6; }
+      var t = (rol(a, 5) + f + e + k + w[j]) | 0;
+      e = d; d = c; c = rol(b, 30); b = a; a = t;
+    }
+    h[0] = (h[0] + a) | 0; h[1] = (h[1] + b) | 0; h[2] = (h[2] + c) | 0;
+    h[3] = (h[3] + d) | 0; h[4] = (h[4] + e) | 0;
+  }
+  return h.map(function (n) { return ("00000000" + (n >>> 0).toString(16)).slice(-8); }).join("");
+}
+
+function blobSha(file) {
+  return file.arrayBuffer().then(function (buffer) {
+    var body = new Uint8Array(buffer);
+    var header = new TextEncoder().encode("blob " + body.length + "\0");
+    var joined = new Uint8Array(header.length + body.length);
+    joined.set(header);
+    joined.set(body, header.length);
+    if (window.crypto && window.crypto.subtle && window.crypto.subtle.digest) {
+      return window.crypto.subtle.digest("SHA-1", joined).then(function (digest) {
+        return Array.prototype.map.call(new Uint8Array(digest), function (b) {
+          return ("0" + b.toString(16)).slice(-2);
+        }).join("");
+      }).catch(function () { return sha1Bytes(joined); });
+    }
+    return sha1Bytes(joined);
+  });
+}
+
+/* A dropped folder is the same trick over its files. `webkitGetAsEntry` is the only way to read
+   one, and it is in every engine this page runs on. */
+function filesFromDrop(dt) {
+  var items = Array.prototype.slice.call(dt.items || []);
+  var entries = items.map(function (i) { return i.webkitGetAsEntry && i.webkitGetAsEntry(); })
+                     .filter(function (e) { return e && e.isDirectory; });
+  if (!entries.length) return Promise.resolve(Array.prototype.slice.call(dt.files || []));
+
+  var out = [];
+  var walk = function (dir) {
+    return new Promise(function (done) {
+      dir.createReader().readEntries(function (children) {
+        Promise.all(children.map(function (child) {
+          if (out.length >= SCOPE_MAX_FILES) return Promise.resolve();
+          if (child.isDirectory) return walk(child);
+          return new Promise(function (got) { child.file(function (f) { out.push(f); got(); }, got); });
+        })).then(done);
+      }, function () { done(); });
+    });
+  };
+  return Promise.all(entries.map(walk)).then(function () { return out.slice(0, SCOPE_MAX_FILES); });
+}
+
+function scopeDrop(el, repo, files) {
+  var card = el.querySelector(".scope");
+  var rows = card.querySelector(".scope-rows");
+  var pattern = rows.querySelector(".scope-row");
+  card.hidden = false;
+  text(card.querySelector(".scope-note"), "reading " + files.length + " file" + (files.length === 1 ? "" : "s") + "…");
+
+  return Promise.all(files.map(function (f) {
+    if (f.size > SCOPE_MAX_HASH) {
+      // Too big to hash without freezing the tab. Name and size is the weaker claim, and it is
+      // labelled as one wherever it is shown -- the way adoption labels its two.
+      return Promise.resolve({ name: f.name, size: f.size, sha: "" });
+    }
+    return blobSha(f).then(function (sha) { return { name: f.name, size: f.size, sha: sha }; });
+  })).then(function (asked) {
+    return post("scope/resolve", { repo: repo, files: asked }).then(function (r) {
+      while (rows.children.length > 1) rows.removeChild(rows.lastChild);
+      if (!r || !r.ok) {
+        text(card.querySelector(".scope-note"), (r && r.error) || "the scope could not be read");
+        return r;
+      }
+      var resolved = [];
+      (r.files || []).forEach(function (item, i) {
+        var li = pattern.cloneNode(true);
+        li.hidden = false;
+        li.className = "scope-row s-" + item.status;
+        text(li.querySelector(".sc-name"), item.name);
+        text(li.querySelector(".sc-path"), item.paths && item.paths.length ? item.paths[0] : "");
+        text(li.querySelector(".sc-how"), item.how || "");
+        text(li.querySelector(".sc-why"), item.why || "");
+        if (item.status === "resolved") resolved.push(item.paths[0]);
+        if (item.status === "ambiguous") {
+          var pick = li.querySelector(".sc-pick");
+          pick.hidden = false;
+          item.paths.forEach(function (p) {
+            var o = document.createElement("option");
+            o.value = p; text(o, p); pick.appendChild(o);
+          });
+          resolved.push(item.paths[0]);
+          pick.addEventListener("change", function () {
+            resolved[resolved.indexOf(li.dataset.chosen || item.paths[0])] = pick.value;
+            li.dataset.chosen = pick.value;
+          });
+          li.dataset.chosen = item.paths[0];
+        }
+        if (item.status === "unmatched") {
+          // Not this repository's file. The only route that moves bytes, and only on this click.
+          var attach = li.querySelector(".sc-attach");
+          attach.hidden = false;
+          attach.addEventListener("click", function () {
+            var f = files[i];
+            f.arrayBuffer().then(function (buf) {
+              var bin = "";
+              var view = new Uint8Array(buf);
+              for (var n = 0; n < view.length; n++) bin += String.fromCharCode(view[n]);
+              return post("attach-bytes", { repo: repo, name: f.name, bytes: btoa(bin) });
+            }).then(function (a) {
+              text(li.querySelector(".sc-why"), a && a.ok ? "attached → " + a.dir : ((a && a.error) || "refused"));
+              if (a && a.ok) attach.hidden = true;
+            });
+          });
+        }
+        rows.appendChild(li);
+      });
+      if (!resolved.length) {
+        text(card.querySelector(".scope-note"), "not a file of " + repo);
+        return r;
+      }
+      return post("scope", { repo: repo, paths: resolved, why: "dropped on the tile" })
+        .then(function (added) {
+          text(card.querySelector(".scope-note"),
+               added && added.ok
+                 ? (added.queued ? "queued for its next turn" : "given to " + repo)
+                 : ((added && added.error) || "the scope could not be written"));
+          var tell = card.querySelector(".scope-tell");
+          tell.hidden = !(added && added.ok && added.queued === false);
+          return added;
+        });
+    });
+  }).catch(function () {
+    text(card.querySelector(".scope-note"), "the files could not be read");
+  });
 }
 
 /* ------------------------------------------------------------------ the dispatch card (#164)

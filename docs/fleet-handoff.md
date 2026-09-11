@@ -30,7 +30,30 @@ Created when an agent is started with `--brief "<text>"` or when a dispatch card
 Emits `handoff.brief {path, words, by}`.
 
 ### `scope.toon`
-Contains the bounded list of files for the ticket in TOON tabular format:
+
+**How a dropped file becomes a path.** The page never learns one — a browser gives a dropped `File`
+its name, size and bytes and nothing else, in every embedder this desk runs in — so it does not ask
+for one. It computes **git's own blob hash** of the bytes, `sha1("blob <size>\0" + bytes)`, and the
+server finds the file in the checkout that has it: candidates are `git ls-files` plus `git ls-files
+--others --exclude-standard`, narrowed by basename, decided by content.
+
+| Answer | Means | The card offers |
+| --- | --- | --- |
+| `resolved` | one file in the checkout has that content | the path, labelled `fingerprint` |
+| `ambiguous` | the same content is at two or more paths | a pick, because guessing would scope the wrong one |
+| `unmatched` | it is not this repository's file | *attach a copy*, the one action that moves bytes |
+
+**An ignored file can never resolve**, and not by a rule that could be relaxed: `.env`,
+`secrets.json` and everything else in `.gitignore` is not in the candidate set at all. A file too
+large to hash in a browser tab (`fleet.scope.max_hash_mb`, default 64) is matched on its name and
+size instead and labelled `name` — the weaker claim, said as one, the way adoption labels its two.
+
+**Nothing but a hash leaves the page** until the operator clicks *attach a copy*. That click posts
+the bytes to `POST /api/attach-bytes` — the one route with a larger body cap
+(`fleet.attach.max_mb`, default 10) — and the copy lands in `.agent/in/<KEY>/` with
+`source: "drop"`, under the five rules above.
+
+The file itself is the bounded list of files for the ticket, in TOON:
 ```
 scope[3]{path,why,by,at,how}:
   models/RDSD.SemanticModel/definition/tables/Velocity.tmdl,dropped on the tile,operator,2026-09-11T09:14,fingerprint

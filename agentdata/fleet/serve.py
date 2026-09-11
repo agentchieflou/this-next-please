@@ -49,6 +49,7 @@ from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
                inbox as IN, lifecycle, links as LK, notify as N, poll as P, supervisor)
 from .registry import Registry, RegistryError, fleet_dir
+from .scope import ScopeError as SCOPE_ERROR
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 SERVE_FILE = "serve.json"
@@ -120,10 +121,13 @@ def _tokenize_css_urls(css: str, token: str) -> str:
 
 
 class ServeError(Exception):
-    def __init__(self, msg: str, hint: str = ""):
+    def __init__(self, msg: str, hint: str = "", code: str = "", hint_code: str = ""):
         super().__init__(msg)
         self.msg = msg
         self.hint = hint
+        # The structured refusal every 409 carries (#163), so the page switches on a code rather
+        # than matching a regex against prose that anyone may reword.
+        self.code = code or hint_code
 
 
 # --------------------------------------------------------------------------------- the API layer
@@ -1047,6 +1051,89 @@ def _offer(id: str):
                         "it was moved, renamed or re-saved; reload the tray and try again")
 
 
+def _repo_record(name: str):
+    """The registered checkout, or the refusal the CLI would give."""
+    if not name:
+        raise ServeError("no repository named", "pass `repo`", hint_code="wrong_repo")
+    try:
+        return Registry().get(name)
+    except (RegistryError, KeyError):
+        raise ServeError(f"{name!r} is not a registered repository",
+                         "`ad-fleet repo add <path>` first, then reload",
+                         hint_code="wrong_repo") from None
+
+
+def _scope_cap() -> int:
+    from .. import config as C
+
+    try:
+        return int(C.get(C.load(), "fleet.scope.max_hash_mb") or 64) * 1024 * 1024
+    except (TypeError, ValueError):
+        return 64 * 1024 * 1024
+
+
+def _attach_cap() -> int:
+    from .. import config as C
+
+    try:
+        return int(C.get(C.load(), "fleet.attach.max_mb") or 10) * 1024 * 1024
+    except (TypeError, ValueError):
+        return 10 * 1024 * 1024
+
+
+def _attach_bytes(body: dict) -> dict:
+    """A file that is not the repository's, copied in because the operator asked for it.
+
+    Base64 in a JSON body rather than multipart, because the page has no build step and the server
+    is `http.server`: one encoder on each side beats a parser nobody would otherwise need.
+    """
+    import base64
+
+    from . import scope as SCOPE
+
+    target = _repo_record(str(body.get("repo") or ""))
+    ticket = str(body.get("ticket") or "") or (target.state().get("active_ticket") or "")
+    name = textio.safe_name(os.path.basename(str(body.get("name") or "")))
+    if not name:
+        raise ServeError("the file has no usable name", "rename it and drop it again")
+    try:
+        blob = base64.b64decode(str(body.get("bytes") or ""), validate=True)
+    except (ValueError, TypeError):
+        raise ServeError("the upload was not readable", "drop the file again") from None
+    cap = _attach_cap()
+    if len(blob) > cap:
+        raise ServeError(f"{name} is {len(blob) // 1024 // 1024} MB; the cap is {cap // 1024 // 1024} MB",
+                         "raise `fleet.attach.max_mb`, or put the file in the checkout and drop it "
+                         "from there so it is scoped rather than copied")
+
+    folder = HO.in_dir(target.path, ticket)
+    dest = os.path.join(folder, name)
+    root = textio.norm_path(os.path.join(target.path, *HO.IN_DIR.split("/")))
+    if not textio.norm_path(dest).startswith(root + "/"):
+        raise ServeError(f"refusing to write {name} outside {HO.IN_DIR}",
+                         "rename the file to something without path separators and retry")
+    SCOPE._refuse_unscopable(os.path.join(HO.IN_DIR, HO.key_for(ticket), name))
+    try:
+        os.makedirs(textio.longpath(folder), exist_ok=True)
+        with open(textio.longpath(dest), "wb") as handle:
+            handle.write(blob)
+    except OSError as e:
+        raise ServeError(f"could not write {name}: {e.strerror or e}",
+                         "check the disk and the repository's permissions") from None
+
+    rel = textio.norm_path(os.path.join(HO.IN_DIR, HO.key_for(ticket), name))
+    why = HO.ask_ad_state(target.path, rel)
+    data = {"file": textio.norm_path(dest), "name": name, "dir": HO.rel_in_dir(ticket),
+            "source": "drop", "size": len(blob), "project": target.name,
+            "attached": True, "recorded": not why, "why": why}
+    ev = E.event(target.name, IN.ATTACHED, data, ticket=ticket)
+    try:
+        E.append(target.name, [ev])
+    except OSError:
+        pass
+    return {**data, **ev}
+
+
 def act(what: str, body: dict) -> dict:
     """One action. The same function the CLI verb calls, so the two cannot drift apart."""
     repo = str(body.get("repo") or "")
@@ -1071,6 +1158,32 @@ def act(what: str, body: dict) -> dict:
             raise ServeError("nothing to send", "type a message first")
         lock = supervisor.send(repo, message, cfg=C.load())
         return {"repo": repo, "pid": lock["pid"]}
+    if what == "scope/resolve":
+        # Hashes in, paths out. Nothing is written and nothing is uploaded: the page has sent the
+        # git object name of each dropped file and is asking which of its own files that is.
+        from . import scope as SCOPE
+
+        target = _repo_record(repo)
+        return {"repo": target.name,
+                "files": SCOPE.resolve(target.path, list(body.get("files") or []),
+                                       max_bytes=_scope_cap())}
+    if what == "scope":
+        from . import scope as SCOPE
+
+        target = _repo_record(repo)
+        ticket = str(body.get("ticket") or "") or (target.state().get("active_ticket") or "")
+        live = supervisor.live(target.name)
+        ev = SCOPE.add(target.name, target.path, ticket,
+                       [str(p) for p in (body.get("paths") or [])],
+                       why=str(body.get("why") or "dropped on the tile"),
+                       how=str(body.get("how") or SCOPE.BY_HASH),
+                       queued=bool(live))
+        return {"repo": target.name, "ticket": ticket, **(ev.get("data") or {}), **ev}
+    if what == "attach-bytes":
+        # The one route that carries bytes, and the only way a file that is *not* the repository's
+        # reaches it. A click, a copy into `.agent/in/<KEY>/`, an `inbox.attached` event -- the
+        # Downloads tray's rules, with `source: "drop"`.
+        return _attach_bytes(body)
     if what == "answer":
         # Every answer the operator typed, in one resume. `send` is the transport, because a reply
         # to a stopped agent has always been a respawn with `--resume` -- there is no pipe to an
@@ -1530,8 +1643,15 @@ class Handler(BaseHTTPRequestHandler):
         if not route.startswith("/api/"):
             return self._refuse(404, f"no route {route}")
         length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_BODY:
-            return self._refuse(413, "body too large")
+        # One route carries bytes, and only that one. Everything else on this server is a small
+        # JSON object, and a 64 kB cap on all of them is what keeps a local server uninteresting to
+        # a hostile tab. `attach-bytes` is the operator clicking *attach a copy*, so it gets the
+        # configured attachment cap and nothing more.
+        cap = _attach_cap() + 64 * 1024 if route == "/api/attach-bytes" else MAX_BODY
+        if length > cap:
+            return self._refuse(413, "body too large",
+                                "raise `fleet.attach.max_mb`, or drop the file from inside the "
+                                "checkout so it is scoped rather than copied")
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
         except ValueError:
@@ -1543,7 +1663,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "action": what, **act(what, body)})
         except (ServeError, RegistryError, supervisor.SupervisorError,
                 approval.ApprovalError, IN.InboxError, CAT.CatalogueError,
-                HO.HandoffError) as e:
+                HO.HandoffError, SCOPE_ERROR) as e:
             # The same refusal the CLI gives, with the same hint. One vocabulary.
             ref_code = getattr(e, "code", "") or "refused"
             return self._refuse(409, e.msg, getattr(e, "hint", ""), refusal_code=ref_code)

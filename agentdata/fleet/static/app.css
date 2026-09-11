@@ -720,3 +720,35 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
   margin-left: auto; min-height: 28px; background: none; color: var(--text);
   border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
 }
+
+/* ------------------------------------------------------------------ the scope card (#166)
+   The tile has drawn a dashed "copy" outline on any non-tile drag since #98; until #166 a dropped
+   file produced that outline and nothing else. This is what it produces now. */
+.scope {
+  margin-top: 8px; padding: 8px; border: 1px dashed var(--focus); border-radius: 5px;
+  background: var(--select);
+}
+.scope-head { display: flex; align-items: baseline; gap: 8px; }
+.scope-title { font-weight: 600; }
+.scope-note { color: var(--muted); }
+.scope-close {
+  margin-left: auto; min-width: 28px; min-height: 28px; line-height: 1;
+  background: none; border: 1px solid var(--line); color: var(--text);
+}
+.scope-rows { list-style: none; margin: 6px 0; padding: 0; }
+.scope-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 2px 0; }
+.sc-name { min-width: 12ch; }
+.sc-path { font-family: ui-monospace, Consolas, monospace; }
+/* `fingerprint` and `name` are not the same claim, and the weaker one says so. */
+.sc-how {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px;
+}
+.sc-why { color: var(--muted); margin-left: auto; }
+.scope-row.s-resolved .sc-path { color: var(--done); }
+.scope-row.s-ambiguous .sc-path { color: var(--waiting); }
+.scope-row.s-unmatched .sc-name { color: var(--muted); }
+.sc-attach, .scope-tell {
+  min-height: 28px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
+}
