@@ -895,6 +895,22 @@ def cmd_events(a) -> int:
     return EXIT_OK
 
 
+def _remembered_windows() -> list[str]:
+    try:
+        from .registry import fleet_dir
+        from .serve import DESK_FILE
+        desk_path = os.path.join(fleet_dir(), DESK_FILE)
+        if os.path.isfile(desk_path):
+            with open(desk_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            wins = data.get("windows")
+            if isinstance(wins, dict) and wins:
+                return list(wins.keys())
+    except Exception:
+        pass
+    return ["main"]
+
+
 def cmd_open(a) -> int:
     """Put the dashboard in front of the operator, starting one if none is up.
 
@@ -911,7 +927,14 @@ def cmd_open(a) -> int:
             return _refuse("ad-fleet open", e)
 
     try:
-        did = O.open_in(a.where, record, launcher_dir=a.write_launcher or "")
+        if getattr(a, "all", False):
+            wins = _remembered_windows()
+            dids = [O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w) for w in wins]
+            return _emit("ad-fleet open", {"where": a.where, "server": "started" if started else "already up",
+                                           "port": record.get("port"), "windows": wins,
+                                           "opened": [d.get("opened") for d in dids]})
+        w = getattr(a, "window", "") or ""
+        did = O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w)
     except O.OpenError as e:
         return _refuse("ad-fleet open", e)
 
@@ -1222,6 +1245,8 @@ def build_parser() -> argparse.ArgumentParser:
     opn.add_argument("--port", type=int, default=8765, help="port to start a server on if none is up")
     opn.add_argument("--write-launcher", dest="write_launcher", metavar="DIR",
                      help="write fleet.html into DIR, for an IDE that only opens files")
+    opn.add_argument("--window", "-w", help="which named window to open (e.g. main, left)")
+    opn.add_argument("--all", action="store_true", help="open every window the desk remembers")
     opn.set_defaults(fn=cmd_open)
 
     brd = sub.add_parser("board", help="your Jira tickets, and which repo each one belongs to")

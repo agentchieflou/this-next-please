@@ -514,7 +514,7 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
     # ticket live in it, and losing them would make `max_restarts` unenforceable and hand the
     # resumed agent no ticket.
     lock = read_lock(name) or {}
-    lifecycle.reap(name, cfg=cfg)
+    lifecycle.reap(name)
 
     if live(name):
         raise SupervisorError(f"{name} is already running (pid {read_lock(name).get('pid')})",

@@ -43,7 +43,7 @@ import secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, inbox as IN,
@@ -388,6 +388,7 @@ _selection = {
         "roles": {"order": []},
         "screens": {"order": []},
     },
+    "windows": {},
 }
 
 
@@ -430,6 +431,11 @@ def _load_desk() -> None:
                     _selection["arrangement"] = {
                         k: dict(v) if isinstance(v, dict) else v for k, v in arr.items()
                     }
+                wins = data.get("windows")
+                if isinstance(wins, dict):
+                    _selection["windows"] = {
+                        k: dict(v) if isinstance(v, dict) else v for k, v in wins.items()
+                    }
         except Exception:
             pass
 
@@ -452,17 +458,17 @@ def _fresh() -> dict:
     """
     here = fleet_dir()
     if _desk["dir"] and _desk["dir"] != here:
-        reset()
+        forget_desk()
     if not _desk["dir"]:
         _load_desk()
     _desk["dir"] = here
     return _desk
 
 
-def reset() -> None:
-    """Drop the shared handles and the selection. Called when the fleet moves under a live process."""
-    global _desk_loaded
-    _desk_loaded = False
+def drop_handles() -> None:
+    """Drop the shared handles (poller, inbox, catalogue) on shutdown.
+    Preserves desk.json and selection in memory.
+    """
     with _desk_lock:
         cat = _desk.get("catalogue")
         if cat is not None:
@@ -472,6 +478,14 @@ def reset() -> None:
                 pass
         _desk.update(dir="", poller=None, inbox=None, catalogue=None, last_tick=0.0,
                      last_fold=0.0)
+
+
+def forget_desk() -> None:
+    """Drop handles and blank selection. Called only when the fleet moves under a live process."""
+    global _desk_loaded
+    _desk_loaded = False
+    drop_handles()
+    with _desk_lock:
         _selection.update(
             selected="",
             screens=[],
@@ -482,8 +496,14 @@ def reset() -> None:
                 "roles": {"order": []},
                 "screens": {"order": []},
             },
+            windows={},
         )
         _save_desk()
+
+
+def reset() -> None:
+    """Backwards compatibility alias for forget_desk()."""
+    forget_desk()
 
 
 
@@ -619,6 +639,7 @@ def desk_state() -> dict:
     _ensure_desk_loaded()
     with _desk_lock:
         arr = _selection.get("arrangement") or {}
+        wins = _selection.get("windows") or {}
         return {
             "selected": _selection["selected"],
             "screens": list(_selection["screens"]),
@@ -626,6 +647,9 @@ def desk_state() -> dict:
             "at": _selection["at"],
             "arrangement": {
                 k: dict(v) if isinstance(v, dict) else v for k, v in arr.items()
+            },
+            "windows": {
+                k: dict(v) if isinstance(v, dict) else v for k, v in wins.items()
             },
         }
 
@@ -738,6 +762,62 @@ def arrange(layout: str, *, order=None, size=None, pinned=None) -> dict:
             changed = True
         if pinned is not None and cur.get("pinned") != list(pinned):
             cur["pinned"] = [str(x) for x in pinned]
+            changed = True
+        if changed:
+            _selection["version"] += 1
+            _selection["at"] = E.stamp()
+            _save_desk()
+        return desk_state()
+
+
+def update_window(w: str = "main", **kwargs) -> dict:
+    """Set per-window state in desk.json and push down the SSE stream."""
+    _ensure_desk_loaded()
+    w = str(w or "main")
+    with _desk_lock:
+        wins = _selection.setdefault("windows", {})
+        win = wins.setdefault(w, {
+            "layout": "grid",
+            "view": "all",
+            "screen": 0,
+            "focus": False,
+            "zoomed": "",
+            "section": "tickets",
+            "held": [],
+            "read": {},
+            "seen": "",
+        })
+        changed = False
+        if "layout" in kwargs and win.get("layout") != str(kwargs["layout"] or ""):
+            win["layout"] = str(kwargs["layout"] or "")
+            changed = True
+        if "view" in kwargs and win.get("view") != str(kwargs["view"] or ""):
+            win["view"] = str(kwargs["view"] or "")
+            changed = True
+        if "screen" in kwargs and win.get("screen") != int(kwargs["screen"] or 0):
+            win["screen"] = int(kwargs["screen"] or 0)
+            changed = True
+        if "focus" in kwargs and win.get("focus") != bool(kwargs["focus"]):
+            win["focus"] = bool(kwargs["focus"])
+            changed = True
+        if "zoomed" in kwargs and win.get("zoomed") != str(kwargs["zoomed"] or ""):
+            win["zoomed"] = str(kwargs["zoomed"] or "")
+            changed = True
+        if "section" in kwargs and win.get("section") != str(kwargs["section"] or ""):
+            win["section"] = str(kwargs["section"] or "")
+            changed = True
+        if "held" in kwargs:
+            new_held = [str(x) for x in kwargs["held"] or []]
+            if win.get("held") != new_held:
+                win["held"] = new_held
+                changed = True
+        if "read" in kwargs and isinstance(kwargs["read"], dict):
+            new_read = {str(k): int(v) for k, v in kwargs["read"].items()}
+            if win.get("read") != new_read:
+                win["read"] = new_read
+                changed = True
+        if "seen" in kwargs and win.get("seen") != str(kwargs["seen"] or ""):
+            win["seen"] = str(kwargs["seen"] or "")
             changed = True
         if changed:
             _selection["version"] += 1
@@ -1012,6 +1092,10 @@ def act(what: str, body: dict) -> dict:
                        order=body.get("order"),
                        size=body.get("size"),
                        pinned=body.get("pinned"))
+    if what == "window":
+        w = str(body.get("w") or "main")
+        kwargs = {k: v for k, v in body.items() if k != "w"}
+        return update_window(w, **kwargs)
     if what == "attach":
         # The single exception in the epic's "nothing is written outside ~/.agentdata/fleet without
         # a click": this is the click. `Inbox.attach` does the copy and holds the rule that it lands
@@ -1246,8 +1330,14 @@ class Handler(BaseHTTPRequestHandler):
                                    "port": self.server.server_address[1],
                                    "version": version_string().split()[1],
                                    "contract": CONTRACT})
+            forward = [(k, v[0] if isinstance(v, list) and len(v) == 1 else v)
+                       for k, vs in query.items() if k != "t"
+                       for v in (vs if isinstance(vs, list) else [vs])]
+            dest = f"/?t={self.token}"
+            if forward:
+                dest += f"&{urlencode(forward)}"
             self.send_response(302)
-            self.send_header("Location", f"/?t={self.token}")
+            self.send_header("Location", dest)
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -1520,4 +1610,4 @@ def run(server: ThreadingHTTPServer) -> None:
         server.shutdown()
         server.server_close()
         forget()
-        reset()          # the poller, the inbox and the catalogue handle are this run's, not the next's
+        drop_handles()   # the poller, the inbox and the catalogue handle are this run's, not the next's

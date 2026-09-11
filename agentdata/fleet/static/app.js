@@ -27,11 +27,29 @@ var LAYOUT = unknownLayout ? "grid" : (rawLayout || "grid");
 var VIEW = VIEWS.indexOf(PARAMS.get("view")) >= 0 ? PARAMS.get("view")
                                                   : (LAYOUT === "roles" ? "agents" : "");
 var SCREEN = Math.max(0, Math.min(9, Number(PARAMS.get("screen")) || 0));
+var W_NAME = PARAMS.get("w") || "main";
 
 var desk = { projects: {}, offers: {}, unsorted: [], not_offered: [], folders: [],
              desk: { selected: "", screens: [] } };
 var pendingDesk = null;
 var needsOnly = false;
+var readCursors = {};
+var streamDead = false;
+var awayShown = false;
+var appliedInitialWindow = false;
+
+function saveWindow(patch) {
+  var body = Object.assign({ w: W_NAME }, patch);
+  return post("window", body).catch(function () {});
+}
+
+function rehome() {
+  var dest = "/open?w=" + encodeURIComponent(W_NAME) +
+             "&layout=" + encodeURIComponent(LAYOUT) +
+             "&view=" + encodeURIComponent(VIEW) +
+             "&screen=" + encodeURIComponent(SCREEN);
+  window.location.href = dest;
+}
 
 /* Repos the operator has acted on, and the word for what they did.
    Answering an agent is what stops it needing you, so in focus mode a reply hid the very tile it
@@ -46,11 +64,13 @@ var HELD_WORDS = { send: "replied", start: "started", stop: "stopped",
 function hold(repo, what) {
   if (!repo || !HELD_WORDS[what]) return;
   held.set(repo, HELD_WORDS[what]);
+  saveWindow({ held: Array.from(held.keys()) });
 }
 
 function release(repo) {
   held.delete(repo);
   if (tiles.has(repo)) tiles.get(repo).el.classList.remove("held");
+  saveWindow({ held: Array.from(held.keys()) });
   place();
 }
 
@@ -67,7 +87,12 @@ function post(action, body) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body || {})
-  }).then(function (r) { return r.json(); });
+  }).then(function (r) {
+    if (r.status === 403 && streamDead) {
+      rehome();
+    }
+    return r.json();
+  });
 }
 
 function text(el, value) { el.textContent = value == null ? "" : String(value); }
@@ -147,9 +172,12 @@ function append(el, ev) {
   text(v, body);                                  // textContent, never markup: this is agent output
   li.appendChild(k);
   li.appendChild(v);
+  var wasAtBottom = (list.scrollHeight - list.scrollTop - list.clientHeight) <= 40;
   list.appendChild(li);
   while (list.children.length > 200) list.removeChild(list.firstChild);
-  list.scrollTop = list.scrollHeight;
+  if (wasAtBottom) {
+    list.scrollTop = list.scrollHeight;
+  }
 }
 
 function makeTile(row, index) {
@@ -159,6 +187,14 @@ function makeTile(row, index) {
   text(repoEl, row.repo);
   repoEl.title = row.repo;
   el.dataset.repo = row.repo;
+
+  var list = el.querySelector(".transcript");
+  var repoName = row.repo;
+  list.addEventListener("scroll", function () {
+    try {
+      sessionStorage.setItem("fleet.scroll." + repoName, String(list.scrollTop));
+    } catch (e) {}
+  });
 
   el.querySelector(".repo").addEventListener("click", function () { focus(row.repo); });
   el.addEventListener("dblclick", function () { focus(row.repo); });
@@ -497,9 +533,103 @@ function drawTile(el, row, approvals) {
 
 /* -------------------------------------------------------------------------------- the whole page */
 
+function checkAway(prevSeen) {
+  if (!prevSeen || awayShown) return;
+  awayShown = true;
+  fetch(q("/api/notifications", { limit: 50 })).then(function (r) {
+    return r.json();
+  }).then(function (data) {
+    if (!data.ok || !data.notifications) return;
+    var seenTime = new Date(prevSeen).getTime();
+    if (isNaN(seenTime)) return;
+
+    var byRepo = new Map();
+    data.notifications.forEach(function (n) {
+      if (!n.at || !n.repo) return;
+      var nTime = new Date(n.at).getTime();
+      if (nTime > seenTime) {
+        byRepo.set(n.repo, n);
+      }
+    });
+
+    var strip = document.getElementById("away-strip");
+    var list = document.getElementById("away-lines");
+    if (!strip || !list || byRepo.size === 0) return;
+
+    while (list.firstChild) list.removeChild(list.firstChild);
+    byRepo.forEach(function (item) {
+      var li = document.createElement("li");
+      li.className = "away-line";
+      var repoSpan = document.createElement("span");
+      repoSpan.className = "repo";
+      text(repoSpan, item.repo + ":");
+      var descSpan = document.createElement("span");
+      descSpan.className = "desc";
+      text(descSpan, item.body || item.title || item.state);
+      var whenSpan = document.createElement("span");
+      whenSpan.className = "when";
+      text(whenSpan, " · " + (item.at ? String(item.at).slice(11, 19) : ""));
+      li.appendChild(repoSpan);
+      li.appendChild(descSpan);
+      li.appendChild(whenSpan);
+      li.addEventListener("click", function () {
+        if (tiles.has(item.repo)) focus(item.repo);
+      });
+      list.appendChild(li);
+    });
+    strip.hidden = false;
+  }).catch(function () {});
+}
+
+var dismissBtn = document.getElementById("dismiss-away");
+if (dismissBtn) {
+  dismissBtn.addEventListener("click", function () {
+    var strip = document.getElementById("away-strip");
+    if (strip) strip.hidden = true;
+  });
+}
+
+function applyWindow(win) {
+  if (!win) return;
+  if (!appliedInitialWindow) {
+    appliedInitialWindow = true;
+    if (win.seen) {
+      checkAway(win.seen);
+    }
+    saveWindow({ seen: new Date().toISOString(), layout: LAYOUT, view: VIEW, screen: SCREEN });
+  }
+  if (win.focus !== undefined && win.focus !== needsOnly) {
+    focusMode(win.focus, true);
+  }
+  if (win.zoomed !== undefined && win.zoomed !== focused) {
+    if (win.zoomed && tiles.has(win.zoomed)) {
+      focus(win.zoomed, true);
+    } else if (!win.zoomed && focused) {
+      unfocus(true);
+    }
+  }
+  if (win.section && win.section !== lastSection) {
+    section(win.section, true, true);
+  }
+  if (Array.isArray(win.held)) {
+    win.held.forEach(function (repo) {
+      if (!held.has(repo)) held.set(repo, "held");
+    });
+  }
+  if (win.read && typeof win.read === "object") {
+    Object.assign(readCursors, win.read);
+  }
+}
+
 function refresh() {
   if (pendingRefresh) return pendingRefresh;
-  pendingRefresh = fetch(q("/api/fleet")).then(function (r) { return r.json(); }).then(function (data) {
+  pendingRefresh = fetch(q("/api/fleet")).then(function (r) {
+    if (r.status === 403 && streamDead) {
+      rehome();
+      return { ok: false, repos: [] };
+    }
+    return r.json();
+  }).then(function (data) {
     pendingRefresh = null;
     if (!data.ok) return;
     var grid = document.getElementById("grid");
@@ -512,6 +642,12 @@ function refresh() {
         entry = { el: el, seq: 0 };
         tiles.set(row.repo, entry);
         (row.recent || []).forEach(function (ev) { append(el, ev); entry.seq = ev.seq; });
+        try {
+          var savedScroll = sessionStorage.getItem("fleet.scroll." + row.repo);
+          if (savedScroll !== null) {
+            entry.el.querySelector(".transcript").scrollTop = Number(savedScroll);
+          }
+        } catch (e) {}
       }
       drawTile(entry.el, row, data.approvals || []);
     });
@@ -525,7 +661,12 @@ function refresh() {
     text(document.getElementById("counts"),
          data.repos.length + " agents" + (need ? "  ·  " + need + " need you" : "") +
          (needsOnly && held.size ? "  ·  " + held.size + " held" : ""));
-    if (data.desk) desk.desk = data.desk;
+    if (data.desk) {
+      desk.desk = data.desk;
+      if (data.desk.windows && data.desk.windows[W_NAME]) {
+        applyWindow(data.desk.windows[W_NAME]);
+      }
+    }
     if (data.theme) {
       applyTheme(data.theme.css, data.theme.theme);
       applySkin(data.theme.skin);
@@ -569,6 +710,9 @@ function connect() {
   // monitor that joined late never sits on a different project than the one beside it.
   source.addEventListener("desk", function (m) {
     desk.desk = JSON.parse(m.data);
+    if (desk.desk.windows && desk.desk.windows[W_NAME]) {
+      applyWindow(desk.desk.windows[W_NAME]);
+    }
     place();
     if (VIEW === "verify" || LAYOUT === "screens") deskSoon();
   });
@@ -593,8 +737,9 @@ function connect() {
     link.className = "dot live";
     text(link, "live");
   });
-  source.onopen = function () { link.className = "dot live"; text(link, "live"); };
+  source.onopen = function () { streamDead = false; link.className = "dot live"; text(link, "live"); };
   source.onerror = function () {
+    streamDead = true;
     link.className = "dot lost";
     text(link, "reconnecting");
     // EventSource reconnects on its own, but the page must not trust what it drew in between.
@@ -604,23 +749,29 @@ function connect() {
 
 /* ------------------------------------------------------------------- focus mode and the keyboard */
 
-function focus(name) {
+function focus(name, skipPost) {
   focused = name;
   document.body.classList.add("focused");
   document.getElementById("unfocus").hidden = false;
   tiles.forEach(function (entry, key) { entry.el.classList.toggle("is-focused", key === name); });
   unread.delete(name);                       // looking at it is what "read" means
+  var entry = tiles.get(name);
+  if (entry && entry.seq) {
+    readCursors[name] = entry.seq;
+  }
   bell();
   drawer(false);
   if (location.hash !== "#tile=" + name) history.replaceState(null, "", "#tile=" + name);
+  if (!skipPost) saveWindow({ zoomed: name, read: readCursors });
 }
 
-function unfocus() {
+function unfocus(skipPost) {
   focused = null;
   document.body.classList.remove("focused");
   document.getElementById("unfocus").hidden = true;
   tiles.forEach(function (entry) { entry.el.classList.remove("is-focused"); });
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  if (!skipPost) saveWindow({ zoomed: "" });
 }
 
 /* A toast launches `…/?t=…#tile=luna`, so the click lands on the agent that needs the operator
@@ -916,7 +1067,7 @@ function syncSide() {
 }
 
 /* `open` undefined toggles, true opens, false closes. Opening one closes the rest. */
-function section(id, open) {
+function section(id, open, skipPost) {
   var el = document.getElementById(id);
   if (!el) return false;
   var want = open === undefined ? el.hidden : !!open;
@@ -932,6 +1083,7 @@ function section(id, open) {
     if (id === "unsorted") loadDesk();
     if (id === "inspector") drawInspector(desk.desk.selected);
   }
+  if (!skipPost) saveWindow({ section: want ? id : "" });
   return want;
 }
 
@@ -941,6 +1093,7 @@ function closeSide() {
     if (n) n.hidden = true;
   });
   syncSide();
+  saveWindow({ section: "" });
 }
 
 function drawer(open) { return section("drawer", open); }
@@ -1882,10 +2035,10 @@ document.getElementById("swap").addEventListener("change", function () {
 /* The fourth thing #133 asks for, and the only one that is not a layout: hide every tile except
    the ones #94 says need a person. The alternative to arranging tabs is having fewer to look at.
    Toggled with `f`, remembered per window, and printed in the footer's key map. */
-function focusMode(on) {
+function focusMode(on, skipPost) {
   needsOnly = on === undefined ? !needsOnly : !!on;
   document.getElementById("focus").setAttribute("aria-pressed", String(needsOnly));
-  try { localStorage.setItem("fleet.needsonly", needsOnly ? "1" : "0"); } catch (e) { /* private */ }
+  if (!skipPost) saveWindow({ focus: needsOnly });
   // Leaving focus mode is the operator saying they are done with this pass, so the tiles being
   // held for them are let go. Otherwise the next `f` would open on the last visit's leftovers.
   if (!needsOnly) held.clear();
@@ -1893,9 +2046,6 @@ function focusMode(on) {
 }
 
 document.getElementById("focus").addEventListener("click", function () { focusMode(); });
-
-try { needsOnly = localStorage.getItem("fleet.needsonly") === "1"; } catch (e) { needsOnly = false; }
-document.getElementById("focus").setAttribute("aria-pressed", String(needsOnly));
 
 document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
