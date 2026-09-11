@@ -1,9 +1,9 @@
 # Plan: the handoff — a ticket dropped on a tile is picked up, questioned once, given its files, and worked
 
-_Status: PLANNED (2026-09-11) — to be filed as an epic under #91 (the fleet) and #122 (the desk), a sibling of
-#145. Nothing below is built. Slices A–G are written in the shape of the issues to file and carry no numbers yet.
-Every browser claim is to be measured on the laptop in Edge, PyCharm's JCEF window and VS Code's Simple Browser,
-the way #145's were, and every measurement is recorded in the slice that made it._
+_Status: PLANNED (2026-09-11) — epic #162 (slices #163–#169), under #91 (the fleet) and #122 (the desk), a
+sibling of #145. Nothing below is built. Every browser claim is to be measured on the laptop in Edge, PyCharm's
+JCEF window and VS Code's Simple Browser, the way #145's were, and every measurement is recorded in the slice that
+made it._
 
 ## Why this exists
 
@@ -168,9 +168,10 @@ none it prints them and STOPs. `router` step 8 routes to `friction-log` only on 
 The `?` heuristic stays as the last resort it already is.
 
 **AGENTS.md rule 10** — *acceptance criteria ambiguous → friction-log, then STOP* — is the canonical rule this act
-refines, into "two readings that lead to different work → a blocking `ask`; a safe default → `--assume` and
-continue". That is a change to the canonical rules and therefore the operator's decision, recorded in the slice
-that makes it.
+refines, into "two readings that lead to different work → a blocking `ask`; a safe, reversible default → `--assume`
+and continue". A change to the canonical rules is the operator's decision: **approved on 2026-09-11**. It lands in
+#165 in the same commit as the verb, never before it — a canonical rule naming a subcommand that does not exist yet
+is a dead end Luna cannot diagnose.
 
 ### The scope: a file is identified without a path
 
@@ -256,15 +257,15 @@ recognising a refusal by regex over its prose (`dispatch()` matches `/jira_proje
 
 | # | Slice | Fixes | Needs | After |
 |---|---|---|---|---|
-| A | the handoff contract: the codes, the kinds, the directory, the doc, and the hygiene the pick-up guard depends on | the regex on prose; the attach response the page misreads; two `TERMINAL_PHASES` that disagree | — | — |
-| B | pick-up: the pre-flight, the dispatch card, the brief | an agent whose first move is a stop | A | A |
-| C | the ask: `ad-state ask` / `answer`, the question card, one resume for N answers, the skill steps | a reply that does not unblock; a question that is a sentence | A | A |
-| D | scope in the page: resolve a dropped file by fingerprint, `scope.toon`, the scope card, attach a copy | a drop that lights up and does nothing | A | A |
-| E | scope from the IDE: the path channel in both shells, `POST /api/scope`, contract step 8 | no channel from a host that has a path | D | D |
-| F | the agent honours the scope: the skill steps, the comments read, widening by graph, the queue, the report | context written and never read | C, D | C, D |
-| G | proof: the drop harness, a fake-copilot question round trip, the laptop rows, the demo | — | all | all |
+| A #163 | the handoff contract: the codes, the kinds, the directory, the doc, and the hygiene the pick-up guard depends on | the regex on prose; the attach response the page misreads; two `TERMINAL_PHASES` that disagree | — | — |
+| B #164 | pick-up: the pre-flight, the dispatch card, the brief | an agent whose first move is a stop | A | A |
+| C #165 | the ask: `ad-state ask` / `answer`, the question card, one resume for N answers, the skill steps | a reply that does not unblock; a question that is a sentence | A | A |
+| D #166 | scope in the page: resolve a dropped file by fingerprint, `scope.toon`, the scope card, attach a copy | a drop that lights up and does nothing | A | A |
+| E #167 | scope from the IDE: the path channel in both shells, `POST /api/scope`, contract step 8 | no channel from a host that has a path | D | D |
+| F #168 | the agent honours the scope: the skill steps, the comments read, widening by graph, the queue, the report | context written and never read | C, D | C, D |
+| G #169 | proof: the drop harness, a fake-copilot question round trip, the laptop rows, the demo | — | all | all |
 
-### A — the handoff contract
+### A #163 — the handoff contract
 
 **Context.** Three seams every later slice lands on are soft today. `dispatch()` in `app.js` offers the cross-project
 override by matching `/jira_project/` against the refusal's prose; rewording `supervisor.check_ticket` silently
@@ -298,7 +299,7 @@ in neither `state.PHASES`; `optimizing` is in `state.PHASES` and missing from `s
 
 **Out of scope.** Any card, any drop of a file, any skill change beyond the phase list.
 
-### B — pick-up: the pre-flight, the dispatch card, the brief
+### B #164 — pick-up: the pre-flight, the dispatch card, the brief
 
 **Context.** §Pick-up. A drop today is a start; after this it is a card whose button is the start.
 
@@ -330,7 +331,7 @@ in neither `state.PHASES`; `optimizing` is in `state.PHASES` and missing from `s
 **Out of scope.** Reading attachments from Jira (open question); any change to what `jira-triage` reads; auto-start
 on *ready* (declined: the card is the operator's decision, however short).
 
-### C — the ask
+### C #165 — the ask
 
 **Context.** §The ask. Today the agent can stop, and only stop; a reply does not unblock; a question is a sentence.
 
@@ -345,8 +346,8 @@ on *ready* (declined: the card is the operator's decision, however short).
    resume text in one function beside `lifecycle.RESUME_PROMPT`.
 5. Skill steps: `jira-triage` 8 (comments) and 10 (clarify), `session-bootstrap` 11, `router` 8; the friction
    template's `severity` line becomes required.
-6. The AGENTS.md rule 10 refinement, as a proposal in the slice for the operator to accept or decline; the skills
-   are written so that either answer leaves them consistent.
+6. AGENTS.md rule 10, reworded as §The ask says (approved 2026-09-11), in the same commit as the verb;
+   `HANDOFF.md`'s rule list and every skill that cites rule 10 say the same thing.
 
 **Acceptance criteria.**
 - [ ] A fake-copilot transcript in which the agent runs `ad-state ask --choice a --choice b`, stops, is answered
@@ -357,11 +358,13 @@ on *ready* (declined: the card is the operator's decision, however short).
 - [ ] A `nit` friction log does not turn the tile red; a `blocker` does; both are events.
 - [ ] `tests/test_skills.py` proves every skill still stays under 120 lines and that no skill ends a turn on an
       unanswered question without having printed it.
+- [ ] A test asserts AGENTS.md rule 10 and `jira-triage` step 10 name the same two outcomes, so the canonical rule
+      and the skill cannot drift apart.
 
 **Out of scope.** A question the *fleet* asks the agent; multiple-choice with free-text "other" beyond the text box
 that is already there; Windows toast content beyond the existing title and body.
 
-### D — scope in the page: a dropped file, resolved by fingerprint
+### D #166 — scope in the page: a dropped file, resolved by fingerprint
 
 **Context.** §The scope, first channel. The tile already promises a copy on `dragover`; this makes it true.
 
@@ -390,7 +393,7 @@ that is already there; Windows toast content beyond the existing title and body.
 
 **Out of scope.** Paths from the IDE (E); anything the agent does with the scope (F); moving a file.
 
-### E — scope from the IDE: the path channel in both shells
+### E #167 — scope from the IDE: the path channel in both shells
 
 **Context.** §The scope, second channel. A shell has a path and no channel; it gets the channel and no rule.
 
@@ -415,7 +418,7 @@ that is already there; Windows toast content beyond the existing title and body.
 **Out of scope.** A second view of an agent in either shell; a JS bridge between host and page (the server is the
 bridge); macOS and Linux IDE paths.
 
-### F — the agent honours the scope
+### F #168 — the agent honours the scope
 
 **Context.** §The scope, what the agent receives. The plumbing reaches the doorstep today and no skill opens the door.
 
@@ -441,7 +444,7 @@ bridge); macOS and Linux IDE paths.
 refusal nobody asked for); a ticket→file edge in the graph (open question; the scope *is* that edge, written by a
 person).
 
-### G — proof
+### G #169 — proof
 
 **Context.** #102's shape, for this epic: a fake `copilot` on CI, the laptop runbook, and a definition-of-done demo.
 
@@ -483,8 +486,9 @@ person).
 
 ## Build order
 
-A → then B, C and D in any order, in parallel if hands allow → E after D → F after C and D → G last, though every
-slice lands with its own browser test. B and C are independent of D; a card without a drop zone is still a card.
+#163 → then #164, #165 and #166 in any order, in parallel if hands allow → #167 after #166 → #168 after #165 and
+#166 → #169 last, though every slice lands with its own browser test. #164 and #165 are independent of #166; a card
+without a drop zone is still a card.
 
 ## Open questions, to be answered on the laptop and recorded in the slice
 
