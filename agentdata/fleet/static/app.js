@@ -1115,8 +1115,6 @@ function connect() {
   source.addEventListener("theme", function (m) {
     try {
       var d = JSON.parse(m.data);
-      var select = document.getElementById("theme");
-      if (select && d.theme) select.value = d.theme === "none" ? "" : d.theme;
       applyTheme(d.css, d.theme);
       applySkin(d.skin);
       reflectTheme(d);
@@ -1341,18 +1339,26 @@ function loadThemes() {
       skinSel.appendChild(group);
     });
     skinSel.addEventListener("change", function () { post("theme", { skin: skinSel.value }); });
-    reflectTheme(data.current || data.theme);
+    // What is chosen, now that there is something to choose from. `themeNow` is whatever the
+    // stream said while these options did not exist yet; it wins, because it is the later word.
+    reflectTheme(themeNow || data.current);
   }).catch(function () { /* themes are decoration; the page works without them */ });
 }
+
+var themeNow = null;                  // the last word on what the desk is wearing, from either path
 
 /* One place that puts the server's answer into the two controls, so a change made in the terminal
    or in another window shows up here rather than leaving the picker saying something else. */
 function reflectTheme(cur) {
   if (!cur) return;
+  themeNow = cur;
   var themeSel = document.getElementById("theme");
   var skinSel = document.getElementById("skin");
   if (themeSel && cur.theme) themeSel.value = cur.theme;
   if (skinSel) skinSel.value = cur.skin || "none";
+  // A saved name that is no longer a palette leaves a select showing nothing at all, which is the
+  // one thing a picker may never do: the operator cannot see what is on, or that anything is wrong.
+  [themeSel, skinSel].forEach(function (sel) { if (sel && sel.selectedIndex < 0) sel.selectedIndex = 0; });
   /* While a skin is on, the palette is the skin's -- so the palette picker shows what is being
      rendered and says why it is not taking instructions, rather than accepting a choice the server
      would then override. Turning the skin off hands it back. */
@@ -3155,8 +3161,8 @@ document.getElementById("showall").addEventListener("click", function () {
 
 document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 
-/* ---- the popovers (#180): the pickers behind *look*, the key map behind `?`; one open at a time. */
-var POPOVERS = { look: "lookbtn", keymap: "keysbtn" };
+/* ---- the popovers: the pickers behind *settings*, the key map behind `?`; one open at a time. */
+var POPOVERS = { settings: "setbtn", keymap: "keysbtn" };
 
 function popover(id, open) {
   var box = document.getElementById(id);

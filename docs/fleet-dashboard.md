@@ -120,11 +120,14 @@ one place the hand-over skipped its pre-flight. A ticket row takes the keyboard:
 rail chip in that position, `Enter` the row's one candidate.
 
 The **toolbar** is three labelled groups and one row: *window* (the layout segments, and which window
-of that set this one is), *see* (search, the sidebar, and a *look* button), and *needs me* (focus
-mode, chime, the bell). The palette and skin pickers are behind *look* (#180): they are chosen once
-a week, not once a minute, and two `<select>`s were the widest things on the bar — HIG *Toolbars*
-keeps the commands for the current context on the bar and puts a choice that rarely changes
-somewhere a person goes on purpose. The footer keeps the two things that change — the counts and
+of that set this one is), *see* (search, the sidebar, and a *settings* button), and *needs me* (focus
+mode, chime, the bell). The palette and skin pickers live in **settings** (#180, #195): they are
+chosen once a week, not once a minute, and two `<select>`s were the widest things on the bar — HIG
+*Toolbars* keeps the commands for the current context on the bar and puts a choice that rarely
+changes somewhere a person goes on purpose. What the desk is *wearing* is answered by the server:
+`GET /api/themes` returns the palettes, the skins, and which of them is `current`, because a page
+that can only fill the pickers and not set them opens reading *system · no skin* over whatever the
+config says — which it did, on every window, until #195. The footer keeps the two things that change — the counts and
 the notice — and a `?` button (or the `?` key) opens the key map in four short columns. A cell that
 fails to poll goes **grey with the error in a tooltip**, never wrong; a link with no fact behind it
 is absent, never broken.
@@ -329,7 +332,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/static/…` | its two assets |
 | GET | `/api/fleet` | every repo's state, the recent events, and the pending approvals |
 | GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent |
-| GET | `/api/themes` | the `.icls` palettes |
+| GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195) |
 | GET | `/api/board` | your Jira tickets, and which repo each one belongs to |
 | GET | `/api/history` | what was dispatched, how it ended, what it cost |
 | GET | `/api/notifications` | what has been announced |

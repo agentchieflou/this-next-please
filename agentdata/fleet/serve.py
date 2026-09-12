@@ -1757,8 +1757,17 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
         if route == "/api/themes":
+            from .. import config as C
             from . import skins
-            return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins()})
+
+            # What is *chosen*, beside what there is to choose from. Without it the pickers could
+            # only be filled, never set: the page built its options after the stream had already
+            # told it the answer, and rebuilding the options threw that answer away -- so the desk
+            # always opened reading "system / no skin" over whatever the config actually said.
+            chosen = (C.load().get("theme") or {})
+            return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins(),
+                               "current": {"theme": chosen.get("default", "none") or "none",
+                                           "skin": chosen.get("skin", "none") or "none"}})
         if route == "/api/board":
             from .. import config as C
 

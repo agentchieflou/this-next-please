@@ -968,7 +968,7 @@ and the operator's real checkouts.
 
 | # | What to do | What it must do | Host | Date |
 |---|---|---|---|---|
-| T1 | The desk at 1280 wide in JCEF (PyCharm) and in VS Code's Simple Browser, in `none`, `glass:smoke` and `farmstead:daytime` | the toolbar is one row and the footer one line; the palette and skin pickers are behind *look* and still drive the page | _not yet measured_ | — |
+| T1 | The desk at 1280 wide in JCEF (PyCharm) and in VS Code's Simple Browser, in `none`, `glass:smoke` and `farmstead:daytime` | the toolbar is one row and the footer one line; the palette and skin pickers are in *settings*, open on what the desk is already wearing, and still drive the page | _not yet measured_ | — |
 | T2 | A transcript, the grid and the sidebar scrolled in each embedder's Chromium | the scrollbar is the palette's thumb on the palette's ground — never the OS's grey bar — and its width is `thin` | _not yet measured_ | — |
 | T3 | `glass:smoke` and `glass:frost` in each embedder, with the sidebar open | the pane blurs what is behind it and is a different colour where the mesh is; the cards on a pane are a layer of their own; the chips stay solid | _not yet measured_ | — |
 | T4 | A four-window desk with a glass skin, on the four real screens, for one afternoon | the frame rate under `backdrop-filter` is livable — measure it; a desk that stutters gets `prefers-reduced-transparency`, which the skin honours | _not yet measured_ | — |
