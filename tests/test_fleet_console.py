@@ -434,3 +434,46 @@ def test_the_session_index_says_a_console_held_the_session(fleet_home, tmp_path)
     rows = {r["id"]: r for r in SESS.rebuild_sessions("luna", path)}
     assert rows["sess-c"]["runs"] == 2 and rows["sess-c"]["source"] == "console", rows["sess-c"]
     assert rows["sess-x"]["source"] == "adopted"
+
+
+# ---------------------------------------------------------- adopt, made exact: the session files (#192)
+
+
+def test_the_sessions_of_a_checkout_are_found_by_workspace_yaml_or_the_stores_cwd(fleet_home, tmp_path, monkeypatch):
+    """Both schema shapes (S1): a `workspace.yaml` naming the working directory, and a store row
+    with a `cwd` column. Newest log first; a session elsewhere is never offered."""
+    import sqlite3
+
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    other = make_project(tmp_path / "mars", ticket="RDSD-9")
+    root = SESS.session_state_dir()
+
+    def session(sid, cwd, when, yaml=True):
+        d = os.path.join(root, sid)
+        os.makedirs(d, exist_ok=True)
+        if yaml:
+            with open(os.path.join(d, "workspace.yaml"), "w", encoding="utf-8") as f:
+                f.write(f"id: {sid}\ncwd: '{cwd}'\nsummary: x\n")
+        with open(os.path.join(d, "events.jsonl"), "w", encoding="utf-8") as f:
+            f.write(_line("assistant.message", content=sid, model="m", toolRequests=[]))
+        os.utime(os.path.join(d, "events.jsonl"), (when, when))
+
+    session("old-here", path, 1_700_000_000)
+    session("new-here", path, 1_700_000_500)
+    session("elsewhere", other, 1_700_000_900)
+    session("by-store", path, 1_700_000_700, yaml=False)      # only the store knows its cwd
+
+    store = tmp_path / "store.db"
+    con = sqlite3.connect(store)
+    con.execute("CREATE TABLE sessions (id TEXT, cwd TEXT, repository TEXT, summary TEXT, created_at TEXT, updated_at TEXT)")
+    con.execute("INSERT INTO sessions VALUES ('by-store', ?, 'luna', 'via the store', '2026-09-12', '2026-09-12')", (path,))
+    con.execute("INSERT INTO sessions VALUES ('elsewhere', ?, 'mars', 'no', '2026-09-12', '2026-09-12')", (other,))
+    con.commit()
+    con.close()
+    monkeypatch.setenv("COPILOT_SESSION_STORE", str(store))
+
+    rows = SESS.session_files(path)
+    assert [(r["id"], r["how"]) for r in rows] == [("by-store", "store"), ("new-here", "workspace"), ("old-here", "workspace")], rows
+    assert all(r["file"] == SESS.session_state_path(r["id"]) for r in rows)
+    assert rows[0]["log_age_s"] > 0
+    assert SESS.session_files(str(tmp_path / "nowhere")) == []

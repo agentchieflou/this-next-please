@@ -45,6 +45,61 @@ def session_state_path(session_id: str) -> str:
     return os.path.join(session_state_dir(), sid, "events.jsonl")
 
 
+def _workspace_cwd(session_dir: str) -> str:
+    """The working directory a session's `workspace.yaml` names, or "". One line of YAML is read as
+    text -- no YAML library, and nothing else in the file is trusted: `cwd:` or `working_directory:`,
+    quoted or not, is the whole contract, and runbook row S1 says which key the real file uses."""
+    path = os.path.join(session_dir, "workspace.yaml")
+    try:
+        text = textio.read_text(path)
+    except (OSError, ValueError):
+        return ""
+    for line in text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip() in ("cwd", "working_directory", "workingDirectory"):
+            return value.strip().strip("'\"")
+    return ""
+
+
+def session_files(repo_path: str) -> list[dict]:
+    """Copilot's sessions whose working directory is this checkout, newest log first (#192).
+
+    Two places can say where a session ran, and both are taken: `workspace.yaml` beside the log,
+    and the store's `cwd` column where the schema has one (`read_store_sessions` already matches
+    on it). Each row says which it used -- `how: "workspace"` or `"store"` -- because S1 decides
+    which the real machine carries and the runbook records it. Read-only, like everything here.
+    """
+    want = textio.norm_path(repo_path).lower().rstrip("/")
+    found: dict[str, dict] = {}
+    root = session_state_dir()
+    try:
+        names = os.listdir(root)
+    except OSError:
+        names = []
+    for sid in names:
+        d = os.path.join(root, sid)
+        if not os.path.isdir(d):
+            continue
+        cwd = _workspace_cwd(d)
+        if cwd and textio.norm_path(cwd).lower().rstrip("/") == want:
+            found[sid] = {"id": sid, "how": "workspace"}
+    for row in read_store_sessions(repo_path):
+        sid = str(row.get("id") or "")
+        if sid and sid not in found and os.path.isdir(os.path.join(root, os.path.basename(sid))):
+            found[sid] = {"id": sid, "how": "store"}
+    out = []
+    for sid, row in found.items():
+        file = session_state_path(sid)
+        try:
+            mtime = os.path.getmtime(file)
+        except OSError:
+            mtime = 0.0
+        out.append({**row, "file": file, "log_mtime": mtime,
+                    "log_age_s": (time.time() - mtime) if mtime else -1.0})
+    out.sort(key=lambda r: -r["log_mtime"])
+    return out
+
+
 def store_status() -> tuple[str, str, str]:
     """Check whether Copilot's session store is present and readable.
 
