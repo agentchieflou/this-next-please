@@ -17,7 +17,7 @@ import time
 
 import pytest
 
-from agentdata.fleet import events as E, registry, serve as S, sessions as SESS, supervisor
+from agentdata.fleet import events as E, launch, registry, serve as S, sessions as SESS, supervisor
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
@@ -248,3 +248,38 @@ def test_the_fake_copilot_writes_its_session_file_in_the_order_it_prints(tmp_pat
     written = [ln for ln in file.read_text(encoding="utf-8").splitlines() if ln.startswith("{")]
     assert written == printed and len(written) >= 2
     assert json.loads(written[-1])["type"] == "result"
+
+
+# ---------------------------------------------------------------------- the console's argv (#189)
+
+
+def _patterns(argv, flag):
+    return [argv[i + 1] for i, a in enumerate(argv) if a == flag]
+
+
+def test_the_consoles_argv_is_the_turns_without_the_three_headless_flags():
+    """Acceptance criterion (#189). No `-p`, no `--no-ask-user`, no `--output-format`; the
+    enumerated allow-list; `--session-id <id>`; `-C <repo>`."""
+    argv = launch.console_command("copilot", "C:/repo", log_dir="C:/logs", session="6f1c-console")
+    assert argv[0] == "copilot"
+    for gone in ("-p", "--no-ask-user", "--output-format", "--usage-output-file"):
+        assert gone not in argv, gone
+    assert _patterns(argv, "--session-id") == ["6f1c-console"] and "--resume" not in argv
+    assert _patterns(argv, "-C") == ["C:/repo"] and _patterns(argv, "--add-dir") == ["C:/repo"]
+    assert _patterns(argv, "--log-dir") == ["C:/logs"] and "--disable-builtin-mcps" in argv
+    headless = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs")
+    assert _patterns(argv, "--allow-tool") == _patterns(headless, "--allow-tool"), "the same enumerated list"
+    assert _patterns(argv, "--deny-tool") == _patterns(headless, "--deny-tool")
+    assert "shell(ad-fleet)" in _patterns(argv, "--deny-tool")
+
+
+def test_a_resumed_console_continues_the_session_it_names_and_a_blanket_permission_is_refused():
+    argv = launch.console_command("copilot", "C:/repo", log_dir="C:/logs", session="sess-1", resume=True)
+    assert _patterns(argv, "--resume") == ["sess-1"] and "--session-id" not in argv
+    with pytest.raises(launch.LaunchError) as e:
+        launch.console_command("copilot", "C:/repo", log_dir="C:/logs", session="")
+    assert "session id" in e.value.msg
+    with pytest.raises(launch.LaunchError) as e:
+        launch.console_command("copilot", "C:/repo", log_dir="C:/logs", session="s",
+                               cfg={"fleet": {"allow_tools": ["--allow-all"]}})
+    assert "blanket" in e.value.hint
