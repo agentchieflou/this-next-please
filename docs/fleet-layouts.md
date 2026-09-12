@@ -154,13 +154,30 @@ epic exists because of one. Attach them to issue #133 and link them here.
 
 | | A — grid | B — roles | C — screens |
 | --- | --- | --- | --- |
-| Photograph | _(link)_ | _(link)_ | _(link)_ |
-| Minutes spent in it | | | |
-| What was opened **outside** the dashboard, and why | | | |
-| Screen hops (roughly, per hour) | | | |
-| What the cursor did most | | | |
-| Was focus mode used? When? | | | |
-| What was worse than the tab shuffle | | | |
+| Photograph | two, 2026-09-11, described below (#179) | one, 2026-09-11, described below (#179) | _none yet_ |
+| Minutes spent in it | _not recorded_ | _not recorded_ | |
+| What was opened **outside** the dashboard, and why | _not recorded_ | _not recorded_ | |
+| Screen hops (roughly, per hour) | _not recorded_ | _not recorded_ | |
+| What the cursor did most | _not recorded_ | _not recorded_ | |
+| Was focus mode used? When? | _not recorded_ | _not recorded_ | |
+| What was worse than the tab shuffle | _not recorded_ | _not recorded_ | |
+
+**The photographs of 2026-09-11** (#179) are described rather than committed: they carry a tenant's
+ticket keys and summaries, the same reason the fake `copilot`'s transcripts are synthesized. They
+were phone photographs of the live desk with five agents on real tickets, and they are what
+[plan-sitting.md](plan-sitting.md) was written from:
+
+- **A, the grid in `farmstead:daytime`:** five tiles across one window; the toolbar wrapped to two
+  rows and the key map to two lines under the grid; a blank square beside every pin (the hide
+  toggle); Windows' grey scrollbars on every transcript.
+- **A, the grid with the sidebar open in `glass:smoke`:** the same grid with the project section
+  open; the panes a flat blue-grey with nothing behind them for a blur to show.
+- **B, the board window (`?layout=roles&view=board`) in `glass:frost`:** the Jira board alone, five
+  *start on X* buttons per row and nothing to drag a ticket onto; the panes a flat cream.
+
+The rows above that say _not recorded_ are the operator's to fill on the real screens; a
+photograph shows an arrangement, not the minutes spent in it or the tabs opened beside it. Slice
+F of #179 records what the photographs showed and no more.
 
 **The decision** (write it here and in #133, with the reasons, before changing the default):
 

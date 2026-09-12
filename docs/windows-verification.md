@@ -956,3 +956,31 @@ work.
 - **Do tile numbers renumber on reorder?** (S7) They follow the arrangement today, deliberately
   (#149). A key that changes under the hand is not a key, so this is measured on the laptop before
   it is changed.
+
+## The sitting (#179): what only the laptop can answer
+
+Everything in this epic that could be proven on Linux CI is proven — the one-row toolbar in every
+look, the scrollbar's computed colour, the glass pane's real pixels inside the declared range, the
+rail's drop and the card under it, the seven-branch fixture's count and pane, and the demo
+(`tests/test_fleet_demo_sitting.py`, `-m slow`). What is left is every claim about a *host*: an
+embedded Chromium's `scrollbar-color` and `backdrop-filter`, a real desk's frame rate with blur on,
+and the operator's real checkouts.
+
+| # | What to do | What it must do | Host | Date |
+|---|---|---|---|---|
+| T1 | The desk at 1280 wide in JCEF (PyCharm) and in VS Code's Simple Browser, in `none`, `glass:smoke` and `farmstead:daytime` | the toolbar is one row and the footer one line; the palette and skin pickers are behind *look* and still drive the page | _not yet measured_ | — |
+| T2 | A transcript, the grid and the sidebar scrolled in each embedder's Chromium | the scrollbar is the palette's thumb on the palette's ground — never the OS's grey bar — and its width is `thin` | _not yet measured_ | — |
+| T3 | `glass:smoke` and `glass:frost` in each embedder, with the sidebar open | the pane blurs what is behind it and is a different colour where the mesh is; the cards on a pane are a layer of their own; the chips stay solid | _not yet measured_ | — |
+| T4 | A four-window desk with a glass skin, on the four real screens, for one afternoon | the frame rate under `backdrop-filter` is livable — measure it; a desk that stutters gets `prefers-reduced-transparency`, which the skin honours | _not yet measured_ | — |
+| T5 | Drag a ticket from the board window on the right monitor onto a rail chip | the candidates light before the drop, the card opens under the rail with its verdict, and *Start* starts exactly one agent | _not yet measured_ | — |
+| T6 | The same drop from the keyboard: a focused row, `1`–`9`, `Enter`, `Esc` | the same card, and `Esc` closes it without closing the board | _not yet measured_ | — |
+| T7 | The git cell and the branches pane on the operator's real checkouts | the counts are the counts `git branch` prints there; the amber at 6 is the right default for those repositories, or `fleet.branches.warn` is changed and the reason written here | _not yet measured_ | — |
+| T8 | A real `copilot` session started on a checkout that already carries the ticket's branch | its first line prints `branches=<n> (<m> unmerged)`, it creates no second branch, and the count in the transcript is the count on the tile | _not yet measured_ | — |
+
+### The open questions these rows answer
+
+- **Is 6 the right default for `fleet.branches.warn`?** (T7) It is the operator's own number from
+  the sitting; the pane shows the unmerged count beside it, and the sitting decides whether that is
+  the better threshold.
+- **Does blur cost a frame rate the desk can afford?** (T4) The skin is scoped and the fallback
+  exists; whether the default should be the fallback on the embedders is measured, not assumed.

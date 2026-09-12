@@ -1,7 +1,8 @@
 # Plan: the sitting — five things a real day on the desk showed
 
-_Status: PLANNED (2026-09-11) — epic #179 (slices #180–#185), under #91 (the fleet) and #122 (the desk), a
-sibling of #145, #162 and #170. Nothing below is built. This is the first plan written from photographs of the
+_Status: IMPLEMENTED (2026-09-12) — epic #179 (slices #180–#185), under #91 (the fleet) and #122 (the desk), a
+sibling of #145, #162 and #170. Built on branch `claude/adoring-gauss-bf40fr`; the laptop rows are in
+[windows-verification.md](windows-verification.md) §The sitting. This is the first plan written from photographs of the
 desk in use rather than from reading the code — the sitting [fleet-layouts.md](fleet-layouts.md) §The sitting
 asked for, three phone photos of it, taken 11 September 2026 on the laptop in Edge. Every claim below is to be
 measured on the same screens, in Edge, PyCharm's JCEF window and VS Code's Simple Browser, the way #145's were._
