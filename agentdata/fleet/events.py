@@ -37,6 +37,10 @@ CURSOR = "events.cursor.json"
 KINDS = (
     # the supervisor
     "started",
+    # what the fleet typed into a console it opened (#190). The fleet's own act, like `started`:
+    # the console echoes this exact line, and what the session makes of it comes back from
+    # Copilot's file, which stays the only transcript.
+    "said",
     # the Copilot CLI's JSONL
     "turn_started", "assistant_text", "tool_call", "tool_result", "denied", "turn_ended",
     "session_id", "cost", "exited", "error", "raw",

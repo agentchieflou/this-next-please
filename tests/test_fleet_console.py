@@ -404,11 +404,20 @@ def test_the_console_button_on_the_strip_opens_one_and_the_tile_shows_it(fleet_h
             page.wait_for_function(
                 """() => /Hello from the console/.test(document.querySelector('.tile[data-repo="luna"]').textContent)""",
                 timeout=15000)
-            # A second press while it is live is the supervisor's refusal, on the tile.
+            # Once a console holds the tile, the same button is *show console* and raises that
+            # window rather than opening a second one (#190). On a machine with no Win32 console
+            # API the helper says so -- and either way nothing starts a second session.
+            page.wait_for_function(
+                """() => /show console/.test(document.querySelector('.tile[data-repo="luna"] .console-tab').textContent)""",
+                timeout=15000)
             page.locator('.tile[data-repo="luna"] .console-tab').click()
             page.wait_for_function(
-                """() => /already has a live agent/.test(document.querySelector('.tile[data-repo="luna"] .err').textContent)""",
+                """() => /console/.test(document.querySelector('.tile[data-repo="luna"] .err').textContent)"""
+                if os.name != "nt" else
+                """() => true""",
                 timeout=5000)
+            assert sum(1 for e in E.read("luna")
+                       if e["kind"] == "started" and e["data"].get("console")) == 1
             assert not errors, errors
             browser.close()
     finally:
@@ -521,3 +530,224 @@ def test_a_console_the_operator_opened_is_offered_by_its_session_file_and_adopti
     Registry().add(mars, name="mars")
     offers = {c["repo"]: c for c in A.candidates(Registry(), processes=[])}
     assert offers["mars"]["how"] == "inferred from recent activity" and offers["mars"]["session_file"] == ""
+
+
+# ======================================================================= C #190: the reply
+
+SAY_HELPER = os.path.join(FAKES, "say_helper.py")
+
+
+def _say_cfg(tmp_path, *, session_file="", fail=""):
+    """A config whose console helper is the fake, and the environment it reads."""
+    (tmp_path / "cfg.json").write_text(
+        json.dumps({"fleet": {"console": {"host": "fake", "helper": [sys.executable, SAY_HELPER]},
+                              "notify": {"toast": False}}}), encoding="utf-8")
+    log = str(tmp_path / "helper.jsonl")
+    env = {"AGENTDATA_FAKE_SAY_LOG": log, "AGENTDATA_FAKE_SAY_FILE": session_file,
+           "AGENTDATA_FAKE_SAY_FAIL": fail}
+    return log, env
+
+
+def _helper_calls(log) -> list[list[str]]:
+    if not os.path.isfile(log):
+        return []
+    return [json.loads(line)["argv"] for line in open(log, encoding="utf-8") if line.strip()]
+
+
+def test_say_types_the_line_into_the_console_and_the_tile_shows_what_was_typed(
+        fleet_home, tmp_path, monkeypatch):
+    """Acceptance (#190). `say` against a `kind: console` lock spawns the helper with that window's
+    pid and the operator's line; the tile carries the line as the fleet's own act, and the session's
+    answer arrives from Copilot's file rather than from a second channel."""
+    path, file = _console(tmp_path, session="sess-say")
+    log, env = _say_cfg(tmp_path, session_file=file)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    out = supervisor.say("luna", "  use the staging connection string  ")
+    assert out["ok"] and out["echoed"] == "use the staging connection string"
+    assert _helper_calls(log) == [["say-into", str(os.getpid()), "use the staging connection string"]]
+
+    said = [e for e in E.read("luna") if e["kind"] == "said"]
+    assert len(said) == 1 and said[0]["data"]["text"] == "use the staging connection string"
+    assert said[0]["data"]["session"] == "sess-say"
+
+    # And what the console did with it comes back the one way it ever does: the session's own file.
+    E.refresh("luna", path, repo_state=Registry().get("luna").state())
+    texts = [e["data"]["text"] for e in E.read("luna") if e["kind"] == "assistant_text"]
+    assert texts == ["Heard: use the staging connection string"]
+
+
+def test_say_is_refused_where_there_is_no_console_to_type_into(fleet_home, tmp_path, monkeypatch):
+    """A fleet session is `send`'s to continue and an empty checkout has nothing at all; both say so
+    in the CLI's words, with the code the page and the docs use."""
+    log, env = _say_cfg(tmp_path)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    Registry().add(path, name="luna")
+
+    with pytest.raises(supervisor.SupervisorError) as no_agent:
+        supervisor.say("luna", "anything")
+    assert no_agent.value.code == "no_agent"
+
+    supervisor.write_lock("luna", {"pid": os.getpid(), "repo": "luna", "path": path,
+                                   "session": "s1", "started": time.time(), "launch": []})
+    with pytest.raises(supervisor.SupervisorError) as not_console:
+        supervisor.say("luna", "anything")
+    assert not_console.value.code == "not_a_console"
+    assert "ad-fleet send luna" in not_console.value.hint
+
+    # An adopted console: the session file was the evidence, and no process was ever named for it.
+    supervisor.write_lock("luna", {"pid": 0, "kind": "console", "external": True, "repo": "luna",
+                                   "path": path, "session": "s1", "session_file": "",
+                                   "started": time.time(), "launch": []})
+    with pytest.raises(supervisor.SupervisorError) as adopted:
+        supervisor.say("luna", "anything")
+    assert adopted.value.code == "external_session"
+    assert not _helper_calls(log), "nothing was typed at anything"
+
+
+def test_a_helper_failure_reaches_the_tile_in_the_helpers_own_words(fleet_home, tmp_path, monkeypatch):
+    """Acceptance (#190). The helper is the one that knows the Win32 number, so its sentence is the
+    one the operator reads -- not a generic "something went wrong" invented one layer up."""
+    path, file = _console(tmp_path, session="sess-fail")
+    log, env = _say_cfg(tmp_path, session_file=file, fail="console_unreachable")
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    with pytest.raises(supervisor.SupervisorError) as refused:
+        supervisor.say("luna", "hello")
+    assert refused.value.code == "console_unreachable"
+    assert "win32 6" in refused.value.msg and "type in that window" in refused.value.hint
+    assert not [e for e in E.read("luna") if e["kind"] == "said"], \
+        "a line that was not typed is not a line the tile may claim was"
+
+
+def test_the_page_posts_say_for_a_console_and_send_for_a_fleet_session(fleet_home, tmp_path):
+    """The page is a view: which verb the reply box posts is decided by the lock the server reports,
+    and both verbs are the same functions the CLI calls."""
+    script = open(os.path.join(os.path.dirname(FAKES), "..", "agentdata", "fleet", "static",
+                               "app.js"), encoding="utf-8").read()
+    assert 'action(el, el.dataset.console ? "say" : "send"' in script
+    assert 'el.dataset.console = row.console ? String(row.console.pid || 0) : ""' in script
+    assert 'if (el.dataset.console) return action(el, "focus", { repo: row.repo });' in script
+
+
+def test_the_snapshot_says_which_tile_a_console_is_holding(fleet_home, tmp_path, monkeypatch):
+    path, file = _console(tmp_path, session="sess-row")
+    row = {r["repo"]: r for r in S.fleet_snapshot()["repos"]}["luna"]
+    assert row["console"]["session"] == "sess-row" and row["console"]["pid"] == os.getpid()
+    assert not row["external"], "a console the fleet opened is the fleet's own, not an adopted one"
+
+    supervisor.clear_lock("luna")
+    row = {r["repo"]: r for r in S.fleet_snapshot()["repos"]}["luna"]
+    assert row["console"] is None
+
+
+def test_a_console_sitting_on_one_tool_call_says_where_to_look(fleet_home, tmp_path, monkeypatch):
+    """The CLI writes no permission *request* event (docs/fleet-spike.md), so a `y/n` in the console
+    looks like a slow tool. Time is the only thing that separates them, and the sentence says it is
+    a guess rather than promising the fleet knows."""
+    path, file = _console(tmp_path, session="sess-wait")
+    with open(file, "w", encoding="utf-8", newline="\n") as f:
+        f.write(_line("assistant.turn_start", turnId="0"))
+        f.write(json.dumps({"type": "tool.execution_start", "id": "e", "parentId": None,
+                            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                                       time.gmtime(time.time() - 90)),
+                            "data": {"toolCallId": "t1", "toolName": "shell",
+                                     "arguments": {"command": "rm -rf build"}}}) + "\n")
+    E.refresh("luna", path, repo_state=Registry().get("luna").state())
+
+    row = {r["repo"]: r for r in S.fleet_snapshot()["repos"]}["luna"]
+    assert row["state"] == "running", "a session with a window open is live, whatever it is waiting on"
+    assert row["why"].startswith("waiting for you, in the console?")
+
+    # The result lands: nothing is waiting on the operator any more.
+    with open(file, "a", encoding="utf-8", newline="\n") as f:
+        f.write(_line("tool.execution_complete", toolCallId="t1", success=True))
+    E.refresh("luna", path, repo_state=Registry().get("luna").state())
+    row = {r["repo"]: r for r in S.fleet_snapshot()["repos"]}["luna"]
+    assert "waiting for you" not in row["why"]
+
+
+def test_the_console_helpers_never_reach_for_a_native_dependency_or_an_interrupt():
+    """Ground rule 6, and the one the operator's fingers care about: `ctypes` for three console
+    calls, and `GenerateConsoleCtrlEvent` nowhere at all -- interrupting a session a person is
+    watching is theirs."""
+    from agentdata.fleet import console as FC
+
+    import ast
+
+    source = inspect.getsource(FC)
+    imported = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            imported |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    assert imported <= {"__future__", "os", "ctypes"}, f"a new dependency: {imported}"
+    assert "ctypes" in imported, "the Win32 console API is reached the way color.py reaches it"
+    assert "GenerateConsoleCtrlEvent" not in source.split('"""', 2)[-1], \
+        "interrupting a session a person is watching is theirs"
+
+    # Every attribute the package reaches for, by name: prose that *says* the call is banned is not
+    # the same as code that makes it, and only one of the two is a Ctrl-C in somebody's session.
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for folder, _, files in os.walk(os.path.join(root, "agentdata")):
+        for name in sorted(f for f in files if f.endswith(".py")):
+            tree = ast.parse(open(os.path.join(folder, name), encoding="utf-8").read())
+            reached = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+            reached |= {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+            assert "GenerateConsoleCtrlEvent" not in reached, f"{name} interrupts a console"
+
+
+def test_one_line_is_one_line_whatever_was_pasted_into_the_box():
+    """A reply with newlines in it would be several commands to a console, and the second would run
+    against whatever the first left behind."""
+    from agentdata.fleet import console as FC
+
+    assert FC.one_line("  first\nsecond\r\nthird  ") == "first second third"
+    with pytest.raises(FC.ConsoleError) as empty:
+        FC.one_line("   \n  ")
+    assert empty.value.code == "empty_message"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the Win32 console API is there to be used")
+def test_on_posix_the_helper_says_the_console_is_a_windows_thing():
+    from agentdata.fleet import console as FC
+
+    for call in (lambda: FC.say_into(1, "hello"), lambda: FC.focus_console(1)):
+        with pytest.raises(FC.ConsoleError) as refused:
+            call()
+        assert refused.value.code == "unsupported_host"
+
+
+def test_the_cli_says_and_shows_and_the_two_helpers_take_a_pid(fleet_home, tmp_path, monkeypatch, capsys):
+    """One vocabulary: `ad-fleet say` calls the same `serve.act` the tile posts to, prints TOON, and
+    exits 2 on a refusal. The helpers take a pid because they are what the verbs spawn."""
+    from agentdata import cli_fleet
+
+    path, file = _console(tmp_path, session="sess-cli")
+    log, env = _say_cfg(tmp_path, session_file=file)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    assert cli_fleet.main(["say", "luna", "check the staging table"]) == 0
+    said = capsys.readouterr().out
+    assert "ok: true" in said and "check the staging table" in said
+    assert _helper_calls(log)[-1][0] == "say-into"
+
+    assert cli_fleet.main(["show-console", "luna"]) == 0
+    assert "focused: true" in capsys.readouterr().out
+    assert _helper_calls(log)[-1] == ["focus-console", str(os.getpid())]
+
+    supervisor.clear_lock("luna")
+    assert cli_fleet.main(["say", "luna", "anyone there"]) == 2
+    refused = capsys.readouterr().out
+    assert "ok: false" in refused and "no_agent" in refused
+
+    # The helpers are what a console attaches from, so they are given a pid and not a repository.
+    parser = cli_fleet.build_parser()
+    assert parser.parse_args(["say-into", "4242", "hello"]).pid == 4242
+    assert parser.parse_args(["focus-console", "4242"]).pid == 4242

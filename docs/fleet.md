@@ -126,6 +126,12 @@ fleet makes inside a repository, it happens only on a click, and it is logged as
 `cmd.exe` running Copilot in that checkout with a session id the fleet chose; the tile reads the
 same session from Copilot's own file for it (#188), and the lock is taken with the window's pid.
 
+**Typing into it** (`ad-fleet say <repo> "<text>"`, #190) is how a console's session is answered:
+`send` would be a second agent in that working tree, so `say` spawns a helper that attaches to the
+window and types the line, and the console echoes it. `ad-fleet show-console <repo>` brings the
+window to the front. Neither ever interrupts the session or answers a prompt for you — a `y/n` in a
+console is the operator's, and the tile says where to find it.
+
 **One agent per registered working tree**, enforced by a lock rather than by hope — two `copilot`
 processes in one checkout would both edit the same working tree and both believe they owned
 `.agent/state.json`. A working tree, not a repository: two `git worktree` checkouts of one

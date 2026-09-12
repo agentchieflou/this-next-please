@@ -640,12 +640,10 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 /* Focus mode. Not applied in the solo views: hiding the one tile the window exists to show would
    leave an empty monitor.
 
-   `.held` is the exception that makes focus mode usable. Answering an agent is precisely what stops
-   it needing you, so without this the tile the operator had just replied to matched
-   `:not(.needs-human)` and was hidden *by their own reply* -- the action's only visible outcome was
-   the disappearance of the thing they acted on, which reads as data loss rather than as success
-   (HIG *Feedback*: the result of an action has to be visible). A tile the operator acted on is
-   therefore held until they leave focus mode or release it. */
+   `.held` is what makes focus mode usable. Answering an agent stops it needing you, so without
+   this the tile just replied to matched `:not(.needs-human)` and was hidden *by that reply* -- the
+   action's only visible outcome being the disappearance of the thing acted on, which reads as data
+   loss (HIG *Feedback*). A tile the operator acted on is held until they leave or release it. */
 body.needs-only:not(.solo) .tile:not(.needs-human):not(.held) { display: none; }
 
 /* Held, and saying so. Dimmed rather than hidden: it is no longer a demand on the operator, but it
@@ -752,11 +750,10 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
 }
 
 /* ---------------------------------------------------------- the dispatch card (#164)
-   A drop opens this instead of launching. It borrows the approval card's shape on purpose: both
-   are "the tile is asking you something before anything irreversible happens", and one shape for
-   that means the operator learns it once. The accent is the focus colour rather than a status
-   colour -- nothing here is an agent state, and the status palette must keep meaning what it
-   means (`docs/plan-desk-refactor.md` §One palette). */
+   A drop opens this instead of launching, in the approval card's shape: both are "the tile is
+   asking you something before anything irreversible happens", and one shape is learned once. The
+   accent is the focus colour, not a status one -- nothing here is an agent state, and the status
+   palette must keep meaning what it means (`docs/plan-desk-refactor.md` §One palette). */
 .dispatch {
   margin-top: 8px; padding: 8px; border: 1px solid var(--focus); border-radius: 5px;
   background: var(--select);

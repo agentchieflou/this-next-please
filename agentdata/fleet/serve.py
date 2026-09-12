@@ -380,6 +380,17 @@ def fleet_snapshot() -> dict:
         else:
             not_supervised_sentence = ""
 
+        # A console that has been sitting on one tool call is, as far as anything the CLI writes
+        # can say, a session asking its operator something (#190). The chip stays `running` --
+        # a session *is* live -- and the sentence beside it says where to look, labelled a guess.
+        if external_lock.get("kind") == "console" and derived.get("state") == "running":
+            waited = age_of_stamp(agentstate.pending_tool(curr_run["events"] or stream))
+            prompt_s = float(C.get(cfg, "fleet.console.prompt_s", 20) or 20)
+            if waited >= prompt_s:
+                derived = {**derived,
+                           "why": f"waiting for you, in the console? nothing back from that tool "
+                                  f"for {format_age_str(waited)}"}
+
         # Resolve project accent. The project key first, then this checkout's own name: two
         # working trees of one repository wear one colour (#175).
         project = repo.project if repo is not None else name
@@ -411,6 +422,14 @@ def fleet_snapshot() -> dict:
                      # start; `adoptable` says there is one here it could. Never both.
                      "external": is_external,
                      "external_how": external_lock.get("how", "") if is_external else "",
+                     # A console the fleet opened (#189). The reply box types into that window
+                     # rather than starting a second agent beside it (#190), and the tab brings it
+                     # to the front instead of opening a second one.
+                     "console": ({"pid": external_lock.get("pid", 0),
+                                  "session": external_lock.get("session", ""),
+                                  "host": external_lock.get("host", "")}
+                                 if external_lock.get("kind") == "console" else None),
+
                      "adoptable": offers.get(name) if not is_external else None,
                      "not_supervised_sentence": not_supervised_sentence,
                      "earlier": earlier,
@@ -1333,6 +1352,20 @@ def act(what: str, body: dict) -> dict:
                                   board_rows=(B.read_cache() or {}).get("rows") or [])
         return {"repo": repo, "pid": lock["pid"], "ticket": lock.get("ticket", ""),
                 "session": lock.get("session", ""), "host": lock.get("host", "")}
+    if what == "say":
+        # A console session is typed into, never sent to (#190): `send` is a second
+        # `copilot -p --resume` process, which in a checkout that already has a console is a second
+        # agent. The helper attaches to that window and types the line the operator typed here.
+        from .. import config as C
+
+        message = str(body.get("message") or "").strip()
+        if not message:
+            raise ServeError("nothing to say", "type a message first")
+        return supervisor.say(repo, message, cfg=C.load())
+    if what == "focus":
+        from .. import config as C
+
+        return supervisor.focus(repo, cfg=C.load())
     if what == "send":
         from .. import config as C
 

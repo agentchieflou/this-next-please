@@ -77,6 +77,15 @@ optional `answers: [ids]` and `scope: n` from the handoff pipeline (#162).
 {"schema": 1, "seq": 1, "ts": "2026-01-04T09:30:02", "repo": "luna", "ticket": "RDSD-118", "kind": "started", "data": {"pid": 24188, "prompt": "Work RDSD-118 end to end.", "resumed": false, "new": true, "session": "", "answers": ["q1"], "scope": 3}}
 ```
 
+**`said`** — `ad-fleet say` typed a line into the console the fleet opened for this checkout (#190).
+The fleet's own act, recorded the way `started` records opening the window: the console echoes this
+exact line, and whatever the session makes of it arrives on the same stream from Copilot's own file.
+There is no second transcript.
+
+```json
+{"schema": 1, "seq": 12, "ts": "2026-01-04T09:32:10", "repo": "luna", "ticket": "RDSD-118", "kind": "said", "data": {"text": "use the staging connection string", "session": "0f1e2d3c", "pid": 24188}}
+```
+
 ### From the Copilot CLI's JSONL
 
 Measured shapes; the raw catalogue is in [fleet-spike.md](fleet-spike.md). Ephemeral events (token

@@ -81,6 +81,19 @@ the tile reads the session from Copilot's own file for it (`~/.copilot/session-s
 second. *Stop* refuses with *close that window*: the fleet opened it and does not close it; when the
 window closes, the run ends with *the console closed* and *Resume here* continues it headless.
 
+The tile's reply box **types into that window** rather than starting a second agent beside it (#190).
+`send` is another `copilot -p --resume` process, which in a checkout that already has a console is
+exactly the thing one-agent-per-working-tree exists to refuse; `ad-fleet say <repo> "<text>"` and
+`POST /api/say` instead spawn a short-lived helper that attaches to the console by pid and writes the
+line as key events, followed by Enter. The console echoes it, the fleet records what it typed as a
+`said` event, and what the session makes of it comes back through Copilot's own file — one line, one
+record of it. While a console holds the tile, the *console* tab reads **show console** and raises
+that window (`ad-fleet show-console <repo>`, `POST /api/focus`); a window the operator cannot find is
+no better than a session they cannot see. The helper never sends a Ctrl-C and never answers a
+prompt: a console sitting on one tool call for `fleet.console.prompt_s` (default 20 s) says *waiting
+for you, in the console?* beside its chip, with the question mark, because the CLI writes no
+permission-request event and time is the only evidence there is.
+
 The **project** section carries a **branches** pane (#184): the default branch and the current one's
 distance from it, one row per local branch — name, last commit and its age, ahead of the default,
 upstream or *none pushed*, the ticket key the name carries — the ones that never reached the
@@ -328,6 +341,8 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/transcript` | `?repo=&session=&limit=&before=` — one session's lines, read-only, paged from the end (#174) |
 | GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164) |
 | POST | `/api/console` | `{repo, ticket?, resume?, new?}` — open a real console running Copilot in that checkout with a session id the fleet chose; the tile reads the session from Copilot's own file (#188, #189) |
+| POST | `/api/say` | `{repo, message}` — type one line into the console the fleet opened for that checkout, through a helper that attaches by pid; refused for anything that is not a console (#190) |
+| POST | `/api/focus` | `{repo}` — bring that checkout's console window to the front (#190) |
 | GET | `/api/branches` | `?repo=&refresh=` — every local branch of one checkout, which never reached the default, the last twenty commits; read on the click, cached for the git interval (#184) |
 | POST | `/api/dismiss` | `{id}` — stop offering that file until it is downloaded again |
 
