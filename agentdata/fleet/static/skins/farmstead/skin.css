@@ -213,3 +213,13 @@ body[data-skin-variant="rainy"] .tile {
 body[data-skin-variant="rainy"] header h1 { color: #E4EDFA !important; }
 body[data-skin-variant="rainy"] header .glabel, body[data-skin-variant="rainy"] header .dot,
 body[data-skin-variant="rainy"] footer, body[data-skin-variant="rainy"] footer #counts, body[data-skin-variant="rainy"] footer .keys { color: #B9CBE4 !important; }
+
+/* ------------------------------------------------------------------------- the scrollbar (#181)
+   Wood, trimmed the way the buttons are. Only the thumb: the paper shows through the track. */
+body[data-skin="farmstead"] {
+  --scroll-thumb: #C89D6A;
+  --scroll-thumb-hover: #B38654;
+}
+body[data-skin="farmstead"] *::-webkit-scrollbar-thumb {
+  border-radius: 4px; border: 2px solid #4A2E16; background-clip: border-box;
+}

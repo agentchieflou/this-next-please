@@ -160,6 +160,35 @@ button:focus-visible, select:focus-visible, input:focus-visible, .segment:focus-
 }
 input { min-width: 0; }
 
+/* ------------------------------------------------------------------------- scrollbars (#181) */
+
+/* The one control the operating system drew, drawn from the palette like everything else: on
+   Windows a 17-pixel grey bar with arrows sat on every transcript, whatever the theme, because no
+   rule anywhere named it. Two custom properties carry the colours, mixed from `--line` and `--text`
+   so every palette gets a thumb that belongs to it without a token of its own; a skin overrides the
+   thumb (and only the thumb) on `body`, where the properties are resolved.
+
+   `scrollbar-color` is inherited, so it is set once; `scrollbar-width` is not, so it is set on
+   everything. The legacy `::-webkit-scrollbar` rules beside them are for the embedders that predate
+   the standard properties: an engine that knows the standard ones uses them and ignores the legacy
+   rules, and one that does not uses the legacy rules -- so both are written in the same two
+   properties and a test reads them back as one, and whichever path an embedder takes it gets the
+   same colours. (Which path each one takes is a runbook row.) Nothing here moves. */
+body {
+  --scroll-thumb: color-mix(in srgb, var(--line) 55%, var(--text));
+  --scroll-thumb-hover: color-mix(in srgb, var(--line) 25%, var(--text));
+  --scroll-track: transparent;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+* { scrollbar-width: thin; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: var(--scroll-track); }
+*::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: 6px;
+  border: 2px solid transparent; background-clip: padding-box;    /* a gutter, so it reads thin */
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: padding-box; }
+
 /* ------------------------------------------------------------------ the grid, and one big tile */
 
 /* HIG *Split views*: auxiliary content sits BESIDE the main content and does not cover it. The
