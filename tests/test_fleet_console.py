@@ -98,7 +98,7 @@ def test_a_line_appended_to_the_session_file_is_an_agent_frame_on_the_next_tick(
     `FOLD_EVERY_S + TICK_S`, the bar the desk already keeps."""
     assert S.FOLD_EVERY_S + S.TICK_S < 1.0
     _path, file = _console(tmp_path)
-    with open(file, "w", encoding="utf-8") as f:
+    with open(file, "w", encoding="utf-8", newline="\n") as f:
         f.write(_line("assistant.turn_start", turnId="0"))
         f.write(_line("assistant.message", content="Reading the ticket.", model="m", toolRequests=[]))
 
@@ -109,7 +109,7 @@ def test_a_line_appended_to_the_session_file_is_an_agent_frame_on_the_next_tick(
     assert '"kind": "turn_started"' in frames
 
     # One more line, one more fold, one more frame -- and only the new one.
-    with open(file, "a", encoding="utf-8") as f:
+    with open(file, "a", encoding="utf-8", newline="\n") as f:
         f.write(_line("tool.execution_start", toolName="shell", toolCallId="t1", arguments={"command": "git status"}))
     cursors = {"luna": max(ev["seq"] for ev in E.read("luna"))}
     S._desk["last_fold"] = 0.0
@@ -124,7 +124,7 @@ def test_the_file_is_read_from_its_offset_and_a_half_written_line_waits(fleet_ho
     """Acceptance criterion. The second fold reads only the bytes appended since the first -- a
     console session's file grows for hours -- and a partial last line is neither folded nor lost."""
     _path, file = _console(tmp_path)
-    with open(file, "w", encoding="utf-8") as f:
+    with open(file, "w", encoding="utf-8", newline="\n") as f:
         for i in range(2000):
             f.write(_line("assistant.message", content=f"line {i} " + "x" * 200, model="m", toolRequests=[]))
     big = os.path.getsize(file)
@@ -143,17 +143,17 @@ def test_the_file_is_read_from_its_offset_and_a_half_written_line_waits(fleet_ho
 
     reads.clear()
     half = _line("assistant.message", content="the last one", model="m", toolRequests=[])
-    with open(file, "a", encoding="utf-8") as f:
+    with open(file, "a", encoding="utf-8", newline="\n") as f:
         f.write(half[:40])                                     # the writer is mid-line
     E.refresh("luna", _path, repo_state={})
     assert [r for r in reads if r[0] == file] == [(file, big, 0)], "a partial line is not consumed"
     assert sum(1 for ev in E.read("luna") if ev["kind"] == "assistant_text") == 2000
 
     reads.clear()
-    with open(file, "a", encoding="utf-8") as f:
+    with open(file, "a", encoding="utf-8", newline="\n") as f:
         f.write(half[40:])
     E.refresh("luna", _path, repo_state={})
-    assert [r for r in reads if r[0] == file] == [(file, big, len(half.encode("utf-8")))]
+    assert [r for r in reads if r[0] == file] == [(file, big, os.path.getsize(file) - big)]
     texts = [ev["data"]["text"] for ev in E.read("luna") if ev["kind"] == "assistant_text"]
     assert texts.count("the last one") == 1 and len(texts) == 2001
 
@@ -164,7 +164,7 @@ def test_a_cursor_written_as_a_line_count_is_read_once_as_an_offset(fleet_home, 
     Registry().add(path, name="luna")
     raw = supervisor.events_path("luna")
     os.makedirs(os.path.dirname(raw), exist_ok=True)
-    with open(raw, "w", encoding="utf-8") as f:
+    with open(raw, "w", encoding="utf-8", newline="\n") as f:
         f.write(_line("assistant.message", content="one", model="m", toolRequests=[]))
         f.write(_line("assistant.message", content="two", model="m", toolRequests=[]))
     E.write_cursor("luna", {"raw_lines": 1})                  # the old shape: one line consumed
@@ -179,13 +179,13 @@ def test_a_cursor_written_as_a_line_count_is_read_once_as_an_offset(fleet_home, 
 
 def test_a_new_session_is_a_new_file_and_the_offset_belongs_to_the_path(fleet_home, tmp_path):
     path, file = _console(tmp_path, session="sess-one")
-    with open(file, "w", encoding="utf-8") as f:
+    with open(file, "w", encoding="utf-8", newline="\n") as f:
         f.write(_line("assistant.message", content="first session", model="m", toolRequests=[]))
     E.refresh("luna", path, repo_state={})
     supervisor.write_lock("luna", {**supervisor.read_lock("luna"), "session": "sess-two"})
     second = SESS.session_state_path("sess-two")
     os.makedirs(os.path.dirname(second), exist_ok=True)
-    with open(second, "w", encoding="utf-8") as f:
+    with open(second, "w", encoding="utf-8", newline="\n") as f:
         f.write(_line("assistant.message", content="second session", model="m", toolRequests=[]))
     E.refresh("luna", path, repo_state={})
     texts = [ev["data"]["text"] for ev in E.read("luna") if ev["kind"] == "assistant_text"]
@@ -211,7 +211,7 @@ def test_copilots_directory_is_never_written_by_a_fold(fleet_home, tmp_path):
     """Acceptance criterion. Every fold path runs against Copilot's directory and nothing under it
     changes: not a file, not a timestamp, not a listing."""
     path, file = _console(tmp_path)
-    with open(file, "w", encoding="utf-8") as f:
+    with open(file, "w", encoding="utf-8", newline="\n") as f:
         f.write(_line("assistant.message", content="hello", model="m", toolRequests=[]))
     root = SESS.session_state_dir()
 
@@ -239,10 +239,11 @@ def test_the_fake_copilot_writes_its_session_file_in_the_order_it_prints(tmp_pat
     """Acceptance criterion. The fake's session file and its stdout carry the same events in the
     same order, so CI has a file that grows the way Copilot's does."""
     state = tmp_path / "state"
-    env = dict(os.environ, COPILOT_SESSION_STATE=str(state), AGENTDATA_FAKE_CASE="triage-ok")
+    env = dict(os.environ, COPILOT_SESSION_STATE=str(state), AGENTDATA_FAKE_CASE="triage-ok",
+               PYTHONUTF8="1")                         # what child_env gives a real launch
     done = subprocess.run([sys.executable, os.path.join(FAKES, "runner.py"), "copilot", "-p", "hello",
                            "--resume", "sess-file"], capture_output=True, text=True, env=env,
-                          cwd=str(tmp_path), timeout=120)
+                          cwd=str(tmp_path), timeout=120, encoding="utf-8", errors="replace")
     assert done.returncode == 0, done.stderr
     printed = [ln for ln in done.stdout.splitlines() if ln.startswith("{")]
     file = state / "sess-file" / "events.jsonl"
@@ -452,9 +453,9 @@ def test_the_sessions_of_a_checkout_are_found_by_workspace_yaml_or_the_stores_cw
         d = os.path.join(root, sid)
         os.makedirs(d, exist_ok=True)
         if yaml:
-            with open(os.path.join(d, "workspace.yaml"), "w", encoding="utf-8") as f:
+            with open(os.path.join(d, "workspace.yaml"), "w", encoding="utf-8", newline="\n") as f:
                 f.write(f"id: {sid}\ncwd: '{cwd}'\nsummary: x\n")
-        with open(os.path.join(d, "events.jsonl"), "w", encoding="utf-8") as f:
+        with open(os.path.join(d, "events.jsonl"), "w", encoding="utf-8", newline="\n") as f:
             f.write(_line("assistant.message", content=sid, model="m", toolRequests=[]))
         os.utime(os.path.join(d, "events.jsonl"), (when, when))
 
@@ -492,10 +493,10 @@ def test_a_console_the_operator_opened_is_offered_by_its_session_file_and_adopti
     os.utime(os.path.join(path, ".agent", "state.json"), (old, old))       # nothing wrote state for an hour
     d = os.path.join(SESS.session_state_dir(), "sess-own")
     os.makedirs(d)
-    with open(os.path.join(d, "workspace.yaml"), "w", encoding="utf-8") as f:
+    with open(os.path.join(d, "workspace.yaml"), "w", encoding="utf-8", newline="\n") as f:
         f.write(f"cwd: {path}\n")
     file = os.path.join(d, "events.jsonl")
-    with open(file, "w", encoding="utf-8") as f:
+    with open(file, "w", encoding="utf-8", newline="\n") as f:
         f.write(_line("assistant.message", content="thinking out loud, in a window", model="m", toolRequests=[]))
 
     offers = {c["repo"]: c for c in A.candidates(Registry(), processes=[])}
