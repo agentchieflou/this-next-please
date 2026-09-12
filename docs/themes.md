@@ -98,7 +98,7 @@ A **skin** is one more stylesheet over the same DOM: the approved grid with CSS 
 
   Reduced motion is testable and tested. **Reduced transparency is not, on any engine we have**: Chromium did not ship `prefers-reduced-transparency` until well after the build the browser tests drive, so the query never matches and the fallback never fires there — and it will not fire in an older Edge or JCEF either. The rule is written and asserted to exist, and a viewer whose browser does not know the query gets the translucent panels regardless of their OS setting. That is a limitation of the mechanism, not something the skins can work around; it is written down here rather than assumed away, and `glass` is the only skin it applies to.
 - **Asset URLs carry the token.** A relative `url()` inside a stylesheet does not inherit the query string the stylesheet was fetched with, and everything but `/api/ping` needs this run's token — so a skin asking for its own `sprites.svg` was refused with a 403, silently, and the chips simply had no sprite. `serve._static` puts the token on every relative `url()` it serves in a stylesheet (before the fragment). A skin references its art relatively and does not think about it.
-- **Composited Contrast**: The effective composited panel contrast must pass WCAG floors (text ≥ 4.5:1, status roles ≥ 3:1).
+- **Composited Contrast**: The effective composited panel contrast must pass WCAG floors (text ≥ 4.5:1, status roles ≥ 3:1). A skin whose pane is not one colour — glass, over its mesh — declares the **darkest and lightest** colour the pane composites to (`skins.composited_range`, from the variant's own `mesh` and `fill`) and is checked at both; a test reads the stylesheet to prove the blobs and the fill it paints are the numbers it declared, and a browser test samples the rendered pane to prove the pixels stay inside that range and vary across it.
 - **A skin that repaints a surface repaints its scrollbar** (#181). `app.css` draws every scrollbar from two custom properties mixed from the palette — `--scroll-thumb` and `--scroll-thumb-hover`, the track always the surface beneath — and writes them into both `scrollbar-color` and the legacy `::-webkit-scrollbar` rules, so the two mechanisms cannot disagree. A skin overrides the **thumb** on `body[data-skin]` and may reshape it (glass a translucent pane with the edge highlight, voxel a bevelled slab, farmstead wood); it never declares `scrollbar-color` of its own, and a test reads the stylesheets to make sure.
 
 ### Available Skins
@@ -106,7 +106,7 @@ A **skin** is one more stylesheet over the same DOM: the approved grid with CSS 
 | Skin | Inspiration & Materials | HIG Rule Applied |
 |---|---|---|
 | `none` | Default clean HIG interface | Clean baseline |
-| `glass` | Translucent frosted acrylic `backdrop-filter: blur(16px)` panels over soft project-accent radial washes. Solid status chips and focus rings. | *Materials*: translucent material blurs what is behind it and adapts to light and dark while keeping content legible. |
+| `glass` | Frosted panes at `.34`–`.40` with `backdrop-filter: blur(18px) saturate(140%)` over a **mesh** of three saturated blobs per variant, a one-pixel edge and an inset glint that catch the light, a second, more opaque layer for the cards on a pane; solid status chips and focus rings (#182). | *Materials*: translucent material blurs what is behind it and adapts to light and dark while keeping content legible. |
 | `voxel` | Tiled 8×8 `<rect>` dirt/stone textures, 2px bevelled slab controls, 10px accent borders, and 12px status blocks before glyphs. Inspired by block-building games; zero copied assets. | *Visual Design*: bold tactile geometry and unmistakable state indicators across a room. |
 | `farmstead` | Warm cream paper, 4px wooden frames, tan controls with 3px press shadows, journal-style inspector, and 5 crop-stage sprites (seed, sprout, sun, bloom, wilted) carrying state. Inspired by pixel farming games; zero copied assets. | *Color & Redundancy*: never colour alone; crop stages provide a second redundant carrier for agent status. |
 
@@ -129,7 +129,8 @@ them; bound, the set of reachable combinations *is* the set of variants below, a
 `tests/test_fleet_skins.py` runs `theme.check` over every row — text ≥ 4.5:1 and ≤ 19:1, each status
 role ≥ 3:1, `ok`/`fail` at least 30° apart in hue — against the **composited panel**, the colour the
 text is actually read on once the frost or the texture has been painted, rather than against the
-palette's own ground. A browser test then applies each variant for real and compares the panel
+palette's own ground — and for glass, whose pane composites to a range over its mesh, at both ends
+of that range (#182). A browser test then applies each variant for real and compares the panel
 colour the engine computes with the one declared here, so a variant cannot be measured in Python and
 missing from the stylesheet.
 
@@ -138,10 +139,10 @@ unknown variant falls back to the default rather than taking the page down.
 
 | Name | Variant | Base palette | Ground | Composited panel | Text contrast | Why |
 |---|---|---|---|---|---|---|
-| `glass:smoke` | Smoke *(default)* | `dark` | `#14171A` | `#1B222C` | 12.9:1 | neutral graphite behind the frost |
-| `glass:azure` | Azure | `blues` | `#0B1B33` | `#16243D` | 12.0:1 | cold blue depth, the darkest of the three |
-| `glass:noir` | Noir | `vanta-black` | `#000000` | `#121212` | 11.2:1 | near-black, for a room with the lights off |
-| `glass:frost` | Frost | `eye-relief-day` | `#F2ECDC` | `#EDE6D6` | 9.2:1 | the light one: warm paper under the same frost |
+| `glass:smoke` | Smoke *(default)* | `dark` | `#14171A` | `#181D24` … `#273D57` | 8.9:1 at the worse end | neutral graphite behind the frost |
+| `glass:azure` | Azure | `blues` | `#0B1B33` | `#11213B` … `#1D3F56` | 8.6:1 at the worse end | cold blue depth, the darkest of the three |
+| `glass:noir` | Noir | `vanta-black` | `#000000` | `#0A0A0A` … `#202020` | 9.7:1 at the worse end | near-black, for a room with the lights off |
+| `glass:frost` | Frost | `eye-relief-day` | `#F2ECDC` | `#DED4B8` … `#F3EDDD` | 7.7:1 at the worse end | the light one: warm paper under the same frost |
 | `voxel:overworld` | Overworld *(default)* | `matrix` | `#020A03` | `#1E221E` | 10.7:1 | grass, stone and daylight |
 | `voxel:nether` | Nether | `reds` | `#400000` | `#2A1512` | 12.9:1 | netherrack and firelight |
 | `voxel:end` | The End | `vanta-black` | `#000000` | `#16121C` | 11.0:1 | endstone and void |

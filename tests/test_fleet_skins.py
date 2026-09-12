@@ -84,8 +84,50 @@ def test_every_skin_variant_passes_the_contrast_rule_on_its_own_ground():
     assert len(every) >= 10, "every skin has variants; this test is the reason they can be trusted"
     for skin_name, variant, spec in every:
         base_palette = theme.get(spec["base"])
-        theme.check(base_palette, composited_panel=spec["composited_panel"],
-                    skin=f"{skin_name}:{variant}")
+        # One colour for a textured skin; both ends of the range for glass (#182), whose pane is
+        # a different colour wherever the mesh behind it is and is not.
+        panels = skins.composited_panels(spec)
+        assert panels, f"{skin_name}:{variant} declares no composited panel"
+        for panel in panels:
+            theme.check(base_palette, composited_panel=panel, skin=f"{skin_name}:{variant}")
+
+
+def test_glass_declares_the_range_its_own_mesh_composites_to():
+    """The pair in `skins.py` is not typed in: it is what `composited_range` computes from the
+    variant's own `mesh` and `fill`, and this is what stops the two from drifting apart."""
+    glass = skins.SKINS["glass"]
+    for variant, spec in glass["variants"].items():
+        ground = theme.get(spec["base"]).ground
+        assert isinstance(spec["composited_panel"], dict), variant
+        darkest, lightest = skins.composited_range(ground, spec["mesh"], spec["fill"])
+        assert (darkest, lightest) == (spec["composited_panel"]["darkest"], spec["composited_panel"]["lightest"]), \
+            f"glass:{variant} declares a range its mesh does not composite to"
+        assert theme.rel_luminance(theme.hex_to_rgb(darkest)) < theme.rel_luminance(theme.hex_to_rgb(lightest))
+
+
+def _rgba(m):
+    return ("#{:02X}{:02X}{:02X}".format(int(m[0]), int(m[1]), int(m[2])), round(float(m[3]), 2))
+
+
+def test_the_glass_stylesheet_paints_the_numbers_skins_py_declares():
+    """Acceptance criterion. The blobs and the fill in `skin.css` are the ones `skins.py` measured
+    -- read back from the stylesheet, per variant, so declared and rendered are one number by
+    construction rather than by somebody remembering to update both."""
+    import re
+
+    css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
+    for variant, spec in skins.SKINS["glass"]["variants"].items():
+        block = re.search(r'body\[data-skin-variant="%s"\]\s*\{(.*?)\}' % variant, css, re.S)
+        assert block, f"glass:{variant} is not drawn"
+        body = block.group(1)
+        blobs = [_rgba(m) for m in re.findall(
+            r"radial-gradient\([^,]+,\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)\s*0%", body)]
+        assert blobs == [(c, round(a, 2)) for c, a in spec["mesh"]], (variant, blobs, spec["mesh"])
+        fill = re.search(r"--glass-fill:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)", body)
+        assert fill and _rgba(fill.groups()) == (spec["fill"][0], round(spec["fill"][1], 2)), (variant, spec["fill"])
+        # A card on the pane is one step more opaque than the pane -- layer 2 is measurable.
+        card = re.search(r"--glass-card:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)", body)
+        assert card and float(card.group(4)) > float(fill.group(4)), variant
 
 
 def test_every_palette_on_its_own_passes_too():

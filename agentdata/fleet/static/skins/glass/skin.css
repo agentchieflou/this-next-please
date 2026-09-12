@@ -1,133 +1,169 @@
-/* Glass skin: HIG Materials applied literally (Issue #155).
-   Frosted acrylic translucent panels over dark ground with subtle accent glow.
-   Effective composited panel: #1B222C (panel at .55 over ground).
-*/
+/* Glass skin: HIG *Materials* -- a translucent material blurs what is behind it and adapts to
+   light and dark while keeping content legible (#155, #182).
 
-body {
+   Glassmorphism is four things, and the first version of this file had one of them: a translucent
+   fill. It had nothing behind the fill worth blurring (two washes at .10-.15 alpha over a near-black
+   ground), no edge that caught light (a .12 hairline), and no depth (every surface one fill at one
+   alpha), so Smoke rendered as a flat #1B222C and Frost as a flat #EDE6D6 -- exactly the solid the
+   contrast test measured, which was honest about the number and silent about the material.
+
+   Four things now, in four layers of rules:
+
+   0. THE GROUND is a mesh: three saturated blobs per variant, `background-attachment: fixed` so
+      the blur has colour to work with wherever a panel sits. No two centres share a place.
+   1. THE PANE: the fill at .34-.40 with `blur(18px) saturate(140%)`, an outer edge and an inset
+      top glint (the light catching the pane), a long soft shadow.
+   2. THE CARDS on a pane -- the approval, the asks, the dispatch card, the scope, the read-only
+      pane -- one step more opaque and one step brighter at the edge, so what is ON the glass is
+      distinguishable from the glass. Nothing is layer 3.
+   3. THE INK on the chrome, dark or pale for the variant. Chips stay solid: a `fail` means the
+      same thing in every world, and a translucent one is a `fail` somebody has to look at twice.
+
+   The numbers are not chosen by eye. Each variant's blobs (colour, peak alpha) and fill are the
+   same numbers `skins.py` declares as its `mesh` and `fill`; `skins.composited_range` turns those
+   into the darkest and lightest colour the pane can composite to, `theme.check` is run at both
+   ends, and `tests/test_fleet_skins.py` parses this file to prove the two say the same thing --
+   declared and rendered are one number by construction, not by somebody updating both. Then
+   `tests/test_fleet_desk_glass.py` screenshots the page and checks the real pixels sit inside
+   that range and *vary* across it, which is the one thing a flat skin cannot do.
+
+   Scoped under `body[data-skin="glass"]` throughout, which out-specifies every rule in `app.css`
+   without `!important`; the one place it is kept is the reduced-transparency fallback, which
+   must win over everything here. */
+
+/* ----------------------------------------------------------------------- 0. the ground, 1. the pane
+   The default is Smoke, and `data-skin-variant="smoke"` says the same numbers again below, so a
+   bare `glass` in the config and a `glass:smoke` render alike. */
+body[data-skin="glass"] {
+  --glass-fill: rgba(31, 40, 54, 0.36);
+  --glass-card: rgba(31, 40, 54, 0.46);
+  --glass-edge: rgba(255, 255, 255, 0.18);
+  --glass-card-edge: rgba(255, 255, 255, 0.26);
+  --glass-glint: rgba(255, 255, 255, 0.28);
+  --glass-shadow: rgba(0, 0, 0, 0.35);
+  --glass-ink: #E6EDF3;
+  --glass-ink-soft: rgba(230, 237, 243, 0.72);
   background:
-    radial-gradient(ellipse at 20% 15%, rgba(88, 166, 255, 0.15) 0%, transparent 45%),
-    radial-gradient(ellipse at 80% 85%, rgba(63, 185, 80, 0.10) 0%, transparent 45%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(88, 166, 255, 0.35) 0%, rgba(88, 166, 255, 0) 70%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(63, 185, 80, 0.35) 0%, rgba(63, 185, 80, 0) 70%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(210, 153, 34, 0.30) 0%, rgba(210, 153, 34, 0) 70%),
     var(--bg);
   background-attachment: fixed;
 }
 
-header, footer, .tile, #side, #side > aside {
-  background: rgba(27, 34, 44, 0.55) !important;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-color: rgba(255, 255, 255, 0.12) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+body[data-skin="glass"] header, body[data-skin="glass"] footer, body[data-skin="glass"] .tile,
+body[data-skin="glass"] #side, body[data-skin="glass"] .popover, body[data-skin="glass"] .dock {
+  background: var(--glass-fill);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border-color: var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-glint), 0 12px 32px var(--glass-shadow);
+}
+/* The sidebar's sections sit inside the sidebar's pane: one layer, not the same fill twice. */
+body[data-skin="glass"] #side > aside { background: transparent; }
+body[data-skin="glass"] .tile { border-left: 4px solid var(--accent); }
+
+/* ------------------------------------------------------------------------------- 2. the cards */
+body[data-skin="glass"] .approval, body[data-skin="glass"] .asks, body[data-skin="glass"] .dispatch,
+body[data-skin="glass"] .scope, body[data-skin="glass"] .outside, body[data-skin="glass"] .readonly {
+  background: var(--glass-card);
+  border: 1px solid var(--glass-card-edge);
+  box-shadow: inset 0 1px 0 var(--glass-glint);
 }
 
-.tile {
-  border-left: 4px solid var(--accent) !important;
-}
+/* --------------------------------------------------------------------------------- 3. the ink */
+body[data-skin="glass"] header, body[data-skin="glass"] footer { color: var(--glass-ink); }
+body[data-skin="glass"] header h1 { color: var(--glass-ink); }
+body[data-skin="glass"] header .glabel, body[data-skin="glass"] header .dot,
+body[data-skin="glass"] footer #counts, body[data-skin="glass"] footer .keys { color: var(--glass-ink-soft); }
+body[data-skin="glass"] #notice { color: var(--waiting); }
 
 /* Status chips, accent borders, and focus rings remain solid and fully opaque */
-.chip {
-  opacity: 1 !important;
-}
+body[data-skin="glass"] .chip { opacity: 1; }
+body[data-skin="glass"] .chip.running { background: var(--running); color: #fff; }
+body[data-skin="glass"] .chip.waiting_approval { background: var(--waiting); color: #fff; }
+body[data-skin="glass"] .chip.needs_human, body[data-skin="glass"] .chip.blocked, body[data-skin="glass"] .chip.error { background: var(--human); color: #fff; }
+body[data-skin="glass"] .chip.done { background: var(--done); color: #fff; }
+body[data-skin="glass"] .chip.starting, body[data-skin="glass"] .chip.idle { background: var(--idle); color: #fff; }
+body[data-skin="glass"] .chip.not-supervised { background: var(--muted); color: var(--panel); }
 
-.chip.running { background: var(--running) !important; color: #fff !important; }
-.chip.waiting_approval { background: var(--waiting) !important; color: #fff !important; }
-.chip.needs_human, .chip.blocked, .chip.error { background: var(--human) !important; color: #fff !important; }
-.chip.done { background: var(--done) !important; color: #fff !important; }
-.chip.starting, .chip.idle { background: var(--idle) !important; color: #fff !important; }
-.chip.not-supervised { background: var(--muted) !important; color: var(--panel) !important; }
-
-/* HIG Accessibility: Reduced transparency fallback */
+/* HIG Accessibility: Reduced transparency fallback. The one place `!important` is kept: it has to
+   win over every rule in this file. */
 @media (prefers-reduced-transparency: reduce) {
-  header, footer, .tile, #side, #side > aside {
+  body[data-skin="glass"] header, body[data-skin="glass"] footer, body[data-skin="glass"] .tile,
+  body[data-skin="glass"] #side, body[data-skin="glass"] #side > aside,
+  body[data-skin="glass"] .popover, body[data-skin="glass"] .dock,
+  body[data-skin="glass"] .approval, body[data-skin="glass"] .asks, body[data-skin="glass"] .dispatch,
+  body[data-skin="glass"] .scope, body[data-skin="glass"] .outside, body[data-skin="glass"] .readonly {
     background: var(--panel) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
 }
 
-/* The toolbar and the footer are repainted above, so everything written ON them is repainted here
-   too. Leaving these to the palette put the group labels, the brand, the live dot and the whole
-   key map in a colour chosen for the panel and rendered on a texture, where they disappeared. */
-header, footer { color: #E6EDF3 !important; }
-header h1, header .glabel, header .dot,
-footer, footer #counts, footer .keys { color: rgba(230,237,243,.72) !important; }
-header h1 { color: #E6EDF3 !important; }
-#notice { color: var(--waiting) !important; }
+/* -------------------------------------------------------------- the colour variants (#4, #182)
 
-/* -------------------------------------------------------------- the colour variants (#4)
+   One frost, four grounds. A variant is its mesh -- three blobs, colour and peak alpha, at the
+   same three places -- its fill, and the ink written on it. The `rgba()` numbers here are the ones
+   `skins.py` declares; `tests/test_fleet_skins.py` reads them back. */
 
-   One frost, four grounds. Glass has no texture to re-draw, so a variant is the tint behind the
-   blur, the fill of the panels, and the ink written on them -- and `frost` is the light one, which
-   is why the chrome text is dark there and pale everywhere else.
-
-   The rgba fills below are not chosen by eye. Each is solved backwards from the `composited_panel`
-   its variant declares in `skins.py`: the fill that, at .55 over that variant's ground, actually
-   composites to the colour the contrast test measures the text against. Declared and rendered are
-   therefore the same number by construction, rather than by somebody remembering to update both. */
-
-/* smoke: neutral graphite behind the frost — panel #1B222C over dark (#14171A) */
+/* smoke: neutral graphite behind the frost — over dark (#14171A); composites #181D24 … #273D57 */
 body[data-skin-variant="smoke"] {
+  --glass-fill: rgba(31, 40, 54, 0.36);
+  --glass-card: rgba(31, 40, 54, 0.46);
   background:
-    radial-gradient(ellipse at 20% 15%, rgba(88, 166, 255, 0.15) 0%, transparent 45%),
-    radial-gradient(ellipse at 80% 85%, rgba(63, 185, 80, 0.10) 0%, transparent 45%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(88, 166, 255, 0.35) 0%, rgba(88, 166, 255, 0) 70%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(63, 185, 80, 0.35) 0%, rgba(63, 185, 80, 0) 70%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(210, 153, 34, 0.30) 0%, rgba(210, 153, 34, 0) 70%),
     var(--bg);
+  background-attachment: fixed;
 }
-body[data-skin-variant="smoke"] header, body[data-skin-variant="smoke"] footer, body[data-skin-variant="smoke"] .tile, body[data-skin-variant="smoke"] #side, body[data-skin-variant="smoke"] #side > aside {
-  background: rgba(33, 43, 59, 0.55) !important;
-}
-body[data-skin-variant="smoke"] header, body[data-skin-variant="smoke"] footer { color: #E6EDF3 !important; }
-body[data-skin-variant="smoke"] header h1 { color: #E6EDF3 !important; }
-body[data-skin-variant="smoke"] header .glabel, body[data-skin-variant="smoke"] header .dot,
-body[data-skin-variant="smoke"] footer, body[data-skin-variant="smoke"] footer #counts, body[data-skin-variant="smoke"] footer .keys { color: rgba(230,237,243,.72) !important; }
 
-/* azure: cold blue depth, the darkest of the three — panel #16243D over blues (#0B1B33) */
+/* azure: cold blue depth, the darkest of the three — over blues (#0B1B33); composites #11213B … #1D3F56 */
 body[data-skin-variant="azure"] {
+  --glass-fill: rgba(26, 42, 72, 0.40);
+  --glass-card: rgba(26, 42, 72, 0.50);
   background:
-    radial-gradient(ellipse at 20% 15%, rgba(77, 163, 255, 0.20) 0%, transparent 45%),
-    radial-gradient(ellipse at 80% 85%, rgba(120, 190, 255, 0.10) 0%, transparent 45%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(77, 163, 255, 0.30) 0%, rgba(77, 163, 255, 0) 70%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(94, 225, 230, 0.25) 0%, rgba(94, 225, 230, 0) 70%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(63, 185, 80, 0.30) 0%, rgba(63, 185, 80, 0) 70%),
     var(--bg);
+  background-attachment: fixed;
 }
-body[data-skin-variant="azure"] header, body[data-skin-variant="azure"] footer, body[data-skin-variant="azure"] .tile, body[data-skin-variant="azure"] #side, body[data-skin-variant="azure"] #side > aside {
-  background: rgba(31, 43, 69, 0.55) !important;
-}
-body[data-skin-variant="azure"] header, body[data-skin-variant="azure"] footer { color: #E6EDF3 !important; }
-body[data-skin-variant="azure"] header h1 { color: #E6EDF3 !important; }
-body[data-skin-variant="azure"] header .glabel, body[data-skin-variant="azure"] header .dot,
-body[data-skin-variant="azure"] footer, body[data-skin-variant="azure"] footer #counts, body[data-skin-variant="azure"] footer .keys { color: rgba(230,237,243,.72) !important; }
 
-/* noir: near-black, for a room with the lights off — panel #121212 over vanta-black (#000000) */
+/* noir: near-black, for a room with the lights off — over vanta-black (#000000): near-white blobs at
+   low alpha, so a black room stays a black room; composites #0A0A0A … #202020 */
 body[data-skin-variant="noir"] {
+  --glass-fill: rgba(26, 26, 26, 0.40);
+  --glass-card: rgba(26, 26, 26, 0.50);
   background:
-    radial-gradient(ellipse at 20% 15%, rgba(230, 230, 230, 0.07) 0%, transparent 45%),
-    radial-gradient(ellipse at 80% 85%, rgba(160, 160, 160, 0.05) 0%, transparent 45%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(230, 230, 230, 0.16) 0%, rgba(230, 230, 230, 0) 70%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(88, 166, 255, 0.18) 0%, rgba(88, 166, 255, 0) 70%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(154, 154, 154, 0.12) 0%, rgba(154, 154, 154, 0) 70%),
     var(--bg);
+  background-attachment: fixed;
 }
-body[data-skin-variant="noir"] header, body[data-skin-variant="noir"] footer, body[data-skin-variant="noir"] .tile, body[data-skin-variant="noir"] #side, body[data-skin-variant="noir"] #side > aside {
-  background: rgba(33, 33, 33, 0.55) !important;
-}
-body[data-skin-variant="noir"] header, body[data-skin-variant="noir"] footer { color: #E6EDF3 !important; }
-body[data-skin-variant="noir"] header h1 { color: #E6EDF3 !important; }
-body[data-skin-variant="noir"] header .glabel, body[data-skin-variant="noir"] header .dot,
-body[data-skin-variant="noir"] footer, body[data-skin-variant="noir"] footer #counts, body[data-skin-variant="noir"] footer .keys { color: rgba(230,237,243,.72) !important; }
 
-/* frost: the light one: warm paper under the same frost — panel #EDE6D6 over eye-relief-day (#F2ECDC) */
+/* frost: the light one: warm paper under the same frost — over eye-relief-day (#F2ECDC); composites
+   #DED4B8 … #F3EDDD. The light variant is the hard one: a light pane over a light mesh has the
+   smaller contrast budget, and its blob alphas were solved against 4.5:1 at the darkest point
+   (the text is dark, so the dark end is where it is nearest to failing). Hairlines and shadows
+   drawn for a dark ground read as smears on paper, so its edge is dark and its glint is bright. */
 body[data-skin-variant="frost"] {
+  --glass-fill: rgba(244, 238, 224, 0.34);
+  --glass-card: rgba(244, 238, 224, 0.44);
+  --glass-edge: rgba(0, 0, 0, 0.10);
+  --glass-card-edge: rgba(0, 0, 0, 0.14);
+  --glass-glint: rgba(255, 255, 255, 0.65);
+  --glass-shadow: rgba(0, 0, 0, 0.12);
+  --glass-ink: #2A2620;
+  --glass-ink-soft: rgba(42, 38, 32, 0.75);
   background:
-    radial-gradient(ellipse at 20% 15%, rgba(138, 109, 31, 0.12) 0%, transparent 45%),
-    radial-gradient(ellipse at 80% 85%, rgba(90, 140, 190, 0.10) 0%, transparent 45%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(138, 109, 31, 0.30) 0%, rgba(138, 109, 31, 0) 70%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(42, 95, 158, 0.25) 0%, rgba(42, 95, 158, 0) 70%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(42, 115, 62, 0.25) 0%, rgba(42, 115, 62, 0) 70%),
     var(--bg);
-}
-body[data-skin-variant="frost"] header, body[data-skin-variant="frost"] footer, body[data-skin-variant="frost"] .tile, body[data-skin-variant="frost"] #side, body[data-skin-variant="frost"] #side > aside {
-  background: rgba(233, 225, 209, 0.55) !important;
-}
-body[data-skin-variant="frost"] header, body[data-skin-variant="frost"] footer { color: #2A2620 !important; }
-body[data-skin-variant="frost"] header h1 { color: #2A2620 !important; }
-body[data-skin-variant="frost"] header .glabel, body[data-skin-variant="frost"] header .dot,
-body[data-skin-variant="frost"] footer, body[data-skin-variant="frost"] footer #counts, body[data-skin-variant="frost"] footer .keys { color: rgba(42,38,32,.75) !important; }
-/* The light variant: hairlines and shadows drawn for a dark ground read as smears on a
-   pale one, so they are re-drawn rather than inherited. */
-body[data-skin-variant="frost"] header, body[data-skin-variant="frost"] footer, body[data-skin-variant="frost"] .tile, body[data-skin-variant="frost"] #side, body[data-skin-variant="frost"] #side > aside {
-  border-color: rgba(0, 0, 0, 0.14) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.10);
+  background-attachment: fixed;
 }
 
 /* ------------------------------------------------------------------------- the scrollbar (#181)
