@@ -415,3 +415,22 @@ def test_the_console_button_on_the_strip_opens_one_and_the_tile_shows_it(fleet_h
         server.shutdown()
         server.server_close()
     assert _eventually(lambda: not supervisor.pid_alive(int(supervisor.read_lock("luna").get("pid") or 0)), timeout=30)
+
+
+# ------------------------------------------------------------- one session, either surface (#191)
+
+
+def test_the_session_index_says_a_console_held_the_session(fleet_home, tmp_path):
+    """A `started` with `console: true` folds to `source: console`; the fleet's own to `fleet`; an
+    adopted one to `adopted` -- the surface that held the session when the run began."""
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    Registry().add(path, name="luna")
+    E.append("luna", [
+        E.event("luna", "started", {"pid": 1, "console": True, "session": "sess-c", "new": True}, ticket="RDSD-7"),
+        E.event("luna", "exited", {"exit_code": None, "why": "the console closed"}, ticket="RDSD-7"),
+        E.event("luna", "started", {"pid": 2, "session": "sess-c", "resumed": True}, ticket="RDSD-7"),
+        E.event("luna", "started", {"pid": 0, "external": True, "adopted": True, "session": "sess-x"}, ticket="RDSD-7"),
+    ])
+    rows = {r["id"]: r for r in SESS.rebuild_sessions("luna", path)}
+    assert rows["sess-c"]["runs"] == 2 and rows["sess-c"]["source"] == "console", rows["sess-c"]
+    assert rows["sess-x"]["source"] == "adopted"

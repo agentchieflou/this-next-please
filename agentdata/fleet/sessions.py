@@ -232,7 +232,9 @@ def fold_stream(stream: list[dict], existing_titles: dict[str, str] | None = Non
         ticket = first_ev.get("ticket") or ""
         summary = start_data.get("summary") or ""
         is_adopted = bool(start_data.get("adopted") or start_data.get("external"))
-        source = "adopted" if is_adopted else "fleet"
+        # Which surface held the session when the run began (#191): a console the fleet opened, a
+        # session adopted from outside, or the fleet's own headless process.
+        source = "console" if start_data.get("console") else ("adopted" if is_adopted else "fleet")
 
         # Derive state of this run
         derived = agentstate.derive(run_events, live=False)
