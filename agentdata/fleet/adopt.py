@@ -42,6 +42,13 @@ from .registry import Registry
 # session is not reported as live: a Copilot turn writes state at its boundaries, not continuously.
 FRESH_S = 15 * 60
 
+# How recently a session's own file (`~/.copilot/session-state/<id>/events.jsonl`, #188) must have
+# been written for the session to count as going on (#192). Shorter than FRESH_S: a model thinking
+# writes deltas, a person reading writes nothing, and the number is the longest quiet the runbook
+# observes plus margin. `fleet.console.idle_s` overrides it; the lock carries the value it was
+# adopted with.
+IDLE_S = 90
+
 # The process names a Copilot CLI session runs under. `copilot` is the shim; on Windows it is a
 # `node` process launched from one, which is why the command line is matched rather than the image.
 AGENT_HINTS = ("copilot",)
@@ -210,7 +217,11 @@ def candidates(registry: Registry | None = None, *, processes: list[dict] | None
         if lock.get("external"):
             continue                        # already adopted; `adopted()` reports on those
         age = activity_age(repo.path)
-        if age < 0 or age > FRESH_S:
+        # A session file for this checkout that is being written now (#192): the third kind of
+        # evidence, between a pid with a cwd and a folder's timestamp. A console that only reads
+        # and thinks writes no state file, and its session file is the only thing that says so.
+        session_file = fresh_session_file(repo.path)
+        if not session_file and (age < 0 or age > FRESH_S):
             continue
 
         # Exact where the platform allows it: a process whose working directory *is* this checkout.
@@ -220,6 +231,9 @@ def candidates(registry: Registry | None = None, *, processes: list[dict] | None
         if exact:
             chosen = exact[0]
             how = "matched by working directory"
+        elif session_file:
+            chosen = {"pid": 0, "cmdline": "", "cwd": ""}
+            how = "matched by session file"
         elif running:
             # A Copilot is running and this checkout is being written to, but this platform will not
             # say which process is in which directory. Adoptable, without a pid, and labelled.
@@ -233,36 +247,24 @@ def candidates(registry: Registry | None = None, *, processes: list[dict] | None
 
         out.append({"repo": repo.name, "path": repo.path, "pid": chosen["pid"],
                     "cmdline": chosen["cmdline"][:200], "how": how, "active_age_s": age,
-                    "session": _session_for_adopt(repo.name, repo.path, getattr(repo, "jira_project", ""))})
+                    "session": (session_file["id"] if session_file else
+                                _session_for_adopt(repo.name, repo.path, getattr(repo, "jira_project", ""))),
+                    "session_file": session_file["file"] if session_file else "",
+                    "session_age_s": session_file["log_age_s"] if session_file else -1.0})
     return out
 
 
-def discover(*, registry: Registry | None = None) -> list[dict]:
-    reg = registry or Registry()
-    out = []
-    for repo in reg.sorted():
-        age = activity_age(repo.path)
-        if age < 0 or age > FRESH_S:
-            continue
-        here = textio.norm_path(repo.path).rstrip("/\\").lower()
-        matched = [r for r in agent_processes()
-                   if r.get("cwd") and textio.norm_path(r["cwd"]).rstrip("/\\").lower() == here]
-        if matched:
-            chosen = matched[0]
-            how = "matched by working directory"
-        else:
-            # No process listing at all (refused, or none matched) and yet the checkout is being
-            # written to. Still worth offering: the writing is the evidence, not the listing.
-            chosen = {"pid": 0, "cmdline": "", "cwd": ""}
-            how = "inferred from recent activity"
+def fresh_session_file(repo_path: str, idle_s: int = IDLE_S) -> dict | None:
+    """The newest of this checkout's session files if it was written within `idle_s`, else None."""
+    from . import sessions as SESS
 
-        out.append({"repo": repo.name, "path": repo.path, "pid": chosen["pid"],
-                    "cmdline": chosen["cmdline"][:200], "how": how, "active_age_s": age,
-                    "session": _session_for_adopt(repo.name, repo.path, getattr(repo, "jira_project", ""))})
-    return out
-
-
-# ------------------------------------------------------------------------------- taking one on
+    try:
+        rows = SESS.session_files(repo_path)
+    except Exception:                        # noqa: BLE001 - a store or a home the fleet cannot read
+        return None
+    if rows and 0 <= rows[0]["log_age_s"] <= idle_s:
+        return rows[0]
+    return None
 
 
 def adopt(name: str, *, registry: Registry | None = None, pid: int = 0) -> dict:
@@ -284,7 +286,8 @@ def adopt(name: str, *, registry: Registry | None = None, pid: int = 0) -> dict:
                          "different repository")
 
     age = activity_age(repo.path)
-    if age < 0 or age > FRESH_S:
+    session_file = fresh_session_file(repo.path)
+    if not session_file and (age < 0 or age > FRESH_S):
         raise AdoptError(
             f"nothing has been written in {name} for "
             f"{'a long time' if age < 0 else str(age) + 's'}",
@@ -298,12 +301,19 @@ def adopt(name: str, *, registry: Registry | None = None, pid: int = 0) -> dict:
                 pid = row["pid"]
                 break
 
-    how = "matched by working directory" if pid else "inferred from recent activity"
-    session = _session_for_adopt(name, repo.path, getattr(repo, "jira_project", ""))
+    how = ("matched by working directory" if pid else
+           "matched by session file" if session_file else "inferred from recent activity")
+    session = (session_file["id"] if session_file else
+               _session_for_adopt(name, repo.path, getattr(repo, "jira_project", "")))
     lock = {"pid": int(pid or 0), "how": how, "repo": name, "path": repo.path,
             "session": session, "ticket": repo.state().get("active_ticket", ""),
             "external": True, "adopted_at": E.stamp(), "started": time.time(),
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "restarts": 0, "launch": []}
+    if session_file:
+        # From here on the tile tails the file (#188): the transcript, the turns and the cost an
+        # adopted session never had. Liveness is the file's own mtime, not the state file's.
+        lock["session_file"] = session_file["file"]
+        lock["idle_s"] = IDLE_S
     supervisor.write_lock(name, lock)
     E.append(name, [E.event(name, "started",
                             {"external": True, "pid": lock["pid"], "adopted": True,
@@ -351,6 +361,12 @@ def still_there(lock: dict) -> bool:
     pid = int(lock.get("pid") or 0)
     if pid:
         return proc_alive(pid)
+    if lock.get("session_file"):
+        try:
+            quiet = time.time() - os.path.getmtime(str(lock["session_file"]))
+        except OSError:
+            return False
+        return 0 <= quiet <= float(lock.get("idle_s") or IDLE_S)
     path = str(lock.get("path") or "")
     if not path:
         return False

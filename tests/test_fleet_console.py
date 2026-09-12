@@ -477,3 +477,46 @@ def test_the_sessions_of_a_checkout_are_found_by_workspace_yaml_or_the_stores_cw
     assert all(r["file"] == SESS.session_state_path(r["id"]) for r in rows)
     assert rows[0]["log_age_s"] > 0
     assert SESS.session_files(str(tmp_path / "nowhere")) == []
+
+
+def test_a_console_the_operator_opened_is_offered_by_its_session_file_and_adopting_it_tails_the_file(fleet_home, tmp_path):
+    """Acceptance criteria (#192). A session file for the checkout written now makes the checkout
+    adoptable as *matched by session file* even when nothing wrote `.agent/state.json`; adopting it
+    makes the tile draw the session's transcript from the file; `still_there` is false once the
+    file has been quiet for `idle_s`; a checkout merely saved to is still *inferred*."""
+    from agentdata.fleet import adopt as A
+
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    Registry().add(path, name="luna")
+    old = time.time() - 3600
+    os.utime(os.path.join(path, ".agent", "state.json"), (old, old))       # nothing wrote state for an hour
+    d = os.path.join(SESS.session_state_dir(), "sess-own")
+    os.makedirs(d)
+    with open(os.path.join(d, "workspace.yaml"), "w", encoding="utf-8") as f:
+        f.write(f"cwd: {path}\n")
+    file = os.path.join(d, "events.jsonl")
+    with open(file, "w", encoding="utf-8") as f:
+        f.write(_line("assistant.message", content="thinking out loud, in a window", model="m", toolRequests=[]))
+
+    offers = {c["repo"]: c for c in A.candidates(Registry(), processes=[])}
+    assert offers["luna"]["how"] == "matched by session file"
+    assert offers["luna"]["session"] == "sess-own" and offers["luna"]["session_file"] == file
+
+    got = A.adopt("luna")
+    assert got["how"] == "matched by session file" and got["session"] == "sess-own"
+    lock = supervisor.read_lock("luna")
+    assert lock["external"] and lock["session_file"] == file and lock["idle_s"] == A.IDLE_S
+    assert supervisor.live("luna"), "the file was written seconds ago"
+    E.refresh("luna", path, repo_state=Registry().get("luna").state())
+    texts = [e["data"]["text"] for e in E.read("luna") if e["kind"] == "assistant_text"]
+    assert texts == ["thinking out loud, in a window"]
+
+    quiet = time.time() - A.IDLE_S - 5
+    os.utime(file, (quiet, quiet))
+    assert not A.still_there(lock) and not supervisor.live("luna")
+
+    # A checkout merely saved to: the state file touched, no session file -- inferred, as before.
+    mars = make_project(tmp_path / "mars", ticket="RDSD-9")
+    Registry().add(mars, name="mars")
+    offers = {c["repo"]: c for c in A.candidates(Registry(), processes=[])}
+    assert offers["mars"]["how"] == "inferred from recent activity" and offers["mars"]["session_file"] == ""

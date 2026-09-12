@@ -224,6 +224,14 @@ make, so the evidence is the checkout itself: `.agent/state.json` has exactly on
 file touched in the last few minutes is a session somebody is having right now. That reads `inferred
 from recent activity`, and it is labelled differently because it is a weaker claim.
 
+A third claim sits between the two (#192): **matched by session file** — Copilot's own file for a
+session whose working directory is this checkout (`~/.copilot/session-state/<id>/events.jsonl`,
+placed by its `workspace.yaml` or by the store's `cwd` column, whichever the machine carries) was
+written within the last `fleet.console.idle_s` seconds (default 90). It names the session, so it
+outranks the folder's timestamp; it names no pid, so it is outranked by a process matched to the
+folder. Adopting such a session makes the tile tail that file: the transcript, the turns and the
+cost an adopted session never had, and liveness is the file's own quiet, not the state file's.
+
 Adoption **supersedes; it does not supervise.** The fleet did not start that process, has no pipe to
 its stdin and may not know its pid, so Send and Start are disabled and say where to type instead of
 being offered and quietly doing nothing. One checkout still holds one agent: a repo the fleet is
