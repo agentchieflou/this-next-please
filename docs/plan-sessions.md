@@ -488,7 +488,13 @@ alone already makes a clean shutdown keep the desk.
 ## Open questions, to be answered on the laptop and recorded in the slice
 
 - Does `sessions` in `~/.copilot/session-store.db` carry a working directory, or only `repository`? Does
-  `--resume <id>` from a different directory than the session's work? (A)
+  `--resume <id>` from a different directory than the session's work? (A) — **half answered.** The
+  console epic's `sessions.session_files` (#192) reads the working directory from either shape:
+  `workspace.yaml` beside the session log, or the store's `cwd` column where the schema has one, and
+  it says which it used. Whether `--resume <id>` with `-C <repo>` keeps the session's own working
+  directory is runbook row C5 in [windows-verification.md](windows-verification.md), not yet
+  measured; every caller in the fleet passes `-C` with the checkout it means, so either answer is
+  survivable.
 - Two fleets' agents sharing one store — [fleet-spike.md](fleet-spike.md)'s open question, still open. (A)
 - Do JCEF and Simple Browser hand the page its own `?w=` back after the IDE restores the tool window? (B)
 - `hidden` per window or per layout — the sitting decides; per layout ships. (C)

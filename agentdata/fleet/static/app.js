@@ -779,8 +779,7 @@ function drawStrip(el, row) {
   earlierTab.classList.toggle("is-on", !!open);
 }
 
-/* The rows, on the click rather than on every poll: this is a disk read and a fold, and nobody is
-   looking at it until they ask. */
+/* The rows on the click, not on every poll: a disk read and a fold nobody is reading until asked. */
 function openSessions(el, repo) {
   var list = el.querySelector(".sessions");
   var tab = el.querySelector(".earlier-tab");
@@ -801,7 +800,7 @@ function openSessions(el, repo) {
              row.cost ? Number(row.cost).toFixed(2) + " premium" : "");
         var button = li.querySelector(".ss-open");
         button.title = (el.dataset.console ? "the console still owns this; close it first — " : "")
-          + "session " + row.id + (row.source ? " · last held by the " + row.source : "");
+          + "session " + row.id + ((row.sources || []).join(" → ") ? " · " + row.sources.join(" → ") : "");
         button.addEventListener("click", function () { showSession(el, repo, row); });
         list.appendChild(li);
       });
@@ -876,9 +875,8 @@ function backToLive(el) {
   if (entry && entry.row) drawStrip(el, entry.row);
 }
 
-/* Making an earlier session the live one. When nothing is running it simply runs; when something
-   is, it is the supervisor's own refusal with the supervisor's own hint, and the button becomes a
-   second, deliberate press -- never a silent force, and never two agents in one working tree. */
+/* Making an earlier session the live one: it runs, or it is the supervisor's own refusal with the
+   supervisor's own hint and a button that has become a second, deliberate press. */
 function resumeHere(el, repo) {
   var button = el.querySelector(".ro-resume");
   var note = el.querySelector(".ro-note");
@@ -891,9 +889,11 @@ function resumeHere(el, repo) {
       return;
     }
     text(note, [r && r.error, r && r.hint].filter(Boolean).join(" — "));
-    if (r && r.code === "live_agent") {
+    // Both refusals a resume meets take a second press: something holds the checkout, or it is
+    // mid-ticket on this session's own ticket (#191, what a closed console leaves). Never silent.
+    if (r && (r.code === "live_agent" || r.code === "mid_ticket")) {
       button.dataset.armed = "1";
-      text(button, "Stop and resume");
+      text(button, r.code === "live_agent" ? "Stop and resume" : "Resume anyway");
     }
   });
 }

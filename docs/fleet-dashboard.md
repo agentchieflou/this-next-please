@@ -177,12 +177,23 @@ Under the run line there is a **tab strip**:
   than no box — replaced by one sentence and one button: *this session ended blocked · 2 days ago ·
   **Resume here***. The live transcript is hidden, never thrown away, so going back is instant and
   whole.
-* **Resume here** is `start --resume <id>`. With nothing live it runs. With an agent live it is the
-  supervisor's own refusal and its own hint, and the button becomes the two-press *Stop and
-  resume*, the way *Reset anyway* is a second, deliberate press. Never two agents in one working
-  tree, and never a silent force.
+* **Resume here** is `start --resume <id>`. With nothing live it runs. With an agent live, or with
+  the checkout mid-ticket on this session's own ticket — which is exactly what a console that has
+  been working leaves behind — it is the supervisor's own refusal and its own hint, and the button
+  becomes the two-press *Stop and resume* or *Resume anyway*, the way *Reset anyway* is a second,
+  deliberate press. Never two agents in one working tree, and never a silent force.
 * **+ new** is `start --new`: a clean session in this checkout, the previous one still listed and
   still resumable.
+* The **console** tab is one button and three verbs (#189–#191). With no console here it opens one
+  and hands it *this tile's session*, so a session the fleet started headless carries on in the
+  operator's own window under the same id — the transcript continues because `--resume` is
+  Copilot's own continuation, not a replay. Inside a turn it refuses with `mid_turn`: a session
+  moves surfaces between turns, and stopping one halfway leaves the working tree wherever the
+  thought had reached. With a console already here the same button reads **show console** and
+  raises that window. When it closes, the run ends with *the console closed* and *Resume here*
+  brings the session back headless. Each row in *earlier* names the surfaces its session has been
+  held by, in order (`console → fleet`), and the read-only pane says *the console still owns this*
+  only while this checkout's console is actually alive.
 * `Alt`+`[` / `Alt`+`]` walk the strip and `Alt`+`N` is *new*. Every tab is a real button, so the
   strip is reachable by Tab as well.
 

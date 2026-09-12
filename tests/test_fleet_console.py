@@ -751,3 +751,103 @@ def test_the_cli_says_and_shows_and_the_two_helpers_take_a_pid(fleet_home, tmp_p
     parser = cli_fleet.build_parser()
     assert parser.parse_args(["say-into", "4242", "hello"]).pid == 4242
     assert parser.parse_args(["focus-console", "4242"]).pid == 4242
+
+
+# ============================================== D #191: one session, either surface
+
+
+def test_a_fleet_session_is_carried_into_a_console_and_back_again(fleet_home, tmp_path, monkeypatch):
+    """Acceptance (#191). The session id is the join. A headless run, then *open in a console* on
+    the same id: one lock, `kind: console`, `started` with `resumed: true`, and the transcript
+    continuing in the file Copilot writes for it. The window closes, *Resume here* continues it
+    headless, and the index says one session, two runs, the two surfaces in order."""
+    fakes.apply(monkeypatch, tmp_path, ["copilot"], npm=True)
+    monkeypatch.setenv("AGENTDATA_FAKE_CASE", "triage-ok")
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    Registry().add(path, name="luna")
+
+    supervisor.start("luna", key="RDSD-7", cfg=CONSOLE_CFG)
+    assert _eventually(lambda: not supervisor.live("luna"), timeout=30)
+    lifecycle.reap("luna")
+    E.refresh("luna", path, repo_state=Registry().get("luna").state())
+    session = supervisor.session_id("luna")
+    assert session, "the headless run named its session"
+
+    # Into a console, on that same session. The fake picks the console transcript by the `-C` in
+    # the argv, and writes to the session file Copilot would.
+    monkeypatch.setenv("AGENTDATA_FAKE_CASE", "console-session")
+    lock = supervisor.console("luna", resume=session, cfg=CONSOLE_CFG)
+    assert lock["kind"] == "console" and lock["session"] == session
+    assert "--resume" in lock["launch"] and "--session-id" not in lock["launch"]
+    started = [e for e in E.read("luna") if e["kind"] == "started"]
+    assert started[-1]["data"]["console"] is True and started[-1]["data"]["resumed"] is True
+    assert len([e for e in E.read("luna") if e["kind"] == "started"]) == 2
+
+    file = SESS.session_state_path(session)
+    assert _eventually(lambda: os.path.isfile(file)
+                       and "Hello from the console" in open(file, encoding="utf-8").read())
+    E.refresh("luna", path, repo_state=Registry().get("luna").state())
+    assert "Hello from the console." in [e["data"]["text"] for e in E.read("luna")
+                                         if e["kind"] == "assistant_text"]
+
+    # The window closes. *Resume here* is one headless `--resume <id>` and no more.
+    assert _eventually(lambda: not supervisor.pid_alive(lock["pid"]), timeout=30)
+    lifecycle.reap("luna")
+    monkeypatch.setenv("AGENTDATA_FAKE_CASE", "triage-ok")
+    # The checkout is mid-ticket on the very ticket this session is for, which is what a console
+    # that has been working leaves behind. *Resume here* answers that with a second press, never a
+    # silent force -- the same shape `live_agent` has had since #174.
+    with pytest.raises(supervisor.SupervisorError) as again:
+        supervisor.start("luna", resume=session, cfg=CONSOLE_CFG)
+    assert again.value.code == "mid_ticket"
+    back = supervisor.start("luna", resume=session, force=True, cfg=CONSOLE_CFG)
+    assert back["session"] == session and "--resume" in back["launch"]
+    assert back["launch"].count("--resume") == 1
+    resumed = [e for e in E.read("luna") if e["kind"] == "started"][-1]
+    assert resumed["data"]["resumed"] is True and not resumed["data"].get("console")
+
+    assert _eventually(lambda: not supervisor.live("luna"), timeout=30)
+    lifecycle.reap("luna")
+    rows = {r["id"]: r for r in SESS.rebuild_sessions("luna", path)}
+    assert list(rows) == [session], f"one session, whichever window held it: {list(rows)}"
+    assert rows[session]["runs"] == 3
+    assert rows[session]["sources"] == ["fleet", "console", "fleet"]
+
+
+def test_opening_a_console_on_a_session_mid_turn_is_refused_and_starts_nothing(
+        fleet_home, tmp_path, monkeypatch):
+    """Acceptance (#191). A session moves surfaces *between* turns: stopping a live one here would
+    leave the working tree wherever the thought had reached, and the premium request is spent
+    either way. A fresh console beside a live agent is still `live_agent` -- one working tree, one
+    agent, whichever verb asked."""
+    fakes.apply(monkeypatch, tmp_path, ["copilot"], npm=True)
+    monkeypatch.setenv("AGENTDATA_FAKE_CASE", "console-session")
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    Registry().add(path, name="luna")
+    supervisor.write_lock("luna", {"pid": os.getpid(), "repo": "luna", "path": path,
+                                   "session": "sess-live", "ticket": "RDSD-7",
+                                   "started": time.time(), "launch": []})
+
+    with pytest.raises(supervisor.SupervisorError) as mid:
+        supervisor.console("luna", resume="sess-live", cfg=CONSOLE_CFG)
+    assert mid.value.code == "mid_turn" and "between turns" in mid.value.hint
+
+    with pytest.raises(supervisor.SupervisorError) as beside:
+        supervisor.console("luna", cfg=CONSOLE_CFG)
+    assert beside.value.code == "live_agent"
+
+    assert supervisor.read_lock("luna").get("kind") != "console", "the lock was not taken"
+    assert not [e for e in E.read("luna") if e["kind"] == "started"], "nothing was started"
+
+
+def test_the_page_offers_the_console_the_session_it_is_looking_at(fleet_home, tmp_path):
+    """The page is a view: *open in a console* is the console verb with this tile's session id, and
+    the read-only pane's warning is said while this checkout's console is alive rather than for
+    every session the store happens to remember."""
+    script = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               "agentdata", "fleet", "static", "app.js"), encoding="utf-8").read()
+    assert "if (el.dataset.session) body.resume = el.dataset.session;" in script
+    assert 'r.code === "live_agent" || r.code === "mid_turn"' not in script
+    assert 'r.code === "live_agent" || r.code === "mid_ticket"' in script
+    assert 'el.dataset.console ? "the console still owns this — close it, then resume" : ""' in script
+    assert "a console window may still own this" not in script, "the guess is gone"

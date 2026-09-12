@@ -320,11 +320,18 @@ def fold_stream(stream: list[dict], existing_titles: dict[str, str] | None = Non
                 "ended": ended_state,
                 "cost": run_cost,
                 "source": source,
+                # Every surface this session has been held by, in the order it moved between them
+                # (#191). `source` stays the first, because that is what it has always meant; the
+                # list is how a session that began headless and was carried into a console -- or
+                # the other way about -- says so without a second record of anything.
+                "sources": [source],
             }
             order.append(sid)
         else:
             rec = sessions_by_id[sid]
             rec["runs"] += 1
+            if source != (rec["sources"][-1] if rec["sources"] else ""):
+                rec["sources"].append(source)
             if ticket and not rec["ticket"]:
                 rec["ticket"] = ticket
             if last_ts > rec["last_seen"]:
