@@ -851,3 +851,22 @@ def test_the_page_offers_the_console_the_session_it_is_looking_at(fleet_home, tm
     assert 'r.code === "live_agent" || r.code === "mid_ticket"' in script
     assert 'el.dataset.console ? "the console still owns this — close it, then resume" : ""' in script
     assert "a console window may still own this" not in script, "the guess is gone"
+
+
+def test_the_console_the_fleet_opens_wears_the_projects_palette(fleet_home, tmp_path, monkeypatch):
+    """Runbook row C7, built so that either answer to it works: the window does not wait to be
+    dressed by a shell hook that may or may not fire there — it dresses itself, with the same
+    `ad-theme apply` that recolours any other terminal, resolved from the checkout it opens in."""
+    line = supervisor.console_window_line("luna · RDSD-7", "copilot --resume abc")
+    assert line.split(" & ") == ["title luna · RDSD-7", "ad-theme apply 2>nul", "copilot --resume abc"]
+    assert "1>nul" not in line and ">nul 2" not in line, \
+        "stdout carries the escape sequence on a VT host; only stderr may be swallowed"
+    assert supervisor.console_window_line("luna", "copilot", palette=False) == "title luna & copilot"
+
+    # And the operator can turn it off without turning the console off.
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    Registry().add(path, name="luna")
+    import inspect
+
+    source = inspect.getsource(supervisor.console)
+    assert 'C.get(cfg if cfg is not None else C.load(), "fleet.console.palette", True)' in source

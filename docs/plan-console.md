@@ -254,7 +254,9 @@ file. `send` on an adopted console is `say`, if a pid can be named for it (`_win
 ## Where everything is written down
 
 **`~/.agentdata/config.json`** — `fleet.console.host` (`cmd` | `wt`, default `cmd`); `fleet.console.idle_s`
-(default 90); `COPILOT_SESSION_STATE` honoured as an environment override, like `COPILOT_SESSION_STORE`.
+(default 90); `fleet.console.prompt_s` (default 20); `fleet.console.palette` (default true); `fleet.console.helper`
+(the argv the helpers are spawned behind, for CI); `COPILOT_SESSION_STATE` honoured as an environment override,
+like `COPILOT_SESSION_STORE`.
 
 **`~/.copilot/`** — read, never written. The store and the session files are Copilot's.
 

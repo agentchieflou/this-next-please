@@ -1007,7 +1007,7 @@ fact. A row that fails becomes a regression test named for its host.
 | C4 | The same under Windows Terminal (`fleet.console.host: wt`), then `ad-fleet show-console luna` on both hosts | whether `AttachConsole` + `WriteConsoleInputW` reach a session hosted by Windows Terminal, and what `GetConsoleWindow` returns there. If the window belongs to the terminal rather than the session, the refusal already says so — record which it is | _not yet measured_ | — |
 | C5 | `ad-fleet console luna --resume <id>` for a session the fleet started headless, from a different directory | `--session-id` made the session with the id the fleet chose, and `--resume` with `-C <repo>` keeps the session's own working directory. This is `docs/plan-sessions.md`'s open question | _not yet measured_ | — |
 | C6 | With two consoles open in different checkouts, compare `session-state` ids to the `copilot` pids in the process table | whether an id can be matched to a pid without native calls. If it can, an adopted console gets a pid and `say` works on it; if not, `say` keeps refusing with *type in that window* | _not yet measured_ | — |
-| C7 | `ad-fleet console` on a checkout whose project has a palette | whether `cmd.exe /k` started by the fleet picks the project's colours up from the shell hook, or whether the window needs `theme.apply_conhost` called in it | _not yet measured_ | — |
+| C7 | `ad-fleet console` on a checkout whose project has a palette | the window wears that project's colours. It dresses itself — `cmd.exe /k` runs `title`, then `ad-theme apply`, then the session — so this measures whether the recolour lands on conhost and under Windows Terminal, not whether a shell hook fired. `fleet.console.palette: false` turns it off | _not yet measured_ | — |
 | C8 | A second `ad-fleet console` on a checkout that already has one; then open one **yourself** beside a fleet console | the second is refused with `live_agent` and no window opens; and `ad-fleet adopt --list` says what it makes of the one you opened by hand | _not yet measured_ | — |
 
 ### The open questions these rows answer
@@ -1023,3 +1023,6 @@ fact. A row that fails becomes a regression test named for its host.
   ships as a refusal that names the host.
 - **Can a session id be matched to a pid?** (C6) It is the difference between an adopted console the
   tile can type into and one it can only read.
+- **Does the window's own `ad-theme apply` land?** (C7) The console no longer depends on a shell hook
+  firing in it; what is left to measure is whether the recolour survives the host, which is the same
+  question `docs/setup.md` §Colour and glyphs, per host answers for every other terminal.

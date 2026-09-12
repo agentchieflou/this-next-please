@@ -81,6 +81,10 @@ the tile reads the session from Copilot's own file for it (`~/.copilot/session-s
 second. *Stop* refuses with *close that window*: the fleet opened it and does not close it; when the
 window closes, the run ends with *the console closed* and *Resume here* continues it headless.
 
+The window dresses itself: `cmd.exe /k` names it after the checkout and its ticket, runs `ad-theme
+apply` so it wears that project's palette the way any other terminal does, and then starts the
+session. `fleet.console.palette: false` leaves the console in whatever colours the shell gave it.
+
 The tile's reply box **types into that window** rather than starting a second agent beside it (#190).
 `send` is another `copilot -p --resume` process, which in a checkout that already has a console is
 exactly the thing one-agent-per-working-tree exists to refuse; `ad-fleet say <repo> "<text>"` and

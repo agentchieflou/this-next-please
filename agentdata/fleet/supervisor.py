@@ -761,7 +761,8 @@ def console(name: str, *, key: str | None = None, resume: str | None = None, new
                            session=session, resume=bool(resume), cfg=cfg)
     host = str(C.get(cfg if cfg is not None else C.load(), "fleet.console.host", "") or
                ("cmd" if os.name == "nt" else "terminal"))
-    child = _open_console(repo, name, argv, exe, host, key or "")
+    palette = bool(C.get(cfg if cfg is not None else C.load(), "fleet.console.palette", True))
+    child = _open_console(repo, name, argv, exe, host, key or "", palette)
     lock = {"pid": child.pid, "kind": "console", "host": host, "repo": name, "path": repo.path,
             "ticket": key or "", "summary": summary, "session": session, "started": time.time(),
             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
@@ -770,7 +771,25 @@ def console(name: str, *, key: str | None = None, resume: str | None = None, new
     return lock
 
 
-def _open_console(repo: Repo, name: str, argv, exe: str | None, host: str, key: str) -> subprocess.Popen:
+def console_window_line(title: str, line: str, *, palette: bool = True) -> str:
+    """What `cmd.exe /k` is given: name the window, dress it, then run the session (#189, row C7).
+
+    The palette step is `ad-theme apply` *inside the window*, not a hope that the shell hook fires
+    there. It resolves the checkout's own project theme from the working directory and recolours
+    the console the way it recolours any other terminal -- through the Win32 console API on conhost,
+    through OSC escapes anywhere else. Only stderr is swallowed: a machine without `ad-theme` on
+    PATH costs one hidden line and the session still starts, while stdout has to stay open because
+    on a VT host the escape sequence *is* stdout.
+    """
+    steps = [f"title {title}"]
+    if palette:
+        steps.append("ad-theme apply 2>nul")
+    steps.append(line)
+    return " & ".join(steps)
+
+
+def _open_console(repo: Repo, name: str, argv, exe: str | None, host: str, key: str,
+                  palette: bool = True) -> subprocess.Popen:
     """The window. `cmd` and `wt` on Windows, a terminal emulator elsewhere; `fake` runs the
     command with no window at all, which is how CI exercises everything that is not a window."""
     directory = agent_dir(name)
@@ -786,7 +805,7 @@ def _open_console(repo: Repo, name: str, argv, exe: str | None, host: str, key: 
     line = command if isinstance(command, str) else subprocess.list2cmdline(command)
     title = f"{name} · {key}" if key else name
     if os.name == "nt":
-        inner = f'title {title} & {line}'
+        inner = console_window_line(title, line, palette=palette)
         if host == "wt":
             return subprocess.Popen(["wt.exe", "-d", repo.path, "cmd.exe", "/k", inner],
                                     cwd=repo.path, env=child_env(name, fleet_dir()))
