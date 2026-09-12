@@ -225,6 +225,28 @@ def transitions(events: list[dict]) -> list[dict]:
     return out
 
 
+def pending_tool(events: list[dict]) -> str:
+    """When the tool call still waiting for its result started, or "" if nothing is waiting (#190).
+
+    For a console, how *long* that has been is the only clue there is that the session is asking its
+    operator something. The CLI emits no permission *request* event -- `docs/fleet-spike.md`
+    measured that, and it is why `denied` is the only signal the fleet has, after the fact -- so a
+    `y/n` waiting in a console looks exactly like a tool taking its time. The caller turns this
+    stamp into an age and labels the sentence a guess; runbook row C2 replaces it with whatever the
+    file really carries while a prompt is pending.
+    """
+    pending, at = "", ""
+    for ev in events:
+        kind, data = ev.get("kind"), ev.get("data") or {}
+        if kind == "tool_call":
+            pending, at = str(data.get("id") or ""), str(ev.get("ts") or "")
+        elif kind == "tool_result" and str(data.get("id") or "") == pending:
+            pending, at = "", ""
+        elif kind in ("turn_ended", "exited", "error"):
+            pending, at = "", ""
+    return at if pending else ""
+
+
 def needs_the_human(state: str) -> bool:
     """The one predicate the notifier and the dashboard badge share."""
     return state in ("waiting_approval", "needs_human", "blocked", "error")

@@ -10,13 +10,15 @@ import calendar
 import json
 import os
 import subprocess
+import sys
 import time
 
 from .. import proc
 from .. import textio
+from . import console as fleet_console
 from . import handoff as H
 from . import lifecycle
-from .launch import child_env, launch_command, prompt_for
+from .launch import child_env, launch_command, prompt_for, console_command
 from .registry import Registry, Repo, RegistryError, agent_dir, fleet_dir
 
 LOCK = "agent.json"
@@ -333,7 +335,8 @@ def _spawn(repo: Repo, name: str, argv, exe: str | None = None) -> subprocess.Po
                                 env=child_env(name, fleet_dir()), **kwargs)
 
 
-def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = False) -> None:
+def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = False,
+                  console: bool = False) -> None:
     """Put the launch itself into the normalized stream.
 
     Without this the stream begins mid-narrative -- the first thing anyone downstream sees is the
@@ -346,7 +349,8 @@ def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = F
         E.append(name, [E.event(name, "started",
                                 {"pid": lock.get("pid"), "prompt": (lock.get("prompt") or "")[:400],
                                  "summary": lock.get("summary", ""),
-                                 "resumed": resumed, "new": new, "session": lock.get("session", "")},
+                                 "resumed": resumed, "new": new, "session": lock.get("session", ""),
+                                 **({"console": True} if console else {})},
                                 ticket=lock.get("ticket", ""))])
     except Exception:  # noqa: BLE001 - a missing breadcrumb must never fail a launch
         from ..log import debug_exc
@@ -481,7 +485,7 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
     repo = reg.get(name)
 
     current = live(name)
-    if current.get("external"):
+    if current.get("external") or current.get("kind") == "console":
         # An adopted session is somebody else's process. There is no pipe to its stdin, so a message
         # sent here would go nowhere -- and a Send button that silently does nothing is worse than
         # one that refuses and says where to type instead.
@@ -522,6 +526,128 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
     write_lock(name, lock)
     _emit_started(name, lock, resumed=True)
     return lock
+
+
+# The console helper runs in its own process and is expected to be quick: it attaches, writes key
+# events and exits. A helper that has not answered in this long is a window that is not taking input,
+# which is a refusal and not something to wait out with the operator watching a spinner.
+HELPER_TIMEOUT_S = 20.0
+CREATE_NO_WINDOW = 0x08000000
+
+
+def helper_command(verb: str, cfg: dict | None = None) -> list[str]:
+    """The argv that runs one console helper verb. `fleet.console.helper` replaces the interpreter
+    in front of it, which is how CI drives `say` without a console anywhere."""
+    from .. import config as C
+
+    configured = C.get(cfg if cfg is not None else C.load(), "fleet.console.helper", None)
+    if isinstance(configured, (list, tuple)) and configured:
+        base = [str(part) for part in configured]
+    elif isinstance(configured, str) and configured.strip():
+        base = [configured.strip()]
+    else:
+        base = [sys.executable, "-m", "agentdata", "fleet"]
+    return [*base, verb]
+
+
+def _helper_meta(text: str) -> dict:
+    """The helper's own TOON meta, as a dict. The helper is the one that knows the Win32 number, so
+    its words are the ones that reach the tile -- this reads them rather than inventing a sentence."""
+    out: dict[str, str] = {}
+    for line in (text or "").splitlines():
+        key, sep, value = line.strip().partition(":")
+        if not sep or not key or " " in key:
+            continue
+        value = value.strip()
+        if len(value) > 1 and value[0] == '"' and value[-1] == '"':
+            value = value[1:-1].replace('\\"', '"')
+        out[key] = value
+    return out
+
+
+def _run_helper(argv: list[str], name: str) -> dict:
+    flags = {"creationflags": CREATE_NO_WINDOW} if os.name == "nt" else {}
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=HELPER_TIMEOUT_S, **flags)
+    except subprocess.TimeoutExpired:
+        raise SupervisorError(f"the console helper for {name} did not answer in "
+                              f"{HELPER_TIMEOUT_S:.0f}s",
+                              "that window may be busy or gone; type in it instead",
+                              code="console_unreachable") from None
+    except OSError as e:
+        raise SupervisorError(f"could not run the console helper for {name}: {e}",
+                              "`fleet.console.helper` overrides the interpreter it runs with",
+                              code="console_unreachable") from None
+    meta = _helper_meta(done.stdout)
+    if done.returncode != 0:
+        raise SupervisorError(meta.get("error") or f"the console helper for {name} exited "
+                                                   f"{done.returncode}",
+                              meta.get("hint") or "type in that window instead",
+                              code=meta.get("code") or "console_unreachable")
+    return meta
+
+
+def _console_lock(name: str, verb: str, registry: Registry | None = None) -> dict:
+    """The lock, if this repository is a console the fleet can reach. Every other case is a refusal
+    that names where to type instead."""
+    (registry or Registry()).get(name)
+    lock = live(name)
+    if not lock:
+        raise SupervisorError(f"{name} has no live agent to {verb}",
+                              f"`ad-fleet console {name}` opens one, or `ad-fleet send {name} "
+                              f"\"...\"` continues the last session headless",
+                              code="no_agent")
+    if lock.get("kind") != "console":
+        raise SupervisorError(f"{name} is not running in a console",
+                              f"`ad-fleet send {name} \"...\"` continues this session the way it "
+                              f"was started",
+                              code="not_a_console")
+    pid = int(lock.get("pid") or 0)
+    if not pid:
+        # An adopted console: the evidence was the session file, and this platform never named a
+        # process for it. There is no console to attach to, and saying so is the same sentence
+        # `send` has always used.
+        raise SupervisorError(f"{name} is running a session the fleet did not start",
+                              "type in that window. `ad-fleet release` hands it back, and then the "
+                              "fleet can drive this repository again",
+                              code="external_session")
+    return lock
+
+
+def say(name: str, text: str, *, cfg: dict | None = None,
+        registry: Registry | None = None) -> dict:
+    """Type one line into the console the fleet opened for this checkout (#190).
+
+    Not `send`: that is a second `copilot -p --resume` process, which in a working tree that already
+    has a console is a second agent. This types what the operator typed into the console they are
+    already watching, and the session's own file carries it back to the tile as the user turn.
+    """
+    lock = _console_lock(name, "say to", registry)
+    try:
+        line = fleet_console.one_line(text)
+    except fleet_console.ConsoleError as e:
+        # One vocabulary: every refusal the page and the CLI see is a SupervisorError with a code,
+        # whichever layer noticed. A ConsoleError escaping here would be a 500 on a typo.
+        raise SupervisorError(e.msg, e.hint, code=e.code or "refused") from None
+    from . import events as E
+
+    meta = _run_helper([*helper_command("say-into", cfg), str(lock["pid"]), line], name)
+    # What the fleet typed, on the fleet's own stream -- the way `started` records the window being
+    # opened. Not a second record of the session: the console echoes this exact line, and what the
+    # session makes of it comes back from Copilot's own file (#188), which is the only transcript.
+    E.append(name, [E.event(name, "said", {"text": line, "session": lock.get("session", ""),
+                                           "pid": int(lock["pid"])},
+                            ticket=str(lock.get("ticket") or ""))])
+    return {"repo": name, "ok": True, "pid": int(lock["pid"]), "session": lock.get("session", ""),
+            "echoed": meta.get("echoed") or line}
+
+
+def focus(name: str, *, cfg: dict | None = None, registry: Registry | None = None) -> dict:
+    """Bring this checkout's console window to the front. The tile's *show the console*."""
+    lock = _console_lock(name, "show", registry)
+    _run_helper([*helper_command("focus-console", cfg), str(lock["pid"])], name)
+    return {"repo": name, "ok": True, "pid": int(lock["pid"]), "focused": True}
 
 
 def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = None,
@@ -581,6 +707,123 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
     return fresh
 
 
+def console(name: str, *, key: str | None = None, resume: str | None = None, new: bool = False,
+            cfg: dict | None = None, registry: Registry | None = None, exe: str | None = None,
+            cross_project: bool = False, board_rows=None) -> dict:
+    """Open a real console running Copilot in this checkout, with a session id the fleet chose (#189).
+
+    The operator's own interactive session, in their own window -- and the tile knows the session
+    before the first keystroke, because the lock names it and `events.refresh` reads Copilot's own
+    file for it (#188). The lock is taken the way `start` takes it, with the window's pid, so one
+    agent per working tree holds for consoles too: the #174 gap, where a console the operator
+    opened never took a lock, closes for every console the fleet opens.
+    """
+    import uuid
+
+    from .. import config as C
+
+    reg = registry or Registry()
+    repo = reg.get(name)
+    summary = check_ticket(repo, key, cross_project=cross_project, board_rows=board_rows) if key else ""
+    lock = live(name)
+    if lock:
+        if resume and lock.get("kind") != "console" and not lock.get("external"):
+            # Moving a session to a console happens *between* turns (#191). A headless `-p` run
+            # ends at the turn boundary by itself, so this is a wait and not a kill: stopping it
+            # here would leave the working tree wherever the thought had got to, and the premium
+            # request is spent either way.
+            raise SupervisorError(
+                f"{name} is mid-turn",
+                f"a session moves to a console between turns. Wait for this one to finish, or "
+                f"`ad-fleet stop {name}` first",
+                code="mid_turn")
+        raise SupervisorError(
+            f"{name} already has a live agent (pid {lock.get('pid')}, ticket {lock.get('ticket') or 'none'})",
+            f"one agent per working tree. `ad-fleet stop {name}` first, or close its window",
+            code="live_agent")
+    from . import adopt as A
+
+    try:
+        foreign = [c for c in A.candidates(reg) if c["repo"] == name and c.get("pid")]
+    except Exception:                        # noqa: BLE001 - a process listing must never block this
+        foreign = []
+    if foreign:
+        raise SupervisorError(
+            f"something is working in {name} that the fleet did not start "
+            f"(pid {foreign[0]['pid']}, {foreign[0]['how']})",
+            f"close that window, or `ad-fleet adopt {name}` — two agents in one working tree is what "
+            f"this refuses", code="foreign_session")
+
+    session = str(resume or "").strip() or uuid.uuid4().hex
+    directory = agent_dir(name)
+    os.makedirs(os.path.join(directory, "logs"), exist_ok=True)
+    argv = console_command("copilot", repo.path, log_dir=os.path.join(directory, "logs"),
+                           session=session, resume=bool(resume), cfg=cfg)
+    host = str(C.get(cfg if cfg is not None else C.load(), "fleet.console.host", "") or
+               ("cmd" if os.name == "nt" else "terminal"))
+    palette = bool(C.get(cfg if cfg is not None else C.load(), "fleet.console.palette", True))
+    child = _open_console(repo, name, argv, exe, host, key or "", palette)
+    lock = {"pid": child.pid, "kind": "console", "host": host, "repo": name, "path": repo.path,
+            "ticket": key or "", "summary": summary, "session": session, "started": time.time(),
+            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
+    write_lock(name, lock)
+    _emit_started(name, lock, resumed=bool(resume), new=bool(new or not resume), console=True)
+    return lock
+
+
+def console_window_line(title: str, line: str, *, palette: bool = True) -> str:
+    """What `cmd.exe /k` is given: name the window, dress it, then run the session (#189, row C7).
+
+    The palette step is `ad-theme apply` *inside the window*, not a hope that the shell hook fires
+    there. It resolves the checkout's own project theme from the working directory and recolours
+    the console the way it recolours any other terminal -- through the Win32 console API on conhost,
+    through OSC escapes anywhere else. Only stderr is swallowed: a machine without `ad-theme` on
+    PATH costs one hidden line and the session still starts, while stdout has to stay open because
+    on a VT host the escape sequence *is* stdout.
+    """
+    steps = [f"title {title}"]
+    if palette:
+        steps.append("ad-theme apply 2>nul")
+    steps.append(line)
+    return " & ".join(steps)
+
+
+def _open_console(repo: Repo, name: str, argv, exe: str | None, host: str, key: str,
+                  palette: bool = True) -> subprocess.Popen:
+    """The window. `cmd` and `wt` on Windows, a terminal emulator elsewhere; `fake` runs the
+    command with no window at all, which is how CI exercises everything that is not a window."""
+    directory = agent_dir(name)
+    command = resolved(argv, exe)
+    if host == "fake":
+        with open(os.path.join(directory, STDERR), "a", encoding="utf-8", newline="\n") as errors:
+            # stdout to nowhere: a console session is read from Copilot's own file (#188), never
+            # from a pipe -- the fleet's raw log would fold every line twice.
+            return subprocess.Popen(command, cwd=repo.path, stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.DEVNULL, stderr=errors,
+                                    env=child_env(name, fleet_dir()),
+                                    **({"start_new_session": True} if os.name != "nt" else {}))
+    line = command if isinstance(command, str) else subprocess.list2cmdline(command)
+    title = f"{name} · {key}" if key else name
+    if os.name == "nt":
+        inner = console_window_line(title, line, palette=palette)
+        if host == "wt":
+            return subprocess.Popen(["wt.exe", "-d", repo.path, "cmd.exe", "/k", inner],
+                                    cwd=repo.path, env=child_env(name, fleet_dir()))
+        return subprocess.Popen(["cmd.exe", "/k", inner], cwd=repo.path,
+                                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                                env=child_env(name, fleet_dir()))
+    import shutil
+
+    emulator = shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal") or shutil.which("xterm")
+    if not emulator:
+        raise SupervisorError("no terminal emulator to open a console in on this machine",
+                              "the console is for the laptop; on Windows it is `cmd.exe`. "
+                              "`fleet.console.host: fake` runs the session with no window",
+                              code="no_console_host")
+    return subprocess.Popen([emulator, "-e", *(command if isinstance(command, list) else [command])],
+                            cwd=repo.path, env=child_env(name, fleet_dir()), start_new_session=True)
+
+
 def stop(name: str, *, wait: float = 10.0, registry: Registry | None = None) -> dict:
     """End the agent and everything it started, and report honestly whether it died.
 
@@ -596,6 +839,13 @@ def stop(name: str, *, wait: float = 10.0, registry: Registry | None = None) -> 
         return {"repo": name, "stopped": False, "detail": "no live agent"}
 
     pid = int(lock.get("pid") or 0)
+    if lock.get("kind") == "console":
+        # The window is the operator's (#189). The fleet opened it and does not close it: the lock
+        # goes when the window does, and `start` refuses beside it until then.
+        raise SupervisorError(
+            f"{name} is a console the fleet opened (pid {pid}, session {lock.get('session') or 'none'})",
+            "close that window; the fleet opened it and does not close it",
+            code="console_window")
     if lock.get("external") and not pid:
         # Adopted from the evidence of a checkout being written to, on a platform that would not say
         # which process was doing it. There is nothing here to kill, and `kill_tree(0)` means "this

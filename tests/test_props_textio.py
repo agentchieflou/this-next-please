@@ -43,9 +43,12 @@ def test_utf8_round_trips(text):
 
 @given(text=TEXT)
 @example(text="→ · ≤")
+@example(text="﻿")
 def test_a_utf8_bom_is_stripped_and_the_rest_survives(text):
+    # Exactly one BOM is stripped -- the file's, not the text's. Hypothesis found `text="\ufeff"`:
+    # the old assertion stripped every leading BOM from the answer and then wanted one back.
     raw = "﻿".encode("utf-8") + text.encode("utf-8")
-    assert textio.decode(raw).lstrip("﻿") == text
+    assert textio.decode(raw) == text
 
 
 @given(text=TEXT)

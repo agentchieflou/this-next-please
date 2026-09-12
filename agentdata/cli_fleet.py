@@ -27,7 +27,8 @@ from . import textio
 from . import toon
 from . import ui
 from .console import prompt as ask_line, utf8_stdout
-from .fleet import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff,
+from .fleet import (agentstate, approval, board as B, catalogue as CAT,
+                    console as fleet_console, events as E, handoff,
                     inbox as IN, launch, lifecycle as L, links as LK, notify as N, opener as O,
                     poll as P, preflight as PF, scan as SC, serve as S, supervisor)
 from .fleet.registry import Registry, RegistryError, agent_dir, fleet_dir
@@ -133,6 +134,75 @@ def cmd_start(a) -> int:
                                     "session": lock.get("session", ""),
                                     "pid": lock["pid"], "prompt": lock["prompt"],
                                     "next": f"ad-fleet status --repo {a.repo}"})
+
+
+def cmd_console(a) -> int:
+    """Open a real console running Copilot in a checkout, with a session id the fleet chose (#189).
+
+    The operator's own interactive session in their own window; the tile reads the same session from
+    Copilot's file (#188). One agent per working tree: refused beside a live agent.
+    """
+    rows = (B.read_cache() or {}).get("rows") or []
+    try:
+        lock = supervisor.console(a.repo, key=a.ticket, cfg=C.load(), resume=a.resume, new=a.new,
+                                  cross_project=a.cross_project, board_rows=rows)
+    except (RegistryError, supervisor.SupervisorError, launch.LaunchError) as e:
+        return _refuse("ad-fleet console", e)
+    return _emit("ad-fleet console", {"repo": a.repo, "ticket": lock.get("ticket", ""),
+                                      "session": lock.get("session", ""), "pid": lock["pid"],
+                                      "host": lock.get("host", ""),
+                                      "next": "type in the window; the tile shows the same session"})
+
+
+def cmd_say(a) -> int:
+    """Type one line into the console the fleet opened for a checkout (#190).
+
+    `send` for a console would be a second agent in the working tree, so this types into the window
+    the operator is already watching. What Copilot then writes to the session's file is what the
+    tile draws -- one session, one record of it.
+    """
+    try:
+        out = S.act("say", {"repo": a.repo, "message": a.message})
+    except (RegistryError, supervisor.SupervisorError, S.ServeError) as e:
+        return _refuse("ad-fleet say", e)
+    return _emit("ad-fleet say", {"repo": a.repo, "pid": out.get("pid"),
+                                  "session": out.get("session", ""),
+                                  "echoed": out.get("echoed", ""),
+                                  "next": "the console echoes it; the tile draws the session's reply"})
+
+
+def cmd_show_console(a) -> int:
+    """Bring a checkout's console window to the front. A window the operator cannot find is the
+    #133 tab shuffle in reverse: the fleet opened it, so the fleet can say where it went."""
+    try:
+        out = S.act("focus", {"repo": a.repo})
+    except (RegistryError, supervisor.SupervisorError, S.ServeError) as e:
+        return _refuse("ad-fleet show-console", e)
+    return _emit("ad-fleet show-console", {"repo": a.repo, "pid": out.get("pid"), "focused": True})
+
+
+def cmd_say_into(a) -> int:
+    """The helper `say` spawns, and nothing else runs (#190).
+
+    Its own process, because attaching to a console is process-wide: `ad-fleet serve` may have a
+    console of its own, and two tiles replying at once would fight over the one attachment. It
+    attaches, writes the key events, detaches and exits.
+    """
+    try:
+        out = fleet_console.say_into(a.pid, a.text)
+    except fleet_console.ConsoleError as e:
+        return _refuse("ad-fleet say-into", e)
+    return _emit("ad-fleet say-into", {"pid": out["pid"], "echoed": out["echoed"],
+                                       "events": out["events"]})
+
+
+def cmd_focus_console(a) -> int:
+    """The helper `show-console` spawns. Attaching is process-wide; see `cmd_say_into`."""
+    try:
+        out = fleet_console.focus_console(a.pid)
+    except fleet_console.ConsoleError as e:
+        return _refuse("ad-fleet focus-console", e)
+    return _emit("ad-fleet focus-console", {"pid": out["pid"], "focused": True})
 
 
 def cmd_answer(a) -> int:
@@ -1304,6 +1374,36 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--brief-file", dest="brief_file", metavar="PATH",
                        help="the same, read from a file")
     start.set_defaults(fn=cmd_start)
+
+    con = sub.add_parser("console", help="open a real console running Copilot in a repository, on the desk")
+    con.add_argument("repo")
+    con.add_argument("ticket", nargs="?", help="the ticket key the session is for")
+    con.add_argument("--resume", help="continue a specific session by id, in the console")
+    con.add_argument("--new", action="store_true", help="a clean session beside the previous one")
+    con.add_argument("--cross-project", action="store_true", dest="cross_project",
+                     help="a ticket whose project is not this repo's jira_project")
+    con.set_defaults(fn=cmd_console)
+
+    tell = sub.add_parser("say", help="type a line into the console the fleet opened for a repository")
+    tell.add_argument("repo")
+    tell.add_argument("message")
+    tell.set_defaults(fn=cmd_say)
+
+    front = sub.add_parser("show-console", help="bring a repository's console window to the front")
+    front.add_argument("repo")
+    front.set_defaults(fn=cmd_show_console)
+
+    # The two helpers. They take a pid rather than a repository because they are what runs in the
+    # short-lived process that attaches to one console -- `say` and `show-console` are the verbs a
+    # person types, and these are what those spawn.
+    into = sub.add_parser("say-into", help="(helper) type a line into the console of a pid")
+    into.add_argument("pid", type=int)
+    into.add_argument("text")
+    into.set_defaults(fn=cmd_say_into)
+
+    raise_it = sub.add_parser("focus-console", help="(helper) bring the console of a pid to the front")
+    raise_it.add_argument("pid", type=int)
+    raise_it.set_defaults(fn=cmd_focus_console)
 
     ans = sub.add_parser("answer", help="answer an agent's open question so it can continue")
     ans.add_argument("repo")

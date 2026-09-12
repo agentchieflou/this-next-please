@@ -37,6 +37,10 @@ CURSOR = "events.cursor.json"
 KINDS = (
     # the supervisor
     "started",
+    # what the fleet typed into a console it opened (#190). The fleet's own act, like `started`:
+    # the console echoes this exact line, and what the session makes of it comes back from
+    # Copilot's file, which stays the only transcript.
+    "said",
     # the Copilot CLI's JSONL
     "turn_started", "assistant_text", "tool_call", "tool_result", "denied", "turn_ended",
     "session_id", "cost", "exited", "error", "raw",
@@ -105,15 +109,64 @@ def write_cursor(name: str, cursor: dict) -> None:
 def reset_raw_cursor(name: str) -> None:
     """Forget how far into the raw log we had read, because the raw log just became a new file.
 
-    `supervisor._rotate` renames `events.jsonl` to `.1` between turns. The cursor counts *lines
-    consumed*, so without this the next `refresh` would skip the opening N lines of the new log --
-    the turn boundary, the prompt, and quite possibly a denial. Silent loss, months later.
+    `supervisor._rotate` renames `events.jsonl` to `.1` between turns. The cursor records how far
+    it has *consumed*, so without this the next `refresh` would skip the opening N lines of the new
+    log -- the turn boundary, the prompt, and quite possibly a denial. Silent loss, months later.
     """
     cursor = read_cursor(name)
-    if not cursor.get("raw_lines"):
+    if not cursor.get("raw_lines") and not cursor.get("raw_offset"):
         return
     cursor["raw_lines"] = 0
+    cursor["raw_offset"] = 0
     write_cursor(name, cursor)
+
+
+def _read_from(path: str, offset: int) -> tuple[list[str], int, int]:
+    """The complete lines appended to `path` since `offset`: (lines, new offset, lines counted).
+
+    A byte offset, not a line count (#188): a console session's file grows for hours, and re-reading
+    it from the top on every half-second tick is what a line counter costs. A partial last line --
+    the writer is mid-line -- is left for the next tick, neither folded nor lost; a file shorter
+    than the offset was rotated or truncated, and is read from its start.
+    """
+    try:
+        size = os.path.getsize(textio.longpath(path))
+    except OSError:
+        return [], offset, 0
+    if size < offset:
+        offset = 0
+    if size == offset:
+        return [], offset, 0
+    with open(textio.longpath(path), "rb") as f:
+        f.seek(offset)
+        data = f.read()
+    end = data.rfind(b"\n")
+    if end < 0:
+        return [], offset, 0
+    complete = data[:end + 1]
+    text = complete.decode("utf-8", "replace")
+    if offset == 0:
+        text = text.lstrip("\ufeff")
+    return text.splitlines(), offset + len(complete), complete.count(b"\n")
+
+
+def _offset_of_lines(path: str, n: int) -> int:
+    """The byte offset just past the first `n` lines: how a cursor written as a line count -- every
+    cursor before #188 -- is read once as an offset, so an upgrade skips nothing and repeats nothing."""
+    if n <= 0:
+        return 0
+    try:
+        with open(textio.longpath(path), "rb") as f:
+            data = f.read()
+    except OSError:
+        return 0
+    pos, seen = 0, 0
+    while seen < n:
+        nxt = data.find(b"\n", pos)
+        if nxt < 0:
+            return len(data)
+        pos, seen = nxt + 1, seen + 1
+    return pos
 
 
 def stamp(ts: str | None = None) -> str:
@@ -551,25 +604,62 @@ def refresh(name: str, repo_path: str = "", *, repo_state: dict | None = None) -
     from .supervisor import events_path
 
     with writing(name):
-        return _refresh(name, repo_path, repo_state, events_path(name))
+        return _refresh(name, repo_path, repo_state, events_path(name), console_path(name))
 
 
-def _refresh(name: str, repo_path: str, repo_state: dict | None, raw_path: str) -> list[dict]:
+def console_path(name: str) -> str:
+    """Copilot's own file for the session a console holds in this checkout, or "" (#188).
+
+    The lock says so: `kind: "console"` names a session the fleet opened a window for, and an
+    adopted lock may name the `session_file` it was matched by. Either way the fleet did not pipe
+    the session's stdout, so the file is the only stream there is.
+    """
+    from .sessions import session_state_path
+    from .supervisor import read_lock
+
+    lock = read_lock(name)
+    if not lock:
+        return ""
+    if lock.get("session_file"):
+        return str(lock["session_file"])
+    if lock.get("kind") == "console" and lock.get("session"):
+        return session_state_path(str(lock["session"]))
+    return ""
+
+
+def _refresh(name: str, repo_path: str, repo_state: dict | None, raw_path: str,
+             console: str = "") -> list[dict]:
     cursor = read_cursor(name)
     fresh: list[dict] = []
-
-    consumed = int(cursor.get("raw_lines", 0))
-    lines = textio.read_text(raw_path).splitlines() if os.path.isfile(raw_path) else []
     ticket = (repo_state or {}).get("active_ticket", "") or ""
-    for line in lines[consumed:]:
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            fresh.extend(from_copilot(json.loads(line), name, ticket))
-        except ValueError:
-            continue
-    cursor["raw_lines"] = len(lines)
+
+    def fold(lines: list[str]) -> None:
+        for line in lines:
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                fresh.extend(from_copilot(json.loads(line), name, ticket))
+            except ValueError:
+                continue
+
+    # The fleet's own pipe: the supervisor's stdout redirect. A cursor written as a line count --
+    # every cursor before #188 -- is read once as an offset.
+    if "raw_offset" not in cursor and cursor.get("raw_lines"):
+        cursor["raw_offset"] = _offset_of_lines(raw_path, int(cursor["raw_lines"]))
+    lines, offset, counted = _read_from(raw_path, int(cursor.get("raw_offset", 0) or 0))
+    fold(lines)
+    cursor["raw_offset"] = offset
+    cursor["raw_lines"] = int(cursor.get("raw_lines", 0) or 0) + counted
+
+    # Copilot's own file for a console session (#188): the same catalogue, a second path. A new
+    # session is a new file, so the offset belongs to the path it was taken on.
+    if console:
+        if cursor.get("console_file") != console:
+            cursor["console_file"], cursor["console_offset"] = console, 0
+        lines, offset, _n = _read_from(console, int(cursor.get("console_offset", 0) or 0))
+        fold(lines)
+        cursor["console_offset"] = offset
 
     if repo_state is not None:
         previous = cursor.get("state") or {}

@@ -138,6 +138,7 @@ function line(ev) {
     case "exited": return "exit " + d.exit_code;
     case "error": return "exit " + d.exit_code;
     case "started": return "launched: " + (d.prompt || "");
+    case "said": return "typed into the console: " + (d.text || "");
     /* #131 and #132 put the *project's* changes on the same stream as the agent's, so the
        transcript is one narrative rather than two panes the operator has to interleave. */
     case "project.ticket_changed": return (d.key || "") + " is " + (d.status || "") +
@@ -156,7 +157,7 @@ function line(ev) {
 var SHOWN = {
   started: 1, assistant_text: 1, tool_call: 1, tool_result: 1, denied: 1, friction: 1,
   phase_changed: 1, question_opened: 1, needs_approval: 1, approval_resolved: 1,
-  exited: 1, error: 1, pr_open: 1, artifact: 1,
+  exited: 1, error: 1, pr_open: 1, artifact: 1, said: 1,
   "project.ticket_changed": 1, "project.refresh_finished": 1, "project.pr_merged": 1,
   "inbox.attached": 1
 };
@@ -339,6 +340,7 @@ function makeTile(row, index) {
     if (viewing(el)) backToLive(el);
   });
   el.querySelector(".new-tab").addEventListener("click", function () { newSession(el, row.repo); });
+  el.querySelector(".console-tab").addEventListener("click", function () { openConsole(el, row); });
   el.querySelector(".ro-resume").addEventListener("click", function () { resumeHere(el, row.repo); });
   el.querySelector(".ro-back").addEventListener("click", function () { backToLive(el); });
 
@@ -390,7 +392,9 @@ function makeTile(row, index) {
 
   var say = el.querySelector(".say");
   el.querySelector(".send").addEventListener("click", function () {
-    action(el, "send", { repo: row.repo, message: say.value }).then(function () { say.value = ""; });
+    // A console is typed into, not sent to: `send` would be a second agent in one working tree.
+    action(el, el.dataset.console ? "say" : "send", { repo: row.repo, message: say.value })
+      .then(function (r) { if (r && r.ok) say.value = ""; });
   });
   say.addEventListener("keydown", function (e) {
     if (e.key === "Enter") el.querySelector(".send").click();
@@ -624,6 +628,9 @@ function drawTile(el, row, approvals) {
   }
   // An adopted session has no pipe to its stdin, so the controls that would write to it say so
   // rather than being offered and silently doing nothing.
+  // A console the fleet opened holds the tile: the reply box types into it and the tab raises it.
+  el.dataset.console = row.console ? String(row.console.pid || 0) : "";
+  text(el.querySelector(".console-tab"), row.console ? "show console" : "console");
   ["send", "start"].forEach(function (cls) {
     var btn = el.querySelector("." + cls);
     if (!btn) return;
@@ -772,8 +779,7 @@ function drawStrip(el, row) {
   earlierTab.classList.toggle("is-on", !!open);
 }
 
-/* The rows, on the click rather than on every poll: this is a disk read and a fold, and nobody is
-   looking at it until they ask. */
+/* The rows on the click, not on every poll: a disk read and a fold nobody is reading until asked. */
 function openSessions(el, repo) {
   var list = el.querySelector(".sessions");
   var tab = el.querySelector(".earlier-tab");
@@ -793,9 +799,8 @@ function openSessions(el, repo) {
         text(li.querySelector(".ss-cost"),
              row.cost ? Number(row.cost).toFixed(2) + " premium" : "");
         var button = li.querySelector(".ss-open");
-        button.title = (row.source === "store"
-          ? "a console window may still own this; close it first — "
-          : "") + "session " + row.id;
+        button.title = (el.dataset.console ? "the console still owns this; close it first — " : "")
+          + "session " + row.id + ((row.sources || []).join(" → ") ? " · " + row.sources.join(" → ") : "");
         button.addEventListener("click", function () { showSession(el, repo, row); });
         list.appendChild(li);
       });
@@ -833,10 +838,10 @@ function showSession(el, repo, session) {
       var resume = el.querySelector(".ro-resume");
       text(resume, "Resume here");
       resume.dataset.armed = "";
+      // Exact, not guessed (#191): said while this checkout's console is alive, not for every
+      // session the store happens to know.
       text(el.querySelector(".ro-note"),
-           session.source === "store"
-             ? "a console window may still own this; close it first"
-             : "");
+           el.dataset.console ? "the console still owns this — close it, then resume" : "");
       el.querySelector(".row.bottom").hidden = true;
       var entry = tiles.get(repo);
       if (entry && entry.row) drawStrip(el, entry.row);
@@ -870,9 +875,8 @@ function backToLive(el) {
   if (entry && entry.row) drawStrip(el, entry.row);
 }
 
-/* Making an earlier session the live one. When nothing is running it simply runs; when something
-   is, it is the supervisor's own refusal with the supervisor's own hint, and the button becomes a
-   second, deliberate press -- never a silent force, and never two agents in one working tree. */
+/* Making an earlier session the live one: it runs, or it is the supervisor's own refusal with the
+   supervisor's own hint and a button that has become a second, deliberate press. */
 function resumeHere(el, repo) {
   var button = el.querySelector(".ro-resume");
   var note = el.querySelector(".ro-note");
@@ -885,11 +889,23 @@ function resumeHere(el, repo) {
       return;
     }
     text(note, [r && r.error, r && r.hint].filter(Boolean).join(" — "));
-    if (r && r.code === "live_agent") {
+    // Both refusals a resume meets take a second press: something holds the checkout, or it is
+    // mid-ticket on this session's own ticket (#191, what a closed console leaves). Never silent.
+    if (r && (r.code === "live_agent" || r.code === "mid_ticket")) {
       button.dataset.armed = "1";
-      text(button, "Stop and resume");
+      text(button, r.code === "live_agent" ? "Stop and resume" : "Resume anyway");
     }
   });
+}
+
+/* One button, three verbs (#189/#190/#191): raise the console this tile has, continue this tile's
+   session in one, or open a fresh one. Refusals land in the supervisor's own words. */
+function openConsole(el, row) {
+  if (el.dataset.console) return action(el, "focus", { repo: row.repo });
+  var body = { repo: row.repo };
+  if (row.ticket) body.ticket = row.ticket;
+  if (el.dataset.session) body.resume = el.dataset.session;
+  return action(el, "console", body).then(function (r) { if (r && r.ok) refresh(); return r; });
 }
 
 function newSession(el, repo) {
@@ -1197,10 +1213,9 @@ document.addEventListener("keydown", function (e) {
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^[1-9]$/.test(e.key)) {
     // The number printed on a tile comes from the arrangement, so the key that focuses it must
-    // too. Reading registry order here meant that the moment anything was moved or pinned, the
-    // badge said 3 and pressing 3 focused something else. The *visible* order (#173), so a digit
-    // can no longer zoom a tile that is not on the glass -- which blanked the window, because zoom
-    // hides every other tile and focus mode was already hiding that one.
+    // too: registry order meant the badge said 3 and pressing 3 focused something else. The
+    // *visible* order (#173), so a digit cannot zoom a tile that is not on the glass -- which
+    // blanked the window, zoom hiding every other tile and focus mode already hiding that one.
     var name = visibleOrder()[Number(e.key) - 1];
     if (!name) return;
     // Zooming a tile focus mode is quieting was a blank window: zoom hides every other tile and
@@ -1785,8 +1800,7 @@ function scopeDrop(el, repo, files) {
    delegating, gathered by a server-side pre-flight that spends no premium request, and one button.
    `fleet.preflight: false` restores #98's immediate start for anyone who preferred it. */
 
-/* One card, two homes (#183): the tile's slot when the tile is on the glass, else under the
-   rail. It used to draw inside a hidden tile, skipping the pre-flight in the board window. */
+/* One card, two homes (#183): the tile's slot when the tile is on the glass, else under the rail. */
 function onTheGlass(repo) {
   var entry = tiles.get(repo);
   return !!(entry && entry.el.offsetParent !== null && !entry.el.classList.contains("is-hidden"));
@@ -1958,7 +1972,7 @@ function takeTicket(key, repo) {
   if (PREFLIGHT) dispatchCard(key, repo); else dispatch(key, repo);
 }
 
-/* A dimmed chip still takes a drop: the supervisor's `cross_project` refusal is the answer. */
+/* A dimmed chip still takes a drop; `cross_project` is the answer. */
 function railLight(row) {
   railDrag = row;
   var s = (row && row.suggested) || {};
@@ -2075,11 +2089,10 @@ function loadDesk() {
     pendingDesk = null;
     if (!data.ok) return;
     desk = data;
-    // `ad-fleet repo add` and `repo rm` in a terminal change which tiles exist, and neither is an
-    // agent event -- so the stream never mentions it and the grid kept drawing a repository that
-    // had left, or never drew one that had arrived, until somebody reloaded the page. The desk's
-    // own slow clock already carries the registry's list, so a disagreement is what asks
-    // `/api/fleet` again (#173).
+    // `ad-fleet repo add` and `repo rm` change which tiles exist and neither is an agent event,
+    // so the stream never mentions it: the grid drew a repository that had left, or missed one that
+    // had arrived, until a reload. The desk's slow clock carries the registry's list, so a
+    // disagreement is what asks `/api/fleet` again (#173).
     if (registryChanged(data.order)) refresh();
     // The project's own detail is the inspector's, and the inspector draws the selected one.
     drawInspector(desk.desk.selected);
@@ -2634,10 +2647,9 @@ function reorderDomTiles() {
   var refocus = needsMove && focused && focused.closest && focused.closest(".tile") ? focused : null;
 
   // FLIP, first half: where every tile is *now*, before the DOM moves. A tile that reorders by
-  // `appendChild` alone teleports, and a grid that reshuffles itself while agents are talking reads
-  // as flicker rather than as movement -- the operator cannot see that the tile they were reading
-  // is the same tile, only lower down. Measured only when something is actually moving, and not at
-  // all when the viewer has asked for less of it.
+  // `appendChild` alone teleports, and a grid reshuffling while agents talk reads as flicker, not
+  // movement -- the operator cannot see it is the same tile, lower down. Measured only when
+  // something is moving, and not at all when the viewer has asked for less of it.
   var first = (needsMove && !reduceMotion()) ? measureTiles() : null;
 
   order.forEach(function (name, index) {
@@ -3123,11 +3135,9 @@ document.getElementById("swap").addEventListener("change", function () {
 function focusMode(on, skipPost) {
   needsOnly = on === undefined ? !needsOnly : !!on;
   document.getElementById("focus").setAttribute("aria-pressed", String(needsOnly));
-  // Leaving focus mode is the operator saying they are done with this pass, so the tiles being
-  // held for them are let go. Otherwise the next `f` would open on the last visit's leftovers.
-  // The record is emptied in the *same* write as the mode, because the `desk` event this save
-  // rides back down would otherwise re-hydrate the set through `applyWindow` -- which merges the
-  // record's `held` additively, so a clear that is not posted is undone a tick later.
+  // Leaving focus mode lets go of the tiles held for it; otherwise the next `f` opens on the last
+  // visit's leftovers. Emptied in the *same* write as the mode: the `desk` event this rides back
+  // down re-hydrates `held` additively through `applyWindow`, so a clear not posted is undone.
   var patch = { focus: needsOnly };
   if (!needsOnly) {
     held.clear();
@@ -3145,9 +3155,7 @@ document.getElementById("showall").addEventListener("click", function () {
 
 document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 
-/* ------------------------------------------------------------------------- the popovers (#180)
-   The pickers behind *look*, the key map behind `?`: a panel with `hidden` on it, opened by one
-   button, closed by Esc or a click anywhere else, one at a time. The controls keep their ids. */
+/* ---- the popovers (#180): the pickers behind *look*, the key map behind `?`; one open at a time. */
 var POPOVERS = { look: "lookbtn", keymap: "keysbtn" };
 
 function popover(id, open) {

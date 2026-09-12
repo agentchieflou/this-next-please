@@ -245,6 +245,38 @@ def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
     return argv
 
 
+def console_command(copilot: str, repo_path: str, *, log_dir: str, session: str,
+                    resume: bool = False, cfg: dict | None = None) -> list[str]:
+    """The argv for a console the fleet opens (#189): the operator's own interactive session.
+
+    `launch_command`'s argv without the three flags that make a turn headless -- no `-p` (the
+    operator types the prompt), no `--output-format json` (the console renders the conversation;
+    the tile reads the session's own file, #188), no `--no-ask-user` (there is somebody to ask, and
+    that is the point of a console) -- plus the session id the fleet chose, so the tile knows the
+    session before the first keystroke, and `-C <repo>` so the session's working directory is the
+    checkout whatever directory the window was opened from. The same enumerated allow-list and the
+    same floor of denials: a console is not an excuse for `--allow-all`, and `FORBIDDEN_FLAGS` is
+    refused by name here as it is for a headless turn.
+    """
+    allow, deny = allow_tools(cfg), deny_tools(cfg)
+    check_no_blanket_permission(allow + deny)
+    if not str(session or "").strip():
+        raise LaunchError("a console needs a session id",
+                          "the fleet mints one (`ad-fleet console <repo>`) or resumes one (`--resume <id>`)")
+    argv = [copilot,
+            "--resume" if resume else "--session-id", session,
+            "-C", textio.norm_path(repo_path),
+            "--disable-builtin-mcps",
+            "--add-dir", textio.norm_path(repo_path),
+            "--log-dir", textio.norm_path(log_dir),
+            "--log-level", "error"]
+    for pattern in allow:
+        argv += ["--allow-tool", pattern]
+    for pattern in deny:
+        argv += ["--deny-tool", pattern]
+    return argv
+
+
 def child_env(repo_name: str, fleet_dir_path: str) -> dict:
     """What the agent's process inherits.
 

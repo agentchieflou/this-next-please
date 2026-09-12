@@ -984,3 +984,45 @@ and the operator's real checkouts.
   the better threshold.
 - **Does blur cost a frame rate the desk can afford?** (T4) The skin is scoped and the fallback
   exists; whether the default should be the fallback on the embedders is measured, not assumed.
+
+## The console (#187): what only the laptop can answer
+
+Everything in this epic that Linux CI can prove is proven — the session file folded from a byte
+offset on the desk's own tick, the console verb's argv and lock, the refusals in the supervisor's
+words, `say` spawning the helper with the window's pid and the operator's line, adoption by session
+file, the session index's two surfaces, and the demo (`tests/test_fleet_demo_console.py`, `-m slow`)
+that carries one session from a console to a reply to a headless resume. What is left is everything
+that needs a real Windows console: what an interactive Copilot writes to disk as it runs, and
+whether a process that attaches to somebody else's console can type into it.
+
+Run these on the laptop, in one sitting, with a real `copilot` and a real `cmd.exe`. Every row ends
+with a host and a date, or stays *not yet measured* — never blank, and never a guess written as a
+fact. A row that fails becomes a regression test named for its host.
+
+| # | What to do | What it must do | Host | Date |
+|---|---|---|---|---|
+| C1 | `ad-fleet console luna RDSD-x`, then watch `~/.copilot/session-state/<id>/events.jsonl` while you type a turn | the file is appended **per event** as the turn runs, not flushed at the end, and its `type` names are the ones `docs/fleet-spike.md` measured on stdout. Note the longest quiet a thinking model leaves: that is the number `fleet.console.idle_s` (90 s) defaults from | _not yet measured_ | — |
+| C2 | In that console, make it ask a `y/n` permission prompt, and separately an `ask_user` | what the file carries while the prompt is pending: an event, or only silence. An event replaces the *waiting for you, in the console?* heuristic (`fleet.console.prompt_s`, 20 s) with the measured thing | _not yet measured_ | — |
+| C3 | With that console open, `ad-fleet say luna "hello from the tile"` | the line appears in the console as if typed, Enter is taken, and the tile draws the session's answer from the file. The helper exits 0 | _not yet measured_ | — |
+| C4 | The same under Windows Terminal (`fleet.console.host: wt`), then `ad-fleet show-console luna` on both hosts | whether `AttachConsole` + `WriteConsoleInputW` reach a session hosted by Windows Terminal, and what `GetConsoleWindow` returns there. If the window belongs to the terminal rather than the session, the refusal already says so — record which it is | _not yet measured_ | — |
+| C5 | `ad-fleet console luna --resume <id>` for a session the fleet started headless, from a different directory | `--session-id` made the session with the id the fleet chose, and `--resume` with `-C <repo>` keeps the session's own working directory. This is `docs/plan-sessions.md`'s open question | _not yet measured_ | — |
+| C6 | With two consoles open in different checkouts, compare `session-state` ids to the `copilot` pids in the process table | whether an id can be matched to a pid without native calls. If it can, an adopted console gets a pid and `say` works on it; if not, `say` keeps refusing with *type in that window* | _not yet measured_ | — |
+| C7 | `ad-fleet console` on a checkout whose project has a palette | the window wears that project's colours. It dresses itself — `cmd.exe /k` runs `title`, then `ad-theme apply`, then the session — so this measures whether the recolour lands on conhost and under Windows Terminal, not whether a shell hook fired. `fleet.console.palette: false` turns it off | _not yet measured_ | — |
+| C8 | A second `ad-fleet console` on a checkout that already has one; then open one **yourself** beside a fleet console | the second is refused with `live_agent` and no window opens; and `ad-fleet adopt --list` says what it makes of the one you opened by hand | _not yet measured_ | — |
+
+### The open questions these rows answer
+
+- **Is an interactive session's file appended per event?** (C1) The whole epic's synchronicity rests
+  on it. If it is flushed at turn boundaries instead, the tile is a turn behind and the plan's
+  `FOLD_EVERY_S + TICK_S < 1.0` is measuring the wrong thing — the number stays, the sentence about
+  what it buys changes.
+- **Is there an event for a pending prompt?** (C2) Until there is, the tile says *waiting for you,
+  in the console?* with a question mark, from a tool call that has had no result for 20 seconds.
+- **Does typing into somebody else's console work under Windows Terminal?** (C3, C4) conhost is the
+  target; Windows Terminal is what many people actually run. Either answer ships — the second one
+  ships as a refusal that names the host.
+- **Can a session id be matched to a pid?** (C6) It is the difference between an adopted console the
+  tile can type into and one it can only read.
+- **Does the window's own `ad-theme apply` land?** (C7) The console no longer depends on a shell hook
+  firing in it; what is left to measure is whether the recolour survives the host, which is the same
+  question `docs/setup.md` §Colour and glyphs, per host answers for every other terminal.

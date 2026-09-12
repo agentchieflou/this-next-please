@@ -22,6 +22,84 @@ def store_path() -> str:
     return os.environ.get("COPILOT_SESSION_STORE") or os.path.expanduser("~/.copilot/session-store.db")
 
 
+# ------------------------------------------------------------- Copilot's own session files (#188)
+#
+# Copilot writes every session -- interactive or `-p` -- to `~/.copilot/session-state/<id>/events.jsonl`
+# as it runs, in the catalogue `events.from_copilot` folds. A console session the fleet did not pipe
+# is read from there. Read-only by construction: nothing in this block opens a file for writing,
+# makes a directory or removes one, and `tests/test_fleet_console.py` reads this source to say so.
+
+
+def session_state_dir() -> str:
+    """Where Copilot keeps one directory per session. `COPILOT_SESSION_STATE` overrides it, the way
+    `COPILOT_SESSION_STORE` overrides the store, so a test never reads a real home."""
+    return os.environ.get("COPILOT_SESSION_STATE") or os.path.expanduser("~/.copilot/session-state")
+
+
+def session_state_path(session_id: str) -> str:
+    """The events log of one session, or "" for no id. The id is one path segment: a value read
+    out of a lock or a store row never becomes a path that leaves the directory."""
+    sid = os.path.basename(str(session_id or "").strip())
+    if not sid or sid in (".", ".."):
+        return ""
+    return os.path.join(session_state_dir(), sid, "events.jsonl")
+
+
+def _workspace_cwd(session_dir: str) -> str:
+    """The working directory a session's `workspace.yaml` names, or "". One line of YAML is read as
+    text -- no YAML library, and nothing else in the file is trusted: `cwd:` or `working_directory:`,
+    quoted or not, is the whole contract, and runbook row S1 says which key the real file uses."""
+    path = os.path.join(session_dir, "workspace.yaml")
+    try:
+        text = textio.read_text(path)
+    except (OSError, ValueError):
+        return ""
+    for line in text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip() in ("cwd", "working_directory", "workingDirectory"):
+            return value.strip().strip("'\"")
+    return ""
+
+
+def session_files(repo_path: str) -> list[dict]:
+    """Copilot's sessions whose working directory is this checkout, newest log first (#192).
+
+    Two places can say where a session ran, and both are taken: `workspace.yaml` beside the log,
+    and the store's `cwd` column where the schema has one (`read_store_sessions` already matches
+    on it). Each row says which it used -- `how: "workspace"` or `"store"` -- because S1 decides
+    which the real machine carries and the runbook records it. Read-only, like everything here.
+    """
+    want = textio.norm_path(repo_path).lower().rstrip("/")
+    found: dict[str, dict] = {}
+    root = session_state_dir()
+    try:
+        names = os.listdir(root)
+    except OSError:
+        names = []
+    for sid in names:
+        d = os.path.join(root, sid)
+        if not os.path.isdir(d):
+            continue
+        cwd = _workspace_cwd(d)
+        if cwd and textio.norm_path(cwd).lower().rstrip("/") == want:
+            found[sid] = {"id": sid, "how": "workspace"}
+    for row in read_store_sessions(repo_path):
+        sid = str(row.get("id") or "")
+        if sid and sid not in found and os.path.isdir(os.path.join(root, os.path.basename(sid))):
+            found[sid] = {"id": sid, "how": "store"}
+    out = []
+    for sid, row in found.items():
+        file = session_state_path(sid)
+        try:
+            mtime = os.path.getmtime(file)
+        except OSError:
+            mtime = 0.0
+        out.append({**row, "file": file, "log_mtime": mtime,
+                    "log_age_s": (time.time() - mtime) if mtime else -1.0})
+    out.sort(key=lambda r: -r["log_mtime"])
+    return out
+
+
 def store_status() -> tuple[str, str, str]:
     """Check whether Copilot's session store is present and readable.
 
@@ -209,7 +287,9 @@ def fold_stream(stream: list[dict], existing_titles: dict[str, str] | None = Non
         ticket = first_ev.get("ticket") or ""
         summary = start_data.get("summary") or ""
         is_adopted = bool(start_data.get("adopted") or start_data.get("external"))
-        source = "adopted" if is_adopted else "fleet"
+        # Which surface held the session when the run began (#191): a console the fleet opened, a
+        # session adopted from outside, or the fleet's own headless process.
+        source = "console" if start_data.get("console") else ("adopted" if is_adopted else "fleet")
 
         # Derive state of this run
         derived = agentstate.derive(run_events, live=False)
@@ -240,11 +320,18 @@ def fold_stream(stream: list[dict], existing_titles: dict[str, str] | None = Non
                 "ended": ended_state,
                 "cost": run_cost,
                 "source": source,
+                # Every surface this session has been held by, in the order it moved between them
+                # (#191). `source` stays the first, because that is what it has always meant; the
+                # list is how a session that began headless and was carried into a console -- or
+                # the other way about -- says so without a second record of anything.
+                "sources": [source],
             }
             order.append(sid)
         else:
             rec = sessions_by_id[sid]
             rec["runs"] += 1
+            if source != (rec["sources"][-1] if rec["sources"] else ""):
+                rec["sources"].append(source)
             if ticket and not rec["ticket"]:
                 rec["ticket"] = ticket
             if last_ts > rec["last_seen"]:
