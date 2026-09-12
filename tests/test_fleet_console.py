@@ -367,3 +367,51 @@ def test_a_machine_with_no_terminal_refuses_to_open_a_console(fleet_home, tmp_pa
         supervisor.console("luna", key="RDSD-7", cfg={"fleet": {"console": {"host": "terminal"}}})
     assert e.value.code == "no_console_host"
     assert not supervisor.read_lock("luna"), "no window, no lock"
+
+
+@pytest.mark.browser
+def test_the_console_button_on_the_strip_opens_one_and_the_tile_shows_it(fleet_home, tmp_path, monkeypatch):
+    """The page is a view: the strip's *console* button posts the verb, and the tile then draws the
+    session the fake writes to Copilot's file."""
+    from test_fleet_desk_browser import launch_chromium
+
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    fakes.apply(monkeypatch, tmp_path, ["copilot"], npm=True)
+    monkeypatch.setenv("AGENTDATA_FAKE_CASE", "console-session")
+    (tmp_path / "cfg.json").write_text(json.dumps({"fleet": {"console": {"host": "fake"}, "notify": {"toast": False}}}),
+                                       encoding="utf-8")
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    Registry().add(path, name="luna")
+
+    server, token = S.build(0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors: list[str] = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector('.tile[data-repo="luna"] .console-tab', timeout=15000)
+            page.locator('.tile[data-repo="luna"] .console-tab').click()
+            assert _eventually(lambda: any(e["kind"] == "started" and e["data"].get("console")
+                                           for e in E.read("luna")))
+            lock = supervisor.read_lock("luna")
+            assert lock.get("kind") == "console" and lock.get("ticket") == "RDSD-7"
+            page.wait_for_function(
+                """() => /Hello from the console/.test(document.querySelector('.tile[data-repo="luna"]').textContent)""",
+                timeout=15000)
+            # A second press while it is live is the supervisor's refusal, on the tile.
+            page.locator('.tile[data-repo="luna"] .console-tab').click()
+            page.wait_for_function(
+                """() => /already has a live agent/.test(document.querySelector('.tile[data-repo="luna"] .err').textContent)""",
+                timeout=5000)
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+    assert _eventually(lambda: not supervisor.pid_alive(int(supervisor.read_lock("luna").get("pid") or 0)), timeout=30)

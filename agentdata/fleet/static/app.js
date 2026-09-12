@@ -339,6 +339,7 @@ function makeTile(row, index) {
     if (viewing(el)) backToLive(el);
   });
   el.querySelector(".new-tab").addEventListener("click", function () { newSession(el, row.repo); });
+  el.querySelector(".console-tab").addEventListener("click", function () { openConsole(el, row); });
   el.querySelector(".ro-resume").addEventListener("click", function () { resumeHere(el, row.repo); });
   el.querySelector(".ro-back").addEventListener("click", function () { backToLive(el); });
 
@@ -890,6 +891,13 @@ function resumeHere(el, repo) {
       text(button, "Stop and resume");
     }
   });
+}
+
+/* A console the fleet opens (#189); a refusal lands on the tile in the supervisor's words. */
+function openConsole(el, row) {
+  var body = { repo: row.repo };
+  if (row.ticket) body.ticket = row.ticket;
+  return action(el, "console", body).then(function (r) { if (r && r.ok) refresh(); return r; });
 }
 
 function newSession(el, repo) {
