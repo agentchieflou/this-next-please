@@ -66,6 +66,7 @@ header, footer {
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;               /* the look popover hangs off its group (#180) */
 }
 /* HIG *Toolbars*: a group of commands says what it is for. Twelve controls in one unlabelled row
    is a settings panel, which is what the toolbar is not. */
@@ -107,7 +108,26 @@ header, footer {
   color: var(--accent);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
-footer { border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted); }
+footer { border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted); position: relative; }
+
+/* #180: a popover is a panel hung off its button, in the same `--panel`, `--line` and radius. */
+.popover {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  display: flex; flex-direction: column; gap: 8px;
+  min-width: 220px; padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18);
+  white-space: normal;
+}
+.popover > label, .keys-group strong {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+.popover-up { top: auto; bottom: calc(100% + 6px); }
+/* The key map: four short columns. */
+#keymap { flex-direction: row; flex-wrap: wrap; gap: 12px 28px; max-width: min(760px, 92vw); }
+.keys-group { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); }
+.keys-group strong { color: var(--text); margin-bottom: 2px; }
+.keys-group span { white-space: nowrap; }
 h1 { font-size: 14px; margin: 0; letter-spacing: .12em; text-transform: uppercase; }
 .spacer { flex: 1 1 auto; }
 .sr { position: absolute; left: -9999px; }
@@ -135,6 +155,26 @@ button:focus-visible, select:focus-visible, input:focus-visible, .segment:focus-
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 input { min-width: 0; }
+
+/* ------------------------------------------------------------------------- scrollbars (#181) */
+
+/* The one control the OS drew, from the palette: two properties mixed from `--line` and `--text`,
+   overridden per skin on `body`; `scrollbar-color` is inherited, `scrollbar-width` is not. The
+   legacy `::-webkit-scrollbar` rules say the same colours for embedders that predate the standard. */
+body {
+  --scroll-thumb: color-mix(in srgb, var(--line) 55%, var(--text));
+  --scroll-thumb-hover: color-mix(in srgb, var(--line) 25%, var(--text));
+  --scroll-track: transparent;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+* { scrollbar-width: thin; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: var(--scroll-track); }
+*::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb); border-radius: 6px;
+  border: 2px solid transparent; background-clip: padding-box;    /* a gutter, so it reads thin */
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: padding-box; }
 
 /* ------------------------------------------------------------------ the grid, and one big tile */
 
@@ -347,17 +387,18 @@ body.focused .tile.is-focused { max-height: none; }
 .chip.stale .chipage { text-decoration: underline dotted; }
 
 /* 28px is the HIG desktop floor for a hit target; 20px was below it. */
-.head .pintoggle, .head .sizetoggle {
+.head .pintoggle, .head .sizetoggle, .head .hidetoggle {
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0 6px; min-height: 28px; min-width: 28px;
   border-radius: 4px; background: transparent; border: 1px solid transparent;
   color: var(--muted); cursor: pointer;
 }
-.head .pintoggle svg, .head .sizetoggle svg {
+/* All three, or the one left out paints its SVG with the default black fill (#180). */
+.head .pintoggle svg, .head .sizetoggle svg, .head .hidetoggle svg {
   width: 16px; height: 16px; fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
-.head .pintoggle:hover, .head .sizetoggle:hover { border-color: var(--accent); color: var(--text); }
+.head .pintoggle:hover, .head .sizetoggle:hover, .head .hidetoggle:hover { border-color: var(--accent); color: var(--text); }
 .head .pintoggle.active { background: var(--select); color: var(--accent); border-color: var(--accent); }
 
 .tile.size-2 { grid-column: span 2; }
@@ -527,6 +568,12 @@ body.focused .tile.is-focused { max-height: none; }
 .cell.grey { border-style: dashed; border-color: var(--idle); color: var(--idle); }
 .cell.grey .val { color: var(--idle); }
 .cell.idle { opacity: .55; }
+/* The git cell is a button with a second line (#184), amber at `fleet.branches.warn`. */
+button.cell { background: transparent; color: var(--text); cursor: pointer; text-align: left; flex-wrap: wrap; }
+button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
+.cell .val2 { flex-basis: 100%; color: var(--muted); }
+.cell.warn { border-color: var(--waiting); color: var(--waiting); }
+.cell.warn .val2 { color: var(--waiting); }
 
 .rail { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .rail a, .rail button {
@@ -563,7 +610,6 @@ body.focused .tile.is-focused { max-height: none; }
 #hits .p { font: 12px var(--mono); font-weight: 600; }
 #hits .kind { font: 10px var(--mono); border-radius: 9px; padding: 0 6px; margin-left: 6px; background: var(--select); }
 #hits .snip { display: block; color: var(--muted); }
-#find { width: min(260px, 30vw); }
 
 /* ------------------------------------------------------------- the Downloads inbox (#132) */
 
@@ -670,18 +716,32 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
 /* ------------------------------------------------------- the inspector's project detail (#148) */
 
 #inspectordetails .rail { display: flex; flex-wrap: wrap; gap: 6px; }
-#inspectordetails .rail a, #inspectordetails .rail button {
+#inspectordetails .rail a, #inspectordetails .rail button, .branches-read {
   font: 11px var(--ui); padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px;
   background: var(--panel); color: var(--accent); text-decoration: none; min-height: 28px;
   display: inline-flex; align-items: center;
 }
 #inspectordetails .rail a:hover { border-color: var(--accent); }
-#inspectordetails .verifybody {
+#inspectordetails .verifybody, .commits {
   margin: 0; padding: 6px; max-height: 220px; overflow: auto; white-space: pre-wrap;
   font: 11px/1.45 var(--mono); background: var(--bg); border: 1px solid var(--line);
   border-radius: 4px;
 }
 #inspectordetails .tray { margin: 0; padding: 0; list-style: none; font: 11px var(--mono); }
+/* The branches pane (#184): unmerged first and marked, the ticket's own underlined. */
+.branches { display: flex; flex-direction: column; gap: 4px; font: 11px var(--mono); }
+.branches-head { display: flex; align-items: center; gap: 8px; font: 12px var(--ui); }
+.branches p { margin: 0; }
+.branches-sum.warn, .branches-carry { color: var(--waiting); }
+.branches-carry { padding: 2px 0 2px 8px; border-left: 3px solid var(--waiting); }
+.branches-note.err { color: var(--human); }
+.branchlist { margin: 0; padding: 0; list-style: none; }
+.branchrow { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 2px 0 2px 8px; border-left: 3px solid transparent; }
+.branchrow.unmerged { border-left-color: var(--waiting); }
+.branchrow.current .bname { font-weight: 600; }
+.branchrow.carries .bname { text-decoration: underline; text-decoration-color: var(--waiting); }
+.branchrow .bmeta { color: var(--muted); overflow-wrap: anywhere; }
+.commits { white-space: pre; }
 #inspectordetails .facts {
   display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px;
   font: 11px var(--mono); overflow-wrap: anywhere;
@@ -831,3 +891,19 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
   margin-left: auto; min-height: 28px; background: var(--bg); color: var(--text);
   border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
 }
+
+/* ------------------------------------------ the agent rail (#183): the dock's chip as a drop target,
+   candidates lit and the rest dimmed while a ticket is in flight; lit is also `aria-selected`. */
+.agentrail {
+  list-style: none; display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 6px; padding: 0 0 6px;
+  border-bottom: 1px dashed var(--line);
+}
+.rail-chip .rail-open { cursor: pointer; }
+.rail-chip.needs-human .rail-open { border-color: var(--human); color: var(--human); }
+.rail-chip.is-candidate .rail-open { border-color: var(--accent); box-shadow: 0 0 0 2px var(--select); }
+.rail-chip.is-dim { opacity: .45; }
+.rail-chip .rail-open.drop-target { background: var(--select); border-color: var(--accent); border-style: dashed; }
+.railnote { margin: 0 0 6px; color: var(--human); }
+#railslot .dispatch { margin: 0 0 8px; }
+/* A ticket row takes the keyboard: `1`-`9` picks a rail chip, `Enter` its one candidate. */
+#tickets li:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

@@ -28,4 +28,14 @@ Scope: every project that installs these skills. Do not restate these in project
 14. You are about to edit a source file whose `ad-graph guard` verdict is not `ok` -- or you have not run it.
 
 ## Style
-14. Short answers. No preamble. State the next skill you will invoke and why (one line).
+15. Short answers. No preamble. State the next skill you will invoke and why (one line).
+
+## Branches
+16. **Before `git checkout -b`, look.** `git for-each-ref refs/heads --format=%(refname:short)` lists every local
+    branch; `git branch --no-merged <default>` the ones whose work never reached `main`/`master`. A branch that
+    already carries this ticket's key is this ticket's: continue on it when it is checked out, and when it is not,
+    `ad-state ask` the operator to check it out (the allow-list has no `git checkout <branch>`) -- a second branch
+    per ticket is how work gets stranded. At `fleet.branches.warn` (default 6) or more local branches, name the
+    unmerged ones in one line and `ad-state ask --assume` whether to continue on the existing branch or which of
+    the stale ones the operator will delete -- never you: a branch is the operator's to delete. Cautious, not
+    stopped: a repository that legitimately holds nine branches still gets its PR, on the branch that exists.

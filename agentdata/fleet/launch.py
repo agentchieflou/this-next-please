@@ -50,6 +50,15 @@ DEFAULT_ALLOW = [
     "shell(git status)",
     "shell(git diff)",
     "shell(git log)",
+    # The look before the branch (#184, AGENTS.md rule 16): every local branch, and which never
+    # reached the default. Read-only by construction -- `git branch --list -D x` and
+    # `git branch --no-merged main -D x` are both refused by git itself (a filter and a delete
+    # cannot be combined), and `for-each-ref` has no write. `shell(git branch)` would have
+    # permitted `git branch -D`, which is why the two filters are listed and the verb is not.
+    "shell(git branch --list)",
+    "shell(git branch --no-merged)",
+    "shell(git for-each-ref)",
+    "shell(git rev-list --count)",
     "shell(git checkout -b)",
     "shell(git add)",
     # `-m` deliberately: `shell(git commit)` would also permit `git commit --no-verify`, and this

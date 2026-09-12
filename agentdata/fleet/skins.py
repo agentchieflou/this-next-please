@@ -20,6 +20,13 @@ translucency and texture are painted, which is not the palette's own ground. A v
 falls under 4.5:1 there is refused by the test suite, so the failure is a red build rather than a
 dashboard somebody cannot read.
 
+Glass is the one skin whose panel is not one colour (#182): a translucent fill over a mesh of
+coloured blobs composites to something different wherever the blobs are and are not. So a glass
+variant declares its `mesh` (the blobs, colour and peak alpha) and its `fill`, and its
+`composited_panel` is a **pair** -- the darkest and the lightest colour the fill can resolve to
+over that mesh -- computed by `composited_range` and checked at both ends. A string still means
+"both ends are this", which is what every other skin's panel is.
+
 Contract:
 - `theme.skin` in `~/.agentdata/config.json`, `'none'` by default, spelled `<skin>` or
   `<skin>:<variant>`. A bare skin name means its default variant.
@@ -41,13 +48,25 @@ SKINS = {
         "why": "frosted acrylic translucent panels with a subtle accent glow",
         "default": "smoke",
         "variants": {
-            "smoke": {"title": "Smoke", "base": "dark", "composited_panel": "#1B222C",
+            "smoke": {"title": "Smoke", "base": "dark",
+                      "mesh": [("#58A6FF", 0.35), ("#3FB950", 0.35), ("#D29922", 0.30)],
+                      "fill": ("#1F2836", 0.36),
+                      "composited_panel": {"darkest": "#181D24", "lightest": "#273D57"},
                       "why": "neutral graphite behind the frost"},
-            "azure": {"title": "Azure", "base": "blues", "composited_panel": "#16243D",
+            "azure": {"title": "Azure", "base": "blues",
+                      "mesh": [("#4DA3FF", 0.30), ("#5EE1E6", 0.25), ("#3FB950", 0.30)],
+                      "fill": ("#1A2A48", 0.40),
+                      "composited_panel": {"darkest": "#11213B", "lightest": "#1D3F56"},
                       "why": "cold blue depth, the darkest of the three"},
-            "noir": {"title": "Noir", "base": "vanta-black", "composited_panel": "#121212",
-                     "why": "near-black, for a room with the lights off"},
-            "frost": {"title": "Frost", "base": "eye-relief-day", "composited_panel": "#EDE6D6",
+            "noir": {"title": "Noir", "base": "vanta-black",
+                      "mesh": [("#E6E6E6", 0.16), ("#58A6FF", 0.18), ("#9A9A9A", 0.12)],
+                      "fill": ("#1A1A1A", 0.40),
+                      "composited_panel": {"darkest": "#0A0A0A", "lightest": "#202020"},
+                      "why": "near-black, for a room with the lights off"},
+            "frost": {"title": "Frost", "base": "eye-relief-day",
+                      "mesh": [("#8A6D1F", 0.30), ("#2A5F9E", 0.25), ("#2A733E", 0.25)],
+                      "fill": ("#F4EEE0", 0.34),
+                      "composited_panel": {"darkest": "#DED4B8", "lightest": "#F3EDDD"},
                       "why": "the light one: warm paper under the same frost"},
         },
     },
@@ -80,6 +99,38 @@ SKINS = {
         },
     },
 }
+
+
+def _over(top: tuple, alpha: float, under: tuple) -> tuple:
+    """`top` at `alpha` painted over an opaque `under`, in linear 0-1 rgb."""
+    return tuple(t * alpha + u * (1 - alpha) for t, u in zip(top, under))
+
+
+def composited_range(ground: str, mesh: list, fill: tuple) -> tuple[str, str]:
+    """The darkest and lightest colour a translucent `fill` composites to over `ground` + `mesh`.
+
+    A blob is a radial gradient at its peak alpha in the centre and nothing at its edge, and the
+    stylesheet never puts two centres in one place -- so a point on the page sees at most one blob
+    near its peak and a neighbour at its tail. The model is that: each blob alone at full alpha,
+    and each pair at half. It is a bound the rendered page is then measured against
+    (`tests/test_fleet_desk_glass.py` samples real pixels), not a description of every pixel.
+    """
+    from itertools import combinations
+    from .. import theme as T
+
+    unders = [T.hex_to_rgb(ground)] + [_over(T.hex_to_rgb(c), a, T.hex_to_rgb(ground)) for c, a in mesh]
+    for (c1, a1), (c2, a2) in combinations(mesh, 2):
+        unders.append(_over(T.hex_to_rgb(c2), a2 / 2, _over(T.hex_to_rgb(c1), a1 / 2, T.hex_to_rgb(ground))))
+    outs = sorted((_over(T.hex_to_rgb(fill[0]), fill[1], u) for u in unders), key=T.rel_luminance)
+    return T.rgb_to_hex(outs[0]), T.rgb_to_hex(outs[-1])
+
+
+def composited_panels(spec: dict) -> list[str]:
+    """The colour(s) a variant's text is read on: one for a textured skin, two for glass."""
+    panel = spec.get("composited_panel")
+    if isinstance(panel, dict):
+        return [panel["darkest"], panel["lightest"]]
+    return [panel] if panel else []
 
 
 def split(name: str) -> tuple[str, str]:

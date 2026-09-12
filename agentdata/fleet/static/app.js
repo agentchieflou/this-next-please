@@ -294,7 +294,7 @@ function makeTile(row, index) {
     }
 
     var key = (e.dataTransfer.getData("application/x-agentdata-ticket") || e.dataTransfer.getData("text/plain") || "").trim();
-    if (key) { if (PREFLIGHT) dispatchCard(key, row.repo); else dispatch(key, row.repo); }
+    if (key) takeTicket(key, row.repo);
   });
 
   /* The dispatch card's own three controls (#164). `Enter` in the brief box starts; `Esc` cancels,
@@ -327,15 +327,6 @@ function makeTile(row, index) {
       "New files are in the scope under .agent/in/; read scope.toon before continuing." });
   });
 
-  el.querySelector(".dispatch-close").addEventListener("click", function () { closeDispatch(el); });
-  el.querySelector(".dispatch-go").addEventListener("click", function () {
-    var card = el.querySelector(".dispatch");
-    dispatch(card.dataset.key || "", row.repo, el.querySelector(".brief").value.trim());
-  });
-  el.querySelector(".brief").addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { el.querySelector(".dispatch-go").click(); e.preventDefault(); }
-    else if (e.key === "Escape") { closeDispatch(el); e.stopPropagation(); }
-  });
 
   /* #174: the switcher's four buttons. The rows behind *earlier* are fetched on the click rather
      than on every poll -- nobody is reading them until they ask for them. */
@@ -1093,6 +1084,8 @@ function connect() {
     refreshSoon();
   });
   source.addEventListener("notify", function (m) { arrived(JSON.parse(m.data)); });
+  // A poll cell changed with no event to say so (#184): re-read.
+  source.addEventListener("polls", function () { refreshSoon(); });
   // The shared selection (#133). Every window is sent the current one the moment it connects, so a
   // monitor that joined late never sits on a different project than the one beside it.
   source.addEventListener("desk", function (m) {
@@ -1193,7 +1186,14 @@ document.getElementById("unfocus").addEventListener("click", unfocus);
 
 document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-  if (e.key === "Escape") { if (typing) document.activeElement.blur(); else unfocus(); return; }
+  if (e.key === "Escape") {
+    // The nearest open thing closes first, and nothing else: a popover (#180), then the card (#183).
+    if (closePopovers()) { e.stopImmediatePropagation(); return; }
+    var card = document.getElementById("dispatch");
+    if (card && !card.hidden) { closeDispatch(); e.stopImmediatePropagation(); return; }
+    if (typing) document.activeElement.blur(); else unfocus();
+    return;
+  }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^[1-9]$/.test(e.key)) {
     // The number printed on a tile comes from the arrangement, so the key that focuses it must
@@ -1343,6 +1343,8 @@ function reflectTheme(cur) {
      would then override. Turning the skin off hands it back. */
   if (themeSel) {
     var bound = !!(cur.skin && cur.skin !== "none");
+    // Disabling a focused element drops the keyboard to `body`, out of the popover (#180).
+    if (bound && !themeSel.disabled && document.activeElement === themeSel && skinSel) skinSel.focus();
     themeSel.disabled = bound;
     themeSel.title = bound
       ? "the palette comes from the skin — choose “no skin” to pick one yourself"
@@ -1557,6 +1559,7 @@ function statusClass(row) {
 function ticketRow(row) {
   var li = document.createElement("li");
   li.draggable = true;
+  li.tabIndex = 0;                                    // `1`-`9` from here picks a rail chip (#183)
   li.dataset.key = row.key;
 
   var head = document.createElement("div");
@@ -1599,8 +1602,9 @@ function ticketRow(row) {
     e.dataTransfer.setData("application/x-agentdata-ticket", row.key);
     e.dataTransfer.setData("text/plain", row.key);
     e.dataTransfer.effectAllowed = "copy";
+    railLight(row);
   });
-  li.addEventListener("dragend", function () { li.classList.remove("dragging"); });
+  li.addEventListener("dragend", function () { li.classList.remove("dragging"); railLight(null); });
   return li;
 }
 
@@ -1781,21 +1785,35 @@ function scopeDrop(el, repo, files) {
    delegating, gathered by a server-side pre-flight that spends no premium request, and one button.
    `fleet.preflight: false` restores #98's immediate start for anyone who preferred it. */
 
-function dispatchCard(key, repo) {
+/* One card, two homes (#183): the tile's slot when the tile is on the glass, else under the
+   rail. It used to draw inside a hidden tile, skipping the pre-flight in the board window. */
+function onTheGlass(repo) {
   var entry = tiles.get(repo);
-  if (!entry) return dispatch(key, repo);
-  var el = entry.el;
-  var card = el.querySelector(".dispatch");
+  return !!(entry && entry.el.offsetParent !== null && !entry.el.classList.contains("is-hidden"));
+}
+
+function dispatchHome(repo) {
+  if (onTheGlass(repo)) return tiles.get(repo).el.querySelector(".dispatch-slot");
+  return document.getElementById("railslot");
+}
+
+function dispatchCard(key, repo) {
+  var card = document.getElementById("dispatch");
   var rows = card.querySelector(".dispatch-rows");
   var brief = card.querySelector(".brief");
+  var home = dispatchHome(repo);
+  if (card.parentNode !== home) home.appendChild(card);       // moved, never copied
+  if (home.id === "railslot") { boardPanel(true); }
 
   text(card.querySelector(".dispatch-key"), key + " → " + repo);
   text(card.querySelector(".verdict"), "reading…");
   card.querySelector(".verdict").className = "verdict";
   while (rows.firstChild) rows.removeChild(rows.firstChild);
   brief.value = "";
+  text(card.querySelector(".dispatch-note"), "");
   card.hidden = false;
   card.dataset.key = key;
+  card.dataset.repo = repo;
 
   fetch(q("/api/preflight", { key: key, repo: repo })).then(function (r) {
     return r.json();
@@ -1831,9 +1849,21 @@ function dispatchCard(key, repo) {
   });
 }
 
-function closeDispatch(el) {
-  var card = el.querySelector(".dispatch");
-  if (card) { card.hidden = true; card.dataset.key = ""; }
+function closeDispatch() {
+  var card = document.getElementById("dispatch");
+  if (card) { card.hidden = true; card.dataset.key = ""; card.dataset.repo = ""; }
+}
+
+/* A refusal lands where the operator is looking: the card's note, or the line under the rail. */
+function said(repo, message) {
+  var card = document.getElementById("dispatch");
+  if (card && !card.hidden && card.dataset.repo === repo) {
+    text(card.querySelector(".dispatch-note"), message);
+  } else if (!onTheGlass(repo)) {
+    var note = document.getElementById("railnote");
+    text(note, message);
+    note.hidden = !message;
+  }
 }
 
 function dispatch(key, repo, brief) {
@@ -1842,32 +1872,138 @@ function dispatch(key, repo, brief) {
   var body = { repo: repo, ticket: key };
   if (brief) body.brief = brief;
   return action(el, "start", body).then(function (r) {
-    if (r && r.ok) { boardPanel(false); closeDispatch(el); focus(repo); }
+    if (r && r.ok) { boardPanel(false); closeDispatch(); said(repo, ""); focus(repo); }
     else if (r && !r.ok && (r.code === "cross_project" || /jira_project/.test(r.error || ""))) {
       // The one refusal worth offering an override for in the page: the operator can see both
       // projects on screen and is better placed than the guard to say it is deliberate.
+      said(repo, r.error + (r.hint ? " — " + r.hint : ""));
       if (confirm(r.error + "\n\nStart it anyway?")) {
         var again = { repo: repo, ticket: key, cross_project: true };
         if (brief) again.brief = brief;
         action(el, "start", again).then(function (r2) {
-          if (r2 && r2.ok) closeDispatch(el);
+          if (r2 && r2.ok) { closeDispatch(); said(repo, ""); }
+          else if (r2) said(repo, r2.error + (r2.hint ? " — " + r2.hint : ""));
           return r2;
         });
       }
+    } else if (r && !r.ok) {
+      said(repo, r.error + (r.hint ? " — " + r.hint : ""));
     }
     return r;
   });
 }
 
+(function bindDispatchCard() {
+  var card = document.getElementById("dispatch");
+  if (!card) return;
+  card.querySelector(".dispatch-close").addEventListener("click", function () { closeDispatch(); });
+  card.querySelector(".dispatch-go").addEventListener("click", function () {
+    dispatch(card.dataset.key || "", card.dataset.repo || "", card.querySelector(".brief").value.trim());
+  });
+  card.querySelector(".brief").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { card.querySelector(".dispatch-go").click(); e.preventDefault(); }
+    else if (e.key === "Escape") { closeDispatch(); e.stopPropagation(); }
+  });
+})();
+
+/* ------------------------------------------------------------------------ the agent rail (#183)
+   One chip per checkout at the top of the board, each a drop target for the window with no tiles.
+   A drag lights the candidates; a drop calls what a tile's drop calls; `1`-`9` is the same by key. */
+var railDrag = null;                                   // the ticket row in flight, if any
+
+function drawRail() {
+  var list = document.getElementById("agentrail");
+  if (!list) return;
+  var pattern = list.querySelector(".rail-chip");
+  while (list.children.length > 1) list.removeChild(list.lastChild);
+  getEffectiveOrder().forEach(function (name) {
+    var entry = tiles.get(name);
+    if (!entry) return;
+    var row = entry.row || {};
+    var li = pattern.cloneNode(true);
+    li.hidden = false;
+    li.dataset.repo = name;
+    li.className = "rail-chip" + (entry.el.classList.contains("needs-human") ? " needs-human" : "");
+    var button = li.querySelector(".rail-open");
+    text(li.querySelector(".dc-name"), name);
+    text(li.querySelector(".dc-chip"),
+         (row.state || "") + (row.at ? " · " + age(ageOf(row)) : ""));
+    button.setAttribute("aria-label", name);
+    button.title = "drop a ticket here to start it on " + name;
+    button.addEventListener("click", function () { focus(name); });
+    button.addEventListener("dragover", function (e) {
+      if (!ticketInFlight(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      button.classList.add("drop-target");
+    });
+    button.addEventListener("dragleave", function () { button.classList.remove("drop-target"); });
+    button.addEventListener("drop", function (e) {
+      e.preventDefault();
+      button.classList.remove("drop-target");
+      var key = (e.dataTransfer.getData("application/x-agentdata-ticket") || e.dataTransfer.getData("text/plain") || "").trim();
+      if (key) takeTicket(key, name);
+    });
+    list.appendChild(li);
+  });
+  railLight(railDrag);
+}
+
+function ticketInFlight(e) {
+  var types = Array.from((e.dataTransfer && e.dataTransfer.types) || []);
+  return types.indexOf("application/x-agentdata-ticket") >= 0 || types.indexOf("text/plain") >= 0;
+}
+
+function takeTicket(key, repo) {
+  if (PREFLIGHT) dispatchCard(key, repo); else dispatch(key, repo);
+}
+
+/* A dimmed chip still takes a drop: the supervisor's `cross_project` refusal is the answer. */
+function railLight(row) {
+  railDrag = row;
+  var s = (row && row.suggested) || {};
+  var candidates = row ? (s.repo ? [s.repo] : (s.candidates || [])) : [];
+  Array.prototype.forEach.call(document.querySelectorAll("#agentrail .rail-chip:not([hidden])"), function (li) {
+    var lit = !!row && candidates.indexOf(li.dataset.repo) >= 0;
+    li.classList.toggle("is-candidate", lit);
+    li.classList.toggle("is-dim", !!row && !lit);
+    li.querySelector(".rail-open").setAttribute("aria-selected", String(lit));
+  });
+}
+
+document.getElementById("tickets").addEventListener("keydown", function (e) {
+  var li = e.target.closest && e.target.closest("li[data-key]");
+  if (!li) return;
+  var row = board.filter(function (r) { return r.key === li.dataset.key; })[0];
+  if (!row) return;
+  // Stops here: the page's own `1`-`9` zooms a tile, closing the board under the card.
+  if (/^[1-9]$/.test(e.key)) {
+    var chips = document.querySelectorAll("#agentrail .rail-chip:not([hidden])");
+    var chip = chips[Number(e.key) - 1];
+    if (chip) { takeTicket(row.key, chip.dataset.repo); e.preventDefault(); e.stopPropagation(); }
+  } else if (e.key === "Enter") {
+    var s = row.suggested || {};
+    var only = s.repo || ((s.candidates || []).length === 1 ? s.candidates[0] : "");
+    if (only) { takeTicket(row.key, only); e.preventDefault(); e.stopPropagation(); }
+  }
+});
+
 function drawBoard(rows) {
   var list = document.getElementById("tickets");
   var needle = (document.getElementById("boardsearch").value || "").toLowerCase();
+  // A redraw keeps the keyboard on its row (#183).
+  var had = document.activeElement && list.contains(document.activeElement) ?
+            (document.activeElement.closest("li[data-key]") || {}).dataset : null;
   while (list.firstChild) list.removeChild(list.firstChild);
   var shown = rows.filter(function (r) {
     return !needle || (r.key + " " + r.summary + " " + r.status).toLowerCase().indexOf(needle) >= 0;
   });
   shown.forEach(function (r) { list.appendChild(ticketRow(r)); });
   document.getElementById("noboard").hidden = shown.length > 0;
+  if (had && had.key) {
+    var back = list.querySelector('li[data-key="' + had.key + '"]');
+    if (back) back.focus();
+  }
 }
 
 function loadBoard(refresh) {
@@ -1977,7 +2113,9 @@ function drawCells(el, polls) {
     if (!p) return;
     var value = (p.value && p.value.text) || "";
     if (!value && !p.error) return;                 // nothing to ask about: no PR, no dataset
-    var cell = document.createElement("span");
+    // The git cell is a button (#184): the click opens the inspector's branches pane.
+    var cell = document.createElement(name === "git" ? "button" : "span");
+    if (name === "git") cell.type = "button";
     cell.className = "cell" + (p.grey ? " grey" : "") + (value ? "" : " idle");
     cell.dataset.cell = name;
     var lab = document.createElement("span");
@@ -1993,8 +2131,108 @@ function drawCells(el, polls) {
     cell.appendChild(val);
     cell.appendChild(old);
     cell.title = p.error ? p.error : (name + ", polled every " + p.interval + "s");
+    if (name === "git") {
+      var v = p.value || {};
+      if (v.line2) cell.appendChild(mk("span", "val2", v.line2));
+      if (v.warn && !p.grey) {
+        cell.classList.add("warn");
+        cell.title = v.line2 + " (" + v.warn_at + "+ is worth a look)" +
+                     (v.carrying && v.carrying.length > 1 ? "; " + v.carrying.length + " carry the active ticket" : "") +
+                     ". Click for the history.";
+      } else if (!p.error) {
+        cell.title += " Click for the history.";
+      }
+      cell.addEventListener("click", function (e) {
+        e.stopPropagation();
+        openBranches(el.dataset.repo);
+      });
+    }
     box.appendChild(cell);
   });
+}
+
+/* ------------------------------------------------------------- the branches pane (#184)
+   Read on the click, cached for the git interval, never on the poll. */
+var branchesFor = {};                                   // repo -> the last /api/branches answer
+var branchesWanted = "";                                // the repo whose pane was just asked for
+
+function openBranches(name) {
+  branchesWanted = name;
+  choose(name).then(function () {
+    section("inspector", true);
+    loadBranches(name);
+  });
+}
+
+function loadBranches(name, force) {
+  branchesFor[name] = { ok: true, reading: true, branches: [] };
+  drawInspector(name);
+  return fetch(q("/api/branches", force ? { repo: name, refresh: "1" } : { repo: name })).then(function (r) {
+    return r.json();
+  }).then(function (answer) {
+    branchesFor[name] = answer || { ok: false, error: "no answer" };
+    if (desk.desk.selected === name) drawInspector(name);
+    return answer;
+  }).catch(function (e) {
+    branchesFor[name] = { ok: false, error: String(e), branches: [] };
+    if (desk.desk.selected === name) drawInspector(name);
+  });
+}
+
+function mk(tag, cls, str) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (str != null) text(n, str);
+  return n;
+}
+
+function branchesPane(name) {
+  var answer = branchesFor[name];
+  var box = mk("div", "branches");
+  var head = mk("div", "branches-head", "");
+  head.appendChild(mk("strong", "", "branches"));
+  var read = mk("button", "branches-read", "read");
+  read.type = "button";
+  read.addEventListener("click", function () { loadBranches(name, true); });
+  head.appendChild(read);
+  box.appendChild(head);
+  if (!answer) {
+    box.appendChild(mk("p", "muted", "every local branch, and which never reached the default: click the git cell, or read."));
+    return box;
+  }
+  if (answer.reading) { box.appendChild(mk("p", "muted branches-note", "reading…")); return box; }
+  if (!answer.ok) {
+    box.appendChild(mk("p", "branches-note err", (answer.error || "git could not be asked") + (answer.hint ? " — " + answer.hint : "")));
+    return box;
+  }
+  var current = (answer.branches || []).filter(function (b) { return b.current; })[0];
+  box.appendChild(mk("p", "branches-sum" + (answer.warn ? " warn" : ""),
+    answer.count + (answer.count === 1 ? " branch" : " branches") + " · " +
+    (answer.unmerged ? answer.unmerged + " never reached " : "all reached ") + answer.default +
+    " · on " + answer.current +
+    (current && current.unmerged && current.ahead != null ? " (+" + current.ahead + " ahead of " + answer.default + ")" : "") +
+    (answer.cached ? " · read " + age(Math.round(answer.age_s)) + " ago" : "")));
+  if (answer.carry_line) box.appendChild(mk("p", "branches-carry", answer.carry_line));
+  var list = mk("ol", "branchlist");
+  (answer.branches || []).forEach(function (b) {
+    var li = mk("li", "branchrow" + (b.unmerged ? " unmerged" : "") + (b.current ? " current" : "") +
+                      (answer.ticket && b.ticket === answer.ticket ? " carries" : ""));
+    li.appendChild(mk("span", "bname", b.name));
+    var bits = [b.sha, b.age_s ? age(Math.round(b.age_s)) : ""];
+    if (b.unmerged) bits.push(b.ahead != null ? "+" + b.ahead + " ahead" : "never reached " + answer.default);
+    bits.push(b.upstream ? b.upstream + (b.track ? " " + b.track : "") : "none pushed");
+    if (b.ticket) bits.push(b.ticket);
+    if (b.current) bits.push("current");
+    li.appendChild(mk("span", "bmeta", bits.filter(Boolean).join("  ·  ")));
+    list.appendChild(li);
+  });
+  box.appendChild(list);
+  if (answer.more) box.appendChild(mk("p", "muted branches-note", "and more: the count stops at twenty unmerged branches, which is the finding"));
+  if ((answer.commits || []).length) {
+    box.appendChild(mk("div", "muted", "the last " + answer.commits.length + " commits on " + answer.current));
+    box.appendChild(mk("pre", "commits", answer.commits.join("\n")));
+  }
+  return box;
 }
 
 function clip(value) {
@@ -2288,6 +2526,9 @@ function drawInspector(name) {
     }
     body.appendChild(rail);
   }
+
+  // The checkout's branches (#184): drawn from the last read, read on the click.
+  body.appendChild(branchesPane(name));
 
   // The newest thing the project's own agent verified, beside the report link.
   var latest = ((p.verify || {}).latest) || {};
@@ -2692,6 +2933,7 @@ function place() {
   drawNotice();
   drawSwap(one);
   drawDock();
+  drawRail();
 }
 
 /* The footer's one line, and one owner (#173).
@@ -2903,11 +3145,63 @@ document.getElementById("showall").addEventListener("click", function () {
 
 document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 
+/* ------------------------------------------------------------------------- the popovers (#180)
+   The pickers behind *look*, the key map behind `?`: a panel with `hidden` on it, opened by one
+   button, closed by Esc or a click anywhere else, one at a time. The controls keep their ids. */
+var POPOVERS = { look: "lookbtn", keymap: "keysbtn" };
+
+function popover(id, open) {
+  var box = document.getElementById(id);
+  var button = document.getElementById(POPOVERS[id]);
+  if (!box || !button) return false;
+  var want = open === undefined ? box.hidden : !!open;
+  // Read before hiding: a hidden element cannot hold the focus.
+  var hadTheKeyboard = !!(document.activeElement && box.contains(document.activeElement));
+  Object.keys(POPOVERS).forEach(function (other) {
+    var o = document.getElementById(other);
+    var ob = document.getElementById(POPOVERS[other]);
+    var on = other === id && want;
+    if (o) o.hidden = !on;
+    if (ob) ob.setAttribute("aria-expanded", String(on));
+  });
+  if (want) {
+    var first = box.querySelector("select:not(:disabled), button:not(:disabled), input:not(:disabled), [tabindex]");
+    if (first) first.focus();
+  } else if (hadTheKeyboard) {
+    button.focus();                           // the keyboard goes back where it came from
+  }
+  return want;
+}
+
+function closePopovers() {
+  var was = false;
+  Object.keys(POPOVERS).forEach(function (id) {
+    var box = document.getElementById(id);
+    if (box && !box.hidden) { popover(id, false); was = true; }
+  });
+  return was;
+}
+
+Object.keys(POPOVERS).forEach(function (id) {
+  var button = document.getElementById(POPOVERS[id]);
+  if (button) button.addEventListener("click", function () { popover(id); });
+});
+document.addEventListener("click", function (e) {
+  Object.keys(POPOVERS).forEach(function (id) {
+    var box = document.getElementById(id);
+    var button = document.getElementById(POPOVERS[id]);
+    if (box && !box.hidden && !box.contains(e.target) && !(button && button.contains(e.target))) {
+      popover(id, false);
+    }
+  });
+});
+
 document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   if (e.key === "Escape" && !typing) { closeSide(); return; }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "f") { focusMode(); return; }
   if (e.key === "i") { section("unsorted"); return; }
+  if (e.key === "?") { popover("keymap"); return; }
   if (e.key === "/") { e.preventDefault(); document.getElementById("find").focus(); }
 });

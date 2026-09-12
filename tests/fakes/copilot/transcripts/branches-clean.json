@@ -1,0 +1,55 @@
+{
+  "source": "synthesized",
+  "note": "the #184 caution on a clean checkout: one local branch, nothing carrying the ticket, so the look finds nothing and the agent creates the ticket's branch. Shapes from docs/fleet-spike.md (#92); content invented.",
+  "captured": "2026-09-12",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-branches-clean",
+  "usage": {
+    "premiumRequests": 0.5,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "run": "git for-each-ref refs/heads --format=%(refname:short)"
+    },
+    {
+      "run": "git branch --no-merged main --format=%(refname:short)"
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "RDSD-7 · To Do · phase=triaged · branch=main · branches=1 (0 unmerged). No branch carries RDSD-7; creating it.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "git checkout -b feature/RDSD-7"
+    },
+    {
+      "run": "ad-state set phase=optimizing active_ticket=RDSD-7 branch=feature/RDSD-7"
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ]
+}

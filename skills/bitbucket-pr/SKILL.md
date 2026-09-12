@@ -5,7 +5,7 @@ description: "Use when code or model changes are ready for review — to branch,
 # Open a PR (never merge)
 
 1. `state.active_ticket` and `state.branch` must be set. Missing → `session-bootstrap`. STOP.
-2. `git checkout -b <branch>` (or `git checkout <branch>` if it exists). `git status` — only intended files staged.
+2. Look before you branch (AGENTS.md rule 16): `git for-each-ref refs/heads --format=%(refname:short)`. A branch carrying `<KEY>` already exists → it is this ticket's: continue on it when it is the current branch, else `ad-state ask` the operator to check it out and STOP -- never a second branch per ticket. None → `git checkout -b <branch>`. Six or more local branches (`fleet.branches.warn`) → `git branch --no-merged <default>`, name them in one line, `ad-state ask --assume "continue on <branch>"`, and continue. `git status` — only intended files staged.
 3. Commit: `<type>: <KEY> <what>` where type ∈ `feat|fix|docs|chore`. One commit per logical change.
 4. `git push -u origin <branch>`.
 5. Pinned PR verb: `TODO(HANDOFF: pin after pncli bitbucket --help)`. If unpinned, run `pncli bitbucket --help` once.

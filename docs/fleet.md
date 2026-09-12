@@ -100,7 +100,10 @@ With those facts indexed, each tile carries the project's own state beside the a
 the board, the report, the dataset, the workspace, the repository, the open PR, the Confluence page
 and the local folder as links, and their live state polled read-only on a per-source timer (Jira
 60 s, PR 120 s, Power BI 300 s, git 30 s). A cell shows value and age (`Done · 4m`) and goes **grey,
-not wrong**, when a poll fails. A missing fact means the link is absent and `ad-fleet doctor` names
+not wrong**, when a poll fails. The git cell also counts the checkout's local branches and which of
+them never reached the default (`7 branches · 3 never reached main`), goes amber at
+`fleet.branches.warn` (default 6), and opens the inspector's branches pane on a click; `ad-fleet
+branches <repo>` prints the same rows (#184). A missing fact means the link is absent and `ad-fleet doctor` names
 the `AGENTS.md` key to add — never a broken URL that opens an error page.
 
 Polling is honest about its cost: `ad-fleet status --polls` prints today's request count per source,

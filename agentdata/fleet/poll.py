@@ -204,6 +204,7 @@ class Poller:
         self.pr_reader: Callable[..., dict] = read_pr
         self.refresh_reader: Callable[..., dict] = read_refresh
         self.git_reader: Callable[..., dict] = read_git
+        self.branch_reader: Callable[..., dict] = read_branches     # the cheap read, per tick (#184)
 
         self.polls: dict[str, dict[str, Poll]] = {}
         self._seen: dict[str, dict[str, str]] = {}
@@ -394,10 +395,18 @@ class Poller:
             return []
         try:
             answer = self.git_reader(repo) or {}
+            # The count beside the branch (#184): two more local reads, no `rev-list`. The full
+            # read -- how far each branch is from the default, the last twenty commits -- is
+            # `branches()`, on the click, because twenty `rev-list`s a minute across five
+            # checkouts is a cost the poll cannot spend.
         except Exception as e:                    # noqa: BLE001
             self._fail(repo.name, "git", now, _why(e))
             return []
-        self._ok(repo.name, "git", now, _git_value(answer))
+        try:
+            answer = {**answer, **(self.branch_reader(repo, full=False) or {})}
+        except Exception:                         # noqa: BLE001 - the branch stays; the count is absent
+            pass
+        self._ok(repo.name, "git", now, _git_value(answer, warn=warn_at(self.cfg)))
         return []
 
     # ---- cells ---------------------------------------------------------------------------------
@@ -643,6 +652,164 @@ def read_git(repo) -> dict:
     return {"branch": branch, "ahead": ahead, "behind": behind, "dirty": dirty}
 
 
+# ----------------------------------------------------------------------- the branches (#184)
+
+BRANCH_WARN_DEFAULT = 6         # local branches at which the git cell goes amber
+BRANCH_COUNT_LIMIT = 20         # `rev-list` calls per read, and commits of history shown
+_KEY_IN_NAME = re.compile(r"([A-Za-z][A-Za-z0-9]+-\d+)")
+_branches_cache: dict[str, tuple[float, dict]] = {}
+
+
+def warn_at(cfg: dict | None = None) -> int:
+    """`fleet.branches.warn`: the local-branch count at which the cell goes amber. Default 6, the
+    operator's own number. Never below 1; a typo falls back rather than raising."""
+    try:
+        return max(1, int(C.get(cfg if cfg is not None else C.load(), "fleet.branches.warn",
+                                BRANCH_WARN_DEFAULT)))
+    except (TypeError, ValueError, C.ConfigError, OSError):
+        return BRANCH_WARN_DEFAULT
+
+
+def _git(repo_path: str, *args: str, timeout: int = 30) -> str:
+    """One read-only git call in the checkout. `--no-optional-locks` for the reason `read_git`
+    gives. A non-zero exit is an OSError with git's own last line, never a made-up answer."""
+    from .. import proc
+
+    code, out, err, _elapsed = proc.run(["git", "--no-optional-locks", *args], cwd=repo_path,
+                                        timeout=timeout)
+    if code != 0:
+        raise OSError((err or out or f"git exited {code}").strip().splitlines()[-1][:200])
+    return out
+
+
+def default_branch(repo_path: str) -> str:
+    """What `origin/HEAD` points at, else `main`, else `master`, else the current branch: a
+    checkout that has never been pushed has no `origin/HEAD` and still has a default."""
+    try:
+        head = _git(repo_path, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").strip()
+        if head:
+            return head.split("/", 1)[1] if head.startswith("origin/") else head
+    except OSError:
+        pass
+    for name in ("main", "master"):
+        try:
+            if _git(repo_path, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}").strip():
+                return name
+        except OSError:
+            continue
+    try:
+        return _git(repo_path, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    except OSError:
+        return "main"
+
+
+def ticket_in(name: str) -> str:
+    """The Jira key a branch name carries -- `feature/RDSD-22490-velocity` carries RDSD-22490 --
+    or "" when it carries none. Upper-cased, because Jira keys are and branch names need not be."""
+    m = _KEY_IN_NAME.search(name or "")
+    key = m.group(1).upper() if m else ""
+    return key if TICKET.match(key) else ""
+
+
+def read_branches(repo, *, full: bool = True, limit: int = BRANCH_COUNT_LIMIT,
+                  now: float | None = None) -> dict:
+    """Every local branch of a checkout, and which of them never reached the default branch.
+
+    Three local calls for the cheap read the git tick makes: the default branch, `for-each-ref`
+    for the list, `branch --no-merged` for the ones whose work has not reached the default. The
+    full read -- `rev-list --count` per unmerged branch, bounded at `limit` because a checkout
+    with forty unmerged branches is the finding rather than a reason to make forty calls, and
+    the last twenty commits of the current branch -- is what the click and `ad-fleet branches`
+    ask for. Read-only throughout; nothing here is a write verb.
+
+    Unmerged rows first, newest first within each half. `carrying` names the branches that carry
+    the checkout's active ticket: a second one is how work gets stranded, and the pane says so.
+    """
+    path = repo.path
+    now = time.time() if now is None else float(now)
+    default = default_branch(path)
+    current = _git(path, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    fmt = "%(refname:short)%09%(objectname:short)%09%(committerdate:unix)%09%(upstream:short)%09%(upstream:track)"
+    rows: list[dict] = []
+    for line in _git(path, "for-each-ref", "refs/heads", f"--format={fmt}").splitlines():
+        parts = (line.rstrip("\n").split("\t") + ["", "", "", "", ""])[:5]
+        name, sha, when, upstream, track = parts
+        try:
+            at = float(when)
+        except ValueError:
+            at = 0.0
+        rows.append({"name": name, "sha": sha, "at": at, "age_s": max(0.0, now - at) if at else 0.0,
+                     "upstream": upstream, "track": track.strip("[]"), "ticket": ticket_in(name),
+                     "current": name == current, "unmerged": False, "ahead": None})
+    unmerged = set()
+    if rows:
+        out = _git(path, "branch", "--no-merged", default, "--format=%(refname:short)")
+        unmerged = {ln.strip() for ln in out.splitlines() if ln.strip()}
+    for row in rows:
+        row["unmerged"] = row["name"] in unmerged and row["name"] != default
+    rows.sort(key=lambda r: (not r["unmerged"], -r["at"], r["name"]))
+
+    more = False
+    commits: list[str] = []
+    if full:
+        counted = 0
+        for row in rows:
+            if not row["unmerged"]:
+                continue
+            if counted >= limit:
+                more = True
+                break
+            counted += 1
+            try:
+                row["ahead"] = int(_git(path, "rev-list", "--count", f"{default}..{row['name']}").strip() or 0)
+            except (OSError, ValueError):
+                row["ahead"] = None
+        try:
+            commits = [ln for ln in _git(path, "log", "--oneline", f"-n{limit}", "--decorate=short",
+                                         "--no-color").splitlines() if ln.strip()]
+        except OSError:
+            commits = []
+
+    ticket = _active_ticket(repo)
+    carrying = [r["name"] for r in rows if ticket and r["ticket"] == ticket]
+    return {"default": default, "current": current, "branches": rows, "count": len(rows),
+            "unmerged": sum(1 for r in rows if r["unmerged"]), "more": more, "commits": commits,
+            "ticket": ticket, "carrying": carrying, "full": full, "at": now}
+
+
+def branches(repo, *, cfg: dict | None = None, force: bool = False, now: float | None = None) -> dict:
+    """`read_branches(full=True)`, cached per checkout for the git cell's own interval. The page,
+    the API and `ad-fleet branches` all come through here, so they show one answer."""
+    now = time.time() if now is None else float(now)
+    ttl = settings(cfg)["git"]["interval"]
+    hit = _branches_cache.get(repo.path)
+    if hit and not force and now - hit[0] < ttl:
+        return {**hit[1], "cached": True, "age_s": round(now - hit[0], 1)}
+    answer = read_branches(repo, full=True, now=now)
+    answer["warn"] = len(answer["branches"]) >= warn_at(cfg)
+    answer["warn_at"] = warn_at(cfg)
+    answer["carry_line"] = carry_line(answer)
+    _branches_cache[repo.path] = (now, answer)
+    return {**answer, "cached": False, "age_s": 0.0}
+
+
+def carry_line(answer: dict) -> str:
+    """The one sentence the pane says when the smell is there: *two branches carry RDSD-22490;
+    only one can merge*. Empty when there is nothing to say."""
+    carrying, ticket = answer.get("carrying") or [], answer.get("ticket") or ""
+    if len(carrying) < 2 or not ticket:
+        return ""
+    words = {2: "two", 3: "three", 4: "four", 5: "five"}.get(len(carrying), str(len(carrying)))
+    return f"{words} branches carry {ticket} ({', '.join(carrying)}); only one can merge"
+
+
+def branch_line(count: int, unmerged: int, default: str) -> str:
+    """The git cell's second line: `7 branches · 3 never reached main`."""
+    noun = "branch" if count == 1 else "branches"
+    reach = f"{unmerged} never reached {default or 'main'}" if unmerged else f"all reached {default or 'main'}"
+    return f"{count} {noun} · {reach}"
+
+
 # ------------------------------------------------------------------------------- small helpers
 
 
@@ -726,7 +893,7 @@ def _refresh_value(answer: dict) -> dict:
             "type": str(answer.get("refreshType") or "")}
 
 
-def _git_value(answer: dict) -> dict:
+def _git_value(answer: dict, warn: int = BRANCH_WARN_DEFAULT) -> dict:
     branch = str(answer.get("branch") or "")
     ahead, behind = int(answer.get("ahead") or 0), int(answer.get("behind") or 0)
     dirty = bool(answer.get("dirty"))
@@ -737,8 +904,18 @@ def _git_value(answer: dict) -> dict:
         bits.append(f"-{behind}")
     if dirty:
         bits.append("dirty")
-    return {"text": " ".join(bits), "branch": branch, "ahead": ahead, "behind": behind,
-            "dirty": dirty}
+    value = {"text": " ".join(bits), "branch": branch, "ahead": ahead, "behind": behind,
+             "dirty": dirty}
+    # The second line (#184), when the read counted: the number on the tile is the number in the
+    # agent's transcript, because both read the same refs. Amber at `fleet.branches.warn`, and
+    # never a toast -- the count changes when a person types `git checkout -b`.
+    if "count" in answer:
+        count, unmerged = int(answer.get("count") or 0), int(answer.get("unmerged") or 0)
+        default = str(answer.get("default") or "")
+        value.update({"count": count, "unmerged": unmerged, "default": default,
+                      "line2": branch_line(count, unmerged, default), "warn": count >= warn,
+                      "warn_at": warn, "carrying": list(answer.get("carrying") or [])})
+    return value
 
 
 def _repo_slug(url: str) -> str:

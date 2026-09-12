@@ -1055,6 +1055,50 @@ def cmd_board(a) -> int:
     return EXIT_OK
 
 
+def cmd_branches(a) -> int:
+    """Every local branch of one checkout, and which of them never reached the default (#184).
+
+    The same function the tile's git cell and the inspector's pane read, so the number printed here
+    is the number on the tile. Read-only: a branch is the operator's to delete, in git or the IDE.
+    """
+    from .fleet import poll as P
+
+    try:
+        repo = Registry().get(a.repo)
+    except RegistryError as e:
+        return _refuse("ad-fleet branches", e)
+    try:
+        answer = P.branches(repo, cfg=C.load(), force=a.refresh)
+    except (OSError, ValueError) as e:
+        print(toon.encode({"meta": {"ok": False, "source": "ad-fleet branches", "repo": a.repo,
+                                    "error": str(e)[:300],
+                                    "hint": "git could not be asked in this checkout"}}))
+        return EXIT_REFUSED
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet branches", "repo": a.repo,
+                                "default": answer["default"], "current": answer["current"],
+                                "branches": answer["count"], "unmerged": answer["unmerged"],
+                                "warn_at": answer["warn_at"], "warn": answer["warn"],
+                                "more": answer["more"], "note": answer["carry_line"] or "-",
+                                "from": f"cache, {answer['age_s']}s old" if answer["cached"] else "git"}}))
+    print(toon.table("branches", ["branch", "last", "age", "ahead", "upstream", "ticket", "unmerged"],
+                     [[r["name"], r["sha"], _age_words(r["age_s"]),
+                       "-" if r["ahead"] is None else str(r["ahead"]),
+                       r["upstream"] or "none pushed", r["ticket"] or "-",
+                       "yes" if r["unmerged"] else "-"] for r in answer["branches"]]))
+    if answer["commits"]:
+        print(toon.table("commits", ["line"], [[line] for line in answer["commits"]]))
+    return EXIT_OK
+
+
+def _age_words(seconds: float) -> str:
+    seconds = int(seconds or 0)
+    if seconds < 3600:
+        return f"{max(1, seconds // 60)}m"
+    if seconds < 86400:
+        return f"{seconds // 3600}h"
+    return f"{seconds // 86400}d"
+
+
 def cmd_history(a) -> int:
     rows = B.history(since=B.since_seconds(a.since))
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet history", "dispatches": len(rows),
@@ -1374,6 +1418,11 @@ def build_parser() -> argparse.ArgumentParser:
     brd.add_argument("--refresh", action="store_true", help="ask Jira now instead of using the cache")
     brd.add_argument("--project", help="only this Jira project")
     brd.set_defaults(fn=cmd_board)
+
+    br = sub.add_parser("branches", help="every local branch of a checkout, and which never reached main")
+    br.add_argument("repo")
+    br.add_argument("--refresh", action="store_true", help="ask git now instead of the cached read")
+    br.set_defaults(fn=cmd_branches)
 
     hist = sub.add_parser("history", help="what was dispatched, how it ended, what it cost")
     hist.add_argument("--since", default="7d", help="7d | 12h | 90m (default 7d)")

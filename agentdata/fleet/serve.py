@@ -1500,6 +1500,18 @@ def _cursors(raw: str) -> dict:
     return out
 
 
+def _poll_digests() -> dict[str, str]:
+    """One string per checkout of what its cells currently say -- values only, not ages, so a
+    cell merely getting older is not a change. Never raises: the stream must not die on a
+    registry that is mid-write."""
+    try:
+        return {name: json.dumps({c: p.get("value") for c, p in poll_state(name).items()},
+                                 sort_keys=True, ensure_ascii=False)
+                for name in Registry().repos}
+    except (RegistryError, OSError, TypeError, ValueError):
+        return {}
+
+
 def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float = HEARTBEAT_S,
                   tick: float = TICK_S, once: bool = False, url: str = "",
                   notify_every: float = NOTIFY_EVERY_S, polls: bool = True) -> None:
@@ -1536,8 +1548,16 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     from .. import config as C
     cfg_file = C.path()
 
+    seen_polls: dict[str, str] | None = None
     while not stop.is_set():
         if polls:
+            # A cell that changed without an event -- the git cell is the one that never has one
+            # (#184) -- would otherwise sit on the tile until some agent said something. One
+            # `polls` frame per changed checkout, and the page re-reads the snapshot it draws
+            # cells from. Seeded before the first tick, so the first values count as a change:
+            # the window's first snapshot was usually read before that tick.
+            if seen_polls is None:
+                seen_polls = _poll_digests()
             poll_tick()
         if time.time() - last_sweep >= notify_every:
             last_sweep = time.time()
@@ -1563,6 +1583,13 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
                 cursors[name] = ev["seq"]
                 write(f"id: {name}:{ev['seq']}\nevent: agent\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n")
                 sent = True
+        if polls and seen_polls is not None:
+            # After the agent frames, for the same reason the desk frame is: the events first.
+            for name, digest in _poll_digests().items():
+                if seen_polls.get(name) != digest:
+                    seen_polls[name] = digest
+                    write(f"event: polls\ndata: {json.dumps({'repo': name})}\n\n")
+                    sent = True
         state = desk_state()
         if state["version"] != seen_selection:
             # After the agent frames, not before: a window that has just connected wants the events
@@ -1757,6 +1784,29 @@ class Handler(BaseHTTPRequestHandler):
             if not key:
                 return self._refuse(400, "key required", "pass ?key=<TICKET>")
             return self._json(PF.preflight(key, (query.get("repo") or [""])[0]))
+        if route == "/api/branches":
+            # Every local branch of one checkout and which never reached the default (#184).
+            # Read-only, local, cached for the git cell's interval; on the click, never on the
+            # poll, because `rev-list` per branch across five checkouts is not a cost a
+            # thirty-second tick can spend. 200 with ok:false when git cannot be asked: the pane
+            # renders the reason, the way a grey cell carries its error.
+            from .. import config as C
+
+            repo_name = (query.get("repo") or [""])[0]
+            if not repo_name:
+                return self._refuse(400, "repo required", "pass ?repo=<name>")
+            try:
+                repo = Registry().get(repo_name)
+            except RegistryError as e:
+                return self._refuse(404, e.msg, e.hint)
+            force = (query.get("refresh") or [""])[0] in ("1", "true", "yes")
+            try:
+                return self._json({"ok": True, "repo": repo_name,
+                                   **P.branches(repo, cfg=C.load(), force=force)})
+            except (OSError, ValueError) as e:
+                return self._json({"ok": False, "repo": repo_name, "error": str(e)[:300],
+                                   "hint": "git could not be asked in this checkout; "
+                                           "`git status` there says why", "branches": []})
         if route == "/api/notifications":
             try:
                 limit = int((query.get("limit") or ["50"])[0])

@@ -171,3 +171,15 @@ body[data-skin-variant="end"] header, body[data-skin-variant="end"] footer { col
 body[data-skin-variant="end"] header h1 { color: #F3EEDC !important; }
 body[data-skin-variant="end"] header .glabel, body[data-skin-variant="end"] header .dot,
 body[data-skin-variant="end"] footer, body[data-skin-variant="end"] footer #counts, body[data-skin-variant="end"] footer .keys { color: #C6BFA6 !important; }
+
+/* ------------------------------------------------------------------------- the scrollbar (#181)
+   A slab, bevelled the way the buttons are, and no rounding anywhere. Only the thumb. */
+body[data-skin="voxel"] {
+  --scroll-thumb: #3A3D40;
+  --scroll-thumb-hover: #4A4E52;
+}
+body[data-skin="voxel"] *::-webkit-scrollbar { width: 14px; height: 14px; }
+body[data-skin="voxel"] *::-webkit-scrollbar-thumb {
+  border-radius: 0; border: 2px solid #111; background-clip: border-box;
+  box-shadow: inset 2px 2px 0 rgba(255, 255, 255, 0.25), inset -2px -2px 0 rgba(0, 0, 0, 0.6);
+}

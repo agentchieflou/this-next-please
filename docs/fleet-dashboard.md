@@ -59,7 +59,7 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 | Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, width |
 | Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
-| Cells | the **project's** own state, polled read-only: ticket, PR, refresh, git — each with its age |
+| Cells | the **project's** own state, polled read-only: ticket, PR, refresh, git — each with its age; the git cell counts the branches and opens the inspector's branches pane (#184) |
 | Approval card | appears when that agent is waiting; the **dry-run payload in full**, Approve / Deny |
 | Transcript | assistant text, tool calls, denials, phase changes — the current run only |
 | Earlier runs | one collapsed row per earlier run with the state it ended in; never replayed as live |
@@ -73,10 +73,36 @@ catalogue), and **project** — the selected project's link rail, verify pane, f
 and offered files. Every window on this server agrees on which project is selected, so clicking a
 tile on the left monitor changes the inspector on the centre one.
 
-The **toolbar** is three labelled groups: *window* (the layout segments, and which window of that
-set this one is), *see* (search, the sidebar, the palette, the skin), and *needs me* (focus mode,
-chime, the bell). A cell that fails to poll goes **grey with the error in a tooltip**, never wrong;
-a link with no fact behind it is absent, never broken.
+The **project** section carries a **branches** pane (#184): the default branch and the current one's
+distance from it, one row per local branch — name, last commit and its age, ahead of the default,
+upstream or *none pushed*, the ticket key the name carries — the ones that never reached the
+default first and marked, then the last twenty commits of the current branch. A branch whose name
+carries the tile's active ticket is that ticket's; a second one with the same key is the smell the
+operator asked to see, and the pane says so in one line: *two branches carry RDSD-22490; only one
+can merge*. The pane is read on the click and cached for the git cell's interval, never on the poll.
+On the tile, the git cell is the button that opens it and carries the count on its second line:
+`7 branches · 3 never reached main`, amber at `fleet.branches.warn` (default 6), grey with the error
+when git cannot be asked, and never a toast. `ad-fleet branches <repo>` prints the same rows.
+
+At the top of the board is the **agent rail** (#183): one chip per registered checkout — the dock's
+chip, name and state and age — each a drop target. A ticket dragged over it lights the candidates
+`board.suggest` names for that key and dims the rest; a drop calls exactly what a drop on the tile
+calls, so the board window (`?layout=roles&view=board`, where there are no tiles) hands a ticket
+over with the same pre-flight card and the same refusals in the supervisor's words. The card is one
+element the page owns, drawn in the tile when the tile is on the glass and under the rail when it
+is not — it used to draw inside a hidden tile, so the window built for handing tickets over was the
+one place the hand-over skipped its pre-flight. A ticket row takes the keyboard: `1`–`9` picks the
+rail chip in that position, `Enter` the row's one candidate.
+
+The **toolbar** is three labelled groups and one row: *window* (the layout segments, and which window
+of that set this one is), *see* (search, the sidebar, and a *look* button), and *needs me* (focus
+mode, chime, the bell). The palette and skin pickers are behind *look* (#180): they are chosen once
+a week, not once a minute, and two `<select>`s were the widest things on the bar — HIG *Toolbars*
+keeps the commands for the current context on the bar and puts a choice that rarely changes
+somewhere a person goes on purpose. The footer keeps the two things that change — the counts and
+the notice — and a `?` button (or the `?` key) opens the key map in four short columns. A cell that
+fails to poll goes **grey with the error in a tooltip**, never wrong; a link with no fact behind it
+is absent, never broken.
 
 The grid follows the number of registered repositories: four repos, four tiles. Click a repo name
 (or double-click a tile) and it fills the window; `Esc` returns to the grid. Tiles that change place
@@ -216,6 +242,7 @@ red everywhere or the colour stops being information:
 
 | Key | Does |
 | --- | --- |
+| `?` | the key map — this table, in four columns, behind the footer's `?` button |
 | `1`–`9` | focus that tile — counting what is **on the glass** |
 | `f` | focus mode: only the agents that need you |
 | `h` | hide the tile the keyboard is on; its chip is in the dock |
@@ -229,7 +256,7 @@ red everywhere or the colour stops being information:
 | `Alt`+`←` / `Alt`+`→` | move the focused tile one slot |
 | `Alt`+`Home` | pin the focused tile first |
 | `Alt`+`Enter` | one column or two |
-| `Esc` | close the sidebar, or back to the grid (or out of a text box) |
+| `Esc` | close a popover, the sidebar, or back to the grid (or out of a text box) — the nearest open thing first |
 
 The number on a tile is the key that focuses it, and it follows the arrangement: move a tile and its
 number moves with it, and a tile that is off the glass has no number at all — a digit that zoomed a
@@ -284,6 +311,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/sessions` | `?repo=` — this checkout's sessions, folded from the stream on the click |
 | GET | `/api/transcript` | `?repo=&session=&limit=&before=` — one session's lines, read-only, paged from the end (#174) |
 | GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164) |
+| GET | `/api/branches` | `?repo=&refresh=` — every local branch of one checkout, which never reached the default, the last twenty commits; read on the click, cached for the git interval (#184) |
 | POST | `/api/dismiss` | `{id}` — stop offering that file until it is downloaded again |
 
 `select` and `dismiss` change nothing on disk inside a repository. `attach` is the single exception
@@ -298,6 +326,9 @@ The page is a view: it decides nothing and spawns nothing.
 
 Resume cursors are **per agent** (`luna:12,other:4`), not one number. Each agent's `seq` is dense
 and its own, so a shared cursor would replay one stream and skip another.
+
+A `polls` event names a checkout whose cells changed with no agent event to say so — the git cell
+never has one (#184) — and the page re-reads `/api/fleet`, the snapshot it draws cells from.
 
 A `tick` event goes out at least every 15 seconds. It is not decoration: a proxy that sees no bytes
 for a minute closes the connection, and the tiles then stop updating with nothing anywhere saying
