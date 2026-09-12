@@ -122,6 +122,10 @@ fleet makes inside a repository, it happens only on a click, and it is logged as
 
 ## The rules
 
+**A console the fleet opens** (`ad-fleet console <repo> [KEY]`, #189) is the operator's own
+`cmd.exe` running Copilot in that checkout with a session id the fleet chose; the tile reads the
+same session from Copilot's own file for it (#188), and the lock is taken with the window's pid.
+
 **One agent per registered working tree**, enforced by a lock rather than by hope — two `copilot`
 processes in one checkout would both edit the same working tree and both believe they owned
 `.agent/state.json`. A working tree, not a repository: two `git worktree` checkouts of one
