@@ -1,11 +1,8 @@
-/* The multi-viewer. Light and dark follow the system; the three PyCharm palettes override the
-   surface colours only -- status colours never change, because a chip that means "needs you" has
-   to be the same red in every theme or the colour stops being information.
-
-   That rule is why the greyed cell of a failed poll (#131) uses --idle and not a lighter --muted:
-   "this number is old" is a status, the same status, on every screen and in every palette. The
-   layouts of #133 are body classes over this one stylesheet -- one page, three arrangements -- so
-   nothing below can make a chip mean one thing on the centre monitor and another on the left. */
+/* The multi-viewer. Light and dark follow the system; the palettes override surface colours only
+   -- status colours never change, because a chip meaning "needs you" has to be the same red in
+   every theme or the colour stops being information. That is why a failed poll's greyed cell
+   (#131) uses --idle, not a lighter --muted: "this number is old" is a status. The layouts of #133
+   are body classes over this one stylesheet, so nothing below can make a chip mean two things. */
 
 :root {
   --bg: #f6f7f8;
@@ -35,11 +32,10 @@
 
 * { box-sizing: border-box; }
 
-/* The `hidden` attribute has to win, and until this rule it did not. Every panel below sets
-   `display: flex`, and an id selector outranks the user-agent `[hidden] { display: none }` rule --
-   so a drawer the page had "closed" stayed on the glass, and, being fixed and full height, went on
-   swallowing the clicks meant for the tiles underneath it. `el.hidden = true` is how this page
-   closes everything, so it means what it says here or it means nothing. */
+/* The `hidden` attribute has to win, and until this rule it did not: every panel sets `display:
+   flex` and an id selector outranks the user-agent `[hidden]` rule, so a "closed" drawer stayed on
+   the glass swallowing the clicks meant for the tiles under it. `el.hidden = true` is how this
+   page closes everything, so it means what it says here or it means nothing. */
 [hidden] { display: none !important; }
 
 body {
@@ -288,11 +284,10 @@ main {
 body.focused main { grid-template-columns: 1fr; }
 body.focused .tile:not(.is-focused) { display: none; }
 
-/* The left edge is the PROJECT's accent and nothing else; the chip is the state. One stripe
-   carrying two meanings is how a desk of four monitors starts lying: the same red would mean
-   "this project" on one screen and "this needs you" on the next. #150 fixes the roles --
-   accent says *which project*, chip says *what state* -- and the accent is the same hex the
-   project's terminal is painted in. */
+/* The left edge is the PROJECT's accent; the chip is the state. One stripe with two meanings is
+   how a four-monitor desk starts lying: the same red would say "this project" on one screen and
+   "this needs you" on the next. #150 fixed the roles, and the accent is the hex that project's
+   terminal is painted in. */
 .tile {
   display: flex; flex-direction: column; min-height: 240px; max-height: 60vh;
   background: var(--panel); border: 1px solid var(--line);
@@ -685,8 +680,7 @@ body.solo .transcript { max-height: 34vh; }
 body.panels main, body.panels #empty { display: none; }
 
 /* The laptop view is the sidebar and nothing else, so its per-section close buttons and the
-   sidebar toggle have nothing to close it to. (`#boardtoggle` and `#traytoggle` were also named
-   here; those two buttons became the sidebar's tab strip.) */
+   sidebar toggle have nothing to close it to. */
 body.panels #closeboard, body.panels #closetray, body.panels #closedrawer,
 body.panels #closefound, body.panels #closeinspector, body.panels #sidetoggle { display: none; }
 

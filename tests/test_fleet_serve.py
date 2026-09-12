@@ -284,9 +284,58 @@ def test_the_page_fetches_nothing_from_the_internet():
 
 
 def test_the_static_payload_is_small_enough_to_load_over_anything():
-    total = sum(os.path.getsize(os.path.join(STATIC, n)) for n in os.listdir(STATIC)
-                if os.path.isfile(os.path.join(STATIC, n)))
-    assert total < 200 * 1024, f"{total} bytes of static payload"
+    """The budget is what crosses the wire, which since #195 is the compressed page.
+
+    It used to be what sits on the disk, and the two are not the same thing: the page is mostly
+    prose -- the comments *are* the design record this repository keeps -- and prose is what gzip
+    is best at. Measuring the disk made every explanation cost against a number that exists to keep
+    the page quick to load, and the last four changes to the desk each paid for their space by
+    shortening a comment. The figure below is the one an operator waits on; the raw size is
+    reported beside it so a file that doubles is still visible in the failure.
+    """
+    import gzip as gz
+
+    files = [n for n in sorted(os.listdir(STATIC)) if os.path.isfile(os.path.join(STATIC, n))]
+    raw = {n: open(os.path.join(STATIC, n), "rb").read() for n in files}
+    sent = sum(len(gz.compress(body, 6, mtime=0)) for body in raw.values())
+    on_disk = sum(len(body) for body in raw.values())
+    assert sent < 200 * 1024, f"{sent} bytes over the wire ({on_disk} on disk): {sorted(raw)}"
+
+
+def test_the_page_and_its_assets_are_served_compressed():
+    """What the budget above measures has to be what the server actually sends, or the number is a
+    claim about a file rather than about a page load."""
+    import gzip as gz
+    import urllib.request
+
+    server, token = S.build(0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    try:
+        for route in ("/", "/static/app.js", "/static/app.css"):
+            asked = urllib.request.Request(f"http://127.0.0.1:{port}{route}?t={token}",
+                                           headers={"Accept-Encoding": "gzip"})
+            with urllib.request.urlopen(asked, timeout=10) as answer:
+                body = answer.read()
+                assert answer.headers.get("Content-Encoding") == "gzip", route
+                # A cache in front of this must not hand the compressed bytes to a client that did
+                # not ask for them: that reads as a corrupt page rather than as a bug.
+                assert "Accept-Encoding" in (answer.headers.get("Vary") or ""), route
+                assert int(answer.headers["Content-Length"]) == len(body), route
+            opened = gz.decompress(body)
+            assert len(opened) > len(body), f"{route} grew"
+
+            # And a client that cannot take it still gets the page, uncompressed.
+            plain = urllib.request.Request(f"http://127.0.0.1:{port}{route}?t={token}",
+                                           headers={"Accept-Encoding": "identity"})
+            with urllib.request.urlopen(plain, timeout=10) as answer:
+                assert not answer.headers.get("Content-Encoding"), route
+                assert answer.read() == opened, route
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="no node on this machine to check the syntax")
@@ -448,3 +497,36 @@ def test_skin_tier_stylesheet_serving_and_budget(running):
             assert len(content) > 0
             assert b"prefers-reduced-" in content
 
+
+
+def test_a_file_is_text_whatever_this_machine_calls_it(monkeypatch):
+    """Windows reads `mimetypes` out of the registry, where `.js` is commonly
+    `application/javascript` rather than the `text/javascript` Linux reports. Deciding whether to
+    compress *after* appending `; charset=utf-8` left that matching neither test, so the script
+    went out uncompressed on Windows and nowhere else — found by CI, on the first run of the test
+    above. Whether a file is text is a fact about the file, not about the host."""
+    import gzip as gz
+    import mimetypes
+    import urllib.request
+
+    monkeypatch.setattr(mimetypes, "guess_type",
+                        lambda path, strict=True: (("application/javascript", None)
+                                                   if str(path).endswith(".js")
+                                                   else ("text/css", None)))
+    server, token = S.build(0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    try:
+        asked = urllib.request.Request(f"http://127.0.0.1:{port}/static/app.js?t={token}",
+                                       headers={"Accept-Encoding": "gzip"})
+        with urllib.request.urlopen(asked, timeout=10) as answer:
+            body = answer.read()
+            assert answer.headers.get("Content-Encoding") == "gzip"
+            # And it is still declared as UTF-8, which that ordering also dropped.
+            assert "charset=utf-8" in answer.headers.get("Content-Type", "")
+        assert b"function" in gz.decompress(body)
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
