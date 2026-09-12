@@ -85,9 +85,14 @@ def test_an_unknown_marker_fails_collection(tmp_path):
     probe.write_text("import pytest\n\n\n@pytest.mark.definitely_not_declared\ndef test_x():\n    pass\n",
                      encoding="utf-8")
     # -c so the probe is judged by *our* config: a file in tmp_path would otherwise get its own
-    # rootdir, where --strict-markers is not set and the assertion would prove nothing
+    # rootdir, where --strict-markers is not set and the assertion would prove nothing.
+    # --rootdir so the collection starts at the probe's own folder: with the rootdir on another
+    # drive, pytest walks the probe's ancestors from the filesystem root, and a stray entry in
+    # the runner's Temp (a junction it cannot stat) is then a collection error that says nothing
+    # about markers.
     p = subprocess.run([sys.executable, "-m", "pytest", "-q",
-                        "-c", os.path.join(REPO_ROOT, "pyproject.toml"), str(probe)],
+                        "-c", os.path.join(REPO_ROOT, "pyproject.toml"),
+                        "--rootdir", str(tmp_path), str(probe)],
                        capture_output=True, text=True, cwd=REPO_ROOT)
     assert p.returncode != 0, p.stdout
     message = (p.stdout + p.stderr).lower()
