@@ -1976,15 +1976,19 @@ class Handler(BaseHTTPRequestHandler):
         stamp = os.stat(path)
         with open(path, "rb") as f:
             body = f.read()
-        ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
-        if ctype.startswith("text/") or ctype.endswith(("javascript", "json")):
-            ctype += "; charset=utf-8"
-        if ctype.startswith("text/css"):
-            body = _tokenize_css_urls(body.decode("utf-8"), self.token).encode("utf-8")
+        # Decided from the *base* type, before the charset is appended -- and not from what this
+        # machine happens to call a `.js` file. `mimetypes` reads the registry on Windows, where
+        # `.js` is commonly `application/javascript`; deciding after the append left that failing
+        # both tests ("text/" and "…javascript") and the script went out uncompressed there and
+        # nowhere else. Whether a file is text is a fact about the file, not about the host.
+        base = mimetypes.guess_type(path)[0] or "application/octet-stream"
         # Text compresses; a skin's PNG does not, and gzipping it would spend CPU to grow it.
-        packs = ctype.startswith("text/") or ctype.endswith(("javascript", "json", "svg+xml"))
+        texty = base.startswith("text/") or base.endswith(("javascript", "json", "xml", "svg+xml"))
+        ctype = base + ("; charset=utf-8" if texty else "")
+        if base == "text/css":
+            body = _tokenize_css_urls(body.decode("utf-8"), self.token).encode("utf-8")
         self._send(200, body, ctype,
-                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) if packs else None)
+                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) if texty else None)
 
     def _sse(self, query: dict) -> None:
         self.send_response(200)

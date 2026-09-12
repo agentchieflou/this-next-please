@@ -497,3 +497,36 @@ def test_skin_tier_stylesheet_serving_and_budget(running):
             assert len(content) > 0
             assert b"prefers-reduced-" in content
 
+
+
+def test_a_file_is_text_whatever_this_machine_calls_it(monkeypatch):
+    """Windows reads `mimetypes` out of the registry, where `.js` is commonly
+    `application/javascript` rather than the `text/javascript` Linux reports. Deciding whether to
+    compress *after* appending `; charset=utf-8` left that matching neither test, so the script
+    went out uncompressed on Windows and nowhere else — found by CI, on the first run of the test
+    above. Whether a file is text is a fact about the file, not about the host."""
+    import gzip as gz
+    import mimetypes
+    import urllib.request
+
+    monkeypatch.setattr(mimetypes, "guess_type",
+                        lambda path, strict=True: (("application/javascript", None)
+                                                   if str(path).endswith(".js")
+                                                   else ("text/css", None)))
+    server, token = S.build(0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    try:
+        asked = urllib.request.Request(f"http://127.0.0.1:{port}/static/app.js?t={token}",
+                                       headers={"Accept-Encoding": "gzip"})
+        with urllib.request.urlopen(asked, timeout=10) as answer:
+            body = answer.read()
+            assert answer.headers.get("Content-Encoding") == "gzip"
+            # And it is still declared as UTF-8, which that ordering also dropped.
+            assert "charset=utf-8" in answer.headers.get("Content-Type", "")
+        assert b"function" in gz.decompress(body)
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
