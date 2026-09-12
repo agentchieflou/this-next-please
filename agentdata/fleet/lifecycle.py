@@ -150,7 +150,12 @@ def reap(name: str, *, slept: bool = False) -> list[dict]:
 
     stderr = tail_stderr(name)
     ticket = lock.get("ticket", "")
-    if slept:
+    if lock.get("kind") == "console":
+        # The operator closed the window the fleet opened (#189). Not an error: the session is a
+        # record with an ending, and *Resume here* continues it headless.
+        fresh = [E.event(name, "exited", {"exit_code": None, "why": "the console closed",
+                                          "reason": "the console closed"}, ticket=ticket)]
+    elif slept:
         # The laptop slept and the process is gone: one exited event naming sleep, and no error.
         fresh = [E.event(name, "exited", {"exit_code": None,
                                           "why": "the laptop slept",

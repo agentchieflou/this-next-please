@@ -1323,6 +1323,16 @@ def act(what: str, body: dict) -> dict:
                                 brief=body.get("brief") or None)
         return {"repo": repo, "pid": lock["pid"], "ticket": lock.get("ticket", ""),
                 "summary": lock.get("summary", ""), "session": lock.get("session", "")}
+    if what == "console":
+        # A real window running Copilot in this checkout, with a session id the fleet chose (#189).
+        from .. import config as C
+
+        lock = supervisor.console(repo, key=body.get("ticket") or None, cfg=C.load(),
+                                  resume=body.get("resume") or None, new=bool(body.get("new")),
+                                  cross_project=bool(body.get("cross_project")),
+                                  board_rows=(B.read_cache() or {}).get("rows") or [])
+        return {"repo": repo, "pid": lock["pid"], "ticket": lock.get("ticket", ""),
+                "session": lock.get("session", ""), "host": lock.get("host", "")}
     if what == "send":
         from .. import config as C
 

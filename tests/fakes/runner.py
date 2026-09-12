@@ -116,7 +116,7 @@ def play(entry: dict, argv: list[str]) -> int:
     allow = _flag_values(argv, "--allow-tool")
     deny = _flag_values(argv, "--deny-tool")
     resumed = bool(_flag_values(argv, "--resume"))
-    session = _one(argv, "--resume") or entry.get("session") or "fake-session-1"
+    session = _one(argv, "--resume") or _one(argv, "--session-id") or entry.get("session") or "fake-session-1"
     if not resumed and entry.get("fresh_session"):
         # `ad-fleet start --new` is the fleet passing no `--resume`, and a real `copilot` answers
         # that with a conversation it has never used before. A transcript with one fixed id made

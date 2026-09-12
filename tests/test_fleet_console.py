@@ -17,7 +17,9 @@ import time
 
 import pytest
 
-from agentdata.fleet import events as E, launch, registry, serve as S, sessions as SESS, supervisor
+from agentdata.fleet import events as E, launch, lifecycle, registry, serve as S, sessions as SESS, supervisor
+
+import fakes
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
@@ -283,3 +285,85 @@ def test_a_resumed_console_continues_the_session_it_names_and_a_blanket_permissi
         launch.console_command("copilot", "C:/repo", log_dir="C:/logs", session="s",
                                cfg={"fleet": {"allow_tools": ["--allow-all"]}})
     assert "blanket" in e.value.hint
+
+
+# -------------------------------------------------------------- the console the fleet opens (#189)
+
+
+def _eventually(cond, timeout=15.0):
+    end = time.time() + timeout
+    while time.time() < end:
+        if cond():
+            return True
+        time.sleep(0.1)
+    return cond()
+
+
+CONSOLE_CFG = {"fleet": {"console": {"host": "fake"}, "notify": {"toast": False}}}
+
+
+def test_the_console_the_fleet_opens_takes_the_lock_and_the_tile_reads_it_live(fleet_home, tmp_path, monkeypatch):
+    """Acceptance criteria (#189). With a fake host, `ad-fleet console luna RDSD-7` takes the lock
+    with `kind: console` and a pid, appends `started` with `console: true`, and the tile reads the
+    fake's session file live. While it is live, start/send refuse with `live_agent` and stop refuses
+    with *close that window* and kills nothing. The window closing ends the run."""
+    fakes.apply(monkeypatch, tmp_path, ["copilot"], npm=True)
+    monkeypatch.setenv("AGENTDATA_FAKE_CASE", "console-session")
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    Registry().add(path, name="luna")
+
+    lock = supervisor.console("luna", key="RDSD-7", cfg=CONSOLE_CFG)
+    assert lock["kind"] == "console" and lock["pid"] and lock["session"]
+    assert "-C" in lock["launch"] and "-p" not in lock["launch"]
+    started = [e for e in E.read("luna") if e["kind"] == "started"]
+    assert len(started) == 1 and started[0]["data"]["console"] is True
+    assert started[0]["data"]["session"] == lock["session"]
+
+    # Live, and read from Copilot's own file for the session, not from a pipe.
+    assert supervisor.live("luna")["kind"] == "console"
+    file = SESS.session_state_path(lock["session"])
+    assert _eventually(lambda: os.path.isfile(file) and "Hello from the console" in open(file, encoding="utf-8").read())
+    E.refresh("luna", path, repo_state=Registry().get("luna").state())
+    texts = [e["data"]["text"] for e in E.read("luna") if e["kind"] == "assistant_text"]
+    assert texts == ["Hello from the console."], texts
+    assert os.path.getsize(supervisor.events_path("luna")) == 0 if os.path.isfile(supervisor.events_path("luna")) else True
+
+    with pytest.raises(supervisor.SupervisorError) as e:
+        supervisor.start("luna", key="RDSD-7", cfg=CONSOLE_CFG)
+    assert e.value.code == "live_agent"
+    with pytest.raises(supervisor.SupervisorError) as e:
+        supervisor.send("luna", "hello", cfg=CONSOLE_CFG)
+    assert e.value.code == "external_session" and "type in that window" in e.value.hint
+    with pytest.raises(supervisor.SupervisorError) as e:
+        supervisor.stop("luna")
+    assert e.value.code == "console_window" and "close that window" in e.value.hint
+    assert supervisor.pid_alive(lock["pid"]), "stop killed the console"
+
+    # The window closes (the fake's turn ends): the reaper says so, and the lock goes with it.
+    assert _eventually(lambda: not supervisor.pid_alive(lock["pid"]), timeout=30)
+    fresh = lifecycle.reap("luna")
+    assert [e["kind"] for e in fresh] == ["exited"] and fresh[0]["data"]["why"] == "the console closed"
+    assert not supervisor.read_lock("luna")
+
+
+def test_a_console_is_refused_beside_a_live_agent_and_a_machine_with_no_terminal(fleet_home, tmp_path, monkeypatch):
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    Registry().add(path, name="luna")
+    supervisor.write_lock("luna", {"pid": os.getpid(), "repo": "luna", "ticket": "RDSD-2", "launch": []})
+    with pytest.raises(supervisor.SupervisorError) as e:
+        supervisor.console("luna", key="RDSD-7", cfg=CONSOLE_CFG)
+    assert e.value.code == "live_agent"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows always has cmd.exe")
+def test_a_machine_with_no_terminal_refuses_to_open_a_console(fleet_home, tmp_path, monkeypatch):
+    import shutil
+
+    fakes.apply(monkeypatch, tmp_path, ["copilot"], npm=True)
+    path = make_project(tmp_path / "luna", ticket="RDSD-7")
+    Registry().add(path, name="luna")
+    monkeypatch.setattr(shutil, "which", lambda name, *a, **k: None)
+    with pytest.raises(supervisor.SupervisorError) as e:
+        supervisor.console("luna", key="RDSD-7", cfg={"fleet": {"console": {"host": "terminal"}}})
+    assert e.value.code == "no_console_host"
+    assert not supervisor.read_lock("luna"), "no window, no lock"

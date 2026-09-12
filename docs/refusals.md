@@ -46,6 +46,8 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Update | the CLI half is asked for through the `ad-update` launcher on Windows | `refused`, exit 2, naming the module form | `test_lifecycle.py::test_the_install_and_update_lifecycle` |
 | Fleet | a folder has no `AGENTS.md` or `.agent/state.json` | `refused`, exit 2, naming `ad-setup --project .` | `test_fleet.py::test_a_folder_that_is_not_a_project_is_refused` |
 | Fleet | a repository already has a live agent | `refused: live_agent`, exit 2, naming the running ticket | `test_fleet.py::test_a_second_start_is_refused_while_an_agent_is_live` |
+| Fleet | `ad-fleet stop` on a console the fleet opened (#189) | `refused: console_window`, exit 2 — close that window; the fleet opened it and does not close it | `test_fleet_console.py::test_the_console_the_fleet_opens_takes_the_lock_and_the_tile_reads_it_live` |
+| Fleet | `ad-fleet console` on a machine with no terminal emulator (#189) | `refused: no_console_host`, exit 2 — the console is for the laptop; `fleet.console.host: fake` runs it with no window | `test_fleet_console.py::test_a_machine_with_no_terminal_refuses_to_open_a_console` |
 | Fleet | the repository is mid-ticket in a non-terminal phase | `refused: mid_ticket`, exit 2, naming the ticket and phase | `test_fleet.py::test_starting_a_different_ticket_mid_ticket_is_refused_without_force` |
 | Fleet | ticket project does not match repository's declared jira_project | `refused: cross_project`, exit 2, naming both projects | `test_fleet.py::test_cross_project_ticket_is_refused` |
 | Fleet | ticket is in a Done statusCategory on the board | `refused: ticket_done`, exit 2, naming the status | `test_fleet.py::test_done_ticket_is_refused` |

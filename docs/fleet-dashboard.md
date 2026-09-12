@@ -73,6 +73,14 @@ catalogue), and **project** — the selected project's link rail, verify pane, f
 and offered files. Every window on this server agrees on which project is selected, so clicking a
 tile on the left monitor changes the inspector on the centre one.
 
+A **console** the fleet opens (#189) is a session the operator drives in their own `cmd.exe` window,
+started by `ad-fleet console <repo> [KEY]` with a session id the fleet chose. The lock is taken the
+way `start` takes it, with the window's pid, so one agent per working tree holds for consoles too;
+the tile reads the session from Copilot's own file for it (`~/.copilot/session-state/<id>/events.jsonl`,
+#188) on the same tick as its own logs — a line the console's Copilot writes is on the tile inside a
+second. *Stop* refuses with *close that window*: the fleet opened it and does not close it; when the
+window closes, the run ends with *the console closed* and *Resume here* continues it headless.
+
 The **project** section carries a **branches** pane (#184): the default branch and the current one's
 distance from it, one row per local branch — name, last commit and its age, ahead of the default,
 upstream or *none pushed*, the ticket key the name carries — the ones that never reached the
@@ -311,6 +319,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/sessions` | `?repo=` — this checkout's sessions, folded from the stream on the click |
 | GET | `/api/transcript` | `?repo=&session=&limit=&before=` — one session's lines, read-only, paged from the end (#174) |
 | GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164) |
+| POST | `/api/console` | `{repo, ticket?, resume?, new?}` — open a real console running Copilot in that checkout with a session id the fleet chose; the tile reads the session from Copilot's own file (#188, #189) |
 | GET | `/api/branches` | `?repo=&refresh=` — every local branch of one checkout, which never reached the default, the last twenty commits; read on the click, cached for the git interval (#184) |
 | POST | `/api/dismiss` | `{id}` — stop offering that file until it is downloaded again |
 

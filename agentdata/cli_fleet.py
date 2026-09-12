@@ -135,6 +135,24 @@ def cmd_start(a) -> int:
                                     "next": f"ad-fleet status --repo {a.repo}"})
 
 
+def cmd_console(a) -> int:
+    """Open a real console running Copilot in a checkout, with a session id the fleet chose (#189).
+
+    The operator's own interactive session in their own window; the tile reads the same session from
+    Copilot's file (#188). One agent per working tree: refused beside a live agent.
+    """
+    rows = (B.read_cache() or {}).get("rows") or []
+    try:
+        lock = supervisor.console(a.repo, key=a.ticket, cfg=C.load(), resume=a.resume, new=a.new,
+                                  cross_project=a.cross_project, board_rows=rows)
+    except (RegistryError, supervisor.SupervisorError, launch.LaunchError) as e:
+        return _refuse("ad-fleet console", e)
+    return _emit("ad-fleet console", {"repo": a.repo, "ticket": lock.get("ticket", ""),
+                                      "session": lock.get("session", ""), "pid": lock["pid"],
+                                      "host": lock.get("host", ""),
+                                      "next": "type in the window; the tile shows the same session"})
+
+
 def cmd_answer(a) -> int:
     """Answer one of an agent's open questions, and let it continue.
 
@@ -1304,6 +1322,15 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--brief-file", dest="brief_file", metavar="PATH",
                        help="the same, read from a file")
     start.set_defaults(fn=cmd_start)
+
+    con = sub.add_parser("console", help="open a real console running Copilot in a repository, on the desk")
+    con.add_argument("repo")
+    con.add_argument("ticket", nargs="?", help="the ticket key the session is for")
+    con.add_argument("--resume", help="continue a specific session by id, in the console")
+    con.add_argument("--new", action="store_true", help="a clean session beside the previous one")
+    con.add_argument("--cross-project", action="store_true", dest="cross_project",
+                     help="a ticket whose project is not this repo's jira_project")
+    con.set_defaults(fn=cmd_console)
 
     ans = sub.add_parser("answer", help="answer an agent's open question so it can continue")
     ans.add_argument("repo")

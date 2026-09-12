@@ -1,0 +1,46 @@
+{
+  "source": "synthesized",
+  "note": "the #189 console: an interactive session the fleet opened a window for. No -p in the argv (the operator types); the session id is the fleet's (--session-id or --resume); -C names the checkout. One turn, a pause long enough for the fleet to look at it while it is live, then a result. Shapes from docs/fleet-spike.md (#92); content invented.",
+  "captured": "2026-09-12",
+  "match": [
+    "-C"
+  ],
+  "session": "sess-console",
+  "usage": {
+    "premiumRequests": 0.33,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "Hello from the console.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "sleep": 3
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ]
+}
