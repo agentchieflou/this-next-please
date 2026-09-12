@@ -1193,7 +1193,13 @@ document.getElementById("unfocus").addEventListener("click", unfocus);
 
 document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-  if (e.key === "Escape") { if (typing) document.activeElement.blur(); else unfocus(); return; }
+  if (e.key === "Escape") {
+    // A popover is the nearest thing open, so Esc closes it and nothing else -- the second
+    // listener below would otherwise close the sidebar in the same keystroke (#180).
+    if (closePopovers()) { e.stopImmediatePropagation(); return; }
+    if (typing) document.activeElement.blur(); else unfocus();
+    return;
+  }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^[1-9]$/.test(e.key)) {
     // The number printed on a tile comes from the arrangement, so the key that focuses it must
@@ -1343,6 +1349,10 @@ function reflectTheme(cur) {
      would then override. Turning the skin off hands it back. */
   if (themeSel) {
     var bound = !!(cur.skin && cur.skin !== "none");
+    // A disabled element cannot hold the focus, so disabling the palette picker under a keyboard
+    // user dropped them to `body` -- out of the popover they had just opened (#180). The skin
+    // picker beside it is what they are now choosing with, so that is where the keyboard goes.
+    if (bound && !themeSel.disabled && document.activeElement === themeSel && skinSel) skinSel.focus();
     themeSel.disabled = bound;
     themeSel.title = bound
       ? "the palette comes from the skin — choose “no skin” to pick one yourself"
@@ -2903,11 +2913,68 @@ document.getElementById("showall").addEventListener("click", function () {
 
 document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 
+/* ------------------------------------------------------------------------- the popovers (#180)
+
+   The two things that left the toolbar: the palette and skin pickers, behind *look*, and the key
+   map, behind `?`. A popover is a panel with `hidden` on it and nothing more -- no framework, no
+   build step -- opened by one button, closed by Esc and by clicking anywhere else, one at a time.
+   The controls inside keep their ids, so `loadThemes`, `reflectTheme`, the `theme` stream event
+   and every test that reads `#theme` and `#skin` are untouched. */
+var POPOVERS = { look: "lookbtn", keymap: "keysbtn" };
+
+function popover(id, open) {
+  var box = document.getElementById(id);
+  var button = document.getElementById(POPOVERS[id]);
+  if (!box || !button) return false;
+  var want = open === undefined ? box.hidden : !!open;
+  // Read before anything is hidden: a hidden element cannot hold the focus, so the browser has
+  // already moved it to `body` by the time the box is closed, and asking then finds nobody home.
+  var hadTheKeyboard = !!(document.activeElement && box.contains(document.activeElement));
+  Object.keys(POPOVERS).forEach(function (other) {
+    var o = document.getElementById(other);
+    var ob = document.getElementById(POPOVERS[other]);
+    var on = other === id && want;
+    if (o) o.hidden = !on;
+    if (ob) ob.setAttribute("aria-expanded", String(on));
+  });
+  if (want) {
+    var first = box.querySelector("select:not(:disabled), button:not(:disabled), input:not(:disabled), [tabindex]");
+    if (first) first.focus();
+  } else if (hadTheKeyboard) {
+    button.focus();                           // the keyboard goes back where it came from
+  }
+  return want;
+}
+
+function closePopovers() {
+  var was = false;
+  Object.keys(POPOVERS).forEach(function (id) {
+    var box = document.getElementById(id);
+    if (box && !box.hidden) { popover(id, false); was = true; }
+  });
+  return was;
+}
+
+Object.keys(POPOVERS).forEach(function (id) {
+  var button = document.getElementById(POPOVERS[id]);
+  if (button) button.addEventListener("click", function () { popover(id); });
+});
+document.addEventListener("click", function (e) {
+  Object.keys(POPOVERS).forEach(function (id) {
+    var box = document.getElementById(id);
+    var button = document.getElementById(POPOVERS[id]);
+    if (box && !box.hidden && !box.contains(e.target) && !(button && button.contains(e.target))) {
+      popover(id, false);
+    }
+  });
+});
+
 document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   if (e.key === "Escape" && !typing) { closeSide(); return; }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "f") { focusMode(); return; }
   if (e.key === "i") { section("unsorted"); return; }
+  if (e.key === "?") { popover("keymap"); return; }
   if (e.key === "/") { e.preventDefault(); document.getElementById("find").focus(); }
 });

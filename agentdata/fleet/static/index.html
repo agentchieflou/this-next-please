@@ -32,10 +32,17 @@
     <label for="find" class="sr">search every project</label>
     <input id="find" type="search" placeholder="where is … (/)" title="search the catalogue: ad-fleet where">
     <button id="sidetoggle" aria-pressed="false" title="the sidebar: board, inbox, notifications, where, project">sidebar</button>
-    <label for="theme" class="sr">theme</label>
-    <select id="theme" title="palette — shared with this project&#39;s terminal"><option value="none">system</option></select>
-    <label for="skin" class="sr">skin</label>
-    <select id="skin" title="skin — how the page is rendered; the terminal keeps the palette"><option value="none">no skin</option></select>
+    <!-- #180: the palette and the skin are chosen once a week, not once a minute, and two
+         <select>s were the widest things on the bar. HIG *Toolbars*: the commands for the current
+         context stay on the bar; a choice that rarely changes goes behind one button. The two
+         controls keep their ids, so everything that reads them is untouched. -->
+    <button id="lookbtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="look" title="the palette and the skin">look</button>
+    <div id="look" class="popover" role="dialog" aria-label="the look" hidden>
+      <label for="theme">palette</label>
+      <select id="theme" title="palette — shared with this project&#39;s terminal"><option value="none">system</option></select>
+      <label for="skin">skin</label>
+      <select id="skin" title="skin — how the page is rendered; the terminal keeps the palette"><option value="none">no skin</option></select>
+    </div>
   </div>
 
   <span class="spacer"></span>
@@ -160,7 +167,35 @@
   <span id="counts"></span>
   <span id="notice" class="notice" hidden></span>
   <span class="spacer"></span>
-  <span class="keys"><kbd>1</kbd>–<kbd>9</kbd> focus · <kbd>f</kbd> only what needs you · <kbd>/</kbd> where · <kbd>i</kbd> inbox · <kbd>b</kbd> board · <kbd>n</kbd> alerts · <kbd>a</kbd> approve · <kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile · <kbd>Alt</kbd>+<kbd>Home</kbd> pin · <kbd>Alt</kbd>+<kbd>Enter</kbd> width · <kbd>h</kbd> hide · <kbd>Alt</kbd>+<kbd>[</kbd><kbd>]</kbd> sessions · <kbd>Alt</kbd>+<kbd>N</kbd> new session · <kbd>Esc</kbd> grid</span>
+  <!-- #180: fourteen shortcuts in one wrapped line were a reference card nobody could read. The
+       same fourteen in four short columns, behind `?`. `.keys` stays on the container so every
+       skin's `footer .keys` rule still finds it. -->
+  <button id="keysbtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="keymap" title="every key (?)"><kbd>?</kbd> keys</button>
+  <div id="keymap" class="popover popover-up keys" role="dialog" aria-label="the keys" hidden>
+    <div class="keys-group"><strong>tiles</strong>
+      <span><kbd>1</kbd>–<kbd>9</kbd> focus</span>
+      <span><kbd>f</kbd> only what needs you</span>
+      <span><kbd>a</kbd> approve</span>
+      <span><kbd>h</kbd> hide</span>
+      <span><kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile</span>
+      <span><kbd>Alt</kbd>+<kbd>Home</kbd> pin</span>
+      <span><kbd>Alt</kbd>+<kbd>Enter</kbd> width</span>
+    </div>
+    <div class="keys-group"><strong>sessions</strong>
+      <span><kbd>Alt</kbd>+<kbd>[</kbd><kbd>]</kbd> along the strip</span>
+      <span><kbd>Alt</kbd>+<kbd>N</kbd> new session</span>
+    </div>
+    <div class="keys-group"><strong>the sidebar</strong>
+      <span><kbd>/</kbd> where</span>
+      <span><kbd>i</kbd> inbox</span>
+      <span><kbd>b</kbd> board</span>
+      <span><kbd>n</kbd> alerts</span>
+    </div>
+    <div class="keys-group"><strong>this page</strong>
+      <span><kbd>?</kbd> these keys</span>
+      <span><kbd>Esc</kbd> grid, or close what is open</span>
+    </div>
+  </div>
 </footer>
 
 <template id="tile">

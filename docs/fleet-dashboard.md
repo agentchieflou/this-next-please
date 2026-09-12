@@ -73,10 +73,15 @@ catalogue), and **project** — the selected project's link rail, verify pane, f
 and offered files. Every window on this server agrees on which project is selected, so clicking a
 tile on the left monitor changes the inspector on the centre one.
 
-The **toolbar** is three labelled groups: *window* (the layout segments, and which window of that
-set this one is), *see* (search, the sidebar, the palette, the skin), and *needs me* (focus mode,
-chime, the bell). A cell that fails to poll goes **grey with the error in a tooltip**, never wrong;
-a link with no fact behind it is absent, never broken.
+The **toolbar** is three labelled groups and one row: *window* (the layout segments, and which window
+of that set this one is), *see* (search, the sidebar, and a *look* button), and *needs me* (focus
+mode, chime, the bell). The palette and skin pickers are behind *look* (#180): they are chosen once
+a week, not once a minute, and two `<select>`s were the widest things on the bar — HIG *Toolbars*
+keeps the commands for the current context on the bar and puts a choice that rarely changes
+somewhere a person goes on purpose. The footer keeps the two things that change — the counts and
+the notice — and a `?` button (or the `?` key) opens the key map in four short columns. A cell that
+fails to poll goes **grey with the error in a tooltip**, never wrong; a link with no fact behind it
+is absent, never broken.
 
 The grid follows the number of registered repositories: four repos, four tiles. Click a repo name
 (or double-click a tile) and it fills the window; `Esc` returns to the grid. Tiles that change place
@@ -216,6 +221,7 @@ red everywhere or the colour stops being information:
 
 | Key | Does |
 | --- | --- |
+| `?` | the key map — this table, in four columns, behind the footer's `?` button |
 | `1`–`9` | focus that tile — counting what is **on the glass** |
 | `f` | focus mode: only the agents that need you |
 | `h` | hide the tile the keyboard is on; its chip is in the dock |
@@ -229,7 +235,7 @@ red everywhere or the colour stops being information:
 | `Alt`+`←` / `Alt`+`→` | move the focused tile one slot |
 | `Alt`+`Home` | pin the focused tile first |
 | `Alt`+`Enter` | one column or two |
-| `Esc` | close the sidebar, or back to the grid (or out of a text box) |
+| `Esc` | close a popover, the sidebar, or back to the grid (or out of a text box) — the nearest open thing first |
 
 The number on a tile is the key that focuses it, and it follows the arrangement: move a tile and its
 number moves with it, and a tile that is off the glass has no number at all — a digit that zoomed a

@@ -66,6 +66,7 @@ header, footer {
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;               /* the look popover hangs off its group (#180) */
 }
 /* HIG *Toolbars*: a group of commands says what it is for. Twelve controls in one unlabelled row
    is a settings panel, which is what the toolbar is not. */
@@ -107,7 +108,30 @@ header, footer {
   color: var(--accent);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
-footer { border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted); }
+footer { border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted); position: relative; }
+
+/* #180: a popover is a panel hung off its button, and nothing else about it is new -- the same
+   `--panel`, `--line` and radius as every other surface, no framework, no build step. Opened by
+   one button, closed by Esc and by clicking anywhere else; one open at a time. */
+.popover {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  display: flex; flex-direction: column; gap: 8px;
+  min-width: 220px; padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18);
+  white-space: normal;
+}
+.popover > label {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+.popover-up { top: auto; bottom: calc(100% + 6px); }
+/* The key map: four short columns, where one wrapped line was a reference card nobody could read. */
+#keymap { flex-direction: row; flex-wrap: wrap; gap: 12px 28px; max-width: min(760px, 92vw); }
+.keys-group { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); }
+.keys-group strong {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text); margin-bottom: 2px;
+}
+.keys-group span { white-space: nowrap; }
 h1 { font-size: 14px; margin: 0; letter-spacing: .12em; text-transform: uppercase; }
 .spacer { flex: 1 1 auto; }
 .sr { position: absolute; left: -9999px; }
@@ -347,17 +371,19 @@ body.focused .tile.is-focused { max-height: none; }
 .chip.stale .chipage { text-decoration: underline dotted; }
 
 /* 28px is the HIG desktop floor for a hit target; 20px was below it. */
-.head .pintoggle, .head .sizetoggle {
+.head .pintoggle, .head .sizetoggle, .head .hidetoggle {
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0 6px; min-height: 28px; min-width: 28px;
   border-radius: 4px; background: transparent; border: 1px solid transparent;
   color: var(--muted); cursor: pointer;
 }
-.head .pintoggle svg, .head .sizetoggle svg {
+/* All three, or the one left out paints its SVG with the default black fill and reads as a blank
+   (or black) square beside the pin -- which is what #173's hide toggle did for a day (#180). */
+.head .pintoggle svg, .head .sizetoggle svg, .head .hidetoggle svg {
   width: 16px; height: 16px; fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
-.head .pintoggle:hover, .head .sizetoggle:hover { border-color: var(--accent); color: var(--text); }
+.head .pintoggle:hover, .head .sizetoggle:hover, .head .hidetoggle:hover { border-color: var(--accent); color: var(--text); }
 .head .pintoggle.active { background: var(--select); color: var(--accent); border-color: var(--accent); }
 
 .tile.size-2 { grid-column: span 2; }
@@ -563,7 +589,6 @@ body.focused .tile.is-focused { max-height: none; }
 #hits .p { font: 12px var(--mono); font-weight: 600; }
 #hits .kind { font: 10px var(--mono); border-radius: 9px; padding: 0 6px; margin-left: 6px; background: var(--select); }
 #hits .snip { display: block; color: var(--muted); }
-#find { width: min(260px, 30vw); }
 
 /* ------------------------------------------------------------- the Downloads inbox (#132) */
 
