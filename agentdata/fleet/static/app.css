@@ -158,9 +158,8 @@ input { min-width: 0; }
 
 /* ------------------------------------------------------------------------- scrollbars (#181) */
 
-/* The one control the OS drew, from the palette: two properties mixed from `--line` and `--text`,
-   overridden per skin on `body`; `scrollbar-color` is inherited, `scrollbar-width` is not. The
-   legacy `::-webkit-scrollbar` rules say the same colours for embedders that predate the standard. */
+/* From the palette: two properties, overridden per skin on `body`; the legacy `::-webkit-scrollbar`
+   rules say the same colours for embedders that predate `scrollbar-color`. */
 body {
   --scroll-thumb: color-mix(in srgb, var(--line) 55%, var(--text));
   --scroll-thumb-hover: color-mix(in srgb, var(--line) 25%, var(--text));

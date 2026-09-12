@@ -1793,8 +1793,7 @@ function scopeDrop(el, repo, files) {
    delegating, gathered by a server-side pre-flight that spends no premium request, and one button.
    `fleet.preflight: false` restores #98's immediate start for anyone who preferred it. */
 
-/* One card, two homes (#183): the tile's slot when the tile is on the glass, else under the
-   rail. It used to draw inside a hidden tile, skipping the pre-flight in the board window. */
+/* One card, two homes (#183): the tile's slot when the tile is on the glass, else under the rail. */
 function onTheGlass(repo) {
   var entry = tiles.get(repo);
   return !!(entry && entry.el.offsetParent !== null && !entry.el.classList.contains("is-hidden"));
@@ -1966,7 +1965,7 @@ function takeTicket(key, repo) {
   if (PREFLIGHT) dispatchCard(key, repo); else dispatch(key, repo);
 }
 
-/* A dimmed chip still takes a drop: the supervisor's `cross_project` refusal is the answer. */
+/* A dimmed chip still takes a drop; `cross_project` is the answer. */
 function railLight(row) {
   railDrag = row;
   var s = (row && row.suggested) || {};
@@ -3153,9 +3152,7 @@ document.getElementById("showall").addEventListener("click", function () {
 
 document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 
-/* ------------------------------------------------------------------------- the popovers (#180)
-   The pickers behind *look*, the key map behind `?`: a panel with `hidden` on it, opened by one
-   button, closed by Esc or a click anywhere else, one at a time. The controls keep their ids. */
+/* ---- the popovers (#180): the pickers behind *look*, the key map behind `?`; one open at a time. */
 var POPOVERS = { look: "lookbtn", keymap: "keysbtn" };
 
 function popover(id, open) {
