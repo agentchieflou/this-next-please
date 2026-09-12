@@ -34,6 +34,7 @@ same stream, which is what makes clicking a tile on the left monitor change the 
 """
 from __future__ import annotations
 import calendar
+import gzip
 import hmac
 import json
 import mimetypes
@@ -82,6 +83,32 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # The two assets `index.html` references. They are rewritten with the run token when the page is
 # served; see `_index`.
 ASSETS = ("app.css", "app.js")
+
+# The page, compressed once per build of it rather than once per window (#195). Below a kilobyte the
+# gzip header costs more than the compression saves, and a skin's PNG is already compressed, so only
+# the text of the page goes through this. The API's JSON does not: the desk polls it four times a
+# second over a loopback socket, where the compression is real CPU and the saving is a number nobody
+# waits on. What this *is* for is the page arriving over something that is not loopback -- a
+# forwarded port, a phone on the LAN, a remote desktop -- and for the budget below meaning what it
+# says: the number that matters is what goes over the wire, not what sits on the disk.
+GZIP_FROM = 1024
+_GZIPPED: dict[tuple, bytes] = {}
+_GZIP_LOCK = threading.Lock()
+
+
+def gzip_for(body: bytes, key: tuple) -> bytes:
+    """`body` compressed, remembered under `key` -- which must name everything it was made from."""
+    with _GZIP_LOCK:
+        hit = _GZIPPED.get(key)
+    if hit is not None:
+        return hit
+    # mtime=0: the same bytes in, the same bytes out, so a test can compare two runs.
+    packed = gzip.compress(body, 6, mtime=0)
+    with _GZIP_LOCK:
+        if len(_GZIPPED) > 32:                # one entry per asset per token; a long-lived server
+            _GZIPPED.clear()                  # that has been restyled all day still stays small
+        _GZIPPED[key] = packed
+    return packed
 
 LAYOUTS = ("grid", "roles", "screens")
 VIEWS = ("board", "agents", "verify")
@@ -1683,7 +1710,16 @@ class Handler(BaseHTTPRequestHandler):
         given = (query.get("t") or [""])[0]
         return bool(self.token) and hmac.compare_digest(given, self.token)
 
-    def _send(self, code: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
+    def _send(self, code: int, body: bytes, ctype: str, extra: dict | None = None,
+              cache_key: tuple | None = None) -> None:
+        extra = dict(extra or {})
+        if cache_key is not None and len(body) >= GZIP_FROM and \
+                "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
+            body = gzip_for(body, cache_key)
+            extra["Content-Encoding"] = "gzip"
+            # Without this a cache in front of the server could hand the compressed bytes to a
+            # client that never asked for them, which reads as a corrupt page rather than as a bug.
+            extra["Vary"] = "Accept-Encoding"
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -1691,7 +1727,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cache-Control", "no-store")
-        for k, v in (extra or {}).items():
+        for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
@@ -1919,7 +1955,9 @@ class Handler(BaseHTTPRequestHandler):
         html = textio.read_text(os.path.join(STATIC, "index.html"))
         for asset in ASSETS:
             html = html.replace(f'"/static/{asset}"', f'"/static/{asset}?t={self.token}"')
-        self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+        stamp = os.stat(os.path.join(STATIC, "index.html"))
+        self._send(200, html.encode("utf-8"), "text/html; charset=utf-8",
+                   cache_key=("index.html", stamp.st_mtime_ns, stamp.st_size, self.token))
 
     def _static(self, name: str) -> None:
         """One file out of the package's `static/` directory, and nothing above or beside it.
@@ -1935,6 +1973,7 @@ class Handler(BaseHTTPRequestHandler):
         path = os.path.normpath(os.path.join(STATIC, name))
         if not path.startswith(root) or not os.path.isfile(path):
             return self._refuse(404, f"no file {name}")
+        stamp = os.stat(path)
         with open(path, "rb") as f:
             body = f.read()
         ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
@@ -1942,7 +1981,10 @@ class Handler(BaseHTTPRequestHandler):
             ctype += "; charset=utf-8"
         if ctype.startswith("text/css"):
             body = _tokenize_css_urls(body.decode("utf-8"), self.token).encode("utf-8")
-        self._send(200, body, ctype)
+        # Text compresses; a skin's PNG does not, and gzipping it would spend CPU to grow it.
+        packs = ctype.startswith("text/") or ctype.endswith(("javascript", "json", "svg+xml"))
+        self._send(200, body, ctype,
+                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) if packs else None)
 
     def _sse(self, query: dict) -> None:
         self.send_response(200)

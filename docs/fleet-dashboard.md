@@ -34,7 +34,19 @@ from the internet is a page that does not load at work — and it would look lik
 rather than in the markup. A test asserts the static files contain no external reference at all,
 and the server sends `Content-Security-Policy: default-src 'self'` so the browser enforces it too.
 
-The whole payload is about 20 kB.
+The page is **served compressed** (#195): the HTML, the stylesheet and the script go out gzipped to
+any client that asks for it, cached per file so the work is done once rather than once per window,
+and a client that cannot take it gets the same bytes uncompressed. About 200 kB on disk becomes
+about 58 kB over the wire.
+
+That is also what the payload budget measures now. It used to count bytes on disk, which made every
+comment in the page cost against a number that exists to keep the page quick to open — and the page
+is mostly prose, because the comments are where this project keeps its design record. The number an
+operator waits on is what crosses the wire, so that is the number the test asserts (200 kB), with
+the on-disk figure reported beside it so a file that doubles is still visible. On loopback the
+saving is nothing and the CPU is real, which is why the API's JSON is *not* compressed: the desk
+polls it four times a second, and nobody waits on that. The page is for the case where the server
+is not loopback — a forwarded port, a phone on the LAN, a remote desktop.
 
 ## The URL and the token
 
