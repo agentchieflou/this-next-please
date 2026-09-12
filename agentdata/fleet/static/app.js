@@ -327,7 +327,6 @@ function makeTile(row, index) {
       "New files are in the scope under .agent/in/; read scope.toon before continuing." });
   });
 
-  // The dispatch card is one element the page owns (#183); its controls are bound once, below.
 
   /* #174: the switcher's four buttons. The rows behind *earlier* are fetched on the click rather
      than on every poll -- nobody is reading them until they ask for them. */
@@ -1085,6 +1084,8 @@ function connect() {
     refreshSoon();
   });
   source.addEventListener("notify", function (m) { arrived(JSON.parse(m.data)); });
+  // A poll cell changed with no event to say so (#184): re-read.
+  source.addEventListener("polls", function () { refreshSoon(); });
   // The shared selection (#133). Every window is sent the current one the moment it connects, so a
   // monitor that joined late never sits on a different project than the one beside it.
   source.addEventListener("desk", function (m) {
@@ -1788,11 +1789,9 @@ function scopeDrop(el, repo, files) {
    delegating, gathered by a server-side pre-flight that spends no premium request, and one button.
    `fleet.preflight: false` restores #98's immediate start for anyone who preferred it. */
 
-/* One card, two homes (#183). When the tile is on the glass the card sits in the tile, where the
-   drop landed; in the board window -- `body.panels`, no tiles -- or when the tile is hidden, it
-   sits under the agent rail. It used to fall back to a bare `dispatch()` when it found no tile,
-   and to draw *inside a hidden tile* when it found one the window was not showing: the window
-   built for handing tickets over was the one place the hand-over skipped its pre-flight. */
+/* One card, two homes (#183): in the tile when the tile is on the glass, under the agent rail
+   when it is not (the board window has no tiles). It used to draw inside a hidden tile, so the
+   window built for handing tickets over was the one place the hand-over skipped its pre-flight. */
 function onTheGlass(repo) {
   var entry = tiles.get(repo);
   return !!(entry && entry.el.offsetParent !== null && !entry.el.classList.contains("is-hidden"));
@@ -1860,9 +1859,8 @@ function closeDispatch() {
   if (card) { card.hidden = true; card.dataset.key = ""; card.dataset.repo = ""; }
 }
 
-/* A refusal has to land where the operator is looking. On a tile that is on the glass, that is
-   the tile's own error line; from the board window it is the card's note (when the card is open)
-   or the line under the rail -- a refusal written into a hidden tile is a refusal nobody sees. */
+/* A refusal lands where the operator is looking: the open card's note, or the line under the
+   rail when the tile is not on the glass. */
 function said(repo, message) {
   var card = document.getElementById("dispatch");
   if (card && !card.hidden && card.dataset.repo === repo) {
@@ -1915,13 +1913,9 @@ function dispatch(key, repo, brief) {
 })();
 
 /* ------------------------------------------------------------------------ the agent rail (#183)
-
-   In the grid a ticket goes to an agent by being dragged onto its tile. In the board window there
-   are no tiles -- that is the point of the window -- so the row offered a button per candidate
-   and a drag went nowhere. The rail is one chip per registered checkout, each a drop target;
-   dragging a ticket over it lights the candidates `board.suggest` named for that key and dims the
-   rest; a drop calls exactly what a drop on the tile calls. `1`-`9` from a focused row is the
-   same gesture without a mouse. */
+   One chip per registered checkout at the top of the board, each a drop target, for the window
+   that has no tiles. A drag lights the candidates `board.suggest` named and dims the rest; a drop
+   calls what a drop on the tile calls. `1`-`9` from a focused row is the same gesture by key. */
 var railDrag = null;                                   // the ticket row in flight, if any
 
 function drawRail() {
@@ -1971,10 +1965,8 @@ function takeTicket(key, repo) {
   if (PREFLIGHT) dispatchCard(key, repo); else dispatch(key, repo);
 }
 
-/* While a ticket is in flight the rail says where it can go: the candidates `board.suggest`
-   named light up and the rest dim. A drop on a dimmed chip is still allowed -- it is the same drop
-   a tile allows, and the supervisor's `cross_project` refusal, with the page's one override, is
-   the answer -- the rail only says which way is downhill. */
+/* A drop on a dimmed chip is still allowed: the supervisor's `cross_project` refusal, with the
+   page's one override, is the answer. The rail only says which way is downhill. */
 function railLight(row) {
   railDrag = row;
   var s = (row && row.suggested) || {};
@@ -1992,8 +1984,7 @@ document.getElementById("tickets").addEventListener("keydown", function (e) {
   if (!li) return;
   var row = board.filter(function (r) { return r.key === li.dataset.key; })[0];
   if (!row) return;
-  // The keystroke stops here: the page's own `1`-`9` zooms a tile, which in the board window
-  // would close the board under the card it just opened.
+  // Stops here: the page's own `1`-`9` zooms a tile, closing the board under the card.
   if (/^[1-9]$/.test(e.key)) {
     var chips = document.querySelectorAll("#agentrail .rail-chip:not([hidden])");
     var chip = chips[Number(e.key) - 1];
@@ -2008,12 +1999,19 @@ document.getElementById("tickets").addEventListener("keydown", function (e) {
 function drawBoard(rows) {
   var list = document.getElementById("tickets");
   var needle = (document.getElementById("boardsearch").value || "").toLowerCase();
+  // A redraw keeps the keyboard on its row (#183).
+  var had = document.activeElement && list.contains(document.activeElement) ?
+            (document.activeElement.closest("li[data-key]") || {}).dataset : null;
   while (list.firstChild) list.removeChild(list.firstChild);
   var shown = rows.filter(function (r) {
     return !needle || (r.key + " " + r.summary + " " + r.status).toLowerCase().indexOf(needle) >= 0;
   });
   shown.forEach(function (r) { list.appendChild(ticketRow(r)); });
   document.getElementById("noboard").hidden = shown.length > 0;
+  if (had && had.key) {
+    var back = list.querySelector('li[data-key="' + had.key + '"]');
+    if (back) back.focus();
+  }
 }
 
 function loadBoard(refresh) {
@@ -2123,7 +2121,9 @@ function drawCells(el, polls) {
     if (!p) return;
     var value = (p.value && p.value.text) || "";
     if (!value && !p.error) return;                 // nothing to ask about: no PR, no dataset
-    var cell = document.createElement("span");
+    // The git cell is a button (#184): the click opens the inspector's branches pane.
+    var cell = document.createElement(name === "git" ? "button" : "span");
+    if (name === "git") cell.type = "button";
     cell.className = "cell" + (p.grey ? " grey" : "") + (value ? "" : " idle");
     cell.dataset.cell = name;
     var lab = document.createElement("span");
@@ -2139,8 +2139,154 @@ function drawCells(el, polls) {
     cell.appendChild(val);
     cell.appendChild(old);
     cell.title = p.error ? p.error : (name + ", polled every " + p.interval + "s");
+    if (name === "git") {
+      var v = p.value || {};
+      if (v.line2) {
+        var two = document.createElement("span");
+        two.className = "val2";
+        text(two, v.line2);
+        cell.appendChild(two);
+      }
+      if (v.warn && !p.grey) {
+        cell.classList.add("warn");
+        cell.title = v.count + " local branches (" + v.warn_at + "+ is worth a look): " + v.unmerged +
+                     " never reached " + (v.default || "main") +
+                     (v.carrying && v.carrying.length > 1 ? "; " + v.carrying.length + " carry the active ticket" : "") +
+                     ". Click for the history.";
+      } else if (!p.error) {
+        cell.title = "git, polled every " + p.interval + "s. Click for the history.";
+      }
+      cell.addEventListener("click", function (e) {
+        e.stopPropagation();
+        openBranches(el.dataset.repo);
+      });
+    }
     box.appendChild(cell);
   });
+}
+
+/* ------------------------------------------------------------- the branches pane (#184)
+   Read on the click, cached for the git interval, never on the poll. `drawInspector` draws
+   whatever `branchesFor` last read, so any other redraw keeps the pane it had. */
+var branchesFor = {};                                   // repo -> the last /api/branches answer
+var branchesWanted = "";                                // the repo whose pane was just asked for
+
+function openBranches(name) {
+  branchesWanted = name;
+  choose(name).then(function () {
+    section("inspector", true);
+    loadBranches(name);
+  });
+}
+
+function loadBranches(name, force) {
+  branchesFor[name] = branchesFor[name] || { ok: true, reading: true, branches: [] };
+  branchesFor[name].reading = true;
+  drawInspector(name);
+  return fetch(q("/api/branches", force ? { repo: name, refresh: "1" } : { repo: name })).then(function (r) {
+    return r.json();
+  }).then(function (answer) {
+    branchesFor[name] = answer || { ok: false, error: "no answer" };
+    if (desk.desk.selected === name) drawInspector(name);
+    return answer;
+  }).catch(function (e) {
+    branchesFor[name] = { ok: false, error: String(e), branches: [] };
+    if (desk.desk.selected === name) drawInspector(name);
+  });
+}
+
+function branchesPane(name) {
+  var answer = branchesFor[name];
+  var box = document.createElement("div");
+  box.className = "branches";
+  var head = document.createElement("div");
+  head.className = "branches-head";
+  var title = document.createElement("strong");
+  text(title, "branches");
+  head.appendChild(title);
+  var read = document.createElement("button");
+  read.type = "button";
+  read.className = "branches-read";
+  text(read, answer && !answer.reading ? "read again" : "read");
+  read.addEventListener("click", function () { loadBranches(name, true); });
+  head.appendChild(read);
+  box.appendChild(head);
+  if (!answer) {
+    var hint = document.createElement("p");
+    hint.className = "muted";
+    text(hint, "every local branch, and which never reached the default: click the git cell, or read.");
+    box.appendChild(hint);
+    return box;
+  }
+  if (answer.reading) {
+    var wait = document.createElement("p");
+    wait.className = "muted branches-note";
+    text(wait, "reading…");
+    box.appendChild(wait);
+    return box;
+  }
+  if (!answer.ok) {
+    var err = document.createElement("p");
+    err.className = "branches-note err";
+    text(err, (answer.error || "git could not be asked") + (answer.hint ? " — " + answer.hint : ""));
+    box.appendChild(err);
+    return box;
+  }
+  var sum = document.createElement("p");
+  sum.className = "branches-sum" + (answer.warn ? " warn" : "");
+  var current = (answer.branches || []).filter(function (b) { return b.current; })[0];
+  text(sum, answer.count + (answer.count === 1 ? " branch" : " branches") + " · " +
+            (answer.unmerged ? answer.unmerged + " never reached " : "all reached ") + answer.default +
+            " · on " + answer.current +
+            (current && current.unmerged && current.ahead != null ? " (+" + current.ahead + " ahead of " + answer.default + ")" : "") +
+            (answer.cached ? " · read " + age(Math.round(answer.age_s)) + " ago" : ""));
+  box.appendChild(sum);
+  if (answer.carry_line) {
+    var carry = document.createElement("p");
+    carry.className = "branches-carry";
+    text(carry, answer.carry_line);
+    box.appendChild(carry);
+  }
+  var list = document.createElement("ol");
+  list.className = "branchlist";
+  (answer.branches || []).forEach(function (b) {
+    var li = document.createElement("li");
+    li.className = "branchrow" + (b.unmerged ? " unmerged" : "") + (b.current ? " current" : "") +
+                   (answer.ticket && b.ticket === answer.ticket ? " carries" : "");
+    var nm = document.createElement("span");
+    nm.className = "bname";
+    text(nm, b.name);
+    var meta = document.createElement("span");
+    meta.className = "bmeta";
+    var bits = [b.sha, b.age_s ? age(Math.round(b.age_s)) : ""];
+    if (b.unmerged) bits.push(b.ahead != null ? "+" + b.ahead + " ahead" : "never reached " + answer.default);
+    bits.push(b.upstream ? b.upstream + (b.track ? " " + b.track : "") : "none pushed");
+    if (b.ticket) bits.push(b.ticket);
+    if (b.current) bits.push("current");
+    text(meta, bits.filter(Boolean).join("  ·  "));
+    li.appendChild(nm);
+    li.appendChild(meta);
+    list.appendChild(li);
+  });
+  box.appendChild(list);
+  if (answer.more) {
+    var more = document.createElement("p");
+    more.className = "muted branches-note";
+    text(more, "and more: the count stops at " + answer.branches.filter(function (b) { return b.ahead != null; }).length +
+               " unmerged branches -- the count is the finding");
+    box.appendChild(more);
+  }
+  if ((answer.commits || []).length) {
+    var h = document.createElement("div");
+    h.className = "muted";
+    text(h, "the last " + answer.commits.length + " commits on " + answer.current);
+    var pre = document.createElement("pre");
+    pre.className = "commits";
+    text(pre, answer.commits.join("\n"));
+    box.appendChild(h);
+    box.appendChild(pre);
+  }
+  return box;
 }
 
 function clip(value) {
@@ -2434,6 +2580,9 @@ function drawInspector(name) {
     }
     body.appendChild(rail);
   }
+
+  // The checkout's branches (#184): drawn from the last read, read on the click.
+  body.appendChild(branchesPane(name));
 
   // The newest thing the project's own agent verified, beside the report link.
   var latest = ((p.verify || {}).latest) || {};

@@ -1,0 +1,65 @@
+{
+  "source": "synthesized",
+  "note": "the #184 caution: a session that looks before it branches. The checkout holds seven local branches, three of them never merged and two carrying the ticket's own key, and HEAD is on one of those two. The agent counts, names the unmerged ones, states the assumption that it continues on the existing branch, and creates nothing. Shapes from docs/fleet-spike.md (#92); content invented.",
+  "captured": "2026-09-12",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-branches",
+  "usage": {
+    "premiumRequests": 0.5,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "session-bootstrap: counting the local branches before anything else.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "git for-each-ref refs/heads --format=%(refname:short)"
+    },
+    {
+      "run": "git branch --no-merged main --format=%(refname:short)"
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "RDSD-7 · To Do · phase=triaged · branch=feature/RDSD-7-part-2 · branches=7 (3 unmerged). Two branches carry RDSD-7: feature/RDSD-7-part-1 and feature/RDSD-7-part-2; only one can merge. Continuing on feature/RDSD-7-part-2, which is checked out. Never reached main: feature/RDSD-7-part-1, feature/RDSD-7-part-2, fix/RDSD-9.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "run": "ad-state ask \"Seven local branches, three never reached main: feature/RDSD-7-part-1, feature/RDSD-7-part-2, fix/RDSD-9. Continue on feature/RDSD-7-part-2, or which of the stale ones will you delete?\" --assume \"continue on feature/RDSD-7-part-2\""
+    },
+    {
+      "run": "ad-state set phase=optimizing active_ticket=RDSD-7 branch=feature/RDSD-7-part-2"
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ]
+}

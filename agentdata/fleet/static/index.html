@@ -67,10 +67,8 @@
 <div class="workspace">
 <main id="grid" aria-live="polite"></main>
 
-<!-- #164, #183: the dispatch card. One element, moved into whichever slot the drop landed near:
-     the tile's, when the tile is on the glass; the agent rail's, in the board window where there
-     are no tiles. Every row is something a person would have checked before delegating, and the
-     pre-flight behind it spends no premium request. -->
+<!-- #164, #183: the dispatch card. One element, moved into the tile's slot when the tile is on
+     the glass and under the agent rail when it is not. The pre-flight spends no premium request. -->
 <div id="dispatch" class="dispatch" hidden>
   <div class="dispatch-head">
     <span class="dispatch-key"></span>
@@ -139,10 +137,8 @@
     <button id="boardrefresh" title="ask Jira now instead of using the cache">refresh</button>
     <button id="closeboard">close <kbd>b</kbd></button>
   </div>
-  <!-- #183: the agent rail. One chip per registered checkout, each a drop target, so a ticket can
-       be handed over from the board window -- where there are no tiles -- the same way it is
-       handed to a tile: the same card, the same pre-flight, the same refusals in the supervisor's
-       words. The chip is the dock's chip (name, state, age), which the operator already reads. -->
+  <!-- #183: the agent rail. One chip per registered checkout, each a drop target: the board
+       window has no tiles, and the same card, pre-flight and refusals apply. -->
   <ul id="agentrail" class="agentrail" role="listbox" aria-label="drop a ticket on the agent that takes it">
     <li class="rail-chip" role="none" hidden>
       <button type="button" class="rail-open dock-open" role="option" aria-selected="false">
@@ -287,9 +283,8 @@
     <p class="why"></p>
     <!-- #168: what the run edited, against what it was given. -->
     <p class="scopereport" hidden></p>
-    <!-- #164: a drop opens the dispatch card here instead of launching. The card is one element
-         the page owns (`#dispatch`, below the grid) and is moved into this slot when the tile is
-         on the glass -- and under the board's agent rail when it is not (#183). -->
+    <!-- #164: a drop opens the page's one dispatch card (`#dispatch`) here; under the board's
+         agent rail when the tile is not on the glass (#183). -->
     <div class="dispatch-slot"></div>
     <!-- #166: files the operator dropped, resolved to this checkout by their git blob hash. -->
     <div class="scope" hidden>

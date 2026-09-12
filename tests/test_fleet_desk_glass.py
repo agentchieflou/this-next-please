@@ -94,7 +94,7 @@ def _serve():
     return server, token, server.server_address[1]
 
 
-TOLERANCE = 14      # per channel, 0-255: the blur and the antialiasing at a pane's edge
+TOLERANCE = 14      # in luminance, 0-255: the blur and the antialiasing at a pane's edge
 
 
 @pytest.mark.browser
@@ -116,6 +116,12 @@ def test_the_pane_is_a_different_colour_wherever_the_mesh_is_and_stays_inside_th
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
+            # The first poll tick sends a `polls` frame and the page redraws its tiles with their
+            # cells (#184), which moves every transcript down a row. Sample after that, not
+            # across it: a rect measured before the redraw and a screenshot taken after it would
+            # put a sample on the ground between two tiles.
+            page.wait_for_selector(".tile .cells .cell", timeout=15000)
+            page.wait_for_timeout(400)
 
             for variant, spec in K.SKINS["glass"]["variants"].items():
                 page.evaluate("(name) => post('theme', { skin: name })", f"glass:{variant}")
@@ -135,15 +141,18 @@ def test_the_pane_is_a_different_colour_wherever_the_mesh_is_and_stays_inside_th
                 w, h, bpp, rows = _png_pixels(page.screenshot(type="png"))
                 lo = tuple(int(c * 255) for c in theme.hex_to_rgb(spec["composited_panel"]["darkest"]))
                 hi = tuple(int(c * 255) for c in theme.hex_to_rgb(spec["composited_panel"]["lightest"]))
+                # The range is declared in luminance -- `composited_range` picks its darkest and
+                # lightest by it, and `theme.check` measures contrast by it -- so it is compared in
+                # luminance. Per channel it would be wrong: the gold blob composites to a colour
+                # redder than the blue one that is lightest overall, and is inside the range.
                 samples = []
                 for r in rects:
                     for fx in (0.1, 0.3, 0.5, 0.7, 0.9):
                         x, y = int(r["x"] + r["w"] * fx), int(r["y"] + r["h"] * 0.5)
                         px = tuple(rows[y][x * bpp:x * bpp + 3])
                         samples.append(px)
-                        for ch in range(3):
-                            assert lo[ch] - TOLERANCE <= px[ch] <= hi[ch] + TOLERANCE, \
-                                (f"glass:{variant}", (x, y), px, "outside", lo, hi)
+                        assert _lum(lo) - TOLERANCE <= _lum(px) <= _lum(hi) + TOLERANCE, \
+                            (f"glass:{variant}", (x, y), px, "outside", lo, hi)
 
                 # The floor is relative to the variant's own range: Noir's near-white blobs at low
                 # alpha declare a narrow range on purpose (a black room stays a black room), and a

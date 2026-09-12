@@ -59,7 +59,7 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 | Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, width |
 | Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
-| Cells | the **project's** own state, polled read-only: ticket, PR, refresh, git — each with its age |
+| Cells | the **project's** own state, polled read-only: ticket, PR, refresh, git — each with its age; the git cell counts the branches and opens the inspector's branches pane (#184) |
 | Approval card | appears when that agent is waiting; the **dry-run payload in full**, Approve / Deny |
 | Transcript | assistant text, tool calls, denials, phase changes — the current run only |
 | Earlier runs | one collapsed row per earlier run with the state it ended in; never replayed as live |
@@ -72,6 +72,17 @@ The **sidebar** sits beside the grid and holds five sections, one open at a time
 catalogue), and **project** — the selected project's link rail, verify pane, facts, open friction
 and offered files. Every window on this server agrees on which project is selected, so clicking a
 tile on the left monitor changes the inspector on the centre one.
+
+The **project** section carries a **branches** pane (#184): the default branch and the current one's
+distance from it, one row per local branch — name, last commit and its age, ahead of the default,
+upstream or *none pushed*, the ticket key the name carries — the ones that never reached the
+default first and marked, then the last twenty commits of the current branch. A branch whose name
+carries the tile's active ticket is that ticket's; a second one with the same key is the smell the
+operator asked to see, and the pane says so in one line: *two branches carry RDSD-22490; only one
+can merge*. The pane is read on the click and cached for the git cell's interval, never on the poll.
+On the tile, the git cell is the button that opens it and carries the count on its second line:
+`7 branches · 3 never reached main`, amber at `fleet.branches.warn` (default 6), grey with the error
+when git cannot be asked, and never a toast. `ad-fleet branches <repo>` prints the same rows.
 
 At the top of the board is the **agent rail** (#183): one chip per registered checkout — the dock's
 chip, name and state and age — each a drop target. A ticket dragged over it lights the candidates
@@ -300,6 +311,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/sessions` | `?repo=` — this checkout's sessions, folded from the stream on the click |
 | GET | `/api/transcript` | `?repo=&session=&limit=&before=` — one session's lines, read-only, paged from the end (#174) |
 | GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164) |
+| GET | `/api/branches` | `?repo=&refresh=` — every local branch of one checkout, which never reached the default, the last twenty commits; read on the click, cached for the git interval (#184) |
 | POST | `/api/dismiss` | `{id}` — stop offering that file until it is downloaded again |
 
 `select` and `dismiss` change nothing on disk inside a repository. `attach` is the single exception
@@ -314,6 +326,9 @@ The page is a view: it decides nothing and spawns nothing.
 
 Resume cursors are **per agent** (`luna:12,other:4`), not one number. Each agent's `seq` is dense
 and its own, so a shared cursor would replay one stream and skip another.
+
+A `polls` event names a checkout whose cells changed with no agent event to say so — the git cell
+never has one (#184) — and the page re-reads `/api/fleet`, the snapshot it draws cells from.
 
 A `tick` event goes out at least every 15 seconds. It is not decoration: a proxy that sees no bytes
 for a minute closes the connection, and the tiles then stop updating with nothing anywhere saying
