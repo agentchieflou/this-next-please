@@ -73,6 +73,16 @@ catalogue), and **project** — the selected project's link rail, verify pane, f
 and offered files. Every window on this server agrees on which project is selected, so clicking a
 tile on the left monitor changes the inspector on the centre one.
 
+At the top of the board is the **agent rail** (#183): one chip per registered checkout — the dock's
+chip, name and state and age — each a drop target. A ticket dragged over it lights the candidates
+`board.suggest` names for that key and dims the rest; a drop calls exactly what a drop on the tile
+calls, so the board window (`?layout=roles&view=board`, where there are no tiles) hands a ticket
+over with the same pre-flight card and the same refusals in the supervisor's words. The card is one
+element the page owns, drawn in the tile when the tile is on the glass and under the rail when it
+is not — it used to draw inside a hidden tile, so the window built for handing tickets over was the
+one place the hand-over skipped its pre-flight. A ticket row takes the keyboard: `1`–`9` picks the
+rail chip in that position, `Enter` the row's one candidate.
+
 The **toolbar** is three labelled groups and one row: *window* (the layout segments, and which window
 of that set this one is), *see* (search, the sidebar, and a *look* button), and *needs me* (focus
 mode, chime, the bell). The palette and skin pickers are behind *look* (#180): they are chosen once

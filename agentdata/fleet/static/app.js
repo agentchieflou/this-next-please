@@ -294,7 +294,7 @@ function makeTile(row, index) {
     }
 
     var key = (e.dataTransfer.getData("application/x-agentdata-ticket") || e.dataTransfer.getData("text/plain") || "").trim();
-    if (key) { if (PREFLIGHT) dispatchCard(key, row.repo); else dispatch(key, row.repo); }
+    if (key) takeTicket(key, row.repo);
   });
 
   /* The dispatch card's own three controls (#164). `Enter` in the brief box starts; `Esc` cancels,
@@ -327,15 +327,7 @@ function makeTile(row, index) {
       "New files are in the scope under .agent/in/; read scope.toon before continuing." });
   });
 
-  el.querySelector(".dispatch-close").addEventListener("click", function () { closeDispatch(el); });
-  el.querySelector(".dispatch-go").addEventListener("click", function () {
-    var card = el.querySelector(".dispatch");
-    dispatch(card.dataset.key || "", row.repo, el.querySelector(".brief").value.trim());
-  });
-  el.querySelector(".brief").addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { el.querySelector(".dispatch-go").click(); e.preventDefault(); }
-    else if (e.key === "Escape") { closeDispatch(el); e.stopPropagation(); }
-  });
+  // The dispatch card is one element the page owns (#183); its controls are bound once, below.
 
   /* #174: the switcher's four buttons. The rows behind *earlier* are fetched on the click rather
      than on every poll -- nobody is reading them until they ask for them. */
@@ -1195,8 +1187,11 @@ document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   if (e.key === "Escape") {
     // A popover is the nearest thing open, so Esc closes it and nothing else -- the second
-    // listener below would otherwise close the sidebar in the same keystroke (#180).
+    // listener below would otherwise close the sidebar in the same keystroke (#180). A dispatch
+    // card is the next nearest (#183).
     if (closePopovers()) { e.stopImmediatePropagation(); return; }
+    var card = document.getElementById("dispatch");
+    if (card && !card.hidden) { closeDispatch(); e.stopImmediatePropagation(); return; }
     if (typing) document.activeElement.blur(); else unfocus();
     return;
   }
@@ -1567,6 +1562,7 @@ function statusClass(row) {
 function ticketRow(row) {
   var li = document.createElement("li");
   li.draggable = true;
+  li.tabIndex = 0;                                    // `1`-`9` from here picks a rail chip (#183)
   li.dataset.key = row.key;
 
   var head = document.createElement("div");
@@ -1609,8 +1605,9 @@ function ticketRow(row) {
     e.dataTransfer.setData("application/x-agentdata-ticket", row.key);
     e.dataTransfer.setData("text/plain", row.key);
     e.dataTransfer.effectAllowed = "copy";
+    railLight(row);
   });
-  li.addEventListener("dragend", function () { li.classList.remove("dragging"); });
+  li.addEventListener("dragend", function () { li.classList.remove("dragging"); railLight(null); });
   return li;
 }
 
@@ -1791,21 +1788,38 @@ function scopeDrop(el, repo, files) {
    delegating, gathered by a server-side pre-flight that spends no premium request, and one button.
    `fleet.preflight: false` restores #98's immediate start for anyone who preferred it. */
 
-function dispatchCard(key, repo) {
+/* One card, two homes (#183). When the tile is on the glass the card sits in the tile, where the
+   drop landed; in the board window -- `body.panels`, no tiles -- or when the tile is hidden, it
+   sits under the agent rail. It used to fall back to a bare `dispatch()` when it found no tile,
+   and to draw *inside a hidden tile* when it found one the window was not showing: the window
+   built for handing tickets over was the one place the hand-over skipped its pre-flight. */
+function onTheGlass(repo) {
   var entry = tiles.get(repo);
-  if (!entry) return dispatch(key, repo);
-  var el = entry.el;
-  var card = el.querySelector(".dispatch");
+  return !!(entry && entry.el.offsetParent !== null && !entry.el.classList.contains("is-hidden"));
+}
+
+function dispatchHome(repo) {
+  if (onTheGlass(repo)) return tiles.get(repo).el.querySelector(".dispatch-slot");
+  return document.getElementById("railslot");
+}
+
+function dispatchCard(key, repo) {
+  var card = document.getElementById("dispatch");
   var rows = card.querySelector(".dispatch-rows");
   var brief = card.querySelector(".brief");
+  var home = dispatchHome(repo);
+  if (card.parentNode !== home) home.appendChild(card);       // moved, never copied
+  if (home.id === "railslot") { boardPanel(true); }
 
   text(card.querySelector(".dispatch-key"), key + " → " + repo);
   text(card.querySelector(".verdict"), "reading…");
   card.querySelector(".verdict").className = "verdict";
   while (rows.firstChild) rows.removeChild(rows.firstChild);
   brief.value = "";
+  text(card.querySelector(".dispatch-note"), "");
   card.hidden = false;
   card.dataset.key = key;
+  card.dataset.repo = repo;
 
   fetch(q("/api/preflight", { key: key, repo: repo })).then(function (r) {
     return r.json();
@@ -1841,9 +1855,23 @@ function dispatchCard(key, repo) {
   });
 }
 
-function closeDispatch(el) {
-  var card = el.querySelector(".dispatch");
-  if (card) { card.hidden = true; card.dataset.key = ""; }
+function closeDispatch() {
+  var card = document.getElementById("dispatch");
+  if (card) { card.hidden = true; card.dataset.key = ""; card.dataset.repo = ""; }
+}
+
+/* A refusal has to land where the operator is looking. On a tile that is on the glass, that is
+   the tile's own error line; from the board window it is the card's note (when the card is open)
+   or the line under the rail -- a refusal written into a hidden tile is a refusal nobody sees. */
+function said(repo, message) {
+  var card = document.getElementById("dispatch");
+  if (card && !card.hidden && card.dataset.repo === repo) {
+    text(card.querySelector(".dispatch-note"), message);
+  } else if (!onTheGlass(repo)) {
+    var note = document.getElementById("railnote");
+    text(note, message);
+    note.hidden = !message;
+  }
 }
 
 function dispatch(key, repo, brief) {
@@ -1852,22 +1880,130 @@ function dispatch(key, repo, brief) {
   var body = { repo: repo, ticket: key };
   if (brief) body.brief = brief;
   return action(el, "start", body).then(function (r) {
-    if (r && r.ok) { boardPanel(false); closeDispatch(el); focus(repo); }
+    if (r && r.ok) { boardPanel(false); closeDispatch(); said(repo, ""); focus(repo); }
     else if (r && !r.ok && (r.code === "cross_project" || /jira_project/.test(r.error || ""))) {
       // The one refusal worth offering an override for in the page: the operator can see both
       // projects on screen and is better placed than the guard to say it is deliberate.
+      said(repo, r.error + (r.hint ? " — " + r.hint : ""));
       if (confirm(r.error + "\n\nStart it anyway?")) {
         var again = { repo: repo, ticket: key, cross_project: true };
         if (brief) again.brief = brief;
         action(el, "start", again).then(function (r2) {
-          if (r2 && r2.ok) closeDispatch(el);
+          if (r2 && r2.ok) { closeDispatch(); said(repo, ""); }
+          else if (r2) said(repo, r2.error + (r2.hint ? " — " + r2.hint : ""));
           return r2;
         });
       }
+    } else if (r && !r.ok) {
+      said(repo, r.error + (r.hint ? " — " + r.hint : ""));
     }
     return r;
   });
 }
+
+(function bindDispatchCard() {
+  var card = document.getElementById("dispatch");
+  if (!card) return;
+  card.querySelector(".dispatch-close").addEventListener("click", function () { closeDispatch(); });
+  card.querySelector(".dispatch-go").addEventListener("click", function () {
+    dispatch(card.dataset.key || "", card.dataset.repo || "", card.querySelector(".brief").value.trim());
+  });
+  card.querySelector(".brief").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { card.querySelector(".dispatch-go").click(); e.preventDefault(); }
+    else if (e.key === "Escape") { closeDispatch(); e.stopPropagation(); }
+  });
+})();
+
+/* ------------------------------------------------------------------------ the agent rail (#183)
+
+   In the grid a ticket goes to an agent by being dragged onto its tile. In the board window there
+   are no tiles -- that is the point of the window -- so the row offered a button per candidate
+   and a drag went nowhere. The rail is one chip per registered checkout, each a drop target;
+   dragging a ticket over it lights the candidates `board.suggest` named for that key and dims the
+   rest; a drop calls exactly what a drop on the tile calls. `1`-`9` from a focused row is the
+   same gesture without a mouse. */
+var railDrag = null;                                   // the ticket row in flight, if any
+
+function drawRail() {
+  var list = document.getElementById("agentrail");
+  if (!list) return;
+  var pattern = list.querySelector(".rail-chip");
+  while (list.children.length > 1) list.removeChild(list.lastChild);
+  getEffectiveOrder().forEach(function (name) {
+    var entry = tiles.get(name);
+    if (!entry) return;
+    var row = entry.row || {};
+    var li = pattern.cloneNode(true);
+    li.hidden = false;
+    li.dataset.repo = name;
+    li.className = "rail-chip" + (entry.el.classList.contains("needs-human") ? " needs-human" : "");
+    var button = li.querySelector(".rail-open");
+    text(li.querySelector(".dc-name"), name);
+    text(li.querySelector(".dc-chip"),
+         (row.state || "") + (row.at ? " · " + age(ageOf(row)) : ""));
+    button.setAttribute("aria-label", name);
+    button.title = "drop a ticket here to start it on " + name;
+    button.addEventListener("click", function () { focus(name); });
+    button.addEventListener("dragover", function (e) {
+      if (!ticketInFlight(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      button.classList.add("drop-target");
+    });
+    button.addEventListener("dragleave", function () { button.classList.remove("drop-target"); });
+    button.addEventListener("drop", function (e) {
+      e.preventDefault();
+      button.classList.remove("drop-target");
+      var key = (e.dataTransfer.getData("application/x-agentdata-ticket") || e.dataTransfer.getData("text/plain") || "").trim();
+      if (key) takeTicket(key, name);
+    });
+    list.appendChild(li);
+  });
+  railLight(railDrag);
+}
+
+function ticketInFlight(e) {
+  var types = Array.from((e.dataTransfer && e.dataTransfer.types) || []);
+  return types.indexOf("application/x-agentdata-ticket") >= 0 || types.indexOf("text/plain") >= 0;
+}
+
+function takeTicket(key, repo) {
+  if (PREFLIGHT) dispatchCard(key, repo); else dispatch(key, repo);
+}
+
+/* While a ticket is in flight the rail says where it can go: the candidates `board.suggest`
+   named light up and the rest dim. A drop on a dimmed chip is still allowed -- it is the same drop
+   a tile allows, and the supervisor's `cross_project` refusal, with the page's one override, is
+   the answer -- the rail only says which way is downhill. */
+function railLight(row) {
+  railDrag = row;
+  var s = (row && row.suggested) || {};
+  var candidates = row ? (s.repo ? [s.repo] : (s.candidates || [])) : [];
+  Array.prototype.forEach.call(document.querySelectorAll("#agentrail .rail-chip:not([hidden])"), function (li) {
+    var lit = !!row && candidates.indexOf(li.dataset.repo) >= 0;
+    li.classList.toggle("is-candidate", lit);
+    li.classList.toggle("is-dim", !!row && !lit);
+    li.querySelector(".rail-open").setAttribute("aria-selected", String(lit));
+  });
+}
+
+document.getElementById("tickets").addEventListener("keydown", function (e) {
+  var li = e.target.closest && e.target.closest("li[data-key]");
+  if (!li) return;
+  var row = board.filter(function (r) { return r.key === li.dataset.key; })[0];
+  if (!row) return;
+  // The keystroke stops here: the page's own `1`-`9` zooms a tile, which in the board window
+  // would close the board under the card it just opened.
+  if (/^[1-9]$/.test(e.key)) {
+    var chips = document.querySelectorAll("#agentrail .rail-chip:not([hidden])");
+    var chip = chips[Number(e.key) - 1];
+    if (chip) { takeTicket(row.key, chip.dataset.repo); e.preventDefault(); e.stopPropagation(); }
+  } else if (e.key === "Enter") {
+    var s = row.suggested || {};
+    var only = s.repo || ((s.candidates || []).length === 1 ? s.candidates[0] : "");
+    if (only) { takeTicket(row.key, only); e.preventDefault(); e.stopPropagation(); }
+  }
+});
 
 function drawBoard(rows) {
   var list = document.getElementById("tickets");
@@ -2702,6 +2838,7 @@ function place() {
   drawNotice();
   drawSwap(one);
   drawDock();
+  drawRail();
 }
 
 /* The footer's one line, and one owner (#173).

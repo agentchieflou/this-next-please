@@ -48,7 +48,7 @@ one of the three that costs nothing if the sitting concludes the whole idea was 
 | --- | --- | --- |
 | `?layout=roles&view=agents` | the tiles, wide — transcripts, approvals, replies | **left**, where the terminal is |
 | `?layout=roles&view=verify` | the selected project alone: link rail, verify pane, its inbox | **centre**, where the report is |
-| `?layout=roles&view=board` | the Jira board and the unsorted tray, no tiles | **right**, where the ticket is |
+| `?layout=roles&view=board` | the Jira board and the unsorted tray, no tiles — and the agent rail, so a ticket is handed over from here too (#183) | **right**, where the ticket is |
 
 **What it is for:** giving each screen the job it already has, instead of asking one window to be
 all three. **The three windows agree on one project.** Clicking a tile on the left changes the

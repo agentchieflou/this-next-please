@@ -885,3 +885,22 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
   margin-left: auto; min-height: 28px; background: var(--bg); color: var(--text);
   border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
 }
+
+/* -------------------------------------------------------------------------- the agent rail (#183)
+   The dock's chip, at the top of the board, as a drop target. While a ticket is in flight the
+   candidates for it are lit and the rest dimmed: the rail says which way is downhill before the
+   drop, which is HIG *Drag and drop*'s "a drop target is visible before the drop". Never colour
+   alone: a lit chip is also `aria-selected`. */
+.agentrail {
+  list-style: none; display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 6px; padding: 0 0 6px;
+  border-bottom: 1px dashed var(--line);
+}
+.rail-chip .rail-open { cursor: pointer; }
+.rail-chip.needs-human .rail-open { border-color: var(--human); color: var(--human); }
+.rail-chip.is-candidate .rail-open { border-color: var(--accent); box-shadow: 0 0 0 2px var(--select); }
+.rail-chip.is-dim { opacity: .45; }
+.rail-chip .rail-open.drop-target { background: var(--select); border-color: var(--accent); border-style: dashed; }
+.railnote { margin: 0 0 6px; color: var(--human); }
+#railslot .dispatch { margin: 0 0 8px; }
+/* A ticket row can take the keyboard: `1`-`9` from it picks a rail chip, `Enter` its one candidate. */
+#tickets li:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
