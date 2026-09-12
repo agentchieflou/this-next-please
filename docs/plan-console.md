@@ -1,10 +1,16 @@
 # Plan: the console — one session, two surfaces, one file
 
-_Status: PLANNED (2026-09-12) — epic #187 (slices #188–#193), under #91 (the fleet) and #122 (the desk), a
-sibling of #145, #162, #170 and #179. Nothing below is built. The operator's sentence that started it: "we really
-need to figure out how to get a cmd.exe window carrying a session directly into our fleet window. It is a top
-priority to have that shared session understanding be synchronous." Every claim below about what a Copilot console
-writes to disk is to be measured on the laptop first (rows C1–C8 of the runbook), the way #145's and #179's were._
+_Status: IMPLEMENTED (2026-09-12) — epic #187 (slices #188–#193), under #91 (the fleet) and #122 (the desk), a
+sibling of #145, #162, #170 and #179. The operator's sentence that started it: "we really need to figure out how to
+get a cmd.exe window carrying a session directly into our fleet window. It is a top priority to have that shared
+session understanding be synchronous." Every claim about what a Copilot console writes to disk is a row in the
+runbook ([windows-verification.md](windows-verification.md) §The console, C1–C8), all of them still_ not yet
+measured _— the code is written so that either answer to each one works, and the two heuristics that stand in for
+an unmeasured fact (the pending-prompt sentence, the idle window) say in the interface that they are guesses. One
+thing is built differently from what is written below, deliberately: the helper reaches the console's input buffer
+through `CONIN$` rather than `GetStdHandle(STD_INPUT_HANDLE)`, because it is spawned with its stdio redirected so
+the caller can read its TOON, and `AttachConsole` does not re-point handles that were redirected — `GetStdHandle`
+would hand back the pipe and the line would vanish silently, which is the failure this epic exists to remove._
 
 ## Why this exists
 
@@ -178,7 +184,7 @@ fleet opened, and §Adopt, made exact narrows it for the ones it did not.
 The fleet's `send` is "another `copilot -p <message> --resume <session>` process" (`supervisor.py:478-524`); for a
 console session that would be a second agent in the working tree, so it is refused today and stays refused. What a
 console *does* accept is input records in its input buffer, from any process the Windows console API lets attach:
-`FreeConsole()`, `AttachConsole(pid)`, `WriteConsoleInputW(GetStdHandle(STD_INPUT_HANDLE), <the text as key
+`FreeConsole()`, `AttachConsole(pid)`, `WriteConsoleInputW(<the console's own `CONIN$` handle>, <the text as key
 events, then Enter>)`, `FreeConsole()`. The package already speaks to the Win32 console through `ctypes` —
 `theme.apply_conhost` recolours a bare `cmd.exe` with `SetConsoleScreenBufferInfoEx` (`theme.py:548-549`) — so
 this is three more calls behind one function, not a new kind of dependency. That is `ad-fleet say <repo>
@@ -255,18 +261,22 @@ file. `send` on an adopted console is `say`, if a pid can be named for it (`_win
 **The lock** (`~/.agentdata/fleet/agents/<name>/LOCK`) — `kind: "console"`, `session`, `pid` (the console host's,
 or 0 for an adopted one), `session_file`. Fleet locks are unchanged.
 
-**The event contract** — no new kinds in slices A–D. `started.data` gains `console: true`; `exited.data.why` says
+**The event contract** — one new kind, `said`: what the fleet typed into a console it opened, the fleet's own act
+the way `started` is, and the exact line the console echoes. Everything else is additive. `started.data` gains `console: true`; `exited.data.why` says
 `"the console closed"`, the sentence [fleet-lifecycle.md](fleet-lifecycle.md) §A process that just stopped already
 uses for it. What an interactive file carries that the headless stream does not is folded as `raw` until C1/C2
 name it, then added — `SCHEMA` unchanged, additive only, per `events.py:1-19`.
 
 **The cursor** (`events.cursor.json`) — `console_lines`, and byte offsets for both raw sources.
 
-**The API** — `POST /api/console {repo, ticket?, resume?, new?}`; `POST /api/say {repo, text}`;
-`POST /api/adopt` unchanged in shape, its row gains `session_file`.
+**The API** — `POST /api/console {repo, ticket?, resume?, new?}`; `POST /api/say {repo, message}`;
+`POST /api/focus {repo}`; `POST /api/adopt` unchanged in shape, its row gains `session_file`.
 
-**The CLI** — `ad-fleet console <repo>`, `ad-fleet say <repo> "<text>"`, `ad-fleet say-into <pid> <text>` (the
-helper; hidden from `--help` the way module-only commands are, `tests/test_entrypoints.py:45`).
+**The CLI** — `ad-fleet console <repo>`, `ad-fleet say <repo> "<text>"`, `ad-fleet show-console <repo>`, and the
+two helpers those spawn, `ad-fleet say-into <pid> <text>` and `ad-fleet focus-console <pid>`. The helpers take a
+pid rather than a repository because attaching to a console is process-wide: they are what runs in the short-lived
+process, and `fleet.console.helper` replaces the interpreter in front of them, which is how CI drives the whole
+path with no console anywhere.
 
 **The refusals** — `no_console_host`, `not_a_console`, `console_unreachable`, `unsupported_host`, each a row in
 [refusals.md](refusals.md) naming its test, the way `tests/test_refusals.py` pins the count. `live_agent`,

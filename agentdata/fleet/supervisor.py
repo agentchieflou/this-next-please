@@ -624,7 +624,12 @@ def say(name: str, text: str, *, cfg: dict | None = None,
     already watching, and the session's own file carries it back to the tile as the user turn.
     """
     lock = _console_lock(name, "say to", registry)
-    line = fleet_console.one_line(text)
+    try:
+        line = fleet_console.one_line(text)
+    except fleet_console.ConsoleError as e:
+        # One vocabulary: every refusal the page and the CLI see is a SupervisorError with a code,
+        # whichever layer noticed. A ConsoleError escaping here would be a 500 on a typo.
+        raise SupervisorError(e.msg, e.hint, code=e.code or "refused") from None
     from . import events as E
 
     meta = _run_helper([*helper_command("say-into", cfg), str(lock["pid"]), line], name)
