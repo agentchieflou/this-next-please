@@ -94,10 +94,21 @@ def permitted(command: str, allow: list[str], deny: list[str]) -> tuple[bool, st
     return False, "no --allow-tool pattern permits this command"
 
 
+# The session file Copilot itself writes: `~/.copilot/session-state/<id>/events.jsonl` (#188). The
+# fake writes the same lines it prints, in the same order, when the environment names the directory
+# -- so the fleet's console path is exercised on CI against a file that grows the way Copilot's does.
+_SESSION_FILE = ""
+
+
 def emit(event: dict) -> None:
     event.setdefault("timestamp", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-    sys.stdout.write(json.dumps(event, ensure_ascii=False) + "\n")
+    line = json.dumps(event, ensure_ascii=False) + "\n"
+    sys.stdout.write(line)
     sys.stdout.flush()
+    if _SESSION_FILE:
+        with open(_SESSION_FILE, "a", encoding="utf-8", newline="\n") as f:
+            f.write(line)
+            f.flush()
 
 
 def play(entry: dict, argv: list[str]) -> int:
@@ -114,6 +125,11 @@ def play(entry: dict, argv: list[str]) -> int:
         # different for every launch and readable in a failure.
         session = f"{session}-{os.getpid()}"
     steps = entry.get("resume_steps" if resumed and entry.get("resume_steps") else "steps") or []
+    global _SESSION_FILE
+    state_dir = os.environ.get("COPILOT_SESSION_STATE")
+    if state_dir:
+        os.makedirs(os.path.join(state_dir, session), exist_ok=True)
+        _SESSION_FILE = os.path.join(state_dir, session, "events.jsonl")
 
     calls = 0
     for step in steps:

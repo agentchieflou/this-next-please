@@ -39,11 +39,20 @@ Every line is one JSON object, one event, LF-terminated:
 removed. Readers replay history, and history does not get rewritten.
 
 **Idempotent.** `events.refresh()` records how far it has read into each source in
-`events.cursor.json` — raw lines consumed, last `state.json` seen, friction files already turned
-into events. Replaying the same inputs twice produces the same stream, not a doubled one. (The one
-place this could have gone wrong is log rotation: when `supervisor._rotate` renames `events.jsonl`
-to `.1`, the line counter is reset in the same breath, or the next refresh would skip the opening
-lines of the new log.)
+`events.cursor.json` — a byte offset into each raw log, last `state.json` seen, friction files
+already turned into events. Replaying the same inputs twice produces the same stream, not a doubled
+one. (The one place this could have gone wrong is log rotation: when `supervisor._rotate` renames
+`events.jsonl` to `.1`, the offset is reset in the same breath, or the next refresh would skip the
+opening lines of the new log.) A cursor written before #188 counted lines; it is read once as an
+offset, and a half-written last line is left for the next tick.
+
+**Two raw sources, one catalogue (#188).** The fleet's own agents write their JSONL to the pipe
+the supervisor redirected, `~/.agentdata/fleet/agents/<name>/events.jsonl`. A session in a console
+the fleet did not pipe is read from Copilot's own file for it,
+`~/.copilot/session-state/<id>/events.jsonl` (`COPILOT_SESSION_STATE` overrides the directory),
+named by the lock — `kind: "console"` with a `session`, or an adopted lock's `session_file`. Both
+go through `from_copilot` on the same fold tick, from their own offsets; a new session is a new
+file and starts its offset over. Copilot's directory is read and never written.
 
 **Nothing credential-shaped.** `redact()` runs over every `data` payload before it is written, by
 key (`token`, `password`, `api_key`, `client_secret`, …) and by value shape (`ghp_…`, `xoxb-…`, a

@@ -22,6 +22,29 @@ def store_path() -> str:
     return os.environ.get("COPILOT_SESSION_STORE") or os.path.expanduser("~/.copilot/session-store.db")
 
 
+# ------------------------------------------------------------- Copilot's own session files (#188)
+#
+# Copilot writes every session -- interactive or `-p` -- to `~/.copilot/session-state/<id>/events.jsonl`
+# as it runs, in the catalogue `events.from_copilot` folds. A console session the fleet did not pipe
+# is read from there. Read-only by construction: nothing in this block opens a file for writing,
+# makes a directory or removes one, and `tests/test_fleet_console.py` reads this source to say so.
+
+
+def session_state_dir() -> str:
+    """Where Copilot keeps one directory per session. `COPILOT_SESSION_STATE` overrides it, the way
+    `COPILOT_SESSION_STORE` overrides the store, so a test never reads a real home."""
+    return os.environ.get("COPILOT_SESSION_STATE") or os.path.expanduser("~/.copilot/session-state")
+
+
+def session_state_path(session_id: str) -> str:
+    """The events log of one session, or "" for no id. The id is one path segment: a value read
+    out of a lock or a store row never becomes a path that leaves the directory."""
+    sid = os.path.basename(str(session_id or "").strip())
+    if not sid or sid in (".", ".."):
+        return ""
+    return os.path.join(session_state_dir(), sid, "events.jsonl")
+
+
 def store_status() -> tuple[str, str, str]:
     """Check whether Copilot's session store is present and readable.
 
