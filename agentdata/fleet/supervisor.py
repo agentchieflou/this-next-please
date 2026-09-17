@@ -19,6 +19,7 @@ from . import console as fleet_console
 from . import handoff as H
 from . import lifecycle
 from .launch import child_env, launch_command, prompt_for, console_command
+from . import launch as LAUNCH
 from .registry import Registry, Repo, RegistryError, agent_dir, fleet_dir
 
 LOCK = "agent.json"
@@ -465,15 +466,19 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
     _rotate(name, cfg)
     directory = agent_dir(name)
 
+    model, effort, model_source = LAUNCH.model_for(name, cfg)
     argv = launch_command("copilot", repo.path, text,
                           log_dir=os.path.join(directory, "logs"),
                           cfg=cfg, usage_file=os.path.join(directory, USAGE),
-                          session=resume)
+                          session=resume, model=model, effort=effort)
     child = _spawn(repo, name, argv, exe)
 
     lock = {"pid": child.pid, "repo": name, "path": repo.path, "ticket": key or "",
             "summary": summary, "prompt": text, "session": resume or "", "started": time.time(),
-            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
+            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv,
+            # First-class rather than recoverable from `launch`: every consumer that wants to know
+            # what an agent is running on would otherwise have to parse an argv.
+            "model": model, "effort": effort, "model_source": model_source}
     write_lock(name, lock)
     _emit_started(name, lock, resumed=bool(resume), new=bool(new or not resume))
     return lock
@@ -515,14 +520,16 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
                               code="no_session")
 
     directory = agent_dir(name)
+    model, effort, model_source = LAUNCH.model_for(name, cfg)
     argv = launch_command("copilot", repo.path, message,
                           log_dir=os.path.join(directory, "logs"), session=session, cfg=cfg,
-                          usage_file=os.path.join(directory, USAGE))
+                          usage_file=os.path.join(directory, USAGE), model=model, effort=effort)
     child = _spawn(repo, name, argv, exe)
 
     lock = {"pid": child.pid, "repo": name, "path": repo.path, "session": session,
             "prompt": message, "started": time.time(),
-            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
+            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv,
+            "model": model, "effort": effort, "model_source": model_source}
     write_lock(name, lock)
     _emit_started(name, lock, resumed=True)
     return lock
@@ -694,14 +701,16 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
 
     directory = agent_dir(name)
     text = lifecycle.RESUME_PROMPT
+    model, effort, model_source = LAUNCH.model_for(name, cfg)
     argv = launch_command("copilot", repo.path, text,
                           log_dir=os.path.join(directory, "logs"), session=session, cfg=cfg,
-                          usage_file=os.path.join(directory, USAGE))
+                          usage_file=os.path.join(directory, USAGE), model=model, effort=effort)
     child = _spawn(repo, name, argv, exe)
     fresh = {"pid": child.pid, "repo": name, "path": repo.path, "session": session,
              "ticket": lock.get("ticket", ""), "summary": lock.get("summary", ""),
              "prompt": text, "restarts": done + 1, "started": time.time(),
-             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
+             "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv,
+             "model": model, "effort": effort, "model_source": model_source}
     write_lock(name, fresh)
     _emit_started(name, fresh, resumed=True)
     return fresh
@@ -757,15 +766,18 @@ def console(name: str, *, key: str | None = None, resume: str | None = None, new
     session = str(resume or "").strip() or uuid.uuid4().hex
     directory = agent_dir(name)
     os.makedirs(os.path.join(directory, "logs"), exist_ok=True)
+    model, effort, model_source = LAUNCH.model_for(name, cfg)
     argv = console_command("copilot", repo.path, log_dir=os.path.join(directory, "logs"),
-                           session=session, resume=bool(resume), cfg=cfg)
+                           session=session, resume=bool(resume), cfg=cfg,
+                           model=model, effort=effort)
     host = str(C.get(cfg if cfg is not None else C.load(), "fleet.console.host", "") or
                ("cmd" if os.name == "nt" else "terminal"))
     palette = bool(C.get(cfg if cfg is not None else C.load(), "fleet.console.palette", True))
     child = _open_console(repo, name, argv, exe, host, key or "", palette)
     lock = {"pid": child.pid, "kind": "console", "host": host, "repo": name, "path": repo.path,
             "ticket": key or "", "summary": summary, "session": session, "started": time.time(),
-            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv}
+            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"), "launch": argv,
+            "model": model, "effort": effort, "model_source": model_source}
     write_lock(name, lock)
     _emit_started(name, lock, resumed=bool(resume), new=bool(new or not resume), console=True)
     return lock

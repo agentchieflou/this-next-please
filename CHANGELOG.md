@@ -6,6 +6,48 @@ Read this before running `ad-update`: it says whether an update needs anything b
 
 ## 0.10.0
 
+**The settings button goes somewhere (#199).** It was a popover holding two `<select>`s, behind a
+control on the toolbar that reads like it leads to a page — and the report was the honest one: *the
+settings button isn't functional at all.* Settings are a page now, `/settings`, with four blocks:
+**Appearance** (the palette and skin that were behind the button), **Model per agent**, **Copilot**
+(the launch and notification settings, each saying when a change takes effect), and **What an agent
+may run** (the resolved allow and deny lists, read-only, each pattern labelled as shipped or
+configured). The toolbar control is a link, and its `href` is built at runtime: the run token lives
+in the query string and `_authorized` reads it from nowhere else, so a static `href="/settings"`
+would be a 403 that reads exactly like the dead button that was reported.
+
+It is a second page and not a view swap, and the two share `common.js` rather than one forking the
+other: `app.js` boots a desk — a stream feeding tiles, a fifteen-second reload, a layout pass that
+rewrites `document.body` several times a second — and none of that belongs under somebody editing a
+dropdown. Everything the popover had earned survives the move and is asserted on the new page: the
+skin→palette coupling, the palette picker that says why it is not taking instructions, the picker
+that must never render blank, and #195's rule that the controls open saying what is *already* on.
+The page carries its own EventSource for that one `theme` frame, so a palette set by `ad-theme` in a
+terminal repaints it instead of leaving it quietly lying.
+
+**Which model each agent runs (#199).** There was no model selection anywhere in the fleet: the
+Copilot command line was built with no `--model` at all. Now `fleet.model` and `fleet.effort` set it
+for the whole fleet and `fleet.models.<repo>` overrides it per repository, resolved once in
+`launch.model_for` and threaded to all four launch paths — start, send, restart and a console, which
+is not an exception to anything a headless turn gets. The lock records the model, the effort and
+which key they resolved from, and `ad-fleet status --show-launch` prints a `models` table with one
+row per registered repository — including an explicit `cli-auto` row, because an unset model is a
+decision the CLI makes rather than an absence.
+
+Left unset, no flag is passed at all: the only no-model behaviour anyone measured is the CLI
+selecting one, and `--model ""` would be inventing a second. Nothing validates a model *name*
+either — `--model` is on the measured list of flags this build has, but which names it accepts has
+never been measured, so the page offers only models the event stream really reported and the CLI
+stays the validator. The page shows the configured model beside the one the last turn *actually*
+ran on, which are two different facts whenever a tenant pins a model. What is refused, at the
+keystroke rather than hours later as a failed start, is a value carrying whitespace or a leading
+dash: `--model "x --allow-all-tools"` is one argument to a person and two to a command line, and
+the allow-list check never sees it.
+
+**On update.** No new dependency and nothing to re-run. The defaults are what the fleet already did:
+no model flag, and the same palette. `ad-fleet serve` serves the new page from the same port.
+
+
 **The agent signs in, and Tabular Editor gets the token.** `az login --allow-no-subscriptions` was never enough: the
 Azure CLI keeps its own token cache, and Tabular Editor 2 and DAX Studio -- built on the Analysis Services client
 libraries -- keep another, filled only by their own sign-in window. So every REST call worked and the first

@@ -122,6 +122,20 @@ fleet makes inside a repository, it happens only on a click, and it is logged as
 
 ## The rules
 
+**Which model an agent runs** is `fleet.model` (and `fleet.effort`) for the whole fleet, overridden
+per repository by `fleet.models.<repo> = {"model": …, "effort": …}` — set from `/settings`, or in
+`~/.agentdata/config.json`. Left unset, no `--model` flag is passed at all and the Copilot CLI
+selects one itself, which is the only no-model behaviour anyone has measured. A change applies to
+the agent's **next** turn: the command line is fixed when the process starts.
+`ad-fleet status --show-launch` prints a `models` table with one row per registered repository and
+the source each value resolved from — `fleet.models.<repo>`, `fleet.model`, or `cli-auto`.
+
+Nothing validates a model *name*: `--model` is on the measured list of flags this build has, but
+which names it accepts has never been measured, so the CLI is the validator and the settings page
+suggests only models the event stream has really reported. What *is* refused, at the keystroke, is a
+value carrying whitespace or a leading dash — `--model "x --allow-all-tools"` is one argument to a
+person and two to a command line, and the allow-list check never sees it.
+
 **A console the fleet opens** (`ad-fleet console <repo> [KEY]`, #189) is the operator's own
 `cmd.exe` running Copilot in that checkout with a session id the fleet chose; the tile reads the
 same session from Copilot's own file for it (#188), and the lock is taken with the window's pid.

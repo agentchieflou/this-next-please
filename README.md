@@ -186,6 +186,7 @@ python -m pytest -q
 | `agentdata/sqlcheck/` | dialect pre-flight lint (`ad-sql-check`, auto inside the query commands) |
 | `agentdata/pbip/` | PBIP tooling: TMDL parser/lint/editor, PBIR loader, projection, model↔report validator, Desktop discovery, DAX runner (`ad-pbip`) |
 | `agentdata/fleet/` | `ad-fleet`: several headless agents, one per repository, watched from one page — supervisor, normalized event stream, approval gate, notifications, Jira intake, dashboard ([docs/fleet.md](docs/fleet.md)) |
+| `agentdata/fleet/settings.py` | the enumerated table of what the `/settings` page may change: type, default and when a change takes effect. An allow-list, so a key nobody named is refused rather than written |
 | `ide/` | two thin shells that host that page — a JetBrains tool window and a VS Code view. Not part of the Python wheel; built by CI |
 | `agentdata/ui.py` | how the CLI looks to a person: panels, tables and status glyphs via `rich`, and off whenever a machine might be reading |
 | `agentdata/confluence.py` | `ad-confluence`: Markdown → Confluence storage format (XHTML, code macro, entities), XML-validated before it is published |

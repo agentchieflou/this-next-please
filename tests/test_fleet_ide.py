@@ -126,10 +126,21 @@ def test_nothing_stops_the_page_being_framed(running):
 
 def test_the_page_talks_only_to_its_own_origin():
     """Simple Browser runs the page inside a `vscode-webview://` frame. Anything the page fetched
-    from another origin would be blocked there and nowhere else, which is the worst kind of bug."""
-    js = open(os.path.join(ROOT, "agentdata", "fleet", "static", "app.js"), encoding="utf-8").read()
-    assert "location.origin" in js
-    assert "http://" not in js and "https://" not in js
+    from another origin would be blocked there and nowhere else, which is the worst kind of bug.
+
+    Every script, not one by name: the URL builder moved to `common.js` when the settings page
+    started sharing it, and a guard naming `app.js` would have gone on passing while checking a
+    file that no longer contained the thing it was checking for.
+    """
+    static = os.path.join(ROOT, "agentdata", "fleet", "static")
+    scripts = sorted(n for n in os.listdir(static) if n.endswith(".js"))
+    assert scripts, "there are no scripts to check"
+    bodies = {n: open(os.path.join(static, n), encoding="utf-8").read() for n in scripts}
+
+    assert any("location.origin" in body for body in bodies.values()), \
+        "no script builds its URLs against this page's own origin"
+    for name, body in bodies.items():
+        assert "http://" not in body and "https://" not in body, f"{name} names another origin"
 
 
 # ------------------------------------------------------------------------------ the fallbacks
