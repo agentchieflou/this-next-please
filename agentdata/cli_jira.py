@@ -41,6 +41,7 @@ from . import completion
 from . import config as C
 from . import model
 from . import toon
+from . import jira_create as JC
 from . import jira_stream as ST
 from . import jira_workflow as W
 from .connectors import jira_api as J
@@ -248,6 +249,81 @@ def cmd_transition(a) -> int:
     else:
         print(toon.encode({"meta": {k: v for k, v in meta.items() if v is not None}}))
     return 0 if meta["moved"] else 1
+
+
+def cmd_create(a) -> int:
+    """Open a ticket with the project's defaults (AGENTS.md `jira_*` facts) under the flags, gated like a transition."""
+    cfg, j, me = _client()
+    src = "ad-jira create"
+    d = JC.defaults(C.project_facts())
+    try:
+        fields = dict(d["fields"])
+        fields.update(JC.parse_pairs(a.field or []))
+    except JC.CreateError as e:
+        print(error(str(e), e.hint, "ad-jira"))
+        return 2
+    project = a.project or d["project"]
+    components = list(a.component or []) or d["components"]
+    labels = list(a.label or []) or d["labels"]
+    parent = None if (a.parent or "").strip().lower() == "none" else (a.parent or d["parent"])
+    assignee = None if (a.assignee or "").strip().lower() == "none" else (a.assignee or d["assignee"])
+    description = a.description
+    if a.description_file:
+        from . import textio
+        try:
+            description = textio.read_text(a.description_file)
+        except OSError as e:
+            print(error(f"cannot read {a.description_file}: {e}", "", "ad-jira"))
+            return 2
+    cloud, api3 = j.flavor.kind == "cloud", j.flavor.api == "3"
+    try:
+        body, resolved = JC.payload(j.fields(), project=project, issue_type=a.type or d["issue_type"], summary=a.summary,
+                                    description=description, components=components, labels=labels, fields=fields,
+                                    parent=parent, assignee=assignee, me=me, cloud=cloud, api3=api3)
+    except JC.CreateError as e:
+        out: dict = {"meta": {"ok": False, "source": src, "error": str(e), "hint": e.hint}}
+        if e.available:
+            out["available"] = [{"field": n} for n in e.available]
+        print(toon.encode(out))
+        return 2
+    f = body["fields"]
+    meta = {"ok": True, "source": src, "project": project, "issue_type": f["issuetype"]["name"], "summary": f["summary"],
+            "components": ",".join(components) or None, "labels": ",".join(labels) or None,
+            "parent": parent or None, "assignee": assignee or None,
+            "fields": ",".join(str(r["field"]) for r in resolved) or None,
+            "description": "yes" if description else None}
+
+    def emit(extra: dict | None = None) -> None:
+        m = {k: v for k, v in {**meta, **(extra or {})}.items() if v is not None}
+        if policy.pretty():
+            ui.facts([(k, v) for k, v in m.items()], title=src)
+            if resolved:
+                ui.table(["field", "id", "type", "value"], [[r["field"], r["id"], r["type"], r["value"]] for r in resolved],
+                         title="resolved fields")
+            return
+        doc: dict = {"meta": m}
+        if resolved:
+            doc["resolved"] = resolved
+        print(toon.encode(doc))
+
+    if a.dry_run:
+        emit({"dry_run": True})
+        return 0
+
+    # The write. Unattended, this blocks for one operator click; in PyCharm it returns at once.
+    from .fleet import approval
+
+    decision = approval.require("jira-create", f"{project}: {f['summary']}", body, cfg=cfg)
+    if not decision.ok:
+        print(toon.encode({"meta": approval.refusal(decision, src)}))
+        return 2
+    try:
+        res = JC.create(j, body)
+    except JC.CreateError as e:
+        print(error(str(e), e.hint, "ad-jira"))
+        return 1
+    emit({"key": res["key"], "url": JC.browse_url(j.creds.base_url, str(res["key"]))})
+    return 0
 
 
 def cmd_sprints(a) -> int:
@@ -971,6 +1047,22 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--force", action="store_true", help="run even if the issue already looks like it is there")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_transition)
+    p = sub.add_parser("create", help="open a ticket with the project's defaults from AGENTS.md "
+                                      "(jira_issue_type, jira_components, jira_fields, jira_labels, jira_parent, jira_assignee)")
+    p.add_argument("--summary", "-s", required=True, help="one line: what, and why")
+    p.add_argument("--description", "-d", help="the body, plain text (sent as ADF on Cloud)")
+    p.add_argument("--description-file", help="read the body from a file instead")
+    p.add_argument("--project", help="project key (default: the jira_project fact)")
+    p.add_argument("--type", help="issue type (default: the jira_issue_type fact, else Task)")
+    p.add_argument("--component", action="append", help="component name (repeatable; replaces the jira_components fact)")
+    p.add_argument("--label", action="append", help="label (repeatable; replaces the jira_labels fact)")
+    p.add_argument("--field", action="append", metavar="NAME=VALUE",
+                   help="any field by its name (repeatable; adds to the jira_fields fact); a JSON value is sent as JSON")
+    p.add_argument("--parent", help="epic / parent key (default: the jira_parent fact; `none` for no parent)")
+    p.add_argument("--assignee", help="`me`, an accountId (Cloud) or a username (DC); default: the jira_assignee fact; `none` leaves it unassigned")
+    p.add_argument("--dry-run", action="store_true", help="resolve every field and print the payload without creating anything")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_create)
     p = sub.add_parser("sprints", help="sprints of a board")
     p.add_argument("--board", type=int, required=True); p.add_argument("--state", choices=["active", "closed", "future"])
     p.add_argument("--raw", action="store_true")

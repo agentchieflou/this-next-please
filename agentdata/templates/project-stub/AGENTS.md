@@ -7,6 +7,13 @@ State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 - jira_project: <RDSD>
 - jira_url: <https://jira.example.com>   # the browse/ base the fleet tile links a ticket to
 - jira_board_id: <board id>                 # ad-jira sprints --board
+- ticket_policy: optional                   # optional: a request may run without a ticket (the router says so in one line); required: every request needs a key or `jira-create`
+- jira_issue_type: Task                     # ad-jira create: the default issue type
+- jira_components: <Component A, Component B>   # ad-jira create: component names, comma-separated
+- jira_labels: <label-a, label-b>           # ad-jira create: labels, comma-separated
+- jira_fields: <Primary Domain=Data; Team=BI Platform>   # ad-jira create: any field by name, `;`-separated; resolved against Jira at run time
+- jira_parent: <RDSD-100>                   # ad-jira create: the epic / parent every new ticket hangs under
+- jira_assignee: <me>                       # ad-jira create: me, an accountId (Cloud) or a username (DC); blank = unassigned
 - jira_hist_table: <DB.JIRA_ISSUE_HISTORY>  # Teradata: PROJECT_KEY, ISSUE_KEY, STATUS, CHANGED_TS, STORY_POINTS
 - jira_sprint_table: <DB.JIRA_SPRINT>
 - env: <td_env_name>                        # ad-td --env
