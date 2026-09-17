@@ -59,7 +59,7 @@ costing your Jira token.
 | `theme` | introduces CLI themes gallery; configures default theme, live recolour, zero-Python directory hooks, Windows Terminal fragment, and Oh My Posh prompt integration | `theme.default`, hooks (`hook.{ps1,sh,lua}`), WT fragment, `.omp.json` |
 | `pncli` | resolves the pncli launcher (PATH + PATHEXT + the npm global prefix) and proves it starts with `--version`; finds `~/.pncli/config.json`, lists its keys (values masked), asks which keys hold the Jira URL / email / token; verifies with `/myself` and detects Cloud (v3, Basic) vs Data Center (v2, Bearer) | `pncli.exe` (the resolved shim), `pncli.config_path`, `pncli.keys.*` (key **names**), `jira.base_url/flavor/auth/api`, `verified.jira` |
 | `sources` | per Teradata / Hive / Impala: environments, native driver or ODBC DSN (lists what this 64-bit Python can see), auth mechanism, user. **Oracle is asked differently** (see below): hostname, port, service name or SID, because there is no ODBC DSN to point at. Then `SELECT 1` and capability probes | `sources.<s>.envs.<env>.*`, `capabilities`, `verified.<s>:<env>`; passwords → `keyring` service `<s>:<env>` |
-| `powerbi` | locates `TabularEditor.exe`, `dscmd.exe`, `PBIDesktop.exe` and **`az`** (a `.cmd`, searched on PATH and in `%ProgramFiles%\Microsoft SDKs\Azure\CLI2\wbin`); `az login`; lists workspaces via the Power BI REST API; percent-encodes the XMLA URL; smoke-tests each workspace/model with a one-line Tabular Editor script | `powerbi.tools.*` (incl. `az_exe`), `powerbi.workspaces[]`, `powerbi.tenant_id`, `verified.powerbi:xmla:<ws>` |
+| `powerbi` | locates `TabularEditor.exe`, `dscmd.exe`, `PBIDesktop.exe` and **`az`** (a `.cmd`, searched on PATH and in `%ProgramFiles%\Microsoft SDKs\Azure\CLI2\wbin`); the XMLA sign-in mode (`token`: Tabular Editor and service DAX are handed an az access token per launch; `interactive`: the tools' own cached sign-in) and whether the agent may run `az login --allow-no-subscriptions` itself; `az login`; lists workspaces via the Power BI REST API; percent-encodes the XMLA URL; smoke-tests each workspace/model with a one-line Tabular Editor script **using that same sign-in** | `powerbi.tools.*` (incl. `az_exe`), `powerbi.auth.mode`, `powerbi.auth.auto_login`, `powerbi.workspaces[]`, `powerbi.tenant_id`, `verified.powerbi:xmla:<ws>` |
 | `content_understanding` | optional, and `skip` until a project says it uses it: the Microsoft Foundry resource endpoint (shape-checked offline -- a pasted portal key and an endpoint with the API path already on it are the two mistakes it catches), auth mode, and a default analyzer. Online, `get_analyzer` proves endpoint + credential + permission + analyzer id in one call and sends no document anywhere | `content_understanding.endpoint/auth/analyzer`, `verified.content_understanding:<analyzer>`; the resource key -> `keyring` service `content_understanding:default` |
 | `project` | `--project DIR`: writes the packaged project stub into DIR and fills the facts it knows (env names, tool paths, workspace/model/XMLA, first `*.pbip`) | `AGENTS.md`, `.agent/state.json`, `.gitignore` additions (never overwrites existing files) |
 
@@ -92,6 +92,32 @@ keeps its stored value, and steps with no failing rows are never entered.
   non-interactive. Without a terminal (a piped run) it does not die on the first prompt: it prints `needs_answers[]`
   and the `--set` line that would answer them.
 - The scan runs the online checks too unless `--offline`, so a failing `SELECT 1` is repairable.
+
+## The XMLA sign-in (`powerbi.auth`)
+
+`az login` fills the Azure CLI's token cache and nothing else reads it: Tabular Editor 2 and DAX Studio are built
+on the Analysis Services client libraries, which keep a separate cache that only their own sign-in window fills.
+That is why a green `ad-doctor` could sit beside a `TabularEditor.exe powerbi://...` that stalled until somebody
+opened Tabular Editor by hand. `agentdata/pbi/auth.py` removes the dependency on that cache:
+
+- **`powerbi.auth.mode: token`** (the default). Every Tabular Editor launch this package makes -- `ad-pbi deploy`,
+  `ad-pbi refresh`, the partition DMVs, `ad-pbi dax`, `ad-pbi verify`, the doctor's ping -- is handed a connection
+  string carrying an access token `az account get-access-token --resource https://analysis.windows.net/powerbi/api`
+  just minted (`Password=<token>`, empty `User ID`: the slot a service principal uses). Service-side DAX goes through
+  Tabular Editor for the same reason; dscmd has no token switch and keeps Desktop (`localhost:<port>`, which needs
+  no sign-in) and `.vpax`. **`interactive`** is the pre-0.10 behaviour: the tools sign in through their own cache,
+  which means opening one of them once per token lifetime. `AGENTDATA_PBI_AUTH=interactive` switches for one shell.
+- **`powerbi.auth.auto_login: true`** (the default). A command that finds the CLI signed out runs
+  `az login --allow-no-subscriptions` itself, once, in the default browser (or with a device code when
+  `powerbi.auth.device_code` is true), then retries. `AGENTDATA_AZ_LOGIN=0` turns it off for CI or a machine with no
+  browser; the command then reports `not_signed_in` and names `ad-pbi auth`.
+- **`ad-pbi auth`** prints the sign-in state -- mode, account, whether a Power BI token can be minted and when it
+  expires, never the token -- signs in when needed, and `--probe` runs the one-line Tabular Editor script against a
+  workspace/model with that sign-in. `ad-doctor` carries the same as a `powerbi/auth` row, offline (which mode) and
+  `--online` (can a token be minted; the workspace pings use it). The token is redacted from every log, error and
+  TOON this package writes.
+
+`ad-setup --only powerbi` asks both settings (`powerbi.auth_mode`, `powerbi.auto_login` for `--set`).
 
 ## Sharing setup across a team (`--export-defaults` and `--import`)
 
@@ -224,7 +250,9 @@ list your job schema has to agree with. Analyzers are authored in the Foundry po
 - **A `.cmd` that is not an npm shim** (az) is run as `cmd.exe /d /s /c "<quoted line>"` passed to Windows **as one string**. Handing that line to `subprocess` as a list would put it through `list2cmdline`, which backslash-escapes the inner quotes; cmd.exe then reads `\"\"C:\Program` as a filename and answers *"The filename, directory name, or volume label syntax is incorrect"*.
 - A 64-bit Python sees only 64-bit ODBC drivers/DSNs; configure them in `C:\Windows\System32\odbcad32.exe`.
 - Kerberos (`KRB5`/`GSSAPI`) needs a ticket (`klist`); impyla on Windows needs `pip install winkerberos`.
-- `az` resolves to `az.cmd`; `ad-setup` offers `az login --allow-no-subscriptions` when not signed in.
+- `az` resolves to `az.cmd`; `ad-setup` offers `az login --allow-no-subscriptions` when not signed in, and so does
+  every `ad-pbi` verb (`powerbi.auth.auto_login`). `az login` alone does not sign Tabular Editor or dscmd in -- see
+  *The XMLA sign-in* above for why, and what `powerbi.auth.mode: token` does about it.
 - **PowerShell 7 (`pwsh`) is the floor.** Windows PowerShell 5.1 is not supported: it is not tested, and
   `ad-doctor` prints a `console/shell` warn row telling a 5.1 session to install pwsh
   (`winget install Microsoft.PowerShell`) or use Git Bash. Nothing here carries a 5.1 workaround any more.

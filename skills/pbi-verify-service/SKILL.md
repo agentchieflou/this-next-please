@@ -13,7 +13,7 @@ Inputs: `pbip` path, `workspace` (name or ID), `model` name, optional `--pid <pi
 1. **Run service verification and parity check**:
    `ad-pbi verify --pbip <pbip_dir> --workspace <workspace> --model <model> [--pid <pid>]`
    - Scans the PBIR report to identify all measures referenced across visual fields.
-   - Evaluates each measure over the service XMLA endpoint.
+   - Evaluates each measure over the service XMLA endpoint — through Tabular Editor with an az access token (`powerbi.auth.mode: token`), so no DAX Studio sign-in is needed; a signed-out Azure CLI is signed in by the command (`az login --allow-no-subscriptions`, a browser window). Every service value `ERROR: … not_signed_in` → `ad-pbi auth --probe` once, then `friction-log` type `tool-error`.
    - If Desktop is running (or `--pid` provided), evaluates the exact same measures against `localhost:<port>`.
    - Diffs the result sets and checks for numerical parity.
 

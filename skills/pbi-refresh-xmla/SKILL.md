@@ -11,7 +11,7 @@ Refresh a deployed model and poll until completion.
 
 2. **Execute refresh with polling**:
    `ad-pbi refresh --workspace <workspace> --model <model> [--scope <scope>] --wait`
-   - Submits refresh via TOM `refresh.csx` script over XMLA.
+   - Submits refresh via TOM `refresh.csx` script over XMLA. Tabular Editor gets an az access token per launch (`powerbi.auth.mode: token`); a signed-out Azure CLI is signed in by the command itself (`az login --allow-no-subscriptions`, a browser window — say so in one line). `refresh_submit_failed` naming credentials → `ad-pbi auth --probe` once, print its row, then `friction-log` type `tool-error`.
    - Polls refresh history REST endpoint, emitting progress to stderr.
    - Outputs duration and completion status upon success.
 

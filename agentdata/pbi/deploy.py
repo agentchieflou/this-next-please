@@ -6,12 +6,12 @@ import json
 import os
 import subprocess
 import time
-import urllib.parse
 from typing import Any, Callable
 
 from .. import config as C
 from .. import proc
-from .client import FabricClient, FabricError
+from . import auth as AUTH
+from .errors import FabricError
 from .. import textio
 
 
@@ -130,10 +130,12 @@ def deploy_model(
                 "message": f"model definition matches already deployed stamp (sha: {model_sha[:8]})",
             }
 
-    # 4. Resolve TE2 and XMLA URL
+    # 4. Resolve TE2 and the XMLA target. A live deploy hands Tabular Editor a connection string
+    # carrying an az access token (`auth.xmla_source`), so it never waits on a sign-in window; a
+    # dry run never connects, so it never asks for one.
     te2 = te2_exe or C.get(C.load(), "powerbi.tools.te2_exe") or proc.which("TabularEditor.exe") or "TabularEditor.exe"
-    ws_quoted = urllib.parse.quote(workspace, safe="")
-    xmla_url = f"powerbi://api.powerbi.com/v1.0/myorg/{ws_quoted}"
+    xmla_url = AUTH.xmla_url(workspace)
+    target = xmla_url if dry_run else AUTH.xmla_source(xmla_url, runner=r)
 
     # 5. Build command line
     base_flags = ["-S", "-C", "-O", "-E", "-W"]
@@ -148,22 +150,23 @@ def deploy_model(
         xmla_out = os.path.abspath(os.path.join(".agent", "out", f"deploy-{ts}.xmla"))
         cmd = [te2, tmdl_dir, "-X", xmla_out, *base_flags]
     else:
-        cmd = [te2, tmdl_dir, "-D", xmla_url, model, *base_flags, "-P", "-Y"]
+        cmd = [te2, tmdl_dir, "-D", target, model, *base_flags, "-P", "-Y"]
 
-    # 6. Execute and log
+    # 6. Execute and log. The token is in `cmd`; nothing written or raised below may carry it.
     rc, out, err, _ = r(cmd, timeout=300)
+    out, err = AUTH.redact(out or ""), AUTH.redact(err or "")
     with open(log_path, "w", encoding="utf-8") as f:
-        f.write(f"Command: {' '.join(cmd)}\n")
+        f.write(f"Command: {AUTH.display(cmd)}\n")
         f.write(f"Return code: {rc}\n")
         f.write("--- STDOUT ---\n")
-        f.write(out or "")
+        f.write(out)
         f.write("\n--- STDERR ---\n")
-        f.write(err or "")
+        f.write(err)
 
     if rc != 0:
         # Parse error lines
         error_lines = []
-        for line in (err or "" + "\n" + out or "").splitlines():
+        for line in (err + "\n" + out).splitlines():
             line = line.strip()
             if any(k in line.lower() for k in ("error", "failed", "exception")):
                 error_lines.append(line)
@@ -173,7 +176,8 @@ def deploy_model(
         raise FabricError(
             "deploy_failed",
             f"TE2 deploy failed (exit {rc})",
-            hint="check XMLA permissions, workspace name, or view log",
+            hint="check XMLA permissions and the workspace name, or view the log; `ad-pbi auth --probe` "
+                 "proves the sign-in on its own",
             detail={"errors": error_lines, "log": textio.norm_path(log_path)},
         )
 
@@ -187,5 +191,6 @@ def deploy_model(
         "workspace": workspace,
         "model": model,
         "model_sha": model_sha,
+        "auth": "none" if dry_run else AUTH.settings()["mode"],
         "log": textio.norm_path(log_path),
     }

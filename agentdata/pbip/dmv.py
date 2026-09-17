@@ -40,6 +40,17 @@ def run_dmv(server: str, query_or_shortcut: str, dscmd_exe: str | None = None,
 
     cfg = C.load()
     dscmd = dscmd_exe or C.get(cfg, "powerbi.tools.dscmd_exe") or C.project_facts().get("dscmd_exe")
+    te2 = te2_exe or C.get(cfg, "powerbi.tools.te2_exe") or C.project_facts().get("te2_exe")
+
+    # The service, in token mode: Tabular Editor goes first, because it is the executor that can
+    # carry the az token in its connection string (`pbi.auth`). dscmd has no token switch, so
+    # against the service it would need DAX Studio's own cached sign-in -- the thing that used to
+    # mean opening a GUI by hand. A Desktop instance (`localhost:<port>`) has no sign-in at all
+    # and keeps the old order.
+    from ..pbi import auth as AUTH
+    if te2 and os.path.exists(te2) and AUTH.token_route(server, cfg):
+        return run_query_te2(AUTH.xmla_source(server, cfg=cfg, runner=run), sql, te2, database=database,
+                             run=run, name=name, display=server)
 
     # Try dscmd first
     if dscmd and os.path.exists(dscmd):
@@ -49,9 +60,8 @@ def run_dmv(server: str, query_or_shortcut: str, dscmd_exe: str | None = None,
             pass
 
     # TE2 fallback via C# ExecuteReader
-    te2 = te2_exe or C.get(cfg, "powerbi.tools.te2_exe") or C.project_facts().get("te2_exe")
     if te2 and os.path.exists(te2):
-        return run_dmv_te2(server, sql, te2, database=database, run=run, name=name)
+        return run_query_te2(server, sql, te2, database=database, run=run, name=name)
 
     raise RuntimeError(f"Neither dscmd nor Tabular Editor 2 available to run DMV on {server}")
 
@@ -89,8 +99,22 @@ def catalogs(server: str, dscmd_exe: str | None = None, te2_exe: str | None = No
 
 def run_dmv_te2(server: str, sql: str, te2_exe: str, database: str | None = None,
                 run: Runner | None = None, name: str = "dmv") -> AgentTable:
-    """Execute DMV query using Tabular Editor 2 script."""
+    """Execute DMV query using Tabular Editor 2 script. Kept for callers; `run_query_te2` is the general form."""
+    return run_query_te2(server, sql, te2_exe, database=database, run=run, name=name)
+
+
+def run_query_te2(source: str, sql: str, te2_exe: str, database: str | None = None,
+                  run: Runner | None = None, name: str = "dmv", timeout: int = 60,
+                  display: str | None = None) -> AgentTable:
+    """Run a DMV or a DAX `EVALUATE` through Tabular Editor 2's `ExecuteReader`, to CSV, to an AgentTable.
+
+    `source` is what TE2 takes where it wants a server: a plain address, or a connection string
+    carrying an access token. `display` is what a person may see instead -- the table's `source`
+    line and any error go through `auth.redact` as well, so the token is never in either.
+    """
+    from ..pbi import auth as AUTH
     run = run or DT.default_run
+    shown = display or AUTH.redact(source)
     with tempfile.TemporaryDirectory() as td:
         out_csv = textio.norm_path(os.path.join(td, "dmv.csv"))
         csx = os.path.join(td, "dmv.csx")
@@ -137,8 +161,9 @@ catch (Exception ex) {{
             f.write(script)
 
         db_arg = database or ""
-        cmd = [te2_exe, server, db_arg, "-S", csx]
-        rc, out, err = run(cmd, 60)
+        cmd = [te2_exe, source, db_arg, "-S", csx]
+        res = run(cmd, timeout)                  # three values from a Detectors/fake runner, four from proc.run
+        rc, out, err = res[0], res[1], res[2]
 
         if not os.path.exists(out_csv):
             err_file = out_csv + ".err"
@@ -146,13 +171,14 @@ catch (Exception ex) {{
             if os.path.exists(err_file):
                 with open(err_file, encoding="utf-8") as ef:
                     detail = ef.read()
-            raise RuntimeError(f"TE2 DMV query failed: {detail or err or out}")
+            raise RuntimeError("TE2 query failed: " + AUTH.redact(str(detail or err or out or f"exit {rc}"))[-600:])
 
         with open(out_csv, newline="", encoding="utf-8-sig") as f:
             rows = list(csv.reader(f))
 
+    kind = "dmv" if name.startswith("dmv") else "dax"
     cols = [D.clean_header(h) for h in (rows[0] if rows else [])]
-    return AgentTable(name, cols, [[D._coerce(v) for v in r] for r in rows[1:]], source=f"te2 dmv {server}")
+    return AgentTable(name, cols, [[D._coerce(v) for v in r] for r in rows[1:]], source=f"te2 {kind} {shown}")
 
 
 def normalize_segments(table: AgentTable) -> AgentTable:

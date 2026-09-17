@@ -5,12 +5,13 @@ import os
 import re
 import sys
 import time
-import urllib.parse
 from typing import Any, Callable
 
 from .. import config as C
 from .. import proc
-from .client import FabricClient, FabricError
+from . import auth as AUTH
+from .client import FabricClient
+from .errors import FabricError
 
 REFRESH_CSX_PATH = os.path.join(os.path.dirname(__file__), "scripts", "refresh.csx")
 
@@ -66,8 +67,8 @@ def submit_refresh(
     """Submit refresh to live model via TE2 and refresh.csx."""
     r = runner or proc.run
     te2 = te2_exe or C.get(C.load(), "powerbi.tools.te2_exe") or proc.which("TabularEditor.exe") or "TabularEditor.exe"
-    ws_quoted = urllib.parse.quote(workspace, safe="")
-    xmla_url = f"powerbi://api.powerbi.com/v1.0/myorg/{ws_quoted}"
+    # The az token rides in the connection string (`auth.xmla_source`): no cached sign-in needed.
+    source = AUTH.xmla_source(AUTH.xmla_url(workspace), runner=r)
 
     csx = REFRESH_CSX_PATH
     if not os.path.exists(csx):
@@ -80,11 +81,13 @@ def submit_refresh(
     env_backup = os.environ.get("TE_REFRESH_SCOPE")
     os.environ["TE_REFRESH_SCOPE"] = scope
     try:
-        cmd = [te2, xmla_url, model, "-S", csx, "-E", "-W"]
+        cmd = [te2, source, model, "-S", csx, "-E", "-W"]
         rc, out, err, _ = r(cmd, timeout=120)
         if rc != 0:
-            raise FabricError("refresh_submit_failed", f"TE2 refresh submission failed (exit {rc}): {(err or out).strip()[-200:]}",
-                              hint="check XMLA read/write permission, workspace name, or az login")
+            raise FabricError("refresh_submit_failed",
+                              f"TE2 refresh submission failed (exit {rc}): {AUTH.redact((err or out).strip()[-200:])}",
+                              hint="check XMLA read/write permission and the workspace name; `ad-pbi auth --probe` "
+                                   "proves the sign-in on its own")
     finally:
         if env_backup is not None:
             os.environ["TE_REFRESH_SCOPE"] = env_backup
@@ -171,8 +174,7 @@ def get_refresh_partitions(
     runner: Callable | None = None,
 ) -> list[dict[str, Any]]:
     """Query partition names, row counts, and last processed times over XMLA via DMV."""
-    ws_quoted = urllib.parse.quote(workspace, safe="")
-    xmla_url = f"powerbi://api.powerbi.com/v1.0/myorg/{ws_quoted}"
+    xmla_url = AUTH.xmla_url(workspace)
 
     from ..pbip import dmv as D
     query = "SELECT [TABLE_ID], [PARTITION_NAME], [ROWS_COUNT], [MODIFY_TIME] FROM $SYSTEM.DISCOVER_STORAGE_TABLE_PARTITIONS"
@@ -187,6 +189,8 @@ def get_refresh_partitions(
                 "last_processed": str(r[3]),
             })
         return rows
+    except AUTH.AuthError:
+        raise                       # a sign-in problem is an answer, not an empty partition list
     except Exception:
         # Fallback empty list if DMV not queryable or running offline test
         return []
