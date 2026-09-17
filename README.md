@@ -152,8 +152,14 @@ ad-state show               # session state; `ad-state set phase=… active_tick
 ad-doctor                   # what is broken · ad-setup --patch re-asks ONLY the settings behind the fail rows
 ad-setup --patch sources.oracle   # or name a target: re-ask exactly that, without waiting for a check to fail
 ```
-- `AGENTS.md`  — ~25 lines of project facts, points at the installed skills
+- `AGENTS.md`  — ~30 lines of project facts, points at the installed skills. Two families worth filling in:
+  `ticket_policy` (`optional`, the default: a request may run without a ticket; `required`: every request needs a
+  key or a new ticket) and the `jira_*` facts `ad-jira create` builds a new ticket from (`jira_issue_type`,
+  `jira_components`, `jira_fields` such as `Primary Domain=Data`, `jira_labels`, `jira_parent`, `jira_assignee`).
 - `.agent/state.json` — machine-owned project state
+- Power BI: `ad-pbi auth --probe` proves the XMLA sign-in Tabular Editor will use. `az login` alone never signed
+  Tabular Editor in (it has its own token cache); since 0.10 every `ad-pbi` verb hands it an access token and runs
+  `az login --allow-no-subscriptions` itself when the CLI is signed out -- `docs/setup.md` §The XMLA sign-in.
 
 ## Developing this repo
 ```powershell

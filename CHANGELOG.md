@@ -4,6 +4,52 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.10.0
+
+**The agent signs in, and Tabular Editor gets the token.** `az login --allow-no-subscriptions` was never enough: the
+Azure CLI keeps its own token cache, and Tabular Editor 2 and DAX Studio -- built on the Analysis Services client
+libraries -- keep another, filled only by their own sign-in window. So every REST call worked and the first
+`TabularEditor.exe powerbi://...` still stalled until somebody opened Tabular Editor by hand and connected, which
+"seeded" the cache the command line reads. Now every Tabular Editor launch this package makes -- `ad-pbi deploy`,
+`ad-pbi refresh`, the partition DMVs, service DAX, the doctor's ping -- is handed a connection string carrying an
+access token `az account get-access-token` just minted for the Power BI audience (`Password=<token>`, empty
+`User ID`: the slot a service principal uses) and needs no cache at all. Service-side DAX goes through Tabular
+Editor too, as `ad-pbi dax`, because dscmd has no token switch; dscmd keeps Desktop (`localhost:<port>`, which needs
+no sign-in) and `.vpax`. When the CLI is signed out the command runs `az login --allow-no-subscriptions` itself,
+once, and retries. `ad-pbi auth` reports the sign-in (mode, account, whether a token can be minted, when it expires
+-- never the token), signs in when needed, and `--probe` proves the endpoint answers Tabular Editor with it.
+`ad-doctor` has a `powerbi/auth` row offline and `--online`, and the workspace pings use the same sign-in the deploy
+will. The token is in no log, error, `source` line or TOON: `auth.redact` runs on everything a launch prints.
+
+Two settings, both asked by `ad-setup --only powerbi`: `powerbi.auth.mode` -- `token` (default) or `interactive`,
+the old behaviour, `AGENTDATA_PBI_AUTH` per shell -- and `powerbi.auth.auto_login` (default on; `AGENTDATA_AZ_LOGIN=0`
+for CI or a machine with no browser; `powerbi.auth.device_code` for one). AGENTS.md rule 18 says the rest: the
+sign-in is the agent's to run, and nobody is ever asked to open Tabular Editor to seed one.
+
+**A ticket is optional, and the agent can write one.** The agent would not start without a ticket somebody else
+had written -- `jira-triage` read a key, `bitbucket-pr` refused without `active_ticket`, and nothing could say "make
+one". Three choices now, the user's per request and the project's by default (AGENTS.md rule 17, `router` step 3):
+a key names that ticket; "new ticket" runs the new `jira-create` skill; "no ticket" or nothing said is untracked
+work, stated in one line (`ad-state ask --assume`), pushed as a PR without a key and with no Jira transition. The
+`ticket_policy` fact in a project's AGENTS.md is `optional` when absent; `required` restores the old gate as a
+blocking question. `ad-jira create` writes the ticket with the project's own shape, read from the same file --
+`jira_issue_type`, `jira_components`, `jira_labels`, `jira_fields` (`Primary Domain=Data; Team=BI`), `jira_parent`,
+`jira_assignee` -- resolving every field *name* against Jira's field list and coercing it to the type the schema
+wants (a select list gets `{"value": …}`, a user gets an accountId), refusing an unknown name with the nearest real
+ones before anything is sent. `--dry-run` prints the exact payload; inside a fleet the POST waits for the operator's
+click like a transition does; the POST is never retried.
+
+**On update.** No new dependency. `ad-setup --patch` is not required: the defaults are `token` and auto-login on.
+To keep the old sign-in on one machine, `ad-setup --only powerbi` and answer `interactive`, or
+`AGENTDATA_PBI_AUTH=interactive`. New tickets need the `jira_*` facts in each project's AGENTS.md
+(`ad-setup --project .` writes the placeholders into a fresh stub; an existing stub gets the seven lines by hand).
+
+**Not yet run on the laptop, by design.** The connection-string form Tabular Editor is handed
+(`Provider=MSOLAP;Data Source=…;User ID=;Password=<token>`) is what the Analysis Services client libraries and
+Tabular Editor's command-line reference document, built from those documents rather than from a run here.
+`ad-pbi auth --probe` is the one command that proves it on a machine, `docs/windows-verification.md` §5 says what
+to paste if it does not, and `AGENTDATA_PBI_AUTH=interactive` is the way back meanwhile.
+
 ## 0.9.0
 
 **Acting on an agent no longer hides it (#3).** Focus mode shows what the fold says needs a person, and replying is
