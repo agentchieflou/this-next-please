@@ -68,7 +68,12 @@ class FakeDet(W.Detectors):
         # the steps pass the RESOLVED path now (C:/az.cmd), because the bare name cannot be started on Windows
         tool = os.path.basename(str(args[0])).split(".")[0].lower()
         if [tool, args[1]] == ["az", "account"]:
-            return 0, json.dumps({"tenantId": "tenant-1"}), ""
+            if getattr(self, "az_signed_out", False):
+                return 1, "", "ERROR: Please run 'az login' to setup account.\n"
+            if "get-access-token" in args:
+                return 0, json.dumps({"accessToken": "eyJhbGciOi.eyJhdWQiOi.c2lnbmF0dXJl",
+                                      "expiresOn": "2026-09-17 13:00:00.000000"}), ""
+            return 0, json.dumps({"tenantId": "tenant-1", "user": {"name": "luna@acme.com"}}), ""
         if [tool, args[1]] == ["az", "rest"]:
             return 0, json.dumps({"value": [{"id": "ws-1", "name": "Sales Workspace"}, {"id": "ws-2", "name": "Ops"}]}), ""
         if args[1:3] == ["csv", "--help"]:
@@ -976,3 +981,45 @@ def test_theme_patch_reasks_only_warn_settings(cfg_path, capsys, tmp_path, monke
     assert "theme.default" not in out
 
 
+
+
+def test_doctor_names_the_xmla_sign_in_the_tools_will_use(cfg_path, capsys):
+    """Offline, the row says which sign-in Tabular Editor reads -- a green doctor beside a deploy
+    stalled on a sign-in window was the bug. Online, a signed-out CLI is a fail row that names
+    `ad-pbi auth`, the ping carries the token, and a doctor run never starts `az login` itself."""
+    det = FakeDet(tools={"TabularEditor.exe": "C:/TE/TabularEditor.exe", "az": "C:/az.cmd"})
+    C.save({"powerbi": {"tools": {"te2_exe": "C:/TE/TabularEditor.exe", "az_exe": "C:/az.cmd"},
+                        "workspaces": [{"name": "Sales Workspace", "id": "ws-1",
+                                        "xmla": powerbi.xmla_url("Sales Workspace"), "models": ["Sales"]}]}})
+    W.run_doctor(["--only", "powerbi"], det)
+    out = capsys.readouterr().out
+    assert "powerbi/auth,info,mode=token" in out and "az access token" in out and "ad-pbi auth --probe" in out
+
+    W.run_doctor(["--only", "powerbi", "--online"], det)
+    out = capsys.readouterr().out
+    assert "powerbi/auth,ok," in out and "luna@acme.com" in out and "eyJhbGciOi" not in out
+    ping = [r for r in det.runs if str(r[0]).endswith("TabularEditor.exe") and "-S" in r][-1]
+    assert "Password=eyJhbGciOi.eyJhdWQiOi.c2lnbmF0dXJl" in ping[1] and ping[2] == "Sales"
+    assert "workspace Sales Workspace,ok" in out
+
+    det.az_signed_out = True
+    W.run_doctor(["--only", "powerbi", "--online"], det)
+    out = capsys.readouterr().out
+    assert "powerbi/auth,fail," in out and "ad-pbi auth" in out and "not_signed_in" in out
+    assert not [r for r in det.runs if r[1:2] == ["login"]]
+
+    C.save({"powerbi": {"auth": {"mode": "interactive"}, "tools": {"az_exe": "C:/az.cmd"}}})
+    W.run_doctor(["--only", "powerbi"], det)
+    assert "mode=interactive" in capsys.readouterr().out
+
+
+def test_setup_asks_the_two_sign_in_settings_and_patch_reaches_them(cfg_path, capsys):
+    det = FakeDet(tools={"az": "C:/az.cmd"})
+    rc = W.run_setup(["--non-interactive", "--offline", "--only", "powerbi", "--set", "powerbi.use=true",
+                      "--set", "powerbi.auth_mode=interactive", "--set", "powerbi.auto_login=false",
+                      "--set", "powerbi.workspaces.configure=false"], det)
+    cfg = json.loads(cfg_path.read_text())
+    assert rc == 0 and cfg["powerbi"]["auth"] == {"mode": "interactive", "auto_login": False}
+    rc = W.run_setup(["--non-interactive", "--offline", "--only", "powerbi", "--set", "powerbi.use=true",
+                      "--set", "powerbi.auth_mode=nonsense", "--set", "powerbi.workspaces.configure=false"], det)
+    assert json.loads(cfg_path.read_text())["powerbi"]["auth"]["mode"] == "interactive"   # a typo keeps the old value

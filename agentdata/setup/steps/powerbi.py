@@ -1,6 +1,8 @@
-"""Step 3: Power BI — tool paths (Tabular Editor 2, DAX Studio dscmd, Desktop), Azure CLI sign-in, workspaces via
-the Power BI REST API with percent-encoded XMLA URLs, and a TE2 smoke test per workspace/model. Nothing secret is
-stored: Azure auth is interactive (az login)."""
+"""Step 3: Power BI — tool paths (Tabular Editor 2, DAX Studio dscmd, Desktop), Azure CLI sign-in, the XMLA
+sign-in mode (token: TE2 and service DAX carry an az access token; interactive: the tools' own cache), workspaces
+via the Power BI REST API with percent-encoded XMLA URLs, and a TE2 smoke test per workspace/model that uses that
+same sign-in. Nothing secret is stored: the token is minted per command by `az account get-access-token` and
+never written (see `agentdata/pbi/auth.py`)."""
 from __future__ import annotations
 import json
 import os
@@ -8,6 +10,7 @@ import sys
 import tempfile
 import urllib.parse
 from ... import config as C
+from ...pbi import auth as AUTH
 from ..wizard import Context, Step
 from ... import textio
 
@@ -27,7 +30,7 @@ TOOLS = {
 }
 PBI_RESOURCE = "https://analysis.windows.net/powerbi/api"
 GROUPS_URL = "https://api.powerbi.com/v1.0/myorg/groups"
-PING_CSX = 'Info("tables=" + Model.Tables.Count.ToString());\n'
+PING_CSX = AUTH.PING_CSX
 
 # One sentence per transport: what the human actually does. The doctor, `pbi-router` and
 # `pbi-observe` all have to say the same thing, and the thing that used to be said -- "press
@@ -178,6 +181,7 @@ class PowerBIStep(Step):
                         r"C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd)", keys)
             else:
                 ctx.add(k, n, "warn", "not found", f"install it or set powerbi.tools.{n} (ad-setup --patch)", keys)
+        self._auth_row(ctx, found)
         if not found["workspaces"]:
             ctx.add(k, "workspaces", "warn", "none configured", "ad-setup --patch",
                     ("powerbi.workspaces.configure", "powerbi.workspaces.select"))
@@ -220,6 +224,52 @@ class PowerBIStep(Step):
             ctx.add(k, "desktop/capabilities", "warn", cap_summary, "ad-setup --patch", cap_keys)
 
         self._transport_rows(ctx, caps)
+
+    def _auth_row(self, ctx: Context, found: dict) -> None:
+        """`powerbi/auth`, offline: which sign-in Tabular Editor and service DAX will use.
+
+        The row exists because the failure it names was invisible: `az login` succeeded, `ad-doctor`
+        was all green, and the first `TabularEditor.exe powerbi://...` still stalled on a sign-in
+        window nobody could see, because TE2 never reads the Azure CLI's cache. In token mode the
+        tools are handed an az access token on every launch; the online half of this row
+        (`verify()`, `ad-pbi auth --probe`) proves it against the endpoint.
+        """
+        k = self.key
+        keys = ("powerbi.auth_mode", "powerbi.auto_login", "powerbi.az_exe")
+        s = AUTH.settings(ctx.cfg)
+        auto = "auto_login=" + ("on" if s["auto_login"] else "off")
+        if s["mode"] != AUTH.MODE_TOKEN:
+            ctx.add(k, "powerbi/auth", "info",
+                    f"mode=interactive · {auto} · Tabular Editor and dscmd use their own cached sign-in "
+                    "(open the tool and connect once per token lifetime)",
+                    "powerbi.auth.mode=token lets the agent sign in by itself (ad-setup --patch)", keys)
+            return
+        az = found["tools"].get("az_exe")
+        detail = f"mode=token · {auto} · Tabular Editor and service DAX carry an az access token"
+        if not (az and ctx.det.exists(az)):
+            ctx.add(k, "powerbi/auth", "warn", detail + " · but az was not found",
+                    "install the Azure CLI or set powerbi.tools.az_exe; or powerbi.auth.mode=interactive "
+                    "(ad-setup --patch)", keys)
+            return
+        ctx.add(k, "powerbi/auth", "info", detail, "`ad-pbi auth --probe` proves the sign-in against the endpoint", keys)
+
+    def _ask_auth(self, ctx: Context) -> None:
+        """The two sign-in settings. Both default to the agent doing it itself: a token on every
+        launch, and `az login --allow-no-subscriptions` run by the command that found the CLI
+        signed out. `interactive` is kept for a machine where the token form does not work."""
+        cfg = ctx.cfg
+        current = str(C.get(cfg, "powerbi.auth.mode") or AUTH.MODE_TOKEN)
+        answer = ctx.ask.ask("powerbi.auth_mode",
+                             "XMLA sign-in for Tabular Editor and service DAX: token (an az access token on every "
+                             "launch, nothing to open by hand) or interactive (the tools' own cached sign-in)",
+                             current, choices=list(AUTH.MODES), confident=True)
+        mode = str(answer or current).strip().lower()
+        C.put(cfg, "powerbi.auth.mode", mode if mode in AUTH.MODES else current)
+        configured = C.get(cfg, "powerbi.auth.auto_login")
+        auto = ctx.ask.confirm("powerbi.auto_login",
+                               "Run `az login --allow-no-subscriptions` yourself when the Azure CLI is signed out?",
+                               True if configured is None else bool(configured), confident=True)
+        C.put(cfg, "powerbi.auth.auto_login", bool(auto))
 
     def _transport_rows(self, ctx: Context, caps: list[dict]) -> None:
         """`powerbi/external_tool` and `powerbi/ribbon`: which handoff is live, and what the button is doing.
@@ -314,6 +364,7 @@ class PowerBIStep(Step):
             else:
                 (C.get(cfg, "powerbi.tools") or {}).pop(n, None)
 
+        self._ask_auth(ctx)
         dt_found = bool(found["tools"].get("pbi_desktop_exe"))
         te2_found = bool(found["tools"].get("te2_exe"))
         self._ask_te2_action(ctx, te2_found and dt_found)
@@ -327,7 +378,7 @@ class PowerBIStep(Step):
             az = found["az"] or "az"     # the resolved az.cmd: never the bare name (CreateProcess only tries az.exe)
             rc, out, err = ctx.det.run([az, "account", "show", "-o", "json"], 60)
             if rc != 0 and ctx.interactive and ctx.ask.confirm("powerbi.az_login", "Not signed in to Azure CLI. Run `az login --allow-no-subscriptions` now?", True):
-                ctx.det.run_interactive([az, "login", "--allow-no-subscriptions"])
+                ctx.det.run_interactive(AUTH.login_argv(az=az, cfg=cfg))
                 rc, out, err = ctx.det.run([az, "account", "show", "-o", "json"], 60)
             if rc == 0:
                 try:
@@ -530,17 +581,36 @@ class PowerBIStep(Step):
         except Exception as e:
             ctx.add(self.key, "powerbi/bridge_drift", "warn", f"bridge probe failed: {e}")
 
+        # powerbi/auth, online: can a Power BI access token be minted right now? Non-interactive
+        # on purpose -- a doctor run never opens a browser; the hint names the command that does.
+        auth_keys = ("powerbi.az_login", "powerbi.az_exe", "powerbi.auth_mode")
+        row = AUTH.describe(cfg=ctx.cfg, runner=ctx.det.run)
+        if row.get("token") == "ok":
+            ctx.add(self.key, "powerbi/auth", "ok",
+                    f"mode={row['mode']} · signed in as {row.get('account') or '?'} · Power BI token ok · "
+                    f"expires {row.get('expires_on') or '?'}")
+        else:
+            ctx.add(self.key, "powerbi/auth", "fail" if row["mode"] == AUTH.MODE_TOKEN else "warn",
+                    f"mode={row['mode']} · {row.get('error') or 'the Azure CLI is signed out'}",
+                    row.get("hint") or "ad-pbi auth", auth_keys)
+
         workspaces = list(C.get(ctx.cfg, "powerbi.workspaces", []) or [])
         if not workspaces:
             return
 
         def _run_te2_smoke(ws):
+            # The same source the deploy will use: in token mode a connection string carrying the
+            # az token, never a sign-in window. `auto_login=False`: the doctor does not open browsers.
+            try:
+                source = AUTH.xmla_source(ws["xmla"], cfg=ctx.cfg, runner=ctx.det.run, auto_login=False)
+            except AUTH.AuthError as e:
+                return ws, 2, "", f"{e.code}: {e.msg} -- {e.hint}"
             with tempfile.TemporaryDirectory() as td:
                 csx = os.path.join(td, "ping.csx")
                 with open(csx, "w", encoding="utf-8") as f:
                     f.write(PING_CSX)
-                rc, out, err = ctx.det.run([te2, ws["xmla"], ws["models"][0], "-S", csx], 180)
-            return ws, rc, out, err
+                rc, out, err = ctx.det.run([te2, source, ws["models"][0], "-S", csx], 180)
+            return ws, rc, AUTH.redact(out or ""), AUTH.redact(err or "")
 
         import concurrent.futures
         futures = {}
@@ -564,7 +634,8 @@ class PowerBIStep(Step):
                     ctx.add(self.key, tag, "ok", f"Tabular Editor connected to {ws['models'][0]}")
                 else:
                     ctx.add(self.key, tag, "fail", ((out or "") + (err or "")).strip()[-200:] or f"exit {rc}",
-                            "XMLA read needs Premium/PPU with the endpoint enabled; check workspace/model names; az login")
+                            "XMLA read needs Premium/PPU with the endpoint enabled; check workspace/model names; "
+                            "`ad-pbi auth --probe` for the sign-in on its own")
 
             # powerbi/refresh_history online probe
             az = C.get(ctx.cfg, "powerbi.az_exe") or getattr(ctx.det, "az", None) or "az"

@@ -39,3 +39,16 @@ Scope: every project that installs these skills. Do not restate these in project
     unmerged ones in one line and `ad-state ask --assume` whether to continue on the existing branch or which of
     the stale ones the operator will delete -- never you: a branch is the operator's to delete. Cautious, not
     stopped: a repository that legitimately holds nine branches still gets its PR, on the branch that exists.
+
+## Tickets
+17. A ticket is the project's choice and the user's, never a precondition of your own. The `ticket_policy` fact
+    (`optional` when absent; `required`) sets the default; per request the user picks: a key → that ticket;
+    "new ticket" → `jira-create`, shaped by the project's `jira_*` facts; "no ticket" or nothing said → untracked
+    work, stated in one line (`ad-state ask --assume`), a PR without a key and no Jira transition. `router`
+    step 3 decides; `bitbucket-pr` follows it.
+
+## Sign-in
+18. `az login --allow-no-subscriptions` is yours to run, not the operator's to be asked for: `ad-pbi auth` does it,
+    and every `ad-pbi` verb does it when the Azure CLI is signed out (a browser window opens; say so, wait).
+    Tabular Editor and service DAX are handed an az access token per launch, so never ask anyone to open Tabular
+    Editor or DAX Studio to "seed" a sign-in; `ad-pbi auth --probe` proves the endpoint answers.

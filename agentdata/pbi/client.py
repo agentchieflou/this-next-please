@@ -10,29 +10,15 @@ from typing import Any, Callable
 from .. import config as C
 from .. import proc
 from ..version import version_string
+from . import auth as AUTH
+from .errors import FabricError
 
-FABRIC_RESOURCE = "https://api.fabric.microsoft.com"
+FABRIC_RESOURCE = AUTH.FABRIC_RESOURCE
 FABRIC_API_BASE = "https://api.fabric.microsoft.com/v1"
-POWERBI_RESOURCE = "https://analysis.windows.net/powerbi/api"
+POWERBI_RESOURCE = AUTH.POWERBI_RESOURCE
 POWERBI_API_BASE = "https://api.powerbi.com/v1.0/myorg"
 
 GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
-
-
-class FabricError(Exception):
-    """An error from the Fabric REST API or client operation."""
-
-    def __init__(self, code: str, msg: str, hint: str = "", detail: dict | None = None):
-        super().__init__(msg)
-        self.code, self.msg, self.hint, self.detail = code, msg, hint, detail or {}
-
-    def to_dict(self) -> dict:
-        d = {"ok": False, "code": self.code, "error": self.msg}
-        if self.hint:
-            d["hint"] = self.hint
-        if self.detail:
-            d["detail"] = self.detail
-        return d
 
 
 class FabricClient:
@@ -43,30 +29,30 @@ class FabricClient:
         self.az = az_exe or "az"
         self.tenant = tenant
         self.runner = runner or proc.run
+        # One sign-in per process, however many REST calls fail after it: a browser window that
+        # keeps reopening is the failure mode `auth.ensure_token` exists to prevent.
+        self._login_tried = False
         from ..update import version as get_version
         self.version = get_version()
 
-    def get_access_token(self, tenant: str | None = None) -> str:
-        """Fetch bearer token via `az account get-access-token`. Token is never logged or stored."""
-        t = tenant or self.tenant or C.get(C.load(), "powerbi.tenant_id")
-        cmd = [self.az, "account", "get-access-token", "--resource", FABRIC_RESOURCE, "-o", "json"]
-        if t:
-            cmd.extend(["--tenant", str(t)])
-        res = self.runner(cmd, timeout=30)
-        rc, out, err = res[0], res[1], res[2]
-        if rc != 0:
-            err_msg = (err or out).strip()
-            raise FabricError("auth_failed", f"failed to get Fabric access token via az: {err_msg}",
-                              "run `az login --allow-no-subscriptions` or check tenant ID")
+    def get_access_token(self, tenant: str | None = None, resource: str = FABRIC_RESOURCE) -> str:
+        """Bearer token via `az account get-access-token`, signing in first when the CLI is signed out
+        and `powerbi.auth.auto_login` allows it. Never logged or stored."""
         try:
-            data = json.loads(out or "{}")
-            token = data.get("accessToken")
-            if not token:
-                raise ValueError("missing accessToken in response")
-            return str(token)
-        except Exception as e:
-            raise FabricError("auth_failed", f"malformed token response from az: {e}",
-                              "run `az login --allow-no-subscriptions`") from None
+            tok = AUTH.ensure_token(resource, az=self.az, tenant=tenant or self.tenant, runner=self.runner)
+        except AUTH.AuthError as e:
+            raise FabricError(e.code, e.msg, e.hint) from None
+        self._login_tried = self._login_tried or bool(tok.get("logged_in"))
+        return tok["token"]
+
+    def _signed_out_retry(self, err: str, out: str) -> bool:
+        """`az rest` said the CLI is signed out. Sign in once, and say whether the call may be retried."""
+        if self._login_tried or not AUTH.signed_out(err or out):
+            return False
+        self._login_tried = True
+        if not AUTH.settings()["auto_login"]:
+            return False
+        return AUTH.login(az=self.az, tenant=self.tenant) == 0
 
     def rest_call(self, method: str, url: str, body: dict | None = None,
                   headers: list[str] | None = None, resource: str = FABRIC_RESOURCE,
@@ -89,6 +75,9 @@ class FabricClient:
         try:
             res = self.runner(cmd, timeout=timeout)
             rc, out, err = res[0], res[1], res[2]
+            if rc != 0 and self._signed_out_retry(err or "", out or ""):
+                res = self.runner(cmd, timeout=timeout)
+                rc, out, err = res[0], res[1], res[2]
         finally:
             if tmp_body and os.path.exists(tmp_body):
                 try:
@@ -125,8 +114,9 @@ class FabricClient:
         if check and rc != 0:
             msg = (err or out or "unknown error").strip()
             # Strip any potential token from error message
-            msg = re.sub(r"Bearer\s+[A-Za-z0-9\-._~+/]+=*", "Bearer [REDACTED]", msg)
-            raise FabricError("rest_failed", f"Fabric REST call failed: {msg}", detail={"method": method, "url": url})
+            msg = AUTH.redact(re.sub(r"Bearer\s+[A-Za-z0-9\-._~+/]+=*", "Bearer [REDACTED]", msg))
+            hint = "run `ad-pbi auth` to sign in" if AUTH.signed_out(msg) else ""
+            raise FabricError("rest_failed", f"Fabric REST call failed: {msg}", hint, detail={"method": method, "url": url})
 
         return rc, parsed, resp_headers, out
 

@@ -340,7 +340,7 @@ def test_the_contract_lists_every_refusal_code_and_every_gated_verb():
 def test_every_skill_that_writes_tells_the_agent_what_a_refusal_means():
     """A skill that does not carry this line leaves the agent retrying a blocked write until its
     turn budget runs out, which looks like a hang rather than a question."""
-    for name in ("jira-transition", "bitbucket-pr", "confluence-publish"):
+    for name in ("jira-transition", "jira-create", "bitbucket-pr", "confluence-publish"):
         body = open(os.path.join(ROOT, "skills", name, "SKILL.md"), encoding="utf-8").read()
         assert "approval_timeout" in body, f"{name} does not say what an approval refusal means"
         assert "friction-log" in body

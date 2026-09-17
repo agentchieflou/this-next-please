@@ -15,6 +15,14 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 - [x] `ad-setup` / `ad-doctor` (agentdata/setup/): pncli import, data sources with SELECT 1 + capability probes, Power BI tools/workspaces, project stub
 - [ ] Discover the exact pncli verb + options for bitbucket pr create (`pncli bitbucket --help`) and wrap it. Confirmed on the laptop: `pncli jira search --jql "<JQL>"`, `pncli jira get-issue --key <KEY>` (wrapped as `ad-pncli jira get <KEY>`), and `pncli confluence create-page --body <html>` — the body is INLINE, so `ad-pncli raw --body-file <file>` sends it as one argv element (shell quoting cannot carry a page of HTML). Its `--space` / `--parent` / `--title` names are still unconfirmed. The page BODY is no longer written by the model: `ad-confluence html <file.md>` builds storage format and `ad-pncli raw --body-file` refuses to post Markdown to a `confluence` command. Jira transitions no longer need a pncli verb at all — `ad-jira transition` goes through REST, and asks Jira which transitions this issue type's workflow offers. pncli is commander.js: **every argument is a named option, never positional** — wrap each confirmed verb in a command instead of writing the recipe into a skill.
 - [ ] Run `gh skill publish --dry-run` (pytest is green per slice)
+- [ ] Confirm on the laptop, with `ad-pbi auth --probe`: Tabular Editor 2 accepts the token-carrying connection string
+      (`Provider=MSOLAP;Data Source=powerbi://…;User ID=;Password=<token>`) as the server argument for both the load
+      position and `-D`. That is what the Analysis Services client libraries document for an access token and what
+      TE2's docs say about "server name or connection string"; it is built from those docs, not from a run. If the
+      probe fails only in token mode (`AGENTDATA_PBI_AUTH=interactive ad-pbi auth --probe` passes after a manual TE2
+      sign-in), the fix is one function, `agentdata/pbi/auth.connection_string` -- the `-L "" <token>` form is the
+      fallback to try. Also record whether this build of `dscmd.exe` has any token/user/password switch
+      (`dscmd csv --help`): if it does, service DAX can go back to dscmd behind `powerbi.tools.dscmd_caps`.
 - [ ] Add `agentdata/connectors/spark.py` if a local Spark session exists on the laptop
 - [ ] Stretch: Fabric item-definition deploy of PBIR/TMDL (docs/pbi-tools-parts.md), rename propagation TMDL↔PBIR (`ad-pbip rename`)
 

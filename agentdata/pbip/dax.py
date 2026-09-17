@@ -31,6 +31,20 @@ def clean_header(h: str) -> str:
     return m.group(1) if m else h
 
 
+def write_csv(table: AgentTable, path: str) -> str:
+    """The table as a file: CSV as dscmd writes it, or TSV when the name ends in `.tsv` -- the form
+    `ad-diff` reads, so a before/after export needs no conversion step."""
+    d = os.path.dirname(os.path.abspath(path))
+    if d:
+        os.makedirs(d, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f, delimiter="\t" if path.lower().endswith(".tsv") else ",", lineterminator="\n")
+        w.writerow(list(table.columns))
+        for r in table.rows:
+            w.writerow(["" if v is None else v for v in r])
+    return path
+
+
 def _q(name: str) -> str:
     return "'" + name.replace("'", "''") + "'"
 
@@ -148,9 +162,30 @@ INFO_MEASURES = 'EVALUATE SELECTCOLUMNS(INFO.VIEW.MEASURES(), "Table", [Table], 
 
 
 def run_dax(dax: str, server: str, dscmd: str, database: str | None = None, out_csv: str | None = None,
-            run: Runner | None = None, file_flag: bool = True, name: str = "dax", timeout: int = 300) -> AgentTable:
+            run: Runner | None = None, file_flag: bool = True, name: str = "dax", timeout: int = 300,
+            te2_exe: str | None = None) -> AgentTable:
     from .desktop import default_run
     run = run or default_run
+    # The service, in token mode: Tabular Editor runs the query, because it is the executor that
+    # carries the az token (`pbi.auth`). dscmd keeps every `localhost:<port>` Desktop query, which
+    # needs no sign-in, and the service when the mode is `interactive` or there is no TE2.
+    from ..pbi import auth as AUTH
+    if AUTH.token_route(server):
+        from .. import config as C
+        from . import dmv as DMV
+        cfg = C.load()
+        te2 = te2_exe or C.get(cfg, "powerbi.tools.te2_exe") or C.project_facts().get("te2_exe")
+        if te2 and os.path.exists(te2):
+            try:
+                table = DMV.run_query_te2(AUTH.xmla_source(server, cfg=cfg, runner=run), dax, te2, database=database,
+                                          run=run, name=name, timeout=timeout, display=server)
+            except AUTH.AuthError as e:
+                raise DaxError(f"{e.msg} ({e.hint})") from None
+            except RuntimeError as e:
+                raise DaxError(str(e)[-400:]) from None
+            if out_csv:
+                write_csv(table, out_csv)
+            return table
     if not dscmd or not os.path.exists(dscmd):
         raise DaxError(f"dscmd not found: {dscmd!r} (set powerbi.tools.dscmd_exe via ad-setup --only powerbi)")
     with tempfile.TemporaryDirectory() as td:

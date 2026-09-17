@@ -59,6 +59,7 @@ command, where a refusal is a return value rather than a guess about a command s
 | Command | Gated when | Not gated |
 | --- | --- | --- |
 | `ad-jira transition <KEY> --to <intent>` | run without `--dry-run` | `--dry-run`; `ad-jira transitions`, `changelog`, and every other read |
+| `ad-jira create --summary …` | run without `--dry-run`; the operator approves the exact `POST /issue` body | `--dry-run` (resolves every field, posts nothing) |
 | `ad-pncli raw <product> <verb> …` | the verb is not in the read allow-list below | any command carrying `--dry-run`; every verb in the list |
 | `ad-pncli jira search` / `ad-pncli jira get` | never | these are reads by construction — they do not go through `raw` |
 
@@ -93,8 +94,8 @@ The third one is the fail-closed case: if the approvals directory cannot be writ
 *refused*, never "proceed anyway". A gate that fails open on a full disk is not a gate, it is a
 delay.
 
-The three skills that perform writes each carry one line to this effect — `jira-transition` step 7,
-`bitbucket-pr` step 7, `confluence-publish` step 8.
+The four skills that perform writes each carry one line to this effect — `jira-transition` step 7,
+`jira-create` step 3, `bitbucket-pr` step 7, `confluence-publish` step 8.
 
 ## Where it lives on disk
 

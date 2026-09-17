@@ -129,11 +129,29 @@ Pass: doctor rows `ok` with `verified` dates; `capabilities` show `tmode`, `trun
 
 ## 5. Power BI tools and workspaces
 ```powershell
-ad-setup --only powerbi          # tool paths (incl. az), az login, workspace list, TE2 ping per workspace/model
+ad-setup --only powerbi          # tool paths (incl. az), the XMLA sign-in mode, az login, workspace list, TE2 ping per workspace/model
 ad-setup --patch                 # after any fail row: re-asks ONLY the settings behind it
 ad-doctor --only powerbi
+ad-doctor --only powerbi --online
 ```
-Pass: `te2_exe`, `dscmd_exe`, `pbi_desktop_exe` rows `ok`; workspaces listed with `xmla` percent-encoded; `verified.powerbi:xmla:<ws>` present after the ping. Paste: the wizard's summary TOON and the `az rest` error text if listing failed. If the TE2 ping fails, also paste the last 10 lines Tabular Editor printed (the wizard shows them in `detail`).
+Pass: `te2_exe`, `dscmd_exe`, `pbi_desktop_exe` rows `ok`; `powerbi/auth` says `mode=token`; workspaces listed with `xmla` percent-encoded; `verified.powerbi:xmla:<ws>` present after the ping. Paste: the wizard's summary TOON and the `az rest` error text if listing failed. If the TE2 ping fails, also paste the last 10 lines Tabular Editor printed (the wizard shows them in `detail`).
+
+### 5a. The sign-in Tabular Editor actually gets (0.10)
+The thing to prove: **no Tabular Editor window is opened by hand at any point.** Start from a signed-out CLI (`az logout`).
+```powershell
+ad-pbi auth                      # signed out -> runs `az login --allow-no-subscriptions` itself (a browser opens), then `token: ok`
+ad-pbi auth --probe              # a one-line TE2 script against the first workspace/model, with the token in the connection string
+ad-pbi dax --workspace "<ws>" --model "<model>" --query "EVALUATE ROW(""n"", COUNTROWS(<a table>))"
+ad-pbi refresh --workspace "<ws>" --model "<model>" --partitions
+```
+Pass: `login: ran` once and never again in the session; `probe: ok`; `dax` returns a row; `--partitions` lists partitions; none of the four prints anything that looks like a token (`eyJ…`). Paste every TOON block. If `probe: fail` **with a credentials error**, run `$env:AGENTDATA_PBI_AUTH="interactive"; ad-pbi auth --probe` after signing in once in the Tabular Editor GUI: if that passes, the connection-string form is wrong for this TE2 build — paste both `probe_detail` lines and `TabularEditor.exe` version; the fix is one function (`agentdata/pbi/auth.connection_string`). Also paste `dscmd csv --help` once: if this build lists a token, user or password switch, service DAX can go back to dscmd.
+
+### 5b. A ticket the agent writes (0.10)
+```powershell
+ad-jira create --summary "verification ticket, delete me" --dry-run     # resolves the jira_* facts, posts nothing
+ad-jira create --summary "verification ticket, delete me" --field "Primary Domain=<a real value>" --dry-run
+```
+Pass: the `resolved` rows show an id and a typed value for every name in `jira_fields`; a misspelt name is refused with `available` listing the real ones. Paste the `resolved` table and, if a component or field name is refused, the `available` rows — a project whose fields need a different coercion (a cascading select, a multi-user picker) becomes a row in `jira_create.coerce`.
 
 ## 6. PBIP projection and validator (no Desktop needed)
 ```powershell
@@ -462,6 +480,9 @@ Pass: `deploy` creates `.agent/out/deploy-<ts>.xmla` on dry-run and logs output 
 | `JSONDecodeError: Unexpected UTF-8 BOM` or garbled text from a file PowerShell wrote | `agentdata/textio.py` | every reader goes through `textio.read_text` (BOM / UTF-16 sniffing); Luna uses `--set` and `ad-state` instead of writing files |
 | pncli says `required option '--x <y>' not specified` | `connectors/pncli.usage_hint`, `cli.py` | pncli is commander.js: arguments are named options. The hint names the exact re-run; confirmed verbs get their own `ad-pncli` subcommand |
 | `The filename, directory name, or volume label syntax is incorrect` from `az login` / any `.cmd` tool | `agentdata/proc.py` | the cmd.exe command line must reach Windows as one string; a list goes through `list2cmdline`, which backslash-escapes the quotes |
+| `ad-pbi auth --probe` fails only in token mode (passes with `AGENTDATA_PBI_AUTH=interactive` after a GUI sign-in) | `agentdata/pbi/auth.py` | the `Password=<token>` connection-string form Tabular Editor is handed; `-L "" <token>` is the alternative |
+| `az login` ran but `token: not_signed_in` persists | `agentdata/pbi/auth.py` | the sign-in was made without `--allow-no-subscriptions` or into another tenant; `powerbi.tenant_id` |
+| `ad-jira create` refuses a field the project really has | `agentdata/jira_create.py` | the schema type → value shape table in `coerce` |
 | az not found although it is installed | `agentdata/proc.TOOL_DIRS`, `steps/powerbi.py` | the Azure CLI `wbin` dir is searched even when the installer left it off PATH; `ad-setup --patch` asks for the path |
 | `[WinError 2] The system cannot find the file specified` from any `ad-*` command | `agentdata/proc.py` | the tool is a `.cmd` shim (npm) or a `.bat`, not an `.exe`: resolution honours PATHEXT + the npm global prefix and unwraps the shim to `node <script>`; `ad-pncli where` shows what was tried |
 | `pytest` fails on Windows | tests / `.gitattributes` | line endings, path separators |

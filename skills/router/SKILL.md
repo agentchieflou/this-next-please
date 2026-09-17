@@ -7,11 +7,16 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 1. Use the `phase`, `active_ticket` and `open_questions` `session-bootstrap` handed you **if it invoked you in this same turn**. Otherwise read `.agent/state.json` — on every later task in the session you must, because a skill has run since and state changes.
 2. If `open_questions` holds a **blocking** entry with no `answered` stamp → invoke `friction-log`. STOP.
    An entry carrying `assume` is one the agent stated and continued on: it is not a stop.
-3. Match the user's request to ONE row. First match wins.
+3. Decide how this work is tracked before matching. The user picks per request; the project's `ticket_policy` fact sets the default.
+   - The request names a ticket key, or `active_ticket` is set → that ticket. Nothing to do.
+   - "new ticket", "open a ticket", "file this", "create a Jira" → invoke `jira-create` first; it hands back here.
+   - "no ticket", "without a ticket", "just push it", or nothing said: `ticket_policy: required` → `ad-state ask "Which ticket — an existing key, or a new one?" --choice "<KEY>" --choice new`, then `friction-log` type `missing-info`. STOP. `optional` (the default when the fact is absent) → `ad-state ask "Track this under a ticket?" --choice existing --choice new --choice none --assume "none: untracked change, PR without a ticket"`, say so in one line, CONTINUE.
+4. Match the user's request to ONE row. First match wins.
 
 | Request mentions | Invoke |
 |---|---|
 | a ticket key, "triage", "what's next", acceptance criteria | `jira-triage` |
+| "new ticket", "open a ticket", "file this as a Jira" (no key named) | `jira-create` |
 | UAT, remediation, "compare Jira to Teradata / Hadoop / Hive / Impala" (status/assignee lists) | `uat-jira-vs-source` |
 | UAT across **two** warehouses at once, migration or cutover parity ("do Teradata and Hadoop agree") | `uat-jira-vs-warehouses` |
 | sprint report, committed / completed points, changelog, field history, "when did … change" | `jira-changelog` |
@@ -33,7 +38,7 @@ description: "Use at the start of every task after session-bootstrap, and whenev
 | sort / organize / file a folder of documents, "where should these go", a DPM document delivery to arrange | `file-organize` |
 | progress saved?, "where was I" | `state-update` |
 
-4. Output one line: `→ <skill>: <reason in ≤ 12 words>`. Then invoke it.
-5. No match after reading the table twice → invoke `friction-log` with type `ambiguity`. STOP.
+5. Output one line: `→ <skill>: <reason in ≤ 12 words>`. Then invoke it.
+6. No match after reading the table twice → invoke `friction-log` with type `ambiguity`. STOP.
 
 When this table outgrows itself — about 24 rows, checked by `tests/test_skills.py` — **split it, do not shorten the rows.** Add a domain sub-router and give this table one row pointing at it, the way `pbi-router` already holds the seven report skills behind a single Power BI row. The rows here are already terse; squeezing them further trades a legible table for a cryptic one while the growth continues, and first-match-wins turns a near-miss into the wrong skill.

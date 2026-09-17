@@ -8,7 +8,9 @@ import os
 import sys
 import tempfile
 
-from . import toon
+from . import config as C
+from . import policy, proc, toon
+from .pbi import auth as AUTH
 from .pbi.binding import verify_binding
 from .pbi.client import FabricClient, FabricError
 from .pbi.deploy import deploy_model
@@ -411,6 +413,116 @@ def cmd_verify(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_auth(args: argparse.Namespace) -> int:
+    """Where the XMLA sign-in stands, and the sign-in itself when it is missing.
+
+    `az login` alone was never enough: Tabular Editor and dscmd keep their own token cache and never
+    read the Azure CLI's, so the deploy stalled until somebody opened Tabular Editor by hand. This
+    prints the mode the tools run in, whether the CLI is signed in, whether a Power BI token can be
+    minted right now (the token itself is never printed), signs in when it cannot and the config
+    allows it, and with `--probe` proves the endpoint answers Tabular Editor with that token.
+    """
+    cfg = C.load()
+    src = "ad-pbi auth"
+    try:
+        s = AUTH.settings(cfg)
+    except C.ConfigError as e:
+        print(toon.encode({"ok": False, "source": src, "code": "bad_config", "error": str(e), "hint": e.hint}), file=sys.stderr)
+        return 2
+    tenant = args.tenant or s["tenant"]
+    row: dict = {"ok": True, "source": src}
+    may_login = s["auto_login"] and not args.no_login
+    ran_login = False
+    if args.login:
+        rc = AUTH.login(az=s["az"], tenant=tenant, device_code=args.device_code or None, cfg=cfg)
+        row["login"] = "ran" if rc == 0 else f"failed (exit {rc})"
+        ran_login = True
+    try:
+        row.update(AUTH.describe(cfg=cfg, runner=proc.run))
+    except C.ConfigError as e:
+        print(toon.encode({"ok": False, "source": src, "error": str(e), "hint": e.hint}), file=sys.stderr)
+        return 2
+    if row.get("token") == "not_signed_in" and may_login and not ran_login:
+        rc = AUTH.login(az=s["az"], tenant=tenant, device_code=args.device_code or None, cfg=cfg)
+        row["login"] = "ran" if rc == 0 else f"failed (exit {rc})"
+        if rc == 0:
+            row.update(AUTH.describe(cfg=cfg, runner=proc.run))
+    elif row.get("token") == "not_signed_in":
+        row["login"] = "skipped (--no-login)" if args.no_login else "skipped (powerbi.auth.auto_login is off)"
+    row["ok"] = row.get("token") == "ok"
+    if args.probe:
+        ws = args.workspace
+        model = args.model
+        if not (ws and model):
+            first = (C.get(cfg, "powerbi.workspaces", []) or [None])[0]
+            ws = ws or (first or {}).get("name")
+            model = model or ((first or {}).get("models") or [None])[0]
+        if not (ws and model):
+            row.update({"ok": False, "probe": "skipped", "hint": "pass --workspace and --model, or `ad-setup --only powerbi`"})
+        else:
+            res = AUTH.probe(AUTH.xmla_url(ws), model, cfg=cfg, runner=proc.run, auto_login=may_login)
+            row.update({"probe": "ok" if res["ok"] else "fail", "workspace": ws, "model": model,
+                        "probe_detail": res.get("detail") or res.get("error") or ""})
+            if not res["ok"]:
+                row["ok"] = False
+                row["hint"] = res.get("hint") or row.get("hint") or ""
+    print(toon.encode({k: v for k, v in row.items() if v not in (None, "")}))
+    return 0 if row["ok"] else 1
+
+
+def cmd_dax(args: argparse.Namespace) -> int:
+    """A DAX query against a deployed model, through whichever executor can sign in.
+
+    In token mode that is Tabular Editor with an az access token in its connection string; dscmd
+    has no token switch and is kept for Desktop (`localhost:<port>`) and `.vpax`. The result comes
+    back through the format policy like every other `ad-*` read, and `--out` keeps the CSV.
+    """
+    src = "ad-pbi dax"
+    if bool(args.file) == bool(args.query):
+        print(toon.encode({"ok": False, "source": src, "error": "give exactly one of --file or --query",
+                           "hint": "--file .agent/dax/<KEY>-<purpose>.dax, or --query \"EVALUATE ...\""}), file=sys.stderr)
+        return 2
+    if args.file:
+        from . import textio
+        try:
+            dax = textio.read_text(args.file)
+        except OSError as e:
+            print(toon.encode({"ok": False, "source": src, "error": f"cannot read {args.file}: {e}"}), file=sys.stderr)
+            return 2
+    else:
+        dax = args.query
+    head = dax.lstrip().upper()
+    if not (head.startswith("EVALUATE") or head.startswith("DEFINE")):
+        print(toon.encode({"ok": False, "source": src, "error": "a DAX query starts with EVALUATE (or DEFINE)",
+                           "hint": "wrap a table expression: EVALUATE TOPN(500, <table>)"}), file=sys.stderr)
+        return 2
+    client = FabricClient(tenant=args.tenant)
+    try:
+        _ws_id, ws_name = client.resolve_workspace(args.workspace)
+        cfg = C.load()
+        dscmd = C.get(cfg, "powerbi.tools.dscmd_exe") or C.project_facts().get("dscmd_exe") or "dscmd.exe"
+        from .pbip import dax as DAX
+        name = os.path.splitext(os.path.basename(args.file))[0] if args.file else "dax"
+        try:
+            table = DAX.run_dax(dax, AUTH.xmla_url(ws_name), dscmd, database=args.model, out_csv=args.out,
+                                run=client.runner, name=name)
+        except DAX.DaxError as e:
+            raise FabricError("dax_failed", AUTH.redact(str(e)),
+                              "a DAX error here is a real model failure; a sign-in error: `ad-pbi auth --probe`") from None
+        extra = {"workspace": ws_name, "model": args.model}
+        if args.out:
+            extra["out"] = textio_norm(args.out)
+        print(policy.render(table, raw=args.raw, extra=extra))
+        return 0
+    except FabricError as e:
+        print(toon.encode(e.to_dict()), file=sys.stderr)
+        return 1
+
+
+def textio_norm(path: str) -> str:
+    return textio.norm_path(os.path.abspath(path))
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="ad-pbi", description="Fabric REST item-definition transport (reports and semantic models)")
     add_version(p)
@@ -504,6 +616,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_ref.add_argument("--top", type=int, default=5, help="number of history entries to return (default: 5)")
     p_ref.add_argument("--tenant", "-t", help="Azure tenant ID")
     p_ref.set_defaults(func=cmd_refresh)
+
+    # auth
+    p_auth = sub.add_parser("auth", help="the XMLA sign-in: state, `az login --allow-no-subscriptions` when needed, --probe against the endpoint")
+    p_auth.add_argument("--login", action="store_true", help="sign in now, even if the CLI already is (switch account or tenant)")
+    p_auth.add_argument("--no-login", action="store_true", help="only report; never start `az login`")
+    p_auth.add_argument("--device-code", action="store_true", help="sign in with a device code instead of a browser window")
+    p_auth.add_argument("--probe", action="store_true", help="also run a one-line Tabular Editor script against a workspace/model with this sign-in")
+    p_auth.add_argument("--workspace", "-w", help="workspace for --probe (default: the first configured)")
+    p_auth.add_argument("--model", "-m", help="model for --probe (default: the workspace's first configured model)")
+    p_auth.add_argument("--tenant", "-t", help="Azure tenant ID")
+    p_auth.set_defaults(func=cmd_auth)
+
+    # dax
+    p_dax = sub.add_parser("dax", help="run a DAX query against a deployed model (token mode: through Tabular Editor)")
+    p_dax.add_argument("--workspace", "-w", required=True, help="workspace name or ID")
+    p_dax.add_argument("--model", "-m", required=True, help="model name")
+    p_dax.add_argument("--file", "-f", help="a .dax file starting with EVALUATE")
+    p_dax.add_argument("--query", "-q", help="the DAX text itself")
+    p_dax.add_argument("--out", "-o", help="also write the rows to this file: .csv, or .tsv for ad-diff (e.g. .agent/out/<KEY>-<purpose>.tsv)")
+    p_dax.add_argument("--raw", action="store_true", help="JSON instead of the format policy's TOON")
+    p_dax.add_argument("--tenant", "-t", help="Azure tenant ID")
+    p_dax.set_defaults(func=cmd_dax)
 
     # verify
     p_ver = sub.add_parser("verify", help="verify report measures on service and compare Desktop-vs-service parity")
