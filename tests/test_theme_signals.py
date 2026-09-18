@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import time
+
 import pytest
 
 from agentdata import color
@@ -130,7 +131,13 @@ def test_fleet_needs_human_rings_bell_and_sets_tab_error(monkeypatch):
 
 
 def test_fleet_needs_human_respects_quiet_hours(monkeypatch):
-    """Under quiet hours, bell and toast are suppressed."""
+    """Under quiet hours, bell and toast are suppressed.
+
+    The clock is frozen, as `tests/test_fleet_notify.py` freezes it. This read `time.localtime()`
+    and asserted that `00:00-23:59` is always quiet -- and that window is half-open, so it is quiet
+    for every minute of the day except 23:59. The test therefore failed for one minute in every
+    1440, which is a CI run at 23:59 and nothing else; it caught a shuffled run on 2026-09-17.
+    """
     monkeypatch.setenv("AGENTDATA_PROJECT", "proj-alpha")
 
     belled = []
@@ -139,7 +146,7 @@ def test_fleet_needs_human_respects_quiet_hours(monkeypatch):
     cfg = {"fleet": {"notify": {"quiet_hours": "00:00-23:59"}}}
     items = [{"repo": "proj-alpha", "state": "needs_human", "title": "quiet alert"}]
 
-    res = N.deliver(items, cfg=cfg)
+    res = N.deliver(items, cfg=cfg, when=time.struct_time((2026, 1, 4, 3, 30, 0, 6, 4, 0)))
     assert res[0]["quiet"] is True
     assert res[0]["belled"] is False
     assert belled == []
