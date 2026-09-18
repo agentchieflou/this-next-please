@@ -304,14 +304,16 @@ def test_one_control_per_meaning_in_the_toolbar(desk):
         got = page.evaluate("""() => ({
             segments: document.querySelectorAll('#layoutgroup .segment').length,
             legacy: !!document.querySelector('select#layout'),
-            skin: !!document.getElementById('skin'),
-            theme: !!document.getElementById('theme'),
+            settings: !!document.getElementById('setbtn'),
+            pickers: !!document.getElementById('skin') || !!document.getElementById('theme'),
             clipped: document.querySelector('.toolbar').scrollWidth > document.querySelector('.toolbar').clientWidth,
         })""")
         browser.close()
     assert got["segments"] == 3, got
     assert not got["legacy"], "the old layout select is back beside the segmented control"
-    assert got["skin"] and got["theme"], "the palette and the skin are both chosen from the page"
+    assert got["settings"], "there is no way from the desk to the settings"
+    assert not got["pickers"], \
+        "the pickers are on /settings now; a copy on the desk is two controls for one meaning"
     assert not got["clipped"], "the toolbar is wider than the window and a control is off the edge"
 
 

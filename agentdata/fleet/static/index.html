@@ -32,14 +32,12 @@
     <label for="find" class="sr">search every project</label>
     <input id="find" type="search" placeholder="where is … (/)" title="search the catalogue: ad-fleet where">
     <button id="sidetoggle" aria-pressed="false" title="the sidebar: board, inbox, notifications, where, project">sidebar</button>
-    <!-- A choice that rarely changes is a setting, not a control on the desk (#180, #195). -->
-    <button id="setbtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="settings" title="settings: the palette and the skin">settings</button>
-    <div id="settings" class="popover" role="dialog" aria-label="settings" hidden>
-      <label for="theme">palette</label>
-      <select id="theme" title="palette — shared with this project&#39;s terminal"><option value="none">system</option></select>
-      <label for="skin">skin</label>
-      <select id="skin" title="skin — how the page is rendered; the terminal keeps the palette"><option value="none">no skin</option></select>
-    </div>
+    <!-- A choice that rarely changes is a setting, not a control on the desk (#180, #195) -- and
+         a page rather than a popover, because the palette is no longer the only one: the model each
+         agent runs and what the Copilot CLI is launched with live there too. The href is empty here
+         and set by `app.js` at boot: `_authorized` reads the token from the query string alone, so a
+         static href would 403 with "not authorized" and look like a broken button. -->
+    <a id="setbtn" class="linkbtn" title="settings: the palette, the model each agent runs, and how Copilot is launched">settings</a>
   </div>
 
   <span class="spacer"></span>
@@ -367,6 +365,7 @@
   </section>
 </template>
 
+<script src="/static/common.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

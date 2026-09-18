@@ -70,7 +70,8 @@ def a_repo(tmp_path, name="luna", **kw):
 
 def test_a_request_without_the_token_is_refused(running):
     base, token, _ = running
-    for path in ("/", "/api/fleet", "/api/themes", "/static/app.js"):
+    for path in ("/", "/settings", "/api/fleet", "/api/themes",
+                 "/static/app.js", "/static/common.js", "/static/settings.js"):
         with pytest.raises(urllib.error.HTTPError) as e:
             get(base, path)
         assert e.value.code == 403, path
@@ -313,7 +314,8 @@ def test_the_page_and_its_assets_are_served_compressed():
     thread.start()
     port = server.server_address[1]
     try:
-        for route in ("/", "/static/app.js", "/static/app.css"):
+        for route in ("/", "/settings", "/static/app.js", "/static/common.js",
+                      "/static/settings.js", "/static/app.css"):
             asked = urllib.request.Request(f"http://127.0.0.1:{port}{route}?t={token}",
                                            headers={"Accept-Encoding": "gzip"})
             with urllib.request.urlopen(asked, timeout=10) as answer:
@@ -338,33 +340,56 @@ def test_the_page_and_its_assets_are_served_compressed():
         server.server_close()
 
 
+def scripts() -> list[str]:
+    """Every script in `static/`, so a second page's file is guarded from its first line.
+
+    Named by listing rather than by a tuple somebody has to remember to extend: the three checks
+    below are exactly the ones a new file silently escapes, and `settings.js` was added to a
+    repository whose every JS guard read `app.js` by name.
+    """
+    return sorted(n for n in os.listdir(STATIC) if n.endswith(".js"))
+
+
 @pytest.mark.skipif(not shutil.which("node"), reason="no node on this machine to check the syntax")
-def test_the_page_script_parses():
+@pytest.mark.parametrize("name", scripts())
+def test_the_page_script_parses(name):
     """The one class of regression that ships silently: a syntax error in a file no test imports."""
-    p = subprocess.run(["node", "--check", os.path.join(STATIC, "app.js")],
+    p = subprocess.run(["node", "--check", os.path.join(STATIC, name)],
                        capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
     assert p.returncode == 0, p.stderr
 
 
-def test_the_page_never_puts_agent_output_into_html():
-    """Agent output is arbitrary text from a model and from tools. `innerHTML` anywhere in this
-    file is a script-injection route straight from a Jira ticket description onto the page."""
-    body = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
-    assert "innerHTML" not in body
-    assert "textContent" in body
+@pytest.mark.parametrize("name", scripts())
+def test_the_page_never_puts_agent_output_into_html(name):
+    """Agent output is arbitrary text from a model and from tools. `innerHTML` anywhere in these
+    files is a script-injection route straight from a Jira ticket description onto the page."""
+    body = open(os.path.join(STATIC, name), encoding="utf-8").read()
+    assert "innerHTML" not in body, name
 
 
-def test_the_markup_and_the_script_agree_on_every_hook():
+def test_the_script_writes_text_rather_than_markup():
+    assert "textContent" in open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
+
+
+# Each page and the script that drives it. `common.js` is deliberately not a row: it is loaded by
+# both and holds what neither owns, so its hooks are checked against whichever page uses them.
+PAGE_SCRIPTS = [("index.html", ["app.js", "common.js"]),
+                ("settings.html", ["settings.js", "common.js"])]
+
+
+@pytest.mark.parametrize("page,names", PAGE_SCRIPTS, ids=[p for p, _ in PAGE_SCRIPTS])
+def test_the_markup_and_the_script_agree_on_every_hook(page, names):
     """A renamed class in one file and not the other fails silently in a browser and never here."""
-    html = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
-    js = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
+    html = open(os.path.join(STATIC, page), encoding="utf-8").read()
     import re
 
-    for selector in sorted(set(re.findall(r'querySelector\("\.([a-z-]+)"\)', js))):
-        assert f'class="{selector}"' in html or f'"{selector}' in html, \
-            f".{selector} is used by app.js and is not in index.html"
-    for element in sorted(set(re.findall(r'getElementById\("([a-z]+)"\)', js))):
-        assert f'id="{element}"' in html, f"#{element} is used by app.js and is not in index.html"
+    for name in names:
+        js = open(os.path.join(STATIC, name), encoding="utf-8").read()
+        for selector in sorted(set(re.findall(r'querySelector\("\.([a-z-]+)"\)', js))):
+            assert f'class="{selector}"' in html or f'"{selector}' in html, \
+                f".{selector} is used by {name} and is not in {page}"
+        for element in sorted(set(re.findall(r'getElementById\("([a-z]+)"\)', js))):
+            assert f'id="{element}"' in html, f"#{element} is used by {name} and is not in {page}"
 
 
 def test_the_themes_come_from_theme_py_and_satisfy_contrast():
@@ -465,15 +490,25 @@ def test_the_page_can_actually_fetch_its_own_css_and_js(running):
     the URLs out of the served HTML and fetches exactly those.
     """
     base, token, _ = running
-    html = urllib.request.urlopen(f"{base}/?t={token}", timeout=5).read().decode()
+    for page in ("/", "/settings"):
+        html = urllib.request.urlopen(f"{base}{page}?t={token}", timeout=5).read().decode()
 
-    refs = re.findall(r'(?:href|src)="(/static/[^"]+)"', html)
-    assert refs, f"the page references no assets at all: {html[:200]!r}"
+        refs = re.findall(r'(?:href|src)="(/static/[^"]+)"', html)
+        assert refs, f"{page} references no assets at all: {html[:200]!r}"
 
-    for ref in refs:
-        with urllib.request.urlopen(base + ref, timeout=5) as r:   # exactly as written, nothing added
-            assert r.status == 200, ref
-            assert r.read(), f"{ref} served empty"
+        for ref in refs:
+            with urllib.request.urlopen(base + ref, timeout=5) as r:   # exactly as written, nothing added
+                assert r.status == 200, f"{page} -> {ref}"
+                assert r.read(), f"{ref} served empty"
+
+
+def test_two_pages_do_not_share_one_compressed_entry(running):
+    """`gzip_for`'s key must name the file. It used to lead with the literal `"index.html"`, which
+    was true while there was one page and would have served whichever was compressed first to both."""
+    base, token, _ = running
+    desk = urllib.request.urlopen(f"{base}/?t={token}", timeout=5).read()
+    settings = urllib.request.urlopen(f"{base}/settings?t={token}", timeout=5).read()
+    assert desk != settings and b"fleet" in desk and b"settings" in settings.lower()
 
 
 def test_skin_tier_stylesheet_serving_and_budget(running):

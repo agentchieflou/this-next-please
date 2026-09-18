@@ -130,6 +130,14 @@ class _Blanks(dict):
         return ""
 
 
+# `--model` and `--effort` are on the measured list of flags this build really has
+# (docs/fleet-spike.md, "Flags, as this build actually names them"). What is NOT measured is which
+# model NAMES it accepts: the spike recorded one auto-selected model and ran no listing command. So
+# nothing here validates a name against a table -- the CLI is the validator, at the next turn -- and
+# the only refusal is the one that keeps a value from becoming a second flag.
+MODEL_KEYS = ("model", "effort")
+
+
 class LaunchError(Exception):
     def __init__(self, msg: str, hint: str = ""):
         super().__init__(msg)
@@ -187,6 +195,59 @@ def check_no_blanket_permission(patterns: list[str]) -> None:
                     "may run as `shell(<prefix>)` patterns in `fleet.allow_tools` instead")
 
 
+def check_model_value(what: str, value: str) -> str:
+    """A model or effort value, or a refusal by name. Never a silently dropped one.
+
+    The whole risk is that this string is appended to a command line. `--model` takes one argument,
+    so a value carrying whitespace is either a typo or a second flag wearing a model's name --
+    `--model "x --allow-all-tools"` is the case this exists for, and `check_no_blanket_permission`
+    would not see it because it reads the allow and deny lists, not this. A leading `-` is refused
+    for the same reason: it is how an argument becomes an option.
+
+    Empty is not an error. It is how an operator says *let the CLI choose*, which is the only
+    no-model behaviour anybody has measured.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if any(ch.isspace() for ch in text):
+        raise LaunchError(f"fleet.{what} is {value!r}, which is more than one argument",
+                          f"a {what} is a single token; a value with a space in it would reach the "
+                          "Copilot CLI as a second flag")
+    if text.startswith("-"):
+        raise LaunchError(f"fleet.{what} is {value!r}, which starts with a dash",
+                          f"that is how an argument becomes an option; give the {what} name alone")
+    return text
+
+
+def model_for(repo: str | None, cfg: dict | None = None) -> tuple[str, str, str]:
+    """`(model, effort, source)` for one repository: the per-repo entry, else the fleet-wide
+    default, else nothing at all.
+
+    `fleet.models.<repo>` is read with `get_leaf` and never as the dot-path
+    `f"fleet.models.{repo}"`: a repository's name is the basename of its checkout and routinely has
+    a dot in it, and `C.get` splits on every one of them -- the failure `put_leaf`'s own docstring
+    was written about.
+
+    The third element is what `--show-launch` and the settings page print, so an operator can see
+    *why* an agent is on the model it is on rather than only that it is. `cli-auto` is printed
+    explicitly rather than left blank: an unset model is a decision the CLI makes, not an absence.
+    """
+    cfg = cfg if cfg is not None else {}
+    entry = C.get_leaf(cfg, "fleet.models", str(repo or ""), {}) or {}
+    if not isinstance(entry, dict):
+        entry = {}
+    model = check_model_value("model", entry.get("model", ""))
+    effort = check_model_value("effort", entry.get("effort", ""))
+    if model or effort:
+        return model, effort, f"fleet.models.{repo}"
+    model = check_model_value("model", C.get(cfg, "fleet.model") or "")
+    effort = check_model_value("effort", C.get(cfg, "fleet.effort") or "")
+    if model or effort:
+        return model, effort, "fleet.model"
+    return "", "", "cli-auto"
+
+
 def prompt_for(key: str | None, prompt: str | None, cfg: dict | None = None,
                summary: str = "", handoff: str = "") -> str:
     """The one turn's prompt. An explicit `--prompt` always wins; otherwise the template."""
@@ -207,7 +268,7 @@ def prompt_for(key: str | None, prompt: str | None, cfg: dict | None = None,
 
 def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
                    session: str | None = None, cfg: dict | None = None,
-                   usage_file: str | None = None) -> list[str]:
+                   usage_file: str | None = None, model: str = "", effort: str = "") -> list[str]:
     """The argv for one turn.
 
     The **logical** argv, starting with the bare name. Resolving it is `proc.command()`'s job and
@@ -238,6 +299,9 @@ def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
         argv += ["--usage-output-file", textio.norm_path(usage_file)]
     if session:
         argv += ["--resume", session]
+    # Empty means the flag is not there at all. Passing `--model ""` would be inventing a behaviour
+    # nobody measured; the measured one is that with no flag the CLI selects a model itself.
+    argv += model_flags(model, effort)
     for pattern in allow:
         argv += ["--allow-tool", pattern]
     for pattern in deny:
@@ -245,8 +309,21 @@ def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,
     return argv
 
 
+def model_flags(model: str = "", effort: str = "") -> list[str]:
+    """`--model`/`--effort`, or nothing. One function so a console and a headless turn cannot drift."""
+    out: list[str] = []
+    name = check_model_value("model", model)
+    level = check_model_value("effort", effort)
+    if name:
+        out += ["--model", name]
+    if level:
+        out += ["--effort", level]
+    return out
+
+
 def console_command(copilot: str, repo_path: str, *, log_dir: str, session: str,
-                    resume: bool = False, cfg: dict | None = None) -> list[str]:
+                    resume: bool = False, cfg: dict | None = None,
+                    model: str = "", effort: str = "") -> list[str]:
     """The argv for a console the fleet opens (#189): the operator's own interactive session.
 
     `launch_command`'s argv without the three flags that make a turn headless -- no `-p` (the
@@ -270,6 +347,7 @@ def console_command(copilot: str, repo_path: str, *, log_dir: str, session: str,
             "--add-dir", textio.norm_path(repo_path),
             "--log-dir", textio.norm_path(log_dir),
             "--log-level", "error"]
+    argv += model_flags(model, effort)
     for pattern in allow:
         argv += ["--allow-tool", pattern]
     for pattern in deny:

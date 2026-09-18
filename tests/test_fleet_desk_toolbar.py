@@ -116,9 +116,14 @@ def test_the_toolbar_is_one_row_at_1280_in_every_look(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_the_pickers_are_behind_one_button_and_still_work(fleet_home, tmp_path):
-    """The palette and skin pickers are off the bar and one press away; `Esc` closes the popover
-    and puts the keyboard back on the button; clicking anywhere else closes it too."""
+def test_the_settings_control_is_a_link_to_its_own_page(fleet_home, tmp_path):
+    """The operator's report: *the settings button isn't functional at all.*
+
+    It was a popover holding two pickers, and it became a page -- so what is asserted here is that
+    the control leaves the desk rather than opening something. The href cannot be static: the run
+    token lives in the query string and `_authorized` reads it from nowhere else, so a plain
+    `href="/settings"` is a 403 that looks exactly like the dead button that was reported.
+    """
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha")
 
@@ -126,27 +131,16 @@ def test_the_pickers_are_behind_one_button_and_still_work(fleet_home, tmp_path):
     try:
         with sync_playwright() as p:
             browser, page, errors = _page(p, port, token)
-            assert not page.locator("#theme").is_visible()
-            assert not page.locator("#skin").is_visible()
+            link = page.locator("#setbtn")
+            href = link.get_attribute("href")
+            assert href and "/settings" in href, f"the settings control goes nowhere: {href!r}"
+            assert f"t={token}" in href, "the link carries no token and would 403"
+            assert page.locator("#settings").count() == 0, "the popover is still on the desk"
 
-            page.locator("#setbtn").click()
-            assert page.locator("#theme").is_visible() and page.locator("#skin").is_visible()
-            assert page.locator("#setbtn").get_attribute("aria-expanded") == "true"
-
-            # It still drives the page: choosing a skin from inside the popover paints it.
-            page.select_option("#skin", "voxel:overworld")
-            page.wait_for_function(
-                """() => document.body.getAttribute('data-skin') === 'voxel'""", timeout=5000)
-
-            page.keyboard.press("Escape")
-            assert not page.locator("#theme").is_visible()
-            assert page.evaluate("() => document.activeElement.id") == "setbtn"
-            # ...and the sidebar was not closed in the same keystroke -- it was never open.
-            assert page.evaluate("() => document.getElementById('side').hidden")
-
-            page.locator("#setbtn").click()
-            page.locator("#counts").click()                       # anywhere else
-            assert not page.locator("#theme").is_visible()
+            link.click()
+            page.wait_for_url(re.compile(r"/settings"), timeout=10000)
+            page.wait_for_selector("#theme", timeout=10000)
+            assert page.locator("#skin").is_visible(), "the pickers did not arrive with the page"
             assert not errors, errors
             browser.close()
     finally:
@@ -178,9 +172,10 @@ def test_the_key_map_is_behind_a_question_mark_and_the_footer_keeps_what_changes
 
             page.locator("#keysbtn").click()
             assert page.locator("#keymap").is_visible()
-            page.locator("#setbtn").click()                      # one at a time
+            # "One open at a time" used to be shown against the settings popover, which is a page
+            # now. Clicking anywhere else says the same thing and does not need a second popover.
+            page.locator("#counts").click()
             assert not page.locator("#keymap").is_visible()
-            assert page.locator("#settings").is_visible()
             assert not errors, errors
             browser.close()
     finally:
@@ -244,59 +239,9 @@ def test_the_hide_toggle_has_the_stroke_the_pin_has_in_every_look(fleet_home, tm
         server.server_close()
 
 
-@pytest.mark.browser
-def test_the_settings_pickers_say_what_the_desk_is_already_wearing(fleet_home, tmp_path):
-    """The bug this is here for (#195): the pickers opened reading *system · no skin* over whatever
-    the config said, on every window, every time.
-
-    Two faults, one visible failure. `/api/themes` returned the palettes and the skins and never
-    which of them was chosen, so the page could fill the controls but not set them. And the stream's
-    `theme` frame — which does carry the answer — arrives while `loadThemes` is still fetching, so
-    the answer it delivered was thrown away the moment the options were rebuilt under it. Opening
-    *settings* then showed a desk wearing a skin as wearing nothing, with the palette picker
-    disabled and no way to see which skin had disabled it.
-    """
-    import json
-
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    _repos(tmp_path, "alpha")
-    (tmp_path / "cfg.json").write_text(
-        json.dumps({"theme": {"default": "dark", "skin": "glass:smoke"}}), encoding="utf-8")
-
-    server, token, port = _serve()
-    try:
-        with sync_playwright() as p:
-            browser, page, errors = _page(p, port, token)
-            page.locator("#setbtn").click()
-            page.wait_for_function(
-                """() => document.getElementById('skin').value === 'glass:smoke'""", timeout=5000)
-            state = page.evaluate("""() => {
-                const t = document.getElementById('theme'), s = document.getElementById('skin');
-                return { palette: t.value, paletteOff: t.disabled, paletteWhy: t.title,
-                         skin: s.value, blank: t.selectedIndex < 0 || s.selectedIndex < 0 };
-            }""")
-            assert state["skin"] == "glass:smoke", state
-            assert state["palette"] == "dark", state
-            assert not state["blank"], "a picker showing nothing at all is the one thing it may not do"
-            # The palette is the skin's while a skin is on, and the control says so rather than
-            # taking an instruction the server would overrule.
-            assert state["paletteOff"] and "comes from the skin" in state["paletteWhy"], state
-
-            # Turning the skin off hands the palette back, and both controls follow.
-            page.select_option("#skin", "none")
-            page.wait_for_function(
-                """() => !document.getElementById('theme').disabled""", timeout=5000)
-            assert not errors, errors
-            browser.close()
-    finally:
-        server.stopping.set()
-        server.shutdown()
-        server.server_close()
-
-
 def test_a_palette_the_config_names_but_no_longer_exists_still_shows_something():
     """A theme removed from the package leaves a saved name that matches no option. A `select` set
     to a value it does not have shows *nothing* — not the old name, not the default — so the
     operator can neither see what is on nor tell that anything is wrong."""
-    script = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
+    script = open(os.path.join(STATIC, "settings.js"), encoding="utf-8").read()
     assert "if (sel && sel.selectedIndex < 0) sel.selectedIndex = 0;" in script
