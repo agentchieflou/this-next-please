@@ -130,7 +130,7 @@
            that exists on the open agent and not on the others is the thing this slice was asked to
            stop doing. -->
       <div class="band-tools">
-        <button type="button" class="band-hide toolbtn" data-tool="hide" title="take this agent off the glass (h) — it keeps its place; the column or the dock brings it back">
+        <button type="button" class="band-hide toolbtn" data-tool="hide" title="minimise — off the glass (h), keeping its place; the column or the dock brings it back">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg><span class="sr">hide</span>
         </button>
         <button type="button" class="band-refresh toolbtn" data-tool="refresh" title="re-read it now (r) — spends no premium request">
@@ -260,6 +260,8 @@
       <span><kbd>r</kbd> re-read it now</span>
       <span><kbd>m</kbd> which model it runs</span>
       <span><kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile</span>
+      <span><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> narrower / wider</span>
+      <span><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd> shorter / taller</span>
       <span><kbd>Alt</kbd>+<kbd>Home</kbd> pin</span>
       <span><kbd>Alt</kbd>+<kbd>Enter</kbd> width</span>
     </div>
@@ -284,6 +286,7 @@
      differ whenever a tenant pins one. It writes the key `/settings` writes, through the same
      function, with the same refusals in the same words: two ways to set one thing must not become
      two rules about it. One card for the page, moved to whichever button opened it. -->
+<div id="rszghost" hidden aria-hidden="true"><span class="rsz-says"></span></div>
 <div id="modelcard" class="modelcard enters" role="dialog" aria-label="which model this agent runs" hidden>
   <div class="mc-head">
     <strong class="mc-repo" id="mc-repo"></strong>
@@ -312,7 +315,7 @@
 
 <template id="tile">
   <section class="tile" tabindex="0">
-    <div class="head" draggable="true" title="drag to reorder — Alt+←/→ without a mouse">
+    <div class="head" title="drag to reorder — Alt+←/→ without a mouse; Alt+Shift+arrows to resize">
       <span class="grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span class="n"></span>
       <strong class="repo"></strong>
@@ -325,7 +328,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"></path><path d="M12 15v6"></path></svg>
         <span class="sr">pin</span>
       </button>
-      <button class="hidetoggle" type="button" data-tool="hide" title="take this agent off the glass (h) — it keeps its place; the column or the dock brings it back">
+      <button class="hidetoggle" type="button" data-tool="hide" title="minimise — off the glass (h), keeping its place; the column or the dock brings it back">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg>
         <span class="sr">hide</span>
       </button>
@@ -335,11 +338,21 @@
       <button class="modeltoggle wordbtn" type="button" data-tool="model" title="which model this agent runs (m)">
         <span class="bm-name"></span><span class="sr">model</span>
       </button>
-      <button class="sizetoggle" type="button" title="one column or two (Alt+Enter)" aria-pressed="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"></path><path d="M8 8l-4 4 4 4"></path><path d="M16 8l4 4-4 4"></path></svg>
-        <span class="sr">width</span>
+      <!-- #217: the head is a title bar, so it carries what a title bar carries and nothing
+           more. Minimise is the hide button above -- the same gesture the desk always had, under
+           the name everybody already knows -- and maximise takes the width toggle's place, since
+           the edge handles and Alt+Shift+arrows do that job with more than two answers. Adding
+           buttons to a head that was already crowded is the information overload this epic is
+           supposed to be removing. -->
+      <button class="maxtoggle" type="button" title="maximise — open this one (Enter)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"></path></svg>
+        <span class="sr">maximise</span>
       </button>
     </div>
+    <!-- #217: the two edges the tile can be pulled by. Empty spans: the stylesheet draws the
+         grip and the script binds the pointer. -->
+    <span class="rsz rsz-x" data-edge="x" aria-hidden="true"></span>
+    <span class="rsz rsz-y" data-edge="y" aria-hidden="true"></span>
     <!-- Which run this transcript belongs to. #147: a transcript with no era read as live. -->
     <p class="runline"></p>
     <!-- #206: one session control. The strip here was four buttons of three different kinds -- a

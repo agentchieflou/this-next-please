@@ -55,7 +55,8 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | --- | --- | --- | --- | --- | --- | --- |
 | toolbar | brand, live dot, `window` segments, `see` group, settings link, `needs me` group | — (static) | `.toolbar`, `.segmented` | — | — | `test_fleet_desk_toolbar.py` |
 | away strip | title, one line per repo, dismiss | `checkAway` | `.away-strip` | — | — | `test_fleet_desk_sessions_b.py` |
-| tile | head, run line, session pill, cards, cells, transcript, composer | `drawTile` | `.tile` | `state-*`, `needs-human`, `held`, `is-solo`, `is-selected`, `is-hidden`, `is-pinned`, `size-2` | `1`–`9`, `h`, `r`, `m`, `a` | `test_fleet_desk_regressions.py` |
+| tile | head, run line, session pill, cards, cells, transcript, composer, two resize edges | `drawTile` | `.tile`, `.rsz` | `state-*`, `needs-human`, `held`, `is-solo`, `is-selected`, `is-hidden`, `is-pinned`, `is-dragging`, `size-2` | `1`–`9`, `h`, `r`, `m`, `a`, `Alt+←/→`, `Alt+Shift+arrows` | `test_fleet_desk_regressions.py`, `test_fleet_window.py` |
+| resize ghost | outline, the two numbers | `showResizeGhost` | `#rszghost` | — | — | `test_fleet_window.py` |
 | state chip | word, age | `drawTile` | `.chip` | the five status roles, `stale` | — | `test_fleet_desk_regressions.py` |
 | session pill | label, menu | `drawSessionPill` | `.spill`, `.smenu` | `is-reading` | `Alt+[`, `Alt+]`, `Alt+N` | `test_fleet_desk_switcher.py` |
 | runs list | one row per run | `drawRuns` | `.live-runs`, `.ss-runs` | — | — | `test_fleet_desk_switcher.py` |
@@ -64,7 +65,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | asks card | head, one row per question, send | `drawAsks` | `.asks` | — | — | `test_fleet_handoff_ask.py` |
 | scope report | one sentence | `drawScopeReport` | `.scopereport` | `outside` | — | `test_fleet_handoff_scope.py` |
 | column | head, bands, foot | `drawColumn` | `.column` | — | `j`, `k`, `Enter`, `Esc` | `test_fleet_column.py` |
-| band | head, chip, last line, tail, tools | `drawBand` | `.band` | `needs-human`, `departed`, `is-quiet` | `h`, `r`, `m` | `test_fleet_column.py` |
+| band | head, chip, last line, tail, tools | `drawBand` | `.band` | `needs-human`, `departed`, `is-quiet`, `is-dragging` | `h`, `r`, `m` | `test_fleet_column.py`, `test_fleet_window.py` |
 | dock | label, chips, show all | `drawDock` | `.dock` | — | — | `test_fleet_desk_hide.py` |
 | dock chip | name, state, badge | `drawDock` | `.dock-chip` | `needs-human`, `departed` | — | `test_fleet_desk_hide.py` |
 | agent rail | one chip per checkout | `drawRail` | `.agentrail` | `is-candidate`, `is-dim` | `1`–`9` from a ticket row | `test_fleet_desk_rail.py` |
@@ -79,6 +80,12 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 
 `drawer` is not a component: it is a one-line alias for `section("drawer", …)`, kept because the
 rest of the file already calls it that.
+
+## The window gestures
+
+`docs/desk-window.md` has the other half: a tile is dragged by its head and a band by its own
+button, resized from two edges with the snap shown before the hand comes up, and its footprint is
+two numbers rather than one.
 
 ## Motion
 

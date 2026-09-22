@@ -664,9 +664,18 @@ def _load_desk() -> None:
                 _selection["at"] = str(data.get("at") or "")
                 arr = data.get("arrangement")
                 if isinstance(arr, dict):
-                    _selection["arrangement"] = {
-                        k: dict(v) if isinstance(v, dict) else v for k, v in arr.items()
-                    }
+                    loaded = {}
+                    for k, v in arr.items():
+                        if not isinstance(v, dict):
+                            loaded[k] = v
+                            continue
+                        one = dict(v)
+                        # #217: `size: 2` from an older build becomes `{cols, rows}` here, so the
+                        # page and the CLI only ever have one shape to read. The file keeps the
+                        # old spelling until the arrangement is next written.
+                        one["size"] = _sizes(one.get("size"))
+                        loaded[k] = one
+                    _selection["arrangement"] = loaded
                 wins = data.get("windows")
                 if isinstance(wins, dict):
                     _selection["windows"] = {
@@ -984,6 +993,48 @@ def select(selected=None, screens=None) -> dict:
         return desk_state()
 
 
+#: How wide and how tall a tile may be asked to become. Four columns is the whole of a 1920px
+#: glass at the grid's 360px minimum track; three rows is the page height in thirds, which is the
+#: coarsest useful answer to "make this one taller" and the finest one anybody can hit by eye.
+SIZE_MAX_COLS = 4
+SIZE_MAX_ROWS = 3
+
+
+def size_cell(value) -> dict:
+    """One tile's footprint, as columns and rows (#217).
+
+    Every `desk.json` written before this holds `size: 2` -- one number meaning "two columns
+    wide". It reads as `{"cols": 2, "rows": 1}`, and is written back in the new shape the first
+    time the arrangement changes, so an old file is migrated by being used rather than by a
+    migration step nobody remembers to run. Out-of-range and unreadable values clamp rather than
+    raise: an arrangement is a preference, and a preference that cannot be parsed is a tile at its
+    default size, not a dashboard that will not draw.
+    """
+    cols, rows = 1, 1
+    if isinstance(value, dict):
+        try:
+            cols = int(value.get("cols") or 1)
+        except (TypeError, ValueError):
+            cols = 1
+        try:
+            rows = int(value.get("rows") or 1)
+        except (TypeError, ValueError):
+            rows = 1
+    else:
+        try:
+            cols = int(value or 1)
+        except (TypeError, ValueError):
+            cols = 1
+    return {"cols": max(1, min(SIZE_MAX_COLS, cols)),
+            "rows": max(1, min(SIZE_MAX_ROWS, rows))}
+
+
+def _sizes(mapping) -> dict:
+    if not isinstance(mapping, dict):
+        return {}
+    return {str(k): size_cell(v) for k, v in mapping.items()}
+
+
 def arrange(layout: str, *, order=None, size=None, pinned=None, hidden=None) -> dict:
     """Set the tile arrangement for a layout, persisted in desk.json and pushed down the SSE stream.
 
@@ -1000,9 +1051,11 @@ def arrange(layout: str, *, order=None, size=None, pinned=None, hidden=None) -> 
         if order is not None and cur.get("order") != list(order):
             cur["order"] = [str(x) for x in order]
             changed = True
-        if size is not None and cur.get("size") != dict(size):
-            cur["size"] = {str(k): int(v) for k, v in size.items()}
-            changed = True
+        if size is not None:
+            want = _sizes(size)
+            if cur.get("size") != want:
+                cur["size"] = want
+                changed = True
         # Pinned and hidden are per *project* (#175): two working trees of one repository are one
         # piece of work, and putting half of it away -- or pinning half of it first -- is an
         # arrangement nobody asked for. Expanded here rather than in the page, so `ad-fleet hide`

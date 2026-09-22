@@ -194,7 +194,11 @@ def test_a_digit_can_no_longer_blank_the_window(fleet_home, tmp_path):
                 """() => document.body.classList.contains('needs-only')""", timeout=5000)
             # `2` used to be beta, which focus mode is hiding -- and zooming it hid alpha too.
             page.keyboard.press("2")
-            page.wait_for_timeout(300)
+            # Wait for the zoom to have happened rather than for a clock: a layout change goes
+            # through a view transition now (#216) and applies on the frame after the browser has
+            # taken its "before" snapshot, which on a loaded machine is past any fixed sleep.
+            page.wait_for_function(
+                "() => document.body.classList.contains('focused')", timeout=8000)
             assert page.locator(".tile:visible").count() >= 1, "the window is not blank"
             assert not errors, errors
             browser.close()

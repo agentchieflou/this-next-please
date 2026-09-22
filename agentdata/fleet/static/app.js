@@ -224,38 +224,21 @@ function makeTile(row, index) {
      transcript text selected -- every attempt to copy an error message starts a drag instead --
      and it offers no affordance for the gesture. The header carries `draggable` and the grip
      says so (HIG *Drag and drop*). Tickets dropped from the board still land on the whole tile. */
+  /* #217: pointer events, not HTML5 drag. The old gesture could not show the tile moving -- the
+     browser drew its own translucent copy and the tile stayed where it was -- and on a touchpad
+     it needed a press-and-hold nobody discovers. `setPointerCapture` keeps every move coming to
+     this handle even when the pointer has left it, which is what makes the tile stay under the
+     cursor instead of being dropped the moment it overtakes the hand.
+
+     Tickets from the board and files from the desktop still arrive by HTML5 drag; they are drops
+     *onto* a tile, which is a different gesture with a different source. */
   var head = el.querySelector(".head");
-  head.addEventListener("dragstart", function (e) {
-    if (e.target.closest("button, input, select")) { e.preventDefault(); return; }
-    e.dataTransfer.setData("application/x-agentdata-tile", row.repo);
-    e.dataTransfer.effectAllowed = "move";
-    toggle(el, "is-dragging", true);
-  });
-  var clearDrop = function () {
-    toggle(el, "is-dragging", false);
-    document.querySelectorAll(".tile").forEach(function (t) {
-      t.classList.remove("drop-before", "drop-after", "drop-target");
-    });
-  };
-  head.addEventListener("dragend", clearDrop);
-  // Esc cancels a drag in flight and leaves the order alone (HIG *Drag and drop*).
-  el.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && el.classList.contains("is-dragging")) clearDrop();
-  });
+  bindDragToReorder(head, el, row.repo);
 
   el.addEventListener("dragover", function (e) {
     e.preventDefault();
-    var isTileDrag = Array.from(e.dataTransfer.types || []).indexOf("application/x-agentdata-tile") >= 0;
-    if (isTileDrag) {
-      e.dataTransfer.dropEffect = "move";
-      var rect = el.getBoundingClientRect();
-      var before = (e.clientX - rect.left) < (rect.width / 2);
-      toggle(el, "drop-before", before);
-      toggle(el, "drop-after", !before);
-    } else {
-      e.dataTransfer.dropEffect = "copy";
-      toggle(el, "drop-target", true);
-    }
+    e.dataTransfer.dropEffect = "copy";
+    toggle(el, "drop-target", true);
   });
 
   el.addEventListener("dragleave", function () {
@@ -264,25 +247,8 @@ function makeTile(row, index) {
 
   el.addEventListener("drop", function (e) {
     e.preventDefault();
-    var isTileDrag = el.classList.contains("drop-before") || el.classList.contains("drop-after");
-    var droppedRepo = e.dataTransfer.getData("application/x-agentdata-tile");
-    var dropBefore = el.classList.contains("drop-before");
+    // Reorder is the pointer drag's (#217); what arrives here is a ticket or a file.
     el.classList.remove("drop-target", "drop-before", "drop-after");
-
-    if (droppedRepo && droppedRepo !== row.repo) {
-      var order = getEffectiveOrder();
-      var fromIdx = order.indexOf(droppedRepo);
-      if (fromIdx >= 0) order.splice(fromIdx, 1);
-      var toIdx = order.indexOf(row.repo);
-      if (!dropBefore) toIdx += 1;
-      order.splice(toIdx, 0, droppedRepo);
-      post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
-        if (r && r.ok) mergeDesk(r);
-        reorderDomTiles();
-      });
-      reorderDomTiles();
-      return;
-    }
 
     // Files first (#166): the tile has promised a copy on `dragover` since #98, and until now that
     // promise was empty -- the outline appeared and nothing happened.
@@ -349,6 +315,15 @@ function makeTile(row, index) {
   /* Every drag gesture has a keyboard equivalent, and the footer key map lists all four. */
   el.addEventListener("keydown", function (e) {
     if (!e.altKey) return;
+    // #217: shifted, because Alt+arrows has moved a tile since #5 and a learned gesture is not
+    // something to take away for a new one.
+    if (e.shiftKey) {
+      if (e.key === "ArrowRight") { resizeTile(row.repo, 1, 0); e.preventDefault(); }
+      else if (e.key === "ArrowLeft") { resizeTile(row.repo, -1, 0); e.preventDefault(); }
+      else if (e.key === "ArrowDown") { resizeTile(row.repo, 0, 1); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { resizeTile(row.repo, 0, -1); e.preventDefault(); }
+      return;
+    }
     if (e.key === "ArrowLeft") { moveTile(row.repo, -1); e.preventDefault(); }
     else if (e.key === "ArrowRight") { moveTile(row.repo, 1); e.preventDefault(); }
     else if (e.key === "Home") { toggleTilePin(row.repo); e.preventDefault(); }
@@ -367,13 +342,18 @@ function makeTile(row, index) {
     });
   }
 
-  var sizeBtn = el.querySelector(".sizetoggle");
-  if (sizeBtn) {
-    sizeBtn.addEventListener("click", function (e) {
+  /* #217: maximise. Minimise is the hide button, which is the same gesture under the name
+     everybody already knows; this is the other half of the pair, and it is `openAgent` -- which
+     the desk has always had and only ever offered as a double click or the repository name. */
+  var maxBtn = el.querySelector(".maxtoggle");
+  if (maxBtn) {
+    maxBtn.addEventListener("click", function (e) {
       e.stopPropagation();
-      toggleTileSize(row.repo);
+      openAgent(row.repo);
     });
   }
+
+  bindResizeEdges(el, row.repo);
 
   var adoptBtn = el.querySelector(".adopt");
   if (adoptBtn) {
@@ -2778,6 +2758,10 @@ function reorderDomTiles() {
   var pinned = curArr.pinned || [];
   var shown = visibleOrder();
 
+  // #217: not while a tile is under the hand. A draw that reorders the DOM mid-drag is a tile
+  // that jumps out from under the cursor, and the stream draws several times a second.
+  if (dragging) return;
+
   var inDom = Array.prototype.map.call(grid.children, function (el) { return el.dataset.repo; });
   var needsMove = inDom.join("\u0000") !== order.filter(function (n) { return tiles.has(n); }).join("\u0000");
   var focused = document.activeElement;
@@ -2799,14 +2783,14 @@ function reorderDomTiles() {
       toggle(entry.el, "is-hidden", off);
       // The number is the key that focuses it, so it counts what is on the glass.
       text(entry.el.querySelector(".n"), off ? "" : String(shown.indexOf(name) + 1));
-      var sz = sizes[name] || 1;
-      toggle(entry.el, "size-2", sz === 2);
-      var szBtn = entry.el.querySelector(".sizetoggle");
-      if (szBtn) {
-        toggle(szBtn, "active", sz === 2);
-        attr(szBtn, "aria-pressed", String(sz === 2));
-        attr(szBtn, "title", sz === 2 ? "back to one column (Alt+Enter)" : "widen to two columns (Alt+Enter)");
-      }
+      var sz = sizeOf(sizes, name);
+      // One owner for the footprint: two custom properties the stylesheet spans on. `size-2`
+      // stays as a state marker for anything that reads "is this one widened", but it is no
+      // longer what makes the tile wide -- a class and an inline style both setting
+      // `grid-column` is the two-owners bug the contract is named after.
+      style(entry.el, "--cols", String(sz.cols));
+      style(entry.el, "--rows", String(sz.rows));
+      toggle(entry.el, "size-2", sz.cols === 2);
       var isPinned = pinned.indexOf(name) >= 0;
       toggle(entry.el, "is-pinned", isPinned);
       var pBtn = entry.el.querySelector(".pintoggle");
@@ -2870,6 +2854,243 @@ function playFlip(first) {
   });
 }
 
+/* --------------------------------------------------- #217: the tile as a window, with a pointer */
+
+/* Four pixels before anything moves. A click on the head selects the project, and a gesture that
+   began reordering on the first pixel of travel made that click a drag on any trackpad. */
+var DRAG_SLOP = 4;
+
+/* True while a pointer drag is in flight, so `place()` can leave the order alone until the hand
+   comes off -- a draw that reorders the DOM underneath a moving tile is a tile that jumps out
+   from under the cursor. */
+var dragging = null;
+
+/* Reorder by pointer, on a handle. `host` is what moves and `name` is what it is called; the grid
+   passes a tile and its head, the column a band and its own. Both write the same `order`, because
+   both are the same arrangement seen from two sides. */
+function bindDragToReorder(handle, host, name) {
+  handle.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0) return;
+    /* A press on a control inside the handle belongs to that control -- unless the handle *is*
+       the control, which is what a band is: one button filling the row, with its three tools
+       beside it rather than in it. The tile's handle is a plain head, so every button in it is
+       somebody else's. */
+    var ctrl = e.target.closest("button, input, select, textarea, a");
+    if (ctrl && ctrl !== handle) return;
+    var siblings = Array.prototype.filter.call(host.parentNode.children, function (n) {
+      return n !== host && n.dataset && n.dataset.repo && !n.hidden;
+    });
+    if (!siblings.length) return;                // nothing to reorder past
+
+    var from = { x: e.clientX, y: e.clientY };
+    var started = false;
+    var target = null;                           // { el, before } while one is lit
+
+    /* The capture is taken when the drag begins, not when the pointer goes down. While an element
+       holds the capture the browser retargets the compatibility mouse events to it as well, so
+       capturing on `pointerdown` sent the `click` that ends an ordinary press to the head rather
+       than to the repository name inside it -- and clicking the name, which is how a tile is
+       zoomed, silently stopped working. */
+    var lift = function () {
+      started = true;
+      dragging = name;
+      // Belt as well as braces: a selection made anywhere else on the page is still a selection
+      // the browser would rather drag than let this gesture have.
+      try {
+        var sel = window.getSelection();
+        if (sel && !sel.isCollapsed) sel.removeAllRanges();
+      } catch (err) { /* no selection to clear */ }
+      toggle(host, "is-dragging", true);
+      try { handle.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
+    };
+
+    var clear = function () {
+      dragging = null;
+      toggle(host, "is-dragging", false);
+      style(host, "transform", "");
+      document.querySelectorAll(".drop-before, .drop-after").forEach(function (n) {
+        n.classList.remove("drop-before", "drop-after");
+      });
+      target = null;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("keydown", onKey, true);
+      try { handle.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+    };
+
+    var onMove = function (ev) {
+      var dx = ev.clientX - from.x;
+      var dy = ev.clientY - from.y;
+      if (!started && Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
+      if (!started) lift();
+      style(host, "transform", "translate(" + dx + "px, " + dy + "px)");
+
+      // The dragged host has no pointer events while it is lifted, so this answers with whatever
+      // is underneath it rather than with itself.
+      var under = document.elementFromPoint(ev.clientX, ev.clientY);
+      var over = under && under.closest ? under.closest("[data-repo]") : null;
+      if (over === host) over = null;
+      document.querySelectorAll(".drop-before, .drop-after").forEach(function (n) {
+        n.classList.remove("drop-before", "drop-after");
+      });
+      if (over && over.parentNode === host.parentNode) {
+        var box = over.getBoundingClientRect();
+        // Across in the grid, down in the column: the axis the list runs along is the axis the
+        // halves are measured on, or "before" means the wrong side of the wrong edge.
+        var down = LAYOUT === "column";
+        var before = down ? (ev.clientY - box.top) < (box.height / 2)
+                          : (ev.clientX - box.left) < (box.width / 2);
+        toggle(over, before ? "drop-before" : "drop-after", true);
+        target = { el: over, before: before };
+      } else {
+        target = null;
+      }
+    };
+
+    var onUp = function () {
+      var landed = target;
+      var moved = started;
+      clear();
+      if (!moved) return;
+      // A pointer drag still ends in a `click`, and on a tile head that click selects the project
+      // while on a band it opens the agent. Neither is what the hand just asked for, so the one
+      // that follows a real drag is swallowed and the listener takes itself off again.
+      var swallow = function (ev) {
+        ev.stopPropagation();
+        ev.preventDefault();
+        document.removeEventListener("click", swallow, true);
+      };
+      document.addEventListener("click", swallow, true);
+      setTimeout(function () { document.removeEventListener("click", swallow, true); }, 0);
+      if (landed) dropTileBefore(name, landed.el.dataset.repo, landed.before);
+    };
+
+    // Esc cancels a drag in flight and leaves the order alone (HIG *Drag and drop*). Captured on
+    // the document, because the capture has taken the keyboard's usual route away.
+    var onKey = function (ev) {
+      if (ev.key !== "Escape") return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      clear();
+    };
+    var onCancel = function () { clear(); };
+
+    /* On the document, not on the handle. A head is twenty pixels tall and the pointer is off it
+       before it has travelled far enough to count as a drag, so a handle that listened to itself
+       heard the first move and none of the others -- and the capture that would have fixed that
+       is not taken until the drag has begun, which it never did. */
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onCancel);
+    document.addEventListener("keydown", onKey, true);
+  });
+}
+
+/* Where a drop lands, in one place, so the pointer and the keyboard agree about what "before"
+   means. Optimistic: the order changes under the hand and the server's answer is what the next
+   draw reads. */
+function dropTileBefore(name, onto, before) {
+  if (!name || !onto || name === onto) return;
+  var order = getEffectiveOrder();
+  var from = order.indexOf(name);
+  if (from >= 0) order.splice(from, 1);
+  var at = order.indexOf(onto);
+  if (at < 0) return;
+  order.splice(before ? at : at + 1, 0, name);
+  var arr = getLayoutArrangement();
+  arr.order = order;
+  transitionLayout(function () { reorderDomTiles(); });
+  post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
+    if (r && r.ok) mergeDesk(r);
+    reorderDomTiles();
+  });
+}
+
+/* The grid's own tracks, measured rather than assumed. `auto-fit` means the number of columns is
+   whatever the window is wide enough for, so "one track" is a number only the browser knows. */
+function gridTracks() {
+  var grid = document.getElementById("grid");
+  if (!grid) return [];
+  var cols = getComputedStyle(grid).gridTemplateColumns || "";
+  return cols.split(" ").map(parseFloat).filter(function (n) { return n > 0; });
+}
+
+/* Resize from the right and the bottom edge, with the snap shown before the hand comes up. */
+function bindResizeEdges(el, name) {
+  el.querySelectorAll(".rsz").forEach(function (grip) {
+    var axis = grip.dataset.edge === "y" ? "rows" : "cols";
+    grip.addEventListener("pointerdown", function (e) {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      e.preventDefault();
+      var was = sizeOf(getLayoutArrangement().size, name);
+      var box = el.getBoundingClientRect();
+      var tracks = gridTracks();
+      var track = tracks.length ? tracks[0] : box.width;
+      var third = window.innerHeight / 3;
+      var want = { cols: was.cols, rows: was.rows };
+      toggle(grip, "is-resizing", true);
+      try { grip.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
+
+      var onMove = function (ev) {
+        if (axis === "cols") {
+          var wide = ev.clientX - box.left;
+          want.cols = clampSpan(Math.round(wide / (track + 10)), Math.max(1, tracks.length));
+        } else {
+          var tall = ev.clientY - box.top;
+          want.rows = clampSpan(Math.round(tall / third), SIZE_MAX_ROWS);
+        }
+        showResizeGhost(box, want, track, third);
+      };
+      var finish = function (apply) {
+        hideResizeGhost();
+        toggle(grip, "is-resizing", false);
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        document.removeEventListener("pointercancel", onCancel);
+        document.removeEventListener("keydown", onKey, true);
+        try { grip.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+        if (apply) transitionLayout(function () { setTileSize(name, want.cols, want.rows); });
+      };
+      var onUp = function () { finish(true); };
+      var onCancel = function () { finish(false); };
+      var onKey = function (ev) {
+        if (ev.key !== "Escape") return;
+        ev.stopPropagation();
+        ev.preventDefault();
+        finish(false);
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+      document.addEventListener("pointercancel", onCancel);
+      document.addEventListener("keydown", onKey, true);
+      showResizeGhost(box, want, track, third);
+    });
+  });
+}
+
+/* What will happen, drawn where it will happen. One element for the page: there is only ever one
+   gesture in flight, and a ghost per tile is a ghost that gets left behind. */
+function showResizeGhost(box, want, track, third) {
+  var ghost = document.getElementById("rszghost");
+  if (!ghost) return;
+  var width = want.cols * track + (want.cols - 1) * 10;
+  var height = Math.max(box.height, want.rows * third);
+  style(ghost, "left", Math.round(box.left) + "px");
+  style(ghost, "top", Math.round(box.top) + "px");
+  style(ghost, "width", Math.round(width) + "px");
+  style(ghost, "height", Math.round(height) + "px");
+  text(ghost.querySelector(".rsz-says"),
+       want.cols + " \u00d7 " + want.rows + (want.cols === 1 && want.rows === 1 ? "" : ""));
+  hide(ghost, false);
+}
+
+function hideResizeGhost() {
+  var ghost = document.getElementById("rszghost");
+  if (ghost) hide(ghost, true);
+}
+
 /* ------------------------------------------------- #216: one door for anything that moves things */
 
 /* True only while the browser is running a view transition of its own, which is the one time
@@ -2915,7 +3136,17 @@ function transitionLayout(fn) {
   var done = function () { inViewTransition = false; nameTiles(false); };
   var running;
   try {
-    running = document.startViewTransition(fn);
+    running = document.startViewTransition(function () {
+      /* Reported, and then let the transition finish. A change that half-applied is still the
+         state the page is in, and aborting the transition on top of that leaves the old frame
+         painted over the new one -- a page that looks fine and is not. */
+      try {
+        fn();
+      } catch (bad) {
+        if (typeof reportError === "function") reportError(bad);
+        else setTimeout(function () { throw bad; });
+      }
+    });
   } catch (err) {
     // A transition already running, or an engine that has the function and refuses the call: the
     // change still has to happen, and it happens now.
@@ -2962,16 +3193,55 @@ function moveTile(repo, dir) {
   });
 }
 
-function toggleTileSize(repo) {
+/* #217. A tile's footprint is two numbers now. `size: 2` is what every arrangement written
+   before this holds -- one number meaning two columns wide -- and it reads as `{cols: 2, rows: 1}`
+   here exactly as it does on the server, so a desk saved by an older build opens with its tiles
+   the width they were left. */
+var SIZE_MAX_COLS = 4;
+var SIZE_MAX_ROWS = 3;
+
+function sizeOf(sizes, name) {
+  var v = (sizes || {})[name];
+  if (v && typeof v === "object") {
+    return { cols: clampSpan(v.cols, SIZE_MAX_COLS), rows: clampSpan(v.rows, SIZE_MAX_ROWS) };
+  }
+  return { cols: clampSpan(v, SIZE_MAX_COLS), rows: 1 };
+}
+
+function clampSpan(value, most) {
+  var n = Math.round(Number(value) || 1);
+  return Math.max(1, Math.min(most, n));
+}
+
+/* Both writers go through here: the button, the keys and the edge handle all mean "this tile is
+   this many tracks wide and this many tall", and there is one place that says what that costs. */
+function setTileSize(repo, cols, rows) {
   var curArr = getLayoutArrangement();
   var sizes = Object.assign({}, curArr.size || {});
-  sizes[repo] = (sizes[repo] === 2) ? 1 : 2;
+  var want = { cols: clampSpan(cols, SIZE_MAX_COLS), rows: clampSpan(rows, SIZE_MAX_ROWS) };
+  var now = sizeOf(sizes, repo);
+  if (now.cols === want.cols && now.rows === want.rows) return Promise.resolve();
+  sizes[repo] = want;
+  // Optimistic, then confirmed -- the tile changes under the hand and the server's answer is what
+  // the next draw reads. Two quick presses both read the local arrangement, so neither is lost.
   curArr.size = sizes;
   reorderDomTiles();
   return post("arrange", { layout: LAYOUT, size: sizes }).then(function (r) {
     if (r && r.ok) mergeDesk(r);
     reorderDomTiles();
   });
+}
+
+function toggleTileSize(repo) {
+  var now = sizeOf(getLayoutArrangement().size, repo);
+  return setTileSize(repo, now.cols > 1 ? 1 : 2, now.rows);
+}
+
+/* Alt+Shift+arrows. Alt+arrows already moves a tile and has since #5, so resizing takes the
+   shifted pair rather than stealing a gesture the operator has learned. */
+function resizeTile(repo, dCols, dRows) {
+  var now = sizeOf(getLayoutArrangement().size, repo);
+  return setTileSize(repo, now.cols + dCols, now.rows + dRows);
 }
 
 /* Both toggles write the local arrangement BEFORE the round trip, not only after it. Reading
@@ -3407,9 +3677,14 @@ function drawColumn() {
      it is felt. The node for a repository is created once and kept. */
   var need = 0;
   patchList(list, groups, function (item) { return item.name; },
-    function () {
+    function (item) {
       var li = pattern.cloneNode(true);
       hide(li, false);
+      // #217: the band's own button is its title bar -- it fills the row, and the three tools
+      // sit beside it rather than inside it. Bound once, on create, like every other listener
+      // the contract allows.
+      setData(li, "repo", item.name);
+      bindDragToReorder(li.querySelector(".band-open"), li, item.name);
       return li;
     },
     function (li, item, index) {
