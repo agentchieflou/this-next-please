@@ -103,13 +103,14 @@ and *who needs me*, and a click should stay where it was put.
   version                               the only-ever-rising counter every write bumps (unchanged)
   arrangement:  { order: [repo…], hidden: [repo…] }       one desk: shared by every window
   windows:
-    <w>:  { focus: repo,                                   the one pane the keys and the composer address
+    <w>:  { open: repo,                                    the one pane the keys and the composer address
             widths: { repo: 0 | weight },                  0 = rail; weight = its share of what the rails leave
             read, seen, held, section }                    unchanged (#172)
 ```
 
-- **`focus` replaces `open` and `zoomed`.** Two fields that could disagree become one that cannot. That is the
-  snap-back removed by construction, not patched.
+- **`open` alone; `zoomed` goes.** Two fields that could disagree become one that cannot. That is the snap-back
+  removed by construction, not patched. (An earlier draft named the survivor `focus`, but that name already means
+  the needs-only filter on the window record, `applyWindow`'s `win.focus`. Found while building A.)
 - **Widths are per window.** A laptop and a 4K monitor cannot share pixels, and §Where this plan pushes back item 4
   needs them apart. Order and hidden stay shared, because one desk means the same agents in the same order on every
   screen.
@@ -126,7 +127,7 @@ and *who needs me*, and a click should stay where it was put.
   `main`.
 - **Migration** runs once, at load, and first keeps the old file as `desk.v1.json`. The order and hidden list come
   from `column` if that key exists, else from `grid`, because `ad-fleet hide` wrote to `grid` whatever the page
-  showed (`cli_fleet.py:229`, `1530`). Each window's `open` becomes `focus`, and `zoomed` is dropped. Widths start
+  showed (`cli_fleet.py:229`, `1530`). Each window keeps `open`, and `zoomed` is dropped. Widths start
   as the focused pane and every pinned pane at weight 1, and everything else at 0, which is today's column exactly.
   `size.cols` becomes the weight of any pane that was wider than one column. `layout`, `view`, `screen`,
   `screens` and `selected` go. `selected` goes only once C's inventory shows nothing but roles reads it.
@@ -203,8 +204,9 @@ Every agent is a `.tile`, always. What it draws is decided by its own width, in 
 - **`state.json` is the record of what is open. The stream is the record of what happened.** The snapshot shows the
   questions in `state.json`'s `open_questions`, in the order and with the payload the fold has for them. It shows none
   that `state.json` has closed, however they were closed. This also heals every tile already stuck, with no new
-  event needed, and it covers the opposite case the investigation found: a question still open in `state.json`
-  vanishing from the tile after a new `started`.
+  event needed. It does **not** add back a question `state.json` lists but the current run never opened. That
+  is usually the one the operator has just answered from the tile, in the turn that records the answer, and
+  drawing it again with an empty box asks them to answer it twice (#169). Found while building B.
 - **A cleared question says so.** `events._question_events` emits `question_cleared {id, question}` for a key that
   left `open_questions` without reaching `answered_questions`. It is not an answer, so the existing test that
   "disappeared is not answered" holds. The fold treats it the way it treats `question_answered`, and rebuilds
@@ -229,22 +231,26 @@ Every agent is a `.tile`, always. What it draws is decided by its own width, in 
 
 Ships alone, first, before any layout work. It is the defect the operator hits every minute.
 
-- `applyWindow` ignores `zoomed` in the column, and the column's first `saveWindow` sends `zoomed: ""`, which clears
-  every stale record on the laptop at its next load.
+- `applyWindow` ignores `zoomed` in the column. It is **not** cleared from the page: a grid window on the same
+  record may be zoomed on purpose, and a test caught the clear un-zooming it. C removes the field.
+- A window's own writes go one at a time, in the order they were made. Four opens in one frame reached the server
+  in any order, and the record ended on the wrong agent. `test_fleet_motion.py` found this under parallel load.
 - `acceptDesk(payload)` replaces the three unguarded assignments (`app.js:1450`, `1502`, `2442`) and drops anything
   older than the page's `version`.
 - `openBand` and `backToPrevious` keep `#tile=` in step (`history.replaceState`), as `openAgent` does, so a reload
   cannot reopen the agent from before the click.
-- The shells ask for `w=pycharm` and `w=vscode`, and `ad-fleet open --in edge` for `w=edge`.
+- The shells ask for `w=pycharm` and `w=vscode`. (`ad-fleet open --in edge` already takes `--window`; its default
+  moves to `edge` with C.)
 - **Tests**, browser, in `tests/test_fleet_column.py`:
   - a seeded `zoomed: alpha`, a click on beta, a wait of three ticks, then beta open on the page **and** `open: beta`
     on the server;
   - the same, with a second page on `layout=grid` zooming gamma;
   - `#tile=gamma`, a click on beta, a reload, and beta still open;
-  - a delayed `/api/fleet` answer that does not roll `version` back.
+  - a delayed `/api/fleet` answer that does not roll `version` back;
+  - four opens in one frame leaving the record on the last one.
 
-  The operator's report becomes `tests/regressions/test_20260922_chrome_snapback.py`, with its docstring quoting their
-  sentence.
+  The operator's report became `tests/regressions/test_20260922_any_chrome_snapback.py`. The convention's name
+  pattern allows a shell, not a browser, so the host is in the short name. **Built in #237.**
 
 ### B #231 — the questions: `state.json` decides what is open, and every close says so
 
@@ -255,14 +261,13 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
   - ask, clear, then a fold after `turn_ended` that reads idle with 0 questions;
   - twelve bare `--question` ask-and-clear cycles in one console run, reading 0 (the operator's 12);
   - a cleared `q1` followed by a new ask that gets `q2`;
-  - a question open in `state.json` staying on the tile across a new `started`;
   - a console-row answer that reaches `say_into` with the answers prompt.
 
-  The regression file for the 12 is `tests/regressions/test_20260922_chrome_answered_questions.py`.
+  The regression file for the 12 is `tests/regressions/test_20260922_any_answered_questions.py`. **Built in #237.**
 
 ### C #232 — one arrangement: `LAYOUTS` goes, `desk.json` schema 2, the migration
 
-- Everything in §One arrangement and the migration in §The model. `focus` replaces `open` and `zoomed`. The grid's
+- Everything in §One arrangement and the migration in §The model. `open` stays and `zoomed` goes. The grid's
   zoom and dock and the column's bands are **not yet** removed, because D replaces them. C leaves the column's
   drawing as the one arrangement and deletes the other three.
 - **Tests**: 4 roles/screens tests deleted (`test_fleet_board_desk.py:470, 607, 750`,
