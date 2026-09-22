@@ -48,7 +48,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
-               inbox as IN, lifecycle, links as LK, notify as N, poll as P, supervisor)
+               inbox as IN, launch as LAUNCH, lifecycle, links as LK, notify as N, poll as P,
+               supervisor)
 from .registry import Registry, RegistryError, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
@@ -80,9 +81,18 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # The three layouts of #133, and the three windows layout B splits into. The page reads them off
 # its own query string and this list is what says which spellings exist; `cli_fleet.LAYOUTS` is the
 # other half of the same seam and a test asserts the two still agree.
-# The two assets `index.html` references. They are rewritten with the run token when the page is
-# served; see `_index`.
-ASSETS = ("app.css", "app.js")
+# Every asset either page references. They are rewritten with the run token when the page is
+# served; see `_page`. A name missing from here is served with no `?t=`, which `_authorized`
+# refuses -- and only in a real browser, because a test fetches an asset with the token already in
+# hand. That is the bug `_page`'s docstring is about, and adding a page means adding its script
+# here in the same edit.
+ASSETS = ("app.css", "common.js", "app.js", "settings.js")
+
+# The pages this server serves, and the file each one is. A second page rather than a view swap
+# because the operator asked for an address they can land on -- and because `app.js` boots a desk
+# (an EventSource, a 15-second `loadDesk`, a `place()` that rewrites `document.body` several times
+# a second) that has no business running under somebody editing a dropdown.
+PAGES = {"/": "index.html", "/settings": "settings.html"}
 
 # The page, compressed once per build of it rather than once per window (#195). Below a kilobyte the
 # gzip header costs more than the compression saves, and a skin's PNG is already compressed, so only
@@ -133,7 +143,7 @@ CSP = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline
 # with -- the same rule that once made the page render as unstyled HTML, one level down. A skin
 # referencing its own `sprites.svg` therefore asked for it with no token and was refused with a
 # 403, silently: the chips simply had no status sprite, and nothing said why. The token goes on
-# here for the same reason `_index` puts it on the page's own assets, and it goes BEFORE the
+# here for the same reason `_page` puts it on the page's own assets, and it goes BEFORE the
 # fragment, because `sprites.svg#crop-sun?t=…` names no fragment at all.
 _CSS_URL = re.compile(r"""url\(\s*(['"]?)(?!data:|https?:|//|/)([^'")#\s]+)(#[^'")\s]*)?\1\s*\)""")
 
@@ -1516,6 +1526,35 @@ def act(what: str, body: dict) -> dict:
         box, offer = _offer(str(body.get("id") or ""))
         box.dismiss(offer)
         return {"dismissed": offer.name, "id": offer.id}
+    if what == "settings":
+        # `C` is imported inside several branches of this function, which makes the name local to
+        # the whole of it -- so a branch that uses it without its own import raises UnboundLocalError
+        # rather than reading the module. Found by the browser test, as a 500 in a field's tooltip.
+        from .. import config as C
+        from . import settings as SET
+
+        cfg = C.load()
+        try:
+            for item in body.get("set") or []:
+                SET.apply(cfg, str(item.get("key") or ""), item.get("value"))
+            for item in body.get("models") or []:
+                SET.set_model(cfg, str(item.get("repo") or ""),
+                              model=item.get("model"), effort=item.get("effort"))
+            if "model" in body or "effort" in body:
+                SET.set_fleet_model(cfg, model=body.get("model"), effort=body.get("effort"))
+        except SET.SettingsError as e:
+            raise ServeError(e.msg, e.hint, code=e.code) from None
+        except LAUNCH.LaunchError as e:
+            # A model value that would become a second flag. The launch-time check would catch it
+            # too, but hours later and as a failed start rather than a refused keystroke.
+            raise ServeError(e.msg, e.hint, code="bad_model") from None
+        try:
+            C.save(cfg)
+        except C.ConfigError as e:
+            # ConfigError carries `hint` but no `msg`, so it must be translated rather than left to
+            # the generic handler, which would report a refusal as a 500.
+            raise ServeError(str(e), e.hint, code="config_refused") from None
+        return settings_snapshot()
     if what == "theme":
         from .. import config as C
         cfg = C.load()
@@ -1539,7 +1578,7 @@ def act(what: str, body: dict) -> dict:
         return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
-                     "arrange | attach | dismiss | theme")
+                     "arrange | attach | dismiss | theme | settings")
 
 
 def _sweep(url: str) -> list[dict]:
@@ -1788,8 +1827,8 @@ class Handler(BaseHTTPRequestHandler):
             # told which of the two it got wrong.
             return self._refuse(403, "not authorized",
                                 "open the URL `ad-fleet serve` printed, token and all")
-        if route == "/":
-            return self._index()
+        if route in PAGES:
+            return self._page(PAGES[route])
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
         if route == "/api/themes":
@@ -1804,6 +1843,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins(),
                                "current": {"theme": chosen.get("default", "none") or "none",
                                            "skin": chosen.get("skin", "none") or "none"}})
+        if route == "/api/settings":
+            return self._json({"ok": True, **settings_snapshot()})
         if route == "/api/board":
             from .. import config as C
 
@@ -1938,8 +1979,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._static(route[len("/static/"):])
         return self._refuse(404, f"no route {route}")
 
-    def _index(self) -> None:
-        """The page, with its own asset URLs carrying this run's token.
+    def _page(self, name: str) -> None:
+        """One HTML page, with its own asset URLs carrying this run's token.
 
         Everything but `/api/ping` and `/open` requires the token, and a relative `href` does not
         inherit the query string the operator opened -- so the page asked for `/static/app.css` and
@@ -1949,15 +1990,18 @@ class Handler(BaseHTTPRequestHandler):
         browser. Found by screenshotting the real server.
 
         The token is put on here rather than written into the file because it is generated per run.
-        `app.js` needs no help: it reads `t` out of `location.search` and puts it on every fetch of
-        its own.
+        The scripts need no help: `common.js` reads `t` out of `location.search` and every fetch
+        either page makes goes through its `q()`.
         """
-        html = textio.read_text(os.path.join(STATIC, "index.html"))
+        html = textio.read_text(os.path.join(STATIC, name))
         for asset in ASSETS:
             html = html.replace(f'"/static/{asset}"', f'"/static/{asset}?t={self.token}"')
-        stamp = os.stat(os.path.join(STATIC, "index.html"))
+        stamp = os.stat(os.path.join(STATIC, name))
+        # `name` leads the cache key rather than the literal it used to be: `gzip_for` requires a
+        # key that names everything it was made from, and two pages sharing one entry would serve
+        # whichever was compressed first to both.
         self._send(200, html.encode("utf-8"), "text/html; charset=utf-8",
-                   cache_key=("index.html", stamp.st_mtime_ns, stamp.st_size, self.token))
+                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token))
 
     def _static(self, name: str) -> None:
         """One file out of the package's `static/` directory, and nothing above or beside it.
@@ -2051,6 +2095,74 @@ class Handler(BaseHTTPRequestHandler):
 
             debug_exc("fleet serve action")
             return self._refuse(500, str(e)[:300], "check the console running `ad-fleet serve`")
+
+
+# ---------------------------------------------------------------------------------- the settings
+
+
+# How many of a repository's newest events to look through for the model a turn actually ran on.
+# The stream carries one per assistant message, so the last few hundred is comfortably the last
+# turn without reading a log that has been growing all week.
+MODEL_LOOKBACK = 300
+
+
+def served_model(name: str) -> str:
+    """The model the last turn actually ran on, from the stream -- not the one that was asked for.
+
+    These are two different facts and the page prints both. A tenant may pin a model, and a settings
+    page that reported only what was configured would show a value that is not what ran, which is
+    the failure mode the whole Power BI sign-in epic was about in another guise.
+    """
+    try:
+        rows = E.read(name, kinds=("assistant_text",), limit=MODEL_LOOKBACK)
+    except (OSError, ValueError):
+        return ""
+    for ev in reversed(rows):
+        model = ((ev.get("data") or {}).get("model") or "").strip()
+        if model:
+            return model
+    return ""
+
+
+def settings_snapshot() -> dict:
+    """Everything `/settings` renders: the model per repository, the editable keys, the tool lists.
+
+    Assembled server-side rather than left to the page to join, so the page has no rule of its own
+    to keep in step -- the effect-scope it prints beside each control comes back from here, and
+    cannot drift from what the code actually does.
+    """
+    from .. import config as C
+    from . import settings as SET
+
+    cfg = C.load()
+    try:
+        repos = Registry().sorted()
+    except (RegistryError, OSError):
+        repos = []
+    rows, seen = [], []
+    for repo in repos:
+        entry = C.get_leaf(cfg, "fleet.models", repo.name, {}) or {}
+        model, effort, source = LAUNCH.model_for(repo.name, cfg)
+        actual = served_model(repo.name)
+        if actual and actual not in seen:
+            seen.append(actual)
+        rows.append({"repo": repo.name,
+                     "model": str(entry.get("model") or ""),
+                     "effort": str(entry.get("effort") or ""),
+                     "resolved": model, "resolved_effort": effort, "source": source,
+                     "actual": actual})
+    return {
+        "model": {"fleet": {"model": str(C.get(cfg, "fleet.model") or ""),
+                            "effort": str(C.get(cfg, "fleet.effort") or "")},
+                  "repos": rows,
+                  # Suggestions, never a closed list: which model names this build accepts has never
+                  # been measured, so the only names offered are ones that really ran here.
+                  "seen": seen,
+                  "efforts": ["low", "medium", "high"]},
+        "editable": SET.describe(cfg),
+        "current": SET.current(cfg),
+        "tools": SET.tools(cfg),
+    }
 
 
 # ------------------------------------------------------------------------------------- the theme

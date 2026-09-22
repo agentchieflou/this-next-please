@@ -395,6 +395,19 @@ def cmd_status(a) -> int:
                                     "agents": len(rows), "fleet_dir": fleet_dir()}}))
         print(toon.table("allow_tools", ["pattern"], [[p] for p in allow]))
         print(toon.table("deny_tools", ["pattern"], [[p] for p in deny]))
+        # What each REGISTERED repository would launch with, which is not the same question as what
+        # a running one did: a repo that has never run has no lock and would otherwise print no row
+        # at all. `cli-auto` is printed rather than a blank, for the reason the deny-list is a floor
+        # rather than a default -- an unset model is a decision the CLI makes, not an absence.
+        try:
+            registered = [r.name for r in Registry().sorted()]
+        except (RegistryError, OSError):
+            registered = [r["repo"] for r in rows]
+        model_rows = []
+        for name in registered:
+            model, effort, source = launch.model_for(name, cfg)
+            model_rows.append([name, model or "-", effort or "-", source])
+        print(toon.table("models", ["repo", "model", "effort", "source"], model_rows))
         for row in rows:
             lock = supervisor.read_lock(row["repo"])
             if lock.get("launch"):

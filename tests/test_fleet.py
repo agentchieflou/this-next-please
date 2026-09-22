@@ -421,3 +421,60 @@ def test_done_ticket_is_refused(fleet_home, tmp_path):
     with pytest.raises(supervisor.SupervisorError) as e:
         supervisor.check_ticket(r, "RDSD-101", board_rows=rows)
     assert e.value.code == "ticket_done"
+
+
+# ------------------------------------------------------------------- the model each agent runs
+
+
+def test_no_model_configured_means_no_flag_at_all():
+    """The only no-model behaviour anyone measured is the CLI selecting one itself. Passing
+    `--model ""` would be inventing a second behaviour, which is what launch.py forbids."""
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg={})
+    assert "--model" not in argv and "--effort" not in argv
+    assert launch.model_for("anything", {}) == ("", "", "cli-auto")
+
+
+def test_a_configured_model_reaches_the_command_line():
+    cfg = {"fleet": {"model": "claude-opus-5", "effort": "high"}}
+    model, effort, source = launch.model_for("alpha", cfg)
+    assert (model, effort, source) == ("claude-opus-5", "high", "fleet.model")
+
+    argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg=cfg,
+                                 model=model, effort=effort)
+    assert _patterns(argv, "--model") == ["claude-opus-5"]
+    assert _patterns(argv, "--effort") == ["high"]
+    # ...and it did not displace the boundary: the enumerated lists are still all there.
+    assert "shell(ad-state)" in _patterns(argv, "--allow-tool")
+    assert "shell(git push)" in _patterns(argv, "--deny-tool")
+
+
+def test_a_per_repo_model_wins_and_survives_a_dot_in_the_name():
+    """A repository is named after its checkout's folder, and those have dots in them. Reading the
+    override with a dotted path would split `rdsd.pbi` into nested keys and find nothing."""
+    cfg = {"fleet": {"model": "claude-sonnet-5",
+                     "models": {"rdsd.pbi": {"model": "claude-haiku-4.5", "effort": "low"}}}}
+    assert launch.model_for("rdsd.pbi", cfg) == ("claude-haiku-4.5", "low", "fleet.models.rdsd.pbi")
+    assert launch.model_for("other", cfg) == ("claude-sonnet-5", "", "fleet.model")
+
+
+@pytest.mark.parametrize("bad", ["x --allow-all-tools", "--yolo", "a b", " --model x"])
+def test_a_model_value_that_would_become_a_second_flag_is_refused(bad):
+    """`check_no_blanket_permission` reads the allow and deny lists and would never see this one."""
+    with pytest.raises(launch.LaunchError) as e:
+        launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", model=bad)
+    assert "model" in str(e.value)
+    with pytest.raises(launch.LaunchError):
+        launch.model_for("alpha", {"fleet": {"model": bad}})
+
+
+def test_the_console_and_the_headless_turn_agree_on_the_model():
+    """A console is not an exception to anything a headless turn gets -- the same rule that keeps
+    the allow-list identical across the two."""
+    cfg = {"fleet": {"model": "claude-opus-5", "effort": "medium"}}
+    model, effort, _ = launch.model_for("alpha", cfg)
+    headless = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs", cfg=cfg,
+                                     model=model, effort=effort)
+    console = launch.console_command("copilot", "C:/repo", log_dir="C:/logs", session="s1", cfg=cfg,
+                                     model=model, effort=effort)
+    assert _patterns(console, "--model") == _patterns(headless, "--model") == ["claude-opus-5"]
+    assert _patterns(console, "--effort") == _patterns(headless, "--effort") == ["medium"]

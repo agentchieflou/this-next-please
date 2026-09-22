@@ -1,0 +1,96 @@
+/* What both pages need, and neither owns.
+
+   The desk (`app.js`) and the settings page (`settings.js`) are two pages, not two copies: each
+   loads this file first and then its own. Plain non-module scripts share one global scope, so a
+   name declared here is simply available in the other -- no build step, no imports, and nothing
+   fetched from the internet, which is the constraint the desk has always had (it must load inside
+   PyCharm's JCEF and VS Code's Simple Browser behind a corporate proxy).
+
+   What lives here is what a SECOND page genuinely needs: the run token and the two functions that
+   put it on every request, the one-line text setter, and the two painters that turn a palette and
+   a skin into what you see. What deliberately does not: anything that assumes a desk. `rehome()`
+   stays in `app.js` because it always rebuilds a destination through `/open`, which hard-codes
+   `/?t=` -- sending it from here would bounce an operator off the settings page mid-edit. */
+
+"use strict";
+
+var PARAMS = new URLSearchParams(location.search);
+var TOKEN = PARAMS.get("t") || "";
+
+/* Every route but `/api/ping` and `/open` wants the token, and a relative URL in the markup does
+   not inherit the query string the operator opened. So no fetch is written by hand: they all go
+   through here. */
+function q(path, params) {
+  var u = new URL(path, location.origin);
+  u.searchParams.set("t", TOKEN);
+  Object.keys(params || {}).forEach(function (k) { u.searchParams.set(k, params[k]); });
+  return u.toString();
+}
+
+/* A 403 means this page is holding a token the server no longer has -- it was restarted, and the
+   run token is per run. What to do about it differs per page, so the page says: the desk goes back
+   through `/open` to collect a fresh one, and only once its stream has already died. A page that
+   sets nothing simply gets the error, which is the safe direction to be wrong in. */
+var onAuthLost = null;
+
+function post(action, body) {
+  return fetch(q("/api/" + action), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {})
+  }).then(function (r) {
+    if (r.status === 403 && typeof onAuthLost === "function") onAuthLost();
+    return r.json();
+  });
+}
+
+function text(el, value) { if (el) el.textContent = value == null ? "" : String(value); }
+
+/* A PALETTE is colour only, so it is 1:1 with the terminal: the same hex reaches this page's custom
+   properties and the project's prompt and tab. Writing one goes to the server -- the same
+   `~/.agentdata/config.json` that `ad-theme set` writes -- and never to `localStorage`, because a
+   desk is four windows and a choice kept in one browser's storage is four different desks. */
+function applyTheme(cssVars, themeName) {
+  var root = document.documentElement;
+  var tokens = ["--bg", "--text", "--panel", "--line", "--select", "--muted", "--accent",
+                "--focus", "--running", "--waiting", "--human", "--done", "--idle"];
+  if (cssVars && themeName && themeName !== "none") {
+    tokens.forEach(function (k) {
+      if (cssVars[k]) root.style.setProperty(k, cssVars[k]);
+      else root.style.removeProperty(k);
+    });
+    root.setAttribute("data-theme", "custom");
+  } else {
+    tokens.forEach(function (k) { root.style.removeProperty(k); });
+    root.removeAttribute("data-theme");
+  }
+}
+
+/* A skin is one stylesheet; a VARIANT is that same stylesheet drawn against a different palette,
+   selected by an attribute rather than by a second file. Nether and Overworld share every bevel and
+   every sprite and differ in their colours, so shipping them as two stylesheets would be shipping
+   the same art twice and letting the two copies drift. Switching variant therefore re-paints
+   without a fetch, and only changing skin loads anything. */
+function applySkin(skinName) {
+  var link = document.head.querySelector("link[data-skin]");
+  var parts = String(skinName || "").split(":");
+  var family = parts[0];
+  var variant = parts[1] || "";
+  if (!family || family === "none") {
+    if (link) link.remove();
+    document.body.removeAttribute("data-skin");
+    document.body.removeAttribute("data-skin-variant");
+    return;
+  }
+  if (!link) {
+    link = document.createElement("link");
+    link.setAttribute("data-skin", "true");
+    link.rel = "stylesheet";
+    document.head.appendChild(link);
+  }
+  var href = q("/static/skins/" + family + "/skin.css");
+  if (link.href !== href) link.href = href;   // re-assigning re-fetches and flashes the page
+  document.body.setAttribute("data-skin", family);
+  if (variant) document.body.setAttribute("data-skin-variant", variant);
+  else document.body.removeAttribute("data-skin-variant");
+}

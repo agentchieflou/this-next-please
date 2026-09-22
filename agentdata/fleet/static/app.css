@@ -897,3 +897,84 @@ body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1f
 #railslot .dispatch { margin: 0 0 8px; }
 /* A ticket row takes the keyboard: `1`-`9` picks a rail chip, `Enter` its one candidate. */
 #tickets li:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ------------------------------------------------------------------- the settings page (/settings) */
+
+/* One stylesheet for both pages, so a palette and a skin reach the settings page for free -- the
+   custom properties, the dark-mode block and the focus ring are already defined above, and a second
+   file would be a second place for them to drift.
+
+   Sharing one stylesheet means sharing one namespace, so every rule below is scoped to
+   `body.settings-page`. Unscoped, `.why` and `.scope` here silently restyled the desk's tiles and
+   its file-scope panel, which already own those names -- a page that changes another page is
+   exactly what a second stylesheet would have been written to avoid. `.linkbtn` is deliberately the
+   one exception: it styles the control on the DESK's toolbar. */
+
+/* The toolbar control that used to be a popover button and is now a link to a page. Styled as the
+   buttons beside it rather than as a link, because it sits in a row of buttons and reads as one. */
+.linkbtn {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: inherit; color: var(--text); text-decoration: none; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 3px 8px; white-space: nowrap;
+}
+.linkbtn:hover { border-color: var(--accent); }
+.linkbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+body.settings-page { overflow: auto; }
+body.settings-page main.settings {
+  max-width: 900px; margin: 0 auto; padding: 18px 16px 48px;
+  display: flex; flex-direction: column; gap: 22px;
+}
+body.settings-page .setblock {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+body.settings-page .setblock h2 {
+  margin: 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+body.settings-page .setblock h3 { margin: 0 0 6px; font-size: 12px; color: var(--text); }
+/* The explanations are the point of the page: a setting whose effect you have to guess is one you
+   will not touch. They are muted so they never compete with the controls. */
+body.settings-page .why { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+body.settings-page .why.inline { flex: 1 1 240px; font-size: 11px; }
+body.settings-page .why code { font: 11px var(--mono); }
+body.settings-page .footnote { text-align: center; }
+body.settings-page .setrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+body.settings-page .setrow > label { flex: 0 0 190px; font-size: 12px; color: var(--text); }
+body.settings-page .setrow input[type="text"],
+body.settings-page .setrow input[type="number"],
+body.settings-page .setrow select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 5px; padding: 3px 6px; font: inherit; min-width: 140px;
+}
+body.settings-page input.bad { border-color: var(--waiting); }
+/* Not `.scope`: the desk's file-drop panel owns that name and gives it a box. */
+body.settings-page .when { font-size: 10px; color: var(--muted); white-space: nowrap; }
+body.settings-page .saved { font-size: 11px; color: var(--done); }
+
+body.settings-page .settable { width: 100%; border-collapse: collapse; font-size: 12px; }
+body.settings-page .settable th {
+  text-align: left; font-weight: normal; font-size: 10px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted); padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+body.settings-page .settable td {
+  padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); vertical-align: middle;
+}
+body.settings-page .settable input {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 5px; padding: 2px 6px; font: inherit; width: 150px;
+}
+
+body.settings-page .twocol { display: flex; gap: 22px; flex-wrap: wrap; }
+body.settings-page .twocol > div { flex: 1 1 300px; min-width: 260px; }
+body.settings-page .count { color: var(--muted); font-weight: normal; }
+body.settings-page .patterns {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;
+}
+body.settings-page .patterns li {
+  display: flex; align-items: baseline; gap: 8px; justify-content: space-between;
+}
+body.settings-page .patterns code { font: 11px var(--mono); color: var(--text); }
+body.settings-page .patterns .from { font-size: 10px; color: var(--muted); }

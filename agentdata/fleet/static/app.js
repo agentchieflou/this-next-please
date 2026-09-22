@@ -7,8 +7,8 @@
 
 "use strict";
 
-var PARAMS = new URLSearchParams(location.search);
-var TOKEN = PARAMS.get("t") || "";
+/* `PARAMS`, `TOKEN`, `q`, `post`, `text`, `applyTheme` and `applySkin` come from common.js, which
+   every page loads before its own script. */
 var tiles = new Map();          // repo name -> {el, seq}
 var focused = null;
 var pendingRefresh = null;
@@ -79,27 +79,10 @@ function release(repo) {
 }
 
 
-function q(path, params) {
-  var u = new URL(path, location.origin);
-  u.searchParams.set("t", TOKEN);
-  Object.keys(params || {}).forEach(function (k) { u.searchParams.set(k, params[k]); });
-  return u.toString();
-}
-
-function post(action, body) {
-  return fetch(q("/api/" + action), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body || {})
-  }).then(function (r) {
-    if (r.status === 403 && streamDead) {
-      rehome();
-    }
-    return r.json();
-  });
-}
-
-function text(el, value) { el.textContent = value == null ? "" : String(value); }
+/* The desk's answer to a 403 (common.js calls this): collect a fresh run token through `/open`,
+   but only once the stream has already died -- a single refused POST against a live stream is not
+   a restarted server, and rehoming on one would throw away whatever was being typed. */
+onAuthLost = function () { if (streamDead) rehome(); };
 
 function age(seconds) {
   if (seconds == null) return "";
@@ -1063,7 +1046,6 @@ function refresh() {
     if (data.theme) {
       applyTheme(data.theme.css, data.theme.theme);
       applySkin(data.theme.skin);
-      reflectTheme(data.theme);
     }
     if (typeof data.preflight === "boolean") PREFLIGHT = data.preflight;
     place();
@@ -1117,7 +1099,6 @@ function connect() {
       var d = JSON.parse(m.data);
       applyTheme(d.css, d.theme);
       applySkin(d.skin);
-      reflectTheme(d);
       if (d.accents) {
         Object.keys(d.accents).forEach(function (repo) {
           if (tiles.has(repo)) {
@@ -1241,141 +1222,19 @@ document.addEventListener("keydown", function (e) {
 
 /* ------------------------------------------------------------------------------------- theming */
 
-function applyTheme(cssVars, themeName) {
-  var root = document.documentElement;
-  var tokens = ["--bg", "--text", "--panel", "--line", "--select", "--muted", "--accent",
-                "--focus", "--running", "--waiting", "--human", "--done", "--idle"];
-  if (cssVars && themeName && themeName !== "none") {
-    tokens.forEach(function (k) {
-      if (cssVars[k]) root.style.setProperty(k, cssVars[k]);
-      else root.style.removeProperty(k);
-    });
-    root.setAttribute("data-theme", "custom");
-  } else {
-    tokens.forEach(function (k) { root.style.removeProperty(k); });
-    root.removeAttribute("data-theme");
-  }
-}
+/* The pickers live on `/settings` now; what stays here is the desk repainting itself when somebody
+   else moves them. The `theme` frame arrives on the stream whenever `config.json` changes, so a
+   palette chosen on the settings page, in another window, or by `ad-theme set` in a terminal
+   reaches this desk without a reload. `applyTheme` and `applySkin` are common.js's. */
 
-/* A skin is one stylesheet; a VARIANT is that same stylesheet drawn against a different palette,
-   selected by an attribute rather than by a second file. Nether and Overworld share every bevel and
-   every sprite and differ in their colours, so shipping them as two stylesheets would be shipping
-   the same art twice and letting the two copies drift. Switching variant therefore re-paints
-   without a fetch, and only changing skin loads anything. */
-function applySkin(skinName) {
-  var link = document.head.querySelector("link[data-skin]");
-  var parts = String(skinName || "").split(":");
-  var family = parts[0];
-  var variant = parts[1] || "";
-  if (!family || family === "none") {
-    if (link) link.remove();
-    document.body.removeAttribute("data-skin");
-    document.body.removeAttribute("data-skin-variant");
-    return;
-  }
-  if (!link) {
-    link = document.createElement("link");
-    link.setAttribute("data-skin", "true");
-    link.rel = "stylesheet";
-    document.head.appendChild(link);
-  }
-  var href = q("/static/skins/" + family + "/skin.css");
-  if (link.href !== href) link.href = href;   // re-assigning re-fetches and flashes the page
-  document.body.setAttribute("data-skin", family);
-  if (variant) document.body.setAttribute("data-skin-variant", variant);
-  else document.body.removeAttribute("data-skin-variant");
-}
-
-/* Two controls, two tiers, and the difference is the point (#150, #154).
-
-   A PALETTE is colour only, so it is 1:1 with the terminal: the same hex reaches this page's custom
-   properties and the project's prompt and tab, and choosing one here writes
-   `~/.agentdata/config.json` -- the same file `ad-theme set` writes -- so every window on every
-   screen and the terminal beside them move together. A SKIN is how the page is RENDERED, which a
-   terminal cannot follow; it rides on a base palette and loads one extra stylesheet on demand.
-
-   Both post to the server rather than to `localStorage`, because a desk is four windows and a
-   choice kept in one browser's storage is four different desks. */
-function loadThemes() {
-  var themeSel = document.getElementById("theme");
-  var skinSel = document.getElementById("skin");
-  return fetch(q("/api/themes")).then(function (r) { return r.json(); }).then(function (data) {
-    while (themeSel.options.length > 1) themeSel.remove(1);
-    (data.themes || []).forEach(function (t) {
-      if (t.name === "none") return;                 // "system" is already the first option
-      var option = document.createElement("option");
-      option.value = t.name;
-      text(option, t.name);
-      option.title = t.why || t.title || t.name;
-      themeSel.appendChild(option);
-    });
-    themeSel.addEventListener("change", function () { post("theme", { theme: themeSel.value }); });
-
-    /* One control, not two. A variant is not independent of its skin -- "Nether" means nothing on
-       its own, and a second picker offering it beside Farmstead would be offering a combination
-       that does not exist. Grouping them says the same thing the model does: pick a skin, and its
-       ground comes with it. A skin with one variant lists as a single option. */
-    while (skinSel.options.length > 1) skinSel.remove(1);
-    (data.skins || []).forEach(function (k) {
-      if (k.name === "none") return;
-      var vs = k.variants || [];
-      if (vs.length < 2) {
-        var single = document.createElement("option");
-        single.value = vs.length ? vs[0].full : k.name;
-        text(single, k.title || k.name);
-        single.title = (k.why || "") + (k.base ? "  ·  palette: " + k.base : "");
-        skinSel.appendChild(single);
-        return;
-      }
-      var group = document.createElement("optgroup");
-      group.label = k.title || k.name;
-      vs.forEach(function (v) {
-        var option = document.createElement("option");
-        option.value = v.full;
-        text(option, v.title || v.name);
-        option.title = (v.why || "") + "  ·  palette: " + v.base;
-        group.appendChild(option);
-      });
-      skinSel.appendChild(group);
-    });
-    skinSel.addEventListener("change", function () { post("theme", { skin: skinSel.value }); });
-    // What is chosen, now that there is something to choose from. `themeNow` is whatever the
-    // stream said while these options did not exist yet; it wins, because it is the later word.
-    reflectTheme(themeNow || data.current);
-  }).catch(function () { /* themes are decoration; the page works without them */ });
-}
-
-var themeNow = null;                  // the last word on what the desk is wearing, from either path
-
-/* One place that puts the server's answer into the two controls, so a change made in the terminal
-   or in another window shows up here rather than leaving the picker saying something else. */
-function reflectTheme(cur) {
-  if (!cur) return;
-  themeNow = cur;
-  var themeSel = document.getElementById("theme");
-  var skinSel = document.getElementById("skin");
-  if (themeSel && cur.theme) themeSel.value = cur.theme;
-  if (skinSel) skinSel.value = cur.skin || "none";
-  // A saved name that is no longer a palette leaves a select showing nothing at all, which is the
-  // one thing a picker may never do: the operator cannot see what is on, or that anything is wrong.
-  [themeSel, skinSel].forEach(function (sel) { if (sel && sel.selectedIndex < 0) sel.selectedIndex = 0; });
-  /* While a skin is on, the palette is the skin's -- so the palette picker shows what is being
-     rendered and says why it is not taking instructions, rather than accepting a choice the server
-     would then override. Turning the skin off hands it back. */
-  if (themeSel) {
-    var bound = !!(cur.skin && cur.skin !== "none");
-    // Disabling a focused element drops the keyboard to `body`, out of the popover (#180).
-    if (bound && !themeSel.disabled && document.activeElement === themeSel && skinSel) skinSel.focus();
-    themeSel.disabled = bound;
-    themeSel.title = bound
-      ? "the palette comes from the skin — choose “no skin” to pick one yourself"
-      : "palette — shared with this project's terminal";
-  }
-}
+/* The token is per run and `_authorized` reads it from the query string alone, so the settings
+   link cannot be a static href in the markup -- it would 403 and read as a dead button, which is
+   exactly what the operator reported. */
+var setLink = document.getElementById("setbtn");
+if (setLink) setLink.href = q("/settings");
 
 refresh().then(function () {
   connect();
-  loadThemes();
   loadNotifications();
   // The anchor is answered *after* the desk, not beside it: whether a tile is hidden is the
   // server's arrangement, and a `#tile=` that lands before that has loaded reads every tile as on
@@ -3161,8 +3020,10 @@ document.getElementById("showall").addEventListener("click", function () {
 
 document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 
-/* ---- the popovers: the pickers behind *settings*, the key map behind `?`; one open at a time. */
-var POPOVERS = { settings: "setbtn", keymap: "keysbtn" };
+/* ---- the popovers: the key map behind `?`. The pickers that used to sit beside it are a page of
+   their own now (`/settings`), so this map has one entry -- and keeps its shape, because "one open
+   at a time" is the rule whatever is open. */
+var POPOVERS = { keymap: "keysbtn" };
 
 function popover(id, open) {
   var box = document.getElementById(id);

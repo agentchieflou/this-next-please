@@ -119,6 +119,31 @@ opened Tabular Editor by hand. `agentdata/pbi/auth.py` removes the dependency on
 
 `ad-setup --only powerbi` asks both settings (`powerbi.auth_mode`, `powerbi.auto_login` for `--set`).
 
+## The fleet's settings page (`/settings`)
+
+`ad-fleet serve` serves a second page at `/settings`, reached from the desk's toolbar. It writes
+`~/.agentdata/config.json` and nothing else, and it may write only the keys
+`agentdata/fleet/settings.py` enumerates — a key nobody named is refused by name rather than
+written, and a value the key's type cannot take is refused rather than coerced. Every control says
+when a change takes effect, because the answers differ:
+
+| Setting | What it does | In effect |
+|---|---|---|
+| `fleet.model`, `fleet.effort` | the model every agent is launched with; blank passes no flag and the CLI chooses | from the agent's next turn |
+| `fleet.models.<repo>` | `{"model": …, "effort": …}` for one repository, over the fleet-wide default | from the agent's next turn |
+| `fleet.approval_timeout` | seconds a gated write waits for your click | now |
+| `fleet.max_restarts`, `fleet.log_mb`, `fleet.log_keep` | how often an agent is resumed after a crash, and how its logs rotate | now |
+| `fleet.board_ttl`, `fleet.branches.warn`, `fleet.attach.max_mb` | the Jira board cache, the branch-clutter warning, the attachment cap | now |
+| `fleet.console.host`, `fleet.console.palette` | which terminal a console opens in, and whether it is coloured | next console |
+| `fleet.notify.*` | dashboard, desktop and chime notifications, the cooldown, quiet hours | now |
+| `fleet.port` | the loopback port the page is served on | when `ad-fleet serve` restarts |
+
+`fleet.allow_tools` and `fleet.deny_tools` are **shown and not editable** there. The allow-list is
+the boundary an agent runs inside, and configuration *replaces* it rather than adding to it — so a
+list saved from a page becomes the whole boundary, and an operator who saved one would silently
+stop receiving any command a later version adds. Change those in the file, where the whole list is
+in front of you. The deny-list is a floor: configuration can add to it and can never remove one.
+
 ## Sharing setup across a team (`--export-defaults` and `--import`)
 
 Everything stored in `~/.agentdata/config.json` is non-secret by design (`save()` rejects credential-shaped keys;

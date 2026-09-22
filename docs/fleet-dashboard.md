@@ -132,14 +132,26 @@ one place the hand-over skipped its pre-flight. A ticket row takes the keyboard:
 rail chip in that position, `Enter` the row's one candidate.
 
 The **toolbar** is three labelled groups and one row: *window* (the layout segments, and which window
-of that set this one is), *see* (search, the sidebar, and a *settings* button), and *needs me* (focus
-mode, chime, the bell). The palette and skin pickers live in **settings** (#180, #195): they are
-chosen once a week, not once a minute, and two `<select>`s were the widest things on the bar — HIG
-*Toolbars* keeps the commands for the current context on the bar and puts a choice that rarely
-changes somewhere a person goes on purpose. What the desk is *wearing* is answered by the server:
-`GET /api/themes` returns the palettes, the skins, and which of them is `current`, because a page
-that can only fill the pickers and not set them opens reading *system · no skin* over whatever the
-config says — which it did, on every window, until #195. The footer keeps the two things that change — the counts and
+of that set this one is), *see* (search, the sidebar, and a *settings* link), and *needs me* (focus
+mode, chime, the bell). Settings are a **page**, `/settings`, not a popover: the palette was never
+the only one, and the model each agent runs and the flags the Copilot CLI is launched with have no
+business behind a button on a bar that is about the agents. The link's `href` is built at runtime
+because the run token lives in the query string and `_authorized` reads it from nowhere else — a
+static `href="/settings"` is a 403 that reads exactly like a dead button.
+
+The page has four blocks: **Appearance** (palette and skin), **Model per agent**, **Copilot** (the
+launch and notification settings the server enumerates), and **What an agent may run** — the
+resolved allow and deny lists, read-only, each pattern labelled with whether it shipped or was
+configured. It is read-only on purpose: `fleet.allow_tools` *replaces* the default rather than
+adding to it, so a list saved from a page would become the whole boundary, and an operator who
+saved one would silently stop receiving any command a later version adds.
+
+What the page is *wearing* is answered by the server: `GET /api/themes` returns the palettes, the
+skins, and which of them is `current`, because a page that can only fill the pickers and not set
+them opens reading *system · no skin* over whatever the config says — which it did, on every
+window, until #195. The settings page carries its own EventSource for the `theme` frame alone, so a
+palette set by `ad-theme` in a terminal, or on the desk in another window, repaints it instead of
+leaving its pickers quietly lying. The footer keeps the two things that change — the counts and
 the notice — and a `?` button (or the `?` key) opens the key map in four short columns. A cell that
 fails to poll goes **grey with the error in a tooltip**, never wrong; a link with no fact behind it
 is absent, never broken.
@@ -340,11 +352,15 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 
 | Method | Path | What |
 | --- | --- | --- |
-| GET | `/` | the page |
-| GET | `/static/…` | its two assets |
+| GET | `/` | the desk |
+| GET | `/settings` | the settings page: appearance, the model per agent, the Copilot launch settings |
+| GET | `/static/…` | the pages' assets: `app.css`, `common.js`, `app.js`, `settings.js` |
 | GET | `/api/fleet` | every repo's state, the recent events, and the pending approvals |
 | GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent |
 | GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195) |
+| GET | `/api/settings` | the editable keys with their type, default and effect-scope; what each is set to; the model per repository; the resolved tool lists |
+| POST | `/api/settings` | write an enumerated key, a per-repo model, or the fleet-wide default |
+| POST | `/api/theme` | set the palette or the skin |
 | GET | `/api/board` | your Jira tickets, and which repo each one belongs to |
 | GET | `/api/history` | what was dispatched, how it ended, what it cost |
 | GET | `/api/notifications` | what has been announced |

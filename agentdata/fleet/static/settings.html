@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fleet · settings</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="settings-page">
+<header class="toolbar">
+  <h1>settings</h1>
+  <a id="backbtn" class="linkbtn" title="back to the desk">&larr; the desk</a>
+  <span class="spacer"></span>
+  <span id="saved" class="saved" hidden>saved</span>
+</header>
+
+<main class="settings">
+
+  <!-- ------------------------------------------------------------------ appearance -->
+  <section class="setblock">
+    <h2>Appearance</h2>
+    <p class="why">A <strong>palette</strong> is colour only, so it is shared with this project's
+      terminal prompt and tab &mdash; it writes the same <code>~/.agentdata/config.json</code> that
+      <code>ad-theme set</code> writes. A <strong>skin</strong> is how this page is rendered, which a
+      terminal cannot follow; it rides on a base palette and loads one stylesheet on demand.</p>
+    <div class="setrow">
+      <label for="theme">palette</label>
+      <select id="theme" title="palette — shared with this project&#39;s terminal"><option value="none">system</option></select>
+    </div>
+    <div class="setrow">
+      <label for="skin">skin</label>
+      <select id="skin" title="skin — how the page is rendered; the terminal keeps the palette"><option value="none">no skin</option></select>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ models -->
+  <section class="setblock">
+    <h2>Model per agent</h2>
+    <p class="why">What each agent is launched with. Left empty, no <code>--model</code> flag is
+      passed at all and the Copilot CLI picks for itself &mdash; which is the only no-model
+      behaviour anyone has measured, so it is the one this uses. A change takes effect on the
+      agent's <em>next</em> turn: the command line is fixed when the process starts.</p>
+    <div class="setrow">
+      <label for="fleetmodel">every agent</label>
+      <input id="fleetmodel" type="text" list="modelnames" placeholder="the CLI chooses"
+             title="fleet-wide default model; empty means pass no --model flag">
+      <input id="fleeteffort" type="text" list="effortnames" placeholder="effort"
+             title="fleet-wide default effort; empty means pass no --effort flag">
+    </div>
+    <datalist id="modelnames"></datalist>
+    <datalist id="effortnames"></datalist>
+    <table class="settable" id="modeltable">
+      <thead><tr><th>repository</th><th>model</th><th>effort</th><th>resolved from</th><th>last turn actually used</th></tr></thead>
+      <tbody id="modelrows"></tbody>
+    </table>
+    <p class="why" id="modelnote"></p>
+  </section>
+
+  <!-- ------------------------------------------------------------------ copilot -->
+  <section class="setblock">
+    <h2>Copilot</h2>
+    <p class="why">How the fleet launches the Copilot CLI, and how long it waits. Each row says when
+      a change takes effect.</p>
+    <div id="cfgrows"></div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ permissions -->
+  <section class="setblock">
+    <h2>What an agent may run</h2>
+    <p class="why">Read-only here, deliberately. The allow-list is the boundary and configuration
+      <em>replaces</em> it rather than adding to it, so a list saved from this page would become the
+      whole boundary &mdash; and you would silently stop receiving any command a later version adds.
+      Change it in <code>~/.agentdata/config.json</code> or through <code>ad-setup</code>, where the
+      whole list is in front of you. The deny-list is a floor: configuration can add to it and can
+      never remove one of these.</p>
+    <div class="twocol">
+      <div>
+        <h3>allowed <span id="allowcount" class="count"></span></h3>
+        <ul id="allowlist" class="patterns"></ul>
+      </div>
+      <div>
+        <h3>denied <span id="denycount" class="count"></span></h3>
+        <ul id="denylist" class="patterns"></ul>
+      </div>
+    </div>
+  </section>
+
+  <p class="why footnote">Everything on this page is written to
+    <code>~/.agentdata/config.json</code> and nowhere else. No credential is ever stored there.</p>
+</main>
+
+<script src="/static/common.js"></script>
+<script src="/static/settings.js"></script>
+</body>
+</html>
