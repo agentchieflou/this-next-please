@@ -316,7 +316,8 @@
       <span class="grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span class="n"></span>
       <strong class="repo"></strong>
-      <span class="chip"></span>
+      <!-- Two spans, written rather than rebuilt (#215): the word and its age. -->
+      <span class="chip"><span class="chipword"></span><span class="chipage"></span></span>
       <span class="ticket"></span>
       <span class="spacer"></span>
       <span class="badge" hidden title="unread notifications for this agent"></span>
@@ -412,7 +413,20 @@
         <button type="button" class="scope-tell" hidden>tell it now</button>
       </div>
     </div>
-    <div class="cells" aria-label="the project's own state"></div>
+    <!-- #215: the two cell shapes, in the markup rather than built by hand, so a test can keep the
+         two files in step the way it does for every other repeated row. A cell is created once
+         from one of these and written to thereafter; the git one is a button because clicking it
+         opens the inspector's branches pane (#184). Neither carries `cell` itself -- `drawCells`
+         adds it to the clone -- so that `.cells .cell` still means a cell that is really on the
+         tile, and not the pattern it was cut from. -->
+    <div class="cells" aria-label="the project's own state">
+      <span class="cellshape" hidden>
+        <span class="lab"></span><span class="val"></span><span class="old"></span>
+      </span>
+      <button type="button" class="gitshape" hidden>
+        <span class="lab"></span><span class="val"></span><span class="old"></span><span class="val2"></span>
+      </button>
+    </div>
     <div class="approval" hidden>
       <div class="approval-head">waiting for you: <span class="kind"></span></div>
       <div class="summary"></div>
