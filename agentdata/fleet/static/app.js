@@ -3410,8 +3410,11 @@ function drawBand(li, item, index) {
   var tail = li.querySelector(".b-tail");
   while (tail.firstChild) tail.removeChild(tail.firstChild);
   var recent = item.gone ? [] : (row.recent || []);
-  recent.filter(function (ev) { return SHOWN[ev.kind] && line(ev); })
-        .slice(-6)
+  var shown = recent.filter(function (ev) { return SHOWN[ev.kind] && line(ev); });
+  // The line above already IS the newest assistant line, so the tail starts under it rather than
+  // opening with the same sentence twice.
+  if (said && shown.length && line(shown[shown.length - 1]) === said) shown.pop();
+  shown.slice(-6)
         .forEach(function (ev) {
           var entry2 = document.createElement("li");
           text(entry2, line(ev));

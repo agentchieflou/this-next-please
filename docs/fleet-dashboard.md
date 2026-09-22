@@ -72,13 +72,13 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 | Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
 | Session pill | which **session** this transcript is — `session · running · 6d` — and the one menu that changes which one it is: this session, the earlier ones with how each ended and what it cost, `+ new session`, the console, and the project's other checkouts (#206) |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
-| Cells | the **project's** own state, polled read-only: ticket, PR, refresh, git — each with its age; the git cell counts the branches and opens the inspector's branches pane (#184) |
+| Cells | the **project's** own state, polled read-only: ticket, PR, refresh, git — each with its age; the git cell counts the branches and opens the inspector's branches pane (#184). Beside them, **spend**: what this agent has cost, against its budget, with the model the last turn ran on (#211) |
 | Approval card | appears when that agent is waiting; the **dry-run payload in full**, Approve / Deny |
 | Transcript | assistant text, tool calls, denials, phase changes — the current run only |
 | Earlier runs | folded under their session in the pill's menu — one *earlier*, not two adjacent ones (#206) |
 | Outside strip | a session in this checkout the fleet did not start: what it is, how sure we are, and *adopt it* |
 | Held note | in focus mode only, on a tile you acted on: why it is still here, and *let it go* |
-| Bottom row | reply box (→ `send`), Start (a ticket key in the same box), **Reset**, Stop |
+| Bottom row | reply box (→ `send`), Start (a ticket key in the same box), **Reset**, Stop. Over budget, *Send* re-arms as **Send anyway**: one more turn, on a second and deliberate press (#213) |
 
 The **sidebar** sits beside the grid and holds five sections, one open at a time: the Jira **board**
 (`b`), the Downloads **inbox** (`i`), **alerts** (`n`), **where** (`/`, `ad-fleet where` over the
@@ -442,8 +442,14 @@ what it drew before, then reopens the stream.
 ## What is not here
 
 Authentication beyond the loopback token, and access from another machine — both out of scope, and
-both would change what this is. Cost and budget are a strip in #101. Notifications when a tile turns
-red are #97. Jira intake in the side panel is #98.
+both would change what this is. Notifications when a tile turns red are #97. Jira intake in the side
+panel is #98.
+
+Cost and budget **are** here now (#201): a cell on every tile, a number on every band, the fleet's
+own total in the footer, and a breakdown in the inspector. What is deliberately *not* here is any
+new stop — the per-agent cap is exactly where it was and means what it meant. The caps that were
+considered and deferred, each with the one measurement it needs first, are in
+[plan-meter.md](plan-meter.md) §Caps, later.
 
 Screenshots from PyCharm and Edge belong with #99 and #100, where the embedding is what is being
 shown; this page is the same page in all three.

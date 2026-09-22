@@ -67,6 +67,18 @@ overnight. `--force` always buys one more, so a human decision is never blocked.
 
 ## The budget
 
+The number is `agentdata/fleet/spend.py`'s, and it is kept in `agents/<name>/spend.json` — a fold
+of the stream, written **before** a log rotation and carried across it. That file exists because
+rotation used to take the answer with it: `rotate_all` moved `events.norm.jsonl` aside,
+`events.read` opens only the live file, and so at `fleet.log_mb` an agent's spend silently became
+zero, the cap re-opened, and `ad-fleet history` forgot the morning. `ad-fleet spend <repo>
+--rebuild` folds every log on disk and must agree with it; `ad-fleet gc` never prunes it.
+
+A `fleet.budget_per_agent` that is not a number is `budget_invalid`: **off**, because a budget
+nobody can read cannot be enforced, and said out loud by `ad-doctor`, by `ad-fleet status` and on
+the desk rather than swallowed into `0.0` — which is what the reader used to do, and which turns
+the cap off, the opposite of what somebody typing in that box intends.
+
 `fleet.budget_per_agent` is off by default. Set it, and an agent that has spent that many premium
 requests will not be sent another turn:
 
