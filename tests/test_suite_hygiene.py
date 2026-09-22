@@ -4,6 +4,7 @@ These are the tests that keep the tests honest. Without them the isolation quiet
 the first time someone adds a fixture, and a coverage floor becomes a number nobody looks at.
 """
 from __future__ import annotations
+import ast
 import json
 import os
 import re
@@ -160,6 +161,128 @@ def test_the_suite_is_documented():
         assert needle in text
     assert re.search(r"takes \*\*[^*]+\*\*", text), "record how long the suite actually takes"
     assert "budget" in text, "and what the budget is"
+
+
+#: Assertions that compare a clock to a number and are *not* performance budgets: they prove a
+#: timeout fires or a kill lands, with a ceiling an order of magnitude above what they need. A
+#: loaded machine does not make them wrong, so they do not have to run alone.
+NOT_A_BUDGET = {
+    # Ceilings on a hang, an order of magnitude above what they need: 30s for a call that should
+    # return at once, 60s for a 5s timeout. A loaded machine does not make them wrong.
+    ("tests/test_proc.py", "test_a_surviving_grandchild_does_not_hold_the_call_open"),
+    ("tests/test_proc.py", "test_a_child_that_never_finishes_is_a_timeout_not_a_hang"),
+    # A minute each for a `pip install` of this package and for resolving the clone's objects,
+    # both of which take about a second. Same shape -- and a helper rather than a test, which is
+    # the reason this scan looks at every function in a test file and not only at `test_*`: a
+    # budget moved into a helper would otherwise stop being seen.
+    ("tests/test_lifecycle.py", "_assert_pip_can_clone_this"),
+    # Not a clock at all: `getComputedTiming().duration` is the duration the stylesheet DECLARED,
+    # read back off the animation. A loaded machine cannot change it, and `<= 1` there means "this
+    # did not animate" rather than "this was quick".
+    ("tests/test_fleet_motion.py",
+     "test_the_gestures_animate_for_the_base_duration_and_not_at_all_under_reduced_motion"),
+}
+
+#: A budget is an *upper* bound on a clock: `assert <something with a clock in it> <= <ceiling>`.
+#: `>= 0` and `> 0` are sanity checks on a measurement, not promises about how long it took, and
+#: a comparison with nothing bounding on the right is comparing something else entirely.
+#:
+#: This is a backstop for the common shape, not a proof. A test that computes its own list of
+#: over-budget gestures and asserts the list is empty has no clock and no ceiling on any one line,
+#: and no pattern is going to find it -- `test_every_local_gesture_is_inside_the_budget` is exactly
+#: that, and carries the marker because its author put it there. What the scan does catch is the
+#: shape somebody reaches for without thinking, which is the one that gets forgotten.
+CLOCK = re.compile(r"\belapsed\b|\btook\b|\bduration\b|perf_counter|\blatency\b|\bms\b"
+                   r"|\bseconds?\b|median_ms")
+#: `< 50`, `<= 0.05`, and `< LOCAL_BUDGET_MS` -- a ceiling that was given a name is still a ceiling.
+UPPER_BOUND = re.compile(r"<=?\s*(?:[0-9]|[A-Z][A-Z0-9_]{2,}\b)")
+
+
+def test_every_test_that_asserts_a_duration_carries_the_measured_marker():
+    """`measured` is not a taxonomy, it is a scheduling instruction: these tests run with the
+    machine to themselves because under `-n` they measure the contention and not the code. One of
+    them found that out the hard way -- the 50ms paint budget passes serially and fails on four
+    workers, which is the load talking.
+
+    So the marker cannot be a thing somebody remembers. Every assertion that compares a clock to a
+    number either carries it or is listed in `NOT_A_BUDGET` with a reason -- for the common
+    shape, which is the one that gets forgotten. See the note on `CLOCK` for what it cannot see.
+    """
+    missing = []
+    for name in sorted(os.listdir(os.path.join(REPO_ROOT, "tests"))):
+        if not name.startswith("test_") or not name.endswith(".py"):
+            continue
+        rel = f"tests/{name}"
+        source = open(os.path.join(REPO_ROOT, "tests", name), encoding="utf-8").read()
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:                              # pragma: no cover - a broken test file
+            continue
+        # Top level, plus one level into a class: a function nested *inside* another is already
+        # part of its parent's text, and reporting both would name the same assertion twice.
+        top = list(tree.body) + [n for c in tree.body if isinstance(c, ast.ClassDef) for n in c.body]
+        for node in top:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            timed = []
+            for stmt in ast.walk(node):
+                if not isinstance(stmt, ast.Assert):
+                    continue
+                text = ast.unparse(stmt)
+                if CLOCK.search(text) and UPPER_BOUND.search(text):
+                    timed.append(text)
+            if not timed:
+                continue
+            if (rel, node.name) in NOT_A_BUDGET:
+                continue
+            has = "measured" in {m.id if isinstance(m, ast.Name) else getattr(m, "attr", "")
+                                 for d in node.decorator_list for m in ast.walk(d)}
+            if has and node.name.startswith("test_"):
+                continue
+            how = ("carries `measured`" if node.name.startswith("test_")
+                   else "is listed in NOT_A_BUDGET -- a helper cannot carry a marker")
+            missing.append(f"{rel}::{node.name} ({how}) -> {timed[0][:70]}")
+    assert missing == [], (
+        "these assert a duration and nothing says they may: each one either "
+        f"carries `measured` or is listed in NOT_A_BUDGET with a reason: {missing}")
+
+
+@pytest.mark.scale
+def test_the_expensive_tiers_are_a_small_part_of_the_suite():
+    """A tier that holds a third of the suite is not a tier, it is the suite. If these grow, the
+    inner loop stops being the thing most changes are tested with -- which is the whole point."""
+    def count(expr):
+        p = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                            "--collect-only", "-m", expr],
+                           capture_output=True, text=True, cwd=REPO_ROOT)
+        return len([l for l in p.stdout.splitlines() if "::" in l])
+
+    total = count("")
+    slow_tiers = count("browser or measured or scale or slow or laptop")
+    assert total > 1000, total
+    assert slow_tiers < total * 0.10, (
+        f"{slow_tiers} of {total} tests are in a tier the inner loop skips; the inner loop is "
+        "supposed to be nearly all of it")
+
+
+def test_parallelism_is_available_and_the_measured_tier_is_kept_out_of_it():
+    """The property, not the spelling. An earlier version of this test matched the exact string
+    `-m "measured or scale"`, which said nothing about what the command selected and broke the
+    moment the expression grew an `and not slow`."""
+    workflow = open(os.path.join(REPO_ROOT, ".github", "workflows", "tests.yml"), encoding="utf-8").read()
+    project = open(os.path.join(REPO_ROOT, "pyproject.toml"), encoding="utf-8").read()
+    assert "pytest-xdist" in project, "the dev extra has to carry it or `-n` is a typo"
+
+    runs = [ln.strip() for ln in workflow.splitlines() if "-m pytest" in ln]
+    parallel = [ln for ln in runs if "-n auto" in ln]
+    assert parallel, "CI runs the bulk in parallel"
+    for ln in parallel:
+        assert "not measured" in ln and "not scale" in ln, (
+            f"a parallel pass that does not hold the measured tier out: {ln}")
+
+    serial = [ln for ln in runs if "-n " not in ln and "measured or scale" in ln]
+    assert serial, ("no serial pass selects the measured tier -- under `-n` a latency budget "
+                    "measures the contention, so it has to run somewhere on its own")
 
 
 def test_shuffling_is_available_and_wired_into_ci():

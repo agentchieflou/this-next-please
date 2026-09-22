@@ -123,6 +123,7 @@ def test_non_python_repo_produces_generic_graph():
         assert len(file_nodes) >= 3
 
 
+@pytest.mark.scale
 def test_build_on_this_repository():
     with tempfile.TemporaryDirectory() as tmpdir:
         out_dir = os.path.join(tmpdir, ".agent", "graph")

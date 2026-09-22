@@ -45,6 +45,7 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 
 ## First commands
 ```bash
-pip install -e ".[dev]" && pytest -q
+pip install -e ".[dev]"
+pytest -q -n auto -m "not browser and not measured and not scale and not slow"   # the inner loop
 pncli --help; pncli confluence --help; pncli bitbucket --help
 ```

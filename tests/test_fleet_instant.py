@@ -204,6 +204,7 @@ def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, t
 
 
 @pytest.mark.browser
+@pytest.mark.measured
 def test_hiding_a_tile_paints_before_the_server_answers(fleet_home, tmp_path):
     """Asserted by making the server slow. Anything that only passes against a fast local server
     is asserting that the network was quick, not that the page was."""
@@ -367,6 +368,7 @@ def test_an_action_patches_its_tile_without_a_second_snapshot(fleet_home, tmp_pa
 
 
 @pytest.mark.browser
+@pytest.mark.measured
 def test_every_local_gesture_is_inside_the_budget(fleet_home, tmp_path):
     """Fifty milliseconds, per gesture, measured by the page's own marks. What is timed is the
     part the page decides: painting what it already knows. The round trip after it is the

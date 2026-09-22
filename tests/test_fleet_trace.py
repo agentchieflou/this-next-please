@@ -134,6 +134,8 @@ def test_the_trace_carries_no_text_and_costs_almost_nothing(fleet_home, tmp_path
     assert all(isinstance(v, int) for v in row["trace"]["n"])
 
 
+@pytest.mark.scale
+@pytest.mark.measured
 def test_a_day_long_stream_is_folded_from_its_tail_and_not_from_its_head():
     """This runs on every row of every snapshot, several times a second, and an agent that has
     been going all day has tens of thousands of events. Parsing every stamp in all of them to find
@@ -355,6 +357,7 @@ def test_the_trace_is_repainted_when_the_palette_changes(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
+@pytest.mark.measured
 def test_the_ground_drifts_under_glass_and_holds_still_when_asked_to(fleet_home, tmp_path):
     """A pixel a second is the difference between a still image and a room with a window in it.
     Reduced motion and reduced transparency each stop it -- the second is the one people forget,

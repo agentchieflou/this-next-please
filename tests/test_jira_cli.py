@@ -180,6 +180,7 @@ def peak_of(fn) -> int:
         tracemalloc.stop()
 
 
+@pytest.mark.scale
 def test_a_large_pull_streams_and_stays_under_the_memory_ceiling(wire, out_dir, capsys):
     """500 issues x 200 histories: 100,000 rows through the process, and the peak is one chunk plus the buffer.
 

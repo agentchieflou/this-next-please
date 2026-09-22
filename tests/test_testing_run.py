@@ -87,6 +87,7 @@ def test_run_pytest_fixture_counts_and_failure_row():
     assert f["message"] == "assert 1 == 2"
 
 
+@pytest.mark.measured
 def test_timeout_kills_process_tree():
     timeout_dir = os.path.join(FIXTURES, "timeout_project")
     t0 = time.time()

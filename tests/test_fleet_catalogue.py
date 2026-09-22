@@ -224,6 +224,7 @@ def test_reading_off_the_allow_list_is_impossible_not_merely_unwise(tmp_path):
 # ------------------------------------------------------------------------------- indexing
 
 
+@pytest.mark.measured
 def test_four_repos_index_in_under_two_seconds(folder, cat):
     out = cat.index(repos(folder))
     assert out["projects"] == 4

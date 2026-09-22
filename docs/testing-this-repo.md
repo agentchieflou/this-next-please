@@ -21,23 +21,95 @@ point of everything below is that the next one is found by CI.
 
 ## Running it
 
+### The inner loop
+
 ```bash
-python -m pytest -q                       # the whole suite; laptop tests skip themselves
-python -m pytest -q -m "not slow"         # skip the wheel/venv build
-python -m pytest -q --shuffle-seed 1      # catch order dependence
-HYPOTHESIS_PROFILE=ci python -m pytest -q # the property tests at CI's example count
-AGENTDATA_LAPTOP=1 python -m pytest -m laptop     # the laptop runbook (needs real tools)
+python -m pytest -q -n auto -m "not browser and not measured and not scale and not slow"
+```
+
+**43 seconds, 3,174 tests.** This is the one to run while you are working, and it is what almost
+every change is actually tested by: four tiers are held out, and between them they are 5% of the
+suite. The same selection takes 2 minutes 27 serially, so the four cores are most of the win and
+the tiers are the rest.
+
+### The rest
+
+```bash
+python -m pytest -q -n auto -m "not measured and not scale"   # + the browser tests, 2m21
+python -m pytest -q -m "measured or scale"                    # the two that need the machine, 1m18
+python -m pytest -q                                           # everything, serially: about 7m30
+python -m pytest -q --shuffle-seed 1                          # catch order dependence
+HYPOTHESIS_PROFILE=ci python -m pytest -q                     # properties at CI's example count
+AGENTDATA_LAPTOP=1 python -m pytest -m laptop                 # the laptop runbook (real tools)
 ```
 
 ```powershell
 $env:AGENTDATA_LAPTOP = '1'; python -m pytest -m laptop     # the same from pwsh 7
 ```
 
-`pytest -q -m "not slow"` takes **just under three minutes** on this laptop (Windows, Python 3.12,
-~900 tests) and comfortably under two on CI's Linux runners — process spawning is the difference, and
-the contract slice spawns one per command per case. The budget is **two minutes on Linux**; the two
-contract cases that run three subprocesses per command carry `slow` for exactly that reason, and
-anything else that would push past it should too.
+## The tiers, and why they exist
+
+There are 3,443 tests and the whole suite serially takes **about seven and a half minutes** — the
+tiers below, one after another. That number is not a complaint about any one test; it is what
+happens when 3,400 tests arrive in three weeks and nobody asks what the expensive parts have in
+common. Measured on this container, four cores, each tier timed on its own:
+
+| Tier | Tests | Cost | What makes it cost |
+| --- | --- | --- | --- |
+| the inner loop | 3,174 | 147 s serial, **43 s on 4 cores** | nothing in particular |
+| `browser` | 108 | 229 s serial; with the inner loop on 4 cores the two together are 142 s | each one launches Chromium and binds a server |
+| `measured` + `scale` | 13 | **78 s, and it must stay serial** | a duration is asserted, or the data is large |
+| `slow` | 51 | minutes | builds a wheel in a fresh venv, or spawns three subprocesses per command |
+| `laptop` | 23 | — | needs real tools; gated on `AGENTDATA_LAPTOP=1` |
+
+Everything but the last two, in the two passes CI runs on Linux: **3 minutes 40**, against about
+7m30 serial. On CI's own hardware the win is larger than this container's: the ubuntu suite step
+went from **5m14 to 85 s**.
+
+**108 browser tests are half the wall clock and 3% of the suite.** That is the whole finding, and
+the tiers follow from it: the expensive things are expensive for four distinct reasons, and each
+reason wants a different treatment.
+
+### `measured` is a scheduling instruction, not a taxonomy
+
+A test that asserts *"this gesture paints inside 50 ms"* passes serially and fails on four workers,
+because on four workers it is measuring the contention. That is not a flaky test; it is a test being
+asked the wrong question. So `measured` runs last, alone, in CI and locally — and
+`tests/test_suite_hygiene.py` reads every assertion in every test file and will not let one that
+compares a clock to a ceiling be added without the marker or an entry in `NOT_A_BUDGET` saying why
+it is a ceiling on a hang rather than a budget. It scans whole statements rather than lines, and
+helpers as well as tests — a budget had already moved into a helper, where a scan of `test_*`
+could never have seen it. It is a backstop for the common shape and it says so: a test that builds
+its own list of over-budget gestures and asserts the list is empty has no clock and no ceiling for
+any pattern to find, and carries the marker because its author put it there.
+
+`scale` keeps it company for a related reason: a 40,000-event fold sharing four cores with three
+thousand other tests is the same mistake one layer up.
+
+`slow` predates both and keeps its old job: a test that builds a wheel in a fresh venv, or that
+spawns three subprocesses per command the way the two black-box contract cases do, belongs there
+rather than in anyone's inner loop. Anything new that would push the inner loop past a minute
+should carry one of the three.
+
+### Parallelism
+
+`pytest-xdist` is in the dev extra, and `-n auto` is what the inner loop and CI's **Linux** legs
+run for everything outside those two tiers. Three things make that safe, each checked rather than
+hoped for: the `suite · shuffled` job runs two seeded orders on every pull request, `isolated_home`
+is autouse and hangs every home off the test's own `tmp_path`, and every server the suite starts is
+built on port 0.
+
+**Windows runs serially, and that is a finding rather than a preference.** Under `-n auto` the
+Windows legs failed on three tries out of four — a *different* fleet test each time, never the same
+one twice, never on Linux. Order-independence is not concurrency-independence: `--dist load`
+interleaves tests from different modules in one worker, and modules like `tests/test_fleet_console.py`
+keep process-level state in `serve` that only a per-module autouse fixture resets. Serially every
+test in a file runs contiguously and that reset holds; interleaved it does not. That is the suite's
+own weakness, surfaced rather than caused by the tiers, and it is #227. Until it is fixed Windows
+runs the way it always has, so the leg costs nothing against what it did before.
+
+The coverage job stays serial on purpose: `coverage run -m pytest -n auto` measures the controller
+process and none of the workers, which would quietly report a fraction of the truth.
 
 ## Markers
 
@@ -52,6 +124,8 @@ silently selecting nothing.
 | `real_home` | opts out of the isolated home, for tests *about* the real checkout |
 | `network` | reaches the network. Nothing carries it today — it exists so adding one is a decision |
 | `browser` | loads the fleet dashboard in Chromium and asserts on the rendered page |
+| `measured` | asserts a duration. Runs with the machine to itself — see *The tiers* above |
+| `scale` | cost grows with the repository or the data; correct, and not what an inner loop is for |
 
 ### The browser tests, and why they are not optional
 
@@ -444,12 +518,12 @@ one that invents output is worth less than no test.
 
 | Job | What it proves |
 |---|---|
-| `ubuntu · 3.12 / 3.14` | the suite on the floor and on the laptop's Python |
-| `windows · 3.12 / 3.14` | the same, plus pwsh 7 / Git Bash / cmd smoke steps, under both `core.autocrlf` settings |
+| `ubuntu · 3.12 / 3.14` | the suite on the floor and on the laptop's Python: the bulk on every core, then `measured` + `scale` with the machine to themselves, then `slow` serially |
+| `windows · 3.12 / 3.14` | the same tiers but **serially** (see *Parallelism* — #227), plus pwsh 7 / Git Bash / cmd smoke steps, under both `core.autocrlf` settings |
 | `floor · pip refuses the wheel on 3.11` | `Requires-Python` really stops an older interpreter, in the words the user sees |
 | `lint · shellcheck + PSScriptAnalyzer` | the shipped scripts parse and target the right floors |
 | `lint · bash 4.4 and pwsh 7 floors` | no post-4.4 construct in anything we ship or emit; the laptop suite never executes here |
 | `coverage · per-module floors` | the seven Windows-critical modules stay covered; report uploaded as an artifact |
-| `suite · shuffled` | two seeded shuffles, to catch fixture leakage |
+| `suite · shuffled` | two seeded shuffles, to catch fixture leakage. Serial on purpose: under `-n` the order a test runs in is the scheduler's, not the seed's, and the job would stop proving anything |
 | `windows · 3.14` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
 | every job | `HYPOTHESIS_PROFILE=ci`, so the property tests search 200 examples rather than 50 |

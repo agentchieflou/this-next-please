@@ -27,8 +27,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-latest, python: "3.12", select: ""}   # the floor (pyproject requires-python)
-          - {os: ubuntu-latest, python: "3.14", select: ""}   # what the laptop runs
+          - {os: ubuntu-latest, python: "3.12"}   # the floor (pyproject requires-python)
+          - {os: ubuntu-latest, python: "3.14"}   # what the laptop runs
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,7 +41,24 @@ jobs:
       # PyCharm's JCEF and VS Code's Simple Browser, so one browser covers all three hosts.
       - name: a browser, so tests/test_fleet_desk*.py run instead of skipping
         run: python -m playwright install --with-deps chromium
-      - run: python -m pytest -q ${{ matrix.select }}
+      # Split up, because the parts want opposite things from the machine. The bulk is independent
+      # work and takes every core there is; the `measured` tier asserts durations -- a 50ms paint
+      # budget, a 4ms repaint, a fold under 0.05s -- and under `-n` it measures the contention
+      # rather than the code. `scale` joins it because a 40,000-event fold sharing four cores with
+      # three thousand other tests is the same mistake one layer up.
+      #
+      # The matrix used to carry a free-form `select` appended here. It is gone on purpose: a
+      # second `-m` on a pytest command line REPLACES the first rather than combining with it,
+      # so anyone filling that knob in would have silently switched the tier split off.
+      - name: the suite, in parallel
+        run: python -m pytest -q -n auto -m "not slow and not measured and not scale"
+      - name: the measured and scale tiers, with the machine to themselves
+        run: python -m pytest -q -m "(measured or scale) and not slow"
+      # `slow` stays serial and stays here. It builds wheels in fresh venvs, and four concurrent
+      # `pip install`s on a two-core runner is a different risk from the one this change is about;
+      # it ran serially before and it runs serially now. This is the only leg that runs it on Linux.
+      - name: the slow tier, serially
+        run: python -m pytest -q -m slow
 
       # #220: the desk's own numbers, in the job output rather than in somebody's memory. These
       # tests already measure and assert; `-s` is what lets what they measured reach the log, and
@@ -154,9 +171,18 @@ jobs:
 
       # the suite. The slow marker builds wheels and venvs: run it on the laptop's Python, on the OS
       # where packaging actually goes wrong.
+      # Serial, and that is not an oversight. Under `-n auto` this leg failed on three of four
+      # tries -- a DIFFERENT fleet test each time, never the same one twice, never on Linux. That
+      # is concurrency-sensitivity the suite already had (process-level state in `serve`, reset by
+      # per-module autouse fixtures that `--dist load` interleaves straight through) rather than
+      # anything the tiers introduced, and it is #227. Chasing it one test at a time from here
+      # would be guessing. Running serially costs this leg nothing against what it did before.
       - name: pytest
         shell: pwsh
-        run: python -m pytest -q -m "not slow"
+        run: python -m pytest -q -m "not slow and not measured and not scale"
+      - name: the measured and scale tiers, with the machine to themselves
+        shell: pwsh
+        run: python -m pytest -q -m "(measured or scale) and not slow"
 
       # Split out, verbose, and with its own cap on purpose. A hang inside the slow marker used to
       # take the whole job down and `-q` never said which test it was in -- the log simply stopped

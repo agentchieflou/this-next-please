@@ -347,6 +347,7 @@ def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_id
 
 
 @pytest.mark.browser
+@pytest.mark.measured
 def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp_path):
     """The frame-rate floor, measured as the thing this code actually decides.
 

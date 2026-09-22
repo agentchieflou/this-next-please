@@ -149,6 +149,7 @@ def test_the_chunk_size_is_the_memory_knob_and_a_smaller_one_holds_less():
 # -------------------------------------------------------------------------- the clock nothing ever spends
 
 
+@pytest.mark.measured
 def test_a_run_that_would_have_waited_a_quarter_of_an_hour_finishes_instantly():
     """The wall clock of a throttled run is the sum of the injected sleeps, and none of them happened.
 

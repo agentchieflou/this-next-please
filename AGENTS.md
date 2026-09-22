@@ -14,7 +14,15 @@ Scope: every project that installs these skills. Do not restate these in project
 7. Read-only SQL only. The adapter rejects DML/DDL; do not work around it.
 
 ## Writes to systems of record
-8. Jira transitions, Confluence writes, PR creation: run with `--dry-run` first, read `"ok"`, then execute. Never merge a PR. Never close a ticket.
+8. Jira transitions, Confluence writes, PR creation: run with `--dry-run` first, read `"ok"`, then execute.
+   Never merge a PR and never close a ticket **on your own initiative** -- not because the work looks done, not
+   because CI is green, not because the checklist is ticked. Those two are the operator's to decide, and an agent
+   that decides them has taken a judgement nobody delegated.
+   **When the operator asks for one, do it.** "Merge when CI is green", "close the issues when it ships" and the
+   like are instructions, not invitations to re-litigate this rule: carry them out, say in one line what was
+   merged or closed, and do not ask again for each one. The rule bounds what you may *decide*, not what you may
+   be *told*. (Written after a session that merged three epics and closed nineteen issues at the operator's word
+   and stopped to check every time, which is friction this rule never meant to create.)
 9. Commit messages: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`).
 
 ## Stop conditions (invoke `friction-log`, then STOP)
