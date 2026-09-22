@@ -10,6 +10,10 @@
 > desk in use and said so in as many words; §The sitting's decision block below is filled in from that and
 > from nothing else, and [plan-column.md](plan-column.md) (#200) is the plan that moves `LAYOUTS[0]`.
 >
+> **Planned, 2026-09-22, later the same day.** The operator retired `roles` and `screens` and asked for one
+> arrangement where every agent is its own column, with each one resizable. [plan-panes.md](plan-panes.md) is that plan.
+> Until its slice C lands, the four arrangements below still ship.
+>
 > **What the Windows sitting found first** is written up in [plan-desk-refactor.md](plan-desk-refactor.md):
 > the tiles show the last supervised run as if it were now, they cannot be moved, and the picker reloads the
 > page. Those are fixed by that plan's slices, and the layout decision still belongs here.

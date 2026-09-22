@@ -216,6 +216,7 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `docs/desk-motion.md` | the desk's motion budget — three duration tokens, one arrival pattern, one door for a layout change, and what is asserted about all of it |
 | `docs/plan-column.md` | implemented: the column (epic #200) — one tile open, every other session a band in a column that fills the page; hide, refresh and the model on every band and tile; one session control where the strip was |
 | `docs/plan-meter.md` | implemented: the meter (epic #201) — spend, budget and model on every tile, a fleet total, one arithmetic, a ledger that survives the log rolling; the caps deferred and named |
+| `docs/plan-panes.md` | planned: panes — the snap-back and the stale questions fixed first, then one arrangement where every agent is its own full-height column, drawn by its width (rail, compact, full) and resized by dragging the gutter between any two |
 | `docs/plan-ownership.md` | implemented: ownership (epic #202) — every desk component named and owned, a render that patches and never rebuilds, motion with a budget, the tile as a window, rendering that earns its pixels, an instant feel |
 | `prompts/remediate-from-friction.prompt.md` | offline frontier-model repair loop |
 | `agentdata/templates/project-stub/` | the project stub `ad-setup --project` writes (ships in the wheel) |

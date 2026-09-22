@@ -440,7 +440,8 @@ Asked, and answered in one conversation, before a line of this plan was written:
 
 1. **What "show vertically" means** — *a column of bands*: inactive sessions stack top-to-bottom beside the open
    tile; each band grows to share the full page height; a click expands it in place. (Not side-by-side strips, not
-   a left rail.)
+   a left rail.) **Superseded the same day:** the operator meant side-by-side columns, one per agent. See
+   [plan-panes.md](plan-panes.md) §Decisions 3.
 2. **The default arrangement** — asked whether the message counted as the decision [fleet-layouts.md](fleet-layouts.md)
    reserves for the operator, on the real screens: *yes, column is the default*, grid still reachable by URL. The
    layouts page's decision block is filled in from this and from the photograph, and nothing else.
