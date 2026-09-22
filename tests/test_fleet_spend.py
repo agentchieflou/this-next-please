@@ -339,7 +339,14 @@ def test_the_ledger_is_a_few_hundred_bytes_under_the_fleet_and_never_in_a_reposi
     path = SPEND.ledger_path("alpha")
     assert os.path.isfile(path)
     assert os.path.getsize(path) < 4096, "a fold of every log, in a few hundred bytes"
-    assert str(fleet_home) in path, "the fleet writes only under its own directory"
+    # Normalised on both sides before comparing: on Windows the fleet directory arrives from the
+    # environment with forward slashes and `os.path.join` adds a backslash, so a substring test on
+    # the raw strings fails for a path that is in fact underneath it.
+    def _norm(value):
+        return os.path.normcase(os.path.abspath(str(value)))
+
+    assert os.path.commonpath([_norm(fleet_home), _norm(path)]) == _norm(fleet_home), \
+        "the fleet writes only under its own directory"
     assert not os.path.exists(os.path.join(tmp_path / "alpha", ".agent", "spend.json"))
 
 
