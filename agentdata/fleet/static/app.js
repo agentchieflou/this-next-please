@@ -3006,9 +3006,21 @@ document.getElementById("closeinspector").addEventListener("click", function () 
   section("inspector", false);
 });
 
+/* The arrangement this window is showing -- and a real object, not a copy of one.
+
+   It used to answer `{order: [], size: {}, pinned: []}` when the desk had not arrived yet, which
+   reads as harmless and is not: every optimistic write in `arrangeNow` mutates what it is given,
+   so before the first desk frame landed a hide, a move, a pin and a resize all wrote into a
+   throwaway and the tile did not move until the server answered. That is precisely the thing
+   #219 claims the page no longer does, and on a fast machine the desk has loaded before anyone
+   can click, so it only showed up on the slowest runner in CI. The entry is created on the desk
+   instead; `mergeDesk` replaces it with the server's the moment one arrives. */
 function getLayoutArrangement() {
-  var arr = (desk.desk && desk.desk.arrangement) || {};
-  return arr[LAYOUT] || { order: [], size: {}, pinned: [] };
+  if (!desk.desk) desk.desk = {};
+  if (!desk.desk.arrangement) desk.desk.arrangement = {};
+  var arr = desk.desk.arrangement;
+  if (!arr[LAYOUT]) arr[LAYOUT] = { order: [], size: {}, pinned: [], hidden: [] };
+  return arr[LAYOUT];
 }
 
 function getEffectiveOrder() {

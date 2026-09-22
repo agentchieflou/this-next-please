@@ -217,14 +217,25 @@ def test_the_gestures_animate_for_the_base_duration_and_not_at_all_under_reduced
                 # And the leave, which is the half `allow-discrete` exists for: the panel is still
                 # painted on the frame after it was hidden, rather than being gone before anyone
                 # saw it go.
-                left = page.evaluate("""() => new Promise(resolve => {
+                # Polled rather than sampled at exactly two frames. Under reduced motion the
+                # panel goes on the frame after a 0.01ms transition ends, and whether that is
+                # inside two frames depends on the machine's cadence -- which is the runner
+                # talking, not the stylesheet.
+                left = page.evaluate("""(reduced) => new Promise(resolve => {
                   const menu = document.querySelector('.tile.is-solo .smenu');
                   menu.hidden = true;
-                  requestAnimationFrame(() => requestAnimationFrame(() => resolve({
-                    box: menu.getBoundingClientRect().height,
-                    running: menu.getAnimations().length,
-                  })));
-                })""")
+                  const began = performance.now();
+                  const look = () => {
+                    const box = menu.getBoundingClientRect().height;
+                    const done = reduced ? box === 0 : performance.now() - began > 48;
+                    if (done || performance.now() - began > 1500) {
+                      resolve({ box: box, running: menu.getAnimations().length });
+                    } else {
+                      requestAnimationFrame(look);
+                    }
+                  };
+                  requestAnimationFrame(look);
+                })""", reduced)
                 assert not errors, errors
                 if reduced:
                     assert left["box"] == 0, "reduced motion takes it away at once"

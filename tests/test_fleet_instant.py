@@ -155,6 +155,55 @@ def test_the_cached_desk_is_the_rows_without_the_transcripts():
 
 
 @pytest.mark.browser
+def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, tmp_path):
+    """The optimistic write has to land on the desk, not on a copy of it.
+
+    `getLayoutArrangement` used to answer a fresh `{order, size, pinned}` literal whenever the
+    layout had no entry yet -- which reads as harmless and is not, because every writer mutates
+    what it is given. Before the first desk frame arrived, a hide wrote into a throwaway and the
+    tile did not move until the server answered: exactly the thing this slice says the page no
+    longer does. On a fast machine the desk has loaded before anyone can click, so it only ever
+    showed up on the slowest runner in CI.
+    """
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma")
+    S.arrange("grid", order=["alpha", "beta", "gamma"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                      wait_until="domcontentloaded")
+            page.wait_for_selector('.tile[data-repo="beta"]', timeout=15000)
+
+            out = page.evaluate("""() => {
+              // The desk this window has not been told about yet, and a server that will not be
+              // answering: what is left is whether the page can paint from what it already has.
+              desk.desk = {};
+              window.fetch = function () { return new Promise(() => {}); };
+              setHidden('beta', true);
+              return {
+                hidden: document.querySelector('.tile[data-repo="beta"]')
+                          .classList.contains('is-hidden'),
+                kept: (getLayoutArrangement().hidden || []).slice(),
+              };
+            }""")
+            assert not errors, errors
+            assert out["hidden"], "the tile waited for a server that is never going to answer"
+            assert out["kept"] == ["beta"], \
+                f"the write went into a throwaway object: {out['kept']}"
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
 def test_hiding_a_tile_paints_before_the_server_answers(fleet_home, tmp_path):
     """Asserted by making the server slow. Anything that only passes against a fast local server
     is asserting that the network was quick, not that the page was."""

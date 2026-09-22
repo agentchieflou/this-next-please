@@ -173,9 +173,13 @@ def _drag(page, handle, target, *, steps=8, cancel=False):
     page.mouse.down()
     page.mouse.move(a["x"] + a["width"] / 2 + 10, a["y"] + a["height"] / 2 + 10, steps=2)
     page.wait_for_function("() => !!dragging", timeout=8000)
-    # The target's top-left corner, which is "before it" on both axes -- across in the grid, down
-    # in the column. Aiming at the middle means "after it" in whichever direction the list runs.
-    page.mouse.move(b["x"] + 8, b["y"] + 8, steps=steps)
+    # A quarter of the way in on both axes: before the midpoint, which is what makes the drop land
+    # *before* the target -- across in the grid, down in the column -- and far enough from the
+    # edges to be the target rather than whatever is drawn over its corner. Eight pixels in was
+    # the column's own sticky head on Windows, where the scrollbar takes a different width and the
+    # first band sits that much higher: `elementFromPoint` answered with the head, `closest`
+    # found no repo on it, and nothing ever lit.
+    page.mouse.move(b["x"] + b["width"] * 0.25, b["y"] + b["height"] * 0.25, steps=steps)
     if cancel:
         page.keyboard.press("Escape")
     else:
