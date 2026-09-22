@@ -52,7 +52,7 @@
   </div>
 </header>
 
-<div id="away-strip" class="away-strip" hidden>
+<div id="away-strip" class="away-strip enters" hidden>
   <div class="away-content">
     <span class="away-title">Since you were away:</span>
     <ul class="away-lines" id="away-lines"></ul>
@@ -87,7 +87,7 @@
 
 <!-- #173: everything that is not on the glass, so a hidden tile is never a lost one. Zoomed,
      hidden, or gone from the registry -- one chip each, one click back. -->
-<div id="dock" class="dock" hidden aria-label="tiles that are not on the glass">
+<div id="dock" class="dock enters" hidden aria-label="tiles that are not on the glass">
   <span class="dock-label"></span>
   <ul class="dock-chips">
     <li class="dock-chip" hidden>
@@ -242,7 +242,7 @@
 
 <footer>
   <span id="counts"></span>
-  <span id="notice" class="notice" hidden></span>
+  <span id="notice" class="notice enters" hidden></span>
   <span class="spacer"></span>
   <!-- #180: the key map behind `?`; `.keys` stays on the container for the skins' `footer .keys`. -->
   <button id="keysbtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="keymap" title="every key (?)"><kbd>?</kbd> keys</button>
@@ -284,7 +284,7 @@
      differ whenever a tenant pins one. It writes the key `/settings` writes, through the same
      function, with the same refusals in the same words: two ways to set one thing must not become
      two rules about it. One card for the page, moved to whichever button opened it. -->
-<div id="modelcard" class="modelcard" role="dialog" aria-label="which model this agent runs" hidden>
+<div id="modelcard" class="modelcard enters" role="dialog" aria-label="which model this agent runs" hidden>
   <div class="mc-head">
     <strong class="mc-repo" id="mc-repo"></strong>
     <button type="button" class="mc-close" id="mc-close" title="close (Esc)">×</button>
@@ -350,7 +350,7 @@
     <div class="sessionbar">
       <button class="spill" type="button" aria-haspopup="menu" aria-expanded="false"
               title="this checkout's sessions, its console and its other checkouts"></button>
-      <div class="smenu" role="menu" hidden>
+      <div class="smenu enters" role="menu" hidden>
         <button class="sm-live smitem" type="button" role="menuitem">this session</button>
         <ol class="live-runs"></ol>
         <p class="sm-earlier-label sm-label" hidden></p>
@@ -389,7 +389,7 @@
     <p class="outside" hidden><span class="outsidewhy"></span><button type="button" class="adopt"></button></p>
     <p class="why"></p>
     <!-- #168: what the run edited, against what it was given. -->
-    <p class="scopereport" hidden></p>
+    <p class="scopereport enters" hidden></p>
     <!-- #164, #183: where the page's one dispatch card draws when this tile is on the glass. -->
     <div class="dispatch-slot"></div>
     <!-- #166: files the operator dropped, resolved to this checkout by their git blob hash. -->
@@ -427,7 +427,7 @@
         <span class="lab"></span><span class="val"></span><span class="old"></span><span class="val2"></span>
       </button>
     </div>
-    <div class="approval" hidden>
+    <div class="approval enters" hidden>
       <div class="approval-head">waiting for you: <span class="kind"></span></div>
       <div class="summary"></div>
       <pre class="payload"></pre>
@@ -440,7 +440,7 @@
     <!-- #165: the agent's open questions, as records. Beside the approval card on purpose: both
          are "the tile is asking you something", and one shape for that is learned once. One Send
          answers all of them, because one respawn per answer is one premium request per answer. -->
-    <div class="asks" hidden>
+    <div class="asks enters" hidden>
       <div class="asks-head">it asked you: <span class="asks-n"></span></div>
       <!-- One question, cloned per open question. In the markup rather than built by hand in the
            script so the two files can be kept in step by a test, the way the tile itself is. -->

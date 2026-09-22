@@ -1276,20 +1276,24 @@ function openAgent(name, skipPost) {
     if (!skipPost) saveWindow({ read: readCursors });
     return;
   }
-  focused = name;
-  toggle(document.body, "focused", true);
-  hide(document.getElementById("unfocus"), false);
-  tiles.forEach(function (entry2, key) { toggle(entry2.el, "is-focused", key === name); });
+  transitionLayout(function () {
+    focused = name;
+    toggle(document.body, "focused", true);
+    hide(document.getElementById("unfocus"), false);
+    tiles.forEach(function (entry2, key) { toggle(entry2.el, "is-focused", key === name); });
+  });
   if (!skipPost) saveWindow({ zoomed: name, read: readCursors });
 }
 
 /* Out of the zoom, where there is one. In the column there is nothing to leave -- everything that
    is not open is a band already -- so `Esc` there is `backToPrevious()` instead. */
 function backAgent(skipPost) {
-  focused = null;
-  toggle(document.body, "focused", false);
-  hide(document.getElementById("unfocus"), true);
-  tiles.forEach(function (entry) { toggle(entry.el, "is-focused", false); });
+  transitionLayout(function () {
+    focused = null;
+    toggle(document.body, "focused", false);
+    hide(document.getElementById("unfocus"), true);
+    tiles.forEach(function (entry) { toggle(entry.el, "is-focused", false); });
+  });
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
   if (!skipPost) saveWindow({ zoomed: "" });
 }
@@ -2757,7 +2761,7 @@ function setHidden(name, hide) {
   if (hide && at < 0) next.push(name);
   if (!hide && at >= 0) next.splice(at, 1);
   post("arrange", { layout: LAYOUT, hidden: next }).then(function (r) {
-    if (r && r.ok) { mergeDesk(r); place(); }
+    if (r && r.ok) transitionLayout(function () { mergeDesk(r); place(); });
   });
 }
 
@@ -2783,7 +2787,7 @@ function reorderDomTiles() {
   // `appendChild` alone teleports, and a grid reshuffling while agents talk reads as flicker, not
   // movement -- the operator cannot see it is the same tile, lower down. Measured only when
   // something is moving, and not at all when the viewer has asked for less of it.
-  var first = (needsMove && !reduceMotion()) ? measureTiles() : null;
+  var first = (needsMove && !reduceMotion() && !inViewTransition) ? measureTiles() : null;
 
   order.forEach(function (name, index) {
     var entry = tiles.get(name);
@@ -2864,6 +2868,62 @@ function playFlip(first) {
       });
     });
   });
+}
+
+/* ------------------------------------------------- #216: one door for anything that moves things */
+
+/* True only while the browser is running a view transition of its own, which is the one time
+   `reorderDomTiles` must *not* also play FLIP: two animations of the same move is a tile that
+   arrives, leaves and arrives again. */
+var inViewTransition = false;
+
+/* A view transition matches the old state to the new one by name, so the name has to be the same
+   name for the same tile on both sides of the change -- an index would make "the third tile"
+   morph into whatever is third afterwards, which is the opposite of the point. Registry names are
+   already close to a CSS identifier; anything else in one becomes a dash. Two repositories that
+   sanitise to one name make the browser skip the transition and apply the change with no
+   animation, which is a degradation rather than a break. */
+function tileTransitionName(name) {
+  return "tile-" + String(name).replace(/[^A-Za-z0-9_-]/g, "-");
+}
+
+function nameTiles(on) {
+  tiles.forEach(function (entry, name) {
+    style(entry.el, "view-transition-name", on ? tileTransitionName(name) : "");
+  });
+}
+
+/* Every change to where things are goes through here: opening a band, going back, hiding a tile,
+   reordering the grid. `startViewTransition` is the good path -- the browser holds the old frame,
+   applies the change and morphs between the two, so the layout is never in a half-state -- and
+   FLIP is the fallback for engines that do not have it, which is every engine the IDE shells ship
+   until they catch up with Chromium. Reduced motion takes neither: the change is applied and that
+   is the end of it.
+
+   `fn` must do the whole change synchronously. Anything asynchronous inside it happens after the
+   browser has already taken its "after" snapshot, and a morph to a state that has not arrived yet
+   is a flash of the wrong layout. */
+function transitionLayout(fn) {
+  if (reduceMotion() || typeof document.startViewTransition !== "function") {
+    var first = reduceMotion() ? null : measureTiles();
+    fn();
+    if (first) playFlip(first);
+    return;
+  }
+  nameTiles(true);
+  inViewTransition = true;
+  var done = function () { inViewTransition = false; nameTiles(false); };
+  var running;
+  try {
+    running = document.startViewTransition(fn);
+  } catch (err) {
+    // A transition already running, or an engine that has the function and refuses the call: the
+    // change still has to happen, and it happens now.
+    done();
+    fn();
+    return;
+  }
+  running.finished.then(done, done);
 }
 
 /* Pinned tiles come first, always -- so a move has to happen inside the block the tile is in.
@@ -3127,8 +3187,7 @@ function openBand(name, skipPost) {
   var was = openName();
   if (was && was !== name) previousOpen = was;
   openTile = name;
-  choose(name);
-  place();
+  transitionLayout(function () { choose(name); place(); });
   if (!skipPost) saveWindow({ open: name });
 }
 
@@ -3137,8 +3196,7 @@ function backToPrevious() {
   var going = previousOpen;
   previousOpen = openName();
   openTile = going;
-  choose(going);
-  place();
+  transitionLayout(function () { choose(going); place(); });
   saveWindow({ open: going });
   return true;
 }

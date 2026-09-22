@@ -80,6 +80,12 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 `drawer` is not a component: it is a one-line alias for `section("drawer", …)`, kept because the
 rest of the file already calls it that.
 
+## Motion
+
+How a component *arrives* and how a layout change is animated is one page over, in
+`docs/desk-motion.md`: three duration tokens with a budget a test enforces, `.enters` as the one
+arrival pattern, and `transitionLayout(fn)` as the one door for anything that moves things.
+
 ## What is deliberately not here
 
 No virtual DOM, no diffing library, no component base class. The page has one list shape — rows

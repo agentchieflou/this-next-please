@@ -21,6 +21,28 @@
 
   --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
   --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* #216. The whole page's motion budget, in three numbers. Nothing on the desk may last longer
+     than `--motion-slow`, and a test over this file and every skin says so -- a duration nobody
+     bounded is how an interface comes to feel slow while every single animation looks fine on its
+     own. `--motion-fast` is for something under the cursor (a hover, a press), `--motion-base` for
+     something arriving or leaving, `--motion-slow` for a whole layout changing. */
+  --motion-fast: 120ms;
+  --motion-base: 220ms;
+  --motion-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.3, 1);
+  /* The spring is a fallback first: an engine that cannot parse `linear()` would otherwise drop
+     the declaration that uses it and fall back to `ease`, which overshoots nothing and reads as
+     mush. The `@supports` below upgrades it where the engine really has it. */
+  --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@supports (animation-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring: linear(0, 0.007, 0.029 2.2%, 0.118 4.7%, 0.625 14.4%, 0.826 19%, 0.902,
+                          0.962, 1.008 26.1%, 1.041 28.7%, 1.064 32.1%, 1.07 36%, 1.061 40.5%,
+                          1.015 53.4%, 0.999 61.6%, 0.995 71.2%, 1);
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -450,7 +472,7 @@ body.focused .tile.is-focused { max-height: none; }
    one frame the tile is inverted, so a tile at rest carries no transition -- dragging one must stay
    immediate. The global `prefers-reduced-motion` block below zeroes the duration, and the script
    skips the measurement entirely, so a viewer who asked for less motion gets a plain reorder. */
-.tile.flip { transition: transform 260ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+.tile.flip { transition: transform var(--motion-base) var(--ease-out); }
 .tile.is-dragging.flip { transition: none; }
 
 .chip {
@@ -908,11 +930,57 @@ body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-too
 
 .inspectorbody { padding: 8px 0; display: flex; flex-direction: column; gap: 12px; }
 
+/* ------------------------------------------------------- #216: arriving, and going away again */
+
+/* Every panel the desk shows and takes away, in one block. The pattern is the same for all of
+   them -- fade and settle by four pixels on the way in, the same in reverse on the way out -- so
+   there is one thing to learn rather than nine, which is the whole of the operator's "minimalist
+   interface navigation" note.
+
+   `transition-behavior: allow-discrete` is what lets `display` take part. Without it a panel
+   leaving is removed on the first frame and only its arrival is ever seen, which is the
+   half-animation that reads as a glitch. It is set as a longhand after the shorthand on purpose:
+   an engine that does not know the property ignores that one line, `display` is simply not
+   animated, and both directions are instant -- which is exactly the behaviour these panels had
+   before this rule existed. */
+.enters {
+  opacity: 1;
+  translate: 0 0;
+  transition: opacity var(--motion-base) var(--ease-out),
+              translate var(--motion-base) var(--ease-out),
+              display var(--motion-base);
+  transition-behavior: allow-discrete;
+}
+.enters[hidden] { opacity: 0; translate: 0 -4px; }
+
+/* The arrival's starting point. A style that only exists for the frame before the element is
+   first painted: without it the browser has nothing to animate *from* and the panel simply
+   appears. */
+@starting-style {
+  .enters:not([hidden]) { opacity: 0; translate: 0 -4px; }
+}
+
+/* A tile is a box of text, and a view transition animates *images* of the old and new states.
+   Scaling one to the other's size stretches the words, which is the giveaway that what is on the
+   screen is a picture of a tile rather than the tile. Both snapshots are pinned to their own size
+   at the top left instead, so what moves is the box and what cross-fades is text at the size it
+   was written. */
+::view-transition-old(*), ::view-transition-new(*) {
+  object-fit: none;
+  object-position: top left;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  /* A view transition runs on pseudo-elements that `*` never matches, so the three rules above do
+     not reach it. `transitionLayout` refuses to start one under reduced motion as well; this is
+     the stylesheet saying the same thing for a transition begun from anywhere else. */
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {
+    animation-duration: 0.01ms !important;
   }
 }
 

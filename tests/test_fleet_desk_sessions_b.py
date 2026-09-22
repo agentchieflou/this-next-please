@@ -426,9 +426,12 @@ def test_since_you_were_away_strip(fleet_home, tmp_path):  # noqa: F811
             lines = page.locator("#away-lines li")
             assert lines.count() == 2, f"expected 2 away lines, got {lines.count()}"
 
-            # Click dismiss
+            # Click dismiss. The strip leaves over `--motion-base` now (#216), so it is still
+            # painted for a fifth of a second after the click -- which is the point of the
+            # animation. Wait for the attribute the script sets rather than for a clock.
             page.locator("#dismiss-away").click()
-            page.wait_for_timeout(200)
+            page.wait_for_selector("#away-strip[hidden]", state="attached", timeout=5000)
+            page.wait_for_timeout(400)
             assert strip.is_hidden()
             b.close()
     finally:
