@@ -493,6 +493,30 @@ def cmd_sessions(a) -> int:
     return EXIT_OK
 
 
+def cmd_refresh(a) -> int:
+    """Read what the next tick would read, for one checkout, now.
+
+    The same function the desk's refresh button calls, so the page stays a view of a verb. It
+    spends no premium request: the stream is re-folded from disk and the four cells are a Jira, a
+    Bitbucket and a Power BI read plus a local git call. Nothing is sent to the agent.
+    """
+    from .fleet import serve as S
+
+    try:
+        answer = S.act("refresh", {"repo": a.repo})
+    except S.ServeError as e:
+        return _refuse("ad-fleet refresh", RegistryError(e.msg, e.hint))
+    row = answer.get("row") or {}
+    cells = {cell: (poll.get("value") or {}).get("text", "")
+             for cell, poll in (row.get("polls") or {}).items()}
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet refresh", "repo": a.repo,
+                                "state": row.get("state", ""), "model": row.get("model", ""),
+                                "actual": row.get("actual", ""),
+                                "premium_requests": row.get("premium_requests", 0)},
+                       "cells": [{"cell": k, "value": v} for k, v in sorted(cells.items())]}))
+    return EXIT_OK
+
+
 def cmd_logs(a) -> int:
     try:
         Registry().get(a.repo)
@@ -1598,6 +1622,11 @@ def build_parser() -> argparse.ArgumentParser:
     quick.add_argument("--layout", default=LAYOUTS[0], choices=list(LAYOUTS),
                        help="how the tiles are arranged: grid | roles | screens (default grid)")
     quick.set_defaults(fn=cmd_quickstart)
+
+    refresh = sub.add_parser("refresh",
+                             help="re-read one checkout now: its stream and its four cells, free")
+    refresh.add_argument("repo")
+    refresh.set_defaults(fn=cmd_refresh)
 
     logs = sub.add_parser("logs", help="the raw Copilot event stream, unnormalized")
     logs.add_argument("repo")

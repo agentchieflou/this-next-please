@@ -409,6 +409,27 @@ class Poller:
         self._ok(repo.name, "git", now, _git_value(answer, warn=warn_at(self.cfg)))
         return []
 
+    def now_for(self, repo) -> list[dict]:
+        """Poll this one checkout's four cells immediately, whatever their intervals say.
+
+        The desk's refresh button (#205) means *read what the next tick would read, now* -- so it is
+        this, one repository's worth of exactly what `tick()` does, and nothing else. It spends no
+        premium request: every source here is a Jira, Bitbucket or Power BI read, or a local git
+        call. Never raises, for the same reason `tick` does not.
+        """
+        now = self.now()
+        self._roll_day(now)
+        for source in SOURCES:
+            # `_due` is "nothing yet, or a full interval ago"; clearing the stamp is how one repo is
+            # made due without touching the interval every other checkout is polled on.
+            self._poll(repo.name, source).last_at = 0.0
+        out: list[dict] = []
+        out.extend(self._tick_jira([repo], now))
+        out.extend(self._tick_pr(repo, now))
+        out.extend(self._tick_powerbi(repo, now))
+        out.extend(self._tick_git(repo, now))
+        return out
+
     # ---- cells ---------------------------------------------------------------------------------
 
     def _poll(self, repo_name: str, source: str) -> Poll:

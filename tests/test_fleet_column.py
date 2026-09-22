@@ -49,6 +49,9 @@ def _own_desk_globals(monkeypatch):
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
                                          catalogue=None, last_tick=0.0, last_fold=0.0))
+    # The hand-refresh floor is per process and per repository, which is right for a server and
+    # wrong for a suite where every test has its own fleet directory and reuses the same names.
+    monkeypatch.setattr(S, "_refreshed_at", {})
 
 
 def _repos(tmp_path, *names, needs=()):
@@ -566,3 +569,174 @@ def test_an_agent_that_needs_a_person_keeps_its_slot_and_shows_its_ask_in_full(f
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+# --------------------------------------------- hide, refresh and the model on both (#205)
+
+
+def test_refresh_is_free_and_refuses_a_second_press_inside_two_seconds(fleet_home, tmp_path):
+    """The one button on the tile that is always safe to press: nothing is sent to the agent, so
+    nothing is spent. Pressed twice in a breath it refuses, because it re-reads what the tick reads
+    and the second press cannot tell the operator anything the first did not."""
+    import time as _time
+
+    _repos(tmp_path, "alpha")
+    before = E.read("alpha")
+    spend_before = [e for e in before if e["kind"] in ("said", "started", "turn_started")]
+
+    answer = S.act("refresh", {"repo": "alpha"})
+    assert answer["repo"] == "alpha"
+    assert answer["row"]["repo"] == "alpha"
+    # Re-folding the stream may ADD to it -- that is the whole job, and it is what the tick does.
+    # What it must never do is spend: no turn is started and nothing is typed at the agent.
+    after = E.read("alpha")
+    spend_after = [e for e in after if e["kind"] in ("said", "started", "turn_started")]
+    assert spend_after == spend_before, "refresh must not spawn or speak to an agent"
+
+    with pytest.raises(S.ServeError) as e:
+        S.act("refresh", {"repo": "alpha"})
+    assert e.value.code == "refresh_busy"
+
+    S._refreshed_at["alpha"] = _time.time() - (S.REFRESH_FLOOR_S + 0.5)
+    assert S.act("refresh", {"repo": "alpha"})["repo"] == "alpha"
+
+
+def test_refresh_refuses_a_repository_that_is_not_registered(fleet_home, tmp_path):
+    _repos(tmp_path, "alpha")
+    with pytest.raises(S.ServeError) as e:
+        S.act("refresh", {"repo": "nope"})
+    assert "not a registered repository" in e.value.msg
+
+
+def test_refresh_is_in_the_vocabulary_an_unknown_action_lists(fleet_home, tmp_path):
+    """Every refusal in this server speaks one vocabulary; an action missing from the hint is one
+    nobody can discover from the error."""
+    _repos(tmp_path, "alpha")
+    with pytest.raises(S.ServeError) as e:
+        S.act("nonsense", {})
+    assert "refresh" in (e.value.hint or "") + e.value.msg
+
+
+def test_the_tile_row_carries_the_configured_model_and_the_one_that_ran(fleet_home, tmp_path):
+    """The settings page has shown both since #199 and the tile showed neither -- its row had no
+    model field at all. Same two functions, so a page and a tile cannot disagree."""
+    from agentdata import config as C
+    from agentdata.fleet import launch as L
+
+    _repos(tmp_path, "alpha")
+    E.append("alpha", [E.event("alpha", "assistant_text",
+                               {"text": "done", "model": "claude-haiku-4.5"}, ticket="RDSD-1")])
+    C.save({"fleet": {"models": {"alpha": {"model": "claude-opus-5", "effort": "high"}}}})
+
+    row = S.row_for("alpha")
+    assert row["model"] == "claude-opus-5"
+    assert row["effort"] == "high"
+    assert row["model_source"] == "fleet.models.alpha"
+    # What the tenant actually served, which is the fact the configured value cannot tell you.
+    assert row["actual"] == "claude-haiku-4.5"
+    assert L.model_for("alpha", C.load())[0] == "claude-opus-5"
+
+
+def test_the_cli_and_the_page_refresh_through_one_function(fleet_home, tmp_path, capsys):
+    """The page is a view of a verb: `ad-fleet refresh` calls what the button calls."""
+    from agentdata import cli_fleet
+
+    _repos(tmp_path, "alpha")
+    assert cli_fleet.main(["refresh", "alpha"]) == 0
+    out = capsys.readouterr().out
+    assert "ad-fleet refresh" in out and "alpha" in out
+
+
+@pytest.mark.browser
+def test_the_same_three_controls_are_on_the_band_and_on_the_tile(fleet_home, tmp_path):
+    """The operator's sentence was *active and inactive both*. One test over both surfaces, because
+    a control that exists on one and not the other is exactly what it was asked to stop."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta")
+    S.arrange("column", order=["alpha", "beta"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(page, port, token)
+
+            out = page.evaluate("""() => {
+              const read = root => [...root.querySelectorAll('[data-tool]')].map(b => ({
+                tool: b.dataset.tool, title: b.title,
+                tall: Math.round(b.getBoundingClientRect().height),
+              }));
+              return {
+                band: read(document.querySelector('#bands .band:not([hidden])')),
+                tile: read(document.querySelector('.tile.is-solo .head')),
+              };
+            }""")
+            assert not errors, errors
+            assert [b["tool"] for b in out["band"]] == ["hide", "refresh", "model"], out["band"]
+            assert [b["tool"] for b in out["tile"]] == ["hide", "refresh", "model"], out["tile"]
+            for band, tile in zip(out["band"], out["tile"]):
+                assert band["title"] == tile["title"], (band, tile)
+                assert band["tall"] >= 28 and tile["tall"] >= 28, "the HIG desktop hit-target floor"
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it_refuses(
+        fleet_home, tmp_path):
+    """Two ways to set one thing must not become two rules about it: the card posts the settings
+    action, so `fleet.models.<repo>` is written by one function and refused by one function."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    from agentdata import config as C
+
+    monkey = tmp_path / "cfg.json"
+    os.environ["AGENTDATA_CONFIG"] = str(monkey)
+    try:
+        _repos(tmp_path, "rdsd.pbi", "beta")
+        S.arrange("column", order=["beta", "rdsd.pbi"])
+
+        server, token, port = _serve()
+        try:
+            with sync_playwright() as p:
+                browser = launch_chromium(p)
+                page = browser.new_page(viewport={"width": 1280, "height": 900})
+                errors = []
+                page.on("pageerror", lambda e: errors.append(str(e)))
+                _open(page, port, token)
+
+                page.click('#bands .band[data-repo="rdsd.pbi"] [data-tool="model"]')
+                page.wait_for_selector("#modelcard:not([hidden])", timeout=5000)
+
+                # A value that would become a second argument is refused, in the settings page's
+                # own words, and nothing is written.
+                page.fill("#mc-model", "x --allow-all-tools")
+                page.click("#mc-save")
+                page.wait_for_function(
+                    "() => /one argument|whitespace|dash/.test("
+                    "document.getElementById('mc-note').textContent)", timeout=5000)
+                assert C.get_leaf(C.load(), "fleet.models", "rdsd.pbi", {}) == {}
+
+                page.fill("#mc-model", "claude-opus-5")
+                page.fill("#mc-effort", "high")
+                page.click("#mc-save")
+                page.wait_for_function(
+                    "() => /saved/.test(document.getElementById('mc-note').textContent)",
+                    timeout=5000)
+                assert not errors, errors
+
+                # A repo name with a dot in it survives, which is the failure `put_leaf` exists for.
+                saved = C.get_leaf(C.load(), "fleet.models", "rdsd.pbi")
+                assert saved == {"model": "claude-opus-5", "effort": "high"}
+                browser.close()
+        finally:
+            server.stopping.set()
+            server.shutdown()
+            server.server_close()
+    finally:
+        os.environ.pop("AGENTDATA_CONFIG", None)

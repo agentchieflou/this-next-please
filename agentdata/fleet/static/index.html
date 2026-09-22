@@ -119,6 +119,20 @@
         <span class="b-badge" hidden></span>
         <span class="b-last"></span>
       </button>
+      <!-- #205: the same three, in the same order, with the same keys, as the tile's. A control
+           that exists on the open agent and not on the others is the thing this slice was asked to
+           stop doing. -->
+      <div class="band-tools">
+        <button type="button" class="band-hide toolbtn" data-tool="hide" title="take this agent off the glass (h) — it keeps its place; the column or the dock brings it back">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg><span class="sr">hide</span>
+        </button>
+        <button type="button" class="band-refresh toolbtn" data-tool="refresh" title="re-read it now (r) — spends no premium request">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v5h-5"></path></svg><span class="sr">refresh</span>
+        </button>
+        <button type="button" class="band-model toolbtn wordbtn" data-tool="model" title="which model this agent runs (m)">
+          <span class="bm-name"></span><span class="sr">model</span>
+        </button>
+      </div>
     </li>
   </ul>
   <div class="column-foot">
@@ -236,6 +250,8 @@
       <span><kbd>f</kbd> only what needs you</span>
       <span><kbd>a</kbd> approve</span>
       <span><kbd>h</kbd> hide</span>
+      <span><kbd>r</kbd> re-read it now</span>
+      <span><kbd>m</kbd> which model it runs</span>
       <span><kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile</span>
       <span><kbd>Alt</kbd>+<kbd>Home</kbd> pin</span>
       <span><kbd>Alt</kbd>+<kbd>Enter</kbd> width</span>
@@ -257,6 +273,36 @@
   </div>
 </footer>
 
+<!-- #205: which model this agent runs, and which one its last turn actually ran on -- the two
+     differ whenever a tenant pins one. It writes the key `/settings` writes, through the same
+     function, with the same refusals in the same words: two ways to set one thing must not become
+     two rules about it. One card for the page, moved to whichever button opened it. -->
+<div id="modelcard" class="modelcard" role="dialog" aria-label="which model this agent runs" hidden>
+  <div class="mc-head">
+    <strong class="mc-repo" id="mc-repo"></strong>
+    <button type="button" class="mc-close" id="mc-close" title="close (Esc)">×</button>
+  </div>
+  <div class="mc-facts">
+    <span class="mc-k">configured</span>
+    <span class="mc-v" id="mc-configured"></span>
+    <span class="mc-src" id="mc-source"></span>
+    <span class="mc-k">last turn</span>
+    <span class="mc-v" id="mc-actual"></span>
+    <span class="mc-src" id="mc-actual-why"></span>
+  </div>
+  <div class="mc-edit">
+    <label class="sr" for="mc-model">model</label>
+    <input id="mc-model" type="text" list="mc-models" placeholder="the CLI chooses">
+    <label class="sr" for="mc-effort">effort</label>
+    <input id="mc-effort" type="text" list="mc-efforts" placeholder="effort">
+    <button type="button" id="mc-save">save</button>
+  </div>
+  <datalist id="mc-models"></datalist>
+  <datalist id="mc-efforts"></datalist>
+  <p class="mc-note" id="mc-note">takes effect on the agent's next turn</p>
+  <a class="mc-all linkbtn" id="mc-all">all models · settings</a>
+</div>
+
 <template id="tile">
   <section class="tile" tabindex="0">
     <div class="head" draggable="true" title="drag to reorder — Alt+←/→ without a mouse">
@@ -271,9 +317,15 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"></path><path d="M12 15v6"></path></svg>
         <span class="sr">pin</span>
       </button>
-      <button class="hidetoggle" type="button" title="take this tile off the glass (h) — it keeps its place and the dock brings it back">
+      <button class="hidetoggle" type="button" data-tool="hide" title="take this agent off the glass (h) — it keeps its place; the column or the dock brings it back">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg>
         <span class="sr">hide</span>
+      </button>
+      <button class="refreshtoggle" type="button" data-tool="refresh" title="re-read it now (r) — spends no premium request">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v5h-5"></path></svg><span class="sr">refresh</span>
+      </button>
+      <button class="modeltoggle wordbtn" type="button" data-tool="model" title="which model this agent runs (m)">
+        <span class="bm-name"></span><span class="sr">model</span>
       </button>
       <button class="sizetoggle" type="button" title="one column or two (Alt+Enter)" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"></path><path d="M8 8l-4 4 4 4"></path><path d="M16 8l4 4-4 4"></path></svg>

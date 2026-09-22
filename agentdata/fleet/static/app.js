@@ -315,10 +315,8 @@ function makeTile(row, index) {
     action(el, "answer", { repo: row.repo, answers: answers });
   });
 
-  el.querySelector(".hidetoggle").addEventListener("click", function (e) {
-    e.stopPropagation();
-    setHidden(row.repo, true);
-  });
+  // hide, refresh and the model -- the band's three, on the tile, from the one binder (#205).
+  bindTools(el, row.repo);
 
   el.querySelector(".scope-close").addEventListener("click", function () {
     el.querySelector(".scope").hidden = true;
@@ -577,6 +575,10 @@ function drawTile(el, row, approvals) {
   }
   el.tabIndex = 0;
   // Every state carries its own age, in the chip, because a verdict with no date is the bug.
+  var modelBtn = el.querySelector(".modeltoggle .bm-name");
+  if (modelBtn) text(modelBtn, shortModel(row.actual || row.model));
+  var modelHost = el.querySelector(".modeltoggle");
+  if (modelHost) modelHost.title = modelTitle(row);
   var ac = ageChip(row.last_event_age_s);
   var chip = el.querySelector(".chip");
   chip.className = "chip " + displayState + (ac.stale ? " stale" : "");
@@ -1212,6 +1214,7 @@ document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   if (e.key === "Escape") {
     // The nearest open thing closes first, and nothing else: a popover (#180), then the card (#183).
+    if (closeModelCard()) { e.stopImmediatePropagation(); return; }
     if (closePopovers()) { e.stopImmediatePropagation(); return; }
     var card = document.getElementById("dispatch");
     if (card && !card.hidden) { closeDispatch(); e.stopImmediatePropagation(); return; }
@@ -1247,6 +1250,18 @@ document.addEventListener("keydown", function (e) {
   }
   if ((e.key === "j" || e.key === "k") && LAYOUT === "column") {
     stepColumn(e.key === "j" ? 1 : -1);
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "r" || e.key === "m") {
+    // The band or the tile the keyboard is on -- the same two keys on either, because the three
+    // controls are the same three on either.
+    var host = document.activeElement && document.activeElement.closest
+      ? (document.activeElement.closest(".band") || document.activeElement.closest(".tile")) : null;
+    var name = host ? host.dataset.repo : (LAYOUT === "column" ? openName() : focused);
+    if (!name) return;
+    if (e.key === "r") doRefresh(name, host ? host.querySelector('[data-tool="refresh"]') : null);
+    else openModelCard(name, host ? host.querySelector('[data-tool="model"]') : null);
     e.preventDefault();
     return;
   }
@@ -2723,6 +2738,145 @@ function solo() {
   return "";
 }
 
+/* ------------------------------------------------------- hide, refresh and the model (#205)
+
+   The same three, in the same order, with the same keys, on the band and on the tile. The
+   operator's sentence was *active and inactive both*, and a control that exists in one place and
+   not the other is what this slice was asked to stop. */
+
+/* The model name, short enough for a 28px button. Never a closed list -- which names this build
+   accepts has never been measured -- so this only shortens what it is given. */
+function shortModel(name) {
+  var value = String(name || "").trim();
+  if (!value) return "auto";
+  return value.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+}
+
+/* What the model button says when you hover it, on the band and on the tile alike: what this agent
+   is actually running, and what it was configured to run. Written once so the two cannot drift. */
+function modelTitle(row) {
+  row = row || {};
+  return "runs " + (row.actual || row.model || "whatever the CLI picks") +
+         (row.model ? " · configured " + row.model + " (" + (row.model_source || "") + ")"
+                    : " · no --model flag is passed") + " — press m";
+}
+
+/* Read what the next tick would read, now. It spends NO premium request: nothing is sent to the
+   agent, the stream is re-folded from disk and the four cells are the poll's own reads. The button
+   says so while it is in flight by being the thing that is busy -- no overlay, no spinner. */
+function doRefresh(repo, button) {
+  if (!repo) return Promise.resolve();
+  if (button) { button.disabled = true; button.setAttribute("aria-busy", "true"); }
+  return post("refresh", { repo: repo }).then(function (r) {
+    if (r && !r.ok) say(r.error + (r.hint ? " — " + r.hint : ""));
+    else refresh();
+    return r;
+  }).catch(function (e) { say(String(e)); }).then(function (r) {
+    if (button) { button.disabled = false; button.removeAttribute("aria-busy"); }
+    return r;
+  });
+}
+
+/* The settings page's `seen` list and its efforts, fetched once and kept: they are suggestions on
+   a free-text field, so a stale one costs nothing and a fetch per click costs a round trip. */
+var modelChoices = null;
+
+function loadModelChoices() {
+  if (modelChoices) return Promise.resolve(modelChoices);
+  return fetch(q("/api/settings")).then(function (r) { return r.json(); })
+    .then(function (data) {
+      modelChoices = (data && data.model) || { seen: [], efforts: [] };
+      return modelChoices;
+    }).catch(function () { return { seen: [], efforts: [] }; });
+}
+
+function fillDatalist(id, values) {
+  var list = document.getElementById(id);
+  if (!list) return;
+  while (list.firstChild) list.removeChild(list.firstChild);
+  (values || []).forEach(function (value) {
+    var option = document.createElement("option");
+    option.value = value;
+    list.appendChild(option);
+  });
+}
+
+/* Configured, and what the last turn actually ran on. Two facts, because a tenant may pin a model
+   and a card that showed only what was asked for would be showing a value that is not what ran. */
+function openModelCard(repo, anchor) {
+  var card = document.getElementById("modelcard");
+  var entry = tiles.get(repo);
+  var row = (entry && entry.row) || {};
+  if (!card) return;
+  card.dataset.repo = repo;
+  text(document.getElementById("mc-repo"), repo);
+  text(document.getElementById("mc-configured"), row.model ? row.model : "the CLI chooses");
+  text(document.getElementById("mc-source"), row.model_source || "cli-auto");
+  text(document.getElementById("mc-actual"), row.actual || "no turn has run yet");
+  text(document.getElementById("mc-actual-why"),
+       row.actual && row.model && row.actual !== row.model ? "the tenant pinned it" : "");
+  document.getElementById("mc-model").value = row.model || "";
+  document.getElementById("mc-effort").value = row.effort || "";
+  text(document.getElementById("mc-note"), "takes effect on the agent's next turn");
+  var all = document.getElementById("mc-all");
+  all.href = q("/settings") + "#model-" + encodeURIComponent(repo);
+
+  loadModelChoices().then(function (choices) {
+    fillDatalist("mc-models", choices.seen);
+    fillDatalist("mc-efforts", choices.efforts);
+  });
+
+  card.hidden = false;
+  if (anchor && anchor.getBoundingClientRect) {
+    var box = anchor.getBoundingClientRect();
+    var width = card.offsetWidth || 280;
+    card.style.top = Math.min(window.innerHeight - 40, box.bottom + 6) + "px";
+    card.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, box.left)) + "px";
+  }
+  document.getElementById("mc-model").focus();
+}
+
+function closeModelCard() {
+  var card = document.getElementById("modelcard");
+  if (card && !card.hidden) { card.hidden = true; card.dataset.repo = ""; return true; }
+  return false;
+}
+
+/* One writer for this setting: the same action, the same function and the same refusals the
+   settings page gets, so two ways to set one thing do not become two rules about it. */
+function saveModel() {
+  var card = document.getElementById("modelcard");
+  var repo = card.dataset.repo || "";
+  if (!repo) return;
+  var body = { models: [{ repo: repo,
+                          model: document.getElementById("mc-model").value.trim(),
+                          effort: document.getElementById("mc-effort").value.trim() }] };
+  post("settings", body).then(function (r) {
+    if (r && r.ok) {
+      text(document.getElementById("mc-note"), "saved — it reaches the agent on its next turn");
+      refresh();
+      return;
+    }
+    text(document.getElementById("mc-note"), (r && r.error) + ((r && r.hint) ? " — " + r.hint : ""));
+  });
+}
+
+/* One binder for both surfaces, so the band and the tile cannot drift apart. */
+function bindTools(root, repo) {
+  Array.prototype.forEach.call(root.querySelectorAll("[data-tool]"), function (button) {
+    if (button.dataset.bound === "1") return;
+    button.dataset.bound = "1";
+    button.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var what = button.dataset.tool;
+      var name = (root.dataset && root.dataset.repo) || repo;
+      if (what === "hide") setHidden(name, true);
+      else if (what === "refresh") doRefresh(name, button);
+      else if (what === "model") openModelCard(name, button);
+    });
+  });
+}
+
 /* -------------------------------------------------------------------------- the column (#203) */
 
 /* Which agent is open, decided once. The window's own choice wins; then the selection every window
@@ -3057,6 +3211,16 @@ function drawBand(li, item, index) {
   text(last, said);
   last.hidden = !said;
 
+  var modelName = li.querySelector(".bm-name");
+  if (modelName) text(modelName, shortModel(row.actual || row.model));
+  var modelBtn = li.querySelector('[data-tool="model"]');
+  if (modelBtn) modelBtn.title = modelTitle(row);
+  var tools = li.querySelector(".band-tools");
+  if (tools) {
+    tools.hidden = !!item.gone;          // nothing to hide, refresh or configure about a departed one
+    bindTools(li, item.name);
+  }
+
   var button = li.querySelector(".band-open");
   button.title = item.gone
     ? "`ad-fleet repo add " + item.gone.path + "` restores it"
@@ -3274,6 +3438,23 @@ function stepColumn(dir) {
                     : (here + dir + buttons.length) % buttons.length;
   buttons[at].focus();
 }
+
+(function bindModelCard() {
+  var card = document.getElementById("modelcard");
+  if (!card) return;
+  document.getElementById("mc-close").addEventListener("click", closeModelCard);
+  document.getElementById("mc-save").addEventListener("click", saveModel);
+  card.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { saveModel(); e.preventDefault(); }
+  });
+  // A click anywhere else closes it, the way it closes a popover.
+  document.addEventListener("click", function (e) {
+    if (card.hidden) return;
+    if (card.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('[data-tool="model"]')) return;
+    closeModelCard();
+  });
+})();
 
 document.getElementById("column-showall").addEventListener("click", function () {
   post("arrange", { layout: LAYOUT, hidden: [] }).then(function (r) {

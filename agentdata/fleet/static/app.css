@@ -381,18 +381,21 @@ body.focused .tile.is-focused { max-height: none; }
 .chip.stale .chipage { text-decoration: underline dotted; }
 
 /* 28px is the HIG desktop floor for a hit target; 20px was below it. */
-.head .pintoggle, .head .sizetoggle, .head .hidetoggle {
+.head .pintoggle, .head .sizetoggle, .head .hidetoggle,
+.head .refreshtoggle, .head .modeltoggle {
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0 6px; min-height: 28px; min-width: 28px;
   border-radius: 4px; background: transparent; border: 1px solid transparent;
   color: var(--muted); cursor: pointer;
 }
-/* All three, or the one left out paints its SVG with the default black fill (#180). */
-.head .pintoggle svg, .head .sizetoggle svg, .head .hidetoggle svg {
+/* Every one of them, or the one left out paints its SVG with the default black fill (#180). */
+.head .pintoggle svg, .head .sizetoggle svg, .head .hidetoggle svg,
+.head .refreshtoggle svg, .toolbtn svg {
   width: 16px; height: 16px; fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
-.head .pintoggle:hover, .head .sizetoggle:hover, .head .hidetoggle:hover { border-color: var(--accent); color: var(--text); }
+.head .pintoggle:hover, .head .sizetoggle:hover, .head .hidetoggle:hover,
+.head .refreshtoggle:hover, .head .modeltoggle:hover { border-color: var(--accent); color: var(--text); }
 .head .pintoggle.active { background: var(--select); color: var(--accent); border-color: var(--accent); }
 
 .tile.size-2 { grid-column: span 2; }
@@ -767,6 +770,54 @@ body.layout-column .transcript, body.layout-column .history { max-height: none; 
 .band.needs-human .b-name { color: var(--human); }
 .band.departed .band-open { border-style: dashed; color: var(--muted); }
 .column-hidden { color: var(--muted); }
+
+/* ------------------------------------------------------ hide, refresh and the model (#205)
+   The same three controls on the band and on the tile, so the eye finds them in the same place
+   whichever one it is looking at. */
+.band-tools { display: flex; flex-direction: column; gap: 2px; padding: 4px 2px; flex: 0 0 auto; }
+.toolbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 28px; min-width: 28px; padding: 0 5px;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--muted); cursor: pointer;
+}
+.toolbtn:hover { border-color: var(--accent); color: var(--text); }
+/* An in-flight control is the control itself, dimmed -- never an overlay and never a spinner: the
+   page has one motion budget (#216) and a refresh is over before an animation would read as one. */
+.toolbtn[aria-busy="true"], .head [aria-busy="true"] { opacity: .5; }
+/* The model button says a name rather than drawing a glyph: a model is a word, and an icon for one
+   would be an icon nobody can read. */
+.wordbtn { font: 10px var(--mono); letter-spacing: .02em; white-space: nowrap; max-width: 9ch;
+           overflow: hidden; text-overflow: ellipsis; }
+.head .modeltoggle { min-width: auto; }
+
+/* The card behind the model button. Fixed, because it is one card for the page and it is moved to
+   whichever button opened it -- the same "moved, never copied" rule the dispatch card follows. */
+.modelcard {
+  position: fixed; z-index: 40; display: flex; flex-direction: column; gap: 8px;
+  min-width: 280px; max-width: min(380px, 92vw); padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18); font-size: 12px;
+}
+.mc-head { display: flex; align-items: baseline; gap: 8px; }
+.mc-close {
+  margin-left: auto; min-width: 28px; min-height: 28px; line-height: 1;
+  background: none; border: 1px solid var(--line); color: var(--text);
+}
+.mc-facts {
+  display: grid; grid-template-columns: max-content 1fr max-content;
+  gap: 2px 10px; font: 11px var(--mono); align-items: baseline;
+}
+.mc-facts .mc-k { color: var(--muted); }
+.mc-facts .mc-v { overflow-wrap: anywhere; }
+.mc-facts .mc-src { color: var(--muted); text-align: right; }
+.mc-edit { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.mc-edit input {
+  flex: 1 1 8rem; min-width: 0; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; font: inherit;
+}
+.mc-note { margin: 0; color: var(--muted); font-size: 11px; }
+.mc-all { align-self: flex-start; font-size: 11px; }
 
 /* A narrow window cannot afford a column beside the glass, so it lies down into a strip above the
    tile -- which is the dock as it was always meant to read, and the laptop's own narrow view. */
