@@ -8,9 +8,10 @@ name, and the refusal says so rather than quietly dropping the write.
 Three things travel with every key, because all three are answers the operator needs and none of
 them is guessable from the value:
 
-* **type**, so a typo is refused rather than coerced. `fleet.budget_per_agent` is the cautionary
-  tale that is deliberately *not* on this page: a non-numeric value there silently becomes `0.0`,
-  which turns the cap off -- the exact opposite of what somebody typing in that box intends.
+* **type**, so a typo is refused rather than coerced. `fleet.budget_per_agent` was the cautionary
+  tale this page was built around: a non-numeric value there silently became `0.0`, which turns the
+  cap off. It is on the page now (#213) precisely because this table refuses what that reader
+  swallowed.
 * **scope**, because a config file is read at different moments by different things and "why did
   nothing happen" is the obvious next question. An argv is fixed when the process starts, so a model
   changed now reaches the agent on its *next* turn and not this one.
@@ -18,6 +19,12 @@ them is guessable from the value:
 
 What is missing is missing on purpose, and the reasons are not the same:
 
+* `fleet.budget_per_agent` **is** on the page since #213, and the reason it was kept off is the
+  reason it is safe there now: its reader turned a typo into `0.0`, which turns the cap OFF -- the
+  exact opposite of what somebody typing in that box intends. The table's own rule refuses `""`,
+  `"ten"` and `-1` with `bad_type` and writes nothing, and a non-numeric value already in the file
+  is now `budget_invalid`: still off, because a budget nobody can read cannot be enforced, but said
+  out loud by `ad-doctor`, by `ad-fleet status` and on the tile instead of swallowed.
 * `fleet.allow_tools` / `fleet.deny_tools` are shown on the page and are not editable from it. The
   allow-list is the boundary (see `launch.py`) and configuration *replaces* it rather than adding to
   it, so a list saved from a page becomes the whole boundary -- including on a partial render -- and
@@ -95,6 +102,9 @@ EDITABLE: dict[str, dict] = {
     "fleet.notify.quiet_hours": {
         "label": "quiet hours", "type": "str", "default": "", "scope": NOW,
         "why": 'no notifications in this window, e.g. "18:00-08:00"; it may wrap midnight'},
+    "fleet.budget_per_agent": {
+        "label": "budget per agent", "type": "int", "default": 0, "scope": NOW,
+        "why": "premium requests an agent may spend before its next reply is refused; 0 is off"},
     "fleet.port": {
         "label": "port", "type": "int", "default": 8765, "scope": RESTART,
         "why": "the loopback port this page is served on"},

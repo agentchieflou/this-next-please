@@ -4,6 +4,48 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.12.0
+
+**The meter (#201).** The operator's sentence was *the reliability and reassurance that a user
+won't blow through their tokens*, and the answer is: show them. Every tile has a spend cell --
+`8.5 premium · of 10 · 12 turns · opus-5` -- amber at four fifths and red at the line, each
+carrying the sentence that explains it rather than just a colour. Every band carries the number.
+The footer carries the fleet's: `12.3 premium today · 41.0 all time`. The inspector carries the
+breakdown, and `ad-fleet spend` prints the same rows from the same ledger.
+
+**One arithmetic (#209).** There were two answers to "what has this agent spent", in two files,
+printed side by side under one column name: `agentstate.Fold` took the maximum of every `cost`
+event and `supervisor.agent_state` took the sum of `result.usage.premiumRequests`. It is
+`agentdata/fleet/spend.py` now -- the mark within a session, summed across sessions, a day charged
+what each session rose by -- and every printer calls it. The fold is incremental by construction
+and a property test holds it over any interleaving of two sessions.
+
+**The budget stops resetting at 20 MB (#210).** `rotate_all` moved `events.norm.jsonl` aside and
+`events.read` opens only the live file, so at `fleet.log_mb` an agent's spend silently became zero,
+the cap re-opened and `ad-fleet history` forgot the morning -- which `lifecycle.gc`'s own docstring
+promised could not happen. `spend.json` is written before the rotation and carried across it;
+`ad-fleet spend --rebuild` folds every log on disk and must agree.
+
+**`usage.json` is read at last (#209).** `--usage-output-file` has been passed on every launch
+since #93 and read by nothing. It is read to disagree out loud: an `ad-doctor` row when the CLI's
+own final usage and the folded stream differ, naming measurement M1, because which of the two is
+right is genuinely unknown.
+
+**The refusal reaches the desk (#213).** The budget was enforced in `send`, the desk called `send`
+with no `force`, and so an over-budget agent was unreachable from the page. *Send* re-arms as
+*Send anyway*: one more turn on a second, deliberate press. `fleet.budget_per_agent` joins the
+settings table -- it was kept off it because its reader coerced a typo to `0.0`, and it is on it
+now because that table refuses what the reader swallowed. A bad value already in the file is
+`budget_invalid`: off, and said out loud.
+
+**No new stop.** The per-agent cap is exactly where it was and means what it meant. The caps that
+were considered -- `--max-ai-credits`, a turn watchdog, a fleet-wide daily budget, the cap on every
+door -- are deferred and named in `docs/plan-meter.md` §Caps, later, each with the one measurement
+it needs first. Rows M1-M5 are in `docs/windows-verification.md`.
+
+`ad-fleet spend [repo] [--rebuild]` is new; `ad-fleet status` gains `model` and `actual` columns,
+and its `spent_today` now means today. Nothing needs re-running after an update.
+
 ## 0.11.0
 
 **The column (#200).** The desk's default arrangement is a fourth one: `column`. One agent is open

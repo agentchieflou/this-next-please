@@ -1076,3 +1076,30 @@ two embedders, at the width the operator actually works at.
   nothing reorders itself under the operator's hand; the head counts the red ones and jumps to the
   first instead.
 - **Is two seconds the right floor for refresh?** (K5) Or should it be the tick's own cadence.
+
+
+## The meter (#201): what only the laptop and a real tenant can answer
+
+Everything the fleet knows about money is folded from the Copilot CLI's own events, and two of the
+four things worth knowing were never measured at all. These rows are the ones the caps epic is
+written from; until they are filled in, `docs/plan-meter.md` §Caps, later is a table and not a
+design.
+
+| # | Do this | Expect | Result | Notes |
+| --- | --- | --- | --- | --- |
+| M1 | Run one agent for three turns on a real tenant, then read `events.norm.jsonl` and `usage.json` | is `result.usage.premiumRequests` the TURN's cost or the SESSION's total so far? The spike says per-turn; `docs/fleet-events.md` says session total; the fake makes them equal | _not yet measured_ | this decides whether the `source: result` rule stays max or becomes a sum |
+| M1b | `ad-fleet doctor` after that run | the `spend` row says whether the CLI's own final usage and the folded stream agree | _not yet measured_ | — |
+| M2 | Launch with `--max-ai-credits 1` and let the agent exceed it | what unit does it count, what does the CLI emit at the line (an error event? a `result` with a code?), and does a `--resume` inherit it? | _not yet measured_ | the flag is on the measured list and passed nowhere |
+| M3 | A real day's work, then `ad-fleet spend --rebuild` | the longest legitimate turn, from `turn_ended` − `turn_started`; and whether the ledger equals the rebuild after a real rotation | _not yet measured_ | this is the floor a turn watchdog would have to clear |
+| M4 | Five agents started within a minute of each other | does the tenant rate-limit before any fleet budget would? (`docs/fleet-spike.md`:225 is still unchecked) | _not yet measured_ | a fleet-wide daily budget is pointless if the tenant caps first |
+| M5 | `ad-fleet status` and the desk's footer, side by side | the same `spent_today` and the same all-time total | _not yet measured_ | one arithmetic; this is the row that proves it on a real ledger |
+
+### The open questions these rows answer
+
+- **Which number is the bill?** (M1) Everything else is arithmetic over it.
+- **Can the CLI cap itself?** (M2) A ceiling the CLI enforces is worth more than one the fleet
+  enforces, because it holds inside a turn rather than only before one.
+- **Is a mean of the turns a fair rate?** (M3) The tile says `at the MEAN of 0.8 a turn` and says
+  it is a mean; whether the spread makes that useful is a question for a real day.
+- **Would a fleet budget ever fire?** (M4) If the tenant limits first, the cap to build is a
+  different one.

@@ -207,11 +207,24 @@ def classify(f: Fold, *, live: bool = False) -> dict:
 
 
 def derive(events: list[dict], *, live: bool = False) -> dict:
-    """What state this agent is in, from its whole stream."""
+    """What state this agent is in, from its whole stream.
+
+    The STATE is this module's; the SPEND is `spend.py`'s, and is overlaid here so that every
+    caller of `derive` -- the tile, the history, the sessions list, the budget -- gets the one
+    arithmetic rather than `Fold`'s per-agent high-water mark. `Fold` keeps its own mark because
+    `classify` reads it while deciding, and because a fold that suddenly needed the whole stream
+    twice would be a different shape for no gain.
+    """
+    from . import spend as SPEND
+
     fold = Fold()
     for ev in events:
         fold.add(ev)
-    return classify(fold, live=live)
+    out = classify(fold, live=live)
+    folded = SPEND.fold(events)
+    out["premium_requests"] = SPEND.total(folded)
+    out["turns"] = SPEND.turns(folded)
+    return out
 
 
 def transitions(events: list[dict]) -> list[dict]:

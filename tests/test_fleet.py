@@ -325,7 +325,14 @@ def test_a_later_clean_turn_clears_waiting(fleet_home, tmp_path):
     ])
     state = supervisor.agent_state("a")
     assert state["agent"] == "exited", state
-    assert state["turns"] == 2 and state["premium_requests"] == 1.33
+    # 1.0, not 1.33. Both `result`s name session `s`, and a cost event is that session's total SO
+    # FAR (`docs/fleet-events.md` §cost) -- so the answer is the largest one it ever reported, and
+    # adding them would bill the first turn twice. This assertion used to read 1.33 because
+    # `agent_state` kept its own sum while the tile, the history and the budget took the max;
+    # one arithmetic (#209) is what ended that. Whether `result.usage` is really a session total
+    # or a per-turn figure is measurement M1, and the `source` on each cost event is what lets the
+    # rule change for `result` alone once the laptop says.
+    assert state["turns"] == 2 and state["premium_requests"] == 1.0
 
 
 def test_a_turn_that_never_finished_is_crashed_not_idle(fleet_home, tmp_path):

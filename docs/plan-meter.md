@@ -1,6 +1,6 @@
 # Plan: the meter — every tile says what its agent has spent, against what, on which model; and the caps come later, named
 
-_Status: PLANNED (2026-09-22) — epic #201 (slices #209–#214), under #91 (the fleet) and #122 (the desk), a
+_Status: IMPLEMENTED (2026-09-22) — epic #201 (slices #209–#214), under #91 (the fleet) and #122 (the desk), a
 sibling of #101 (whose cost strip never shipped), #170 and #179, and one of three plans written from the same
 photograph as [plan-column.md](plan-column.md) (#200) and [plan-ownership.md](plan-ownership.md) (#202). The
 operator's sentence is recorded in §Decisions; the one decision that shapes this plan — **meter first, caps later** —
@@ -168,6 +168,10 @@ The age is on every number: the footer's total is as old as the oldest ledger it
 
 None of these is built by this plan. Each is listed with the one thing that must be measured on the laptop before it
 is designed; slice F makes those measurements while it has the fake and the tenant in front of it.
+
+**Nothing below is built. Each row's measurement is a row in `docs/windows-verification.md`
+(M1–M4), and the epic that builds these caps is written from those rows rather than from this
+table's guesses.**
 
 | Cap | What it would do | What must be measured first |
 |---|---|---|

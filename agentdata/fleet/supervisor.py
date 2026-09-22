@@ -258,9 +258,19 @@ def agent_state(name: str, repo: Repo | None = None) -> dict:
     else:
         state = "exited"
 
-    premium = 0.0
-    for event in results:
-        premium += float((event.get("usage") or {}).get("premiumRequests") or 0)
+    # The spend is `spend.py`'s, from the NORMALIZED stream -- not a second sum over raw `result`
+    # events. The two disagreed under one column name: `ad-fleet status` printed this sum while the
+    # tile, the history and the budget printed the fold's max (#209).
+    from . import events as E, spend as SPEND
+
+    # The normalized stream is the record, and the poller keeps it up to date. When nobody has
+    # folded it yet -- a fresh agent, or a caller reading before the first refresh -- the raw
+    # events in hand are mapped through the same function that writes it, so the number is the
+    # same number either way rather than a second arithmetic for the cold case.
+    normalized = E.read(name)
+    if not normalized:
+        normalized = [one for raw in events for one in E.from_copilot(raw, name)]
+    folded = SPEND.fold(normalized)
 
     repo_state = repo.state() if repo else {}
     return {
@@ -272,8 +282,8 @@ def agent_state(name: str, repo: Repo | None = None) -> dict:
         "last_event": last.get("type", ""),
         "last_event_age_s": _age(last),
         "denied_tools": len(denied),
-        "premium_requests": round(premium, 2),
-        "turns": len(results),
+        "premium_requests": SPEND.total(folded),
+        "turns": SPEND.turns(folded),
     }
 
 

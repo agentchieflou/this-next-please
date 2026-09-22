@@ -230,14 +230,23 @@ def from_copilot(raw: dict, repo: str, ticket: str = "") -> list[dict]:
                                             "message": error.get("message") or ""})]
         return [result]
     if kind == "session.usage_checkpoint":
-        return [make("cost", {"premium_requests": data.get("totalPremiumRequests")})]
+        # `source` is additive and schema 1 is unchanged. It exists so the fold can one day treat a
+        # `result`'s usage differently from a checkpoint's WITHOUT re-reading what is already
+        # written -- which is the open measurement M1: the spike calls `result.usage` "exact and
+        # per-turn" and `docs/fleet-events.md` calls every cost a session total. Both fold with the
+        # max rule until the laptop says. `nano_aiu` is measured and shown nowhere, because nothing
+        # here knows what one is.
+        return [make("cost", {"premium_requests": data.get("totalPremiumRequests"),
+                              "source": "checkpoint",
+                              "nano_aiu": data.get("totalNanoAiu")})]
     if kind == "result":
         # `result` is the one event not shaped {type,id,parentId,timestamp,data} -- its fields are
         # at the top level. Measured; do not "fix" this to read data.
         out = [make("session_id", {"session": raw.get("sessionId")})] if raw.get("sessionId") else []
         usage = raw.get("usage") or {}
         if usage.get("premiumRequests") is not None:
-            out.append(make("cost", {"premium_requests": usage.get("premiumRequests")}))
+            out.append(make("cost", {"premium_requests": usage.get("premiumRequests"),
+                                     "source": "result"}))
         code = raw.get("exitCode")
         out.append(make("exited" if code == 0 else "error",
                         {"exit_code": code, "files_modified": (usage.get("codeChanges") or {})
@@ -604,7 +613,17 @@ def refresh(name: str, repo_path: str = "", *, repo_state: dict | None = None) -
     from .supervisor import events_path
 
     with writing(name):
-        return _refresh(name, repo_path, repo_state, events_path(name), console_path(name))
+        out = _refresh(name, repo_path, repo_state, events_path(name), console_path(name))
+    # The ledger follows the stream (#210). Outside the lock, because it only ever READS what was
+    # just written, and inside a `try` because a number that cannot be saved is one that gets
+    # rebuilt -- never a refresh that fails.
+    try:
+        from . import spend as SPEND
+
+        SPEND.update(name)
+    except Exception:                         # noqa: BLE001 - see the module docstring
+        pass
+    return out
 
 
 def console_path(name: str) -> str:

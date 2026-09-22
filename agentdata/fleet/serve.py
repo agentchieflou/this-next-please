@@ -348,6 +348,23 @@ REFRESH_FLOOR_S = 2.0
 _refreshed_at: dict = {}
 
 
+def _spend_cell(name: str, budget: float) -> dict:
+    """What the tile's spend cell draws. One arithmetic, in `spend.py`, for every printer."""
+    from . import spend as SPEND
+
+    try:
+        return SPEND.for_tile(name, budget=budget, today=_today())
+    except Exception:                    # noqa: BLE001 - a tile never fails to draw over a number
+        return {"total": 0.0, "turns": 0, "session": 0.0, "today": 0.0,
+                "budget": round(float(budget or 0.0), 2), "rate": 0.0, "sessions": 0}
+
+
+def _today() -> str:
+    """The operator's own day. The ledger stores UTC stamps; the printer decides which day they
+    belong to, because "today" on a desk means the day the person is having."""
+    return time.strftime("%Y-%m-%d", time.localtime())
+
+
 def _model_cells(name: str, cfg: dict) -> dict:
     """Which model this agent is launched with, and which one its last turn actually ran on.
 
@@ -390,6 +407,7 @@ def fleet_snapshot() -> dict:
     from .. import config as C
     from .. import theme as T
     cfg = C.load()
+    budget_now = lifecycle.settings(cfg)["budget_per_agent"]
     default_theme_name = cfg.get("theme", {}).get("default") or "none"
     proj_theme_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_theme_map, dict):
@@ -523,6 +541,10 @@ def fleet_snapshot() -> dict:
                      # same functions the settings page calls, so the tile and the page cannot
                      # disagree about what an agent is running (#205).
                      **_model_cells(name, cfg),
+                     # What it has cost, against what (#211). On the row and not in `polls`,
+                     # because a poll cell can be stale or grey and this never is: it is a fold of
+                     # the agent's own stream.
+                     "spend": _spend_cell(name, budget_now),
                      "last_seq": stream[-1]["seq"] if stream else 0,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
                      # The project's own state (#131), beside the agent's. Named `polls` and not
@@ -543,6 +565,11 @@ def fleet_snapshot() -> dict:
     # `fleet.preflight: false` restores #98's immediate start: a drop launches instead of opening
     # the dispatch card. Absent means on, because the card is the recoverable direction.
     return {"repos": rows, "approvals": approval.pending(), "fleet_dir": fleet_dir(),
+            # The fleet's own line (#212): today, and all time. Summed from the same ledgers the
+            # tiles read, so the footer and the cells cannot disagree.
+            "spend": {"today": round(sum((r.get("spend") or {}).get("today", 0.0) for r in rows), 2),
+                      "all_time": round(sum((r.get("spend") or {}).get("total", 0.0) for r in rows), 2),
+                      "budget_invalid": lifecycle.settings(cfg).get("budget_invalid", "")},
             "desk": desk_state(), "theme": theme_state(),
             "preflight": C.get(C.load(), "fleet.preflight") is not False,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
@@ -1458,8 +1485,12 @@ def act(what: str, body: dict) -> dict:
         message = str(body.get("message") or "").strip()
         if not message:
             raise ServeError("nothing to send", "type a message first")
-        lock = supervisor.send(repo, message, cfg=C.load())
-        return {"repo": repo, "pid": lock["pid"]}
+        # `force` spends one more turn past the budget, and it arrives only from a second,
+        # deliberate press (#213). Before this the desk called `send` with no force at all, so an
+        # over-budget agent was simply unreachable from the page and `ad-fleet send --force` in a
+        # terminal was the only door.
+        lock = supervisor.send(repo, message, cfg=C.load(), force=bool(body.get("force")))
+        return {"repo": repo, "pid": lock["pid"], "row": row_for(repo)}
     if what == "scope/resolve":
         # Hashes in, paths out. Nothing is written and nothing is uploaded: the page has sent the
         # git object name of each dropped file and is asking which of its own files that is.
@@ -1525,7 +1556,8 @@ def act(what: str, body: dict) -> dict:
         if not answers:
             raise ServeError("nothing to answer",
                              "pick a choice or type an answer for at least one question")
-        lock = supervisor.send(repo, lifecycle.answers_prompt(answers), cfg=C.load())
+        lock = supervisor.send(repo, lifecycle.answers_prompt(answers), cfg=C.load(),
+                               force=bool(body.get("force")))
         return {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers]}
     if what == "stop":
         return supervisor.stop(repo)

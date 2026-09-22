@@ -128,6 +128,18 @@ because "which command did it try" is the first question asked of a stuck agent.
 **`cost`** — premium requests. The CLI reports the **session total so far**, not an increment, so a
 reader takes the maximum and never a sum. Adding checkpoints up would multiply the bill.
 
+`source` says which Copilot event reported it — `checkpoint` (`session.usage_checkpoint`) or
+`result` (the event that ends a turn). Additive, schema 1 unchanged, and it exists for one reason:
+whether `result.usage.premiumRequests` is a turn's figure or the session's is **not measured**. The
+spike calls it "exact and per-turn"; this page calls every cost a session total; the fake
+transcript makes the two equal, so nothing in this repository can tell them apart. Both fold with
+the max rule until the laptop answers M1, and `source` is what lets that rule change for `result`
+alone afterwards without re-reading a byte of what is already written. `nano_aiu` rides along from
+the checkpoint, measured and shown nowhere, because nothing here knows what one is.
+
+The arithmetic over these events is `agentdata/fleet/spend.py`, and it is the only one: the mark
+within a session, summed across sessions, with a day charged what each session *rose* by.
+
 ```json
 {"schema": 1, "seq": 11, "ts": "2026-01-04T09:31:41", "repo": "luna", "ticket": "RDSD-118", "kind": "cost", "data": {"premium_requests": 1.33}}
 ```

@@ -371,6 +371,9 @@ def cmd_stop(a) -> int:
 
 
 COLUMNS = ["repo", "agent", "ticket", "session", "phase", "turns", "premium_requests", "budget",
+           # What it is launched with, and what the last turn actually ran on: the two differ
+           # whenever a tenant pins a model, and the configured value alone cannot tell you (#211).
+           "model", "actual",
            "denied_tools", "last_event", "pid", "accent"]
 
 
@@ -416,9 +419,20 @@ def cmd_status(a) -> int:
 
     from . import theme
     cfg = C.load()
-    budget = L.settings(cfg)["budget_per_agent"] if cfg else 0.0
+    fleet_settings = L.settings(cfg)
+    budget = fleet_settings["budget_per_agent"] if cfg else 0.0
+    invalid = fleet_settings.get("budget_invalid", "")
+    from .fleet import launch as LAUNCH
+    from .fleet import serve as SERVE
     for row in rows:
-        row["budget"] = f"{budget:g}" if budget else "-"
+        # Off, and saying so. It used to be swallowed into 0.0, which turns the cap off silently.
+        row["budget"] = (f'invalid "{invalid}" — off' if invalid
+                         else (f"{budget:g}" if budget else "-"))
+        try:
+            row["model"] = LAUNCH.model_for(row["repo"], cfg)[0] or "cli-auto"
+            row["actual"] = SERVE.served_model(row["repo"]) or "-"
+        except Exception:                      # noqa: BLE001 - a table never fails over a setting
+            row["model"] = row["actual"] = "-"
         t_name = C.get(cfg, f"theme.projects.{row['repo']}") or C.get(cfg, "theme.default") or "none"
         try:
             t = theme.get(t_name, seed=row["repo"])
@@ -429,10 +443,15 @@ def cmd_status(a) -> int:
     if ui.on():
         ui.table(COLUMNS, table, title="fleet")
         return EXIT_OK
-    spent_today = round(sum(float(r.get("premium_requests") or 0) for r in rows), 2)
+    # `spent_today` was the sum of every agent's LIFETIME mark under a name that said today.
+    # It is the day now, and the lifetime total has a name of its own (#212).
+    from .fleet import spend as SPEND
+
+    fleet_spend = SPEND.for_fleet([r["repo"] for r in rows], today=_today())
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet status", "agents": len(rows),
                                 "fleet_dir": fleet_dir(), "toast": N.toast_status(cfg),
-                                "premium_requests": spent_today,
+                                "spent_today": fleet_spend["today"],
+                                "spent_total": fleet_spend["all_time"],
                                 "skills": _skills_warning()}}))
     print(toon.table("agents", COLUMNS, table))
     return EXIT_OK
@@ -491,6 +510,59 @@ def cmd_sessions(a) -> int:
                                 "repo": a.repo, "sessions": len(rows)}}))
     print(toon.table("sessions", cols, table_rows))
     return EXIT_OK
+
+
+def cmd_spend(a) -> int:
+    """What an agent has cost, from the ledger -- or from every log on disk, with `--rebuild`.
+
+    One arithmetic (`agentdata/fleet/spend.py`): the high-water mark within a session, summed
+    across sessions, and a day charged the rises. The page prints these same rows.
+    """
+    from .fleet import spend as SPEND
+
+    try:
+        repos = [Registry().get(a.repo)] if a.repo else list(Registry().sorted())
+    except RegistryError as e:
+        return _refuse("ad-fleet spend", e)
+
+    rows, sessions, days = [], [], {}
+    for repo in repos:
+        led = SPEND.rebuild(repo.name) if a.rebuild else SPEND.for_agent(repo.name)
+        rows.append({"repo": repo.name, "premium_requests": SPEND.total(led),
+                     "turns": SPEND.turns(led), "sessions": len(led.get("sessions") or {})})
+        for sid, row in sorted((led.get("sessions") or {}).items()):
+            sessions.append({"repo": repo.name, "session": sid[:8], "ticket": row.get("ticket", ""),
+                             "premium_requests": row.get("premium", 0.0),
+                             "turns": row.get("turns", 0), "ended": row.get("ended", ""),
+                             "last": row.get("last", "")})
+        for day, row in (led.get("days") or {}).items():
+            bucket = days.setdefault(day, {"day": day, "premium_requests": 0.0, "turns": 0})
+            bucket["premium_requests"] = round(bucket["premium_requests"] + row.get("premium", 0.0), 2)
+            bucket["turns"] += row.get("turns", 0)
+
+    today = _today()
+    print(toon.encode({"meta": {
+        "ok": True, "source": "ad-fleet spend", "unit": "premium requests",
+        "agents": len(rows), "rebuilt": bool(a.rebuild),
+        "premium_requests": round(sum(r["premium_requests"] for r in rows), 2),
+        "today": round((days.get(today) or {}).get("premium_requests", 0.0), 2)}}))
+    print(toon.table("agents", ["repo", "premium_requests", "turns", "sessions"],
+                     [[r[c] for c in ("repo", "premium_requests", "turns", "sessions")]
+                      for r in rows]))
+    if sessions:
+        cols = ["repo", "session", "ticket", "premium_requests", "turns", "ended", "last"]
+        print(toon.table("sessions", cols, [[row[c] for c in cols] for row in sessions]))
+    if days:
+        cols = ["day", "premium_requests", "turns"]
+        print(toon.table("days", cols,
+                         [[row[c] for c in cols] for _, row in sorted(days.items())]))
+    return EXIT_OK
+
+
+def _today() -> str:
+    import datetime
+
+    return datetime.datetime.now().strftime("%Y-%m-%d")
 
 
 def cmd_refresh(a) -> int:
@@ -1622,6 +1694,12 @@ def build_parser() -> argparse.ArgumentParser:
     quick.add_argument("--layout", default=LAYOUTS[0], choices=list(LAYOUTS),
                        help="how the tiles are arranged: grid | roles | screens (default grid)")
     quick.set_defaults(fn=cmd_quickstart)
+
+    spend = sub.add_parser("spend", help="what an agent has cost, in premium requests")
+    spend.add_argument("repo", nargs="?", default="", help="one checkout, or every one")
+    spend.add_argument("--rebuild", action="store_true",
+                       help="fold every log on disk instead of reading the ledger; the two must agree")
+    spend.set_defaults(fn=cmd_spend)
 
     refresh = sub.add_parser("refresh",
                              help="re-read one checkout now: its stream and its four cells, free")
