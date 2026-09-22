@@ -99,6 +99,8 @@ def test_ambiguous_and_missing_node(capsys):
         assert "run `ad-graph build`" in out_no_graph
 
 
+@pytest.mark.scale
+@pytest.mark.measured
 def test_summary_performance_on_this_repo(capsys):
     with tempfile.TemporaryDirectory() as tmpdir:
         out_dir = os.path.join(tmpdir, ".agent", "graph")

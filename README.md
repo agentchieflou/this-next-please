@@ -166,8 +166,11 @@ ad-setup --patch sources.oracle   # or name a target: re-ask exactly that, witho
 git clone https://github.com/agentchieflou/this-next-please.git
 cd this-next-please
 pip install -e ".[dev]"     # only here does `pip install -e` make sense
-python -m pytest -q
+python -m pytest -q -n auto -m "not browser and not measured and not scale and not slow"
 ```
+That last line is the inner loop: nearly the whole suite, on every core, while you work. Four tiers are
+held out because they are expensive for four different reasons -- `python -m pytest -q` still runs all of
+it serially, and `docs/testing-this-repo.md` says what each tier costs and why it is one.
 
 ## Layout
 | Path | Role |

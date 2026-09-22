@@ -240,6 +240,7 @@ def test_cli_baseline_flag_adds_a_status_column(fixture_repo, tmp_path, capsys):
 # -------------------------------------------------------------- it must survive a real codebase
 
 
+@pytest.mark.scale
 def test_findings_runs_on_this_repository_and_every_where_resolves(tmp_path):
     out_dir = str(tmp_path / "selfgraph")
     build_graph(root=REPO_ROOT, out_dir=out_dir)

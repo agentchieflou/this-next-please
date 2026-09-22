@@ -4,6 +4,36 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.13.1
+
+**A tier for each reason a test is expensive (#225).** The suite is 3,443 tests and took about seven
+and a half minutes to run, so running it stopped being something you did while working. The cost was
+never spread evenly: the 108 `browser` tests are 3% of the suite and about half of the wall clock,
+because each one launches Chromium and binds a server. Two new markers name the other two reasons
+a test is expensive for what it *costs* rather than what it covers -- `measured` (asserts a
+duration) and `scale` (cost grows with the repository or the data) -- and `pytest-xdist` joins the
+`dev` extra, so the inner loop is now:
+
+```bash
+python -m pytest -q -n auto -m "not browser and not measured and not scale and not slow"
+```
+
+**3,174 tests in 43 seconds** on four cores -- the same tests are 2 minutes 27 serially, and the whole
+suite is seven and a half minutes. CI runs everything it ran before, split up rather than in one pass:
+the bulk on every core, then `measured` and `scale` with the machine to themselves, then `slow`
+serially exactly as before. That split is not tidiness -- a test asserting *"this gesture paints
+inside 50 ms"* passes serially and fails on four workers, because on four workers it is measuring the
+contention rather than the code.
+
+`tests/test_suite_hygiene.py` keeps it from rotting: every assertion that compares a clock to a
+ceiling either carries `measured` or is listed in `NOT_A_BUDGET` with a reason, the scan reads
+whole statements (a budget wrapped over two lines used to be invisible) and looks at helpers as
+well as tests (one duration assertion was already hiding in one), and the held-out tiers may not
+grow past a tenth of the suite. `docs/testing-this-repo.md` has the measurements.
+
+**Nothing to do on update.** `pytest-xdist` is in the `dev` extra only; a `pip install -e ".[dev]"`
+picks it up and the wheel is unchanged.
+
 ## 0.13.0
 
 **Ownership (#202).** The note was *"some of our design failures are from not stripping down
