@@ -57,6 +57,8 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | away strip | title, one line per repo, dismiss | `checkAway` | `.away-strip` | — | — | `test_fleet_desk_sessions_b.py` |
 | tile | head, run line, session pill, cards, cells, transcript, composer, two resize edges | `drawTile` | `.tile`, `.rsz` | `state-*`, `needs-human`, `held`, `is-solo`, `is-selected`, `is-hidden`, `is-pinned`, `is-dragging`, `size-2` | `1`–`9`, `h`, `r`, `m`, `a`, `Alt+←/→`, `Alt+Shift+arrows` | `test_fleet_desk_regressions.py`, `test_fleet_window.py` |
 | resize ghost | outline, the two numbers | `showResizeGhost` | `#rszghost` | — | — | `test_fleet_window.py` |
+| activity trace | sixty bars, one a minute | `drawTrace` | `.trace`, `.b-trace` | red where a minute needed a person | — | `test_fleet_trace.py` |
+| the ground | three blobs, drifting | `drawGround` | `#ground` | still under reduced motion or reduced transparency | — | `test_fleet_trace.py` |
 | state chip | word, age | `drawTile` | `.chip` | the five status roles, `stale` | — | `test_fleet_desk_regressions.py` |
 | session pill | label, menu | `drawSessionPill` | `.spill`, `.smenu` | `is-reading` | `Alt+[`, `Alt+]`, `Alt+N` | `test_fleet_desk_switcher.py` |
 | runs list | one row per run | `drawRuns` | `.live-runs`, `.ss-runs` | — | — | `test_fleet_desk_switcher.py` |
@@ -80,6 +82,12 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 
 `drawer` is not a component: it is a one-line alias for `section("drawer", …)`, kept because the
 rest of the file already calls it that.
+
+## What is painted rather than laid out
+
+`docs/desk-rendering.md` has the canvas rules and the two canvases that keep them: the activity
+trace — an hour in sixty numbers, on the tile's title bar and on every band — and the glass
+skin's ground, drawn so that it can drift.
 
 ## The window gestures
 

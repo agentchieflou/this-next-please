@@ -49,7 +49,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
                inbox as IN, launch as LAUNCH, lifecycle, links as LK, notify as N, poll as P,
-               supervisor)
+               supervisor, trace as TRACE)
 from .registry import Registry, RegistryError, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
@@ -545,6 +545,11 @@ def fleet_snapshot() -> dict:
                      # because a poll cell can be stale or grey and this never is: it is a fold of
                      # the agent's own stream.
                      "spend": _spend_cell(name, budget_now),
+                     # The shape of the hour (#218): sixty small integers, drawn as a trace on
+                     # the tile and the band. Folded from the whole stream rather than from
+                     # `recent`, because forty events is not an hour -- a busy agent fills that
+                     # in two minutes -- and no text comes with it.
+                     "trace": TRACE.trace(stream),
                      "last_seq": stream[-1]["seq"] if stream else 0,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
                      # The project's own state (#131), beside the agent's. Named `polls` and not

@@ -350,7 +350,7 @@ body.focused .tile.is-focused { max-height: none; }
    tile's own width and not the window's -- a 360px tile on a 4K glass needs it as much as one on
    a laptop does. */
 .tile { container-type: inline-size; }
-@container (max-width: 430px) {
+@container (max-width: 500px) {
   .head .bm-name, .head .ticket, .head .chipage { display: none; }
   .head .modeltoggle { padding-left: 4px; padding-right: 4px; }
   .head .modeltoggle::before { content: "\2699"; font-size: 12px; }
@@ -533,6 +533,37 @@ body.focused .tile.is-focused { max-height: none; }
 
 /* What will happen, shown before the mouse comes up (HIG *Drag and drop*). One element for the
    whole page: there is only ever one gesture in flight. */
+/* #218: the last hour, on the tile's title bar and on the band. Sized in CSS and resolved in the
+   script -- the canvas's own `width` is a pixel count, not a layout box, and the two are only the
+   same number on a 1x screen. It shrinks before anything else in the head does, and goes
+   altogether on a narrow tile, because an hour nobody can read the shape of is 120 pixels of
+   title bar spent on nothing. */
+.trace {
+  flex: 0 1 auto; width: 64px; height: 18px; min-width: 40px;
+  opacity: 0.85; vertical-align: middle;
+}
+.trace:hover { opacity: 1; }
+.band .trace { width: 120px; height: 14px; }
+/* The head wraps before it shrinks -- that is what `flex-wrap` means -- so the trace has to be
+   gone by the width at which it would have caused the wrap, not by the width at which it stops
+   fitting. Below this the band carries the same hour, at full width, for every agent at once. */
+@container (max-width: 560px) {
+  .head .trace { display: none; }
+}
+
+/* #218: the drawn ground. Fixed and behind everything, and `hidden` for every skin that does not
+   ask for one -- the stylesheet's own gradients are the ground then, exactly as before. */
+#ground {
+  position: fixed; inset: 0; z-index: -1;
+  width: 100%; height: 100%; pointer-events: none;
+}
+/* Only once the canvas is really painting: the gradients are what `groundColours` reads, so
+   blanking them before it has read them leaves it with nothing to draw. */
+/* `html` in front, for specificity: a skin's stylesheet is appended to the head *after* this
+   file, so `body.has-ground` and `body[data-skin="glass"]` weigh the same and source order gives
+   the gradients the win -- which paints the ground twice, once in CSS and once on the canvas. */
+html body.has-ground { background-image: none; }
+
 #rszghost {
   position: fixed; z-index: 40; pointer-events: none;
   border: 2px dashed var(--accent); border-radius: 6px;

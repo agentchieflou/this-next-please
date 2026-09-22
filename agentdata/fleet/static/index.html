@@ -119,6 +119,7 @@
           <span class="b-badge" hidden></span>
         </span>
         <span class="b-chip"></span>
+        <canvas class="b-trace trace" width="120" height="14" role="img" aria-label=""></canvas>
         <span class="b-last"></span>
         <!-- What it has been doing, filling whatever height the band has left. A band stretched to
              share the page and then showing one line would be the negative space this arrangement
@@ -286,6 +287,10 @@
      differ whenever a tenant pins one. It writes the key `/settings` writes, through the same
      function, with the same refusals in the same words: two ways to set one thing must not become
      two rules about it. One card for the page, moved to whichever button opened it. -->
+<!-- #218: the glass skin's ground, drawn rather than declared, so it can drift. Empty and inert
+     for every other skin; `groundColours()` reads the mesh out of the stylesheet, which stays its
+     only owner. -->
+<canvas id="ground" aria-hidden="true" hidden></canvas>
 <div id="rszghost" hidden aria-hidden="true"><span class="rsz-says"></span></div>
 <div id="modelcard" class="modelcard enters" role="dialog" aria-label="which model this agent runs" hidden>
   <div class="mc-head">
@@ -321,6 +326,9 @@
       <strong class="repo"></strong>
       <!-- Two spans, written rather than rebuilt (#215): the word and its age. -->
       <span class="chip"><span class="chipword"></span><span class="chipage"></span></span>
+      <!-- #218: the last hour, sixty bars. `role="img"` with the sentence on it is the text twin
+           -- a picture a screen reader cannot read is a picture that is not there. -->
+      <canvas class="trace" width="120" height="18" role="img" aria-label=""></canvas>
       <span class="ticket"></span>
       <span class="spacer"></span>
       <span class="badge" hidden title="unread notifications for this agent"></span>
