@@ -1,6 +1,6 @@
 # Plan: panes — one arrangement, every agent its own column, every column resizable
 
-_Status: PLANNED (2026-09-22) — epic not yet filed, under #91 (the fleet) and #122 (the desk). Written from the
+_Status: PLANNED (2026-09-22) — epic #229 (slices #230–#236), under #91 (the fleet) and #122 (the desk). Written from the
 operator's sentences of 22 September 2026, recorded verbatim in §Decisions, and from three investigations run the
 same day. Each investigation reproduced its finding before anything here was written: the snap-back in headless
 Chromium with the repo's own browser helpers, and the stale questions against a scratch fleet driven by `ad-state`
@@ -225,7 +225,7 @@ Every agent is a `.tile`, always. What it draws is decided by its own width, in 
 
 ## Slices
 
-### A — the snap-back: one door for the desk, and a window named for its host
+### A #230 — the snap-back: one door for the desk, and a window named for its host
 
 Ships alone, first, before any layout work. It is the defect the operator hits every minute.
 
@@ -243,10 +243,10 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
   - `#tile=gamma`, a click on beta, a reload, and beta still open;
   - a delayed `/api/fleet` answer that does not roll `version` back.
 
-  The operator's report becomes `tests/regressions/test_20260922_<host>_snapback.py`, with its docstring quoting their
+  The operator's report becomes `tests/regressions/test_20260922_chrome_snapback.py`, with its docstring quoting their
   sentence.
 
-### B — the questions: `state.json` decides what is open, and every close says so
+### B #231 — the questions: `state.json` decides what is open, and every close says so
 
 - The snapshot reconciles against `state.json`. `question_cleared` is added. `Fold.questions` is rebuilt from
   `Fold.asked`. `question_seq` is added. Bare strings are normalised. The two skills move to `ad-state ask`. The
@@ -258,9 +258,9 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
   - a question open in `state.json` staying on the tile across a new `started`;
   - a console-row answer that reaches `say_into` with the answers prompt.
 
-  The regression file for the 12 is `tests/regressions/test_20260922_<host>_answered_questions.py`.
+  The regression file for the 12 is `tests/regressions/test_20260922_chrome_answered_questions.py`.
 
-### C — one arrangement: `LAYOUTS` goes, `desk.json` schema 2, the migration
+### C #232 — one arrangement: `LAYOUTS` goes, `desk.json` schema 2, the migration
 
 - Everything in §One arrangement and the migration in §The model. `focus` replaces `open` and `zoomed`. The grid's
   zoom and dock and the column's bands are **not yet** removed, because D replaces them. C leaves the column's
@@ -271,7 +271,7 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
   a `grid`-only hidden list, pins and a `size.cols` of 2. `?layout=roles&view=board` opens the desk and says so
   once.
 
-### D — every agent a pane: the row, the three tiers, the band retired
+### D #233 — every agent a pane: the row, the three tiers, the band retired
 
 - The row, `data-tier`, the rail's and compact tier's drawing, hidden in the footer, and `drawColumn`/`drawBand`/
   `#column` removed. The swap on click, still at today's widths, because resizing is E.
@@ -280,7 +280,7 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
   [desk-components.md](desk-components.md) loses *band* and gains *pane (rail, compact, full)*. A `MutationObserver`
   reads zero on an idle desk (ownership's proof).
 
-### E — resizing: gutters, snaps, the three presets, and widths per window
+### E #234 — resizing: gutters, snaps, the three presets, and widths per window
 
 - Everything in §Resizing. `POST /api/window {widths}` with the version check. The width keys move from spans to
   gutter steps. #217's `size` and `#rszghost` are removed. `.rsz-y` goes too: a pane is always full height, so there
@@ -289,13 +289,13 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
   POST per gesture; undo; each preset; two windows holding different widths over the same order; frame time during a
   drag inside the existing budget (#220); every gesture done again from the keyboard.
 
-### F — proof: the engine rows, the numbers on the laptop, the docs
+### F #235 — proof: the engine rows, the numbers on the laptop, the docs
 
 - Engine rows for `ResizeObserver`, container queries and pointer capture on the gutter in JCEF, Simple Browser and
   Edge. The laptop's tier thresholds, recorded beside CI's. [desk-window.md](desk-window.md) rewritten for panes and
   gutters, [fleet-layouts.md](fleet-layouts.md) closed. Plan-column's Decision 1 already links here.
 
-### G — types without a build
+### G #236 — types without a build
 
 - A dev-only `tsconfig.json` at the repo root (`allowJs`, `checkJs`, `noEmit`, `strict` off to begin with), and
   `// @ts-check` with JSDoc typedefs for the desk record, the window record and a pane. It covers the files D and E
@@ -323,9 +323,8 @@ D after C. E after D. F alongside E. G can start with D, on D's new files.
 
 ## Open questions, to be answered on the laptop and recorded in the slice
 
-- Which host were the snap-back and the 12 questions seen in, for the regression files' names? And was more than one
-  window open on the same server? The investigation reproduced both a single stale window and two windows sharing
-  `main`. (A, B)
+- ~~Which host were the snap-back and the 12 questions seen in?~~ **Answered:** Chrome, opened by
+  `ad-fleet serve --open`, so one `main` window. The first cause, a stale `zoomed`, is enough on its own. (A, B)
 - When even the rails do not fit (about 30 agents on a 1 440 px window), should a project's checkouts share one rail,
   as the dock grouped them, or should the row scroll with a red count at each edge? Default: group. (D)
 - Are 48 / 160 / 360 px the right tier boundaries on the real monitors? (F)
