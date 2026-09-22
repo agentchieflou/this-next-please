@@ -11,6 +11,7 @@ that they hold: the colours come from the stylesheet, the picture has a text twi
 drawn that the row does not carry, and the ground costs a millisecond a second.
 """
 from __future__ import annotations
+import calendar
 import json
 import os
 import re
@@ -131,6 +132,62 @@ def test_the_trace_carries_no_text_and_costs_almost_nothing(fleet_home, tmp_path
     # Nothing but numbers and the one sentence.
     assert set(row["trace"]) == {"minutes", "n", "needs", "total", "needed", "said", "peak", "says"}
     assert all(isinstance(v, int) for v in row["trace"]["n"])
+
+
+def test_a_day_long_stream_is_folded_from_its_tail_and_not_from_its_head():
+    """This runs on every row of every snapshot, several times a second, and an agent that has
+    been going all day has tens of thousands of events. Parsing every stamp in all of them to find
+    the last sixty minutes would be the most expensive thing the server does."""
+    import random
+    import time as _t
+
+    now = _t.time()
+    rng = random.Random(217)
+    old_events = sorted(({"ts": _at(now, rng.uniform(61, 1440)), "kind": "tool_call"}
+                         for _ in range(40000)), key=lambda e: e["ts"])
+    recent = sorted(({"ts": _at(now, rng.uniform(0, 58)), "kind": "tool_call"}
+                     for _ in range(300)), key=lambda e: e["ts"])
+    stream = old_events + recent
+
+    began = _t.perf_counter()
+    out = T.trace(stream, now=now)
+    took = _t.perf_counter() - began
+    assert out["total"] == 300, out["total"]
+    # Generous by an order of magnitude against the 0.2ms this measures, because the number that
+    # matters is "not proportional to the day" and a CI runner under load is not a stopwatch.
+    assert took < 0.05, f"{took * 1000:.1f}ms to fold {len(stream)} events"
+
+
+def test_a_few_stamps_out_of_order_do_not_end_the_scan():
+    """A stream is chronological in *arrival* order, and a Copilot log replayed out of a file can
+    carry a handful of stamps that step backwards. A scan that stopped at the first one would
+    lose the hour behind it."""
+    now = time.time()
+    stream = ([{"ts": _at(now, 30), "kind": "tool_call"}] +
+              [{"ts": _at(now, 200 + i), "kind": "tool_call"} for i in range(T.STOP_AFTER - 1)] +
+              [{"ts": _at(now, 5), "kind": "tool_call"}])
+    assert T.trace(stream, now=now)["total"] == 2, "the older run swallowed what was behind it"
+
+    # And a stream that really is older than the hour does end the scan.
+    ancient = [{"ts": _at(now, 500 + i), "kind": "tool_call"} for i in range(T.STOP_AFTER + 40)]
+    assert T.trace(ancient + [{"ts": _at(now, 3), "kind": "tool_call"}], now=now)["total"] == 1
+
+
+def test_the_sliced_stamp_and_the_parser_agree():
+    """`_seconds` slices the fixed-width form rather than calling `strptime`, which is where the
+    speed above comes from. The two have to give the same answer, including for the shapes that
+    do not fit and fall back."""
+    now = time.time()
+    for minutes in (0, 1, 59, 60, 1440):
+        stamp = _at(now, minutes)
+        assert T._seconds(stamp) == float(
+            calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%S"))), stamp
+    assert T._seconds("") == -1.0
+    assert T._seconds("not a date at all") == -1.0
+    assert T._seconds("2026-13-99T99:99:99") == -1.0
+    # A trailing Z or fraction is sliced off by `events.stamp()` before it gets here, but the
+    # reader must not be the thing that breaks if one arrives.
+    assert T._seconds("2026-09-22T15:04:05Z") == T._seconds("2026-09-22T15:04:05")
 
 
 def test_the_canvas_rules_are_written_down_and_followed():

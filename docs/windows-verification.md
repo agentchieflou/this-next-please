@@ -1103,3 +1103,52 @@ design.
   it is a mean; whether the spread makes that useful is a question for a real day.
 - **Would a fleet budget ever fire?** (M4) If the tenant limits first, the cap to build is a
   different one.
+
+
+## Ownership (#202): the engine rows, on the two embedders
+
+Everything in [desk-engines.md](desk-engines.md) that reads *not yet measured* is measured here.
+Chromium's column is filled in by a test in CI; what CI cannot answer is what PyCharm's JCEF
+window and VS Code's Simple Browser do, because neither is installable on a Linux runner and both
+are pinned to whatever Chromium their host shipped with.
+
+Run the desk in each shell and paste the console line back. The probes are the same ones
+`tests/test_fleet_engines.py` runs, so a row here and a row there mean the same thing:
+
+```js
+// paste into the shell's dev console on the desk, and paste the answer back
+({
+  ua: navigator.userAgent,
+  startingStyle: typeof CSSStartingStyleRule !== 'undefined',
+  allowDiscrete: CSS.supports('transition-behavior', 'allow-discrete'),
+  viewTransition: typeof document.startViewTransition === 'function',
+  linearEasing: CSS.supports('animation-timing-function', 'linear(0, 1)'),
+  pointerCapture: typeof Element.prototype.setPointerCapture === 'function',
+  containerQueries: CSS.supports('container-type', 'inline-size'),
+  offscreenCanvas: typeof OffscreenCanvas !== 'undefined',
+})
+```
+
+| # | Do this | Expect | Result | Notes |
+| --- | --- | --- | --- | --- |
+| O1 | The probe above, in Edge, in PyCharm's JCEF window and in VS Code's Simple Browser | one row per shell for `docs/desk-engines.md` | _not yet measured_ | paste the object back verbatim; the table is filled in from it |
+| O2 | Drag a tile by its head in each shell | the tile moves under the cursor, the target lights, `Esc` cancels | _not yet measured_ | without pointer capture the drag still tracks — this says whether it feels the same |
+| O3 | Pull a tile's right edge past the next track, then its bottom edge | the ghost shows `2 × 1` then `2 × 2` before the button comes up, and the tile lands there | _not yet measured_ | the snap is to the grid's measured tracks, so a narrow monitor has fewer |
+| O4 | Hide a tile, then *show all* | it leaves and comes back in about a fifth of a second, not instantly and not slowly | _not yet measured_ | this is `--motion-base` — the number to argue with if it feels wrong |
+| O5 | Turn on Windows *Show animations* → off, and repeat O2–O4 | everything still works; nothing animates | _not yet measured_ | `prefers-reduced-motion` |
+| O6 | Turn on Windows *Transparency effects* → off, with `glass:smoke` | the ground stops drifting; the frost is unchanged | _not yet measured_ | `prefers-reduced-transparency`, which is the one nobody tests |
+| O7 | Watch the trace on a busy agent for five minutes | the bars shift left by one a minute; a minute it asked you in is red | _not yet measured_ | and whether 60 bars in 64px is legible on the real monitor |
+| O8 | Reopen a desk window that has been shut for under five minutes | the last desk appears at once, dimmed, saying *the last view, while this one loads* | _not yet measured_ | and whether the dimming is too much, too little, or unwanted |
+| O9 | Nine projects, reply to one | the tile updates on the answer, with no visible pause | _not yet measured_ | one round trip; the laptop's own latency number |
+| O10 | The desk at 1280 wide in JCEF | the head is one line on every tile; the trace is gone rather than wrapping | _not yet measured_ | container queries; without them the head wraps instead |
+
+### The open questions these rows answer
+
+- **Which of the six features do the two embedders actually have?** (O1) Every fallback is tested,
+  but a fallback that fires on the operator's main screen is a different conversation from one
+  that fires nowhere.
+- **Is 220 ms right?** (O4) It is the one number every arrival and departure on the page uses.
+- **Is the trace legible at 64 px?** (O7) If it is not, the answer is fewer buckets rather than
+  more pixels — a tile's title bar is not going to get wider.
+- **Is the stale desk reassuring or alarming?** (O8) The alternative is an empty grid, which is
+  what it replaced; the question is whether saying so is enough.

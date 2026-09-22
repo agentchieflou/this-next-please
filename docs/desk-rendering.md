@@ -48,7 +48,18 @@ time. Those are the two questions somebody scanning nine tiles is actually askin
 | `total`, `needed`, `said`, `peak` | the hour's totals |
 | `says` | the sentence — *"40 events in the last hour, needed you twice"* |
 
-Small integers and one sentence, about 400 bytes. No text from the transcript ever leaves here:
+Small integers and one sentence, about 400 bytes.
+
+**Folded from the tail, not the head.** This runs on every row of every snapshot, several times a
+second, and an agent that has been going all day has tens of thousands of events; parsing every
+stamp in all of them to find the last sixty minutes would be the most expensive thing the server
+does. The scan runs backwards and stops once the stream is properly out of the window — `64`
+consecutive older events, not one, because arrival order is not quite timestamp order and a
+replayed log can step backwards for a handful of rows. The stamp itself is *sliced* rather than
+parsed: `events.stamp()` writes exactly `YYYY-MM-DDTHH:MM:SS`, and `int()` on seven slices is the
+same answer as `strptime` for a tenth of the cost, with the parser kept as the fallback for
+anything that does not fit the shape. A day's stream of 40,000 events folds in 0.2 ms, and a test
+holds it there. No text from the transcript ever leaves here:
 the trace is on every row of every window several times a minute, and a transcript on that path is
 the payload problem this repository keeps having, one field further along. The bucket edges are
 whole minutes back from now, so a bar does not change width as the second hand moves — only the

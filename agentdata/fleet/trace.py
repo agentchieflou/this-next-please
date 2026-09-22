@@ -24,15 +24,47 @@ SAID = ("assistant_text", "said")
 NEEDS = ("question_opened", "denied", "error")
 
 
+#: Parsed stamps, kept between folds. The same second recurs across every poll of every window,
+#: and `strptime` is the most expensive thing in this module by an order of magnitude. Bounded
+#: rather than unbounded: a day is 86,400 distinct seconds and this is a dashboard, not a store.
+_SECONDS_CACHE: dict[str, float] = {}
+_CACHE_MAX = 20000
+
+
 def _seconds(ts: str) -> float:
-    """A stamp as epoch seconds, or -1. `calendar.timegm`, not `time.mktime`: the stamps are UTC
-    and mktime would read them as local, which puts every event an offset away from its minute."""
+    """A stamp as epoch seconds, or -1.
+
+    `calendar.timegm`, not `time.mktime`: the stamps are UTC and mktime would read them as local,
+    which puts every event an offset away from its minute.
+
+    The fixed-width form is sliced rather than parsed. `events.stamp()` writes exactly
+    `YYYY-MM-DDTHH:MM:SS` and nothing else, and `strptime` re-reads that format string for every
+    one of tens of thousands of events; `int()` on seven slices is the same answer for a tenth of
+    the cost. Anything that does not fit the shape falls back to the parser rather than guessing.
+    """
     if not ts:
         return -1.0
-    try:
-        return float(calendar.timegm(time.strptime(str(ts)[:19], "%Y-%m-%dT%H:%M:%S")))
-    except (ValueError, TypeError):
-        return -1.0
+    got = _SECONDS_CACHE.get(ts)
+    if got is not None:
+        return got
+    text = str(ts)[:19]
+    out = -1.0
+    if len(text) == 19 and text[4] == "-" and text[7] == "-" and text[13] == ":":
+        try:
+            out = float(calendar.timegm((
+                int(text[0:4]), int(text[5:7]), int(text[8:10]),
+                int(text[11:13]), int(text[14:16]), int(text[17:19]), 0, 1, -1)))
+        except (ValueError, TypeError):
+            out = -1.0
+    if out < 0:
+        try:
+            out = float(calendar.timegm(time.strptime(text, "%Y-%m-%dT%H:%M:%S")))
+        except (ValueError, TypeError):
+            out = -1.0
+    if len(_SECONDS_CACHE) >= _CACHE_MAX:
+        _SECONDS_CACHE.clear()
+    _SECONDS_CACHE[ts] = out
+    return out
 
 
 def _says(total: int, needed: int, said: int) -> str:
@@ -49,12 +81,25 @@ def _says(total: int, needed: int, said: int) -> str:
     return out
 
 
+#: How many events older than the window to see before giving up on the rest of the stream.
+#: The scan runs backwards because a stream is chronological and an hour is its tail -- but
+#: "chronological" is arrival order, and a Copilot log replayed out of a file can carry a handful
+#: of stamps that step backwards. A short run of them does not end the scan; a long one does,
+#: because past that the stream really is older than the hour.
+STOP_AFTER = 64
+
+
 def trace(events, *, now: float | None = None, minutes: int = MINUTES) -> dict:
     """The last `minutes` minutes of a stream, bucketed.
 
     `n` is how many events landed in each minute and `needs` is 1 where at least one of them was
     an agent stopping for a person. Both are the same length and both are oldest first, so the
     canvas draws them left to right without needing to know what o'clock it is.
+
+    Scanned from the newest event backwards and stopped once the stream is properly out of the
+    window. This is on every row of every snapshot, several times a second, and an agent that has
+    been running all day has tens of thousands of events: parsing every stamp in all of them to
+    find the last sixty minutes would be the most expensive thing the server does.
     """
     at = time.time() if now is None else float(now)
     # The bucket boundaries are whole minutes back from now, so a bar does not change width as the
@@ -65,9 +110,18 @@ def trace(events, *, now: float | None = None, minutes: int = MINUTES) -> dict:
     counts = [0] * minutes
     needs = [0] * minutes
     total = said_n = needed_n = 0
-    for ev in events or ():
+    old_run = 0
+    rows = events or ()
+    for i in range(len(rows) - 1, -1, -1):
+        ev = rows[i]
         when = _seconds(ev.get("ts", ""))
-        if when < first or when >= edge + 60:
+        if when < first:
+            old_run += 1
+            if old_run >= STOP_AFTER:
+                break
+            continue
+        old_run = 0
+        if when >= edge + 60:
             continue
         slot = int((when - first) // 60)
         if slot < 0 or slot >= minutes:

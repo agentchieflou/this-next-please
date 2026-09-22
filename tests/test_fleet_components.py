@@ -189,6 +189,13 @@ def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path):
               out.column = watch(document.getElementById('bands'), () => drawColumn());
               place();
               out.place = watch(document.body, () => place());
+              /* Together, and last. Each of the above is idempotent on its own, and #220's demo
+                 found that the *pair* was not: `drawTile` rebuilt the whole class attribute and
+                 dropped `is-selected`, `is-hidden`, `is-pinned` and `size-2`, which `place()`
+                 then put straight back. Two writers with one draw each is still two writes a
+                 pass, and it is only visible when both run. */
+              redrawAll();
+              out.together = watch(document.body, () => { redrawAll(); });
               return out;
             }""")
             assert not errors, errors

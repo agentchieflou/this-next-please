@@ -1,6 +1,6 @@
 # Plan: ownership — every component stripped to its parts and owned, a render that patches and never rebuilds, motion with a budget, the tile as a window, rendering that earns its pixels, and an instant feel
 
-_Status: PLANNED (2026-09-22) — epic #202 (slices #215–#220), under #91 (the fleet) and #122 (the desk), a
+_Status: IMPLEMENTED (2026-09-22) — epic #202 (slices #215–#220), under #91 (the fleet) and #122 (the desk), a
 sibling of #145 (the desk on Windows), #154–#157 (the skins) and #179 (the sitting), and one of three plans written
 from the same photograph as [plan-column.md](plan-column.md) (#200) and [plan-meter.md](plan-meter.md) (#201). The
 operator's sentences are in §Decisions. The demo they pointed at (a post on x.com) could not be fetched from the
@@ -159,14 +159,22 @@ carrying the same information; a canvas never carries information the DOM lacks;
 
 ## Where everything is written down
 
-- `docs/desk-components.md` — new, the inventory, kept in step by a test that finds every `draw*` function and
-  every component class named in it.
-- [fleet-dashboard.md](fleet-dashboard.md): §Motion (new), §The page's table gains the trace and the resize edges,
-  §Keyboard gains `Alt+arrows`.
+*Written, as of #220. What shipped differs from the plan in two places and both are noted below.*
+
+- `docs/desk-components.md` — the inventory, kept in step by a test that finds every `draw*` function and every
+  component class named in it, and refuses a component with no test beside it.
+- `docs/desk-motion.md`, `desk-window.md`, `desk-rendering.md`, `desk-instant.md`, `desk-engines.md` — one page a
+  slice rather than sections of the dashboard page, which had grown to four hundred lines before this epic
+  started. `fleet-dashboard.md` §Motion is a table pointing at the six of them, and its §Keyboard gains
+  `Alt+Shift+arrows` (not `Alt+arrows`: that has moved a tile since #5, and a learned gesture is not one to take
+  away for a new one).
+- `desk-rendering.md` is what the plan called **themes.md** §The Skin Contract. There is no `themes.md` in this
+  repository; rather than start one for a single section, the canvas rules joined the desk's own family of pages.
 - [testing-this-repo.md](testing-this-repo.md) §The browser tests: the idempotence, motion-budget, frame-time and
-  latency guards, and how to read a CDP trace the CI job attaches.
-- [themes.md](themes.md) §The Skin Contract: a canvas reads the tokens; the ground's drift is under reduced motion.
-- [windows-verification.md](windows-verification.md): the engine rows.
+  latency guards, with the two whose obvious version is wrong explained — frame time is measured as long tasks
+  because a headless runner throttles `requestAnimationFrame`, and round trips are counted with the stream's own
+  timers drained.
+- [windows-verification.md](windows-verification.md) §Ownership: the engine rows, O1–O10.
 
 ## Slices
 

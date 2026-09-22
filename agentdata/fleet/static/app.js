@@ -775,6 +775,23 @@ function startGround() {
   }
 }
 
+/* The two classes `drawTile` owns on a tile, and nothing else (#215, found by #220's demo).
+
+   It used to rebuild the whole `class` attribute from `tile state-…`, which dropped every class
+   somebody else owns -- `is-selected`, `is-hidden`, `is-pinned`, `size-2`, `needs-human` -- and
+   `place()` put them straight back on the next line. Two writers, two writes, twenty times a
+   redraw, and `draw(el, row)` twice with the same row was never the no-op the contract claims.
+   The same shape as `place()`'s own body-class write, for the same reason: the classes this
+   function does not own are kept by construction rather than by being remembered. */
+var TILE_OWNED = /^(tile|state-[A-Za-z_]+)$/;
+
+function setTileState(el, state) {
+  var kept = Array.prototype.filter.call(el.classList, function (name) {
+    return !TILE_OWNED.test(name);
+  });
+  setClass(el, ["tile", "state-" + state].concat(kept).join(" "));
+}
+
 function drawTile(el, row, approvals) {
   /* Three things have to agree here or the tile lies: the chip, the sentence under it, and the
      age. The server decides which agents are quiet enough to be called unsupervised (it is the
@@ -783,7 +800,7 @@ function drawTile(el, row, approvals) {
   var isSupervised = row.supervised !== false;
   var cold = !isSupervised && !!row.not_supervised_sentence;
   var displayState = cold ? "idle" : row.state;
-  setClass(el, "tile state-" + displayState + (el.classList.contains("is-focused") ? " is-focused" : ""));
+  setTileState(el, displayState);
   paintAccent(el, row.accent);
   drawTrace(el.querySelector(".trace"), row);
   // `needs-human` is the class focus mode filters on, and it comes from #94's fold rather than from

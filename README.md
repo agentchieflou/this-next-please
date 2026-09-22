@@ -208,11 +208,12 @@ python -m pytest -q
 | `docs/desk-components.md` | the fleet desk's component inventory and the render contract every one of them keeps: created once, patched forever, one owner per property |
 | `docs/desk-window.md` | the tile as a window: the footprint as two numbers and how an older one migrates, the pointer drag, the resize edges and their snap, the keys |
 | `docs/desk-rendering.md` | the rules a canvas on the desk keeps, the activity trace (an hour in sixty numbers) and the glass ground that drifts |
+| `docs/desk-engines.md` | what each engine does with the platform features the desk uses, what happens on the ones that have not got them, and the numbers measured here |
 | `docs/desk-instant.md` | paint, post, reconcile: the optimistic arrangement and its way back, one round trip per action, the stale desk while the new one loads, and the 50ms budget |
 | `docs/desk-motion.md` | the desk's motion budget — three duration tokens, one arrival pattern, one door for a layout change, and what is asserted about all of it |
-| `docs/plan-column.md` | planned: the column (epic #200) — one tile open, every other session a band in a column that fills the page; hide, refresh and the model on every band and tile; one session control where the strip was |
-| `docs/plan-meter.md` | planned: the meter (epic #201) — spend, budget and model on every tile, a fleet total, one arithmetic, a ledger that survives the log rolling; the caps deferred and named |
-| `docs/plan-ownership.md` | planned: ownership (epic #202) — every desk component named and owned, a render that patches and never rebuilds, motion with a budget, the tile as a window, rendering that earns its pixels, an instant feel |
+| `docs/plan-column.md` | implemented: the column (epic #200) — one tile open, every other session a band in a column that fills the page; hide, refresh and the model on every band and tile; one session control where the strip was |
+| `docs/plan-meter.md` | implemented: the meter (epic #201) — spend, budget and model on every tile, a fleet total, one arithmetic, a ledger that survives the log rolling; the caps deferred and named |
+| `docs/plan-ownership.md` | implemented: ownership (epic #202) — every desk component named and owned, a render that patches and never rebuilds, motion with a budget, the tile as a window, rendering that earns its pixels, an instant feel |
 | `prompts/remediate-from-friction.prompt.md` | offline frontier-model repair loop |
 | `agentdata/templates/project-stub/` | the project stub `ad-setup --project` writes (ships in the wheel) |
 

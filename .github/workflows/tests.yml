@@ -42,6 +42,47 @@ jobs:
       - name: a browser, so tests/test_fleet_desk*.py run instead of skipping
         run: python -m playwright install --with-deps chromium
       - run: python -m pytest -q ${{ matrix.select }}
+
+      # #220: the desk's own numbers, in the job output rather than in somebody's memory. These
+      # tests already measure and assert; `-s` is what lets what they measured reach the log, and
+      # the summary is where a reviewer looks without opening a run. One leg only: the numbers are
+      # a property of the engine and the runner, not of the Python version.
+      - name: the desk's measurements, attached
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: |
+          set -o pipefail
+          python -m pytest -q -s -p no:cacheprovider \
+            tests/test_fleet_motion.py tests/test_fleet_trace.py \
+            tests/test_fleet_instant.py tests/test_fleet_engines.py \
+            2>&1 | tee desk-measurements.txt
+          {
+            echo '### The desk, measured'
+            echo
+            echo '```'
+            grep -E 'frames during|ground repaint|local gestures|HeadlessChrome|^  [a-z@]' \
+              desk-measurements.txt || echo 'no measurements printed'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # And the demo itself, as the video and the frames it records. Kept for a fortnight, which
+      # is long enough for a review and short enough not to be an archive.
+      - name: the ownership demo, recorded
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        env:
+          AGENTDATA_SHOTS: ${{ github.workspace }}/demo-frames
+        run: python -m pytest -q -s -p no:cacheprovider tests/test_fleet_demo_ownership.py
+
+      - name: upload the demo
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ownership-demo
+          path: |
+            demo-frames/
+            desk-measurements.txt
+          retention-days: 14
+          if-no-files-found: warn
+
       - name: the console scripts and the module form must both work
         run: |
           set -e

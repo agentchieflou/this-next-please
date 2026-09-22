@@ -79,6 +79,37 @@ start). CI installs chromium on the Linux legs and on the Windows 3.14 leg, so t
 rather than skipping — a browser test that skips everywhere is the harness that let the defects
 through in the first place.
 
+#### The guards that measure rather than read (#202)
+
+Five of the browser tests assert a *number* rather than a fact, which is how a page stays quick
+after the change that makes it slow. Each prints what it measured, and the CI browser leg tees
+that into the job summary and uploads the recorded demo beside it.
+
+| Guard | Asserts | In |
+| --- | --- | --- |
+| idempotence | `draw(el, row)` twice with the same row records **zero** DOM mutations, per component and for the whole page together | `test_fleet_components.py` |
+| the motion budget | no duration in `static/` over 320 ms, nothing repeating for ever but `.dot`, and the reduced-motion block reaching the `::view-transition-*` pseudo-elements `*` never matches | `test_fleet_motion.py` |
+| frame time | a layout swap of five tiles at 1080p records no `longtask` and hands the main thread back inside 50 ms | `test_fleet_motion.py` |
+| the ground | a repaint under 4 ms, and the drift timer off under reduced motion | `test_fleet_trace.py` |
+| latency | every marked local gesture under 50 ms, hiding a tile painted against a server held for two seconds, and one round trip per action | `test_fleet_instant.py` |
+
+Two of those deserve their reasoning repeated here, because the obvious version of each is wrong:
+
+* **Frame time is measured as long tasks, not as frame gaps.** A headless runner throttles
+  `requestAnimationFrame` to whatever it likes — sixty-six millisecond gaps with the page doing
+  nothing at all — so a floor asserted on frame gaps would be a measurement of the runner. What
+  the page owns is how long it holds the main thread, and `PerformanceObserver` reports that
+  directly. The gaps are printed alongside, because the number is worth having even where it
+  cannot be asserted.
+* **Round trips are counted with the stream closed and its timers drained.** `refreshSoon` arms a
+  timer 400 ms out; with it live, the count is the server's heartbeat rather than the gesture's
+  decision.
+
+`tests/test_fleet_engines.py` measures the Chromium column of
+[desk-engines.md](desk-engines.md) rather than trusting it, and takes **every** fallback at once —
+no view transitions, no pointer capture, no `linear()`, no container queries — which is the worst
+engine anybody will meet.
+
 ## Isolation
 
 `tests/conftest.py` gives every test a temporary `HOME`/`USERPROFILE`, a temporary

@@ -107,6 +107,14 @@ How a component *arrives* and how a layout change is animated is one page over, 
 `docs/desk-motion.md`: three duration tokens with a budget a test enforces, `.enters` as the one
 arrival pattern, and `transitionLayout(fn)` as the one door for anything that moves things.
 
+## Which engines do what
+
+`docs/desk-engines.md` has a row per platform feature this epic used — `@starting-style`,
+`allow-discrete`, `startViewTransition`, `linear()`, pointer capture, container queries — against
+Chromium, Edge, PyCharm's JCEF and VS Code's Simple Browser, each reading *works*, *falls back* or
+*not yet measured*. The Chromium column is measured by a test rather than remembered, and every
+fallback is proven by taking the feature away.
+
 ## What is deliberately not here
 
 No virtual DOM, no diffing library, no component base class. The page has one list shape — rows
