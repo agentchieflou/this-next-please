@@ -159,17 +159,28 @@ def test_the_gestures_are_pointer_events_and_the_handles_are_in_the_markup():
 
 
 def _drag(page, handle, target, *, steps=8, cancel=False):
-    """A real pointer gesture: down on the handle, across in steps, up on the target."""
+    """A real pointer gesture: down on the handle, across in steps, up on the target.
+
+    The gesture is confirmed to have *started* before it is carried across. Playwright dispatches
+    a stepped move with no delay between the steps, and on a loaded runner the page can be given
+    the whole journey before it has processed the first pixel of it -- which is a drop with no
+    drag in front of it, and a reorder that never happens. Windows CI found that; the wait is what
+    turns "the page probably kept up" into "the page said it did".
+    """
     a = page.locator(handle).bounding_box()
     b = page.locator(target).bounding_box()
     page.mouse.move(a["x"] + a["width"] / 2, a["y"] + a["height"] / 2)
     page.mouse.down()
     page.mouse.move(a["x"] + a["width"] / 2 + 10, a["y"] + a["height"] / 2 + 10, steps=2)
+    page.wait_for_function("() => !!dragging", timeout=8000)
     # The target's top-left corner, which is "before it" on both axes -- across in the grid, down
     # in the column. Aiming at the middle means "after it" in whichever direction the list runs.
     page.mouse.move(b["x"] + 8, b["y"] + 8, steps=steps)
     if cancel:
         page.keyboard.press("Escape")
+    else:
+        # And that it found somewhere to land, for the same reason.
+        page.wait_for_selector(".drop-before, .drop-after", timeout=8000)
     page.mouse.up()
 
 
@@ -205,7 +216,7 @@ def test_dragging_a_tile_onto_another_reorders_and_escape_leaves_it_alone(fleet_
             _drag(page, '.tile[data-repo="gamma"] .grip', '.tile[data-repo="alpha"]')
             page.wait_for_function(
                 """() => [...document.querySelectorAll('#grid .tile')]
-                          .map(t => t.dataset.repo)[0] === 'gamma'""", timeout=8000)
+                          .map(t => t.dataset.repo)[0] === 'gamma'""", timeout=15000)
             page.wait_for_timeout(400)
             assert order() == ["gamma", "alpha", "beta"]
             assert not errors, errors
@@ -401,7 +412,7 @@ def test_a_band_in_the_column_drags_the_same_way(fleet_home, tmp_path):
             page.wait_for_function(
                 """(want) => [...document.querySelectorAll('#bands .band:not([hidden])')]
                               .map(b => b.dataset.repo)[0] === want""",
-                arg=was[2], timeout=8000)
+                arg=was[2], timeout=15000)
             assert not errors, errors
             browser.close()
     finally:
