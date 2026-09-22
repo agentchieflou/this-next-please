@@ -173,8 +173,9 @@ def test_a_resume_is_refused_beside_a_console_the_fleet_did_not_start(
     from agentdata.fleet import adopt as A
 
     path = _repo(tmp_path)
+    # `**_` because a refusal asks for a *fresh* listing (`max_age=0`) rather than the cached one.
     monkeypatch.setattr(A, "agent_processes",
-                        lambda: [{"pid": 5150, "cwd": path, "cmdline": "copilot"}])
+                        lambda **_: [{"pid": 5150, "cwd": path, "cmdline": "copilot"}])
 
     with pytest.raises(supervisor.SupervisorError) as e:
         supervisor.start("alpha", resume="sess-1")
@@ -184,6 +185,33 @@ def test_a_resume_is_refused_beside_a_console_the_fleet_did_not_start(
     assert not spawns["launched"], "and it refused before launching anything"
 
 
+def test_a_resume_is_not_refused_on_a_process_that_has_already_gone(
+        fleet_home, tmp_path, monkeypatch, spawns):
+    """The refusal above, asked ten seconds too late.
+
+    `agent_processes` memoises its listing for ten seconds so that drawing a dashboard does not
+    walk `/proc` on every poll. That is right for drawing and wrong for refusing: stopping a
+    console and resuming inside that window was refused on the strength of a process that had
+    already exited, and the fleet named a pid that no longer existed. It cost this repository's CI
+    a red leg on three separate runs before anybody read it as a product bug rather than a flake.
+    """
+    from agentdata.fleet import adopt as A
+
+    path = _repo(tmp_path)
+    asked = []
+
+    def listing(**kwargs):
+        asked.append(kwargs.get("max_age"))
+        # What a cache would still be holding, against what is really running now.
+        return [] if kwargs.get("max_age") == 0 else [
+            {"pid": 5150, "cwd": path, "cmdline": "copilot"}]
+
+    monkeypatch.setattr(A, "agent_processes", listing)
+    supervisor.start("alpha", resume="sess-1")
+    assert asked and asked[0] == 0, f"the refusal read a cached listing: {asked}"
+    assert spawns["launched"], "and so the resume went ahead"
+
+
 def test_a_checkout_someone_saved_a_file_in_still_resumes(fleet_home, tmp_path, monkeypatch, spawns):
     """`candidates` also offers a checkout that was merely *written to* in the last quarter of an
     hour, with no pid to name. That is the operator saving a file in their editor, and refusing
@@ -191,7 +219,10 @@ def test_a_checkout_someone_saved_a_file_in_still_resumes(fleet_home, tmp_path, 
     from agentdata.fleet import adopt as A
 
     _repo(tmp_path)
-    monkeypatch.setattr(A, "agent_processes", lambda: [])
+    # `**_` again: without it the fresh-listing call raises `TypeError`, the broad `except` around
+    # it swallows that, and this test passes for the wrong reason -- no refusal because the
+    # listing blew up, rather than no refusal because there was no pid.
+    monkeypatch.setattr(A, "agent_processes", lambda **_: [])
     assert A.candidates()[0]["pid"] == 0, "the evidence is the writing, and there is no pid in it"
 
     lock = supervisor.start("alpha", resume="sess-1")

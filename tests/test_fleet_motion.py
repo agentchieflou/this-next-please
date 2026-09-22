@@ -267,11 +267,15 @@ def test_a_gesture_that_supersedes_another_is_not_an_unhandled_rejection(fleet_h
             page.evaluate("""() => {
               openBand('beta'); openBand('gamma'); openBand('delta'); openBand('alpha');
             }""")
-            page.wait_for_timeout(900)
+            # Waited on by state and not by a clock: a fixed sleep here passes on an idle machine
+            # and fails on a loaded one, which is a test measuring the load.
+            page.wait_for_function(
+                """() => { const t = document.querySelector('.tile.is-solo');
+                           return !!t && t.dataset.repo === 'alpha'; }""", timeout=15000)
+            page.wait_for_function(
+                "() => !document.querySelector('[style*=\"view-transition-name\"]')",
+                timeout=15000)
             assert errors == [], errors
-            assert page.evaluate(
-                "() => document.querySelector('.tile.is-solo').dataset.repo") == "alpha", \
-                "the last gesture is the one that stands"
             browser.close()
     finally:
         server.stopping.set()

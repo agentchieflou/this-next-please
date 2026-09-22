@@ -445,7 +445,14 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
         from . import adopt as A
 
         try:
-            foreign = [c for c in A.candidates(reg) if c["repo"] == name and c.get("pid")]
+            # A *fresh* listing, not the cached one. `agent_processes` memoises for ten seconds so
+            # that drawing a dashboard does not walk `/proc` on every poll -- which is right for
+            # drawing, and wrong for refusing. Stopping a console and resuming within those ten
+            # seconds was refused on the strength of a process that had already gone: the fleet
+            # told the operator something was working in their checkout, naming a pid that no
+            # longer existed. A refusal is the one answer that has to be current.
+            foreign = [c for c in A.candidates(reg, processes=A.agent_processes(max_age=0))
+                       if c["repo"] == name and c.get("pid")]
         except Exception:                    # noqa: BLE001 - a process listing must never block a start
             foreign = []
         if foreign:
