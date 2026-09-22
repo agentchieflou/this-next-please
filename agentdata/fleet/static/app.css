@@ -319,25 +319,51 @@ body.focused .tile.is-focused { max-height: none; }
 }
 .runline.cold { font-style: italic; }
 
-/* ------------------------------------------------------------------------- the switcher (#174) */
+/* ------------------------------------------------------------------ one session control (#206) */
 
-/* A tab view, in HIG's sense: the main tab is where the work is, the ones beside it are the same
-   project somewhere else, and *earlier* is this checkout's own history. Every tab is a button, so
-   the strip is reachable by Tab and by Alt+[ / Alt+]. */
-.strip {
-  display: flex; gap: 4px; margin: 4px 0 0; flex-wrap: wrap; align-items: center;
+/* The strip here was four buttons of three different kinds and a second, inert *earlier* under the
+   transcript. It is one pill saying which session this transcript is, and one menu behind it
+   holding everything that changes which session that is. */
+.sessionbar { position: relative; margin: 4px 0 0; }
+.spill {
+  font: 11px var(--mono); color: var(--muted); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 12px; padding: 1px 10px; min-height: 24px;
+  max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
 }
-.tab {
-  font: 11px var(--mono); color: var(--muted); background: transparent;
-  border: 1px solid var(--line); border-bottom-color: transparent;
-  border-radius: 4px 4px 0 0; padding: 2px 8px; cursor: pointer;
-  max-width: 16rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.spill:hover { color: var(--text); border-color: var(--accent); }
+.spill::after { content: " ▾"; opacity: .7; }
+/* Reading an earlier session is a state the tile is IN, so the control that put it there says so. */
+.spill.is-reading { color: var(--waiting); border-color: var(--waiting); }
+.smenu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 25;
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: min(360px, 90vw); max-height: 60vh; overflow: auto; padding: 8px 10px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18); font: 11px var(--mono);
 }
-.tab:hover { color: var(--text); }
-.tab.is-on { color: var(--text); background: var(--panel); border-color: var(--accent); }
-.tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.smitem {
+  text-align: left; background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--text); font: inherit; padding: 3px 6px; min-height: 28px; cursor: pointer;
+}
+.smitem:hover { background: var(--select); border-color: var(--line); }
+.sm-label {
+  margin: 4px 0 0; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* A run is a transcript boundary, not a thing to open: opening one is opening its session, which
+   is the row above it. So the runs are rows and not buttons. */
+.live-runs, .ss-runs {
+  list-style: none; margin: 0 0 2px 18px; padding: 0; color: var(--muted); font-size: 10px;
+}
+.live-runs li, .ss-runs li { padding: 1px 0; }
+.sib-list { list-style: none; margin: 0; padding: 0; }
+.sib-open {
+  width: 100%; text-align: left; background: transparent; border: 1px solid transparent;
+  border-radius: 4px; color: var(--text); font: inherit; padding: 3px 6px; min-height: 28px;
+}
+.sib-open:hover { background: var(--select); border-color: var(--line); }
 
-.sessions { margin: 4px 0 0; padding: 0; list-style: none; font: 11px var(--mono); }
+.sessions { margin: 0; padding: 0; list-style: none; }
 .session-row { margin: 0; padding: 0; }
 .ss-open {
   display: flex; gap: 8px; width: 100%; text-align: left; cursor: pointer;
@@ -443,14 +469,6 @@ body.focused .tile.is-focused { max-height: none; }
 
 .why { margin: 6px 0 0; color: var(--muted); }
 .tile.state-needs_human .why, .tile.state-blocked .why, .tile.state-error .why { color: var(--human); }
-
-.earlier {
-  margin: 6px 0; font: 11px var(--mono); color: var(--muted);
-  border-top: 1px dashed var(--line); padding-top: 4px;
-}
-.earlierhead { cursor: pointer; }
-.earlierlist { margin: 4px 0 0 16px; padding: 0; list-style: square; }
-.earlierlist li { padding: 2px 0; }
 
 /* ------------------------------------------------------------------------------ the transcript */
 

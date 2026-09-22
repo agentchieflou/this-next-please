@@ -334,34 +334,47 @@
     </div>
     <!-- Which run this transcript belongs to. #147: a transcript with no era read as live. -->
     <p class="runline"></p>
-    <!-- #174: the switcher. The main tab is this checkout's live session -- where the transcript,
-         the reply box and the cards are. The tabs beside it are the project's other checkouts
-         (#175), each with its own agent and its own chip. Every tab is a button, because a tab
-         that cannot be reached from the keyboard is a window somebody loses. -->
-    <div class="strip" role="tablist" aria-label="sessions and checkouts">
-      <button class="main-tab tab" type="button" role="tab" aria-selected="true">main</button>
-      <!-- One sibling checkout, cloned per checkout. In the markup rather than built by hand so a
-           test can keep the two files in step, the way the tile itself is. -->
-      <button class="sib-tab tab" type="button" role="tab" aria-selected="false" hidden></button>
-      <button class="earlier-tab tab" type="button" aria-expanded="false" hidden></button>
-      <button class="new-tab tab" type="button"
-              title="a clean session beside this one, resumable either way (Alt+N)">+ new</button>
-      <!-- #189: a console the fleet opens. -->
-      <button class="console-tab tab" type="button"
-              title="your own cmd.exe running Copilot here; this tile shows the same session">console</button>
+    <!-- #206: one session control. The strip here was four buttons of three different kinds -- a
+         label that was not a tab, a list opener, and two verbs -- with a second, inert *earlier*
+         under the transcript. The operator's report was that it is not intuitive what to do with
+         all of them. It is one pill now, saying which session this transcript is, and one menu
+         behind it holding everything that changes which session that is. -->
+    <div class="sessionbar">
+      <button class="spill" type="button" aria-haspopup="menu" aria-expanded="false"
+              title="this checkout's sessions, its console and its other checkouts"></button>
+      <div class="smenu" role="menu" hidden>
+        <button class="sm-live smitem" type="button" role="menuitem">this session</button>
+        <ol class="live-runs"></ol>
+        <p class="sm-earlier-label sm-label" hidden></p>
+        <!-- This checkout's other sessions, from `sessions.json`. Opening one is a GET and nothing
+             else: choosing a session must never spawn an agent. Each carries its own runs, so the
+             inert `earlier runs` list that used to sit under the transcript is folded in here. -->
+        <ul class="sessions">
+          <li class="session-row" hidden>
+            <button type="button" class="ss-open" role="menuitem">
+              <span class="ss-title"></span>
+              <span class="ss-chip"></span>
+              <span class="ss-when"></span>
+              <span class="ss-cost"></span>
+            </button>
+            <ol class="ss-runs"></ol>
+          </li>
+        </ul>
+        <button class="sm-new smitem" type="button" role="menuitem"
+                title="a clean session beside this one, resumable either way (Alt+N)">+ new session</button>
+        <!-- #189: a console the fleet opens. -->
+        <button class="sm-console smitem" type="button" role="menuitem"
+                title="your own cmd.exe running Copilot here; this tile shows the same session">open in a console</button>
+        <p class="sm-sibs-label sm-label" hidden>this project, checked out elsewhere</p>
+        <ul class="sib-list">
+          <!-- One sibling checkout (#175), cloned per checkout. In the markup rather than built by
+               hand so a test can keep the two files in step, the way the tile itself is. -->
+          <li class="sib-row" hidden>
+            <button type="button" class="sib-open" role="menuitem"></button>
+          </li>
+        </ul>
+      </div>
     </div>
-    <!-- This checkout's other sessions, from `sessions.json`. Opening one is a GET and nothing
-         else: choosing a session must never spawn an agent. -->
-    <ul class="sessions" hidden>
-      <li class="session-row" hidden>
-        <button type="button" class="ss-open">
-          <span class="ss-title"></span>
-          <span class="ss-chip"></span>
-          <span class="ss-when"></span>
-          <span class="ss-cost"></span>
-        </button>
-      </li>
-    </ul>
     <!-- Why this tile is still on screen in focus mode after it stopped needing you. -->
     <p class="holdnote"><span class="holdwhy"></span><button type="button" class="release">let it go</button></p>
     <!-- A session running in this checkout that the fleet did not start (#2). -->
@@ -440,10 +453,6 @@
       <button type="button" class="ro-back">back to the live session</button>
       <span class="ro-note"></span>
     </p>
-    <details class="earlier" hidden>
-      <summary class="earlierhead">earlier runs</summary>
-      <ol class="earlierlist"></ol>
-    </details>
     <div class="row bottom">
       <input class="say" type="text" placeholder="reply, or a ticket key to start">
       <button class="send">Send</button>

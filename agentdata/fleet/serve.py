@@ -299,6 +299,9 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         end_ev = run_events[-1] if run_events else start_ev
         earlier.append({
             "n": idx + 1,
+            # Which session this run belongs to, so the menu can fold it under that session instead
+            # of listing it as a second, adjacent "earlier" with different behaviour (#206).
+            "session": run_session(run_events),
             "started": start_ev.get("ts", ""),
             "ended": end_ev.get("ts", ""),
             "state": d["state"],

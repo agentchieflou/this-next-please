@@ -239,9 +239,11 @@ def test_earlier_opens_a_session_read_only_and_spawns_nothing(fleet_home, tmp_pa
             browser, page, errors = _page(p, port, token)
             tile = page.locator('.tile[data-repo="alpha"]')
 
-            tab = tile.locator(".earlier-tab")
-            assert "earlier (1)" in tab.inner_text().lower()
-            tab.click()
+            # One control: the pill opens the menu, and *earlier (n)* is a label inside it
+            # rather than a fourth tab beside three others (#206).
+            tile.locator(".spill").click()
+            page.wait_for_selector('.tile[data-repo="alpha"] .smenu:not([hidden])', timeout=5000)
+            assert "earlier (1)" in tile.locator(".sm-earlier-label").inner_text().lower()
             page.wait_for_selector('.tile[data-repo="alpha"] .session-row:not([hidden]) .ss-open',
                                    timeout=5000)
             row = tile.locator(".session-row:not([hidden]) .ss-open").first
@@ -292,7 +294,7 @@ def test_resume_here_is_refused_while_an_agent_is_live_and_the_second_press_take
         with sync_playwright() as p:
             browser, page, errors = _page(p, port, token)
             tile = page.locator('.tile[data-repo="alpha"]')
-            tile.locator(".earlier-tab").click()
+            tile.locator(".spill").click()
             page.wait_for_selector('.tile[data-repo="alpha"] .session-row:not([hidden]) .ss-open',
                                    timeout=5000)
             tile.locator(".session-row:not([hidden]) .ss-open").first.click()
@@ -328,9 +330,10 @@ def test_resume_here_is_refused_while_an_agent_is_live_and_the_second_press_take
 
 
 @pytest.mark.browser
-def test_the_strip_is_operable_without_a_mouse(fleet_home, tmp_path, spawns):
-    """Acceptance criterion: end to end from the keyboard. `Alt+[` / `Alt+]` walk the strip and
-    `Alt+N` is a clean session — a tab that cannot be reached by hand is a window somebody loses."""
+def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spawns):
+    """Acceptance criterion: end to end from the keyboard. `Alt+[` / `Alt+]` walk the menu and
+    `Alt+N` is a clean session — an item that cannot be reached by hand is a window somebody
+    loses. The menu opens on the first step rather than needing a click first (#206)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repo(tmp_path)
 
@@ -340,19 +343,21 @@ def test_the_strip_is_operable_without_a_mouse(fleet_home, tmp_path, spawns):
             browser, page, errors = _page(p, port, token)
             tile = page.locator('.tile[data-repo="alpha"]')
 
-            tile.locator(".main-tab").focus()
-            page.keyboard.press("Alt+]")                     # to *earlier*, and open it
-            page.wait_for_selector('.tile[data-repo="alpha"] .session-row:not([hidden])',
-                                   timeout=5000)
-            assert page.evaluate(
-                "() => document.activeElement.classList.contains('earlier-tab')")
-
-            page.keyboard.press("Alt+[")                     # back to main, which closes the list
+            tile.locator(".spill").focus()
+            page.keyboard.press("Alt+]")                     # opens the menu, on *this session*
+            page.wait_for_selector('.tile[data-repo="alpha"] .smenu:not([hidden])', timeout=5000)
             page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="alpha"] .sessions').hidden""",
-                timeout=5000)
+                """() => document.activeElement.classList.contains('sm-live')""", timeout=5000)
+
+            page.keyboard.press("Alt+]")                     # forward, into the sessions
             assert page.evaluate(
-                "() => document.activeElement.classList.contains('main-tab')")
+                "() => !!document.activeElement.closest('.smenu')"
+                " && !document.activeElement.classList.contains('sm-live')"), \
+                "Alt+] did not walk the menu"
+
+            page.keyboard.press("Alt+[")                     # and back again
+            page.wait_for_function(
+                """() => document.activeElement.classList.contains('sm-live')""", timeout=5000)
 
             page.keyboard.press("Alt+N")                     # a clean session beside this one
             assert _eventually(lambda: len(spawns["launched"]) == 1), "Alt+N started nothing"

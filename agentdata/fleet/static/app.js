@@ -327,18 +327,22 @@ function makeTile(row, index) {
   });
 
 
-  /* #174: the switcher's four buttons. The rows behind *earlier* are fetched on the click rather
-     than on every poll -- nobody is reading them until they ask for them. */
-  el.querySelector(".earlier-tab").addEventListener("click", function () {
-    openSessions(el, row.repo);
-  });
-  el.querySelector(".main-tab").addEventListener("click", function () {
-    el.querySelector(".sessions").hidden = true;
-    el.querySelector(".earlier-tab").setAttribute("aria-expanded", "false");
+  /* #206: one control. The pill says which session this transcript is; the menu behind it holds
+     everything that changes which session that is. The rows are fetched on the open rather than on
+     every poll -- nobody is reading them until they ask for them. */
+  el.querySelector(".spill").addEventListener("click", function () { toggleMenu(el, row.repo); });
+  el.querySelector(".sm-live").addEventListener("click", function () {
+    closeMenu(el);
     if (viewing(el)) backToLive(el);
   });
-  el.querySelector(".new-tab").addEventListener("click", function () { newSession(el, row.repo); });
-  el.querySelector(".console-tab").addEventListener("click", function () { openConsole(el, row); });
+  el.querySelector(".sm-new").addEventListener("click", function () {
+    closeMenu(el);
+    newSession(el, row.repo);
+  });
+  el.querySelector(".sm-console").addEventListener("click", function () {
+    closeMenu(el);
+    openConsole(el, row);
+  });
   el.querySelector(".ro-resume").addEventListener("click", function () { resumeHere(el, row.repo); });
   el.querySelector(".ro-back").addEventListener("click", function () { backToLive(el); });
 
@@ -350,8 +354,8 @@ function makeTile(row, index) {
     else if (e.key === "Home") { toggleTilePin(row.repo); e.preventDefault(); }
     else if (e.key === "Enter") { toggleTileSize(row.repo); e.preventDefault(); }
     // The strip, without a mouse. `[` and `]` walk it; `N` is a clean session beside this one.
-    else if (e.key === "[") { stepStrip(el, -1); e.preventDefault(); }
-    else if (e.key === "]") { stepStrip(el, 1); e.preventDefault(); }
+    else if (e.key === "[") { stepMenu(el, row.repo, -1); e.preventDefault(); }
+    else if (e.key === "]") { stepMenu(el, row.repo, 1); e.preventDefault(); }
     else if (e.key === "n" || e.key === "N") { newSession(el, row.repo); e.preventDefault(); }
   });
 
@@ -632,7 +636,6 @@ function drawTile(el, row, approvals) {
   // rather than being offered and silently doing nothing.
   // A console the fleet opened holds the tile: the reply box types into it and the tab raises it.
   el.dataset.console = row.console ? String(row.console.pid || 0) : "";
-  text(el.querySelector(".console-tab"), row.console ? "show console" : "console");
   ["send", "start"].forEach(function (cls) {
     var btn = el.querySelector("." + cls);
     if (!btn) return;
@@ -674,27 +677,7 @@ function drawTile(el, row, approvals) {
     }
   }
 
-  drawStrip(el, row);
-
-  var earlierEl = el.querySelector(".earlier");
-  if (earlierEl) {
-    var earlierRuns = row.earlier || [];
-    if (earlierRuns.length > 0) {
-      earlierEl.hidden = false;
-      text(earlierEl.querySelector(".earlierhead"), "earlier runs (" + earlierRuns.length + ")");
-      var listEl = earlierEl.querySelector(".earlierlist");
-      while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
-      earlierRuns.forEach(function (r) {
-        var li = document.createElement("li");
-        text(li, "Run #" + r.n + ": " + (r.ticket ? r.ticket + " · " : "") + r.state +
-                 " (" + (r.started ? r.started.slice(11, 16) : "") +
-                 (r.ended ? " – " + r.ended.slice(11, 16) : "") + ")");
-        listEl.appendChild(li);
-      });
-    } else {
-      earlierEl.hidden = true;
-    }
-  }
+  drawSessionPill(el, row);
 
   var mine = approvals.filter(function (a) { return a.repo === row.repo; })[0];
   var card = el.querySelector(".approval");
@@ -743,67 +726,127 @@ function whenIso(ts) {
   return age(Math.max(0, Math.round((Date.now() - t) / 1000))) + " ago";
 }
 
-function drawStrip(el, row) {
-  var strip = el.querySelector(".strip");
-  if (!strip) return;
-  var pattern = strip.querySelector(".sib-tab");
-  var main = strip.querySelector(".main-tab");
-  var earlierTab = strip.querySelector(".earlier-tab");
+function drawSessionPill(el, row) {
+  var pill = el.querySelector(".spill");
+  if (!pill) return;
   var open = viewing(el);
-
   var run = row.run || {};
-  var bits = ["main"];
-  if (row.state) bits.push(row.state);
-  if (row.last_event_age_s >= 0) bits.push(agentAge(row.last_event_age_s));
-  text(main, bits.join(" · "));
-  main.title = run.session ? "session " + run.session : "this checkout's live session";
-  main.setAttribute("aria-selected", String(!open));
-  main.classList.toggle("is-on", !open);
 
-  // Sibling checkouts of the same project (#175). Empty until that slice lands, which is why the
-  // strip has to read as finished with one tab on it rather than as a row of missing things.
-  while (strip.querySelectorAll(".sib-tab").length > 1) {
-    strip.removeChild(strip.querySelectorAll(".sib-tab")[1]);
-  }
-  (row.siblings || []).forEach(function (sib) {
-    var tab = pattern.cloneNode(true);
-    tab.hidden = false;
-    text(tab, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
-    tab.title = "the same project, checked out at " + (sib.path || sib.repo);
-    tab.addEventListener("click", function () { focus(sib.repo); });
-    strip.insertBefore(tab, earlierTab);
-  });
+  /* One line, saying which session this transcript is. The run line under it still says which RUN,
+     because those are two facts and the operator asked for neither of them twice. */
+  var bits;
+  if (open) bits = ["earlier session", el.dataset.endedState || "ended", el.dataset.endedWhen || ""];
+  else bits = [el.dataset.console ? "console" : "session", row.state || "",
+               row.last_event_age_s >= 0 ? agentAge(row.last_event_age_s) : ""];
+  text(pill, bits.filter(Boolean).join(" · "));
+  pill.title = open ? "reading an earlier session — the menu goes back to the live one"
+                    : (run.session ? "session " + run.session : "this checkout's live session");
+  pill.classList.toggle("is-reading", !!open);
+
+  text(el.querySelector(".sm-console"), row.console ? "show console" : "open in a console");
 
   var n = row.sessions_n || 0;
-  earlierTab.hidden = !n;
-  text(earlierTab, "earlier (" + n + ")");
-  earlierTab.setAttribute("aria-selected", String(!!open));
-  earlierTab.classList.toggle("is-on", !!open);
+  var label = el.querySelector(".sm-earlier-label");
+  label.hidden = !n;
+  text(label, "earlier (" + n + ")");
+
+  // This session's own earlier runs, folded under it -- the inert list that used to sit below the
+  // transcript as a second, adjacent *earlier* with different behaviour.
+  drawRuns(el.querySelector(".live-runs"), runsFor(row, el.dataset.session || ""));
+
+  // Sibling checkouts of the same project (#175). Empty until that slice lands, which is why the
+  // menu has to read as finished with none of them rather than as a row of missing things.
+  var sibs = row.siblings || [];
+  var sibList = el.querySelector(".sib-list");
+  var sibPattern = sibList.querySelector(".sib-row");
+  el.querySelector(".sm-sibs-label").hidden = !sibs.length;
+  while (sibList.children.length > 1) sibList.removeChild(sibList.lastChild);
+  sibs.forEach(function (sib) {
+    var li = sibPattern.cloneNode(true);
+    li.hidden = false;
+    var button = li.querySelector(".sib-open");
+    text(button, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
+    button.title = "the same project, checked out at " + (sib.path || sib.repo);
+    button.addEventListener("click", function () { closeMenu(el); focus(sib.repo); });
+    sibList.appendChild(li);
+  });
 }
 
-/* The rows on the click, not on every poll: a disk read and a fold nobody is reading until asked. */
-function openSessions(el, repo) {
+/* The runs of one session, newest last, as plain rows. A run is a transcript boundary, not a thing
+   to open: opening one is opening its session, which is the row above it. */
+function runsFor(row, session) {
+  return (row.earlier || []).filter(function (r) {
+    return !session || !r.session || r.session === session;
+  });
+}
+
+function drawRuns(list, runs) {
+  if (!list) return;
+  while (list.firstChild) list.removeChild(list.firstChild);
+  list.hidden = !runs.length;
+  runs.forEach(function (r) {
+    var li = document.createElement("li");
+    text(li, "run " + r.n + " · " + (r.ticket ? r.ticket + " · " : "") + r.state +
+             " (" + (r.started ? String(r.started).slice(11, 16) : "") +
+             (r.ended ? "–" + String(r.ended).slice(11, 16) : "") + ")");
+    list.appendChild(li);
+  });
+}
+
+/* The menu: open, closed, and stepped through without a mouse. */
+function menuOpen(el) {
+  var menu = el.querySelector(".smenu");
+  return !!menu && !menu.hidden;
+}
+
+function closeMenu(el) {
+  var menu = el.querySelector(".smenu");
+  if (!menu || menu.hidden) return false;
+  menu.hidden = true;
+  el.querySelector(".spill").setAttribute("aria-expanded", "false");
+  return true;
+}
+
+function closeMenus() {
+  var was = false;
+  tiles.forEach(function (entry) { if (closeMenu(entry.el)) was = true; });
+  return was;
+}
+
+function toggleMenu(el, repo) {
+  if (menuOpen(el)) return closeMenu(el);
+  closeMenus();
+  var menu = el.querySelector(".smenu");
+  menu.hidden = false;
+  el.querySelector(".spill").setAttribute("aria-expanded", "true");
+  loadSessions(el, repo);
+  return true;
+}
+
+/* The rows on the open, not on every poll: a disk read and a fold nobody is reading until asked. */
+function loadSessions(el, repo) {
   var list = el.querySelector(".sessions");
-  var tab = el.querySelector(".earlier-tab");
-  if (!list.hidden) { list.hidden = true; tab.setAttribute("aria-expanded", "false"); return; }
   fetch(q("/api/sessions", { repo: repo })).then(function (r) { return r.json(); })
     .then(function (data) {
       var pattern = list.querySelector(".session-row");
       while (list.children.length > 1) list.removeChild(list.lastChild);
       var rows = (data && data.sessions) || [];
       var current = (el.dataset.session || "");
-      rows.filter(function (row) { return row.id !== current; }).forEach(function (row) {
+      var entry = tiles.get(repo);
+      var row = (entry && entry.row) || {};
+      rows.filter(function (r) { return r.id !== current; }).forEach(function (r) {
         var li = pattern.cloneNode(true);
         li.hidden = false;
-        text(li.querySelector(".ss-title"), row.title || row.ticket || row.id.slice(0, 8));
-        text(li.querySelector(".ss-chip"), row.ended || "");
-        text(li.querySelector(".ss-when"), whenIso(row.last_seen));
-        text(li.querySelector(".ss-cost"),
-             row.cost ? Number(row.cost).toFixed(2) + " premium" : "");
+        text(li.querySelector(".ss-title"), r.title || r.ticket || r.id.slice(0, 8));
+        text(li.querySelector(".ss-chip"), r.ended || "");
+        text(li.querySelector(".ss-when"), whenIso(r.last_seen));
+        text(li.querySelector(".ss-cost"), r.cost ? Number(r.cost).toFixed(2) + " premium" : "");
         var button = li.querySelector(".ss-open");
         button.title = (el.dataset.console ? "the console still owns this; close it first — " : "")
-          + "session " + row.id + ((row.sources || []).join(" → ") ? " · " + row.sources.join(" → ") : "");
-        button.addEventListener("click", function () { showSession(el, repo, row); });
+          + "session " + r.id + ((r.sources || []).join(" → ") ? " · " + r.sources.join(" → ") : "");
+        button.addEventListener("click", function () { closeMenu(el); showSession(el, repo, r); });
+        // Its runs, under it. One *earlier*, not two adjacent ones with different behaviour.
+        drawRuns(li.querySelector(".ss-runs"), runsFor(row, r.id));
         list.appendChild(li);
       });
       if (!rows.length) {
@@ -813,8 +856,6 @@ function openSessions(el, repo) {
         empty.querySelector(".ss-open").disabled = true;
         list.appendChild(empty);
       }
-      list.hidden = false;
-      tab.setAttribute("aria-expanded", "true");
     });
 }
 
@@ -831,8 +872,10 @@ function showSession(el, repo, session) {
       (data.events || []).forEach(function (ev) { appendTo(history, ev); });
       el.querySelector(".transcript").hidden = true;
       history.hidden = false;
-      el.querySelector(".sessions").hidden = true;
-      el.querySelector(".earlier-tab").setAttribute("aria-expanded", "false");
+      closeMenu(el);
+      // What the pill says while this is open: how it ended, and when.
+      el.dataset.endedState = (data && data.state) || "ended";
+      el.dataset.endedWhen = whenIso(data && data.at);
       var pane = el.querySelector(".readonly");
       pane.hidden = false;
       text(el.querySelector(".ro-what"),
@@ -846,25 +889,28 @@ function showSession(el, repo, session) {
            el.dataset.console ? "the console still owns this — close it, then resume" : "");
       el.querySelector(".row.bottom").hidden = true;
       var entry = tiles.get(repo);
-      if (entry && entry.row) drawStrip(el, entry.row);
+      if (entry && entry.row) drawSessionPill(el, entry.row);
     });
 }
 
-/* `Alt+[` and `Alt+]` walk the strip. The tabs are real buttons in document order, so stepping is
-   moving the keyboard to the next one and pressing it -- there is no second model of "which tab is
-   selected" that could disagree with the one the page is showing. */
-function stepStrip(el, dir) {
-  var tabs = [].slice.call(el.querySelectorAll(".strip .tab"))
-               .filter(function (t) { return !t.hidden; });
-  if (!tabs.length) return;
-  var here = tabs.indexOf(document.activeElement);
-  if (here < 0) {
-    here = tabs.indexOf(el.querySelector(".strip .tab.is-on"));
-    if (here < 0) here = 0;
+/* `Alt+[` and `Alt+]` walk the menu, opening it if it is shut. The items are real buttons in
+   document order, so stepping is moving the keyboard to the next one -- there is no second model
+   of "which item is selected" that could disagree with what is on the glass. */
+function stepMenu(el, repo, dir) {
+  if (!menuOpen(el)) {
+    // Opening IS the first move: the keyboard lands on *this session*, and the next press walks.
+    toggleMenu(el, repo);
+    var first = el.querySelector(".smenu [role='menuitem']");
+    if (first) first.focus();
+    return;
   }
-  var next = tabs[(here + dir + tabs.length) % tabs.length];
-  next.focus();
-  next.click();
+  var items = [].slice.call(el.querySelectorAll(".smenu [role='menuitem']"))
+                 .filter(function (b) { return !b.disabled && b.offsetParent !== null; });
+  if (!items.length) return;
+  var here = items.indexOf(document.activeElement);
+  var at = here < 0 ? (dir > 0 ? 0 : items.length - 1)
+                    : (here + dir + items.length) % items.length;
+  items[at].focus();
 }
 
 function backToLive(el) {
@@ -874,7 +920,7 @@ function backToLive(el) {
   el.querySelector(".readonly").hidden = true;
   el.querySelector(".row.bottom").hidden = false;
   var entry = tiles.get(el.dataset.repo);
-  if (entry && entry.row) drawStrip(el, entry.row);
+  if (entry && entry.row) drawSessionPill(el, entry.row);
 }
 
 /* Making an earlier session the live one: it runs, or it is the supervisor's own refusal with the
@@ -1215,6 +1261,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") {
     // The nearest open thing closes first, and nothing else: a popover (#180), then the card (#183).
     if (closeModelCard()) { e.stopImmediatePropagation(); return; }
+    if (closeMenus()) { e.stopImmediatePropagation(); return; }
     if (closePopovers()) { e.stopImmediatePropagation(); return; }
     var card = document.getElementById("dispatch");
     if (card && !card.hidden) { closeDispatch(); e.stopImmediatePropagation(); return; }
@@ -3438,6 +3485,12 @@ function stepColumn(dir) {
                     : (here + dir + buttons.length) % buttons.length;
   buttons[at].focus();
 }
+
+document.addEventListener("click", function (e) {
+  // One menu open at a time, and a click off it closes it -- the rule every popover here keeps.
+  if (e.target.closest && (e.target.closest(".smenu") || e.target.closest(".spill"))) return;
+  closeMenus();
+});
 
 (function bindModelCard() {
   var card = document.getElementById("modelcard");
