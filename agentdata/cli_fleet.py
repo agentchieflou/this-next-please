@@ -537,7 +537,7 @@ SCAN_COLUMNS = ["path", "name", "branch", "has_agents_md", "has_state", "jira_pr
 # rendering is the dashboard's, so the query parameter's name is written down once, here, rather
 # than spelled twice and drifting the first time one side is renamed.
 LAYOUT_PARAM = "layout"
-LAYOUTS = ("grid", "roles", "screens")
+LAYOUTS = ("column", "grid", "roles", "screens")
 
 
 def _catalogue(source: str):

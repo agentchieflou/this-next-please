@@ -394,7 +394,7 @@ def test_the_console_button_on_the_strip_opens_one_and_the_tile_shows_it(fleet_h
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors: list[str] = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector('.tile[data-repo="luna"] .console-tab', timeout=15000)
             page.locator('.tile[data-repo="luna"] .console-tab').click()
             assert _eventually(lambda: any(e["kind"] == "started" and e["data"].get("console")

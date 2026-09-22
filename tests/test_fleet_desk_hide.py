@@ -103,7 +103,7 @@ def test_a_hidden_tile_is_off_the_glass_and_the_dock_brings_it_back(fleet_home, 
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
             assert page.locator(".tile:visible").count() == 3
 
@@ -157,7 +157,7 @@ def test_a_hidden_tile_that_needs_a_person_is_on_the_glass_anyway(fleet_home, tm
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
 
             beta = page.locator('.tile[data-repo="beta"]')
@@ -186,7 +186,7 @@ def test_a_digit_can_no_longer_blank_the_window(fleet_home, tmp_path):
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
 
             page.keyboard.press("f")          # focus mode: only alpha needs anybody
@@ -220,7 +220,7 @@ def test_an_anchor_reopens_a_hidden_tile_and_names_one_that_does_not_exist(fleet
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}#tile=beta", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid#tile=beta", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
             page.wait_for_function(
                 """() => /reopened/.test(document.getElementById('notice').textContent)""",
@@ -258,7 +258,7 @@ def test_a_repository_that_leaves_the_registry_keeps_a_chip_naming_what_restores
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
             assert page.locator(".tile:visible").count() == 2
 
@@ -295,7 +295,7 @@ def test_a_chip_for_an_agent_that_needs_somebody_is_red_and_says_why(fleet_home,
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
 
             page.keyboard.press("1")                      # zoom alpha; beta is the one you cannot see
@@ -331,7 +331,7 @@ def test_alt_arrow_steps_over_a_hidden_tile_rather_than_swapping_with_it(fleet_h
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
             page.wait_for_function(
                 """() => document.querySelectorAll('.tile:not(.is-hidden)').length === 2""",

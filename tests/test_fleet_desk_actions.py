@@ -130,7 +130,7 @@ def desk(fleet_home, tmp_path):                                 # noqa: F811
     server, token = S.build(0)
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/?t={token}"
+    url = f"http://127.0.0.1:{server.server_address[1]}/?t={token}&layout=grid"
     try:
         yield url
     finally:
@@ -498,7 +498,7 @@ def outside_desk(fleet_home, tmp_path):                         # noqa: F811
     server, token = S.build(0)
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/?t={token}"
+    url = f"http://127.0.0.1:{server.server_address[1]}/?t={token}&layout=grid"
     try:
         yield url
     finally:

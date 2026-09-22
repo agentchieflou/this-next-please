@@ -269,7 +269,7 @@ def test_the_question_card_offers_the_choices_and_one_send(fleet_home, tmp_path)
             page = browser.new_page(viewport={"width": 1280, "height": 1000})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
             page.wait_for_selector('.tile[data-repo="luna"] .asks:not([hidden])', timeout=5000)
 

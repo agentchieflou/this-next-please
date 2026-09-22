@@ -117,7 +117,7 @@ def test_the_transcript_scrollbar_computes_to_the_palette_in_every_look(fleet_ho
             page = browser.new_page(viewport={"width": 1280, "height": 800})
             errors: list[str] = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
 
             seen = {}

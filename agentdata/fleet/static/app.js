@@ -14,16 +14,19 @@ var focused = null;
 var pendingRefresh = null;
 var source = null;
 
-/* #133: three arrangements of this one page, chosen by the URL, because a second HTML file is a
-   second thing to keep in step and the friction being fixed is *tabs*. `grid` is every tile on one
-   screen; `roles` is three windows -- board, agents, verify -- that agree on a selected project
-   through the SSE stream; `screens` pins one project per monitor. `ad-fleet serve --layout` puts
-   the parameter on the URL it prints, so the operator never has to type one. */
-var LAYOUTS = ["grid", "roles", "screens"];
+/* #133, #203: four arrangements of this one page, chosen by the URL, because a second HTML file is
+   a second thing to keep in step and the friction being fixed is *tabs*. `column` is one agent open
+   and the rest as bands down the side, and it is the default the operator chose on the real screens
+   (`docs/fleet-layouts.md` §The sitting); `grid` is every tile at once; `roles` is three windows --
+   board, agents, verify -- that agree on a selected project through the SSE stream; `screens` pins
+   one project per monitor. `ad-fleet serve --layout` puts the parameter on the URL it prints, so
+   the operator never has to type one. */
+var LAYOUTS = ["column", "grid", "roles", "screens"];
 var VIEWS = ["board", "agents", "verify"];
+var DEFAULT_LAYOUT = LAYOUTS[0];
 var rawLayout = PARAMS.get("layout");
 var unknownLayout = (rawLayout && LAYOUTS.indexOf(rawLayout) < 0) ? rawLayout : null;
-var LAYOUT = unknownLayout ? "grid" : (rawLayout || "grid");
+var LAYOUT = unknownLayout ? DEFAULT_LAYOUT : (rawLayout || DEFAULT_LAYOUT);
 var VIEW = VIEWS.indexOf(PARAMS.get("view")) >= 0 ? PARAMS.get("view")
                                                   : (LAYOUT === "roles" ? "agents" : "");
 var SCREEN = Math.max(0, Math.min(9, Number(PARAMS.get("screen")) || 0));
@@ -37,6 +40,12 @@ var readCursors = {};
 var streamDead = false;
 var awayShown = false;
 var appliedInitialWindow = false;
+/* Which agent this window has OPEN in the column (#203), and the one it had before -- `Esc` goes
+   back to that rather than to nothing, because "show me the other one for a second" is the gesture
+   the column is for. Per window: the left monitor reads one agent while the centre reads another,
+   and `selected` stays the one thing every window agrees on. */
+var openTile = "";
+var previousOpen = "";
 /* Whether a drop opens the dispatch card (#164) or launches the way #98 did. The server's
    `fleet.preflight` decides; until the first `/api/fleet` answers, the card is the default,
    because showing a card and starting from it is the recoverable direction to be wrong in. */
@@ -971,6 +980,9 @@ function applyWindow(win) {
   if (win.focus !== undefined && win.focus !== needsOnly) {
     focusMode(win.focus, true);
   }
+  if (win.open !== undefined && win.open !== openTile) {
+    openTile = String(win.open || "");
+  }
   if (win.zoomed !== undefined && win.zoomed !== focused) {
     if (win.zoomed && tiles.has(win.zoomed)) {
       focus(win.zoomed, true);
@@ -1125,10 +1137,6 @@ function connect() {
 /* ------------------------------------------------------------------- focus mode and the keyboard */
 
 function focus(name, skipPost) {
-  focused = name;
-  document.body.classList.add("focused");
-  document.getElementById("unfocus").hidden = false;
-  tiles.forEach(function (entry, key) { entry.el.classList.toggle("is-focused", key === name); });
   unread.delete(name);                       // looking at it is what "read" means
   var entry = tiles.get(name);
   if (entry && entry.seq) {
@@ -1137,6 +1145,19 @@ function focus(name, skipPost) {
   bell();
   drawer(false);
   if (location.hash !== "#tile=" + name) history.replaceState(null, "", "#tile=" + name);
+  /* In the column there is no zoom to enter: everything that is not open is a band already, so
+     "focus this agent" and "open this agent" are the same gesture. Every caller -- a toast's
+     anchor, a notification row, a search hit, the away strip -- therefore lands on the right thing
+     without knowing which arrangement it is in. */
+  if (LAYOUT === "column") {
+    openBand(name, skipPost);
+    if (!skipPost) saveWindow({ read: readCursors });
+    return;
+  }
+  focused = name;
+  document.body.classList.add("focused");
+  document.getElementById("unfocus").hidden = false;
+  tiles.forEach(function (entry2, key) { entry2.el.classList.toggle("is-focused", key === name); });
   if (!skipPost) saveWindow({ zoomed: name, read: readCursors });
 }
 
@@ -1186,11 +1207,23 @@ document.addEventListener("keydown", function (e) {
     if (closePopovers()) { e.stopImmediatePropagation(); return; }
     var card = document.getElementById("dispatch");
     if (card && !card.hidden) { closeDispatch(); e.stopImmediatePropagation(); return; }
-    if (typing) document.activeElement.blur(); else unfocus();
+    if (typing) document.activeElement.blur();
+    // In the column there is no zoom to leave, so `Esc` is "show me the last one again" -- which is
+    // the other half of the glance the column is for.
+    else if (LAYOUT === "column") backToPrevious();
+    else unfocus();
     return;
   }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^[1-9]$/.test(e.key)) {
+    if (LAYOUT === "column") {
+      // The same rule as below, one arrangement further on: the digit is the number printed on the
+      // band, so it counts BANDS and not tiles -- the open agent has no number, because it is
+      // already open.
+      var band = document.querySelectorAll("#bands .band:not([hidden])")[Number(e.key) - 1];
+      if (band && band.dataset.repo) openBand(band.dataset.repo);
+      return;
+    }
     // The number printed on a tile comes from the arrangement, so the key that focuses it must
     // too: registry order meant the badge said 3 and pressing 3 focused something else. The
     // *visible* order (#173), so a digit cannot zoom a tile that is not on the glass -- which
@@ -1202,6 +1235,11 @@ document.addEventListener("keydown", function (e) {
     // so the mode gives way rather than the window going dark -- the same answer `#tile=` gives.
     if (quieted(name)) focusMode(false);
     focus(name);
+    return;
+  }
+  if ((e.key === "j" || e.key === "k") && LAYOUT === "column") {
+    stepColumn(e.key === "j" ? 1 : -1);
+    e.preventDefault();
     return;
   }
   if (e.key === "h") {
@@ -2668,12 +2706,72 @@ function toggleTilePin(repo) {
    `?layout=screens&screen=2` on a fresh fleet shows something rather than an empty monitor. */
 function solo() {
   var names = Array.from(tiles.keys());
+  if (LAYOUT === "column") return openName();
   if (LAYOUT === "screens" && SCREEN) {
     var pinned = (desk.desk.screens || [])[SCREEN - 1];
     return pinned || names[SCREEN - 1] || "";
   }
   if (VIEW === "verify") return desk.desk.selected || names[0] || "";
   return "";
+}
+
+/* -------------------------------------------------------------------------- the column (#203) */
+
+/* Which agent is open, decided once. The window's own choice wins; then the selection every window
+   shares, so a fresh window opens on whatever the desk is already looking at; then the first band.
+   A hidden or departed name never wins -- an arrangement that opened onto nothing would be the
+   blank window this layout exists to stop. */
+function openName() {
+  if (openTile && tiles.has(openTile) && !isHidden(openTile)) return openTile;
+  var sel = desk.desk.selected;
+  if (sel && tiles.has(sel) && !isHidden(sel)) return sel;
+  var shown = visibleOrder();
+  // A pinned agent is on the glass already, and `getEffectiveOrder` puts the pins first -- so
+  // falling back to "the first one" would mean that pinning one agent silently stopped anything
+  // else from ever being open. The default is the first agent that is NOT pinned.
+  var pinned = (getLayoutArrangement().pinned) || [];
+  var free = shown.filter(function (name) { return pinned.indexOf(name) < 0; });
+  return free[0] || shown[0] || "";
+}
+
+/* Everything filling the glass. A pinned tile is always open -- that is what pinning meant in the
+   grid too, and pins split `main` evenly -- so the set is the pins plus the one open agent. */
+function openSet() {
+  var out = [];
+  if (LAYOUT !== "column") {
+    var one = solo();
+    return one ? [one] : [];
+  }
+  var shown = visibleOrder();
+  ((getLayoutArrangement().pinned) || []).forEach(function (name) {
+    if (shown.indexOf(name) >= 0 && out.indexOf(name) < 0) out.push(name);
+  });
+  var open = openName();
+  if (open && out.indexOf(open) < 0) out.push(open);
+  return out;
+}
+
+/* Open one, and remember what was open before it so `Esc` can go back. A pinned tile is already on
+   the glass, so clicking its band is not a swap -- it simply selects it. */
+function openBand(name, skipPost) {
+  if (!name || !tiles.has(name)) return;
+  var was = openName();
+  if (was && was !== name) previousOpen = was;
+  openTile = name;
+  choose(name);
+  place();
+  if (!skipPost) saveWindow({ open: name });
+}
+
+function backToPrevious() {
+  if (!previousOpen || !tiles.has(previousOpen)) return false;
+  var going = previousOpen;
+  previousOpen = openName();
+  openTile = going;
+  choose(going);
+  place();
+  saveWindow({ open: going });
+  return true;
 }
 
 /* The one function that decides what this window shows. Body classes only: the stylesheet is the
@@ -2691,6 +2789,9 @@ var departed = new Map();      /* repos that left the registry, kept a day so th
 
 function drawDock() {
   var dock = document.getElementById("dock");
+  // In the column the dock's job is the column's (#203): everything not open is a band already, so
+  // drawing both would be two answers to one question and two places to click.
+  if (LAYOUT === "column") { dock.hidden = true; return; }
   var list = dock.querySelector(".dock-chips");
   var pattern = list.querySelector(".dock-chip");
   var zoomed = document.body.classList.contains("focused");
@@ -2776,7 +2877,8 @@ function ageOf(row) {
 function place() {
   var body = document.body;
   var one = solo();
-  body.classList.remove("layout-grid", "layout-roles", "layout-screens",
+  var open = openSet();
+  body.classList.remove("layout-column", "layout-grid", "layout-roles", "layout-screens",
                         "view-board", "view-agents", "view-verify", "solo", "panels");
   body.classList.add("layout-" + LAYOUT);
   if (VIEW) body.classList.add("view-" + VIEW);
@@ -2786,11 +2888,13 @@ function place() {
   }
   body.classList.toggle("needs-only", needsOnly);
   tiles.forEach(function (entry, name) {
-    entry.el.classList.toggle("is-solo", name === one);
+    entry.el.classList.toggle("is-solo", open.indexOf(name) >= 0);
     entry.el.classList.toggle("is-selected", name === desk.desk.selected);
   });
   reorderDomTiles();
-  if (one) {
+  // The column is not a window showing one project the way `verify` and `screens` are: it is the
+  // whole fleet with one agent open, so it must not open the sidebar on load the way they do.
+  if (one && LAYOUT !== "column") {
     // Opened once, not on every draw: a window that reopens a panel the operator just closed is
     // the kind of thing that gets a dashboard turned off.
     // A window showing exactly one project opens the inspector on it, once -- reopening a panel
@@ -2809,8 +2913,95 @@ function place() {
     !(needsOnly && !one && need === 0 && held.size === 0 && tiles.size > 0);
   drawNotice();
   drawSwap(one);
+  drawColumn();
   drawDock();
   drawRail();
+}
+
+/* The column's bands (#203).
+
+   Every checkout that is not open, one band each, sharing the column's whole height. The dock is
+   the same data for a different question -- *where did that tile go* -- so the two are never drawn
+   together: in this arrangement the column is the dock, and `drawDock` returns early. */
+function drawColumn() {
+  var box = document.getElementById("column");
+  if (!box) return;
+  if (LAYOUT !== "column") { box.hidden = true; return; }
+  var list = document.getElementById("bands");
+  var pattern = list.querySelector(".band");
+  var open = openSet();
+  var shown = visibleOrder();
+  var rows = shown.filter(function (name) { return open.indexOf(name) < 0; });
+
+  // A project's checkouts are one band, the way they are one dock chip (#175): two rows for one
+  // piece of work is two things to read for one decision.
+  var groups = [];
+  var byProject = new Map();
+  rows.forEach(function (name) {
+    var entry = tiles.get(name);
+    var project = (entry && entry.row && entry.row.project) || name;
+    var group = byProject.get(project);
+    if (group) { group.members.push(name); return; }
+    group = { project: project, name: name, members: [name] };
+    byProject.set(project, group);
+    groups.push(group);
+  });
+  departed.forEach(function (gone, name) {
+    groups.push({ project: name, name: name, members: [name], gone: gone });
+  });
+
+  while (list.children.length > 1) list.removeChild(list.lastChild);
+  var need = 0;
+  groups.forEach(function (item, index) {
+    var li = pattern.cloneNode(true);
+    li.hidden = false;
+    li.dataset.repo = item.name;
+    drawBand(li, item, index);
+    if (li.classList.contains("needs-human")) need += 1;
+    list.appendChild(li);
+  });
+
+  var hiddenNames = getEffectiveOrder().filter(function (name) { return isHidden(name); });
+  text(document.getElementById("column-count"),
+       groups.length ? groups.length + (groups.length === 1 ? " other" : " others") +
+                       (need ? " · " + need + " need you" : "")
+                     : "");
+  var jump = document.getElementById("column-jump");
+  jump.hidden = !need;
+  text(jump, "go to the first");
+  text(document.getElementById("column-hidden"),
+       hiddenNames.length ? hiddenNames.length + " hidden" : "");
+  document.getElementById("column-showall").hidden = !hiddenNames.length;
+  box.hidden = !(groups.length || hiddenNames.length);
+}
+
+/* One band. Slice B fills in the last line and the one age; A puts the row on the glass. */
+function drawBand(li, item, index) {
+  var entry = tiles.get(item.name);
+  var row = (entry && entry.row) || {};
+  var several = item.members.length > 1;
+  var needs = item.members.some(function (name) {
+    var e = tiles.get(name);
+    return !!e && e.el.classList.contains("needs-human");
+  });
+  li.className = "band" + (needs ? " needs-human" : "") + (item.gone ? " departed" : "");
+  text(li.querySelector(".b-n"), String(index + 1));
+  text(li.querySelector(".b-name"), several ? item.project : item.name);
+  var ac = ageChip(row.last_event_age_s);
+  text(li.querySelector(".b-chip"),
+       item.gone ? "removed from the registry"
+                 : several ? item.members.length + " checkouts"
+                 : (row.state || "") + (ac.text ? " · " + ac.text : ""));
+  var badge = li.querySelector(".b-badge");
+  var unreadN = item.members.reduce(function (n, name) { return n + (unread.get(name) || 0); }, 0);
+  badge.hidden = !unreadN;
+  text(badge, String(unreadN));
+  var button = li.querySelector(".band-open");
+  button.title = item.gone
+    ? "`ad-fleet repo add " + item.gone.path + "` restores it"
+    : several ? "open " + item.project + ": " + item.members.join(", ")
+    : "open " + item.name;
+  button.onclick = function () { if (!item.gone) openBand(item.name); };
 }
 
 /* The footer's one line, and one owner (#173).
@@ -2842,7 +3033,7 @@ function drawNotice() {
   }
   saidLine = "";
   if (unknownLayout) {
-    text(notice, "unknown layout '" + unknownLayout + "' — showing grid");
+    text(notice, "unknown layout '" + unknownLayout + "' — showing " + DEFAULT_LAYOUT);
     notice.hidden = false;
   } else {
     text(notice, "");
@@ -2938,7 +3129,7 @@ function updateLayoutSegments() {
 function readLocation(u) {
   var rawL = u.get("layout");
   unknownLayout = (rawL && LAYOUTS.indexOf(rawL) < 0) ? rawL : null;
-  LAYOUT = unknownLayout ? "grid" : (rawL || "grid");
+  LAYOUT = unknownLayout ? DEFAULT_LAYOUT : (rawL || DEFAULT_LAYOUT);
   VIEW = LAYOUT !== "roles" ? ""
        : (VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : "agents");
   SCREEN = LAYOUT !== "screens" ? 0 : Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
@@ -3011,6 +3202,28 @@ function focusMode(on, skipPost) {
   if (!skipPost) saveWindow(patch);
   place();
 }
+
+/* `j` and `k` walk the bands; the button they land on is a real button, so `Enter` opens it and
+   there is no second model of "which band is selected" to disagree with what is on the glass. */
+function stepColumn(dir) {
+  var buttons = [].slice.call(document.querySelectorAll("#bands .band:not([hidden]) .band-open"));
+  if (!buttons.length) return;
+  var here = buttons.indexOf(document.activeElement);
+  var at = here < 0 ? (dir > 0 ? 0 : buttons.length - 1)
+                    : (here + dir + buttons.length) % buttons.length;
+  buttons[at].focus();
+}
+
+document.getElementById("column-showall").addEventListener("click", function () {
+  post("arrange", { layout: LAYOUT, hidden: [] }).then(function (r) {
+    if (r && r.ok) { mergeDesk(r); if (needsOnly) focusMode(false); else place(); }
+  });
+});
+
+document.getElementById("column-jump").addEventListener("click", function () {
+  var first = document.querySelector("#bands .band.needs-human:not([hidden]) .band-open");
+  if (first) first.focus();
+});
 
 document.getElementById("showall").addEventListener("click", function () {
   post("arrange", { layout: LAYOUT, hidden: [] }).then(function (r) {

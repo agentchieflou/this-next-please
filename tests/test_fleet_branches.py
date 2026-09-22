@@ -393,7 +393,7 @@ def test_the_cell_reads_the_count_is_amber_and_the_click_opens_the_pane(fleet_ho
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors: list[str] = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector('.tile[data-repo="luna"] .cell[data-cell="git"]', timeout=20000)
             page.wait_for_function(
                 """() => /7 branches/.test(document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]').textContent)""",

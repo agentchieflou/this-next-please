@@ -687,6 +687,89 @@ body.panels #closefound, body.panels #closeinspector, body.panels #sidetoggle { 
 /* The left monitor replaces a terminal, so the tiles get the width and the sidebar stays narrow. */
 body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 
+/* ------------------------------------------------------------------------ the column (#203)
+
+   The operator's two sentences, made two rules: *non-open sessions show vertically rather than
+   horizontally*, and *each slice that isn't being actively looked at should auto size to take up
+   the page so there isn't so much negative space.*
+
+   `.glass` is the first of them and it fixes the grid too. `.workspace` is a flex ROW, so the dock
+   -- which has always described itself as sitting *under* the grid -- was laid out BESIDE it with a
+   basis of its own content, and one chip carrying a long question took a third of the window away
+   from the tiles. The tiles and the dock are now one vertical box, and the column is its sibling. */
+.glass { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+/* The laptop view is the sidebar and nothing else, so the box the tiles live in goes with them. */
+body.panels .glass { display: none; }
+
+/* The open agent fills the glass, top to bottom. Pinned tiles are open too and split the row, which
+   is what pinning already meant in the grid. */
+body.layout-column main {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-content: stretch;
+}
+body.layout-column .tile.is-solo { max-height: none; min-height: 0; }
+/* `body.solo` caps the transcript at a third of the viewport because there it shares the window
+   with the sidebar's panes. Here the tile IS the window, so the transcript takes what is left. */
+body.layout-column .transcript, body.layout-column .history { max-height: none; }
+
+.column {
+  flex: 0 0 clamp(260px, 24vw, 420px);
+  display: flex; flex-direction: column; min-height: 0; gap: 6px;
+  padding: 8px; background: var(--panel); border-left: 1px solid var(--line);
+}
+.column-head, .column-foot {
+  display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
+  color: var(--muted); font: 11px var(--mono);
+}
+.column-jump {
+  margin-left: auto; min-height: 28px; padding: 1px 8px; font: 11px var(--ui);
+  background: var(--bg); color: var(--human); border: 1px solid var(--human); border-radius: 4px;
+}
+.bands {
+  list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column; gap: 6px;
+}
+/* The whole point: N bands share the column's height and none of it is empty. `1 1 0` rather than
+   `1 1 auto`, or a band carrying a long question takes more than its share and the quiet ones are
+   squeezed to a line. Past the minimums the column scrolls and its head says how many there are. */
+.band { flex: 1 1 0; min-height: 56px; display: flex; }
+.band-open {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px;
+  align-items: flex-start; text-align: left; cursor: pointer; overflow: hidden;
+  background: var(--bg); color: var(--text); font: inherit; padding: 6px 8px;
+  border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 6px;
+}
+.band-open:hover { border-color: var(--accent); }
+.b-n {
+  font: 10px var(--mono); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 3px; padding: 0 4px;
+}
+.b-name { font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.b-chip { color: var(--muted); font: 11px var(--mono); }
+.b-badge {
+  background: var(--human); color: var(--bg); border-radius: 8px; padding: 0 5px; font-size: 11px;
+}
+/* An agent that needs a person is the same red its tile is, and its question is shown in full: the
+   dock could only ever fit a state and an age, which is how an idle agent's last question became
+   unrecoverable from it. */
+.band.needs-human .band-open { border-color: var(--human); border-left-color: var(--human); }
+.band.needs-human .b-name { color: var(--human); }
+.band.departed .band-open { border-style: dashed; color: var(--muted); }
+.column-hidden { color: var(--muted); }
+
+/* A narrow window cannot afford a column beside the glass, so it lies down into a strip above the
+   tile -- which is the dock as it was always meant to read, and the laptop's own narrow view. */
+@media (max-width: 900px) {
+  body.layout-column .workspace { flex-direction: column; }
+  body.layout-column .column {
+    order: -1; flex: 0 0 auto; max-height: 38vh;
+    border-left: 0; border-bottom: 1px solid var(--line);
+  }
+  body.layout-column .bands { flex-direction: row; overflow-x: auto; }
+  body.layout-column .band { flex: 0 0 auto; min-width: 170px; }
+  body.layout-column .band-open { flex-direction: row; align-items: baseline; }
+}
+
 /* Which window is this? The grid has nothing to say -- it is the whole fleet. Every other layout is
    one of a set, and four windows that look alike is the tab problem again, one level up. */
 

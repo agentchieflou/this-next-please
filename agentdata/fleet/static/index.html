@@ -15,7 +15,8 @@
   <div class="toolbar-group group-window">
     <span class="glabel">window</span>
     <div class="segmented" id="layoutgroup" role="radiogroup" aria-label="layout">
-      <button type="button" role="radio" class="segment active" data-layout="grid" aria-checked="true" title="every tile on one screen">grid</button>
+      <button type="button" role="radio" class="segment active" data-layout="column" aria-checked="true" title="one agent open, the rest as bands down the side">column</button>
+      <button type="button" role="radio" class="segment" data-layout="grid" aria-checked="false" title="every tile on one screen">grid</button>
       <button type="button" role="radio" class="segment" data-layout="roles" aria-checked="false" title="three windows that agree on one project">roles</button>
       <button type="button" role="radio" class="segment" data-layout="screens" aria-checked="false" title="one project per monitor">screens</button>
     </div>
@@ -60,6 +61,12 @@
 </div>
 
 <div class="workspace">
+<!-- The glass: the tiles, and the strip under them that says what is not on it. `.workspace` is a
+     flex ROW, so a `#dock` parked directly in it was laid out BESIDE the grid with a basis of its
+     own content — a chip carrying a long question took a third of the window off the tiles, which
+     is the desk in the photograph #200 was written from. The dock's own comment has always said it
+     sits under the grid; this is the box that makes that true. -->
+<div class="glass">
 <main id="grid" aria-live="polite"></main>
 
 <!-- #164, #183: the one dispatch card, moved into the tile's slot or under the agent rail. -->
@@ -90,6 +97,34 @@
     </li>
   </ul>
   <button type="button" id="showall" class="dock-showall">show all</button>
+</div>
+</div>
+
+<!-- #203: the column. One agent is open and fills the glass; every other checkout is a BAND here,
+     and the bands share the column's whole height so none of the page is empty. It is the dock's
+     data on a vertical axis — the same rows, the same grouping of a project's checkouts, the same
+     rule that a tile needing a person is never off the glass — which is why the dock is not drawn
+     in this arrangement: one thing, not two. -->
+<div id="column" class="column" hidden aria-label="the other agents">
+  <div class="column-head">
+    <span id="column-count" class="column-count"></span>
+    <button type="button" id="column-jump" class="column-jump" hidden></button>
+  </div>
+  <ul id="bands" class="bands">
+    <li class="band" hidden>
+      <button type="button" class="band-open">
+        <span class="b-n"></span>
+        <span class="b-name"></span>
+        <span class="b-chip"></span>
+        <span class="b-badge" hidden></span>
+        <span class="b-last"></span>
+      </button>
+    </li>
+  </ul>
+  <div class="column-foot">
+    <span id="column-hidden" class="column-hidden"></span>
+    <button type="button" id="column-showall" class="dock-showall" hidden>show all</button>
+  </div>
 </div>
 
 <aside id="side" hidden aria-label="sidebar">
@@ -191,8 +226,13 @@
   <!-- #180: the key map behind `?`; `.keys` stays on the container for the skins' `footer .keys`. -->
   <button id="keysbtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="keymap" title="every key (?)"><kbd>?</kbd> keys</button>
   <div id="keymap" class="popover popover-up keys" role="dialog" aria-label="the keys" hidden>
+    <div class="keys-group"><strong>the column</strong>
+      <span><kbd>j</kbd> <kbd>k</kbd> along the bands</span>
+      <span><kbd>Enter</kbd> open that one</span>
+      <span><kbd>Esc</kbd> back to the last one</span>
+    </div>
     <div class="keys-group"><strong>tiles</strong>
-      <span><kbd>1</kbd>–<kbd>9</kbd> focus</span>
+      <span><kbd>1</kbd>–<kbd>9</kbd> open</span>
       <span><kbd>f</kbd> only what needs you</span>
       <span><kbd>a</kbd> approve</span>
       <span><kbd>h</kbd> hide</span>

@@ -375,7 +375,7 @@ def test_the_strip_carries_the_other_checkouts_of_this_project(fleet_home, tmp_p
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
 
             tile = page.locator('.tile[data-repo="luna"]')

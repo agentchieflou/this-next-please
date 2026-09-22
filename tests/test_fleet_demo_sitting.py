@@ -152,7 +152,7 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
             # 4. The grid window: the tile's cell reads the count, and the pane names the three.
             grid = browser.new_page(viewport={"width": 1280, "height": 900})
             grid.on("pageerror", lambda e: errors.append(str(e)))
-            grid.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            grid.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             grid.wait_for_function(
                 """() => /7 branches · 3 never reached main/.test(
                      (document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]') || {}).textContent || '')""",

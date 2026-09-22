@@ -120,7 +120,10 @@ def gzip_for(body: bytes, key: tuple) -> bytes:
         _GZIPPED[key] = packed
     return packed
 
-LAYOUTS = ("grid", "roles", "screens")
+# `column` is first, so it is what `--layout` defaults to and what a window with no
+# `?layout=` shows. The operator chose it on the real screens (#133, #200, and
+# `docs/fleet-layouts.md` §The sitting); the other three stay reachable by URL.
+LAYOUTS = ("column", "grid", "roles", "screens")
 VIEWS = ("board", "agents", "verify")
 
 # What `.agent/out/` file counts as a verify summary, and which command wrote it. An allow-list of
@@ -993,6 +996,10 @@ def update_window(w: str = "main", **kwargs) -> dict:
             "focus": False,
             "zoomed": "",
             "section": "tickets",
+            # Which agent this window has OPEN in the column (#203). Per window, not shared: the
+            # left monitor reads one agent while the centre reads another, and `selected` -- which
+            # the inspector follows -- stays the one thing every window agrees on.
+            "open": "",
             "held": [],
             "read": {},
             "seen": "",
@@ -1012,6 +1019,9 @@ def update_window(w: str = "main", **kwargs) -> dict:
             changed = True
         if "zoomed" in kwargs and win.get("zoomed") != str(kwargs["zoomed"] or ""):
             win["zoomed"] = str(kwargs["zoomed"] or "")
+            changed = True
+        if "open" in kwargs and win.get("open") != str(kwargs["open"] or ""):
+            win["open"] = str(kwargs["open"] or "")
             changed = True
         if "section" in kwargs and win.get("section") != str(kwargs["section"] or ""):
             win["section"] = str(kwargs["section"] or "")

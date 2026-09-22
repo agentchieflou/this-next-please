@@ -114,7 +114,7 @@ def test_the_pane_is_a_different_colour_wherever_the_mesh_is_and_stays_inside_th
             page = browser.new_page(viewport={"width": 1280, "height": 800})
             errors: list[str] = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
             # The first poll tick sends a `polls` frame and the page redraws its tiles with their
             # cells (#184), which moves every transcript down a row. Sample after that, not
@@ -186,7 +186,7 @@ def test_a_card_on_a_pane_is_a_layer_of_its_own(fleet_home, tmp_path):
             page = browser.new_page(viewport={"width": 1280, "height": 800})
             errors: list[str] = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
             for variant in K.SKINS["glass"]["variants"]:
                 page.evaluate("(name) => post('theme', { skin: name })", f"glass:{variant}")

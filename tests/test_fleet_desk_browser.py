@@ -122,7 +122,7 @@ def test_desk_browser_layouts_and_sync(running_desk):
     sync_playwright = playwright_module.sync_playwright
 
     base, token, _ = running_desk
-    url = f"{base}/?t={token}"
+    url = f"{base}/?t={token}&layout=grid"
 
     with sync_playwright() as p:
         browser = launch_chromium(p)
@@ -190,9 +190,12 @@ def test_desk_browser_unknown_layout_fallback(running_desk):
         notice = page.inner_text("#notice")
         assert "unknown layout" in notice, notice
         assert "superwide" in notice, "the notice names the parameter that was not understood"
-        assert page.evaluate("() => document.body.classList.contains('layout-grid')")
+        # An unknown layout falls back to the DEFAULT one, which the operator chose (#203) --
+        # not to whichever arrangement happened to be first when this test was written.
+        assert page.evaluate("() => document.body.classList.contains('layout-column')")
+        assert S.LAYOUTS[0] == "column", "the notice and the fallback must name the same default"
 
-        # Verify grid is rendered
+        # Verify the tiles are rendered
         assert page.query_selector(".grid, #grid") is not None
 
         browser.close()

@@ -72,7 +72,7 @@ def _page(p, port, token, width=1280, height=800):
     page = browser.new_page(viewport={"width": width, "height": height})
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(str(e)))
-    page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+    page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
     page.wait_for_selector(".tile:visible", timeout=15000)
     return browser, page, errors
 
@@ -165,7 +165,7 @@ def test_the_key_map_is_behind_a_question_mark_and_the_footer_keeps_what_changes
             page.keyboard.press("?")
             assert page.locator("#keymap").is_visible()
             groups = page.eval_on_selector_all("#keymap .keys-group strong", "els => els.map(e => e.textContent)")
-            assert groups == ["tiles", "sessions", "the sidebar", "this page"]
+            assert groups == ["the column", "tiles", "sessions", "the sidebar", "this page"]
 
             page.keyboard.press("Escape")
             assert not page.locator("#keymap").is_visible()

@@ -225,7 +225,7 @@ def test_a_dropped_file_resolves_on_the_page_and_only_a_hash_leaves_it(fleet_hom
             errors, posted = [], []
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.on("request", lambda r: posted.append(r.url) if r.method == "POST" else None)
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
 
             page.evaluate("""(body) => {
@@ -276,7 +276,7 @@ def test_a_file_that_is_not_the_repos_offers_a_copy_and_says_so(fleet_home, tmp_
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
 
             page.evaluate("""() => {
