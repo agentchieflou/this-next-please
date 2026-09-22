@@ -380,3 +380,189 @@ def test_the_digits_and_j_k_reach_every_band_without_a_mouse(fleet_home, tmp_pat
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+# ------------------------------------------------------------------------ the band (#204)
+
+
+def test_one_age_formatter_dates_the_agent_everywhere_it_is_dated():
+    """The same tile read `6d` in its chip and `160h` in its tab, three centimetres apart: `age()`
+    stops at hours and `ageChip()` does not. `age()` still dates DURATIONS -- how long an approval
+    has waited, how old a poll is -- and `agentAge` dates the agent, on all four surfaces."""
+    js = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
+    assert "function agentAge(seconds) { return ageChip(seconds).text; }" in js
+    assert "age(row.last_event_age_s)" not in js, "the strip is back on the short formatter"
+    assert "age(ageOf(row))" not in js, "the dock or the rail is back on the short formatter"
+    # The three surfaces that used to disagree with the chip now call it: the strip's main tab,
+    # the dock chip and the rail chip. The chip and the band read `ageChip` straight, because they
+    # want the `stale` flag beside the text -- the same formatter either way, which is the point.
+    assert js.count("agentAge(") >= 4, js.count("agentAge(")
+    assert js.count("ageChip(") >= 3, js.count("ageChip(")
+
+
+def test_the_fold_says_what_the_agent_last_said(fleet_home, tmp_path):
+    """`why` answers *what does this need from me* and is empty of news when the answer is nothing.
+    A column of ten idle agents needs the other question answered too."""
+    from agentdata.fleet import agentstate
+
+    name = "alpha"
+    _repos(tmp_path, name)
+    E.append(name, [E.event(name, "assistant_text",
+                            {"text": "rebuilt the semantic model and pushed the branch"},
+                            ticket="RDSD-1")])
+    derived = agentstate.derive(E.read(name))
+    assert derived["state"] == "idle"
+    assert derived["last_said"] == "rebuilt the semantic model and pushed the branch"
+
+
+@pytest.mark.browser
+def test_every_band_says_what_its_agent_last_said_and_the_dock_still_does_not(fleet_home, tmp_path):
+    """The dock can fit a state and an age, which is how an agent that spoke an hour ago and went
+    quiet became unreadable from it. The band has the room, so it uses it -- and the dock, which is
+    answering a different question in the other three arrangements, is left exactly as it was."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta")
+    E.append("beta", [E.event("beta", "assistant_text",
+                              {"text": "rebuilt the semantic model and pushed the branch"},
+                              ticket="RDSD-1")])
+    S.arrange("column", order=["alpha", "beta"])
+    S.arrange("grid", order=["alpha", "beta"], hidden=["beta"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(page, port, token)
+            band = page.inner_text('#bands .band[data-repo="beta"]')
+            assert "rebuilt the semantic model" in band, band
+
+            # The same agent, in the grid, is the dock's business and says what it always said.
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                      wait_until="domcontentloaded")
+            page.wait_for_selector("#dock:not([hidden]) .dock-chip:not([hidden])", timeout=10000)
+            chip = page.inner_text("#dock .dock-chip:not([hidden])")
+            assert "beta" in chip and "idle" in chip, chip
+            assert "rebuilt the semantic model" not in chip, chip
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_a_bands_node_survives_every_tick_so_the_keyboard_and_the_hover_do(fleet_home, tmp_path):
+    """`place()` runs about two and a half times a second while an agent is talking. A column that
+    cloned its rows on every pass would take the keyboard off the band `j` had just reached."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma")
+    S.arrange("column", order=["alpha", "beta", "gamma"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(page, port, token)
+
+            out = page.evaluate("""() => {
+              const one = document.querySelector('#bands .band[data-repo="beta"]');
+              one.__marker = 'still me';
+              one.querySelector('.band-open').focus();
+              for (let i = 0; i < 20; i++) place();
+              const after = document.querySelector('#bands .band[data-repo="beta"]');
+              return {
+                same: after.__marker === 'still me',
+                keyboard: document.activeElement === after.querySelector('.band-open'),
+                bands: document.querySelectorAll('#bands .band:not([hidden])').length,
+              };
+            }""")
+            assert not errors, errors
+            assert out["same"], "the band was torn down and cloned again"
+            assert out["keyboard"], "twenty draws took the keyboard off the band"
+            assert out["bands"] == 2, out
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_a_hidden_agent_is_counted_at_the_foot_and_show_all_brings_it_back(fleet_home, tmp_path):
+    """A band never simply disappears: hiding one is the operator's own arrangement, and the foot
+    says how many they have put away. One press brings them all back."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma")
+    S.arrange("column", order=["alpha", "beta", "gamma"], hidden=["gamma"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(page, port, token)
+
+            assert "1 hidden" in page.inner_text("#column-hidden")
+            assert page.evaluate(
+                "() => !document.querySelector('#bands .band[data-repo=\\\"gamma\\\"]')")
+            page.click("#column-showall")
+            page.wait_for_function(
+                "() => !!document.querySelector('#bands .band[data-repo=\\\"gamma\\\"]')",
+                timeout=5000)
+            assert page.inner_text("#column-hidden") == ""
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_an_agent_that_needs_a_person_keeps_its_slot_and_shows_its_ask_in_full(fleet_home, tmp_path):
+    """Nothing reorders itself under the operator's hand, so a band that turns red stays where they
+    put it -- and the head counts it and jumps to it instead. Its question is never clipped."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma", needs=("gamma",))
+    S.arrange("column", order=["alpha", "beta", "gamma"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(page, port, token)
+
+            out = page.evaluate("""() => {
+              const bands = [...document.querySelectorAll('#bands .band:not([hidden])')];
+              const red = document.querySelector('#bands .band.needs-human');
+              const last = red.querySelector('.b-last');
+              return {
+                order: bands.map(b => b.dataset.repo),
+                redIsLast: bands[bands.length - 1] === red,
+                ask: last.textContent,
+                clipped: last.scrollHeight > last.clientHeight + 1,
+                head: document.getElementById('column-count').textContent,
+              };
+            }""")
+            assert not errors, errors
+            assert out["redIsLast"], "the red band moved; nothing reorders itself here"
+            assert "which window should this land in?" in out["ask"], out["ask"]
+            assert not out["clipped"], "an ask the operator cannot read is one they must open a tile for"
+            assert "1 need you" in out["head"], out["head"]
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()

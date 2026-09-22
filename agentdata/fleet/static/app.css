@@ -733,6 +733,10 @@ body.layout-column .transcript, body.layout-column .history { max-height: none; 
    `1 1 auto`, or a band carrying a long question takes more than its share and the quiet ones are
    squeezed to a line. Past the minimums the column scrolls and its head says how many there are. */
 .band { flex: 1 1 0; min-height: 56px; display: flex; }
+/* An agent that wants something is the height of what it is asking. `1 0 auto` -- a basis of its
+   own content and no shrink -- so a long question is never clipped and the column scrolls instead,
+   which is the one case where "share the height evenly" is the wrong answer. */
+.band.needs-human { flex: 1 0 auto; }
 .band-open {
   flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px;
   align-items: flex-start; text-align: left; cursor: pointer; overflow: hidden;
@@ -749,6 +753,13 @@ body.layout-column .transcript, body.layout-column .history { max-height: none; 
 .b-badge {
   background: var(--human); color: var(--bg); border-radius: 8px; padding: 0 5px; font-size: 11px;
 }
+/* What it last said. Two lines for a quiet agent -- enough to triage from, not enough to crowd the
+   band next to it -- and no limit at all on a red one, whose question is the point of the row. */
+.b-last {
+  color: var(--muted); line-height: 1.35; overflow: hidden; max-width: 100%;
+  overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.band.needs-human .b-last { display: block; color: var(--human); -webkit-line-clamp: none; }
 /* An agent that needs a person is the same red its tile is, and its question is shown in full: the
    dock could only ever fit a state and an age, which is how an idle agent's last question became
    unrecoverable from it. */

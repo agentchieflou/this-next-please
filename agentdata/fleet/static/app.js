@@ -100,6 +100,14 @@ function age(seconds) {
   return Math.floor(seconds / 3600) + "h";
 }
 
+/* How old an agent's last event is, said one way everywhere it is said (#204).
+
+   `age()` below stops at hours, so the same agent read `6d` in its chip and `160h` in its tab --
+   two numbers for one fact, on one tile, three centimetres apart. `age()` still dates DURATIONS
+   (how long an approval has waited, how old a poll is); `agentAge` dates the agent, and the chip,
+   the band, the strip and the rail all call it. */
+function agentAge(seconds) { return ageChip(seconds).text; }
+
 /* The age that rides inside the state chip. "done" is not information; "done · 2d" is -- and the
    bucket labels this replaced ("today", "> 2d") could not tell a run that ended a minute ago from
    one that ended at breakfast. Anything past a day is marked stale as well as dated, because a
@@ -744,7 +752,7 @@ function drawStrip(el, row) {
   var run = row.run || {};
   var bits = ["main"];
   if (row.state) bits.push(row.state);
-  if (row.last_event_age_s >= 0) bits.push(age(row.last_event_age_s));
+  if (row.last_event_age_s >= 0) bits.push(agentAge(row.last_event_age_s));
   text(main, bits.join(" · "));
   main.title = run.session ? "session " + run.session : "this checkout's live session";
   main.setAttribute("aria-selected", String(!open));
@@ -1844,7 +1852,7 @@ function drawRail() {
     var button = li.querySelector(".rail-open");
     text(li.querySelector(".dc-name"), name);
     text(li.querySelector(".dc-chip"),
-         (row.state || "") + (row.at ? " · " + age(ageOf(row)) : ""));
+         (row.state || "") + (row.at ? " · " + agentAge(ageOf(row)) : ""));
     button.setAttribute("aria-label", name);
     button.title = "drop a ticket here to start it on " + name;
     button.addEventListener("click", function () { focus(name); });
@@ -2849,7 +2857,8 @@ function drawDock() {
          several ? item.members.length + " checkouts"
                  : item.gone ? "removed from the registry"
                  : needs ? ((row && row.why) || "needs you")
-                 : ((row && row.state ? row.state : "") + (row && row.at ? " · " + age(ageOf(row)) : "")));
+                 : ((row && row.state ? row.state : "") +
+                    (row && row.at ? " · " + agentAge(ageOf(row)) : "")));
     var badge = li.querySelector(".dc-badge");
     var unreadN = item.members.reduce(function (n, name) { return n + (unread.get(name) || 0); }, 0);
     badge.hidden = !unreadN;
@@ -2950,16 +2959,35 @@ function drawColumn() {
     groups.push({ project: name, name: name, members: [name], gone: gone });
   });
 
-  while (list.children.length > 1) list.removeChild(list.lastChild);
+  /* Patched, never rebuilt. `place()` runs about two and a half times a second while an agent is
+     talking, and a column that tore its rows down and cloned them again on every pass would take
+     the hover off the band under the cursor and the keyboard off the one `j` had just reached --
+     which is the whole of #215's render contract, arriving here first because the column is where
+     it is felt. The node for a repository is created once and kept. */
+  var alive = new Set();
   var need = 0;
   groups.forEach(function (item, index) {
-    var li = pattern.cloneNode(true);
-    li.hidden = false;
-    li.dataset.repo = item.name;
+    var li = bandFor(list, pattern, item.name);
+    alive.add(item.name);
     drawBand(li, item, index);
     if (li.classList.contains("needs-human")) need += 1;
-    list.appendChild(li);
   });
+  Array.prototype.slice.call(list.querySelectorAll(".band[data-repo]")).forEach(function (li) {
+    if (!alive.has(li.dataset.repo)) li.remove();
+  });
+  // Order last, and only when it is actually wrong: `appendChild` blurs whatever it moves.
+  var want = groups.map(function (item) { return item.name; }).join("\u0000");
+  var have = Array.prototype.map.call(list.querySelectorAll(".band[data-repo]"), function (li) {
+    return li.dataset.repo;
+  }).join("\u0000");
+  if (want !== have) {
+    var hadKeyboard = document.activeElement;
+    groups.forEach(function (item) {
+      var li = list.querySelector('.band[data-repo="' + cssEscape(item.name) + '"]');
+      if (li) list.appendChild(li);
+    });
+    if (hadKeyboard && hadKeyboard.closest && hadKeyboard.closest(".band")) hadKeyboard.focus();
+  }
 
   var hiddenNames = getEffectiveOrder().filter(function (name) { return isHidden(name); });
   text(document.getElementById("column-count"),
@@ -2975,7 +3003,27 @@ function drawColumn() {
   box.hidden = !(groups.length || hiddenNames.length);
 }
 
-/* One band. Slice B fills in the last line and the one age; A puts the row on the glass. */
+/* A repository name is a folder basename and routinely carries a dot, so it cannot go into a
+   selector unescaped. `CSS.escape` where the engine has it; the conservative fallback otherwise,
+   because Simple Browser is not an engine whose vintage we get to assume. */
+function cssEscape(value) {
+  if (window.CSS && CSS.escape) return CSS.escape(value);
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, function (c) { return "\\" + c; });
+}
+
+function bandFor(list, pattern, name) {
+  var li = list.querySelector('.band[data-repo="' + cssEscape(name) + '"]');
+  if (li) return li;
+  li = pattern.cloneNode(true);
+  li.hidden = false;
+  li.dataset.repo = name;
+  list.appendChild(li);
+  return li;
+}
+
+/* One band: who it is, what state it is in, and -- on every band, not only a red one -- what it
+   last said. The dock could fit a state and an age, which is how an agent that asked a question an
+   hour ago and went quiet became unreadable from it: `idle · 3m` and nothing else. */
 function drawBand(li, item, index) {
   var entry = tiles.get(item.name);
   var row = (entry && entry.row) || {};
@@ -2996,11 +3044,24 @@ function drawBand(li, item, index) {
   var unreadN = item.members.reduce(function (n, name) { return n + (unread.get(name) || 0); }, 0);
   badge.hidden = !unreadN;
   text(badge, String(unreadN));
+
+  // The last line. `why` when it wants something -- in full, because an ask the operator cannot
+  // read is an ask they have to open the tile for -- then the last thing it actually said, then
+  // the state. Never blank: a band with nothing on it is a band nobody can triage from.
+  var said = "";
+  if (item.gone) said = "";
+  else if (needs) said = (row.why || "needs you");
+  else if (row.last_said) said = String(row.last_said).slice(0, 80);
+  else said = (row.state || "") + (ac.text ? " · " + ac.text : "");
+  var last = li.querySelector(".b-last");
+  text(last, said);
+  last.hidden = !said;
+
   var button = li.querySelector(".band-open");
   button.title = item.gone
     ? "`ad-fleet repo add " + item.gone.path + "` restores it"
     : several ? "open " + item.project + ": " + item.members.join(", ")
-    : "open " + item.name;
+    : (needs ? (row.why || "needs you") : "open " + item.name);
   button.onclick = function () { if (!item.gone) openBand(item.name); };
 }
 

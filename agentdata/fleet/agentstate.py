@@ -193,6 +193,11 @@ def classify(f: Fold, *, live: bool = False) -> dict:
         state, why = "idle", "the last turn ended with nothing outstanding"
 
     return {"state": state, "why": why, "phase": f.phase, "ticket": f.ticket,
+            # The last thing the agent actually said, for a surface that has one line to spend on
+            # it (#204's band). `why` answers "what does this need from me" and is empty of news
+            # when the answer is "nothing"; this answers "what is it doing", which is what an idle
+            # agent in a column of ten has to be able to say for itself.
+            "last_said": f.last_text[-200:],
             "session": f.session, "turns": f.turns, "premium_requests": round(f.premium, 2),
             "denied": len(f.denied), "questions": len(blocking_questions(f)),
             "asked": [dict(q) for q in f.asked],
