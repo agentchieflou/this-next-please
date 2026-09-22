@@ -386,6 +386,58 @@ def test_minimise_takes_it_off_the_glass_and_maximise_opens_it(fleet_home, tmp_p
 
 
 @pytest.mark.browser
+def test_a_draw_in_the_middle_of_a_drag_does_not_put_the_gesture_down(fleet_home, tmp_path):
+    """`place()` runs about two and a half times a second while an agent is talking, and a drag
+    takes longer than that.
+
+    `drawBand` owned three classes and rewrote the attribute that also holds `is-dragging` -- and
+    with `is-dragging` goes the `pointer-events: none` that makes `elementFromPoint` answer with
+    what is *underneath* the band being dragged. A draw landing mid-drag therefore left the
+    gesture hit-testing only itself, and no drop target could ever light again. On a fast machine
+    the drag finishes between two draws; it took the slowest runner in CI to show it, and two
+    wrong guesses before it was read as the render contract's own rule being broken one component
+    over.
+    """
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma", "delta")
+    S.arrange("column", order=["alpha", "beta", "gamma", "delta"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
+                      wait_until="domcontentloaded")
+            page.wait_for_selector(".tile.is-solo", timeout=15000)
+            page.wait_for_function(
+                "() => document.querySelectorAll('#bands .band:not([hidden])').length >= 3",
+                timeout=15000)
+
+            held = page.evaluate("""() => {
+              const band = document.querySelector('#bands .band:not([hidden])');
+              band.classList.add('is-dragging');
+              // Twenty passes of exactly what the stream does while an agent talks.
+              for (let i = 0; i < 20; i++) redrawAll();
+              return {
+                dragging: band.classList.contains('is-dragging'),
+                events: getComputedStyle(band).pointerEvents,
+              };
+            }""")
+            assert not errors, errors
+            assert held["dragging"], "a draw put the gesture down"
+            assert held["events"] == "none", \
+                "the band is hit-testable again, so the drag can only find itself"
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
 def test_a_band_in_the_column_drags_the_same_way(fleet_home, tmp_path):
     """The column is the same arrangement seen from the other side, so it is the same gesture --
     measured down the page rather than across it, because that is the axis the list runs on."""

@@ -784,12 +784,26 @@ function startGround() {
    The same shape as `place()`'s own body-class write, for the same reason: the classes this
    function does not own are kept by construction rather than by being remembered. */
 var TILE_OWNED = /^(tile|state-[A-Za-z_]+)$/;
+var BAND_OWNED = /^(band|needs-human|departed)$/;
+
+/* Rebuild the classes one draw function owns, keeping every class it does not.
+
+   The same shape as `place()`'s body-class write, and for the same reason. What made it a rule
+   rather than a habit: `drawBand` owned three classes and rewrote the attribute that also holds
+   `is-dragging`, and `place()` runs about two and a half times a second. A draw landing in the
+   middle of a drag took `is-dragging` off the band -- with it the `pointer-events: none` that
+   makes `elementFromPoint` answer with what is *underneath* the thing being dragged -- so the
+   gesture carried on finding only itself and no drop target ever lit. On a fast machine the drag
+   finishes between two draws and it never happens. */
+function setOwned(el, owned, wanted) {
+  var kept = Array.prototype.filter.call(el.classList, function (name) {
+    return !owned.test(name);
+  });
+  setClass(el, wanted.concat(kept).join(" "));
+}
 
 function setTileState(el, state) {
-  var kept = Array.prototype.filter.call(el.classList, function (name) {
-    return !TILE_OWNED.test(name);
-  });
-  setClass(el, ["tile", "state-" + state].concat(kept).join(" "));
+  setOwned(el, TILE_OWNED, ["tile", "state-" + state]);
 }
 
 function drawTile(el, row, approvals) {
@@ -4100,7 +4114,10 @@ function drawBand(li, item, index) {
     var e = tiles.get(name);
     return !!e && e.el.classList.contains("needs-human");
   });
-  setClass(li, "band" + (needs ? " needs-human" : "") + (item.gone ? " departed" : ""));
+  var own = ["band"];
+  if (needs) own.push("needs-human");
+  if (item.gone) own.push("departed");
+  setOwned(li, BAND_OWNED, own);
   text(li.querySelector(".b-n"), String(index + 1));
   text(li.querySelector(".b-name"), several ? item.project : item.name);
   var ac = ageChip(row.last_event_age_s);

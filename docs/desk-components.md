@@ -23,6 +23,15 @@ Seven rules. They are not style; each one is a bug that happened.
 2. **One owner per property.** No two functions write the same class, style or attribute on one
    element. The accent stripe is the bug this rule is named after: `drawTile` painted
    `border-left-color` and the `theme` stream handler painted `border-top-color`.
+
+   Its sharper form: **a draw function rebuilding `class` must keep the classes it does not own.**
+   `setOwned(el, owned, wanted)` is how — the same shape as `place()`'s body-class write. Both
+   halves of this were found the hard way. `drawTile` dropped `is-selected`, `is-hidden`,
+   `is-pinned` and `size-2` for `place()` to put straight back, which is two writes a pass and no
+   idempotence; `drawBand` dropped `is-dragging`, and with it the `pointer-events: none` that
+   makes `elementFromPoint` answer with what is *underneath* the band being dragged, so a draw
+   landing mid-drag left the gesture hit-testing only itself and no drop target could light
+   again. Neither shows on a fast machine, where the draw falls between the gestures.
 3. **Listeners bound once.** A row's handlers are attached by `create`, never by `update`. A
    redraw that re-listened was a redraw that could double-fire.
 4. **Lists are reconciled by key.** `patchList(parent, rows, keyOf, create, update)` in
