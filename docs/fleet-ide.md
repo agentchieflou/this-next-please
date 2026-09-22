@@ -167,7 +167,10 @@ new server work.
    which is the most common way this package looks broken when it is merely unfound. Start it
    detached: closing the IDE must not take the dashboard down, because the other shells are
    attached to the same server.
-4. **Host the URL** in whatever embedded browser the host has. Nothing else. The page is the UI.
+4. **Host the URL** in whatever embedded browser the host has, with `&w=<host>` on it (`pycharm`,
+   `vscode`). Nothing else. The page is the UI. The `w` names this host's own window record on the
+   desk (#230): without it every window shares `main`, and the tool window and a browser tab
+   followed each other's clicks.
 5. **Subscribe to `GET /api/events?t=<token>`** and act on `event: notify` frames only. Each carries
    `{repo, severity, title, body, …}` already decided by the fleet's rules.
 6. **Focus a tile with `#tile=<repo>`** — the same anchor the Windows toasts use, so there is one

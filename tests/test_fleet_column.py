@@ -306,6 +306,159 @@ def test_clicking_a_band_opens_it_and_the_tile_that_was_open_takes_its_slot(flee
         server.server_close()
 
 
+SOLO = "document.querySelector('.tile.is-solo').dataset.repo"
+
+
+@pytest.mark.browser
+def test_a_grid_window_zooming_on_the_same_record_does_not_move_the_column(fleet_home, tmp_path):
+    """#230: every window without `?w=` shares `main`. A grid window's zoom wrote `zoomed` there, and
+    the column window re-opened that agent on every frame after -- twice per click."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma")
+    S.arrange("column", order=["alpha", "beta", "gamma"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(page, port, token)
+            grid = browser.new_page(viewport={"width": 1280, "height": 900})
+            grid.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+            grid.wait_for_selector(".tile", timeout=10000)
+            grid.evaluate("() => { openAgent('gamma'); }")
+            grid.wait_for_function("() => document.body.classList.contains('focused')", timeout=5000)
+            page.wait_for_timeout(600)
+            assert S.desk_state()["windows"]["main"]["zoomed"] == "gamma"
+
+            page.click('#bands .band[data-repo="beta"] .band-open')
+            page.wait_for_function(f"() => {SOLO} === 'beta'", timeout=5000)
+            page.wait_for_timeout(1500)
+            assert page.evaluate(SOLO) == "beta"
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_a_reload_opens_the_agent_that_was_clicked_not_the_one_the_address_named(fleet_home, tmp_path):
+    """#230: `openBand` never wrote `#tile=`, so a reload's `followHash` re-opened the agent from
+    before the click -- and saved it over the server's record as well."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma")
+    S.arrange("column", order=["alpha", "beta", "gamma"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column#tile=gamma",
+                      wait_until="domcontentloaded")
+            page.wait_for_function(f"() => document.querySelector('.tile.is-solo') && {SOLO} === 'gamma'",
+                                   timeout=10000)
+            page.click('#bands .band[data-repo="beta"] .band-open')
+            page.wait_for_function(f"() => {SOLO} === 'beta'", timeout=5000)
+            assert page.evaluate("location.hash") == "#tile=beta"
+
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_selector(".tile.is-solo", timeout=10000)
+            page.wait_for_timeout(800)
+            assert page.evaluate(SOLO) == "beta"
+            assert S.desk_state()["windows"]["main"]["open"] == "beta"
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_an_answer_read_before_a_click_cannot_undo_it(fleet_home, tmp_path):
+    """#230: `/api/fleet` replaced the desk state outright. An answer the server computed before a
+    click, landing after the frame that carried the click, put the old agent back and rolled
+    `version` from 5 to 3. Every payload now comes through `acceptDesk`, which drops an older one."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma")
+    S.arrange("column", order=["alpha", "beta", "gamma"])
+    S.update_window("main", open="alpha")
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(page, port, token)
+            assert page.evaluate(SOLO) == "alpha"
+            # Hold the next `/api/fleet` answer after the server has written it: a stale answer, on
+            # purpose, delivered when the test says so.
+            page.evaluate("""() => {
+              const real = window.fetch.bind(window);
+              window.fetch = function (url, opts) {
+                const p = real(url, opts);
+                if (String(url).indexOf('/api/fleet') < 0 || window.__held) return p;
+                window.__held = true;
+                return p.then(r => new Promise(done => { window.__release = () => done(r); }));
+              };
+              refresh();
+            }""")
+            page.wait_for_function("() => !!window.__release", timeout=5000)
+            before = page.evaluate("desk.desk.version")
+
+            page.click('#bands .band[data-repo="beta"] .band-open')
+            # Until the page holds the frame that carries the click itself -- not only the select's
+            # answer, which raises `version` and says nothing about this window.
+            page.wait_for_function(
+                f"() => {SOLO} === 'beta' && desk.desk.version > {before} && "
+                "desk.desk.windows && desk.desk.windows.main.open === 'beta'", timeout=5000)
+            after = page.evaluate("desk.desk.version")
+
+            page.evaluate("() => { window.__release(); }")
+            page.wait_for_timeout(800)
+            assert page.evaluate(SOLO) == "beta", "the stale answer put the old agent back"
+            assert page.evaluate("desk.desk.version") >= after, "the stale answer rolled the version back"
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_four_opens_in_one_frame_leave_the_record_on_the_last(fleet_home, tmp_path):
+    """#230: four window writes in flight at once reached the server in whatever order its threads
+    took the lock, and the record -- then the page, from the record -- ended on delta after the
+    operator asked for alpha last. Found by `test_fleet_motion.py`'s superseded gestures under load."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma", "delta")
+    S.arrange("column", order=["alpha", "beta", "gamma", "delta"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            _open(page, port, token)
+            page.evaluate("() => { openBand('beta'); openBand('gamma'); openBand('delta'); openBand('alpha'); }")
+            page.wait_for_function("() => windowWrites === 0", timeout=10000)
+            assert S.desk_state()["windows"]["main"]["open"] == "alpha"
+            page.wait_for_timeout(800)
+            assert page.evaluate(SOLO) == "alpha"
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
 @pytest.mark.browser
 def test_a_pinned_agent_is_open_too_and_the_two_split_the_glass(fleet_home, tmp_path):
     """Pinning already meant *first, always* in the grid. In the column the first thing is the open

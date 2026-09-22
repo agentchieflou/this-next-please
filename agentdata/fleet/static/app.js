@@ -53,16 +53,55 @@ var PREFLIGHT = true;
 
 /* This window's own record -- which agent is open, what it has read. Posted and not waited on:
    the page has already drawn the change, and a window record that failed to save is a preference
-   lost, not a wrong screen. A refusal is still said out loud (#219) rather than swallowed. */
+   lost, not a wrong screen. A refusal is still said out loud (#219) rather than swallowed.
+
+   One at a time, and in the order they were made (#230). Four clicks inside a frame were four posts
+   in flight at once, and the server applied them in whatever order its threads took the lock: the
+   page asked for alpha last and the record ended on delta. Until the last of them is answered,
+   anything else the server sends describes the window as it was, and applying it put back the
+   agent the operator had just clicked away from -- so `acceptDesk` leaves the window alone while
+   `windowWrites` is above nought. Each answer is the desk as of its own write, and comes in through
+   the one door like everything else. */
+var windowWrites = 0;
+var windowChain = Promise.resolve();
+
 function saveWindow(patch) {
   var body = Object.assign({ w: W_NAME }, patch);
-  var mark = gesture("window");
-  return post("window", body).then(function (r) {
-    settle(mark);
-    if (r && r.ok === false) say((r.error || "that could not be saved") +
-                                 (r.hint ? " — " + r.hint : ""), 8);
+  windowWrites += 1;
+  windowChain = windowChain.then(function () {
+    var mark = gesture("window");
+    return post("window", body).then(function (r) {
+      settle(mark);
+      if (r && r.ok === false) say((r.error || "that could not be saved") +
+                                   (r.hint ? " — " + r.hint : ""), 8);
+      return r;
+    });
+  }).catch(function () { return null; }).then(function (r) {
+    windowWrites -= 1;
+    if (r && r.ok !== false && r.windows) acceptDesk(r);
     return r;
-  }).catch(function () {});
+  });
+  return windowChain;
+}
+
+/* The one door every desk payload comes in through (#230): the stream's `desk` frame, the
+   `/api/fleet` answer, the fifteen-second `/api/desk` and a window write's own answer. Three of those
+   used to assign `desk.desk` outright, so an answer computed before a click could land after the
+   frame that carried it and roll the page back -- `version` from 5 to 3, and the agent the operator
+   had just left open again. The version only ever rises, so an older payload is simply dropped;
+   an equal one is the same desk. */
+function acceptDesk(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  var have = desk.desk ? desk.desk.version : undefined;
+  if (payload.version !== undefined && have !== undefined &&
+      Number(payload.version) < Number(have)) return false;
+  var next = Object.assign({}, payload);
+  delete next.ok;
+  delete next.action;
+  desk.desk = next;
+  var win = next.windows && next.windows[W_NAME];
+  if (win && !windowWrites) applyWindow(win);
+  return true;
 }
 
 function rehome() {
@@ -1292,7 +1331,12 @@ function applyWindow(win) {
   if (win.open !== undefined && win.open !== openTile) {
     openTile = String(win.open || "");
   }
-  if (win.zoomed !== undefined && win.zoomed !== focused) {
+  /* The column never zooms, so `focused` is never set there and a `zoomed` the grid left behind
+     differed from it on every frame: `focus(zoomed)` opened that agent again within a tick of every
+     click on another one (#230). In the column, what is open is `open` and nothing else. The
+     leftover is not cleared from here: a grid window on the same record may be zoomed on purpose,
+     and #232 takes `zoomed` out of the record altogether. */
+  if (LAYOUT !== "column" && win.zoomed !== undefined && win.zoomed !== focused) {
     if (win.zoomed && tiles.has(win.zoomed)) {
       focus(win.zoomed, true);
     } else if (!win.zoomed && focused) {
@@ -1446,12 +1490,7 @@ function refresh() {
       say("fleet.budget_per_agent is " + JSON.stringify(fleetSpend.budget_invalid) +
           ", which is not a number — the cap is off until it is one", 20);
     }
-    if (data.desk) {
-      desk.desk = data.desk;
-      if (data.desk.windows && data.desk.windows[W_NAME]) {
-        applyWindow(data.desk.windows[W_NAME]);
-      }
-    }
+    if (data.desk) acceptDesk(data.desk);
     if (data.theme) {
       applyTheme(data.theme.css, data.theme.theme);
       applySkin(data.theme.skin);
@@ -1499,10 +1538,7 @@ function connect() {
   // The shared selection (#133). Every window is sent the current one the moment it connects, so a
   // monitor that joined late never sits on a different project than the one beside it.
   source.addEventListener("desk", function (m) {
-    desk.desk = JSON.parse(m.data);
-    if (desk.desk.windows && desk.desk.windows[W_NAME]) {
-      applyWindow(desk.desk.windows[W_NAME]);
-    }
+    acceptDesk(JSON.parse(m.data));
     place();
     if (VIEW === "verify" || LAYOUT === "screens") deskSoon();
   });
@@ -1562,7 +1598,7 @@ function openAgent(name, skipPost) {
   }
   bell();
   drawer(false);
-  if (location.hash !== "#tile=" + name) history.replaceState(null, "", "#tile=" + name);
+  markTile(name);
   /* In the column there is no zoom to enter: everything that is not open is a band already, so
      "focus this agent" and "open this agent" are the same gesture. Every caller -- a toast's
      anchor, a notification row, a search hit, the away strip -- therefore lands on the right thing
@@ -2440,7 +2476,11 @@ function loadDesk() {
   pendingDesk = fetch(q("/api/desk")).then(function (r) { return r.json(); }).then(function (data) {
     pendingDesk = null;
     if (!data.ok) return;
+    // Everything but the desk state is this answer's; the desk state goes through the door (#230).
+    var incoming = data.desk;
+    data.desk = desk.desk;
     desk = data;
+    acceptDesk(incoming);
     // `ad-fleet repo add` and `repo rm` change which tiles exist and neither is an agent event,
     // so the stream never mentions it: the grid drew a repository that had left, or missed one that
     // had arrived, until a reload. The desk's slow clock carries the registry's list, so a
@@ -3837,6 +3877,13 @@ function openSet() {
   return out;
 }
 
+/* The address says which agent is open, so a reload opens that one (#230). The column's own
+   gestures never wrote it, and `followHash` on reload re-opened whichever agent the fragment still
+   named -- the one before the click -- and saved it over the server's record too. */
+function markTile(name) {
+  if (name && location.hash !== "#tile=" + name) history.replaceState(null, "", "#tile=" + name);
+}
+
 /* Open one, and remember what was open before it so `Esc` can go back. A pinned tile is already on
    the glass, so clicking its band is not a swap -- it simply selects it. */
 function openBand(name, skipPost) {
@@ -3844,6 +3891,7 @@ function openBand(name, skipPost) {
   var was = openName();
   if (was && was !== name) previousOpen = was;
   openTile = name;
+  markTile(name);
   // Marked inside the callback, not around the call: the view-transition path runs it on the
   // frame after the browser has taken its snapshot, and a mark closed before the work happened
   // would report nought and mean nothing (#219).
@@ -3857,6 +3905,7 @@ function backToPrevious() {
   var going = previousOpen;
   previousOpen = openName();
   openTile = going;
+  markTile(going);
   transitionLayout(function () { choose(going); place(); });
   saveWindow({ open: going });
   return true;

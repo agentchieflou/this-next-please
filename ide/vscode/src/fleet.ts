@@ -16,6 +16,17 @@ import * as path from "path";
 
 export const CONTRACT = 1;
 
+/*
+ * This host's own window record on the desk (#230). Every window without `?w=` shared `main`, so
+ * this view and a browser tab followed each other's clicks -- and a zoom in one re-opened an agent
+ * in the other.
+ */
+export const WINDOW = "vscode";
+
+export function windowUrl(url: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}w=${WINDOW}`;
+}
+
 export interface ServeRecord {
   url: string;
   token: string;

@@ -149,6 +149,16 @@ def test_both_shells_use_the_one_anchor_for_focusing_a_tile():
         assert "#tile=" in body
 
 
+def test_each_shell_names_its_own_window_on_the_desk():
+    """#230: every window without `?w=` shared the `main` record, so the PyCharm tool window and a
+    browser tab followed each other's clicks -- and a zoom in one re-opened an agent in the other."""
+    names = {"vscode": 'WINDOW = "vscode"', "jetbrains": 'WINDOW = "pycharm"'}
+    for shell, body in shells().items():
+        assert names[shell] in body, f"{shell} does not name its window"
+        assert "windowUrl(" in body, f"{shell} loads the page without its window name"
+    assert "w=<host>" in read(DOC)
+
+
 def test_both_shells_ping_before_starting_a_second_server():
     for body in (read(VSCODE, "src", "fleet.ts"),
                  read(JETBRAINS, "src", "main", "kotlin", "com", "agentdata", "fleet", "Fleet.kt")):

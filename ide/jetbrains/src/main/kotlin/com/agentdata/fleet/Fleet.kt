@@ -22,6 +22,15 @@ import java.nio.charset.StandardCharsets
 object Fleet {
     const val CONTRACT = 1
 
+    /**
+     * This host's own window record on the desk (#230). Every window without `?w=` shared `main`,
+     * so this tool window and a browser tab followed each other's clicks -- and a zoom in one
+     * re-opened an agent in the other.
+     */
+    const val WINDOW = "pycharm"
+
+    fun windowUrl(url: String): String = url + (if (url.contains("?")) "&" else "?") + "w=" + WINDOW
+
     data class Record(val url: String, val token: String, val port: Int)
 
     data class Ping(val service: String, val version: String, val contract: Int)
