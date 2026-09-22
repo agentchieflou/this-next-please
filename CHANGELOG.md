@@ -20,8 +20,11 @@ python -m pytest -q -n auto -m "not browser and not measured and not scale and n
 
 **3,174 tests in 43 seconds** on four cores -- the same tests are 2 minutes 27 serially, and the whole
 suite is seven and a half minutes. CI runs everything it ran before, split up rather than in one pass:
-the bulk on every core, then `measured` and `scale` with the machine to themselves, then `slow`
-serially exactly as before. That split is not tidiness -- a test asserting *"this gesture paints
+on Linux the bulk on every core -- the ubuntu suite step goes from 5m14 to 85 s -- then `measured` and
+`scale` with the machine to themselves, then `slow` serially exactly as before. Windows keeps running
+serially: under `-n auto` it failed on three tries out of four, a different fleet test each time and
+never on Linux, which is concurrency-sensitivity the suite already had (#227) rather than anything the
+tiers introduced. Nothing is skipped or quarantined, and that leg costs no more than it did. That split is not tidiness -- a test asserting *"this gesture paints
 inside 50 ms"* passes serially and fails on four workers, because on four workers it is measuring the
 contention rather than the code.
 

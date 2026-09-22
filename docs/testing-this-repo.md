@@ -62,7 +62,9 @@ common. Measured on this container, four cores, each tier timed on its own:
 | `slow` | 51 | minutes | builds a wheel in a fresh venv, or spawns three subprocesses per command |
 | `laptop` | 23 | — | needs real tools; gated on `AGENTDATA_LAPTOP=1` |
 
-Everything but the last two, in the two passes CI runs: **3 minutes 40**, against about 7m30 serial.
+Everything but the last two, in the two passes CI runs on Linux: **3 minutes 40**, against about
+7m30 serial. On CI's own hardware the win is larger than this container's: the ubuntu suite step
+went from **5m14 to 85 s**.
 
 **108 browser tests are half the wall clock and 3% of the suite.** That is the whole finding, and
 the tiers follow from it: the expensive things are expensive for four distinct reasons, and each
@@ -91,10 +93,20 @@ should carry one of the three.
 
 ### Parallelism
 
-`pytest-xdist` is in the dev extra and `-n auto` is what CI runs for everything outside those two
-tiers. It is safe here for three reasons that are each checked rather than hoped for: the `suite ·
-shuffled` job runs two seeded orders on every pull request, `isolated_home` is autouse and hangs
-every home off the test's own `tmp_path`, and every server the suite starts is built on port 0.
+`pytest-xdist` is in the dev extra, and `-n auto` is what the inner loop and CI's **Linux** legs
+run for everything outside those two tiers. Three things make that safe, each checked rather than
+hoped for: the `suite · shuffled` job runs two seeded orders on every pull request, `isolated_home`
+is autouse and hangs every home off the test's own `tmp_path`, and every server the suite starts is
+built on port 0.
+
+**Windows runs serially, and that is a finding rather than a preference.** Under `-n auto` the
+Windows legs failed on three tries out of four — a *different* fleet test each time, never the same
+one twice, never on Linux. Order-independence is not concurrency-independence: `--dist load`
+interleaves tests from different modules in one worker, and modules like `tests/test_fleet_console.py`
+keep process-level state in `serve` that only a per-module autouse fixture resets. Serially every
+test in a file runs contiguously and that reset holds; interleaved it does not. That is the suite's
+own weakness, surfaced rather than caused by the tiers, and it is #227. Until it is fixed Windows
+runs the way it always has, so the leg costs nothing against what it did before.
 
 The coverage job stays serial on purpose: `coverage run -m pytest -n auto` measures the controller
 process and none of the workers, which would quietly report a fraction of the truth.
@@ -507,7 +519,7 @@ one that invents output is worth less than no test.
 | Job | What it proves |
 |---|---|
 | `ubuntu · 3.12 / 3.14` | the suite on the floor and on the laptop's Python: the bulk on every core, then `measured` + `scale` with the machine to themselves, then `slow` serially |
-| `windows · 3.12 / 3.14` | the same two passes, plus pwsh 7 / Git Bash / cmd smoke steps, under both `core.autocrlf` settings |
+| `windows · 3.12 / 3.14` | the same tiers but **serially** (see *Parallelism* — #227), plus pwsh 7 / Git Bash / cmd smoke steps, under both `core.autocrlf` settings |
 | `floor · pip refuses the wheel on 3.11` | `Requires-Python` really stops an older interpreter, in the words the user sees |
 | `lint · shellcheck + PSScriptAnalyzer` | the shipped scripts parse and target the right floors |
 | `lint · bash 4.4 and pwsh 7 floors` | no post-4.4 construct in anything we ship or emit; the laptop suite never executes here |

@@ -171,9 +171,15 @@ jobs:
 
       # the suite. The slow marker builds wheels and venvs: run it on the laptop's Python, on the OS
       # where packaging actually goes wrong.
-      - name: pytest, in parallel
+      # Serial, and that is not an oversight. Under `-n auto` this leg failed on three of four
+      # tries -- a DIFFERENT fleet test each time, never the same one twice, never on Linux. That
+      # is concurrency-sensitivity the suite already had (process-level state in `serve`, reset by
+      # per-module autouse fixtures that `--dist load` interleaves straight through) rather than
+      # anything the tiers introduced, and it is #227. Chasing it one test at a time from here
+      # would be guessing. Running serially costs this leg nothing against what it did before.
+      - name: pytest
         shell: pwsh
-        run: python -m pytest -q -n auto -m "not slow and not measured and not scale"
+        run: python -m pytest -q -m "not slow and not measured and not scale"
       - name: the measured and scale tiers, with the machine to themselves
         shell: pwsh
         run: python -m pytest -q -m "(measured or scale) and not slow"
