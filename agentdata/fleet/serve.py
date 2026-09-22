@@ -425,16 +425,22 @@ def fleet_snapshot() -> dict:
     for row in supervisor.status():
         name = row["repo"]
         repo = None                          # rebound per row: a lookup that raised used to leave
-        try:                                 # the previous row's repository in hand
+        repo_state: dict = {}                # the previous row's repository (and its state) in hand
+        try:
             repo = registry.get(name) if registry is not None else None
             if repo is not None:
-                E.refresh(name, repo.path, repo_state=repo.state())
+                repo_state = repo.state()
+                E.refresh(name, repo.path, repo_state=repo_state)
         except (RegistryError, OSError):
             pass
         stream = E.read(name)
         is_live = bool(supervisor.live(name))
         curr_run, earlier = split_runs(stream, live=is_live)
-        derived = agentstate.derive(curr_run["events"], live=is_live) if curr_run["events"] else agentstate.derive(stream, live=is_live)
+        # `state.json` says which questions are open (#231); the stream only says which were asked.
+        # A file nobody has written has no say, so a missing or unreadable one reconciles nothing.
+        open_questions = (repo_state.get("open_questions") or []) if repo_state else None
+        derived = agentstate.derive(curr_run["events"] or stream, live=is_live,
+                                    open_questions=open_questions)
 
         # The supervisor's age covers only the log it is tailing, so it is -1 for every agent that
         # is not running right now. The fold's own `at` covers the rest.
@@ -1622,6 +1628,14 @@ def act(what: str, body: dict) -> dict:
         if not answers:
             raise ServeError("nothing to answer",
                              "pick a choice or type an answer for at least one question")
+        if supervisor.live(repo).get("kind") == "console":
+            # A console is typed into, never sent to (#190), and `send` refused it -- so the card
+            # did nothing, the operator answered in the chat instead, the agent cleared rather than
+            # recorded, and the tile went on counting (#231). The same sentence, typed into the
+            # window: session-bootstrap turns it into `ad-state answer`, the agent's own writer.
+            said = supervisor.say(repo, lifecycle.answers_prompt(answers), cfg=C.load())
+            return {"repo": repo, "pid": said["pid"], "answered": [qid for qid, _ in answers],
+                    "via": "console"}
         lock = supervisor.send(repo, lifecycle.answers_prompt(answers), cfg=C.load(),
                                force=bool(body.get("force")))
         return {"repo": repo, "pid": lock["pid"], "answered": [qid for qid, _ in answers]}

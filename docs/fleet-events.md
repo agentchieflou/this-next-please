@@ -198,6 +198,19 @@ question that merely *disappeared* — `--clear-questions`, or a human deciding 
 {"schema": 1, "seq": 17, "ts": "2026-01-04T09:41:12", "repo": "luna", "ticket": "RDSD-118", "kind": "question_answered", "data": {"id": "q1", "question": "Does RDSD-118 cover the UAT workspace too?", "answer": "yes, and the UAT workspace too", "by": "operator"}}
 ```
 
+**`question_cleared`** — an open question left without an answer (#231).
+
+Emitted from the same diff when a key leaves `open_questions` and does not arrive in
+`answered_questions`: `--clear-questions`, or a human deciding the question no longer applies. It
+is still not an answer, and nothing reads it as one. But the question is closed, and before this
+kind existed nothing said so. The fold held every cleared question open until the run ended, and a
+console is one run for its whole life, so a tile read *12 questions* while `state.json` had none.
+`id` is the question's key: its id, or its text for a question that never had one.
+
+```json
+{"schema": 1, "seq": 18, "ts": "2026-01-04T09:42:30", "repo": "luna", "ticket": "RDSD-118", "kind": "question_cleared", "data": {"id": "q2", "question": "Which sprint table does the burndown read?"}}
+```
+
 **`artifact`** — something was produced worth looking at.
 
 ```json

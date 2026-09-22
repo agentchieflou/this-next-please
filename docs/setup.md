@@ -165,8 +165,8 @@ hires don't re-type hostnames, ports, and workspace names from scratch:
    all team defaults and only prompt for personal credentials and passwords. Can also be layered with `--patch`
    for existing installs adopting newly published team defaults.
 
-Session state: `ad-state show` / `ad-state set phase=<phase> active_ticket=<KEY> --artifact <path>=<what> --question "…"`
-is the only writer of `.agent/state.json` (validated keys and phases, `last_updated`, artifacts pruned after 7 days,
+Session state: `ad-state show` / `ad-state set phase=<phase> active_ticket=<KEY> --artifact <path>=<what>` /
+`ad-state ask "…"` (to stop on a question). `ad-state` is the only writer of `.agent/state.json` (validated keys and phases, `last_updated`, artifacts pruned after 7 days,
 UTF-8 without BOM).
 
 Jira transitions: `ad-jira transitions <KEY>` lists what that one issue can move to; `ad-jira transition <KEY> --to

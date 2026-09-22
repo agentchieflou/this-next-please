@@ -68,18 +68,47 @@ def is_answered(q) -> bool:
     return isinstance(q, dict) and bool(q.get("answered"))
 
 
-def next_question_id(*lists: list) -> str:
+def next_question_id(state: dict) -> str:
     """`q1`, `q2`, … per session. Short enough to type at a terminal, which is where they get typed.
 
-    Every list that has ever held a question is consulted, not only the open one. An id that got
-    reused after its question was answered would mean two different things in one session -- and the
-    operator answering `q1` from a tile drawn a moment earlier would answer the wrong one.
+    From a counter that only rises (`question_seq`), not from the lists alone. An id that got reused
+    would mean two different things in one session -- and the operator answering `q1` from a tile
+    drawn a moment earlier would answer the wrong one. Consulting the open and answered lists was
+    not enough: a *cleared* question is in neither, so the next ask got its id back (#231). The
+    lists are still read, so a file written before the counter existed never issues an id it holds.
     """
-    used = {str(q.get("id") or "") for existing in lists for q in existing if isinstance(q, dict)}
-    n = 1
-    while f"q{n}" in used:
-        n += 1
-    return f"q{n}"
+    top = int(state.get("question_seq") or 0)
+    for existing in (state.get("open_questions") or [], state.get("answered_questions") or []):
+        for q in existing:
+            qid = str(q.get("id") or "") if isinstance(q, dict) else ""
+            if qid[:1] == "q" and qid[1:].isdigit():
+                top = max(top, int(qid[1:]))
+    state["question_seq"] = top + 1
+    return f"q{top + 1}"
+
+
+def give_ids(state: dict, today: str | None = None) -> dict:
+    """Every open question a record with an id, including the bare strings (#231).
+
+    A bare string -- what `set --question` wrote, and what a skill written before #165 still asks
+    with -- had no id, so neither `ad-state answer` nor the tile's card could name it, and
+    `--clear-questions` was the only way out. The text, the order and the blocking are kept; only
+    the shape changes, and only here, in the one writer.
+    """
+    oq = state.get("open_questions")
+    if not oq:
+        return state
+    out = []
+    for q in oq:
+        if isinstance(q, dict):
+            if not str(q.get("id") or ""):
+                q = dict(q, id=next_question_id(state))
+            out.append(q)
+        elif str(q or "").strip():
+            out.append({"id": next_question_id(state), "q": str(q).strip(),
+                        "asked": stamp_for(today), "blocking": True})
+    state["open_questions"] = out
+    return state
 
 
 def stamp_for(today: str | None) -> str:
@@ -107,6 +136,8 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
           asks: list[dict] | None = None, answers: dict | None = None,
           today: str | None = None) -> dict:
     """Validate and merge. `sets` keys: phase, active_ticket, branch, pr_url, confluence_url, project."""
+    was_phase = state.get("phase") or ""
+    give_ids(state, today)
     for k, v in sets.items():
         if k == "phase":
             if v not in PHASES:
@@ -127,16 +158,26 @@ def apply(state: dict, sets: dict, *, artifacts: list[dict] | None = None, quest
         state.pop("blocked_from", None)
     if questions:
         oq = state.setdefault("open_questions", [])
-        existing = {question_text(q) for q in oq}
-        oq += [q for q in questions if q and question_text(q) not in existing]
+        for text in questions:
+            text = str(text or "").strip()
+            if not text or any(question_text(q) == text for q in oq):
+                continue
+            oq.append({"id": next_question_id(state), "q": text, "asked": stamp_for(today),
+                       "blocking": True})
+        # `set phase=blocked --question …` is one command, so the phase it interrupted is gone by
+        # the time the question is added. Remembered from before the sets, exactly as `ask` keeps
+        # it: without it an answer could never put the phase back, and the tile stayed blocked.
+        if state.get("phase") == "blocked" and was_phase != "blocked":
+            state.setdefault("blocked_from", was_phase or "idle")
     if asks:
         oq = state.setdefault("open_questions", [])
         for record in asks:
             record = dict(record)
-            record.setdefault("id", next_question_id(oq, state.get("answered_questions") or []))
-            record.setdefault("asked", stamp_for(today))
             if any(question_text(q) == question_text(record) for q in oq):
                 continue
+            if not str(record.get("id") or ""):
+                record["id"] = next_question_id(state)
+            record.setdefault("asked", stamp_for(today))
             oq.append(record)
         # A blocking question is what stops the agent, so the phase it came *from* is remembered
         # here: that is what `answer` puts back, and it is why answering can unblock at all. A

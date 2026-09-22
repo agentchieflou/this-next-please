@@ -45,7 +45,7 @@ KINDS = (
     "turn_started", "assistant_text", "tool_call", "tool_result", "denied", "turn_ended",
     "session_id", "cost", "exited", "error", "raw",
     # .agent/state.json, via `ad-state`
-    "phase_changed", "question_opened", "question_answered", "artifact", "pr_open",
+    "phase_changed", "question_opened", "question_answered", "question_cleared", "artifact", "pr_open",
     # .agent/friction/
     "friction",
     # reserved for the approval gate (#95); `agentstate.derive` already folds them, so the gate is
@@ -295,13 +295,22 @@ def _question_events(previous: dict, current: dict, repo: str, ticket: str) -> l
     # answer's own text is: a question that merely disappeared (`--clear-questions`, a human
     # deciding it no longer applies) is not an answer and does not get reported as one.
     was_done = {_q_key(q) for q in (previous.get("answered_questions") or [])}
+    done_now = set()
     for q in (current.get("answered_questions") or []):
+        done_now.add(_q_key(q))
         if _q_key(q) in was_done:
             continue
         out.append(event(repo, "question_answered",
                          {"id": _q_key(q), "question": question_text_of(q),
                           "answer": str(q.get("answer") or "") if isinstance(q, dict) else "",
                           "by": "operator"}, ticket=ticket))
+    # Not an answer, but closed all the same (#231). Reporting nothing here left the fold holding
+    # every cleared question open for as long as the run lasted -- and a console is one run for its
+    # whole life, so a tile read "12 questions" while state.json had none.
+    for key, q in was.items():
+        if key not in now and key not in done_now:
+            out.append(event(repo, "question_cleared",
+                             {"id": key, "question": question_text_of(q)}, ticket=ticket))
     return out
 
 

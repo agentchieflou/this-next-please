@@ -114,7 +114,7 @@ class FleetPanel(private val project: Project) : JPanel(BorderLayout()), com.int
             balloon("The fleet dashboard is not running", e.message ?: "", NotificationType.WARNING)
             return
         }
-        show(record.url)
+        show(Fleet.windowUrl(record.url))
         warnOnContractMismatch(record)
 
         notifications?.stop()
@@ -156,7 +156,7 @@ class FleetPanel(private val project: Project) : JPanel(BorderLayout()), com.int
             override fun actionPerformed(e: AnActionEvent) {
                 // `#tile=<repo>` is the whole vocabulary for "show me that one" -- the same anchor
                 // the Windows toasts use, so there is one way to focus a tile and not two.
-                Fleet.running()?.let { show("${it.url}#tile=${note.repo}") }
+                Fleet.running()?.let { show("${Fleet.windowUrl(it.url)}#tile=${note.repo}") }
                 notification.expire()
             }
         })

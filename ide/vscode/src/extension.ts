@@ -21,7 +21,8 @@ import {
   repos,
   running,
   startAgent,
-  startServer
+  startServer,
+  windowUrl
 } from "./fleet";
 
 let record: ServeRecord | undefined;
@@ -143,7 +144,7 @@ class DashboardView implements vscode.WebviewViewProvider {
       this.view.webview.html = notRunningHtml();
       return;
     }
-    this.view.webview.html = frameHtml(`${r.url}${anchor ? `#tile=${encodeURIComponent(anchor)}` : ""}`);
+    this.view.webview.html = frameHtml(`${windowUrl(r.url)}${anchor ? `#tile=${encodeURIComponent(anchor)}` : ""}`);
   }
 
   reveal(): void {

@@ -33,7 +33,7 @@ class Fold:
 
     __slots__ = ("phase", "ticket", "session", "premium", "turns", "last_text", "denied",
                  "frictions", "questions", "approvals", "errors", "turn_open", "seen", "last_ts",
-                 "asked", "files")
+                 "asked", "files", "from_state")
 
     def __init__(self) -> None:
         self.phase = self.ticket = self.session = self.last_text = ""
@@ -43,6 +43,10 @@ class Fold:
         self.frictions: list[dict] = []
         self.questions: list[str] = []
         self.asked: list[dict] = []
+        # The keys of the questions `ad-state` reported, which `state.json` therefore has the last
+        # word on (#231). The fleet's own questions -- "Copilot is no longer logged in" -- are not
+        # in `state.json` at all, and it must not close them.
+        self.from_state: set[str] = set()
         self.files: list[str] = []
         self.approvals: list[dict] = []
         self.errors: list[dict] = []
@@ -103,12 +107,21 @@ class Fold:
                     break
             else:
                 self.asked.append(record)
-                self.questions.append(record["q"])
-        elif kind == "question_answered":
+            # `events._q_payload` always writes `want`; the fleet's own questions never carry it.
+            # That is how a question from `state.json` is told apart in a stream written before
+            # anything marked it.
+            if "want" in data:
+                self.from_state.add(record["id"] or record["q"])
+            self.questions = [q["q"] for q in self.asked]
+        elif kind in ("question_answered", "question_cleared"):
+            # An answer and a clear both close the question; only the first is an answer, and
+            # nothing here needs to know which. `questions` is rebuilt from `asked` rather than
+            # edited beside it: a question replaced by id used to leave its old sentence behind,
+            # and `blocking_questions` fell back to that sentence once `asked` emptied (#231).
             qid, text = str(data.get("id") or ""), str(data.get("question") or "")
             self.asked = [q for q in self.asked
                           if (q["id"] or q["q"]) != (qid or text)]
-            self.questions = [q for q in self.questions if q != text] if text else self.questions
+            self.questions = [q["q"] for q in self.asked]
         elif kind == "phase_changed":
             self.phase = str(data.get("to") or "")
         elif kind == "session_id":
@@ -124,6 +137,24 @@ class Fold:
             self.approvals = []
         elif kind == "error":
             self.errors.append(ev)
+        return self
+
+    def reconcile(self, open_questions: list) -> "Fold":
+        """`state.json` is what is open; the stream is what happened (#231).
+
+        A question `ad-state` reported that `state.json` no longer lists is closed, however it was
+        closed. This heals a tile that folded a clear before `question_cleared` existed -- the
+        cursor has already seen that `open_questions` emptied, so no new event will ever arrive to
+        say so. A question `state.json` lists that this run never opened is *not* added: it is
+        usually one the operator has just answered from the tile, in the turn that records the
+        answer, and drawing it again with an empty box asked them to answer it twice (#169).
+        """
+        from .events import _q_key
+
+        open_now = {_q_key(q) for q in open_questions or []}
+        self.asked = [q for q in self.asked
+                      if (q["id"] or q["q"]) not in self.from_state or (q["id"] or q["q"]) in open_now]
+        self.questions = [q["q"] for q in self.asked]
         return self
 
 
@@ -206,7 +237,7 @@ def classify(f: Fold, *, live: bool = False) -> dict:
             "frictions": len(f.frictions), "at": f.last_ts}
 
 
-def derive(events: list[dict], *, live: bool = False) -> dict:
+def derive(events: list[dict], *, live: bool = False, open_questions: list | None = None) -> dict:
     """What state this agent is in, from its whole stream.
 
     The STATE is this module's; the SPEND is `spend.py`'s, and is overlaid here so that every
@@ -214,12 +245,17 @@ def derive(events: list[dict], *, live: bool = False) -> dict:
     arithmetic rather than `Fold`'s per-agent high-water mark. `Fold` keeps its own mark because
     `classify` reads it while deciding, and because a fold that suddenly needed the whole stream
     twice would be a different shape for no gain.
+
+    `open_questions` is the repo's own `state.json` list, when the caller has read it: the
+    questions that file no longer lists are dropped before anything is classified (#231).
     """
     from . import spend as SPEND
 
     fold = Fold()
     for ev in events:
         fold.add(ev)
+    if open_questions is not None:
+        fold.reconcile(open_questions)
     out = classify(fold, live=live)
     folded = SPEND.fold(events)
     out["premium_requests"] = SPEND.total(folded)

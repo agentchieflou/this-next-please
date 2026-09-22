@@ -164,6 +164,65 @@ def test_clearing_a_question_is_not_reported_as_an_answer(fleet_home, tmp_path):
     assert "question_answered" not in kinds
 
 
+def test_a_cleared_question_is_closed_on_the_tile_without_being_an_answer(fleet_home, tmp_path):
+    """#231: the clear said nothing, so the fold kept the question open for the rest of the run."""
+    before = {"phase": "triaged"}
+    asked = ST.apply(copy.deepcopy(before), {}, asks=[{"q": "cover UAT?"}])
+    cleared = ST.apply(copy.deepcopy(asked), {"phase": "triaged"}, clear_questions=True)
+    closing = E.from_state(asked, cleared, "luna")
+    assert [e["kind"] for e in closing if e["kind"].startswith("question_")] == ["question_cleared"]
+    assert closing[-1]["data"] == {"id": "q1", "question": "cover UAT?"}
+    out = _fold(*E.from_state(before, asked, "luna"), *closing, TURN_ENDED)
+    assert out["state"] == "idle" and out["questions"] == 0 and out["asked"] == []
+
+
+def test_a_question_replaced_by_id_leaves_no_sentence_behind(fleet_home, tmp_path):
+    """#231: the replacement kept the old sentence in `questions`, the answer removed only the new
+    one, and `blocking_questions` fell back to the old one once `asked` was empty -- a red tile with
+    an empty card."""
+    opened = lambda text: E.event("luna", "question_opened",           # noqa: E731
+                                  {"question": text, "id": "q1", "want": "decision", "blocking": True})
+    out = _fold(opened("first wording?"), opened("second wording?"),
+                E.event("luna", "question_answered", {"id": "q1", "question": "second wording?"}),
+                TURN_ENDED)
+    assert out["state"] == "idle" and out["questions"] == 0
+
+
+def test_state_json_closes_what_it_no_longer_lists_and_nothing_the_fleet_asked(fleet_home, tmp_path):
+    """#231: a stream folded before `question_cleared` existed is healed by `state.json`, which is
+    the record of what is open. The fleet's own question -- the login one `lifecycle` raises -- is
+    not in `state.json` at all, and `state.json` must not close it."""
+    stale = [E.event("luna", "question_opened",
+                     {"question": f"old {n}?", "id": f"q{n}", "want": "decision", "blocking": True})
+             for n in range(1, 4)]
+    assert A.derive([*stale, TURN_ENDED])["questions"] == 3, "the fold alone still counts them"
+    healed = A.derive([*stale, TURN_ENDED], open_questions=[{"id": "q2", "q": "old 2?"}])
+    assert healed["questions"] == 1 and [q["id"] for q in healed["asked"]] == ["q2"]
+
+    login = E.event("luna", "question_opened",
+                    {"question": "Copilot is no longer logged in. Run `copilot login`."})
+    kept = A.derive([login, TURN_ENDED], open_questions=[])
+    assert kept["state"] == "needs_human" and kept["questions"] == 1
+
+
+def test_the_card_answers_a_console_by_typing_into_it(fleet_home, tmp_path, monkeypatch):
+    """#231: the card posted `answer`, `send` refuses a console (#190), so the operator answered in
+    the chat, the agent cleared instead of recording, and the tile kept counting. A console is typed
+    into: the same sentence, through `say`, which session-bootstrap turns into `ad-state answer`."""
+    from agentdata.fleet import serve as S, supervisor
+
+    said = []
+    monkeypatch.setattr(supervisor, "live", lambda name: {"kind": "console", "pid": 42})
+    monkeypatch.setattr(supervisor, "say",
+                        lambda name, text, cfg=None: said.append((name, text)) or {"pid": 42})
+    monkeypatch.setattr(supervisor, "send", lambda *a, **k: pytest.fail("a console is never sent to"))
+    out = S.act("answer", {"repo": "luna", "answers": [{"id": "q1", "answer": "prod"},
+                                                       {"id": "q2", "answer": "sprint_2026"}]})
+    assert out == {"repo": "luna", "pid": 42, "answered": ["q1", "q2"], "via": "console"}
+    assert said == [("luna", lifecycle.answers_prompt([("q1", "prod"), ("q2", "sprint_2026")]))]
+    assert said[0][1].startswith("Answers to your questions"), "the words session-bootstrap step 5 reads"
+
+
 def test_a_turn_that_answers_one_and_asks_another_reports_both(fleet_home, tmp_path):
     """The old diff was by list *length*, so this exact case reported neither."""
     asked = ST.apply({"phase": "triaged"}, {}, asks=[{"q": "first?"}])
@@ -243,6 +302,17 @@ def test_the_question_card_offers_the_choices_and_one_send(fleet_home, tmp_path)
     from test_fleet_desk_browser import launch_chromium
 
     repo = make_project(tmp_path / "luna", phase="blocked", ticket="RDSD-118")
+    # The three are open in `state.json` too, as they would be: `ad-state` writes the file and the
+    # stream reports it, and the tile shows what the file says is open (#231).
+    state_path = os.path.join(repo, ".agent", "state.json")
+    saved = json.load(open(state_path, encoding="utf-8"))
+    saved["open_questions"] = [{"id": "q1", "q": "Does it cover the UAT workspace?",
+                                "choices": ["yes", "no, production only"], "default": "yes"},
+                               {"id": "q2", "q": "Which export is the baseline?", "want": "file"},
+                               {"id": "q3", "q": "Assuming the last full sprint", "blocking": False,
+                                "assume": "the last full sprint"}]
+    with open(state_path, "w", encoding="utf-8") as f:
+        json.dump(saved, f)
     Registry().add(repo, name="luna")
     E.append("luna", [
         E.event("luna", "started", {"pid": 1, "prompt": "Ticket RDSD-118."}, ticket="RDSD-118"),

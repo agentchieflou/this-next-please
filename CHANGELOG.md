@@ -4,6 +4,39 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.13.2
+
+**A click on another agent stays where it was put (#230).** In the column, a click on a band opened
+that agent and, within half a second, the previous one came back. The window record still held a
+`zoomed` from the days the grid was the default, and the page re-opened it on every desk frame,
+because the column never zooms and so never cleared it. Three more ways to the same symptom are
+closed with it:
+- An answer computed before a click can no longer undo it. Every desk payload now comes through one
+  door that drops anything older than what the page has.
+- The address follows the column, so a reload opens the agent that was clicked.
+- A window's own writes go one at a time, in the order they were made. Four opens inside a frame
+  used to reach the server in any order, and the record could end on the wrong agent.
+
+The PyCharm tool window and the VS Code view now load the page as their own windows (`w=pycharm`,
+`w=vscode`), so they stop following a browser tab's clicks.
+
+**A tile counts only the questions that are still open (#231).** One agent read *12 questions* when
+every one had been dealt with. The tile counted a fold of the event stream that only `ad-state
+answer` could close:
+- `--clear-questions` emitted nothing;
+- a bare `--question` had no id to answer;
+- a console session is one run for its whole life, so its count only grew.
+
+Now:
+- `state.json` decides what is open, and a clear is reported as `question_cleared`.
+- Every question gets an id, and ids only ever rise.
+- `friction-log` and `codebase-map` ask with `ad-state ask`.
+- The tile's answer card types into a console instead of being refused.
+
+**Nothing to do on update** beyond the two standard commands, and a new chat so the three changed
+skills are read. A tile that is already stuck heals on the first refresh, because `state.json` is read
+again. A bare question already in a `state.json` gets its id the next time `ad-state` writes the file.
+
 ## 0.13.1
 
 **A tier for each reason a test is expensive (#225).** The suite is 3,443 tests and took about seven
