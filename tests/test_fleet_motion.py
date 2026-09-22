@@ -214,34 +214,33 @@ def test_the_gestures_animate_for_the_base_duration_and_not_at_all_under_reduced
                     assert props == {"opacity", "translate"}, props
                     assert all(200 <= a["ms"] <= 320 for a in ran), ran
 
-                # And the leave, which is the half `allow-discrete` exists for: the panel is still
-                # painted on the frame after it was hidden, rather than being gone before anyone
-                # saw it go.
-                # Polled rather than sampled at exactly two frames. Under reduced motion the
-                # panel goes on the frame after a 0.01ms transition ends, and whether that is
-                # inside two frames depends on the machine's cadence -- which is the runner
-                # talking, not the stylesheet.
-                left = page.evaluate("""(reduced) => new Promise(resolve => {
-                  const menu = document.querySelector('.tile.is-solo .smenu');
-                  menu.hidden = true;
-                  const began = performance.now();
-                  const look = () => {
-                    const box = menu.getBoundingClientRect().height;
-                    const done = reduced ? box === 0 : performance.now() - began > 48;
-                    if (done || performance.now() - began > 1500) {
-                      resolve({ box: box, running: menu.getAnimations().length });
-                    } else {
-                      requestAnimationFrame(look);
-                    }
-                  };
-                  requestAnimationFrame(look);
-                })""", reduced)
-                assert not errors, errors
+                # And the leave, which is the half `allow-discrete` exists for: the panel is
+                # still painted after it was hidden, rather than being gone before anyone saw it
+                # go.
+                #
+                # Waited on with an interval rather than a frame. Headless Chromium throttles
+                # `requestAnimationFrame` hard when nothing is compositing, so a poll built on it
+                # can simply not run on a loaded runner -- and then the stylesheet gets blamed for
+                # the scheduler. The `polling` argument takes a millisecond count, which is a
+                # timer and is not throttled the same way.
+                page.evaluate(
+                    "() => { document.querySelector('.tile.is-solo .smenu').hidden = true; }")
                 if reduced:
-                    assert left["box"] == 0, "reduced motion takes it away at once"
+                    page.wait_for_function(
+                        """() => document.querySelector('.tile.is-solo .smenu')
+                                   .getBoundingClientRect().height === 0""",
+                        polling=25, timeout=8000)
                 else:
+                    # Still there a frame's worth later, which is the whole claim.
+                    page.wait_for_timeout(60)
+                    left = page.evaluate("""() => {
+                      const menu = document.querySelector('.tile.is-solo .smenu');
+                      return { box: menu.getBoundingClientRect().height,
+                               running: menu.getAnimations().length };
+                    }""")
                     assert left["box"] > 0, "the panel was gone before it could be seen going"
                     assert left["running"] > 0, left
+                assert not errors, errors
                 page.close()
             browser.close()
     finally:

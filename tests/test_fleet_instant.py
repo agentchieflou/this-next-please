@@ -237,25 +237,23 @@ def test_hiding_a_tile_paints_before_the_server_answers(fleet_home, tmp_path):
                 }
                 return real.apply(this, arguments);
               };
+              /* Read in the same task that made the gesture, with no frame in between. An
+                 arrangement change is FLIP and not a view transition (#219), so `place()` has
+                 already run by the time `setHidden` returns -- the animation is a transform laid
+                 over a DOM that is already correct.
+
+                 This used to poll `requestAnimationFrame` and give up after a second, which is a
+                 test that depends on the browser scheduling a frame. Headless Chromium throttles
+                 rAF hard when nothing is compositing, so on the slowest CI runner the first
+                 observation simply never happened inside the second and the page was blamed for
+                 it. Nothing to wait for means nothing to be throttled. */
               const began = performance.now();
               setHidden('beta', true);
-              // Polled by frame rather than counted in frames: a layout change goes through a
-              // view transition (#216), which applies it on the frame *after* the browser has
-              // taken its "before" snapshot. What matters is that it does not wait for the wire.
-              return new Promise(resolve => {
-                const look = () => {
-                  const hidden = document.querySelector('.tile[data-repo="beta"]')
-                                   .classList.contains('is-hidden');
-                  const ms = performance.now() - began;
-                  if (hidden || ms > 1000) {
-                    window.fetch = real;
-                    resolve({ ms: ms, hidden: hidden, posted: settled });
-                  } else {
-                    requestAnimationFrame(look);
-                  }
-                };
-                requestAnimationFrame(look);
-              });
+              const hidden = document.querySelector('.tile[data-repo="beta"]')
+                               .classList.contains('is-hidden');
+              const ms = performance.now() - began;
+              window.fetch = real;
+              return { ms: ms, hidden: hidden, posted: settled };
             }""")
             assert not errors, errors
             assert took["hidden"], "the tile waited for the server before it moved"
