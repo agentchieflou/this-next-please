@@ -52,7 +52,7 @@
   </div>
 </header>
 
-<div id="away-strip" class="away-strip" hidden>
+<div id="away-strip" class="away-strip enters" hidden>
   <div class="away-content">
     <span class="away-title">Since you were away:</span>
     <ul class="away-lines" id="away-lines"></ul>
@@ -87,7 +87,7 @@
 
 <!-- #173: everything that is not on the glass, so a hidden tile is never a lost one. Zoomed,
      hidden, or gone from the registry -- one chip each, one click back. -->
-<div id="dock" class="dock" hidden aria-label="tiles that are not on the glass">
+<div id="dock" class="dock enters" hidden aria-label="tiles that are not on the glass">
   <span class="dock-label"></span>
   <ul class="dock-chips">
     <li class="dock-chip" hidden>
@@ -119,6 +119,7 @@
           <span class="b-badge" hidden></span>
         </span>
         <span class="b-chip"></span>
+        <canvas class="b-trace trace" width="120" height="14" role="img" aria-label=""></canvas>
         <span class="b-last"></span>
         <!-- What it has been doing, filling whatever height the band has left. A band stretched to
              share the page and then showing one line would be the negative space this arrangement
@@ -130,7 +131,7 @@
            that exists on the open agent and not on the others is the thing this slice was asked to
            stop doing. -->
       <div class="band-tools">
-        <button type="button" class="band-hide toolbtn" data-tool="hide" title="take this agent off the glass (h) — it keeps its place; the column or the dock brings it back">
+        <button type="button" class="band-hide toolbtn" data-tool="hide" title="minimise — off the glass (h), keeping its place; the column or the dock brings it back">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg><span class="sr">hide</span>
         </button>
         <button type="button" class="band-refresh toolbtn" data-tool="refresh" title="re-read it now (r) — spends no premium request">
@@ -242,7 +243,7 @@
 
 <footer>
   <span id="counts"></span>
-  <span id="notice" class="notice" hidden></span>
+  <span id="notice" class="notice enters" hidden></span>
   <span class="spacer"></span>
   <!-- #180: the key map behind `?`; `.keys` stays on the container for the skins' `footer .keys`. -->
   <button id="keysbtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="keymap" title="every key (?)"><kbd>?</kbd> keys</button>
@@ -260,6 +261,8 @@
       <span><kbd>r</kbd> re-read it now</span>
       <span><kbd>m</kbd> which model it runs</span>
       <span><kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile</span>
+      <span><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> narrower / wider</span>
+      <span><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd> shorter / taller</span>
       <span><kbd>Alt</kbd>+<kbd>Home</kbd> pin</span>
       <span><kbd>Alt</kbd>+<kbd>Enter</kbd> width</span>
     </div>
@@ -284,7 +287,12 @@
      differ whenever a tenant pins one. It writes the key `/settings` writes, through the same
      function, with the same refusals in the same words: two ways to set one thing must not become
      two rules about it. One card for the page, moved to whichever button opened it. -->
-<div id="modelcard" class="modelcard" role="dialog" aria-label="which model this agent runs" hidden>
+<!-- #218: the glass skin's ground, drawn rather than declared, so it can drift. Empty and inert
+     for every other skin; `groundColours()` reads the mesh out of the stylesheet, which stays its
+     only owner. -->
+<canvas id="ground" aria-hidden="true" hidden></canvas>
+<div id="rszghost" hidden aria-hidden="true"><span class="rsz-says"></span></div>
+<div id="modelcard" class="modelcard enters" role="dialog" aria-label="which model this agent runs" hidden>
   <div class="mc-head">
     <strong class="mc-repo" id="mc-repo"></strong>
     <button type="button" class="mc-close" id="mc-close" title="close (Esc)">×</button>
@@ -312,11 +320,15 @@
 
 <template id="tile">
   <section class="tile" tabindex="0">
-    <div class="head" draggable="true" title="drag to reorder — Alt+←/→ without a mouse">
+    <div class="head" title="drag to reorder — Alt+←/→ without a mouse; Alt+Shift+arrows to resize">
       <span class="grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span class="n"></span>
       <strong class="repo"></strong>
-      <span class="chip"></span>
+      <!-- Two spans, written rather than rebuilt (#215): the word and its age. -->
+      <span class="chip"><span class="chipword"></span><span class="chipage"></span></span>
+      <!-- #218: the last hour, sixty bars. `role="img"` with the sentence on it is the text twin
+           -- a picture a screen reader cannot read is a picture that is not there. -->
+      <canvas class="trace" width="120" height="18" role="img" aria-label=""></canvas>
       <span class="ticket"></span>
       <span class="spacer"></span>
       <span class="badge" hidden title="unread notifications for this agent"></span>
@@ -324,7 +336,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"></path><path d="M12 15v6"></path></svg>
         <span class="sr">pin</span>
       </button>
-      <button class="hidetoggle" type="button" data-tool="hide" title="take this agent off the glass (h) — it keeps its place; the column or the dock brings it back">
+      <button class="hidetoggle" type="button" data-tool="hide" title="minimise — off the glass (h), keeping its place; the column or the dock brings it back">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg>
         <span class="sr">hide</span>
       </button>
@@ -334,11 +346,21 @@
       <button class="modeltoggle wordbtn" type="button" data-tool="model" title="which model this agent runs (m)">
         <span class="bm-name"></span><span class="sr">model</span>
       </button>
-      <button class="sizetoggle" type="button" title="one column or two (Alt+Enter)" aria-pressed="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"></path><path d="M8 8l-4 4 4 4"></path><path d="M16 8l4 4-4 4"></path></svg>
-        <span class="sr">width</span>
+      <!-- #217: the head is a title bar, so it carries what a title bar carries and nothing
+           more. Minimise is the hide button above -- the same gesture the desk always had, under
+           the name everybody already knows -- and maximise takes the width toggle's place, since
+           the edge handles and Alt+Shift+arrows do that job with more than two answers. Adding
+           buttons to a head that was already crowded is the information overload this epic is
+           supposed to be removing. -->
+      <button class="maxtoggle" type="button" title="maximise — open this one (Enter)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"></path></svg>
+        <span class="sr">maximise</span>
       </button>
     </div>
+    <!-- #217: the two edges the tile can be pulled by. Empty spans: the stylesheet draws the
+         grip and the script binds the pointer. -->
+    <span class="rsz rsz-x" data-edge="x" aria-hidden="true"></span>
+    <span class="rsz rsz-y" data-edge="y" aria-hidden="true"></span>
     <!-- Which run this transcript belongs to. #147: a transcript with no era read as live. -->
     <p class="runline"></p>
     <!-- #206: one session control. The strip here was four buttons of three different kinds -- a
@@ -349,7 +371,7 @@
     <div class="sessionbar">
       <button class="spill" type="button" aria-haspopup="menu" aria-expanded="false"
               title="this checkout's sessions, its console and its other checkouts"></button>
-      <div class="smenu" role="menu" hidden>
+      <div class="smenu enters" role="menu" hidden>
         <button class="sm-live smitem" type="button" role="menuitem">this session</button>
         <ol class="live-runs"></ol>
         <p class="sm-earlier-label sm-label" hidden></p>
@@ -388,7 +410,7 @@
     <p class="outside" hidden><span class="outsidewhy"></span><button type="button" class="adopt"></button></p>
     <p class="why"></p>
     <!-- #168: what the run edited, against what it was given. -->
-    <p class="scopereport" hidden></p>
+    <p class="scopereport enters" hidden></p>
     <!-- #164, #183: where the page's one dispatch card draws when this tile is on the glass. -->
     <div class="dispatch-slot"></div>
     <!-- #166: files the operator dropped, resolved to this checkout by their git blob hash. -->
@@ -412,8 +434,21 @@
         <button type="button" class="scope-tell" hidden>tell it now</button>
       </div>
     </div>
-    <div class="cells" aria-label="the project's own state"></div>
-    <div class="approval" hidden>
+    <!-- #215: the two cell shapes, in the markup rather than built by hand, so a test can keep the
+         two files in step the way it does for every other repeated row. A cell is created once
+         from one of these and written to thereafter; the git one is a button because clicking it
+         opens the inspector's branches pane (#184). Neither carries `cell` itself -- `drawCells`
+         adds it to the clone -- so that `.cells .cell` still means a cell that is really on the
+         tile, and not the pattern it was cut from. -->
+    <div class="cells" aria-label="the project's own state">
+      <span class="cellshape" hidden>
+        <span class="lab"></span><span class="val"></span><span class="old"></span>
+      </span>
+      <button type="button" class="gitshape" hidden>
+        <span class="lab"></span><span class="val"></span><span class="old"></span><span class="val2"></span>
+      </button>
+    </div>
+    <div class="approval enters" hidden>
       <div class="approval-head">waiting for you: <span class="kind"></span></div>
       <div class="summary"></div>
       <pre class="payload"></pre>
@@ -426,7 +461,7 @@
     <!-- #165: the agent's open questions, as records. Beside the approval card on purpose: both
          are "the tile is asking you something", and one shape for that is learned once. One Send
          answers all of them, because one respawn per answer is one premium request per answer. -->
-    <div class="asks" hidden>
+    <div class="asks enters" hidden>
       <div class="asks-head">it asked you: <span class="asks-n"></span></div>
       <!-- One question, cloned per open question. In the markup rather than built by hand in the
            script so the two files can be kept in step by a test, the way the tile itself is. -->

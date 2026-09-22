@@ -49,7 +49,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
                inbox as IN, launch as LAUNCH, lifecycle, links as LK, notify as N, poll as P,
-               supervisor)
+               supervisor, trace as TRACE)
 from .registry import Registry, RegistryError, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
@@ -545,6 +545,11 @@ def fleet_snapshot() -> dict:
                      # because a poll cell can be stale or grey and this never is: it is a fold of
                      # the agent's own stream.
                      "spend": _spend_cell(name, budget_now),
+                     # The shape of the hour (#218): sixty small integers, drawn as a trace on
+                     # the tile and the band. Folded from the whole stream rather than from
+                     # `recent`, because forty events is not an hour -- a busy agent fills that
+                     # in two minutes -- and no text comes with it.
+                     "trace": TRACE.trace(stream),
                      "last_seq": stream[-1]["seq"] if stream else 0,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
                      # The project's own state (#131), beside the agent's. Named `polls` and not
@@ -664,9 +669,18 @@ def _load_desk() -> None:
                 _selection["at"] = str(data.get("at") or "")
                 arr = data.get("arrangement")
                 if isinstance(arr, dict):
-                    _selection["arrangement"] = {
-                        k: dict(v) if isinstance(v, dict) else v for k, v in arr.items()
-                    }
+                    loaded = {}
+                    for k, v in arr.items():
+                        if not isinstance(v, dict):
+                            loaded[k] = v
+                            continue
+                        one = dict(v)
+                        # #217: `size: 2` from an older build becomes `{cols, rows}` here, so the
+                        # page and the CLI only ever have one shape to read. The file keeps the
+                        # old spelling until the arrangement is next written.
+                        one["size"] = _sizes(one.get("size"))
+                        loaded[k] = one
+                    _selection["arrangement"] = loaded
                 wins = data.get("windows")
                 if isinstance(wins, dict):
                     _selection["windows"] = {
@@ -984,6 +998,48 @@ def select(selected=None, screens=None) -> dict:
         return desk_state()
 
 
+#: How wide and how tall a tile may be asked to become. Four columns is the whole of a 1920px
+#: glass at the grid's 360px minimum track; three rows is the page height in thirds, which is the
+#: coarsest useful answer to "make this one taller" and the finest one anybody can hit by eye.
+SIZE_MAX_COLS = 4
+SIZE_MAX_ROWS = 3
+
+
+def size_cell(value) -> dict:
+    """One tile's footprint, as columns and rows (#217).
+
+    Every `desk.json` written before this holds `size: 2` -- one number meaning "two columns
+    wide". It reads as `{"cols": 2, "rows": 1}`, and is written back in the new shape the first
+    time the arrangement changes, so an old file is migrated by being used rather than by a
+    migration step nobody remembers to run. Out-of-range and unreadable values clamp rather than
+    raise: an arrangement is a preference, and a preference that cannot be parsed is a tile at its
+    default size, not a dashboard that will not draw.
+    """
+    cols, rows = 1, 1
+    if isinstance(value, dict):
+        try:
+            cols = int(value.get("cols") or 1)
+        except (TypeError, ValueError):
+            cols = 1
+        try:
+            rows = int(value.get("rows") or 1)
+        except (TypeError, ValueError):
+            rows = 1
+    else:
+        try:
+            cols = int(value or 1)
+        except (TypeError, ValueError):
+            cols = 1
+    return {"cols": max(1, min(SIZE_MAX_COLS, cols)),
+            "rows": max(1, min(SIZE_MAX_ROWS, rows))}
+
+
+def _sizes(mapping) -> dict:
+    if not isinstance(mapping, dict):
+        return {}
+    return {str(k): size_cell(v) for k, v in mapping.items()}
+
+
 def arrange(layout: str, *, order=None, size=None, pinned=None, hidden=None) -> dict:
     """Set the tile arrangement for a layout, persisted in desk.json and pushed down the SSE stream.
 
@@ -1000,9 +1056,11 @@ def arrange(layout: str, *, order=None, size=None, pinned=None, hidden=None) -> 
         if order is not None and cur.get("order") != list(order):
             cur["order"] = [str(x) for x in order]
             changed = True
-        if size is not None and cur.get("size") != dict(size):
-            cur["size"] = {str(k): int(v) for k, v in size.items()}
-            changed = True
+        if size is not None:
+            want = _sizes(size)
+            if cur.get("size") != want:
+                cur["size"] = want
+                changed = True
         # Pinned and hidden are per *project* (#175): two working trees of one repository are one
         # piece of work, and putting half of it away -- or pinning half of it first -- is an
         # arrangement nobody asked for. Expanded here rather than in the page, so `ad-fleet hide`
@@ -1437,6 +1495,14 @@ def _attach_bytes(body: dict) -> dict:
     except OSError:
         pass
     return {**data, **ev}
+
+
+#: Actions that change one repository's row. The page patches that row from the answer instead of
+#: fetching the whole fleet again (#219): a `send` cost two round trips, and the second one carried
+#: every tile on the desk to redraw one of them. `arrange` and `window` are not here -- they change
+#: the *arrangement*, which comes back as `desk` and reaches every window down the stream.
+ROW_ACTIONS = ("start", "console", "say", "send", "stop", "reset", "answer", "approve", "deny",
+               "adopt", "release", "refresh", "hold", "model", "resume", "attach", "attach-bytes")
 
 
 def act(what: str, body: dict) -> dict:
@@ -2187,7 +2253,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse(400, "body must be a JSON object")
         what = route[len("/api/"):]
         try:
-            return self._json({"ok": True, "action": what, **act(what, body)})
+            out = act(what, body)
+            # The row this action changed, with the answer (#219). One round trip where there
+            # were two, and the tile is patched from what the server already had in hand rather
+            # than from a second snapshot of the whole fleet.
+            if what in ROW_ACTIONS:
+                changed = str(out.get("repo") or body.get("repo") or "")
+                if changed:
+                    row = row_for(changed)
+                    if row:
+                        out = {**out, "row": row}
+            return self._json({"ok": True, "action": what, **out})
         except (ServeError, RegistryError, supervisor.SupervisorError,
                 approval.ApprovalError, IN.InboxError, CAT.CatalogueError,
                 HO.HandoffError, SCOPE_ERROR) as e:

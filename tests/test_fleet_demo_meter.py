@@ -95,7 +95,8 @@ def test_with_no_budget_and_nothing_spent_there_is_no_cell_to_draw(fleet_home, t
     assert row["spend"]["total"] == 0.0 and row["spend"]["budget"] == 0.0
     js = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "agentdata", "fleet", "static", "app.js"), encoding="utf-8").read()
-    assert "if (!s || (!s.total && !s.budget)) return;" in js
+    # The cell is only in the list of cells to draw when there is something to meter.
+    assert "if (spend && (spend.total || spend.budget)) want.push" in js
 
 
 def test_the_ledger_and_the_cli_and_the_page_all_say_the_same_number(fleet_home, tmp_path):

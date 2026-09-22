@@ -44,7 +44,108 @@ function post(action, body) {
   });
 }
 
-function text(el, value) { if (el) el.textContent = value == null ? "" : String(value); }
+/* ------------------------------------------------------------------ the render contract (#215)
+
+   Created once, patched forever. `place()` runs about two and a half times a second while an agent
+   is talking, and a page that rewrote its own DOM on every pass took the hover off whatever was
+   under the cursor and the keyboard off whatever had just been reached. Every setter below writes
+   only when the value actually changes, so a draw with nothing to say is a draw that touches
+   nothing -- which is what a `MutationObserver` at zero asserts, per component. */
+
+function text(el, value) {
+  if (!el) return;
+  var want = value == null ? "" : String(value);
+  if (el.textContent !== want) el.textContent = want;
+}
+
+function setClass(el, value) {
+  if (el && el.className !== value) el.className = value;
+}
+
+/* `null`, `false` and `undefined` remove; everything else sets. Writing an attribute to the value
+   it already has is still a mutation as far as the platform is concerned. */
+function attr(el, name, value) {
+  if (!el) return;
+  if (value === null || value === false || value === undefined) {
+    if (el.hasAttribute(name)) el.removeAttribute(name);
+    return;
+  }
+  var want = String(value);
+  if (el.getAttribute(name) !== want) el.setAttribute(name, want);
+}
+
+function toggle(el, name, on) {
+  if (el && el.classList.contains(name) !== !!on) el.classList.toggle(name, !!on);
+}
+
+function hide(el, hidden) {
+  if (el && el.hidden !== !!hidden) el.hidden = !!hidden;
+}
+
+function disable(el, on) {
+  if (el && el.disabled !== !!on) el.disabled = !!on;
+}
+
+function setData(el, name, value) {
+  if (!el) return;
+  var want = value == null ? "" : String(value);
+  if (el.dataset[name] !== want) el.dataset[name] = want;
+}
+
+function tabbable(el, index) {
+  if (el && el.tabIndex !== index) el.tabIndex = index;
+}
+
+function style(el, prop, value) {
+  if (el && el.style.getPropertyValue(prop) !== value) el.style.setProperty(prop, value);
+}
+
+/* One list reconciler for the whole page: chips, cells, sessions, bands, patterns, rows.
+
+   Keyed, because the alternative -- tear the list down and clone it again -- is what destroyed the
+   hover, the focus and any transient state on every one of them, several times a second. `create`
+   makes a row's element the first time it is seen; `update` patches it every time after. Rows that
+   go are removed; the order is fixed only when it is actually wrong, because `appendChild` blurs
+   whatever it moves. */
+function patchList(parent, rows, keyOf, create, update) {
+  if (!parent) return [];
+  var have = new Map();
+  Array.prototype.forEach.call(parent.children, function (el) {
+    var k = el.dataset ? el.dataset.rowkey : "";
+    if (k) have.set(k, el);
+  });
+
+  var keys = [];
+  var out = [];
+  rows.forEach(function (row, i) {
+    var key = String(keyOf(row, i));
+    if (keys.indexOf(key) >= 0) throw new Error("patchList: two rows share the key " + key);
+    keys.push(key);
+    var el = have.get(key);
+    if (!el) {
+      el = create(row, key, i);
+      el.dataset.rowkey = key;
+      parent.appendChild(el);
+      have.set(key, el);
+    }
+    if (update) update(el, row, i);
+    out.push(el);
+  });
+
+  have.forEach(function (el, key) { if (keys.indexOf(key) < 0) el.remove(); });
+
+  var inDom = Array.prototype.filter.call(parent.children, function (el) {
+    return el.dataset && el.dataset.rowkey;
+  });
+  var wrong = inDom.length !== out.length ||
+              inDom.some(function (el, i) { return el !== out[i]; });
+  if (wrong) {
+    var keyboard = document.activeElement;
+    out.forEach(function (el) { parent.appendChild(el); });
+    if (keyboard && keyboard.isConnected && keyboard !== document.body) keyboard.focus();
+  }
+  return out;
+}
 
 /* A PALETTE is colour only, so it is 1:1 with the terminal: the same hex reaches this page's custom
    properties and the project's prompt and tab. Writing one goes to the server -- the same
@@ -93,4 +194,29 @@ function applySkin(skinName) {
   document.body.setAttribute("data-skin", family);
   if (variant) document.body.setAttribute("data-skin-variant", variant);
   else document.body.removeAttribute("data-skin-variant");
+}
+
+/* ------------------------------------------------------------ #219: how long a gesture took
+
+   Every local gesture -- one the page can answer out of what it already has -- is marked at both
+   ends, so "instant" is a number somebody can read rather than an adjective. The budget is 50ms,
+   and `tests/test_fleet_instant.py` asserts it in a browser; the runbook records the laptop's.
+
+   Wrapped, because `performance.mark` throws on a name it has already seen in some engines and a
+   page that will not draw because it could not time itself is the worst possible trade. */
+function gesture(name) {
+  var mark = name + ":" + (Date.now() % 100000);
+  try { performance.mark(mark + ":start"); } catch (e) {}
+  return mark;
+}
+
+function settle(mark) {
+  if (!mark) return 0;
+  try {
+    performance.mark(mark + ":end");
+    var m = performance.measure(mark, mark + ":start", mark + ":end");
+    return m ? m.duration : 0;
+  } catch (e) {
+    return 0;
+  }
 }

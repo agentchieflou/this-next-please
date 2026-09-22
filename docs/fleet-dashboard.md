@@ -350,6 +350,8 @@ red everywhere or the colour stops being information:
 | `b` | the sidebar's Jira board |
 | `n` | the sidebar's alerts |
 | `Alt`+`←` / `Alt`+`→` | move the focused tile one slot |
+| `Alt`+`Shift`+`←` / `Alt`+`Shift`+`→` | one column narrower / wider (#217) |
+| `Alt`+`Shift`+`↑` / `Alt`+`Shift`+`↓` | one row shorter / taller (#217) |
 | `Alt`+`Home` | pin the focused tile first |
 | `Alt`+`Enter` | one column or two |
 | `Esc` | close a popover, the sidebar, or back to the grid (or out of a text box) — the nearest open thing first |
@@ -361,6 +363,20 @@ arranged with a mouse cannot be arranged by someone who is typing.
 
 Deny has no shortcut on purpose: it needs a reason typed, and a one-key refusal with an empty
 reason is the failure mode the gate was built to avoid.
+
+## Motion, and the rest of how it behaves
+
+The desk's behaviour has six pages of its own, because it is a page with a contract rather than a
+screen with some CSS on it:
+
+| Page | Is |
+| --- | --- |
+| [desk-components.md](desk-components.md) | every component, who draws it, and the seven rules each one keeps — created once and patched forever, one owner per property, listeners bound once, lists reconciled by key |
+| [desk-motion.md](desk-motion.md) | three duration tokens and a 320 ms ceiling a test enforces; `.enters` as the one arrival pattern; `transitionLayout` as the one door for a layout change |
+| [desk-window.md](desk-window.md) | the tile as a window: pointer drag, the two resize edges and their snap, `size {cols, rows}`, minimise and maximise |
+| [desk-rendering.md](desk-rendering.md) | what a canvas on this page may do; the activity trace; the glass ground that drifts |
+| [desk-instant.md](desk-instant.md) | paint, post, reconcile; the optimistic arrangement and its way back; the 50 ms budget per gesture; why there is no spinner |
+| [desk-engines.md](desk-engines.md) | what each engine does with each platform feature, and what happens on the ones that have not got it |
 
 ## Themes
 

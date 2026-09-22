@@ -635,7 +635,7 @@ def test_the_page_posts_say_for_a_console_and_send_for_a_fleet_session(fleet_hom
     script = open(os.path.join(os.path.dirname(FAKES), "..", "agentdata", "fleet", "static",
                                "app.js"), encoding="utf-8").read()
     assert 'action(el, el.dataset.console ? "say" : "send"' in script
-    assert 'el.dataset.console = row.console ? String(row.console.pid || 0) : ""' in script
+    assert 'setData(el, "console", row.console ? String(row.console.pid || 0) : "")' in script
     assert 'if (el.dataset.console) return action(el, "focus", { repo: row.repo });' in script
 
 

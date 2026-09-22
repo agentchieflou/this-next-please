@@ -184,7 +184,8 @@ def test_the_key_map_is_behind_a_question_mark_and_the_footer_keeps_what_changes
         server.server_close()
 
 
-KEY_LABEL = {"Escape": "Esc", "ArrowLeft": "←", "ArrowRight": "→"}
+KEY_LABEL = {"Escape": "Esc", "ArrowLeft": "←", "ArrowRight": "→",
+             "ArrowUp": "↑", "ArrowDown": "↓"}
 
 
 def test_every_key_the_script_binds_is_in_the_map():

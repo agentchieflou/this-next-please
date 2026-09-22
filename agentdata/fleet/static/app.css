@@ -21,6 +21,28 @@
 
   --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
   --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* #216. The whole page's motion budget, in three numbers. Nothing on the desk may last longer
+     than `--motion-slow`, and a test over this file and every skin says so -- a duration nobody
+     bounded is how an interface comes to feel slow while every single animation looks fine on its
+     own. `--motion-fast` is for something under the cursor (a hover, a press), `--motion-base` for
+     something arriving or leaving, `--motion-slow` for a whole layout changing. */
+  --motion-fast: 120ms;
+  --motion-base: 220ms;
+  --motion-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.3, 1);
+  /* The spring is a fallback first: an engine that cannot parse `linear()` would otherwise drop
+     the declaration that uses it and fall back to `ease`, which overshoots nothing and reads as
+     mush. The `@supports` below upgrades it where the engine really has it. */
+  --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@supports (animation-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring: linear(0, 0.007, 0.029 2.2%, 0.118 4.7%, 0.625 14.4%, 0.826 19%, 0.902,
+                          0.962, 1.008 26.1%, 1.041 28.7%, 1.064 32.1%, 1.07 36%, 1.061 40.5%,
+                          1.015 53.4%, 0.999 61.6%, 0.995 71.2%, 1);
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -276,6 +298,10 @@ main {
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  /* #217. Implicit rows had no size of their own, so `grid-row: span 2` spanned two rows that
+     were as tall as their content and a tile asked to be taller was not. A floor on the row is
+     what makes the second one worth spanning. */
+  grid-auto-rows: minmax(240px, auto);
   gap: 10px;
   padding: 10px;
   overflow: auto;
@@ -289,7 +315,12 @@ body.focused .tile:not(.is-focused) { display: none; }
    "this needs you" on the next. #150 fixed the roles, and the accent is the hex that project's
    terminal is painted in. */
 .tile {
-  display: flex; flex-direction: column; min-height: 240px; max-height: 60vh;
+  display: flex; flex-direction: column; min-height: 240px;
+  /* One row is the 60vh this has always been; each further row is another third of the page,
+     which is the coarsest useful answer to "make this one taller" and the finest anyone can hit
+     by eye. `position: relative` is what the two edge handles hang from. */
+  max-height: calc(30vh * (var(--rows, 1) + 1));
+  position: relative;
   background: var(--panel); border: 1px solid var(--line);
   border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 10px;
 }
@@ -297,7 +328,49 @@ body.focused .tile.is-focused { max-height: none; }
 /* The selection is one, unmistakable, and never in a state colour (HIG *Focus and selection*). */
 .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
 
-.head { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+/* `overflow: hidden` is a guard, not a style: a head whose controls spill past the tile's right
+   edge lays them over the neighbouring tile, where they cannot be clicked and the neighbour
+   cannot be either. It bit once (#217) and it is one declaration to make it impossible. */
+/* Wraps rather than clips. The head carries seven controls and three pieces of identity, and on
+   a 360px track -- the grid's narrowest -- they do not all fit on one line however hard the
+   shrink rules below try. A second line is untidy; a maximise button the operator can see the
+   edge of and never press is broken. `overflow: hidden` stays as the last guard, so nothing can
+   lie over the neighbouring tile either way. */
+.head {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 4px 8px; min-height: 28px; overflow: hidden;
+  /* A column flex item shrinks to its `min-height` unless told not to, so a head that wrapped to
+     two lines kept the height of one and hid the second behind the run line. */
+  flex: 0 0 auto;
+}
+
+/* Before it comes to wrapping. On a narrow tile the model's word goes first and the ticket key
+   second: both are two lines down on the run line and in the cells anyway, and a detail repeated
+   three times is not worth a second row of title bar. The tile is the container, so this is the
+   tile's own width and not the window's -- a 360px tile on a 4K glass needs it as much as one on
+   a laptop does. */
+.tile { container-type: inline-size; }
+@container (max-width: 500px) {
+  .head .bm-name, .head .ticket, .head .chipage { display: none; }
+  .head .modeltoggle { padding-left: 4px; padding-right: 4px; }
+  .head .modeltoggle::before { content: "\2699"; font-size: 12px; }
+}
+/* What gives when the head is narrower than its contents. `overflow: hidden` alone clipped
+   whatever came last, which on a 360px track was the maximise button -- a control the operator
+   could see the edge of and never press. The identity of the tile shrinks instead: the name to an
+   ellipsis, the ticket and the model's word likewise. The controls never shrink, because half a
+   button is worse than a shortened name. */
+.head .repo, .head .ticket, .head .bm-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The name does not shrink: it is which agent this is, and `b…` answers nothing. What gives,
+   in order, is the model's word, then the ticket, then the state chip -- each of which is a
+   detail the tile repeats elsewhere. */
+.head .repo { flex: 0 0 auto; max-width: 40%; }
+.head .bm-name { flex: 0 3 auto; max-width: 68px; }
+.head .ticket { flex: 0 2 auto; }
+.head .chip { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.head button, .head .grip, .head .n, .head .badge { flex: 0 0 auto; }
 
 /* The drag handle. HIG *Drag and drop*: direct manipulation needs an affordance -- a tile that is
    draggable everywhere and says so nowhere is a tile nobody drags (and one whose transcript text
@@ -407,7 +480,7 @@ body.focused .tile.is-focused { max-height: none; }
 .chip.stale .chipage { text-decoration: underline dotted; }
 
 /* 28px is the HIG desktop floor for a hit target; 20px was below it. */
-.head .pintoggle, .head .sizetoggle, .head .hidetoggle,
+.head .pintoggle, .head .maxtoggle, .head .hidetoggle,
 .head .refreshtoggle, .head .modeltoggle {
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0 6px; min-height: 28px; min-width: 28px;
@@ -415,22 +488,121 @@ body.focused .tile.is-focused { max-height: none; }
   color: var(--muted); cursor: pointer;
 }
 /* Every one of them, or the one left out paints its SVG with the default black fill (#180). */
-.head .pintoggle svg, .head .sizetoggle svg, .head .hidetoggle svg,
+.head .pintoggle svg, .head .maxtoggle svg, .head .hidetoggle svg,
 .head .refreshtoggle svg, .toolbtn svg {
   width: 16px; height: 16px; fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
-.head .pintoggle:hover, .head .sizetoggle:hover, .head .hidetoggle:hover,
+.head .pintoggle:hover, .head .maxtoggle:hover, .head .hidetoggle:hover,
 .head .refreshtoggle:hover, .head .modeltoggle:hover { border-color: var(--accent); color: var(--text); }
 .head .pintoggle.active { background: var(--select); color: var(--accent); border-color: var(--accent); }
 
-.tile.size-2 { grid-column: span 2; }
+/* #217. The footprint is two custom properties the script writes and this rule spans on -- one
+   owner for `grid-column` and one for `grid-row`, rather than a class per width. `.tile.size-2`
+   remains as a state marker (it is what "is this one widened" reads) and no longer decides
+   anything. A tile may not span more tracks than the glass has, so the span is capped by the
+   grid's own `auto-fit`: asking for four on a narrow window simply gets the whole row. */
+.tile { grid-column: span var(--cols, 1); grid-row: span var(--rows, 1); }
+
+/* The two edges a tile can be pulled by. They sit inside the tile's padding rather than outside
+   it, so a resize never starts on the gap between two tiles and land on neither. */
+.tile .rsz {
+  position: absolute; z-index: 3; touch-action: none; opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+.tile .rsz::before {
+  content: ""; position: absolute; inset: 0; margin: auto;
+  background: var(--accent); border-radius: 2px;
+}
+/* A short bar at the middle of each edge rather than a strip down the whole of it. A strip is
+   easier to hit and it lies over the head's own buttons at the top and the composer's at the
+   bottom, where it is a control nobody can click and a resize nobody meant. The middle of an edge
+   is where a window's resize grip has always been. */
+.tile .rsz-x {
+  right: 0; top: 50%; transform: translateY(-50%);
+  width: 8px; height: 48px; cursor: col-resize;
+}
+.tile .rsz-x::before { width: 2px; height: 24px; }
+.tile .rsz-y {
+  bottom: 0; left: 50%; transform: translateX(-50%);
+  height: 8px; width: 48px; cursor: row-resize;
+}
+.tile .rsz-y::before { height: 2px; width: 24px; }
+.tile:hover .rsz, .tile:focus-within .rsz { opacity: 0.45; }
+.tile .rsz:hover, .tile .rsz.is-resizing { opacity: 1; }
+
+/* What will happen, shown before the mouse comes up (HIG *Drag and drop*). One element for the
+   whole page: there is only ever one gesture in flight. */
+/* #219: the desk the window last saw, while the one it has now is loading. Dimmed a little and
+   said out loud in the footer -- a stale desk that does not admit it is a desk that lies for a
+   second, and a second is long enough to act on. No spinner: the page has something to show, and
+   a spinner over real content is an apology for content nobody asked it to withhold. */
+body.is-stale main { opacity: 0.72; }
+body.is-stale #counts::after {
+  content: " · the last view, while this one loads";
+  color: var(--muted);
+}
+
+/* #218: the last hour, on the tile's title bar and on the band. Sized in CSS and resolved in the
+   script -- the canvas's own `width` is a pixel count, not a layout box, and the two are only the
+   same number on a 1x screen. It shrinks before anything else in the head does, and goes
+   altogether on a narrow tile, because an hour nobody can read the shape of is 120 pixels of
+   title bar spent on nothing. */
+.trace {
+  flex: 0 1 auto; width: 64px; height: 18px; min-width: 40px;
+  opacity: 0.85; vertical-align: middle;
+}
+.trace:hover { opacity: 1; }
+.band .trace { width: 120px; height: 14px; }
+/* The head wraps before it shrinks -- that is what `flex-wrap` means -- so the trace has to be
+   gone by the width at which it would have caused the wrap, not by the width at which it stops
+   fitting. Below this the band carries the same hour, at full width, for every agent at once. */
+@container (max-width: 560px) {
+  .head .trace { display: none; }
+}
+
+/* #218: the drawn ground. Fixed and behind everything, and `hidden` for every skin that does not
+   ask for one -- the stylesheet's own gradients are the ground then, exactly as before. */
+#ground {
+  position: fixed; inset: 0; z-index: -1;
+  width: 100%; height: 100%; pointer-events: none;
+}
+/* Only once the canvas is really painting: the gradients are what `groundColours` reads, so
+   blanking them before it has read them leaves it with nothing to draw. */
+/* `html` in front, for specificity: a skin's stylesheet is appended to the head *after* this
+   file, so `body.has-ground` and `body[data-skin="glass"]` weigh the same and source order gives
+   the gradients the win -- which paints the ground twice, once in CSS and once on the canvas. */
+html body.has-ground { background-image: none; }
+
+#rszghost {
+  position: fixed; z-index: 40; pointer-events: none;
+  border: 2px dashed var(--accent); border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+#rszghost .rsz-says {
+  position: absolute; top: 4px; left: 6px;
+  font: 11px var(--mono); color: var(--accent);
+}
+
+/* Whatever is under the hand -- a tile in the grid, a band in the column. It is lifted out of the
+   flow's paint order and given no pointer events, so `elementFromPoint` answers with what is
+   *underneath* it rather than with the thing being dragged. Written for both from the start: the
+   rule that named only `.tile` left the column's drag with nothing to drop onto. */
+.is-dragging {
+  z-index: 30; pointer-events: none; cursor: grabbing;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+/* A title bar is not text to be selected, and while it was the browser turned the second drag in
+   a row into a native drag of the selection the first one had made -- which arrives as
+   `pointercancel` and ends the gesture on the frame it began. `draggable` used to suppress this
+   as a side effect; saying it outright is what replaces it. */
+.tile .head, .band { touch-action: none; user-select: none; -webkit-user-select: none; }
 
 /* A pinned tile says so on the tile, not only in the tint of a 28px button: the pin is why it is
    first, and "why is this one at the top" is the question the tint could not answer. */
 .tile.is-pinned .head .n::after { content: "\00a0\1F4CC"; font-size: 9px; }
 .tile.is-pinned .head .pintoggle { color: var(--accent); }
-.head .pintoggle.active, .head .sizetoggle.active {
+.head .pintoggle.active, .head .maxtoggle.active {
   background: var(--select); border-color: var(--line); color: var(--accent);
 }
 
@@ -450,7 +622,7 @@ body.focused .tile.is-focused { max-height: none; }
    one frame the tile is inverted, so a tile at rest carries no transition -- dragging one must stay
    immediate. The global `prefers-reduced-motion` block below zeroes the duration, and the script
    skips the measurement entirely, so a viewer who asked for less motion gets a plain reorder. */
-.tile.flip { transition: transform 260ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+.tile.flip { transition: transform var(--motion-base) var(--ease-out); }
 .tile.is-dragging.flip { transition: none; }
 
 .chip {
@@ -908,11 +1080,57 @@ body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-too
 
 .inspectorbody { padding: 8px 0; display: flex; flex-direction: column; gap: 12px; }
 
+/* ------------------------------------------------------- #216: arriving, and going away again */
+
+/* Every panel the desk shows and takes away, in one block. The pattern is the same for all of
+   them -- fade and settle by four pixels on the way in, the same in reverse on the way out -- so
+   there is one thing to learn rather than nine, which is the whole of the operator's "minimalist
+   interface navigation" note.
+
+   `transition-behavior: allow-discrete` is what lets `display` take part. Without it a panel
+   leaving is removed on the first frame and only its arrival is ever seen, which is the
+   half-animation that reads as a glitch. It is set as a longhand after the shorthand on purpose:
+   an engine that does not know the property ignores that one line, `display` is simply not
+   animated, and both directions are instant -- which is exactly the behaviour these panels had
+   before this rule existed. */
+.enters {
+  opacity: 1;
+  translate: 0 0;
+  transition: opacity var(--motion-base) var(--ease-out),
+              translate var(--motion-base) var(--ease-out),
+              display var(--motion-base);
+  transition-behavior: allow-discrete;
+}
+.enters[hidden] { opacity: 0; translate: 0 -4px; }
+
+/* The arrival's starting point. A style that only exists for the frame before the element is
+   first painted: without it the browser has nothing to animate *from* and the panel simply
+   appears. */
+@starting-style {
+  .enters:not([hidden]) { opacity: 0; translate: 0 -4px; }
+}
+
+/* A tile is a box of text, and a view transition animates *images* of the old and new states.
+   Scaling one to the other's size stretches the words, which is the giveaway that what is on the
+   screen is a picture of a tile rather than the tile. Both snapshots are pinned to their own size
+   at the top left instead, so what moves is the box and what cross-fades is text at the size it
+   was written. */
+::view-transition-old(*), ::view-transition-new(*) {
+  object-fit: none;
+  object-position: top left;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  /* A view transition runs on pseudo-elements that `*` never matches, so the three rules above do
+     not reach it. `transitionLayout` refuses to start one under reduced motion as well; this is
+     the stylesheet saying the same thing for a transition begun from anywhere else. */
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {
+    animation-duration: 0.01ms !important;
   }
 }
 

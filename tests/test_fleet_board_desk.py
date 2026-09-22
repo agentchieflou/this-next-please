@@ -705,9 +705,12 @@ def test_every_class_the_layout_sets_is_a_class_it_also_clears():
     body classes. A class it can add and does not clear is a window that keeps the last layout's
     arrangement on top of the new one -- which looks like the page half-loading."""
     js = open(APP_JS, encoding="utf-8").read()
-    calls = [c for c in re.findall(r"body\.classList\.remove\(([^)]*)\)", js, re.S)
-             if "layout-" in c]
+    calls = re.findall(r"var BODY_LAYOUT_CLASSES = \[([^\]]*)\]", js, re.S)
     assert len(calls) == 1, "more than one place decides which layout this window is in"
+    # One declared list since #215: `place()` used to `remove` all nine and then `add` up to four,
+    # which writes `class` whether or not anything changed -- so it could never be the no-op the
+    # render contract asks for. What it sets and what it clears are the same array now.
+    assert "body.classList.remove(" not in js, "the layout classes are one write now"
     cleared = set(re.findall(r'"([a-z-]+)"', calls[0]))
     assert cleared == {"layout-column", "layout-grid", "layout-roles", "layout-screens",
                        "view-board", "view-agents", "view-verify", "solo", "panels"}
@@ -772,8 +775,8 @@ def test_focus_mode_hides_every_tile_but_the_ones_that_need_a_person():
     """
     js = open(APP_JS, encoding="utf-8").read()
     css = open(APP_CSS, encoding="utf-8").read()
-    assert 'el.classList.toggle("needs-human", !!row.needs_human);' in js
-    assert 'el.classList.toggle("held", held.has(row.repo));' in js
+    assert 'toggle(el, "needs-human", !!row.needs_human);' in js
+    assert 'toggle(el, "held", held.has(row.repo));' in js
     assert "body.needs-only:not(.solo) .tile:not(.needs-human):not(.held) { display: none; }" in css
     assert 'if (e.key === "f") { focusMode(); return; }' in js
 
@@ -794,8 +797,8 @@ def test_focus_mode_never_empties_a_window_that_exists_to_show_one_project():
 
 def test_a_grey_cell_carries_the_error_in_a_tooltip_and_still_shows_its_value():
     js = open(APP_JS, encoding="utf-8").read()
-    assert 'cell.className = "cell" + (p.grey ? " grey" : "")' in js
-    assert "cell.title = p.error ? p.error :" in js
+    assert 'setClass(node, "cell" + (p.grey ? " grey" : "")' in js
+    assert 'attr(node, "title", title);' in js and "p.error ? p.error :" in js
     css = open(APP_CSS, encoding="utf-8").read()
     assert ".cell.grey" in css and "var(--idle)" in css.split(".cell.grey")[1][:200]
 

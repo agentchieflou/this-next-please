@@ -93,7 +93,9 @@ def test_desk_persistence_across_reset_and_reload(fleet_home, tmp_path):
     S.arrange("grid", order=["gamma", "alpha"], size={"gamma": 2}, pinned=["gamma"])
     state = S.desk_state()
     assert state["arrangement"]["grid"]["order"] == ["gamma", "alpha"]
-    assert state["arrangement"]["grid"]["size"] == {"gamma": 2}
+    # #217: one number became two. `size=2` on the way in is "two columns wide", and it is
+    # stored -- and read back by every window -- as the footprint it always meant.
+    assert state["arrangement"]["grid"]["size"] == {"gamma": {"cols": 2, "rows": 1}}
     assert state["arrangement"]["grid"]["pinned"] == ["gamma"]
 
     # Verify on disk
@@ -155,7 +157,7 @@ def test_desk_arrange_api(fleet_home, tmp_path):
             assert res["ok"] is True
             assert res["action"] == "arrange"
             assert res["arrangement"]["grid"]["order"] == ["x", "y"]
-            assert res["arrangement"]["grid"]["size"] == {"x": 2}
+            assert res["arrangement"]["grid"]["size"] == {"x": {"cols": 2, "rows": 1}}
             assert res["arrangement"]["grid"]["pinned"] == ["x"]
     finally:
         server.stopping.set()

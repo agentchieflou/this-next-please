@@ -4,6 +4,57 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.13.0
+
+**Ownership (#202).** The note was *"some of our design failures are from not stripping down
+components to their bare parts and having full ownership. We're not 'templating' here."* Six
+slices, and the whole of it is written down in `docs/desk-components.md`, `desk-motion.md`,
+`desk-window.md`, `desk-rendering.md`, `desk-instant.md` and `desk-engines.md`.
+
+**The render contract (#215).** `place()` runs about two and a half times a second while an agent
+is talking, and the page rebuilt itself at that rate: `drawCells` emptied the cells and recreated
+all four with fresh listeners, `drawDock` and `drawRail` cloned every chip again. A hover, the
+keyboard, a half-typed reply -- gone by the next pass. `common.js` now carries the guarded setters
+and `patchList`, thirty lines and the only reconciler on the page; `draw(el, row)` twice with the
+same row records **zero** DOM mutations, asserted per component with a `MutationObserver`. The
+inventory names every component and the test that covers it, and refuses one with neither.
+
+**Motion with a budget (#216).** Three duration tokens on `:root` -- 120 ms, 220 ms, 320 ms, and
+320 ms is the ceiling for everything in `static/`, skins included. `.enters` is one arrival
+pattern on nine panels, with `@starting-style` for a state to animate from and
+`transition-behavior: allow-discrete` so a panel leaving is still painted while it goes.
+`transitionLayout(fn)` is the one door for a layout change: `startViewTransition` where the engine
+has it, FLIP everywhere else, and neither under reduced motion.
+
+**The tile as a window (#217).** Pointer drag with capture, on the tile's head and the band's own
+button; resize from two edges, snapping to the grid's measured tracks and to thirds of the page,
+with a ghost showing the footprint before the hand comes up. `size` is `{cols, rows}` now --
+`size: 2` reads as `{cols: 2, rows: 1}` on both sides and `desk.json` migrates the first time the
+arrangement changes. Minimise is the hide button and maximise takes the width toggle's place.
+`Alt+Shift+arrows` resizes; `Alt+arrows` still moves.
+
+**Rendering that earns its pixels (#218).** Every row carries `trace`: the last hour in sixty
+small integers, drawn as a bar a minute on the tile's title bar and on every band, with a red
+minute where the agent stopped for a person and the same hour in a sentence on its `aria-label`.
+The glass skin's ground becomes a canvas and drifts a pixel a second, reading its mesh out of the
+stylesheet rather than copying it, and holding still under reduced motion *and* reduced
+transparency.
+
+**Instant (#219).** Paint, post, reconcile. `arrangeNow` is the only writer of the arrangement and
+a refusal restores it with the server's own words on the notice line. Seventeen actions answer
+with the row they changed, so a `send` is one round trip where it was two. A reopened window draws
+the desk it last saw -- marked stale, and saying so -- while the fleet loads. Every local gesture
+is marked at both ends and held to 50 ms; the worst measures about 6 ms. There is no spinner
+anywhere, and a test says so.
+
+**Proof (#220).** `docs/desk-engines.md` carries a row per platform feature against Chromium,
+Edge, JCEF and the Simple Browser; the Chromium column is measured by a test rather than
+remembered, and every fallback is proven by taking the feature away -- all of them at once, which
+is the worst engine anybody will meet. CI attaches the measurements and a recorded demo: five
+agents, a swap, a resize, a hide, a reconnect and twenty idle redraws that touch nothing.
+
+*Nothing here needs anything beyond the two standard update commands.*
+
 ## 0.12.0
 
 **The meter (#201).** The operator's sentence was *the reliability and reassurance that a user
