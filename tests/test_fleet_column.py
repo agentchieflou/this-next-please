@@ -14,6 +14,7 @@ a third of the window off the tiles.
 """
 from __future__ import annotations
 import os
+import re
 import threading
 
 import pytest
@@ -740,3 +741,97 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
             server.server_close()
     finally:
         os.environ.pop("AGENTDATA_CONFIG", None)
+
+
+# ------------------------------------------- the two focuses become open and needs me (#207)
+
+
+def test_the_two_focuses_have_names_that_say_which_is_which():
+    """`focus()` zoomed one tile and `focusMode()` filtered for the ones that need a person: two
+    modes named alike, and the toolbar's *back to grid* undid only the first. The old names stay
+    as aliases, because the page globals the regression tests call keep their names -- and neither
+    new name is `open`, which in a non-module script would replace `window.open` for the page."""
+    js = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
+    assert "function openAgent(name, skipPost) {" in js
+    assert "function backAgent(skipPost) {" in js
+    assert "var focus = openAgent;" in js and "var unfocus = backAgent;" in js
+    # A declaration, not the word in the comment that explains why there is not one.
+    assert not re.search(r"(?m)^\s*function open\s*\(", js), \
+        "a bare `open` declaration replaces window.open for the whole page"
+
+
+@pytest.mark.browser
+def test_needs_me_folds_a_quiet_band_rather_than_emptying_the_column(fleet_home, tmp_path):
+    """Acceptance criterion: two red of five leaves five bands in the DOM, two full and three
+    folded, and the head reads `2 need you`. A mode that removed nine rows of ten would be the
+    *where did it go* this arrangement exists to answer, one level up."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon", needs=("delta", "epsilon"))
+    S.arrange("column", order=["alpha", "beta", "gamma", "delta", "epsilon"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(page, port, token)
+
+            page.keyboard.press("f")
+            page.wait_for_function(
+                "() => document.body.classList.contains('needs-only')", timeout=5000)
+            out = page.evaluate("""() => {
+              const bands = [...document.querySelectorAll('#bands .band:not([hidden])')];
+              return {
+                n: bands.length,
+                quiet: bands.filter(b => b.classList.contains('is-quiet')).length,
+                slivers: bands.filter(b => b.getBoundingClientRect().height <= 30).length,
+                named: bands.every(b => b.querySelector('.b-name').textContent.length > 0),
+                head: document.getElementById('column-count').textContent,
+                backBtn: !document.getElementById('unfocus').hidden,
+              };
+            }""")
+            assert not errors, errors
+            assert out["n"] == 4, "one of five is open; none of the other four leaves"
+            assert out["quiet"] == 2 and out["slivers"] == 2, out
+            assert out["named"], "a folded band still says who it is"
+            assert "2 need you" in out["head"], out["head"]
+            assert out["backBtn"] is False, "there is no zoom in the column to go back from"
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
+def test_back_to_grid_is_drawn_where_a_zoom_exists_and_not_where_it_does_not(fleet_home, tmp_path):
+    """The toolbar button undoes the zoom, so it is drawn in the arrangements that have one."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta")
+    S.arrange("grid", order=["alpha", "beta"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                      wait_until="domcontentloaded")
+            page.wait_for_selector(".tile", timeout=10000)
+            assert page.evaluate("() => document.getElementById('unfocus').hidden") is True
+
+            page.click('.tile[data-repo="alpha"] .repo')
+            page.wait_for_function(
+                "() => document.body.classList.contains('focused')", timeout=5000)
+            assert page.evaluate("() => !document.getElementById('unfocus').hidden"), \
+                "the grid has a zoom, so it has a way out of one"
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()

@@ -787,6 +787,12 @@ body.layout-column .transcript, body.layout-column .history { max-height: none; 
 .band.needs-human .band-open { border-color: var(--human); border-left-color: var(--human); }
 .band.needs-human .b-name { color: var(--human); }
 .band.departed .band-open { border-style: dashed; color: var(--muted); }
+/* *needs me*, in the column: a quiet band folds to a sliver rather than leaving. It keeps its name
+   and its slot, so the mode narrows the column instead of emptying it -- a row that vanished would
+   be "where did it go" again, which is the question this arrangement exists to answer. */
+body.needs-only .band.is-quiet { flex: 0 0 28px; min-height: 28px; }
+body.needs-only .band.is-quiet .band-open { flex-direction: row; align-items: baseline; padding: 2px 8px; }
+body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-tools { display: none; }
 .column-hidden { color: var(--muted); }
 
 /* ------------------------------------------------------ hide, refresh and the model (#205)

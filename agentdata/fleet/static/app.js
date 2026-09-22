@@ -1192,7 +1192,17 @@ function connect() {
 
 /* ------------------------------------------------------------------- focus mode and the keyboard */
 
-function focus(name, skipPost) {
+/* ------------------------------------------------------- what the two focuses actually are (#207)
+
+   `focus()` zoomed one tile and `focusMode()` filtered for the ones that need a person: two modes
+   named alike, side by side, and the toolbar's *back to grid* undid only the first. They are
+   `openAgent` and *needs me* now, with the old names kept as aliases because the page globals the
+   regression tests call keep their names.
+
+   Not literally `open`: a bare `function open()` in a non-module script replaces `window.open` for
+   the whole page, and a name that shadows a platform function to read slightly better is a trade
+   this page does not need to make. */
+function openAgent(name, skipPost) {
   unread.delete(name);                       // looking at it is what "read" means
   var entry = tiles.get(name);
   if (entry && entry.seq) {
@@ -1217,7 +1227,9 @@ function focus(name, skipPost) {
   if (!skipPost) saveWindow({ zoomed: name, read: readCursors });
 }
 
-function unfocus(skipPost) {
+/* Out of the zoom, where there is one. In the column there is nothing to leave -- everything that
+   is not open is a band already -- so `Esc` there is `backToPrevious()` instead. */
+function backAgent(skipPost) {
   focused = null;
   document.body.classList.remove("focused");
   document.getElementById("unfocus").hidden = true;
@@ -1225,6 +1237,10 @@ function unfocus(skipPost) {
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
   if (!skipPost) saveWindow({ zoomed: "" });
 }
+
+/* The names the rest of this file, the IDE shells and the regression tests already use. */
+var focus = openAgent;
+var unfocus = backAgent;
 
 /* A toast launches `…/?t=…#tile=luna`, so the click lands on the agent that needs the operator
    rather than on "one of these four". Also fired on hashchange, because the window may already be
@@ -3097,6 +3113,10 @@ function place() {
     body.classList.add("panels");
   }
   body.classList.toggle("needs-only", needsOnly);
+  // There is no zoom in the column, so the button that leaves one is not drawn there. `Esc` goes
+  // back to the agent that was open before, which is the gesture that arrangement actually has.
+  var backBtn = document.getElementById("unfocus");
+  if (backBtn) backBtn.hidden = (LAYOUT === "column") || !focused;
   tiles.forEach(function (entry, name) {
     entry.el.classList.toggle("is-solo", open.indexOf(name) >= 0);
     entry.el.classList.toggle("is-selected", name === desk.desk.selected);
@@ -3171,6 +3191,11 @@ function drawColumn() {
     var li = bandFor(list, pattern, item.name);
     alive.add(item.name);
     drawBand(li, item, index);
+    /* *needs me* narrows the column; it does not empty it. A quiet band folds to a sliver -- still
+       named, still counted, still one click away -- because a mode that removed nine of ten rows
+       would be the "where did it go" the column exists to answer, one level up. */
+    li.classList.toggle("is-quiet", needsOnly && !li.classList.contains("needs-human") &&
+                                    !held.has(item.name));
     if (li.classList.contains("needs-human")) need += 1;
   });
   Array.prototype.slice.call(list.querySelectorAll(".band[data-repo]")).forEach(function (li) {
