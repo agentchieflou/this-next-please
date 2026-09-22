@@ -82,6 +82,13 @@ change looks.
 browser has taken its "after" snapshot, and a morph to a state that has not arrived is a flash of
 the wrong layout.
 
+A superseded transition is ordinary, not an error. Two gestures inside one animation is the most
+normal thing on this page, and the browser rejects **all three** of the first transition's
+promises to say so. `finished` is the one that is acted on; `updateCallbackDone` and `ready` are
+caught, because an unhandled rejection reaches the console as *"Transition was skipped. New
+ViewTransition started"* — which is how this was found, as a page error on the slower of the two
+CI runners.
+
 Two edges are handled rather than assumed:
 
 * `reorderDomTiles` does not play FLIP while a view transition is running (`inViewTransition`), or

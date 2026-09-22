@@ -3512,6 +3512,14 @@ function transitionLayout(fn) {
     fn();
     return;
   }
+  /* A `ViewTransition` carries three promises and a superseded one rejects all of them. That is
+     not three pieces of news, it is one: the operator made a second gesture before the first had
+     finished animating, which is the most ordinary thing on this page. `finished` is the one that
+     is acted on; the other two are caught so that the second gesture is not an *unhandled*
+     rejection -- which reaches the console as `Transition was skipped. New ViewTransition
+     started`, and reached a browser test as a page error on the slower of the two CI runners. */
+  if (running.updateCallbackDone) running.updateCallbackDone.catch(function () {});
+  if (running.ready) running.ready.catch(function () {});
   running.finished.then(done, done);
 }
 

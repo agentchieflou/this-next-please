@@ -240,6 +240,46 @@ def test_the_gestures_animate_for_the_base_duration_and_not_at_all_under_reduced
 
 
 @pytest.mark.browser
+def test_a_gesture_that_supersedes_another_is_not_an_unhandled_rejection(fleet_home, tmp_path):
+    """Two gestures inside one transition is the most ordinary thing on this page, and the browser
+    rejects all three of the superseded transition's promises to say so. Unhandled, that reaches
+    the console as `Transition was skipped. New ViewTransition started` -- and reached this suite
+    as a page error on the slower of the two CI runners, which is how it was found."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta", "gamma", "delta")
+    S.arrange("column", order=["alpha", "beta", "gamma", "delta"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
+                      wait_until="domcontentloaded")
+            page.wait_for_selector(".tile.is-solo", timeout=15000)
+            page.wait_for_function(
+                "() => document.querySelectorAll('#bands .band:not([hidden])').length >= 2",
+                timeout=15000)
+
+            # Four opens inside a frame: every one of them supersedes the one before.
+            page.evaluate("""() => {
+              openBand('beta'); openBand('gamma'); openBand('delta'); openBand('alpha');
+            }""")
+            page.wait_for_timeout(900)
+            assert errors == [], errors
+            assert page.evaluate(
+                "() => document.querySelector('.tile.is-solo').dataset.repo") == "alpha", \
+                "the last gesture is the one that stands"
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.browser
 def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_identically(
         fleet_home, tmp_path):
     """The IDE shells are behind Chromium and will be for a while. Whatever the desk does on the
