@@ -241,6 +241,7 @@ class FleetStep(Step):
         self._check_polls(ctx, found)
         self._check_notifications(ctx, found)
         self._check_session_store(ctx, found)
+        self._check_spend(ctx, found)
 
     def _check_copilot(self, ctx: Context, found: dict) -> None:
         version = found.get("version") or ""
@@ -260,6 +261,37 @@ class FleetStep(Step):
                     keys=())
         elif found.get("login") == "ok":
             ctx.add(self.key, "login", "ok", "authenticated", keys=())
+
+    def _check_spend(self, ctx: Context, found: dict) -> None:
+        """Does the CLI's own final usage agree with the stream the fleet folded?
+
+        `--usage-output-file` is passed on every launch and, until #209, read by nothing. It is
+        read here to disagree out loud: which of the two is right is the open measurement M1 -- the
+        spike calls `result.usage.premiumRequests` exact and per-turn, `docs/fleet-events.md` calls
+        every cost event a session total, and the fake transcript makes the two equal, so nothing
+        in this repository can tell them apart. A check that quietly preferred one would be
+        deciding that by writing code.
+        """
+        from ...fleet import events as E, spend as SPEND
+        from ...fleet.registry import agent_dir
+
+        gaps = []
+        for repo in found["repos"]:
+            usage = SPEND.from_usage_file(os.path.join(agent_dir(repo.name), "usage.json"))
+            if usage is None:
+                continue
+            gap = SPEND.disagreement(SPEND.fold(E.read(repo.name)), usage)
+            if gap:
+                gaps.append(f"{repo.name}: stream {gap['stream']:g}, file {gap['file']:g}")
+        if not gaps:
+            ctx.add(self.key, "spend", "ok",
+                    "the stream and the CLI's own usage agree on every agent", keys=())
+            return
+        ctx.add(self.key, "spend", "warn",
+                "the CLI's final usage and the folded stream disagree -- " + "; ".join(gaps[:3]),
+                "this is measurement M1 in `docs/windows-verification.md`: whether "
+                "`result.usage.premiumRequests` is a turn's or the session's is not yet known, and "
+                "`ad-fleet spend <repo> --rebuild` prints what the stream says", keys=())
 
     def _check_skills(self, ctx: Context, found: dict) -> None:
         from ... import update as U

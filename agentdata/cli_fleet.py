@@ -493,6 +493,59 @@ def cmd_sessions(a) -> int:
     return EXIT_OK
 
 
+def cmd_spend(a) -> int:
+    """What an agent has cost, from the ledger -- or from every log on disk, with `--rebuild`.
+
+    One arithmetic (`agentdata/fleet/spend.py`): the high-water mark within a session, summed
+    across sessions, and a day charged the rises. The page prints these same rows.
+    """
+    from .fleet import spend as SPEND
+
+    try:
+        repos = [Registry().get(a.repo)] if a.repo else list(Registry().sorted())
+    except RegistryError as e:
+        return _refuse("ad-fleet spend", e)
+
+    rows, sessions, days = [], [], {}
+    for repo in repos:
+        led = SPEND.rebuild(repo.name) if a.rebuild else SPEND.for_agent(repo.name)
+        rows.append({"repo": repo.name, "premium_requests": SPEND.total(led),
+                     "turns": SPEND.turns(led), "sessions": len(led.get("sessions") or {})})
+        for sid, row in sorted((led.get("sessions") or {}).items()):
+            sessions.append({"repo": repo.name, "session": sid[:8], "ticket": row.get("ticket", ""),
+                             "premium_requests": row.get("premium", 0.0),
+                             "turns": row.get("turns", 0), "ended": row.get("ended", ""),
+                             "last": row.get("last", "")})
+        for day, row in (led.get("days") or {}).items():
+            bucket = days.setdefault(day, {"day": day, "premium_requests": 0.0, "turns": 0})
+            bucket["premium_requests"] = round(bucket["premium_requests"] + row.get("premium", 0.0), 2)
+            bucket["turns"] += row.get("turns", 0)
+
+    today = _today()
+    print(toon.encode({"meta": {
+        "ok": True, "source": "ad-fleet spend", "unit": "premium requests",
+        "agents": len(rows), "rebuilt": bool(a.rebuild),
+        "premium_requests": round(sum(r["premium_requests"] for r in rows), 2),
+        "today": round((days.get(today) or {}).get("premium_requests", 0.0), 2)}}))
+    print(toon.table("agents", ["repo", "premium_requests", "turns", "sessions"],
+                     [[r[c] for c in ("repo", "premium_requests", "turns", "sessions")]
+                      for r in rows]))
+    if sessions:
+        cols = ["repo", "session", "ticket", "premium_requests", "turns", "ended", "last"]
+        print(toon.table("sessions", cols, [[row[c] for c in cols] for row in sessions]))
+    if days:
+        cols = ["day", "premium_requests", "turns"]
+        print(toon.table("days", cols,
+                         [[row[c] for c in cols] for _, row in sorted(days.items())]))
+    return EXIT_OK
+
+
+def _today() -> str:
+    import datetime
+
+    return datetime.datetime.now().strftime("%Y-%m-%d")
+
+
 def cmd_refresh(a) -> int:
     """Read what the next tick would read, for one checkout, now.
 
@@ -1622,6 +1675,12 @@ def build_parser() -> argparse.ArgumentParser:
     quick.add_argument("--layout", default=LAYOUTS[0], choices=list(LAYOUTS),
                        help="how the tiles are arranged: grid | roles | screens (default grid)")
     quick.set_defaults(fn=cmd_quickstart)
+
+    spend = sub.add_parser("spend", help="what an agent has cost, in premium requests")
+    spend.add_argument("repo", nargs="?", default="", help="one checkout, or every one")
+    spend.add_argument("--rebuild", action="store_true",
+                       help="fold every log on disk instead of reading the ledger; the two must agree")
+    spend.set_defaults(fn=cmd_spend)
 
     refresh = sub.add_parser("refresh",
                              help="re-read one checkout now: its stream and its four cells, free")

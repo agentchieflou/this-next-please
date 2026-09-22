@@ -75,15 +75,23 @@ def settings(cfg: dict | None = None) -> dict:
         except (TypeError, ValueError):
             return default
 
-    budget = C.get(cfg, "fleet.budget_per_agent")
+    raw_budget = C.get(cfg, "fleet.budget_per_agent")
+    invalid = ""
     try:
-        budget = float(budget) if budget not in (None, "", False) else 0.0
+        budget = float(raw_budget) if raw_budget not in (None, "", False) else 0.0
+        if budget < 0:
+            raise ValueError("negative")
     except (TypeError, ValueError):
-        budget = 0.0
+        # Off, but LOUDLY. This quietly became 0.0 -- which turns the cap off, the exact opposite of
+        # what somebody typing in that box intends -- and it is why the setting was kept off the
+        # settings page at all (#213). It is still off, because a budget nobody can read cannot be
+        # enforced; what changed is that `ad-doctor`, `ad-fleet status` and the tile all say so.
+        budget, invalid = 0.0, str(raw_budget)
     return {"max_restarts": number("max_restarts", DEFAULT_MAX_RESTARTS),
             "log_mb": number("log_mb", DEFAULT_LOG_MB),
             "log_keep": number("log_keep", DEFAULT_LOG_KEEP),
-            "budget_per_agent": budget}
+            "budget_per_agent": budget,
+            "budget_invalid": invalid}
 
 
 # ----------------------------------------------------------------------- what stderr was saying
@@ -216,9 +224,15 @@ def slept(previous: float, now: float | None = None, gap: int = SLEEP_GAP_S) -> 
 
 
 def spent(name: str) -> float:
-    """What this agent has cost so far, from its own stream. The CLI reports a session total, so
-    the high-water mark is the answer and a sum would multiply the bill."""
-    return float(agentstate.derive(E.read(name))["premium_requests"])
+    """What this agent has cost so far, over every session it has had.
+
+    One arithmetic, in `spend.py`: the high-water mark within a session, summed across sessions.
+    A sum of checkpoints would multiply the bill; a mark across sessions would under-report an
+    agent that has had three of them.
+    """
+    from . import spend as SPEND
+
+    return SPEND.total(SPEND.for_agent(name))
 
 
 def over_budget(name: str, *, cfg: dict | None = None) -> tuple[bool, float, float]:
@@ -281,6 +295,12 @@ def rotate_all(name: str, *, cfg: dict | None = None) -> list[str]:
     s = settings(cfg)
     rolled = []
     directory = agent_dir(name)
+    # Before anything is moved aside. `events.read` opens only the live file, so a rotation used to
+    # take the agent's whole spend with it: `spent()` dropped to zero, the budget re-opened, and
+    # `ad-fleet history` forgot the morning (#210).
+    from . import spend as SPEND
+
+    SPEND.update(name)
     for filename in ("events.jsonl", "stderr.log", E.NORMALIZED):
         path = os.path.join(directory, filename)
         if rotate(path, mb=s["log_mb"], keep=s["log_keep"]):
@@ -296,7 +316,8 @@ def gc(days: int = DEFAULT_GC_DAYS, *, registry: Registry | None = None,
 
     Rotated logs and answered approvals only. The live `events.norm.jsonl` is not a candidate at
     any age: it is what `ad-fleet history` reads, and a report that silently loses last month is
-    worse than a directory that is slightly too big.
+    worse than a directory that is slightly too big. Neither is `spend.json`, which is the fold of
+    every log this agent has ever had and is a few hundred bytes (#210).
     """
     from . import approval, supervisor
 
