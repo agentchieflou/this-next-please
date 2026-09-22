@@ -3283,6 +3283,22 @@ function drawBand(li, item, index) {
   text(last, said);
   last.hidden = !said;
 
+  /* The tail: what it has been doing, in as many lines as the band has room for. The band shares
+     the column's height, so with three agents it is tall -- and a tall row showing one sentence is
+     the negative space this arrangement was asked to remove, moved inside the row. The events are
+     the ones the row already carries for the transcript, so this costs the page nothing. */
+  var tail = li.querySelector(".b-tail");
+  while (tail.firstChild) tail.removeChild(tail.firstChild);
+  var recent = item.gone ? [] : (row.recent || []);
+  recent.filter(function (ev) { return SHOWN[ev.kind] && line(ev); })
+        .slice(-6)
+        .forEach(function (ev) {
+          var entry2 = document.createElement("li");
+          text(entry2, line(ev));
+          tail.appendChild(entry2);
+        });
+  tail.hidden = !tail.children.length;
+
   var modelName = li.querySelector(".bm-name");
   if (modelName) text(modelName, shortModel(row.actual || row.model));
   var modelBtn = li.querySelector('[data-tool="model"]');

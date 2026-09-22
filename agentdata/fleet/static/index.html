@@ -113,11 +113,18 @@
   <ul id="bands" class="bands">
     <li class="band" hidden>
       <button type="button" class="band-open">
-        <span class="b-n"></span>
-        <span class="b-name"></span>
+        <span class="b-head">
+          <span class="b-n"></span>
+          <span class="b-name"></span>
+          <span class="b-badge" hidden></span>
+        </span>
         <span class="b-chip"></span>
-        <span class="b-badge" hidden></span>
         <span class="b-last"></span>
+        <!-- What it has been doing, filling whatever height the band has left. A band stretched to
+             share the page and then showing one line would be the negative space this arrangement
+             was asked to remove, moved inside the row. Drawn from the `recent` events the row
+             already carries, so it costs the page nothing. -->
+        <ol class="b-tail"></ol>
       </button>
       <!-- #205: the same three, in the same order, with the same keys, as the tile's. A control
            that exists on the open agent and not on the others is the thing this slice was asked to

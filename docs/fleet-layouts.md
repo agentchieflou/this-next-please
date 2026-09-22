@@ -170,12 +170,12 @@ epic exists because of one. Attach them to issue #133 and link them here.
 | | A — grid | B — roles | C — screens | D — column |
 | --- | --- | --- | --- | --- |
 | Photograph | two, 2026-09-11, described below (#179) | one, 2026-09-11, described below (#179) | _none yet_ | one, 2026-09-22, described below (#200) — of the grid, and what it asked for |
-| Minutes spent in it | _not recorded_ | _not recorded_ | | _not built yet_ |
-| What was opened **outside** the dashboard, and why | _not recorded_ | _not recorded_ | | _not built yet_ |
-| Screen hops (roughly, per hour) | _not recorded_ | _not recorded_ | | _not built yet_ |
-| What the cursor did most | _not recorded_ | _not recorded_ | | _not built yet_ |
-| Was focus mode used? When? | _not recorded_ | _not recorded_ | | _not built yet_ |
-| What was worse than the tab shuffle | _not recorded_ | _not recorded_ | | _not built yet_ |
+| Minutes spent in it | _not recorded_ | _not recorded_ | | _not recorded_ |
+| What was opened **outside** the dashboard, and why | _not recorded_ | _not recorded_ | | _not recorded_ |
+| Screen hops (roughly, per hour) | _not recorded_ | _not recorded_ | | _not recorded_ |
+| What the cursor did most | _not recorded_ | _not recorded_ | | _not recorded_ |
+| Was focus mode used? When? | _not recorded_ | _not recorded_ | | _not recorded_ |
+| What was worse than the tab shuffle | _not recorded_ | _not recorded_ | | _not recorded_ |
 
 **The photographs of 2026-09-11** (#179) are described rather than committed: they carry a tenant's
 ticket keys and summaries, the same reason the fake `copilot`'s transcripts are synthesized. They
@@ -204,6 +204,12 @@ the laptop, in a dark pixel-block skin, five agents on real tickets:
 The rows above that say _not recorded_ are the operator's to fill on the real screens; a
 photograph shows an arrangement, not the minutes spent in it or the tabs opened beside it. Slice
 F of #179 records what the photographs showed and no more.
+
+The `column` rows are _not recorded_ rather than _not built yet_ since #208: the arrangement
+exists and the default has moved, and what is still owed is an afternoon spent in it. The
+questions it is expected to answer are the open ones in [plan-column.md](plan-column.md)
+§Open questions -- the column's width, the band's minimum, and whether a band that turns red
+should rise to the top or keep its slot, which ships as *keep its slot*.
 
 **The decision** (write it here and in #133, with the reasons, before changing the default):
 

@@ -753,40 +753,64 @@ body.layout-column .transcript, body.layout-column .history { max-height: none; 
 /* The whole point: N bands share the column's height and none of it is empty. `1 1 0` rather than
    `1 1 auto`, or a band carrying a long question takes more than its share and the quiet ones are
    squeezed to a line. Past the minimums the column scrolls and its head says how many there are. */
-.band { flex: 1 1 0; min-height: 56px; display: flex; }
+/* The band is the card; the button and the tools are inside it. The border used to be on the
+   button, which put the three controls OUTSIDE the box they belong to and pushed the model's name
+   off the edge of the column. */
+.band {
+  flex: 1 1 0; min-height: 56px; display: flex; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--line); border-left: 3px solid var(--line);
+  border-radius: 6px;
+}
+.band:hover { border-color: var(--accent); }
 /* An agent that wants something is the height of what it is asking. `1 0 auto` -- a basis of its
    own content and no shrink -- so a long question is never clipped and the column scrolls instead,
    which is the one case where "share the height evenly" is the wrong answer. */
 .band.needs-human { flex: 1 0 auto; }
 .band-open {
   flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px;
-  align-items: flex-start; text-align: left; cursor: pointer; overflow: hidden;
-  background: var(--bg); color: var(--text); font: inherit; padding: 6px 8px;
-  border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 6px;
+  align-items: stretch; text-align: left; cursor: pointer; overflow: hidden;
+  background: transparent; color: var(--text); font: inherit; padding: 6px 8px;
+  border: 0; border-radius: 0;
 }
-.band-open:hover { border-color: var(--accent); }
+/* Who it is, on one line, so the line under it is the news rather than the third thing down. */
+.b-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .b-n {
   font: 10px var(--mono); color: var(--muted);
   border: 1px solid var(--line); border-radius: 3px; padding: 0 4px;
 }
-.b-name { font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.b-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; }
+.b-head .b-badge { margin-left: auto; }
 .b-chip { color: var(--muted); font: 11px var(--mono); }
 .b-badge {
   background: var(--human); color: var(--bg); border-radius: 8px; padding: 0 5px; font-size: 11px;
 }
 /* What it last said. Two lines for a quiet agent -- enough to triage from, not enough to crowd the
    band next to it -- and no limit at all on a red one, whose question is the point of the row. */
+/* What it last said takes whatever height the band has. That is what the height is FOR: a band
+   stretched to fill the page and then showing two clamped lines would be the negative space this
+   arrangement was asked to remove, moved inside the row. */
 .b-last {
-  color: var(--muted); line-height: 1.35; overflow: hidden; max-width: 100%;
-  overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  flex: 0 0 auto; color: var(--muted); line-height: 1.4;
+  overflow: hidden; overflow-wrap: anywhere;
 }
-.band.needs-human .b-last { display: block; color: var(--human); -webkit-line-clamp: none; }
+.band.needs-human .b-last { color: var(--human); }
+/* The tail takes the height the band has left, and clips: the operator reads down it until the row
+   ends, which is exactly as much as the column could afford to show them. */
+.b-tail {
+  flex: 1 1 auto; min-height: 0; overflow: hidden; margin: 2px 0 0; padding: 0; list-style: none;
+  font: 10px/1.45 var(--mono); color: var(--muted);
+  border-top: 1px dashed var(--line); padding-top: 2px;
+}
+.b-tail li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.needs-only .band.is-quiet .b-tail { display: none; }
 /* An agent that needs a person is the same red its tile is, and its question is shown in full: the
    dock could only ever fit a state and an age, which is how an idle agent's last question became
    unrecoverable from it. */
-.band.needs-human .band-open { border-color: var(--human); border-left-color: var(--human); }
+.band.needs-human { border-color: var(--human); border-left-color: var(--human); }
 .band.needs-human .b-name { color: var(--human); }
-.band.departed .band-open { border-style: dashed; color: var(--muted); }
+.band.departed { border-style: dashed; }
+.band.departed .band-open { color: var(--muted); }
 /* *needs me*, in the column: a quiet band folds to a sliver rather than leaving. It keeps its name
    and its slot, so the mode narrows the column instead of emptying it -- a row that vanished would
    be "where did it go" again, which is the question this arrangement exists to answer. */
@@ -798,7 +822,13 @@ body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-too
 /* ------------------------------------------------------ hide, refresh and the model (#205)
    The same three controls on the band and on the tile, so the eye finds them in the same place
    whichever one it is looking at. */
-.band-tools { display: flex; flex-direction: column; gap: 2px; padding: 4px 2px; flex: 0 0 auto; }
+.band-tools {
+  display: flex; flex-direction: column; gap: 2px; padding: 4px 2px; flex: 0 0 auto;
+  border-left: 1px solid var(--line); align-items: stretch;
+}
+/* `stretch`, not `center`: a centred column sizes its items to their content, so the one carrying
+   a model name grew past the card it sits in and ran off the edge of the page. */
+.band-tools .toolbtn { width: 100%; min-width: 0; }
 .toolbtn {
   display: inline-flex; align-items: center; justify-content: center;
   min-height: 28px; min-width: 28px; padding: 0 5px;
@@ -811,8 +841,18 @@ body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-too
 .toolbtn[aria-busy="true"], .head [aria-busy="true"] { opacity: .5; }
 /* The model button says a name rather than drawing a glyph: a model is a word, and an icon for one
    would be an icon nobody can read. */
-.wordbtn { font: 10px var(--mono); letter-spacing: .02em; white-space: nowrap; max-width: 9ch;
-           overflow: hidden; text-overflow: ellipsis; }
+/* The model button says a word, so it needs room for one -- and the band's tool column is narrow,
+   so the word ellipsises inside the card rather than running off the edge of the page. */
+.wordbtn { font: 10px var(--mono); letter-spacing: .02em; white-space: nowrap;
+           max-width: 100%; padding: 0 2px; overflow: hidden; }
+/* The ellipsis has to be on the element that holds the text. It was on the button, whose centred
+   flex child was wider than it and overflowed both edges -- so a long model name ran off the side
+   of the card instead of being shortened inside it. */
+.wordbtn .bm-name {
+  min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center;
+}
+.band-tools { width: 3.4rem; }
 .head .modeltoggle { min-width: auto; }
 
 /* The card behind the model button. Fixed, because it is one card for the page and it is moved to

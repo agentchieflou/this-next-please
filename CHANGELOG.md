@@ -4,6 +4,46 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.11.0
+
+**The column (#200).** The desk's default arrangement is a fourth one: `column`. One agent is open
+and fills the glass; every other checkout is a **band** in a column beside it, and the bands share
+the column's whole height so none of the page is empty. It is the operator's decision, made on the
+real screens and recorded in `docs/fleet-layouts.md` §The sitting -- `grid`, `roles` and `screens`
+stay reachable by URL and render exactly as they did.
+
+The photograph it was built from also showed a real bug, and it is fixed for every arrangement:
+`.workspace` is a flex **row** and the dock had no flex basis, so the strip that has always
+described itself as sitting *under* the grid was laid out *beside* it, and one chip carrying a long
+question took a third of the window off the tiles. The tiles and the dock are one vertical box now.
+
+**A band says more than a chip could (#204).** What its agent last said is on every band, not only
+a red one -- the ask in full when it is asking, then the last line it spoke, then as much of its
+recent transcript as the row has room for. An agent that spoke an hour ago and went quiet was
+unreadable from the dock: `idle · 3m`, and nothing else. One age formatter now dates the agent
+everywhere it is dated, so the same tile no longer reads `6d` in its chip and `160h` in its tab.
+
+**Hide, refresh and the model, on every agent (#205).** The same three controls on the band and on
+the tile, in the same order, with the same keys. `refresh` (`r`, `POST /api/refresh`,
+`ad-fleet refresh`) re-folds a checkout's stream and polls its four cells immediately and **spends
+no premium request**; a second press inside two seconds is refused with `refresh_busy`. The model
+(`m`) is on the tile's own row at last: what it is configured to run, where that came from, and
+what the last turn *actually* ran on -- two facts, because a tenant may pin a model. Saving writes
+the key the settings page writes, through the same function, with the same refusals.
+
+**One session control (#206).** The `main · earlier (1) · + new · console` bar was four buttons of
+three different kinds, with a second, inert *earlier runs* list under the transcript whose rows had
+no handler. It is one pill saying which session this transcript is, and one menu holding everything
+that changes which session that is -- with each session's runs folded under it.
+
+**Two focuses with names that say which is which (#207).** `focus()` zoomed a tile and
+`focusMode()` filtered for the agents that need a person; the toolbar's *back to grid* undid only
+the first. They are `openAgent` and *needs me* now, the old names kept as aliases. In the column,
+*needs me* folds a quiet band to a sliver instead of hiding it, and *back to grid* is drawn only
+where a zoom exists.
+
+`ad-fleet refresh <repo>` is new. Nothing needs re-running after an update.
+
 ## 0.10.0
 
 **The settings button goes somewhere (#199).** It was a popover holding two `<select>`s, behind a
