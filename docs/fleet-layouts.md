@@ -6,6 +6,10 @@
 > month afterwards, then go if nobody used them. Fill in §The sitting below and the decision becomes
 > a line of code (`LAYOUTS[0]`) rather than an opinion.
 >
+> **Decided, 2026-09-22.** The operator chose a fourth arrangement, `column`, from a photograph of the
+> desk in use and said so in as many words; §The sitting's decision block below is filled in from that and
+> from nothing else, and [plan-column.md](plan-column.md) (#200) is the plan that moves `LAYOUTS[0]`.
+>
 > **What the Windows sitting found first** is written up in [plan-desk-refactor.md](plan-desk-refactor.md):
 > the tiles show the last supervised run as if it were now, they cannot be moved, and the picker reloads the
 > page. Those are fixed by that plan's slices, and the layout decision still belongs here.
@@ -76,6 +80,17 @@ shows something rather than an empty monitor.
 **Which screen it was meant for:** the three landscape monitors, with the laptop as the board and
 the tray. It is the layout that scales worst and reads best: it is bounded at N ≤ 3 by the hardware,
 and above that the operator is back to choosing which projects are on screen.
+
+## D — `column` (`?layout=column`) — planned, #200
+
+One tile open at full height; every other checkout a **band** in a column beside it, the bands sharing the
+column's whole height so none of the page is empty; each band with the agent's name, state, age, its last line
+and the same hide, refresh and model buttons its tile has; a band that needs a person red and full-height in
+its own slot. The dock is not drawn in this arrangement — the column is the dock, laid the way the operator
+asked. Under 900 px the column lies down into a strip above the tile. Which tile is open is the window's
+(#172's record), so two monitors can read two agents; `selected` stays shared. The design, the sizing rule
+and the keys are in [plan-column.md](plan-column.md); slice A of that plan adds `column` to `LAYOUTS` in the
+three places the test keeps in step and makes it `LAYOUTS[0]`.
 
 ## Focus mode — not a layout (`f`)
 
@@ -152,15 +167,15 @@ ad-fleet serve --layout screens
 **Photographs.** One per arrangement, on the four real screens. A phone photo is right — this whole
 epic exists because of one. Attach them to issue #133 and link them here.
 
-| | A — grid | B — roles | C — screens |
-| --- | --- | --- | --- |
-| Photograph | two, 2026-09-11, described below (#179) | one, 2026-09-11, described below (#179) | _none yet_ |
-| Minutes spent in it | _not recorded_ | _not recorded_ | |
-| What was opened **outside** the dashboard, and why | _not recorded_ | _not recorded_ | |
-| Screen hops (roughly, per hour) | _not recorded_ | _not recorded_ | |
-| What the cursor did most | _not recorded_ | _not recorded_ | |
-| Was focus mode used? When? | _not recorded_ | _not recorded_ | |
-| What was worse than the tab shuffle | _not recorded_ | _not recorded_ | |
+| | A — grid | B — roles | C — screens | D — column |
+| --- | --- | --- | --- | --- |
+| Photograph | two, 2026-09-11, described below (#179) | one, 2026-09-11, described below (#179) | _none yet_ | one, 2026-09-22, described below (#200) — of the grid, and what it asked for |
+| Minutes spent in it | _not recorded_ | _not recorded_ | | _not built yet_ |
+| What was opened **outside** the dashboard, and why | _not recorded_ | _not recorded_ | | _not built yet_ |
+| Screen hops (roughly, per hour) | _not recorded_ | _not recorded_ | | _not built yet_ |
+| What the cursor did most | _not recorded_ | _not recorded_ | | _not built yet_ |
+| Was focus mode used? When? | _not recorded_ | _not recorded_ | | _not built yet_ |
+| What was worse than the tab shuffle | _not recorded_ | _not recorded_ | | _not built yet_ |
 
 **The photographs of 2026-09-11** (#179) are described rather than committed: they carry a tenant's
 ticket keys and summaries, the same reason the fake `copilot`'s transcripts are synthesized. They
@@ -175,19 +190,41 @@ were phone photographs of the live desk with five agents on real tickets, and th
 - **B, the board window (`?layout=roles&view=board`) in `glass:frost`:** the Jira board alone, five
   *start on X* buttons per row and nothing to drag a ticket onto; the panes a flat cream.
 
+**The photograph of 2026-09-22** (#200) is described rather than committed, for the same reason: it
+carries a tenant's ticket keys and repository names. It is a phone photograph of the live desk in Chrome on
+the laptop, in a dark pixel-block skin, five agents on real tickets:
+
+- **A, the grid with one tile open and four in the dock:** the open tile at the left third of the window — an
+  adopted console session (*a session outside the fleet is driving this repo — matched by session file*), a
+  turn in progress, an amber git cell reading *7 branches · 5 never reached master*, tool calls scrolling; the
+  other two thirds of the window black but for the dock's four chips, each a full-width bar because its ask
+  text is long, under *4 not on the glass* and above *show all*; the footer *5 agents · 3 need you*. The
+  operator's sentences about it are in [plan-column.md](plan-column.md) §Why this exists and §Decisions.
+
 The rows above that say _not recorded_ are the operator's to fill on the real screens; a
 photograph shows an arrangement, not the minutes spent in it or the tabs opened beside it. Slice
 F of #179 records what the photographs showed and no more.
 
 **The decision** (write it here and in #133, with the reasons, before changing the default):
 
-> _Chosen layout:_
+> _Chosen layout:_ **`column`** — a fourth arrangement, not one of the three built for #133. Decided by the
+> operator on 2026-09-22 from the photograph described above, in conversation, and confirmed when asked
+> whether that message was the decision this page reserves for them: *yes, column is the default*, grid still
+> reachable by URL. Recorded here and in #133 before any layout code, as this page requires.
 >
-> _Why:_
+> _Why:_ the operator's words — *I would much rather prefer non-open sessions to show vertically rather than
+> horizontally. Each slice that isn't being actively looked at should auto size to take up the page so there
+> isn't so much negative space.* Asked what "vertically" meant — a column of bands, side-by-side strips or a
+> left rail — the answer was **a column of bands** that stack beside the open tile and share the full page
+> height.
 >
-> _What the other two would have to fix to be worth keeping:_
+> _What the other two would have to fix to be worth keeping:_ not recorded — the operator was asked only
+> about the column. The grid's own findings are on the record (nothing sizes to the viewport; the dock has no
+> flex basis) in [plan-column.md](plan-column.md) §Why this exists; `roles` and `screens` were not discussed.
 >
-> _Focus mode: kept / dropped, and why:_
+> _Focus mode: kept / dropped, and why:_ kept, as *needs me*; in the column it folds a quiet band to a sliver
+> rather than hiding it, and the zoom becomes *open* ([plan-column.md](plan-column.md) slice E). Not the
+> operator's words — a plan default the sitting corrects.
 
 > **Nothing above has been filled in yet, and no code may act as though it had.** On 2026-09-08 an
 > agent wrote a decision into this page — a chosen layout, minute counts, screen-hop rates,
