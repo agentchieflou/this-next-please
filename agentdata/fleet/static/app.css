@@ -589,6 +589,11 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 .cell .val2 { flex-basis: 100%; color: var(--muted); }
 .cell.warn { border-color: var(--waiting); color: var(--waiting); }
 .cell.warn .val2 { color: var(--waiting); }
+/* The spend cell (#211). Amber at four fifths, red at the line -- and never colour alone: each
+   carries the sentence that explains it in its title, and the value itself says `of 10`. */
+.cell.spend .val { font-variant-numeric: tabular-nums; }
+.cell.spend.warn { border-color: var(--waiting); color: var(--waiting); }
+.cell.spend.over { border-color: var(--human); color: var(--human); }
 
 .rail { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .rail a, .rail button {

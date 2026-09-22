@@ -393,10 +393,26 @@ function makeTile(row, index) {
   }
 
   var say = el.querySelector(".say");
-  el.querySelector(".send").addEventListener("click", function () {
+  var sendBtn = el.querySelector(".send");
+  sendBtn.addEventListener("click", function () {
     // A console is typed into, not sent to: `send` would be a second agent in one working tree.
-    action(el, el.dataset.console ? "say" : "send", { repo: row.repo, message: say.value })
-      .then(function (r) { if (r && r.ok) say.value = ""; });
+    var forcing = sendBtn.dataset.force === "1";
+    action(el, el.dataset.console ? "say" : "send",
+           { repo: row.repo, message: say.value, force: forcing })
+      .then(function (r) {
+        if (r && r.ok) { say.value = ""; disarmSend(sendBtn); return; }
+        /* The budget refusal reaches the operator at last (#213). It was enforced in `send` and
+           the desk called `send` with no `force` at all, so an over-budget agent was simply
+           unreachable from the page and `ad-fleet send --force` in a terminal was the only door.
+           A second, deliberate press spends one more turn -- the pattern Reset already had. */
+        if (r && r.code === "budget_exceeded" && !forcing) {
+          sendBtn.dataset.force = "1";
+          text(sendBtn, "Send anyway");
+          sendBtn.title = "it is over its budget — press again to spend one more turn";
+          return;
+        }
+        disarmSend(sendBtn);
+      });
   });
   say.addEventListener("keydown", function (e) {
     if (e.key === "Enter") el.querySelector(".send").click();
@@ -437,6 +453,12 @@ function makeTile(row, index) {
     action(el, "deny", { id: el.dataset.approval, reason: reason });
   });
   return el;
+}
+
+function disarmSend(button) {
+  button.dataset.force = "";
+  text(button, "Send");
+  button.title = "";
 }
 
 function fail(el, message) {
@@ -690,7 +712,7 @@ function drawTile(el, row, approvals) {
   }
   drawAsks(el, row);
   drawScopeReport(el, row);
-  drawCells(el, row.polls || {});
+  drawCells(el, row.polls || {}, row);
 }
 
 /* ------------------------------------------------------------------------- the switcher (#174) */
@@ -1102,9 +1124,24 @@ function refresh() {
       }
     });
     var need = data.repos.filter(function (r) { return r.needs_human; }).length;
-    text(document.getElementById("counts"),
+    var fleetSpend = data.spend || {};
+    var counts = document.getElementById("counts");
+    text(counts,
          data.repos.length + " agents" + (need ? "  ·  " + need + " need you" : "") +
-         (needsOnly && held.size ? "  ·  " + held.size + " held" : ""));
+         (needsOnly && held.size ? "  ·  " + held.size + " held" : "") +
+         (fleetSpend.all_time
+            ? "  ·  " + fleetSpend.today + " premium today  ·  " + fleetSpend.all_time + " all time"
+            : ""));
+    counts.title = fleetSpend.all_time
+      ? "summed from every agent's own ledger; a day is the operator's own, and a session that "
+        + "runs over midnight is charged to each day only what it rose by"
+      : "";
+    // A budget nobody can read cannot be enforced, so it is off -- and said out loud rather than
+    // swallowed into 0.0, which is what the old reader did (#213).
+    if (fleetSpend.budget_invalid) {
+      say("fleet.budget_per_agent is " + JSON.stringify(fleetSpend.budget_invalid) +
+          ", which is not a number — the cap is off until it is one", 20);
+    }
     if (data.desk) {
       desk.desk = data.desk;
       if (data.desk.windows && data.desk.windows[W_NAME]) {
@@ -2107,9 +2144,10 @@ var CELLS = ["ticket", "pr", "refresh", "git"];
 /* A cell is value + age, and when the poll failed it is grey with the error in the tooltip and the
    *last value it actually had* still on it. Blanking it would lose what was known; keeping it
    without the age would make five-minute-old news look current. Grey, old and honest. */
-function drawCells(el, polls) {
+function drawCells(el, polls, row) {
   var box = el.querySelector(".cells");
   while (box.firstChild) box.removeChild(box.firstChild);
+  drawSpendCell(box, row || {});
   CELLS.forEach(function (name) {
     var p = polls[name];
     if (!p) return;
@@ -2151,6 +2189,53 @@ function drawCells(el, polls) {
     }
     box.appendChild(cell);
   });
+}
+
+/* What it has cost, against what (#211).
+
+   `premium_requests` has been on every row since #94 and was rendered nowhere; the dashboard's own
+   documentation said cost and budget were "a strip in #101", and #101 closed without one. This is
+   that strip, as a fifth cell beside the four the project is polled for -- and never colour alone:
+   amber and red each carry the sentence that explains them. */
+function drawSpendCell(box, row) {
+  var s = row.spend;
+  if (!s || (!s.total && !s.budget)) return;
+  var cell = document.createElement("span");
+  cell.className = "cell spend";
+  cell.dataset.cell = "spend";
+
+  var bits = [s.total + " premium"];
+  if (s.budget) bits.push("of " + s.budget);
+  if (s.turns) bits.push(s.turns + (s.turns === 1 ? " turn" : " turns"));
+  var model = shortModel(row.actual || row.model);
+  if (model) bits.push(model);
+
+  var lab = document.createElement("span");
+  lab.className = "lab";
+  text(lab, "spend");
+  var val = document.createElement("span");
+  val.className = "val";
+  text(val, bits.join(" · "));
+  cell.appendChild(lab);
+  cell.appendChild(val);
+
+  var said = "this session " + s.session + " · today " + s.today +
+             (s.sessions > 1 ? " · " + s.sessions + " sessions" : "");
+  if (s.budget && s.total >= s.budget) {
+    cell.classList.add("over");
+    // The supervisor's own sentence, so the cell and the refusal say one thing.
+    said = row.repo + " has spent " + s.total + " of its " + s.budget +
+           " premium-request budget — the next reply is refused until you raise it or press " +
+           "Send anyway. " + said;
+  } else if (s.budget && s.total >= s.budget * 0.8) {
+    cell.classList.add("warn");
+    var left = s.rate ? Math.max(0, Math.floor((s.budget - s.total) / s.rate)) : 0;
+    said = s.total + " of " + s.budget + " — about " + left +
+           " more turn" + (left === 1 ? "" : "s") + " at the MEAN of " + s.rate +
+           " a turn, which is a mean and not a forecast. " + said;
+  }
+  cell.title = said;
+  box.appendChild(cell);
 }
 
 /* ------------------------------------------------------------- the branches pane (#184)
@@ -2234,6 +2319,34 @@ function branchesPane(name) {
     box.appendChild(mk("div", "muted", "the last " + answer.commits.length + " commits on " + answer.current));
     box.appendChild(mk("pre", "commits", answer.commits.join("\n")));
   }
+  return box;
+}
+
+/* The selected project's spend, in the inspector: what it has cost, by session and by day. A tile
+   is the AGENT and the inspector is the PROJECT (#148), and "what has this cost me" is a question
+   about the project -- which is why the number is a cell on the tile and the breakdown is here. */
+function spendPane(name) {
+  var entry = tiles.get(name);
+  var row = (entry && entry.row) || {};
+  var s = row.spend;
+  if (!s || (!s.total && !s.budget)) return null;
+
+  var box = mk("div", "branches spendpane");
+  var head = mk("div", "branches-head", "");
+  head.appendChild(mk("strong", "", "spend"));
+  head.appendChild(mk("span", "muted", "premium requests"));
+  box.appendChild(head);
+
+  var line = s.total + " all time · " + s.today + " today · " + s.session + " this session";
+  if (s.budget) line += " · of " + s.budget;
+  var sum = mk("p", "branches-sum" + (s.budget && s.total >= s.budget ? " warn" : ""), line);
+  box.appendChild(sum);
+  box.appendChild(mk("p", "muted",
+    s.turns + (s.turns === 1 ? " turn" : " turns") +
+    (s.rate ? ", a mean of " + s.rate + " a turn — a mean, not a forecast" : "") +
+    (s.sessions > 1 ? " · " + s.sessions + " sessions" : "")));
+  box.appendChild(mk("p", "muted", "`ad-fleet spend " + name +
+                                   "` prints this, and `--rebuild` checks it against every log"));
   return box;
 }
 
@@ -2528,6 +2641,11 @@ function drawInspector(name) {
     }
     body.appendChild(rail);
   }
+
+  // What this agent has cost (#212): its sessions, its days, and the budget it is against. The
+  // same ledger `ad-fleet spend` prints, so the page and the CLI cannot disagree.
+  var spent = spendPane(name);
+  if (spent) body.appendChild(spent);
 
   // The checkout's branches (#184): drawn from the last read, read on the click.
   body.appendChild(branchesPane(name));
@@ -3262,10 +3380,12 @@ function drawBand(li, item, index) {
   text(li.querySelector(".b-n"), String(index + 1));
   text(li.querySelector(".b-name"), several ? item.project : item.name);
   var ac = ageChip(row.last_event_age_s);
+  var spend = row.spend || {};
   text(li.querySelector(".b-chip"),
        item.gone ? "removed from the registry"
                  : several ? item.members.length + " checkouts"
-                 : (row.state || "") + (ac.text ? " · " + ac.text : ""));
+                 : (row.state || "") + (ac.text ? " · " + ac.text : "") +
+                   (spend.total ? " · " + spend.total : ""));
   var badge = li.querySelector(".b-badge");
   var unreadN = item.members.reduce(function (n, name) { return n + (unread.get(name) || 0); }, 0);
   badge.hidden = !unreadN;

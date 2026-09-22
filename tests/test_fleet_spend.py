@@ -370,3 +370,121 @@ def test_the_cli_prints_the_ledger_and_rebuild_agrees(fleet_home, tmp_path, caps
     assert cli_fleet.main(["spend", "--rebuild"]) == 0
     again = capsys.readouterr().out
     assert "4.25" in again and "rebuilt" in again
+
+
+# ------------------------------------------- the meter on the glass (#211, #212, #213)
+
+
+def _serve():
+    server, token = S.build(0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05},
+                              daemon=True)
+    thread.start()
+    return server, token, server.server_address[1]
+
+
+@pytest.fixture()
+def desk_globals(monkeypatch):
+    monkeypatch.setattr(S, "_desk_loaded", False)
+    monkeypatch.setattr(S, "_selection", {
+        "selected": "", "screens": [], "version": 0, "at": "",
+        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "windows": {},
+    })
+    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
+                                         catalogue=None, last_tick=0.0, last_fold=0.0))
+    monkeypatch.setattr(S, "_refreshed_at", {})
+
+
+def test_the_row_carries_the_spend_against_the_budget(fleet_home, tmp_path):
+    """`premium_requests` has been on every row since #94 and rendered nowhere; the dashboard's own
+    docs said cost and budget were "a strip in #101", and #101 closed without one."""
+    from agentdata import config as C
+
+    Registry().add(make_project(tmp_path / "alpha", ticket="RDSD-1"), name="alpha")
+    C.save({"fleet": {"budget_per_agent": 10}})
+    E.append("alpha", [E.event("alpha", "started", {"pid": 1}, ticket="RDSD-1")])
+    _spend("alpha", 8.5)
+    E.append("alpha", [E.event("alpha", "turn_ended", {"turn": "0"}, ticket="RDSD-1")])
+
+    spend = S.row_for("alpha")["spend"]
+    assert spend["total"] == 8.5 and spend["budget"] == 10.0
+    assert spend["session"] == 8.5 and spend["turns"] == 1
+    assert spend["rate"] == 8.5, "a mean over the turns there have been, and said to be one"
+
+
+def test_the_fleets_own_line_sums_the_same_ledgers_the_tiles_read(fleet_home, tmp_path):
+    """`ad-fleet status` called the sum of every agent's LIFETIME mark `spent_today`. This is the
+    number that name was always claiming to be."""
+    for name, amount in (("alpha", 4.0), ("beta", 8.25)):
+        Registry().add(make_project(tmp_path / name, ticket="RDSD-1"), name=name)
+        E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-1")])
+        _spend(name, amount)
+
+    snap = S.fleet_snapshot()
+    assert snap["spend"]["all_time"] == 12.25
+    # Today, because these events are stamped now -- and the tiles and the footer agree.
+    assert snap["spend"]["today"] == 12.25
+    assert round(sum(r["spend"]["total"] for r in snap["repos"]), 2) == 12.25
+
+
+def test_a_budget_nobody_can_read_is_off_and_says_so_rather_than_being_swallowed(
+        fleet_home, tmp_path):
+    """The cautionary tale, made loud. `"ten"` silently became `0.0`, which turns the cap off."""
+    from agentdata import config as C
+
+    Registry().add(make_project(tmp_path / "alpha", ticket="RDSD-1"), name="alpha")
+    C.save({"fleet": {"budget_per_agent": "ten"}})
+
+    settings = lifecycle.settings(C.load())
+    assert settings["budget_per_agent"] == 0.0, "off, because it cannot be read"
+    assert settings["budget_invalid"] == "ten", "and said out loud"
+    assert lifecycle.over_budget("alpha", cfg=C.load())[0] is False
+    assert S.fleet_snapshot()["spend"]["budget_invalid"] == "ten"
+
+
+def test_the_settings_page_refuses_the_budget_it_cannot_read(fleet_home, tmp_path):
+    """It was kept off the page because its reader coerced; it is on the page because this table
+    refuses. `""`, `"ten"` and `-1` all leave the file byte-identical."""
+    from agentdata import config as C
+    from agentdata.fleet import settings as SET
+
+    Registry().add(make_project(tmp_path / "alpha", ticket="RDSD-1"), name="alpha")
+    C.save({"fleet": {"budget_per_agent": 10}})
+    assert "fleet.budget_per_agent" in SET.EDITABLE
+    before = open(C.path(), "rb").read()
+
+    for bad in ("", "ten", "-1"):
+        with pytest.raises(S.ServeError) as e:
+            S.act("settings", {"set": [{"key": "fleet.budget_per_agent", "value": bad}]})
+        assert e.value.code == "bad_type", bad
+        assert open(C.path(), "rb").read() == before, bad
+
+    S.act("settings", {"set": [{"key": "fleet.budget_per_agent", "value": "25"}]})
+    assert lifecycle.settings(C.load())["budget_per_agent"] == 25.0
+
+
+def test_send_is_refused_over_budget_and_the_second_press_spends_one_more_turn(
+        fleet_home, tmp_path, monkeypatch):
+    """The desk called `send` with no `force` at all, so an over-budget agent was unreachable from
+    the page and `ad-fleet send --force` in a terminal was the only door."""
+    from agentdata import config as C
+
+    Registry().add(make_project(tmp_path / "alpha", ticket="RDSD-1"), name="alpha")
+    C.save({"fleet": {"budget_per_agent": 2}})
+    E.append("alpha", [E.event("alpha", "started", {"pid": 1}, ticket="RDSD-1")])
+    _spend("alpha", 9.0)
+
+    with pytest.raises(supervisor.SupervisorError) as e:
+        S.act("send", {"repo": "alpha", "message": "carry on"})
+    assert e.value.code == "budget_exceeded"
+    assert "9 of its 2 premium-request budget" in e.value.msg
+
+    # The second, deliberate press carries `force` -- and reaches the launcher rather than the cap.
+    launched = []
+    monkeypatch.setattr(supervisor, "_spawn",
+                        lambda *a, **k: launched.append(a) or {"pid": 4242})
+    try:
+        S.act("send", {"repo": "alpha", "message": "carry on", "force": True})
+    except Exception as second:                # noqa: BLE001 - anything but the budget refusal
+        assert getattr(second, "code", "") != "budget_exceeded", second
