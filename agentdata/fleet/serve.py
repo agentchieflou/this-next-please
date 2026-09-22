@@ -1497,6 +1497,14 @@ def _attach_bytes(body: dict) -> dict:
     return {**data, **ev}
 
 
+#: Actions that change one repository's row. The page patches that row from the answer instead of
+#: fetching the whole fleet again (#219): a `send` cost two round trips, and the second one carried
+#: every tile on the desk to redraw one of them. `arrange` and `window` are not here -- they change
+#: the *arrangement*, which comes back as `desk` and reaches every window down the stream.
+ROW_ACTIONS = ("start", "console", "say", "send", "stop", "reset", "answer", "approve", "deny",
+               "adopt", "release", "refresh", "hold", "model", "resume", "attach", "attach-bytes")
+
+
 def act(what: str, body: dict) -> dict:
     """One action. The same function the CLI verb calls, so the two cannot drift apart."""
     repo = str(body.get("repo") or "")
@@ -2245,7 +2253,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse(400, "body must be a JSON object")
         what = route[len("/api/"):]
         try:
-            return self._json({"ok": True, "action": what, **act(what, body)})
+            out = act(what, body)
+            # The row this action changed, with the answer (#219). One round trip where there
+            # were two, and the tile is patched from what the server already had in hand rather
+            # than from a second snapshot of the whole fleet.
+            if what in ROW_ACTIONS:
+                changed = str(out.get("repo") or body.get("repo") or "")
+                if changed:
+                    row = row_for(changed)
+                    if row:
+                        out = {**out, "row": row}
+            return self._json({"ok": True, "action": what, **out})
         except (ServeError, RegistryError, supervisor.SupervisorError,
                 approval.ApprovalError, IN.InboxError, CAT.CatalogueError,
                 HO.HandoffError, SCOPE_ERROR) as e:

@@ -195,3 +195,28 @@ function applySkin(skinName) {
   if (variant) document.body.setAttribute("data-skin-variant", variant);
   else document.body.removeAttribute("data-skin-variant");
 }
+
+/* ------------------------------------------------------------ #219: how long a gesture took
+
+   Every local gesture -- one the page can answer out of what it already has -- is marked at both
+   ends, so "instant" is a number somebody can read rather than an adjective. The budget is 50ms,
+   and `tests/test_fleet_instant.py` asserts it in a browser; the runbook records the laptop's.
+
+   Wrapped, because `performance.mark` throws on a name it has already seen in some engines and a
+   page that will not draw because it could not time itself is the worst possible trade. */
+function gesture(name) {
+  var mark = name + ":" + (Date.now() % 100000);
+  try { performance.mark(mark + ":start"); } catch (e) {}
+  return mark;
+}
+
+function settle(mark) {
+  if (!mark) return 0;
+  try {
+    performance.mark(mark + ":end");
+    var m = performance.measure(mark, mark + ":start", mark + ":end");
+    return m ? m.duration : 0;
+  } catch (e) {
+    return 0;
+  }
+}

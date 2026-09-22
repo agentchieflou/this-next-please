@@ -208,6 +208,7 @@ python -m pytest -q
 | `docs/desk-components.md` | the fleet desk's component inventory and the render contract every one of them keeps: created once, patched forever, one owner per property |
 | `docs/desk-window.md` | the tile as a window: the footprint as two numbers and how an older one migrates, the pointer drag, the resize edges and their snap, the keys |
 | `docs/desk-rendering.md` | the rules a canvas on the desk keeps, the activity trace (an hour in sixty numbers) and the glass ground that drifts |
+| `docs/desk-instant.md` | paint, post, reconcile: the optimistic arrangement and its way back, one round trip per action, the stale desk while the new one loads, and the 50ms budget |
 | `docs/desk-motion.md` | the desk's motion budget — three duration tokens, one arrival pattern, one door for a layout change, and what is asserted about all of it |
 | `docs/plan-column.md` | planned: the column (epic #200) — one tile open, every other session a band in a column that fills the page; hide, refresh and the model on every band and tile; one session control where the strip was |
 | `docs/plan-meter.md` | planned: the meter (epic #201) — spend, budget and model on every tile, a fleet total, one arithmetic, a ledger that survives the log rolling; the caps deferred and named |

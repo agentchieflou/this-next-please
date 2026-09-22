@@ -51,9 +51,18 @@ var previousOpen = "";
    because showing a card and starting from it is the recoverable direction to be wrong in. */
 var PREFLIGHT = true;
 
+/* This window's own record -- which agent is open, what it has read. Posted and not waited on:
+   the page has already drawn the change, and a window record that failed to save is a preference
+   lost, not a wrong screen. A refusal is still said out loud (#219) rather than swallowed. */
 function saveWindow(patch) {
   var body = Object.assign({ w: W_NAME }, patch);
-  return post("window", body).catch(function () {});
+  var mark = gesture("window");
+  return post("window", body).then(function (r) {
+    settle(mark);
+    if (r && r.ok === false) say((r.error || "that could not be saved") +
+                                 (r.hint ? " — " + r.hint : ""), 8);
+    return r;
+  }).catch(function () {});
 }
 
 function rehome() {
@@ -449,12 +458,19 @@ function fail(el, message) {
 
 function action(el, what, body) {
   fail(el, "");
+  var mark = gesture("action:" + what);
   return post(what, body).then(function (r) {
     if (!r.ok) fail(el, r.error + (r.hint ? " — " + r.hint : ""));
     // Only a *successful* action holds the tile. A refusal leaves the agent exactly as it was, so
     // the tile is still whatever focus mode already thought it was, and the error is on the tile.
     else hold((body && body.repo) || el.dataset.repo, what);
-    refresh();
+    /* The row came back with the answer (#219). A `send` used to cost two round trips -- the act,
+       then a whole `/api/fleet` to find out what it did -- and the second one carried every tile
+       on the desk so that one of them could be redrawn. An action that did not name a row (or an
+       older server that does not send one) still falls back to the snapshot. */
+    if (r.row) { patchRow(r.row); place(); }
+    else refresh();
+    settle(mark);
     return r;
   }).catch(function (e) { fail(el, String(e)); });
 }
@@ -1278,6 +1294,83 @@ function redrawAll() {
   place();
 }
 
+/* One row onto its tile, making the tile if this is the first sight of it. Both an action's
+   answer (#219) and a whole snapshot come through here, so a tile cannot be drawn one way by one
+   path and another way by the other. */
+function patchRow(row, index) {
+  if (!row || !row.repo) return null;
+  var entry = tiles.get(row.repo);
+  if (!entry) {
+    var el = makeTile(row, index || tiles.size);
+    var grid = document.getElementById("grid");
+    if (grid) grid.appendChild(el);
+    entry = { el: el, seq: 0 };
+    tiles.set(row.repo, entry);
+    (row.recent || []).forEach(function (ev) { append(el, ev); entry.seq = ev.seq; });
+    try {
+      var savedScroll = sessionStorage.getItem("fleet.scroll." + row.repo);
+      if (savedScroll !== null) {
+        entry.el.querySelector(".transcript").scrollTop = Number(savedScroll);
+      }
+    } catch (e) {}
+  }
+  entry.row = row;
+  departed.delete(row.repo);
+  drawTile(entry.el, row, lastApprovals);
+  return entry;
+}
+
+/* ------------------------------------------- #219: the desk that is already there, while it loads
+
+   Stale, then right. The first `/api/fleet` on a nine-project fleet is a catalogue read, a fold
+   per agent and a spend ledger per agent, and until it answered the window was an empty grid with
+   a sentence about having no projects -- which is the wrong answer to "what is my fleet doing",
+   given for a second, every time a window is reopened.
+
+   So the last snapshot this window saw is kept and drawn first, marked as what it is, and the
+   fetch that is already in flight replaces it. Without the transcripts: they are the big part of
+   the payload, they are the part that goes stale fastest, and the stream brings them back within
+   the second anyway. */
+var SNAP_KEY = "fleet.snapshot." + W_NAME;
+var SNAP_GOOD_FOR_MS = 5 * 60 * 1000;
+
+function cacheSnapshot(data) {
+  try {
+    sessionStorage.setItem(SNAP_KEY, JSON.stringify({
+      at: Date.now(),
+      repos: (data.repos || []).map(function (row) {
+        return Object.assign({}, row, { recent: [], earlier: [], run: null });
+      }),
+      approvals: data.approvals || [],
+      desk: data.desk || null,
+      spend: data.spend || {},
+      theme: data.theme || null,
+    }));
+  } catch (e) { /* a private window, or no room: the desk simply loads the slow way */ }
+}
+
+function restoreCached() {
+  var data = null;
+  try {
+    var raw = sessionStorage.getItem(SNAP_KEY);
+    data = raw ? JSON.parse(raw) : null;
+  } catch (e) { return false; }
+  if (!data || !(data.repos || []).length) return false;
+  // Five minutes. Past that the shape of the fleet has probably changed, and a wrong desk held
+  // for a second is worse than an empty one -- the fetch is in flight either way.
+  if (Date.now() - (data.at || 0) > SNAP_GOOD_FOR_MS) return false;
+  if (data.theme) { applyTheme(data.theme.css, data.theme.theme); applySkin(data.theme.skin); }
+  if (data.desk) desk.desk = data.desk;
+  lastApprovals = data.approvals || [];
+  data.repos.forEach(function (row, i) { patchRow(row, i); });
+  hide(document.getElementById("empty"), true);
+  // Said, not hidden: the desk on the screen is the last one this window saw, and the operator is
+  // told so rather than left to find out.
+  toggle(document.body, "is-stale", true);
+  place();
+  return true;
+}
+
 function refresh() {
   if (pendingRefresh) return pendingRefresh;
   pendingRefresh = fetch(q("/api/fleet")).then(function (r) {
@@ -1291,26 +1384,8 @@ function refresh() {
     if (!data.ok) return;
     var grid = document.getElementById("grid");
     hide(document.getElementById("empty"), data.repos.length > 0);
-    data.repos.forEach(function (row, i) {
-      var entry = tiles.get(row.repo);
-      if (!entry) {
-        var el = makeTile(row, i);
-        grid.appendChild(el);
-        entry = { el: el, seq: 0 };
-        tiles.set(row.repo, entry);
-        (row.recent || []).forEach(function (ev) { append(el, ev); entry.seq = ev.seq; });
-        try {
-          var savedScroll = sessionStorage.getItem("fleet.scroll." + row.repo);
-          if (savedScroll !== null) {
-            entry.el.querySelector(".transcript").scrollTop = Number(savedScroll);
-          }
-        } catch (e) {}
-      }
-      entry.row = row;
-      departed.delete(row.repo);
-      lastApprovals = data.approvals || [];
-      drawTile(entry.el, row, lastApprovals);
-    });
+    lastApprovals = data.approvals || [];
+    data.repos.forEach(function (row, i) { patchRow(row, i); });
     tiles.forEach(function (entry, name) {
       if (!data.repos.some(function (r) { return r.repo === name; })) {
         // Removed from the registry. Its tile goes, but not silently: it keeps a dock chip naming
@@ -1352,6 +1427,8 @@ function refresh() {
       startGround();                              // #218: the ground follows the skin
     }
     if (typeof data.preflight === "boolean") PREFLIGHT = data.preflight;
+    toggle(document.body, "is-stale", false);
+    cacheSnapshot(data);
     place();
     title(need);
     return data;
@@ -1464,11 +1541,13 @@ function openAgent(name, skipPost) {
     if (!skipPost) saveWindow({ read: readCursors });
     return;
   }
+  var mark = gesture("open:zoom");
   transitionLayout(function () {
     focused = name;
     toggle(document.body, "focused", true);
     hide(document.getElementById("unfocus"), false);
     tiles.forEach(function (entry2, key) { toggle(entry2.el, "is-focused", key === name); });
+    settle(mark);
   });
   if (!skipPost) saveWindow({ zoomed: name, read: readCursors });
 }
@@ -2741,11 +2820,22 @@ document.getElementById("closefound").addEventListener("click", function () { fo
    screen pinning and says nothing about the arrangement, so assigning its answer wholesale dropped
    `arrangement` on the floor: clicking any tile un-widened every tile you had widened and unpinned
    every tile you had pinned, until the next `/api/desk` poll fifteen seconds later put them back. */
+/* #219: an answer that is older than what this page already has is not an answer, it is an echo.
+   Five gestures in a second is five posts in flight, and they do not come back in the order they
+   went: a resize answered after the move that followed it put the tiles back in the order they
+   were in before the move. The desk carries a `version` that only ever rises, so the check is one
+   comparison and the losing answer is simply dropped -- the winning one already describes the
+   same arrangement. `selected` has no version of its own and is set locally, so it is merged
+   either way. */
 function mergeDesk(answer) {
   if (!answer) return;
   var next = Object.assign({}, desk.desk);
+  var stale = answer.version !== undefined && desk.desk.version !== undefined &&
+              Number(answer.version) < Number(desk.desk.version);
   ["selected", "screens", "version", "arrangement"].forEach(function (k) {
-    if (answer[k] !== undefined) next[k] = answer[k];
+    if (answer[k] === undefined) return;
+    if (stale && k !== "selected") return;
+    next[k] = answer[k];
   });
   desk.desk = next;
 }
@@ -2942,15 +3032,46 @@ function quieted(name) {
   return !!entry && !entry.el.classList.contains("needs-human") && !held.has(name);
 }
 
+/* #219. Every arrangement change goes the same way: paint it, post it, and put it back with the
+   server's own words on the notice line if it refuses. The paint is inside the frame the gesture
+   happened in -- a page that waits for a round trip before moving a tile is a page that feels
+   like a form, whatever the round trip costs -- and the `desk` frame that follows is what makes
+   every other window agree.
+
+   `patch` is what to send; `apply` writes it into the local arrangement and answers with a
+   function that writes the old one back. */
+function arrangeNow(patch, apply, what) {
+  var mark = gesture("arrange:" + (what || "change"));
+  var undo = apply();
+  transitionMove(function () { place(); });
+  settle(mark);
+  return post("arrange", Object.assign({ layout: LAYOUT }, patch)).then(function (r) {
+    if (r && r.ok) { mergeDesk(r); place(); return r; }
+    // Refused. The arrangement goes back to what it was and the refusal is said out loud, because
+    // a tile that silently returns to where it was is a page the operator stops trusting.
+    if (undo) undo();
+    place();
+    var why = (r && r.error) || "the server refused that arrangement";
+    say(why + ((r && r.hint) ? " — " + r.hint : ""), 10);
+    return r;
+  }).catch(function (e) {
+    if (undo) undo();
+    place();
+    say(String(e), 10);
+  });
+}
+
 function setHidden(name, hide) {
   var curArr = getLayoutArrangement();
-  var next = ((curArr.hidden) || []).slice();
+  var was = (curArr.hidden || []).slice();
+  var next = was.slice();
   var at = next.indexOf(name);
   if (hide && at < 0) next.push(name);
   if (!hide && at >= 0) next.splice(at, 1);
-  post("arrange", { layout: LAYOUT, hidden: next }).then(function (r) {
-    if (r && r.ok) transitionLayout(function () { mergeDesk(r); place(); });
-  });
+  return arrangeNow({ hidden: next }, function () {
+    curArr.hidden = next;
+    return function () { curArr.hidden = was; };
+  }, hide ? "hide" : "show");
 }
 
 /* Moving an element with `appendChild` takes the focus off it -- so a grid that re-appends every
@@ -3207,12 +3328,11 @@ function dropTileBefore(name, onto, before) {
   if (at < 0) return;
   order.splice(before ? at : at + 1, 0, name);
   var arr = getLayoutArrangement();
-  arr.order = order;
-  transitionLayout(function () { reorderDomTiles(); });
-  post("arrange", { layout: LAYOUT, order: order }).then(function (r) {
-    if (r && r.ok) mergeDesk(r);
-    reorderDomTiles();
-  });
+  var was = (arr.order || []).slice();
+  arrangeNow({ order: order }, function () {
+    arr.order = order;
+    return function () { arr.order = was; };
+  }, "drop");
 }
 
 /* The grid's own tracks, measured rather than assumed. `auto-fit` means the number of columns is
@@ -3332,6 +3452,19 @@ function nameTiles(on) {
    `fn` must do the whole change synchronously. Anything asynchronous inside it happens after the
    browser has already taken its "after" snapshot, and a morph to a state that has not arrived yet
    is a flash of the wrong layout. */
+/* Rearranging is FLIP, always -- never a view transition. The distinction is not taste: FLIP
+   moves the very elements, so the change is in the DOM on the frame the gesture happened in and
+   the animation is a transform on top of it; `startViewTransition` morphs *pictures*, so it has
+   to hold the old frame for one more frame while it takes its snapshot. For "this tile is now
+   over there" the first is both faster to show and truer -- and #219's whole claim is that the
+   desk paints what it already knows without waiting for anything, the browser included. */
+function transitionMove(fn) {
+  if (reduceMotion()) { fn(); return; }
+  var first = measureTiles();
+  fn();
+  playFlip(first);
+}
+
 function transitionLayout(fn) {
   if (reduceMotion() || typeof document.startViewTransition !== "function") {
     var first = reduceMotion() ? null : measureTiles();
@@ -3388,17 +3521,14 @@ function moveTile(repo, dir) {
   block.splice(idx, 1);
   block.splice(target, 0, repo);
 
-  var body = { layout: LAYOUT };
-  if (inPinnedBlock) body.pinned = block;
-  else body.order = block;
-  // Optimistic, then confirmed: the tile moves under the hand, and the server's answer is what
-  // the next draw reads.
-  if (inPinnedBlock) arr.pinned = block; else arr.order = block;
-  reorderDomTiles();
-  post("arrange", body).then(function (r) {
-    if (r && r.ok) mergeDesk(r);
-    reorderDomTiles();
-  });
+  var body = {};
+  if (inPinnedBlock) body.pinned = block; else body.order = block;
+  var wasPinned = (arr.pinned || []).slice();
+  var wasOrder = (arr.order || []).slice();
+  arrangeNow(body, function () {
+    if (inPinnedBlock) arr.pinned = block; else arr.order = block;
+    return function () { arr.pinned = wasPinned; arr.order = wasOrder; };
+  }, "move");
 }
 
 /* #217. A tile's footprint is two numbers now. `size: 2` is what every arrangement written
@@ -3432,12 +3562,11 @@ function setTileSize(repo, cols, rows) {
   sizes[repo] = want;
   // Optimistic, then confirmed -- the tile changes under the hand and the server's answer is what
   // the next draw reads. Two quick presses both read the local arrangement, so neither is lost.
-  curArr.size = sizes;
-  reorderDomTiles();
-  return post("arrange", { layout: LAYOUT, size: sizes }).then(function (r) {
-    if (r && r.ok) mergeDesk(r);
-    reorderDomTiles();
-  });
+  var was = Object.assign({}, curArr.size || {});
+  return arrangeNow({ size: sizes }, function () {
+    curArr.size = sizes;
+    return function () { curArr.size = was; };
+  }, "size");
 }
 
 function toggleTileSize(repo) {
@@ -3461,12 +3590,11 @@ function toggleTilePin(repo) {
   var pinned = (curArr.pinned || []).slice();
   var idx = pinned.indexOf(repo);
   if (idx >= 0) pinned.splice(idx, 1); else pinned.push(repo);
-  curArr.pinned = pinned;
-  reorderDomTiles();
-  return post("arrange", { layout: LAYOUT, pinned: pinned }).then(function (r) {
-    if (r && r.ok) mergeDesk(r);
-    reorderDomTiles();
-  });
+  var was = (curArr.pinned || []).slice();
+  return arrangeNow({ pinned: pinned }, function () {
+    curArr.pinned = pinned;
+    return function () { curArr.pinned = was; };
+  }, "pin");
 }
 
 /* Which project this window is showing, when it is showing exactly one. `screens` is the shared
@@ -3665,7 +3793,11 @@ function openBand(name, skipPost) {
   var was = openName();
   if (was && was !== name) previousOpen = was;
   openTile = name;
-  transitionLayout(function () { choose(name); place(); });
+  // Marked inside the callback, not around the call: the view-transition path runs it on the
+  // frame after the browser has taken its snapshot, and a mark closed before the work happened
+  // would report nought and mean nothing (#219).
+  var mark = gesture("open:band");
+  transitionLayout(function () { choose(name); place(); settle(mark); });
   if (!skipPost) saveWindow({ open: name });
 }
 
@@ -4229,22 +4361,26 @@ document.addEventListener("click", function (e) {
   });
 })();
 
-document.getElementById("column-showall").addEventListener("click", function () {
-  post("arrange", { layout: LAYOUT, hidden: [] }).then(function (r) {
-    if (r && r.ok) { mergeDesk(r); if (needsOnly) focusMode(false); else place(); }
+function showEverything() {
+  var curArr = getLayoutArrangement();
+  var was = (curArr.hidden || []).slice();
+  return arrangeNow({ hidden: [] }, function () {
+    curArr.hidden = [];
+    return function () { curArr.hidden = was; };
+  }, "showall").then(function (r) {
+    if (r && r.ok && needsOnly) focusMode(false);
+    return r;
   });
-});
+}
+
+document.getElementById("column-showall").addEventListener("click", showEverything);
 
 document.getElementById("column-jump").addEventListener("click", function () {
   var first = document.querySelector("#bands .band.needs-human:not([hidden]) .band-open");
   if (first) first.focus();
 });
 
-document.getElementById("showall").addEventListener("click", function () {
-  post("arrange", { layout: LAYOUT, hidden: [] }).then(function (r) {
-    if (r && r.ok) { mergeDesk(r); if (needsOnly) focusMode(false); else place(); }
-  });
-});
+document.getElementById("showall").addEventListener("click", showEverything);
 
 document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 
@@ -4321,3 +4457,10 @@ window.addEventListener("resize", function () {
   });
 });
 startGround();
+
+/* #219: the desk that was, while the desk that is loads. At the very bottom of the file and not
+   beside the `refresh()` that starts the fetch, because drawing a row touches module state --
+   `departed`, the tiles map -- that is declared further down and is `undefined` until the script
+   has finished evaluating. The fetch is already in flight either way; this only decides what is
+   on the screen while it is. */
+restoreCached();

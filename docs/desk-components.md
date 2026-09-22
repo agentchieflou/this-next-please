@@ -83,6 +83,12 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 `drawer` is not a component: it is a one-line alias for `section("drawer", …)`, kept because the
 rest of the file already calls it that.
 
+## How quickly it answers
+
+`docs/desk-instant.md` has the order every gesture keeps — paint what is already known, post,
+reconcile, and say so when the server disagrees — the one optimistic writer of the arrangement,
+and the 50ms budget each local gesture is measured against.
+
 ## What is painted rather than laid out
 
 `docs/desk-rendering.md` has the canvas rules and the two canvases that keep them: the activity

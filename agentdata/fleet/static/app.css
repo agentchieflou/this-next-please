@@ -533,6 +533,16 @@ body.focused .tile.is-focused { max-height: none; }
 
 /* What will happen, shown before the mouse comes up (HIG *Drag and drop*). One element for the
    whole page: there is only ever one gesture in flight. */
+/* #219: the desk the window last saw, while the one it has now is loading. Dimmed a little and
+   said out loud in the footer -- a stale desk that does not admit it is a desk that lies for a
+   second, and a second is long enough to act on. No spinner: the page has something to show, and
+   a spinner over real content is an apology for content nobody asked it to withhold. */
+body.is-stale main { opacity: 0.72; }
+body.is-stale #counts::after {
+  content: " · the last view, while this one loads";
+  color: var(--muted);
+}
+
 /* #218: the last hour, on the tile's title bar and on the band. Sized in CSS and resolved in the
    script -- the canvas's own `width` is a pixel count, not a layout box, and the two are only the
    same number on a 1x screen. It shrinks before anything else in the head does, and goes
