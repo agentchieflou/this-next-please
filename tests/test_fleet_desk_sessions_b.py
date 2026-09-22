@@ -351,11 +351,12 @@ def test_window_reopens_with_same_zoomed_tile_after_restart(fleet_home, tmp_path
     with sync_playwright() as p:
         b, page, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=main")
         assert not errs, errs
-        # Zoom tile beta
+        # Zoom tile beta. Waited for rather than slept through: 300ms is the page's budget on an
+        # idle machine, and under `-n auto` on a Windows runner four browsers share the cores --
+        # which is the load talking, not the page. The selectors are the assertions.
         page.locator('.tile[data-repo="beta"] .repo').click()
-        page.wait_for_timeout(300)
-        assert "focused" in page.locator("body").get_attribute("class")
-        assert "is-focused" in page.locator('.tile[data-repo="beta"]').get_attribute("class")
+        page.wait_for_selector("body.focused", timeout=15000)
+        page.wait_for_selector('.tile[data-repo="beta"].is-focused', timeout=15000)
         b.close()
 
     s1.stopping.set()

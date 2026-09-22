@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 
 import pytest
 
@@ -129,16 +130,24 @@ def test_the_file_is_read_from_its_offset_and_a_half_written_line_waits(fleet_ho
             f.write(_line("assistant.message", content=f"line {i} " + "x" * 200, model="m", toolRequests=[]))
     big = os.path.getsize(file)
     reads: list[tuple[str, int, int]] = []
+    where: list[str] = []
     real = E._read_from
 
     def counted(path, offset):
         lines, new_offset, n = real(path, offset)
         reads.append((path, offset, new_offset - offset))
+        if path == file:
+            # Who read it, not just that somebody did. On a Windows runner under `-n auto` this
+            # fired with a second, empty read from the end that does not happen on Linux and does
+            # not happen serially, and the list of reads alone could not say what made it. The
+            # assertion below is unchanged; this only makes its failure name a caller.
+            where.append(" <- ".join(f"{os.path.basename(f.filename)}:{f.lineno} {f.name}"
+                                     for f in reversed(traceback.extract_stack()[-6:-1])))
         return lines, new_offset, n
 
     monkeypatch.setattr(E, "_read_from", counted)
     E.refresh("luna", _path, repo_state={})
-    assert [r for r in reads if r[0] == file] == [(file, 0, big)]
+    assert [r for r in reads if r[0] == file] == [(file, 0, big)], "\n".join(where)
     assert sum(1 for ev in E.read("luna") if ev["kind"] == "assistant_text") == 2000
 
     reads.clear()
@@ -146,7 +155,8 @@ def test_the_file_is_read_from_its_offset_and_a_half_written_line_waits(fleet_ho
     with open(file, "a", encoding="utf-8", newline="\n") as f:
         f.write(half[:40])                                     # the writer is mid-line
     E.refresh("luna", _path, repo_state={})
-    assert [r for r in reads if r[0] == file] == [(file, big, 0)], "a partial line is not consumed"
+    assert [r for r in reads if r[0] == file] == [(file, big, 0)], \
+        "a partial line is not consumed\n" + "\n".join(where)
     assert sum(1 for ev in E.read("luna") if ev["kind"] == "assistant_text") == 2000
 
     reads.clear()
