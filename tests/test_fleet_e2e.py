@@ -132,7 +132,8 @@ def test_the_agents_really_changed_their_own_state_files(fleet, monkeypatch):
             phases[name] = json.load(f)
     assert phases["alpha"]["phase"] == "documenting"
     assert phases["bravo"]["phase"] == "blocked"
-    assert phases["bravo"]["open_questions"] == ["Which workspace is UAT?"]
+    # A record with an id, not the bare string `set --question` used to store (#231).
+    assert [(q["id"], q["q"]) for q in phases["bravo"]["open_questions"]] == [("q1", "Which workspace is UAT?")]
     assert phases["charlie"]["phase"] == "blocked"
 
 
