@@ -27,5 +27,5 @@ model: <your model id>
 <1 sentence — which SKILL.md line should change and how>
 ```
 
-2. `ad-state set phase=blocked --question "<the unblock sentence>"` (skill `state-update`).
+2. `ad-state ask "<the unblock sentence>"` (skill `state-update`). It sets `phase=blocked` and gives the question an id the operator can answer.
 3. Print: `blocked — <unblock sentence>`. STOP. Do not continue the task. Do not retry.

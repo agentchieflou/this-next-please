@@ -44,7 +44,9 @@ def test_blocked_questions_tools_and_bom_state_rewritten_clean(tmp_path, monkeyp
     raw = open(p, "rb").read()
     assert not raw.startswith(b"\xef\xbb\xbf")
     st = json.loads(raw)
-    assert st["phase"] == "blocked" and st["open_questions"] == ["which directory is governed for DPM artifacts?"]
+    # A record with an id, not a bare string (#231): a string could only ever be cleared, never answered.
+    assert st["phase"] == "blocked" and [(q["id"], q["q"], q["blocking"]) for q in st["open_questions"]] == [
+        ("q1", "which directory is governed for DPM artifacts?", True)]
     assert cli_state.main(["set", "phase=blocked", "--question", "which directory is governed for DPM artifacts?"]) == 0
     assert len(json.load(open(p, encoding="utf-8"))["open_questions"]) == 1          # no duplicates
     assert cli_state.main(["set", "phase=triaged", "--clear-questions", "--tool", "doctor_verified=2026-09-02"]) == 0
@@ -55,6 +57,46 @@ def test_blocked_questions_tools_and_bom_state_rewritten_clean(tmp_path, monkeyp
     assert cli_state.main(["show"]) == 0
     out = capsys.readouterr().out
     assert "phase: triaged" in out and "state: phase=triaged ticket=None" in out
+
+
+def test_a_question_asked_with_set_can_be_answered_and_the_answer_unblocks(tmp_path, monkeypatch, capsys):
+    """#231: `friction-log` and `codebase-map` asked with `set phase=blocked --question`, which stored
+    a string with no id. `ad-state answer` refused it, the tile's card sent `qid=""` and was refused
+    too, so `--clear-questions` was the only way out -- and a clear is exactly what the fold never
+    heard about. Now it has an id, and the phase it interrupted comes back when it is answered."""
+    p = _init(tmp_path, monkeypatch)
+    assert cli_state.main(["set", "phase=querying"]) == 0
+    assert cli_state.main(["set", "phase=blocked", "--question", "which sprint table?"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    assert st["open_questions"][0]["id"] == "q1" and st["blocked_from"] == "querying"
+    assert cli_state.main(["answer", "q1", "sprint_2026"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    assert st["open_questions"] == [] and st["phase"] == "querying"
+    assert st["answered_questions"][0]["answer"] == "sprint_2026"
+
+
+def test_a_cleared_question_never_gives_its_id_to_the_next_one(tmp_path, monkeypatch, capsys):
+    """#231: ids came from the open and answered lists, and a cleared question is in neither -- so
+    the next ask got `q1` back, and a tile drawn a moment earlier answered the wrong question."""
+    p = _init(tmp_path, monkeypatch)
+    assert cli_state.main(["ask", "first?"]) == 0
+    assert cli_state.main(["set", "phase=idle", "--clear-questions"]) == 0
+    assert cli_state.main(["ask", "second?"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    assert [q["id"] for q in st["open_questions"]] == ["q2"]
+    assert st["question_seq"] == 2
+
+
+def test_a_string_written_before_ids_gets_one_at_the_next_write(tmp_path, monkeypatch, capsys):
+    """A state.json from before #231 keeps its bare strings until `ad-state` next writes it, and then
+    each becomes a record -- text, order and blocking kept -- so the operator can answer it at last."""
+    legacy = dict(STUB, phase="blocked", open_questions=["legacy one", {"id": "q4", "q": "a record"}, "legacy two"])
+    p = _init(tmp_path, monkeypatch, raw=json.dumps(legacy).encode("utf-8"))
+    assert cli_state.main(["set", "branch=feature"]) == 0
+    st = json.load(open(p, encoding="utf-8"))
+    assert [(q["id"], q["q"]) for q in st["open_questions"]] == [
+        ("q5", "legacy one"), ("q4", "a record"), ("q6", "legacy two")]
+    assert all(q.get("blocking", True) for q in st["open_questions"])
 
 
 def test_an_input_is_recorded_once_and_show_lists_it(tmp_path, monkeypatch, capsys):

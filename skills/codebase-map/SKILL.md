@@ -13,6 +13,6 @@ CRITICAL: **never run `ad-graph approve` yourself**. Approval is reserved strict
 3. Run `ad-graph explain` to generate or refresh `.agent/graph/understanding.md` with factual skeletons.
 4. For each Module row in `.agent/graph/understanding.md`, read at most the hub symbols' source via `ad-graph node <hub>` plus a bounded line slice of its `where` location. Write **one sentence** describing the role of that module and hub inside the `<!-- model --> ... <!-- /model -->` markers. Never restate facts the skeleton already carries.
 5. Identify every place the graph reports `unresolved:` or `extractor: generic`, and record it under `## Open questions` as specific items the human reviewer must confirm.
-6. Run `ad-state set phase=blocked --question "Review .agent/graph/understanding.md and run ad-graph approve"`.
+6. Run `ad-state ask "Review .agent/graph/understanding.md and run ad-graph approve"`.
 7. Print `blocked — review .agent/graph/understanding.md, then run ad-graph approve`.
 8. STOP.
