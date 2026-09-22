@@ -319,25 +319,51 @@ body.focused .tile.is-focused { max-height: none; }
 }
 .runline.cold { font-style: italic; }
 
-/* ------------------------------------------------------------------------- the switcher (#174) */
+/* ------------------------------------------------------------------ one session control (#206) */
 
-/* A tab view, in HIG's sense: the main tab is where the work is, the ones beside it are the same
-   project somewhere else, and *earlier* is this checkout's own history. Every tab is a button, so
-   the strip is reachable by Tab and by Alt+[ / Alt+]. */
-.strip {
-  display: flex; gap: 4px; margin: 4px 0 0; flex-wrap: wrap; align-items: center;
+/* The strip here was four buttons of three different kinds and a second, inert *earlier* under the
+   transcript. It is one pill saying which session this transcript is, and one menu behind it
+   holding everything that changes which session that is. */
+.sessionbar { position: relative; margin: 4px 0 0; }
+.spill {
+  font: 11px var(--mono); color: var(--muted); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 12px; padding: 1px 10px; min-height: 24px;
+  max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
 }
-.tab {
-  font: 11px var(--mono); color: var(--muted); background: transparent;
-  border: 1px solid var(--line); border-bottom-color: transparent;
-  border-radius: 4px 4px 0 0; padding: 2px 8px; cursor: pointer;
-  max-width: 16rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.spill:hover { color: var(--text); border-color: var(--accent); }
+.spill::after { content: " ▾"; opacity: .7; }
+/* Reading an earlier session is a state the tile is IN, so the control that put it there says so. */
+.spill.is-reading { color: var(--waiting); border-color: var(--waiting); }
+.smenu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 25;
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: min(360px, 90vw); max-height: 60vh; overflow: auto; padding: 8px 10px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18); font: 11px var(--mono);
 }
-.tab:hover { color: var(--text); }
-.tab.is-on { color: var(--text); background: var(--panel); border-color: var(--accent); }
-.tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.smitem {
+  text-align: left; background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--text); font: inherit; padding: 3px 6px; min-height: 28px; cursor: pointer;
+}
+.smitem:hover { background: var(--select); border-color: var(--line); }
+.sm-label {
+  margin: 4px 0 0; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* A run is a transcript boundary, not a thing to open: opening one is opening its session, which
+   is the row above it. So the runs are rows and not buttons. */
+.live-runs, .ss-runs {
+  list-style: none; margin: 0 0 2px 18px; padding: 0; color: var(--muted); font-size: 10px;
+}
+.live-runs li, .ss-runs li { padding: 1px 0; }
+.sib-list { list-style: none; margin: 0; padding: 0; }
+.sib-open {
+  width: 100%; text-align: left; background: transparent; border: 1px solid transparent;
+  border-radius: 4px; color: var(--text); font: inherit; padding: 3px 6px; min-height: 28px;
+}
+.sib-open:hover { background: var(--select); border-color: var(--line); }
 
-.sessions { margin: 4px 0 0; padding: 0; list-style: none; font: 11px var(--mono); }
+.sessions { margin: 0; padding: 0; list-style: none; }
 .session-row { margin: 0; padding: 0; }
 .ss-open {
   display: flex; gap: 8px; width: 100%; text-align: left; cursor: pointer;
@@ -381,18 +407,21 @@ body.focused .tile.is-focused { max-height: none; }
 .chip.stale .chipage { text-decoration: underline dotted; }
 
 /* 28px is the HIG desktop floor for a hit target; 20px was below it. */
-.head .pintoggle, .head .sizetoggle, .head .hidetoggle {
+.head .pintoggle, .head .sizetoggle, .head .hidetoggle,
+.head .refreshtoggle, .head .modeltoggle {
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0 6px; min-height: 28px; min-width: 28px;
   border-radius: 4px; background: transparent; border: 1px solid transparent;
   color: var(--muted); cursor: pointer;
 }
-/* All three, or the one left out paints its SVG with the default black fill (#180). */
-.head .pintoggle svg, .head .sizetoggle svg, .head .hidetoggle svg {
+/* Every one of them, or the one left out paints its SVG with the default black fill (#180). */
+.head .pintoggle svg, .head .sizetoggle svg, .head .hidetoggle svg,
+.head .refreshtoggle svg, .toolbtn svg {
   width: 16px; height: 16px; fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
-.head .pintoggle:hover, .head .sizetoggle:hover, .head .hidetoggle:hover { border-color: var(--accent); color: var(--text); }
+.head .pintoggle:hover, .head .sizetoggle:hover, .head .hidetoggle:hover,
+.head .refreshtoggle:hover, .head .modeltoggle:hover { border-color: var(--accent); color: var(--text); }
 .head .pintoggle.active { background: var(--select); color: var(--accent); border-color: var(--accent); }
 
 .tile.size-2 { grid-column: span 2; }
@@ -440,14 +469,6 @@ body.focused .tile.is-focused { max-height: none; }
 
 .why { margin: 6px 0 0; color: var(--muted); }
 .tile.state-needs_human .why, .tile.state-blocked .why, .tile.state-error .why { color: var(--human); }
-
-.earlier {
-  margin: 6px 0; font: 11px var(--mono); color: var(--muted);
-  border-top: 1px dashed var(--line); padding-top: 4px;
-}
-.earlierhead { cursor: pointer; }
-.earlierlist { margin: 4px 0 0 16px; padding: 0; list-style: square; }
-.earlierlist li { padding: 2px 0; }
 
 /* ------------------------------------------------------------------------------ the transcript */
 
@@ -686,6 +707,194 @@ body.panels #closefound, body.panels #closeinspector, body.panels #sidetoggle { 
 
 /* The left monitor replaces a terminal, so the tiles get the width and the sidebar stays narrow. */
 body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+
+/* ------------------------------------------------------------------------ the column (#203)
+
+   The operator's two sentences, made two rules: *non-open sessions show vertically rather than
+   horizontally*, and *each slice that isn't being actively looked at should auto size to take up
+   the page so there isn't so much negative space.*
+
+   `.glass` is the first of them and it fixes the grid too. `.workspace` is a flex ROW, so the dock
+   -- which has always described itself as sitting *under* the grid -- was laid out BESIDE it with a
+   basis of its own content, and one chip carrying a long question took a third of the window away
+   from the tiles. The tiles and the dock are now one vertical box, and the column is its sibling. */
+.glass { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+/* The laptop view is the sidebar and nothing else, so the box the tiles live in goes with them. */
+body.panels .glass { display: none; }
+
+/* The open agent fills the glass, top to bottom. Pinned tiles are open too and split the row, which
+   is what pinning already meant in the grid. */
+body.layout-column main {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-content: stretch;
+}
+body.layout-column .tile.is-solo { max-height: none; min-height: 0; }
+/* `body.solo` caps the transcript at a third of the viewport because there it shares the window
+   with the sidebar's panes. Here the tile IS the window, so the transcript takes what is left. */
+body.layout-column .transcript, body.layout-column .history { max-height: none; }
+
+.column {
+  flex: 0 0 clamp(260px, 24vw, 420px);
+  display: flex; flex-direction: column; min-height: 0; gap: 6px;
+  padding: 8px; background: var(--panel); border-left: 1px solid var(--line);
+}
+.column-head, .column-foot {
+  display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
+  color: var(--muted); font: 11px var(--mono);
+}
+.column-jump {
+  margin-left: auto; min-height: 28px; padding: 1px 8px; font: 11px var(--ui);
+  background: var(--bg); color: var(--human); border: 1px solid var(--human); border-radius: 4px;
+}
+.bands {
+  list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column; gap: 6px;
+}
+/* The whole point: N bands share the column's height and none of it is empty. `1 1 0` rather than
+   `1 1 auto`, or a band carrying a long question takes more than its share and the quiet ones are
+   squeezed to a line. Past the minimums the column scrolls and its head says how many there are. */
+/* The band is the card; the button and the tools are inside it. The border used to be on the
+   button, which put the three controls OUTSIDE the box they belong to and pushed the model's name
+   off the edge of the column. */
+.band {
+  flex: 1 1 0; min-height: 56px; display: flex; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--line); border-left: 3px solid var(--line);
+  border-radius: 6px;
+}
+.band:hover { border-color: var(--accent); }
+/* An agent that wants something is the height of what it is asking. `1 0 auto` -- a basis of its
+   own content and no shrink -- so a long question is never clipped and the column scrolls instead,
+   which is the one case where "share the height evenly" is the wrong answer. */
+.band.needs-human { flex: 1 0 auto; }
+.band-open {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px;
+  align-items: stretch; text-align: left; cursor: pointer; overflow: hidden;
+  background: transparent; color: var(--text); font: inherit; padding: 6px 8px;
+  border: 0; border-radius: 0;
+}
+/* Who it is, on one line, so the line under it is the news rather than the third thing down. */
+.b-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.b-n {
+  font: 10px var(--mono); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 3px; padding: 0 4px;
+}
+.b-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; }
+.b-head .b-badge { margin-left: auto; }
+.b-chip { color: var(--muted); font: 11px var(--mono); }
+.b-badge {
+  background: var(--human); color: var(--bg); border-radius: 8px; padding: 0 5px; font-size: 11px;
+}
+/* What it last said. Two lines for a quiet agent -- enough to triage from, not enough to crowd the
+   band next to it -- and no limit at all on a red one, whose question is the point of the row. */
+/* What it last said takes whatever height the band has. That is what the height is FOR: a band
+   stretched to fill the page and then showing two clamped lines would be the negative space this
+   arrangement was asked to remove, moved inside the row. */
+.b-last {
+  flex: 0 0 auto; color: var(--muted); line-height: 1.4;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+.band.needs-human .b-last { color: var(--human); }
+/* The tail takes the height the band has left, and clips: the operator reads down it until the row
+   ends, which is exactly as much as the column could afford to show them. */
+.b-tail {
+  flex: 1 1 auto; min-height: 0; overflow: hidden; margin: 2px 0 0; padding: 0; list-style: none;
+  font: 10px/1.45 var(--mono); color: var(--muted);
+  border-top: 1px dashed var(--line); padding-top: 2px;
+}
+.b-tail li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.needs-only .band.is-quiet .b-tail { display: none; }
+/* An agent that needs a person is the same red its tile is, and its question is shown in full: the
+   dock could only ever fit a state and an age, which is how an idle agent's last question became
+   unrecoverable from it. */
+.band.needs-human { border-color: var(--human); border-left-color: var(--human); }
+.band.needs-human .b-name { color: var(--human); }
+.band.departed { border-style: dashed; }
+.band.departed .band-open { color: var(--muted); }
+/* *needs me*, in the column: a quiet band folds to a sliver rather than leaving. It keeps its name
+   and its slot, so the mode narrows the column instead of emptying it -- a row that vanished would
+   be "where did it go" again, which is the question this arrangement exists to answer. */
+body.needs-only .band.is-quiet { flex: 0 0 28px; min-height: 28px; }
+body.needs-only .band.is-quiet .band-open { flex-direction: row; align-items: baseline; padding: 2px 8px; }
+body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-tools { display: none; }
+.column-hidden { color: var(--muted); }
+
+/* ------------------------------------------------------ hide, refresh and the model (#205)
+   The same three controls on the band and on the tile, so the eye finds them in the same place
+   whichever one it is looking at. */
+.band-tools {
+  display: flex; flex-direction: column; gap: 2px; padding: 4px 2px; flex: 0 0 auto;
+  border-left: 1px solid var(--line); align-items: stretch;
+}
+/* `stretch`, not `center`: a centred column sizes its items to their content, so the one carrying
+   a model name grew past the card it sits in and ran off the edge of the page. */
+.band-tools .toolbtn { width: 100%; min-width: 0; }
+.toolbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 28px; min-width: 28px; padding: 0 5px;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--muted); cursor: pointer;
+}
+.toolbtn:hover { border-color: var(--accent); color: var(--text); }
+/* An in-flight control is the control itself, dimmed -- never an overlay and never a spinner: the
+   page has one motion budget (#216) and a refresh is over before an animation would read as one. */
+.toolbtn[aria-busy="true"], .head [aria-busy="true"] { opacity: .5; }
+/* The model button says a name rather than drawing a glyph: a model is a word, and an icon for one
+   would be an icon nobody can read. */
+/* The model button says a word, so it needs room for one -- and the band's tool column is narrow,
+   so the word ellipsises inside the card rather than running off the edge of the page. */
+.wordbtn { font: 10px var(--mono); letter-spacing: .02em; white-space: nowrap;
+           max-width: 100%; padding: 0 2px; overflow: hidden; }
+/* The ellipsis has to be on the element that holds the text. It was on the button, whose centred
+   flex child was wider than it and overflowed both edges -- so a long model name ran off the side
+   of the card instead of being shortened inside it. */
+.wordbtn .bm-name {
+  min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center;
+}
+.band-tools { width: 3.4rem; }
+.head .modeltoggle { min-width: auto; }
+
+/* The card behind the model button. Fixed, because it is one card for the page and it is moved to
+   whichever button opened it -- the same "moved, never copied" rule the dispatch card follows. */
+.modelcard {
+  position: fixed; z-index: 40; display: flex; flex-direction: column; gap: 8px;
+  min-width: 280px; max-width: min(380px, 92vw); padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18); font-size: 12px;
+}
+.mc-head { display: flex; align-items: baseline; gap: 8px; }
+.mc-close {
+  margin-left: auto; min-width: 28px; min-height: 28px; line-height: 1;
+  background: none; border: 1px solid var(--line); color: var(--text);
+}
+.mc-facts {
+  display: grid; grid-template-columns: max-content 1fr max-content;
+  gap: 2px 10px; font: 11px var(--mono); align-items: baseline;
+}
+.mc-facts .mc-k { color: var(--muted); }
+.mc-facts .mc-v { overflow-wrap: anywhere; }
+.mc-facts .mc-src { color: var(--muted); text-align: right; }
+.mc-edit { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.mc-edit input {
+  flex: 1 1 8rem; min-width: 0; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; font: inherit;
+}
+.mc-note { margin: 0; color: var(--muted); font-size: 11px; }
+.mc-all { align-self: flex-start; font-size: 11px; }
+
+/* A narrow window cannot afford a column beside the glass, so it lies down into a strip above the
+   tile -- which is the dock as it was always meant to read, and the laptop's own narrow view. */
+@media (max-width: 900px) {
+  body.layout-column .workspace { flex-direction: column; }
+  body.layout-column .column {
+    order: -1; flex: 0 0 auto; max-height: 38vh;
+    border-left: 0; border-bottom: 1px solid var(--line);
+  }
+  body.layout-column .bands { flex-direction: row; overflow-x: auto; }
+  body.layout-column .band { flex: 0 0 auto; min-width: 170px; }
+  body.layout-column .band-open { flex-direction: row; align-items: baseline; }
+}
 
 /* Which window is this? The grid has nothing to say -- it is the whole fleet. Every other layout is
    one of a set, and four windows that look alike is the tab problem again, one level up. */

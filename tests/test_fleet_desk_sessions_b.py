@@ -282,7 +282,7 @@ def test_two_named_windows_keep_different_focus_states_across_restart(fleet_home
 
     with sync_playwright() as p:
         # Window 'main': turn focus mode ON
-        b1, page_main, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&w=main")
+        b1, page_main, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=main")
         assert not errs, errs
         btn_focus = page_main.locator("#focus")
         btn_focus.click()
@@ -291,7 +291,7 @@ def test_two_named_windows_keep_different_focus_states_across_restart(fleet_home
         b1.close()
 
         # Window 'left': verify focus mode is OFF
-        b2, page_left, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&w=left")
+        b2, page_left, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=left")
         assert not errs, errs
         btn_focus_left = page_left.locator("#focus")
         assert btn_focus_left.get_attribute("aria-pressed") == "false"
@@ -314,13 +314,13 @@ def test_two_named_windows_keep_different_focus_states_across_restart(fleet_home
     try:
         with sync_playwright() as p:
             # Reopen window 'main' on new port: focus mode is still ON
-            b1, page_main, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&w=main")
+            b1, page_main, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&layout=grid&w=main")
             assert not errs, errs
             assert page_main.locator("#focus").get_attribute("aria-pressed") == "true"
             b1.close()
 
             # Reopen window 'left' on new port: focus mode is still OFF
-            b2, page_left, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&w=left")
+            b2, page_left, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&layout=grid&w=left")
             assert not errs, errs
             assert page_left.locator("#focus").get_attribute("aria-pressed") == "false"
             b2.close()
@@ -349,7 +349,7 @@ def test_window_reopens_with_same_zoomed_tile_after_restart(fleet_home, tmp_path
     p1 = s1.server_address[1]
 
     with sync_playwright() as p:
-        b, page, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&w=main")
+        b, page, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=main")
         assert not errs, errs
         # Zoom tile beta
         page.locator('.tile[data-repo="beta"] .repo').click()
@@ -372,7 +372,7 @@ def test_window_reopens_with_same_zoomed_tile_after_restart(fleet_home, tmp_path
 
     try:
         with sync_playwright() as p:
-            b, page, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&w=main")
+            b, page, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&layout=grid&w=main")
             assert not errs, errs
             # Tile beta is zoomed
             assert "focused" in page.locator("body").get_attribute("class")
@@ -417,7 +417,7 @@ def test_since_you_were_away_strip(fleet_home, tmp_path):  # noqa: F811
 
     try:
         with sync_playwright() as p:
-            b, page, errs = _page(p, f"http://127.0.0.1:{port}/?t={token}&w=main")
+            b, page, errs = _page(p, f"http://127.0.0.1:{port}/?t={token}&layout=grid&w=main")
             assert not errs, errs
 
             # Strip is visible and has exactly 2 lines

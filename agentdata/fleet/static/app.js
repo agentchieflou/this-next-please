@@ -14,16 +14,19 @@ var focused = null;
 var pendingRefresh = null;
 var source = null;
 
-/* #133: three arrangements of this one page, chosen by the URL, because a second HTML file is a
-   second thing to keep in step and the friction being fixed is *tabs*. `grid` is every tile on one
-   screen; `roles` is three windows -- board, agents, verify -- that agree on a selected project
-   through the SSE stream; `screens` pins one project per monitor. `ad-fleet serve --layout` puts
-   the parameter on the URL it prints, so the operator never has to type one. */
-var LAYOUTS = ["grid", "roles", "screens"];
+/* #133, #203: four arrangements of this one page, chosen by the URL, because a second HTML file is
+   a second thing to keep in step and the friction being fixed is *tabs*. `column` is one agent open
+   and the rest as bands down the side, and it is the default the operator chose on the real screens
+   (`docs/fleet-layouts.md` §The sitting); `grid` is every tile at once; `roles` is three windows --
+   board, agents, verify -- that agree on a selected project through the SSE stream; `screens` pins
+   one project per monitor. `ad-fleet serve --layout` puts the parameter on the URL it prints, so
+   the operator never has to type one. */
+var LAYOUTS = ["column", "grid", "roles", "screens"];
 var VIEWS = ["board", "agents", "verify"];
+var DEFAULT_LAYOUT = LAYOUTS[0];
 var rawLayout = PARAMS.get("layout");
 var unknownLayout = (rawLayout && LAYOUTS.indexOf(rawLayout) < 0) ? rawLayout : null;
-var LAYOUT = unknownLayout ? "grid" : (rawLayout || "grid");
+var LAYOUT = unknownLayout ? DEFAULT_LAYOUT : (rawLayout || DEFAULT_LAYOUT);
 var VIEW = VIEWS.indexOf(PARAMS.get("view")) >= 0 ? PARAMS.get("view")
                                                   : (LAYOUT === "roles" ? "agents" : "");
 var SCREEN = Math.max(0, Math.min(9, Number(PARAMS.get("screen")) || 0));
@@ -37,6 +40,12 @@ var readCursors = {};
 var streamDead = false;
 var awayShown = false;
 var appliedInitialWindow = false;
+/* Which agent this window has OPEN in the column (#203), and the one it had before -- `Esc` goes
+   back to that rather than to nothing, because "show me the other one for a second" is the gesture
+   the column is for. Per window: the left monitor reads one agent while the centre reads another,
+   and `selected` stays the one thing every window agrees on. */
+var openTile = "";
+var previousOpen = "";
 /* Whether a drop opens the dispatch card (#164) or launches the way #98 did. The server's
    `fleet.preflight` decides; until the first `/api/fleet` answers, the card is the default,
    because showing a card and starting from it is the recoverable direction to be wrong in. */
@@ -90,6 +99,14 @@ function age(seconds) {
   if (seconds < 5400) return Math.floor(seconds / 60) + "m";
   return Math.floor(seconds / 3600) + "h";
 }
+
+/* How old an agent's last event is, said one way everywhere it is said (#204).
+
+   `age()` below stops at hours, so the same agent read `6d` in its chip and `160h` in its tab --
+   two numbers for one fact, on one tile, three centimetres apart. `age()` still dates DURATIONS
+   (how long an approval has waited, how old a poll is); `agentAge` dates the agent, and the chip,
+   the band, the strip and the rail all call it. */
+function agentAge(seconds) { return ageChip(seconds).text; }
 
 /* The age that rides inside the state chip. "done" is not information; "done · 2d" is -- and the
    bucket labels this replaced ("today", "> 2d") could not tell a run that ended a minute ago from
@@ -298,10 +315,8 @@ function makeTile(row, index) {
     action(el, "answer", { repo: row.repo, answers: answers });
   });
 
-  el.querySelector(".hidetoggle").addEventListener("click", function (e) {
-    e.stopPropagation();
-    setHidden(row.repo, true);
-  });
+  // hide, refresh and the model -- the band's three, on the tile, from the one binder (#205).
+  bindTools(el, row.repo);
 
   el.querySelector(".scope-close").addEventListener("click", function () {
     el.querySelector(".scope").hidden = true;
@@ -312,18 +327,22 @@ function makeTile(row, index) {
   });
 
 
-  /* #174: the switcher's four buttons. The rows behind *earlier* are fetched on the click rather
-     than on every poll -- nobody is reading them until they ask for them. */
-  el.querySelector(".earlier-tab").addEventListener("click", function () {
-    openSessions(el, row.repo);
-  });
-  el.querySelector(".main-tab").addEventListener("click", function () {
-    el.querySelector(".sessions").hidden = true;
-    el.querySelector(".earlier-tab").setAttribute("aria-expanded", "false");
+  /* #206: one control. The pill says which session this transcript is; the menu behind it holds
+     everything that changes which session that is. The rows are fetched on the open rather than on
+     every poll -- nobody is reading them until they ask for them. */
+  el.querySelector(".spill").addEventListener("click", function () { toggleMenu(el, row.repo); });
+  el.querySelector(".sm-live").addEventListener("click", function () {
+    closeMenu(el);
     if (viewing(el)) backToLive(el);
   });
-  el.querySelector(".new-tab").addEventListener("click", function () { newSession(el, row.repo); });
-  el.querySelector(".console-tab").addEventListener("click", function () { openConsole(el, row); });
+  el.querySelector(".sm-new").addEventListener("click", function () {
+    closeMenu(el);
+    newSession(el, row.repo);
+  });
+  el.querySelector(".sm-console").addEventListener("click", function () {
+    closeMenu(el);
+    openConsole(el, row);
+  });
   el.querySelector(".ro-resume").addEventListener("click", function () { resumeHere(el, row.repo); });
   el.querySelector(".ro-back").addEventListener("click", function () { backToLive(el); });
 
@@ -335,8 +354,8 @@ function makeTile(row, index) {
     else if (e.key === "Home") { toggleTilePin(row.repo); e.preventDefault(); }
     else if (e.key === "Enter") { toggleTileSize(row.repo); e.preventDefault(); }
     // The strip, without a mouse. `[` and `]` walk it; `N` is a clean session beside this one.
-    else if (e.key === "[") { stepStrip(el, -1); e.preventDefault(); }
-    else if (e.key === "]") { stepStrip(el, 1); e.preventDefault(); }
+    else if (e.key === "[") { stepMenu(el, row.repo, -1); e.preventDefault(); }
+    else if (e.key === "]") { stepMenu(el, row.repo, 1); e.preventDefault(); }
     else if (e.key === "n" || e.key === "N") { newSession(el, row.repo); e.preventDefault(); }
   });
 
@@ -560,6 +579,10 @@ function drawTile(el, row, approvals) {
   }
   el.tabIndex = 0;
   // Every state carries its own age, in the chip, because a verdict with no date is the bug.
+  var modelBtn = el.querySelector(".modeltoggle .bm-name");
+  if (modelBtn) text(modelBtn, shortModel(row.actual || row.model));
+  var modelHost = el.querySelector(".modeltoggle");
+  if (modelHost) modelHost.title = modelTitle(row);
   var ac = ageChip(row.last_event_age_s);
   var chip = el.querySelector(".chip");
   chip.className = "chip " + displayState + (ac.stale ? " stale" : "");
@@ -613,7 +636,6 @@ function drawTile(el, row, approvals) {
   // rather than being offered and silently doing nothing.
   // A console the fleet opened holds the tile: the reply box types into it and the tab raises it.
   el.dataset.console = row.console ? String(row.console.pid || 0) : "";
-  text(el.querySelector(".console-tab"), row.console ? "show console" : "console");
   ["send", "start"].forEach(function (cls) {
     var btn = el.querySelector("." + cls);
     if (!btn) return;
@@ -655,27 +677,7 @@ function drawTile(el, row, approvals) {
     }
   }
 
-  drawStrip(el, row);
-
-  var earlierEl = el.querySelector(".earlier");
-  if (earlierEl) {
-    var earlierRuns = row.earlier || [];
-    if (earlierRuns.length > 0) {
-      earlierEl.hidden = false;
-      text(earlierEl.querySelector(".earlierhead"), "earlier runs (" + earlierRuns.length + ")");
-      var listEl = earlierEl.querySelector(".earlierlist");
-      while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
-      earlierRuns.forEach(function (r) {
-        var li = document.createElement("li");
-        text(li, "Run #" + r.n + ": " + (r.ticket ? r.ticket + " · " : "") + r.state +
-                 " (" + (r.started ? r.started.slice(11, 16) : "") +
-                 (r.ended ? " – " + r.ended.slice(11, 16) : "") + ")");
-        listEl.appendChild(li);
-      });
-    } else {
-      earlierEl.hidden = true;
-    }
-  }
+  drawSessionPill(el, row);
 
   var mine = approvals.filter(function (a) { return a.repo === row.repo; })[0];
   var card = el.querySelector(".approval");
@@ -724,67 +726,127 @@ function whenIso(ts) {
   return age(Math.max(0, Math.round((Date.now() - t) / 1000))) + " ago";
 }
 
-function drawStrip(el, row) {
-  var strip = el.querySelector(".strip");
-  if (!strip) return;
-  var pattern = strip.querySelector(".sib-tab");
-  var main = strip.querySelector(".main-tab");
-  var earlierTab = strip.querySelector(".earlier-tab");
+function drawSessionPill(el, row) {
+  var pill = el.querySelector(".spill");
+  if (!pill) return;
   var open = viewing(el);
-
   var run = row.run || {};
-  var bits = ["main"];
-  if (row.state) bits.push(row.state);
-  if (row.last_event_age_s >= 0) bits.push(age(row.last_event_age_s));
-  text(main, bits.join(" · "));
-  main.title = run.session ? "session " + run.session : "this checkout's live session";
-  main.setAttribute("aria-selected", String(!open));
-  main.classList.toggle("is-on", !open);
 
-  // Sibling checkouts of the same project (#175). Empty until that slice lands, which is why the
-  // strip has to read as finished with one tab on it rather than as a row of missing things.
-  while (strip.querySelectorAll(".sib-tab").length > 1) {
-    strip.removeChild(strip.querySelectorAll(".sib-tab")[1]);
-  }
-  (row.siblings || []).forEach(function (sib) {
-    var tab = pattern.cloneNode(true);
-    tab.hidden = false;
-    text(tab, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
-    tab.title = "the same project, checked out at " + (sib.path || sib.repo);
-    tab.addEventListener("click", function () { focus(sib.repo); });
-    strip.insertBefore(tab, earlierTab);
-  });
+  /* One line, saying which session this transcript is. The run line under it still says which RUN,
+     because those are two facts and the operator asked for neither of them twice. */
+  var bits;
+  if (open) bits = ["earlier session", el.dataset.endedState || "ended", el.dataset.endedWhen || ""];
+  else bits = [el.dataset.console ? "console" : "session", row.state || "",
+               row.last_event_age_s >= 0 ? agentAge(row.last_event_age_s) : ""];
+  text(pill, bits.filter(Boolean).join(" · "));
+  pill.title = open ? "reading an earlier session — the menu goes back to the live one"
+                    : (run.session ? "session " + run.session : "this checkout's live session");
+  pill.classList.toggle("is-reading", !!open);
+
+  text(el.querySelector(".sm-console"), row.console ? "show console" : "open in a console");
 
   var n = row.sessions_n || 0;
-  earlierTab.hidden = !n;
-  text(earlierTab, "earlier (" + n + ")");
-  earlierTab.setAttribute("aria-selected", String(!!open));
-  earlierTab.classList.toggle("is-on", !!open);
+  var label = el.querySelector(".sm-earlier-label");
+  label.hidden = !n;
+  text(label, "earlier (" + n + ")");
+
+  // This session's own earlier runs, folded under it -- the inert list that used to sit below the
+  // transcript as a second, adjacent *earlier* with different behaviour.
+  drawRuns(el.querySelector(".live-runs"), runsFor(row, el.dataset.session || ""));
+
+  // Sibling checkouts of the same project (#175). Empty until that slice lands, which is why the
+  // menu has to read as finished with none of them rather than as a row of missing things.
+  var sibs = row.siblings || [];
+  var sibList = el.querySelector(".sib-list");
+  var sibPattern = sibList.querySelector(".sib-row");
+  el.querySelector(".sm-sibs-label").hidden = !sibs.length;
+  while (sibList.children.length > 1) sibList.removeChild(sibList.lastChild);
+  sibs.forEach(function (sib) {
+    var li = sibPattern.cloneNode(true);
+    li.hidden = false;
+    var button = li.querySelector(".sib-open");
+    text(button, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
+    button.title = "the same project, checked out at " + (sib.path || sib.repo);
+    button.addEventListener("click", function () { closeMenu(el); focus(sib.repo); });
+    sibList.appendChild(li);
+  });
 }
 
-/* The rows on the click, not on every poll: a disk read and a fold nobody is reading until asked. */
-function openSessions(el, repo) {
+/* The runs of one session, newest last, as plain rows. A run is a transcript boundary, not a thing
+   to open: opening one is opening its session, which is the row above it. */
+function runsFor(row, session) {
+  return (row.earlier || []).filter(function (r) {
+    return !session || !r.session || r.session === session;
+  });
+}
+
+function drawRuns(list, runs) {
+  if (!list) return;
+  while (list.firstChild) list.removeChild(list.firstChild);
+  list.hidden = !runs.length;
+  runs.forEach(function (r) {
+    var li = document.createElement("li");
+    text(li, "run " + r.n + " · " + (r.ticket ? r.ticket + " · " : "") + r.state +
+             " (" + (r.started ? String(r.started).slice(11, 16) : "") +
+             (r.ended ? "–" + String(r.ended).slice(11, 16) : "") + ")");
+    list.appendChild(li);
+  });
+}
+
+/* The menu: open, closed, and stepped through without a mouse. */
+function menuOpen(el) {
+  var menu = el.querySelector(".smenu");
+  return !!menu && !menu.hidden;
+}
+
+function closeMenu(el) {
+  var menu = el.querySelector(".smenu");
+  if (!menu || menu.hidden) return false;
+  menu.hidden = true;
+  el.querySelector(".spill").setAttribute("aria-expanded", "false");
+  return true;
+}
+
+function closeMenus() {
+  var was = false;
+  tiles.forEach(function (entry) { if (closeMenu(entry.el)) was = true; });
+  return was;
+}
+
+function toggleMenu(el, repo) {
+  if (menuOpen(el)) return closeMenu(el);
+  closeMenus();
+  var menu = el.querySelector(".smenu");
+  menu.hidden = false;
+  el.querySelector(".spill").setAttribute("aria-expanded", "true");
+  loadSessions(el, repo);
+  return true;
+}
+
+/* The rows on the open, not on every poll: a disk read and a fold nobody is reading until asked. */
+function loadSessions(el, repo) {
   var list = el.querySelector(".sessions");
-  var tab = el.querySelector(".earlier-tab");
-  if (!list.hidden) { list.hidden = true; tab.setAttribute("aria-expanded", "false"); return; }
   fetch(q("/api/sessions", { repo: repo })).then(function (r) { return r.json(); })
     .then(function (data) {
       var pattern = list.querySelector(".session-row");
       while (list.children.length > 1) list.removeChild(list.lastChild);
       var rows = (data && data.sessions) || [];
       var current = (el.dataset.session || "");
-      rows.filter(function (row) { return row.id !== current; }).forEach(function (row) {
+      var entry = tiles.get(repo);
+      var row = (entry && entry.row) || {};
+      rows.filter(function (r) { return r.id !== current; }).forEach(function (r) {
         var li = pattern.cloneNode(true);
         li.hidden = false;
-        text(li.querySelector(".ss-title"), row.title || row.ticket || row.id.slice(0, 8));
-        text(li.querySelector(".ss-chip"), row.ended || "");
-        text(li.querySelector(".ss-when"), whenIso(row.last_seen));
-        text(li.querySelector(".ss-cost"),
-             row.cost ? Number(row.cost).toFixed(2) + " premium" : "");
+        text(li.querySelector(".ss-title"), r.title || r.ticket || r.id.slice(0, 8));
+        text(li.querySelector(".ss-chip"), r.ended || "");
+        text(li.querySelector(".ss-when"), whenIso(r.last_seen));
+        text(li.querySelector(".ss-cost"), r.cost ? Number(r.cost).toFixed(2) + " premium" : "");
         var button = li.querySelector(".ss-open");
         button.title = (el.dataset.console ? "the console still owns this; close it first — " : "")
-          + "session " + row.id + ((row.sources || []).join(" → ") ? " · " + row.sources.join(" → ") : "");
-        button.addEventListener("click", function () { showSession(el, repo, row); });
+          + "session " + r.id + ((r.sources || []).join(" → ") ? " · " + r.sources.join(" → ") : "");
+        button.addEventListener("click", function () { closeMenu(el); showSession(el, repo, r); });
+        // Its runs, under it. One *earlier*, not two adjacent ones with different behaviour.
+        drawRuns(li.querySelector(".ss-runs"), runsFor(row, r.id));
         list.appendChild(li);
       });
       if (!rows.length) {
@@ -794,8 +856,6 @@ function openSessions(el, repo) {
         empty.querySelector(".ss-open").disabled = true;
         list.appendChild(empty);
       }
-      list.hidden = false;
-      tab.setAttribute("aria-expanded", "true");
     });
 }
 
@@ -812,8 +872,10 @@ function showSession(el, repo, session) {
       (data.events || []).forEach(function (ev) { appendTo(history, ev); });
       el.querySelector(".transcript").hidden = true;
       history.hidden = false;
-      el.querySelector(".sessions").hidden = true;
-      el.querySelector(".earlier-tab").setAttribute("aria-expanded", "false");
+      closeMenu(el);
+      // What the pill says while this is open: how it ended, and when.
+      el.dataset.endedState = (data && data.state) || "ended";
+      el.dataset.endedWhen = whenIso(data && data.at);
       var pane = el.querySelector(".readonly");
       pane.hidden = false;
       text(el.querySelector(".ro-what"),
@@ -827,25 +889,28 @@ function showSession(el, repo, session) {
            el.dataset.console ? "the console still owns this — close it, then resume" : "");
       el.querySelector(".row.bottom").hidden = true;
       var entry = tiles.get(repo);
-      if (entry && entry.row) drawStrip(el, entry.row);
+      if (entry && entry.row) drawSessionPill(el, entry.row);
     });
 }
 
-/* `Alt+[` and `Alt+]` walk the strip. The tabs are real buttons in document order, so stepping is
-   moving the keyboard to the next one and pressing it -- there is no second model of "which tab is
-   selected" that could disagree with the one the page is showing. */
-function stepStrip(el, dir) {
-  var tabs = [].slice.call(el.querySelectorAll(".strip .tab"))
-               .filter(function (t) { return !t.hidden; });
-  if (!tabs.length) return;
-  var here = tabs.indexOf(document.activeElement);
-  if (here < 0) {
-    here = tabs.indexOf(el.querySelector(".strip .tab.is-on"));
-    if (here < 0) here = 0;
+/* `Alt+[` and `Alt+]` walk the menu, opening it if it is shut. The items are real buttons in
+   document order, so stepping is moving the keyboard to the next one -- there is no second model
+   of "which item is selected" that could disagree with what is on the glass. */
+function stepMenu(el, repo, dir) {
+  if (!menuOpen(el)) {
+    // Opening IS the first move: the keyboard lands on *this session*, and the next press walks.
+    toggleMenu(el, repo);
+    var first = el.querySelector(".smenu [role='menuitem']");
+    if (first) first.focus();
+    return;
   }
-  var next = tabs[(here + dir + tabs.length) % tabs.length];
-  next.focus();
-  next.click();
+  var items = [].slice.call(el.querySelectorAll(".smenu [role='menuitem']"))
+                 .filter(function (b) { return !b.disabled && b.offsetParent !== null; });
+  if (!items.length) return;
+  var here = items.indexOf(document.activeElement);
+  var at = here < 0 ? (dir > 0 ? 0 : items.length - 1)
+                    : (here + dir + items.length) % items.length;
+  items[at].focus();
 }
 
 function backToLive(el) {
@@ -855,7 +920,7 @@ function backToLive(el) {
   el.querySelector(".readonly").hidden = true;
   el.querySelector(".row.bottom").hidden = false;
   var entry = tiles.get(el.dataset.repo);
-  if (entry && entry.row) drawStrip(el, entry.row);
+  if (entry && entry.row) drawSessionPill(el, entry.row);
 }
 
 /* Making an earlier session the live one: it runs, or it is the supervisor's own refusal with the
@@ -970,6 +1035,9 @@ function applyWindow(win) {
   }
   if (win.focus !== undefined && win.focus !== needsOnly) {
     focusMode(win.focus, true);
+  }
+  if (win.open !== undefined && win.open !== openTile) {
+    openTile = String(win.open || "");
   }
   if (win.zoomed !== undefined && win.zoomed !== focused) {
     if (win.zoomed && tiles.has(win.zoomed)) {
@@ -1124,11 +1192,17 @@ function connect() {
 
 /* ------------------------------------------------------------------- focus mode and the keyboard */
 
-function focus(name, skipPost) {
-  focused = name;
-  document.body.classList.add("focused");
-  document.getElementById("unfocus").hidden = false;
-  tiles.forEach(function (entry, key) { entry.el.classList.toggle("is-focused", key === name); });
+/* ------------------------------------------------------- what the two focuses actually are (#207)
+
+   `focus()` zoomed one tile and `focusMode()` filtered for the ones that need a person: two modes
+   named alike, side by side, and the toolbar's *back to grid* undid only the first. They are
+   `openAgent` and *needs me* now, with the old names kept as aliases because the page globals the
+   regression tests call keep their names.
+
+   Not literally `open`: a bare `function open()` in a non-module script replaces `window.open` for
+   the whole page, and a name that shadows a platform function to read slightly better is a trade
+   this page does not need to make. */
+function openAgent(name, skipPost) {
   unread.delete(name);                       // looking at it is what "read" means
   var entry = tiles.get(name);
   if (entry && entry.seq) {
@@ -1137,10 +1211,25 @@ function focus(name, skipPost) {
   bell();
   drawer(false);
   if (location.hash !== "#tile=" + name) history.replaceState(null, "", "#tile=" + name);
+  /* In the column there is no zoom to enter: everything that is not open is a band already, so
+     "focus this agent" and "open this agent" are the same gesture. Every caller -- a toast's
+     anchor, a notification row, a search hit, the away strip -- therefore lands on the right thing
+     without knowing which arrangement it is in. */
+  if (LAYOUT === "column") {
+    openBand(name, skipPost);
+    if (!skipPost) saveWindow({ read: readCursors });
+    return;
+  }
+  focused = name;
+  document.body.classList.add("focused");
+  document.getElementById("unfocus").hidden = false;
+  tiles.forEach(function (entry2, key) { entry2.el.classList.toggle("is-focused", key === name); });
   if (!skipPost) saveWindow({ zoomed: name, read: readCursors });
 }
 
-function unfocus(skipPost) {
+/* Out of the zoom, where there is one. In the column there is nothing to leave -- everything that
+   is not open is a band already -- so `Esc` there is `backToPrevious()` instead. */
+function backAgent(skipPost) {
   focused = null;
   document.body.classList.remove("focused");
   document.getElementById("unfocus").hidden = true;
@@ -1148,6 +1237,10 @@ function unfocus(skipPost) {
   if (location.hash) history.replaceState(null, "", location.pathname + location.search);
   if (!skipPost) saveWindow({ zoomed: "" });
 }
+
+/* The names the rest of this file, the IDE shells and the regression tests already use. */
+var focus = openAgent;
+var unfocus = backAgent;
 
 /* A toast launches `…/?t=…#tile=luna`, so the click lands on the agent that needs the operator
    rather than on "one of these four". Also fired on hashchange, because the window may already be
@@ -1183,14 +1276,28 @@ document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   if (e.key === "Escape") {
     // The nearest open thing closes first, and nothing else: a popover (#180), then the card (#183).
+    if (closeModelCard()) { e.stopImmediatePropagation(); return; }
+    if (closeMenus()) { e.stopImmediatePropagation(); return; }
     if (closePopovers()) { e.stopImmediatePropagation(); return; }
     var card = document.getElementById("dispatch");
     if (card && !card.hidden) { closeDispatch(); e.stopImmediatePropagation(); return; }
-    if (typing) document.activeElement.blur(); else unfocus();
+    if (typing) document.activeElement.blur();
+    // In the column there is no zoom to leave, so `Esc` is "show me the last one again" -- which is
+    // the other half of the glance the column is for.
+    else if (LAYOUT === "column") backToPrevious();
+    else unfocus();
     return;
   }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^[1-9]$/.test(e.key)) {
+    if (LAYOUT === "column") {
+      // The same rule as below, one arrangement further on: the digit is the number printed on the
+      // band, so it counts BANDS and not tiles -- the open agent has no number, because it is
+      // already open.
+      var band = document.querySelectorAll("#bands .band:not([hidden])")[Number(e.key) - 1];
+      if (band && band.dataset.repo) openBand(band.dataset.repo);
+      return;
+    }
     // The number printed on a tile comes from the arrangement, so the key that focuses it must
     // too: registry order meant the badge said 3 and pressing 3 focused something else. The
     // *visible* order (#173), so a digit cannot zoom a tile that is not on the glass -- which
@@ -1202,6 +1309,23 @@ document.addEventListener("keydown", function (e) {
     // so the mode gives way rather than the window going dark -- the same answer `#tile=` gives.
     if (quieted(name)) focusMode(false);
     focus(name);
+    return;
+  }
+  if ((e.key === "j" || e.key === "k") && LAYOUT === "column") {
+    stepColumn(e.key === "j" ? 1 : -1);
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "r" || e.key === "m") {
+    // The band or the tile the keyboard is on -- the same two keys on either, because the three
+    // controls are the same three on either.
+    var host = document.activeElement && document.activeElement.closest
+      ? (document.activeElement.closest(".band") || document.activeElement.closest(".tile")) : null;
+    var name = host ? host.dataset.repo : (LAYOUT === "column" ? openName() : focused);
+    if (!name) return;
+    if (e.key === "r") doRefresh(name, host ? host.querySelector('[data-tool="refresh"]') : null);
+    else openModelCard(name, host ? host.querySelector('[data-tool="model"]') : null);
+    e.preventDefault();
     return;
   }
   if (e.key === "h") {
@@ -1806,7 +1930,7 @@ function drawRail() {
     var button = li.querySelector(".rail-open");
     text(li.querySelector(".dc-name"), name);
     text(li.querySelector(".dc-chip"),
-         (row.state || "") + (row.at ? " · " + age(ageOf(row)) : ""));
+         (row.state || "") + (row.at ? " · " + agentAge(ageOf(row)) : ""));
     button.setAttribute("aria-label", name);
     button.title = "drop a ticket here to start it on " + name;
     button.addEventListener("click", function () { focus(name); });
@@ -2668,12 +2792,211 @@ function toggleTilePin(repo) {
    `?layout=screens&screen=2` on a fresh fleet shows something rather than an empty monitor. */
 function solo() {
   var names = Array.from(tiles.keys());
+  if (LAYOUT === "column") return openName();
   if (LAYOUT === "screens" && SCREEN) {
     var pinned = (desk.desk.screens || [])[SCREEN - 1];
     return pinned || names[SCREEN - 1] || "";
   }
   if (VIEW === "verify") return desk.desk.selected || names[0] || "";
   return "";
+}
+
+/* ------------------------------------------------------- hide, refresh and the model (#205)
+
+   The same three, in the same order, with the same keys, on the band and on the tile. The
+   operator's sentence was *active and inactive both*, and a control that exists in one place and
+   not the other is what this slice was asked to stop. */
+
+/* The model name, short enough for a 28px button. Never a closed list -- which names this build
+   accepts has never been measured -- so this only shortens what it is given. */
+function shortModel(name) {
+  var value = String(name || "").trim();
+  if (!value) return "auto";
+  return value.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+}
+
+/* What the model button says when you hover it, on the band and on the tile alike: what this agent
+   is actually running, and what it was configured to run. Written once so the two cannot drift. */
+function modelTitle(row) {
+  row = row || {};
+  return "runs " + (row.actual || row.model || "whatever the CLI picks") +
+         (row.model ? " · configured " + row.model + " (" + (row.model_source || "") + ")"
+                    : " · no --model flag is passed") + " — press m";
+}
+
+/* Read what the next tick would read, now. It spends NO premium request: nothing is sent to the
+   agent, the stream is re-folded from disk and the four cells are the poll's own reads. The button
+   says so while it is in flight by being the thing that is busy -- no overlay, no spinner. */
+function doRefresh(repo, button) {
+  if (!repo) return Promise.resolve();
+  if (button) { button.disabled = true; button.setAttribute("aria-busy", "true"); }
+  return post("refresh", { repo: repo }).then(function (r) {
+    if (r && !r.ok) say(r.error + (r.hint ? " — " + r.hint : ""));
+    else refresh();
+    return r;
+  }).catch(function (e) { say(String(e)); }).then(function (r) {
+    if (button) { button.disabled = false; button.removeAttribute("aria-busy"); }
+    return r;
+  });
+}
+
+/* The settings page's `seen` list and its efforts, fetched once and kept: they are suggestions on
+   a free-text field, so a stale one costs nothing and a fetch per click costs a round trip. */
+var modelChoices = null;
+
+function loadModelChoices() {
+  if (modelChoices) return Promise.resolve(modelChoices);
+  return fetch(q("/api/settings")).then(function (r) { return r.json(); })
+    .then(function (data) {
+      modelChoices = (data && data.model) || { seen: [], efforts: [] };
+      return modelChoices;
+    }).catch(function () { return { seen: [], efforts: [] }; });
+}
+
+function fillDatalist(id, values) {
+  var list = document.getElementById(id);
+  if (!list) return;
+  while (list.firstChild) list.removeChild(list.firstChild);
+  (values || []).forEach(function (value) {
+    var option = document.createElement("option");
+    option.value = value;
+    list.appendChild(option);
+  });
+}
+
+/* Configured, and what the last turn actually ran on. Two facts, because a tenant may pin a model
+   and a card that showed only what was asked for would be showing a value that is not what ran. */
+function openModelCard(repo, anchor) {
+  var card = document.getElementById("modelcard");
+  var entry = tiles.get(repo);
+  var row = (entry && entry.row) || {};
+  if (!card) return;
+  card.dataset.repo = repo;
+  text(document.getElementById("mc-repo"), repo);
+  text(document.getElementById("mc-configured"), row.model ? row.model : "the CLI chooses");
+  text(document.getElementById("mc-source"), row.model_source || "cli-auto");
+  text(document.getElementById("mc-actual"), row.actual || "no turn has run yet");
+  text(document.getElementById("mc-actual-why"),
+       row.actual && row.model && row.actual !== row.model ? "the tenant pinned it" : "");
+  document.getElementById("mc-model").value = row.model || "";
+  document.getElementById("mc-effort").value = row.effort || "";
+  text(document.getElementById("mc-note"), "takes effect on the agent's next turn");
+  var all = document.getElementById("mc-all");
+  all.href = q("/settings") + "#model-" + encodeURIComponent(repo);
+
+  loadModelChoices().then(function (choices) {
+    fillDatalist("mc-models", choices.seen);
+    fillDatalist("mc-efforts", choices.efforts);
+  });
+
+  card.hidden = false;
+  if (anchor && anchor.getBoundingClientRect) {
+    var box = anchor.getBoundingClientRect();
+    var width = card.offsetWidth || 280;
+    card.style.top = Math.min(window.innerHeight - 40, box.bottom + 6) + "px";
+    card.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, box.left)) + "px";
+  }
+  document.getElementById("mc-model").focus();
+}
+
+function closeModelCard() {
+  var card = document.getElementById("modelcard");
+  if (card && !card.hidden) { card.hidden = true; card.dataset.repo = ""; return true; }
+  return false;
+}
+
+/* One writer for this setting: the same action, the same function and the same refusals the
+   settings page gets, so two ways to set one thing do not become two rules about it. */
+function saveModel() {
+  var card = document.getElementById("modelcard");
+  var repo = card.dataset.repo || "";
+  if (!repo) return;
+  var body = { models: [{ repo: repo,
+                          model: document.getElementById("mc-model").value.trim(),
+                          effort: document.getElementById("mc-effort").value.trim() }] };
+  post("settings", body).then(function (r) {
+    if (r && r.ok) {
+      text(document.getElementById("mc-note"), "saved — it reaches the agent on its next turn");
+      refresh();
+      return;
+    }
+    text(document.getElementById("mc-note"), (r && r.error) + ((r && r.hint) ? " — " + r.hint : ""));
+  });
+}
+
+/* One binder for both surfaces, so the band and the tile cannot drift apart. */
+function bindTools(root, repo) {
+  Array.prototype.forEach.call(root.querySelectorAll("[data-tool]"), function (button) {
+    if (button.dataset.bound === "1") return;
+    button.dataset.bound = "1";
+    button.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var what = button.dataset.tool;
+      var name = (root.dataset && root.dataset.repo) || repo;
+      if (what === "hide") setHidden(name, true);
+      else if (what === "refresh") doRefresh(name, button);
+      else if (what === "model") openModelCard(name, button);
+    });
+  });
+}
+
+/* -------------------------------------------------------------------------- the column (#203) */
+
+/* Which agent is open, decided once. The window's own choice wins; then the selection every window
+   shares, so a fresh window opens on whatever the desk is already looking at; then the first band.
+   A hidden or departed name never wins -- an arrangement that opened onto nothing would be the
+   blank window this layout exists to stop. */
+function openName() {
+  if (openTile && tiles.has(openTile) && !isHidden(openTile)) return openTile;
+  var sel = desk.desk.selected;
+  if (sel && tiles.has(sel) && !isHidden(sel)) return sel;
+  var shown = visibleOrder();
+  // A pinned agent is on the glass already, and `getEffectiveOrder` puts the pins first -- so
+  // falling back to "the first one" would mean that pinning one agent silently stopped anything
+  // else from ever being open. The default is the first agent that is NOT pinned.
+  var pinned = (getLayoutArrangement().pinned) || [];
+  var free = shown.filter(function (name) { return pinned.indexOf(name) < 0; });
+  return free[0] || shown[0] || "";
+}
+
+/* Everything filling the glass. A pinned tile is always open -- that is what pinning meant in the
+   grid too, and pins split `main` evenly -- so the set is the pins plus the one open agent. */
+function openSet() {
+  var out = [];
+  if (LAYOUT !== "column") {
+    var one = solo();
+    return one ? [one] : [];
+  }
+  var shown = visibleOrder();
+  ((getLayoutArrangement().pinned) || []).forEach(function (name) {
+    if (shown.indexOf(name) >= 0 && out.indexOf(name) < 0) out.push(name);
+  });
+  var open = openName();
+  if (open && out.indexOf(open) < 0) out.push(open);
+  return out;
+}
+
+/* Open one, and remember what was open before it so `Esc` can go back. A pinned tile is already on
+   the glass, so clicking its band is not a swap -- it simply selects it. */
+function openBand(name, skipPost) {
+  if (!name || !tiles.has(name)) return;
+  var was = openName();
+  if (was && was !== name) previousOpen = was;
+  openTile = name;
+  choose(name);
+  place();
+  if (!skipPost) saveWindow({ open: name });
+}
+
+function backToPrevious() {
+  if (!previousOpen || !tiles.has(previousOpen)) return false;
+  var going = previousOpen;
+  previousOpen = openName();
+  openTile = going;
+  choose(going);
+  place();
+  saveWindow({ open: going });
+  return true;
 }
 
 /* The one function that decides what this window shows. Body classes only: the stylesheet is the
@@ -2691,6 +3014,9 @@ var departed = new Map();      /* repos that left the registry, kept a day so th
 
 function drawDock() {
   var dock = document.getElementById("dock");
+  // In the column the dock's job is the column's (#203): everything not open is a band already, so
+  // drawing both would be two answers to one question and two places to click.
+  if (LAYOUT === "column") { dock.hidden = true; return; }
   var list = dock.querySelector(".dock-chips");
   var pattern = list.querySelector(".dock-chip");
   var zoomed = document.body.classList.contains("focused");
@@ -2748,7 +3074,8 @@ function drawDock() {
          several ? item.members.length + " checkouts"
                  : item.gone ? "removed from the registry"
                  : needs ? ((row && row.why) || "needs you")
-                 : ((row && row.state ? row.state : "") + (row && row.at ? " · " + age(ageOf(row)) : "")));
+                 : ((row && row.state ? row.state : "") +
+                    (row && row.at ? " · " + agentAge(ageOf(row)) : "")));
     var badge = li.querySelector(".dc-badge");
     var unreadN = item.members.reduce(function (n, name) { return n + (unread.get(name) || 0); }, 0);
     badge.hidden = !unreadN;
@@ -2776,7 +3103,8 @@ function ageOf(row) {
 function place() {
   var body = document.body;
   var one = solo();
-  body.classList.remove("layout-grid", "layout-roles", "layout-screens",
+  var open = openSet();
+  body.classList.remove("layout-column", "layout-grid", "layout-roles", "layout-screens",
                         "view-board", "view-agents", "view-verify", "solo", "panels");
   body.classList.add("layout-" + LAYOUT);
   if (VIEW) body.classList.add("view-" + VIEW);
@@ -2785,12 +3113,18 @@ function place() {
     body.classList.add("panels");
   }
   body.classList.toggle("needs-only", needsOnly);
+  // There is no zoom in the column, so the button that leaves one is not drawn there. `Esc` goes
+  // back to the agent that was open before, which is the gesture that arrangement actually has.
+  var backBtn = document.getElementById("unfocus");
+  if (backBtn) backBtn.hidden = (LAYOUT === "column") || !focused;
   tiles.forEach(function (entry, name) {
-    entry.el.classList.toggle("is-solo", name === one);
+    entry.el.classList.toggle("is-solo", open.indexOf(name) >= 0);
     entry.el.classList.toggle("is-selected", name === desk.desk.selected);
   });
   reorderDomTiles();
-  if (one) {
+  // The column is not a window showing one project the way `verify` and `screens` are: it is the
+  // whole fleet with one agent open, so it must not open the sidebar on load the way they do.
+  if (one && LAYOUT !== "column") {
     // Opened once, not on every draw: a window that reopens a panel the operator just closed is
     // the kind of thing that gets a dashboard turned off.
     // A window showing exactly one project opens the inspector on it, once -- reopening a panel
@@ -2809,8 +3143,178 @@ function place() {
     !(needsOnly && !one && need === 0 && held.size === 0 && tiles.size > 0);
   drawNotice();
   drawSwap(one);
+  drawColumn();
   drawDock();
   drawRail();
+}
+
+/* The column's bands (#203).
+
+   Every checkout that is not open, one band each, sharing the column's whole height. The dock is
+   the same data for a different question -- *where did that tile go* -- so the two are never drawn
+   together: in this arrangement the column is the dock, and `drawDock` returns early. */
+function drawColumn() {
+  var box = document.getElementById("column");
+  if (!box) return;
+  if (LAYOUT !== "column") { box.hidden = true; return; }
+  var list = document.getElementById("bands");
+  var pattern = list.querySelector(".band");
+  var open = openSet();
+  var shown = visibleOrder();
+  var rows = shown.filter(function (name) { return open.indexOf(name) < 0; });
+
+  // A project's checkouts are one band, the way they are one dock chip (#175): two rows for one
+  // piece of work is two things to read for one decision.
+  var groups = [];
+  var byProject = new Map();
+  rows.forEach(function (name) {
+    var entry = tiles.get(name);
+    var project = (entry && entry.row && entry.row.project) || name;
+    var group = byProject.get(project);
+    if (group) { group.members.push(name); return; }
+    group = { project: project, name: name, members: [name] };
+    byProject.set(project, group);
+    groups.push(group);
+  });
+  departed.forEach(function (gone, name) {
+    groups.push({ project: name, name: name, members: [name], gone: gone });
+  });
+
+  /* Patched, never rebuilt. `place()` runs about two and a half times a second while an agent is
+     talking, and a column that tore its rows down and cloned them again on every pass would take
+     the hover off the band under the cursor and the keyboard off the one `j` had just reached --
+     which is the whole of #215's render contract, arriving here first because the column is where
+     it is felt. The node for a repository is created once and kept. */
+  var alive = new Set();
+  var need = 0;
+  groups.forEach(function (item, index) {
+    var li = bandFor(list, pattern, item.name);
+    alive.add(item.name);
+    drawBand(li, item, index);
+    /* *needs me* narrows the column; it does not empty it. A quiet band folds to a sliver -- still
+       named, still counted, still one click away -- because a mode that removed nine of ten rows
+       would be the "where did it go" the column exists to answer, one level up. */
+    li.classList.toggle("is-quiet", needsOnly && !li.classList.contains("needs-human") &&
+                                    !held.has(item.name));
+    if (li.classList.contains("needs-human")) need += 1;
+  });
+  Array.prototype.slice.call(list.querySelectorAll(".band[data-repo]")).forEach(function (li) {
+    if (!alive.has(li.dataset.repo)) li.remove();
+  });
+  // Order last, and only when it is actually wrong: `appendChild` blurs whatever it moves.
+  var want = groups.map(function (item) { return item.name; }).join("\u0000");
+  var have = Array.prototype.map.call(list.querySelectorAll(".band[data-repo]"), function (li) {
+    return li.dataset.repo;
+  }).join("\u0000");
+  if (want !== have) {
+    var hadKeyboard = document.activeElement;
+    groups.forEach(function (item) {
+      var li = list.querySelector('.band[data-repo="' + cssEscape(item.name) + '"]');
+      if (li) list.appendChild(li);
+    });
+    if (hadKeyboard && hadKeyboard.closest && hadKeyboard.closest(".band")) hadKeyboard.focus();
+  }
+
+  var hiddenNames = getEffectiveOrder().filter(function (name) { return isHidden(name); });
+  text(document.getElementById("column-count"),
+       groups.length ? groups.length + (groups.length === 1 ? " other" : " others") +
+                       (need ? " · " + need + " need you" : "")
+                     : "");
+  var jump = document.getElementById("column-jump");
+  jump.hidden = !need;
+  text(jump, "go to the first");
+  text(document.getElementById("column-hidden"),
+       hiddenNames.length ? hiddenNames.length + " hidden" : "");
+  document.getElementById("column-showall").hidden = !hiddenNames.length;
+  box.hidden = !(groups.length || hiddenNames.length);
+}
+
+/* A repository name is a folder basename and routinely carries a dot, so it cannot go into a
+   selector unescaped. `CSS.escape` where the engine has it; the conservative fallback otherwise,
+   because Simple Browser is not an engine whose vintage we get to assume. */
+function cssEscape(value) {
+  if (window.CSS && CSS.escape) return CSS.escape(value);
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, function (c) { return "\\" + c; });
+}
+
+function bandFor(list, pattern, name) {
+  var li = list.querySelector('.band[data-repo="' + cssEscape(name) + '"]');
+  if (li) return li;
+  li = pattern.cloneNode(true);
+  li.hidden = false;
+  li.dataset.repo = name;
+  list.appendChild(li);
+  return li;
+}
+
+/* One band: who it is, what state it is in, and -- on every band, not only a red one -- what it
+   last said. The dock could fit a state and an age, which is how an agent that asked a question an
+   hour ago and went quiet became unreadable from it: `idle · 3m` and nothing else. */
+function drawBand(li, item, index) {
+  var entry = tiles.get(item.name);
+  var row = (entry && entry.row) || {};
+  var several = item.members.length > 1;
+  var needs = item.members.some(function (name) {
+    var e = tiles.get(name);
+    return !!e && e.el.classList.contains("needs-human");
+  });
+  li.className = "band" + (needs ? " needs-human" : "") + (item.gone ? " departed" : "");
+  text(li.querySelector(".b-n"), String(index + 1));
+  text(li.querySelector(".b-name"), several ? item.project : item.name);
+  var ac = ageChip(row.last_event_age_s);
+  text(li.querySelector(".b-chip"),
+       item.gone ? "removed from the registry"
+                 : several ? item.members.length + " checkouts"
+                 : (row.state || "") + (ac.text ? " · " + ac.text : ""));
+  var badge = li.querySelector(".b-badge");
+  var unreadN = item.members.reduce(function (n, name) { return n + (unread.get(name) || 0); }, 0);
+  badge.hidden = !unreadN;
+  text(badge, String(unreadN));
+
+  // The last line. `why` when it wants something -- in full, because an ask the operator cannot
+  // read is an ask they have to open the tile for -- then the last thing it actually said, then
+  // the state. Never blank: a band with nothing on it is a band nobody can triage from.
+  var said = "";
+  if (item.gone) said = "";
+  else if (needs) said = (row.why || "needs you");
+  else if (row.last_said) said = String(row.last_said).slice(0, 80);
+  else said = (row.state || "") + (ac.text ? " · " + ac.text : "");
+  var last = li.querySelector(".b-last");
+  text(last, said);
+  last.hidden = !said;
+
+  /* The tail: what it has been doing, in as many lines as the band has room for. The band shares
+     the column's height, so with three agents it is tall -- and a tall row showing one sentence is
+     the negative space this arrangement was asked to remove, moved inside the row. The events are
+     the ones the row already carries for the transcript, so this costs the page nothing. */
+  var tail = li.querySelector(".b-tail");
+  while (tail.firstChild) tail.removeChild(tail.firstChild);
+  var recent = item.gone ? [] : (row.recent || []);
+  recent.filter(function (ev) { return SHOWN[ev.kind] && line(ev); })
+        .slice(-6)
+        .forEach(function (ev) {
+          var entry2 = document.createElement("li");
+          text(entry2, line(ev));
+          tail.appendChild(entry2);
+        });
+  tail.hidden = !tail.children.length;
+
+  var modelName = li.querySelector(".bm-name");
+  if (modelName) text(modelName, shortModel(row.actual || row.model));
+  var modelBtn = li.querySelector('[data-tool="model"]');
+  if (modelBtn) modelBtn.title = modelTitle(row);
+  var tools = li.querySelector(".band-tools");
+  if (tools) {
+    tools.hidden = !!item.gone;          // nothing to hide, refresh or configure about a departed one
+    bindTools(li, item.name);
+  }
+
+  var button = li.querySelector(".band-open");
+  button.title = item.gone
+    ? "`ad-fleet repo add " + item.gone.path + "` restores it"
+    : several ? "open " + item.project + ": " + item.members.join(", ")
+    : (needs ? (row.why || "needs you") : "open " + item.name);
+  button.onclick = function () { if (!item.gone) openBand(item.name); };
 }
 
 /* The footer's one line, and one owner (#173).
@@ -2842,7 +3346,7 @@ function drawNotice() {
   }
   saidLine = "";
   if (unknownLayout) {
-    text(notice, "unknown layout '" + unknownLayout + "' — showing grid");
+    text(notice, "unknown layout '" + unknownLayout + "' — showing " + DEFAULT_LAYOUT);
     notice.hidden = false;
   } else {
     text(notice, "");
@@ -2938,7 +3442,7 @@ function updateLayoutSegments() {
 function readLocation(u) {
   var rawL = u.get("layout");
   unknownLayout = (rawL && LAYOUTS.indexOf(rawL) < 0) ? rawL : null;
-  LAYOUT = unknownLayout ? "grid" : (rawL || "grid");
+  LAYOUT = unknownLayout ? DEFAULT_LAYOUT : (rawL || DEFAULT_LAYOUT);
   VIEW = LAYOUT !== "roles" ? ""
        : (VIEWS.indexOf(u.get("view")) >= 0 ? u.get("view") : "agents");
   SCREEN = LAYOUT !== "screens" ? 0 : Math.max(0, Math.min(9, Number(u.get("screen")) || 0));
@@ -3011,6 +3515,51 @@ function focusMode(on, skipPost) {
   if (!skipPost) saveWindow(patch);
   place();
 }
+
+/* `j` and `k` walk the bands; the button they land on is a real button, so `Enter` opens it and
+   there is no second model of "which band is selected" to disagree with what is on the glass. */
+function stepColumn(dir) {
+  var buttons = [].slice.call(document.querySelectorAll("#bands .band:not([hidden]) .band-open"));
+  if (!buttons.length) return;
+  var here = buttons.indexOf(document.activeElement);
+  var at = here < 0 ? (dir > 0 ? 0 : buttons.length - 1)
+                    : (here + dir + buttons.length) % buttons.length;
+  buttons[at].focus();
+}
+
+document.addEventListener("click", function (e) {
+  // One menu open at a time, and a click off it closes it -- the rule every popover here keeps.
+  if (e.target.closest && (e.target.closest(".smenu") || e.target.closest(".spill"))) return;
+  closeMenus();
+});
+
+(function bindModelCard() {
+  var card = document.getElementById("modelcard");
+  if (!card) return;
+  document.getElementById("mc-close").addEventListener("click", closeModelCard);
+  document.getElementById("mc-save").addEventListener("click", saveModel);
+  card.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { saveModel(); e.preventDefault(); }
+  });
+  // A click anywhere else closes it, the way it closes a popover.
+  document.addEventListener("click", function (e) {
+    if (card.hidden) return;
+    if (card.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('[data-tool="model"]')) return;
+    closeModelCard();
+  });
+})();
+
+document.getElementById("column-showall").addEventListener("click", function () {
+  post("arrange", { layout: LAYOUT, hidden: [] }).then(function (r) {
+    if (r && r.ok) { mergeDesk(r); if (needsOnly) focusMode(false); else place(); }
+  });
+});
+
+document.getElementById("column-jump").addEventListener("click", function () {
+  var first = document.querySelector("#bands .band.needs-human:not([hidden]) .band-open");
+  if (first) first.focus();
+});
 
 document.getElementById("showall").addEventListener("click", function () {
   post("arrange", { layout: LAYOUT, hidden: [] }).then(function (r) {

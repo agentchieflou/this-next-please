@@ -394,9 +394,12 @@ def test_the_console_button_on_the_strip_opens_one_and_the_tile_shows_it(fleet_h
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors: list[str] = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="luna"] .console-tab', timeout=15000)
-            page.locator('.tile[data-repo="luna"] .console-tab').click()
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+            # The console button moved into the one session menu (#206).
+            page.wait_for_selector('.tile[data-repo="luna"] .spill', timeout=15000)
+            page.locator('.tile[data-repo="luna"] .spill').click()
+            page.wait_for_selector('.tile[data-repo="luna"] .smenu:not([hidden])', timeout=5000)
+            page.locator('.tile[data-repo="luna"] .sm-console').click()
             assert _eventually(lambda: any(e["kind"] == "started" and e["data"].get("console")
                                            for e in E.read("luna")))
             lock = supervisor.read_lock("luna")
@@ -408,9 +411,11 @@ def test_the_console_button_on_the_strip_opens_one_and_the_tile_shows_it(fleet_h
             # window rather than opening a second one (#190). On a machine with no Win32 console
             # API the helper says so -- and either way nothing starts a second session.
             page.wait_for_function(
-                """() => /show console/.test(document.querySelector('.tile[data-repo="luna"] .console-tab').textContent)""",
+                """() => /show console/.test(document.querySelector('.tile[data-repo="luna"] .sm-console').textContent)""",
                 timeout=15000)
-            page.locator('.tile[data-repo="luna"] .console-tab').click()
+            page.locator('.tile[data-repo="luna"] .spill').click()
+            page.wait_for_selector('.tile[data-repo="luna"] .smenu:not([hidden])', timeout=5000)
+            page.locator('.tile[data-repo="luna"] .sm-console').click()
             page.wait_for_function(
                 """() => /console/.test(document.querySelector('.tile[data-repo="luna"] .err').textContent)"""
                 if os.name != "nt" else

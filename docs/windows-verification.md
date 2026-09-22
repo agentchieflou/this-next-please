@@ -1047,3 +1047,32 @@ fact. A row that fails becomes a regression test named for its host.
 - **Does the window's own `ad-theme apply` land?** (C7) The console no longer depends on a shell hook
   firing in it; what is left to measure is whether the recolour survives the host, which is the same
   question `docs/setup.md` §Colour and glyphs, per host answers for every other terminal.
+
+
+## The column (#200): what only the laptop can answer
+
+The arrangement is measured on CI at 720, 1080 and 1440 against a headless Chromium, which is the
+engine under all three hosts. What CI cannot answer is how it reads on the real monitors, in the
+two embedders, at the width the operator actually works at.
+
+| # | Do this | Expect | Result | Notes |
+| --- | --- | --- | --- | --- |
+| K1 | Open the desk with no `?layout=` in Edge, PyCharm's JCEF window and VS Code's Simple Browser | the column: one agent open, the rest as bands, no dock | _not yet measured_ | — |
+| K2 | The same three at 1280 wide, and again at the centre monitor's full height | the bands fill the column; none is crushed under 56px; the open tile reaches the bottom | _not yet measured_ | — |
+| K3 | Click a band, then press `Esc` | the two swap, and `Esc` returns to the one that was open | _not yet measured_ | — |
+| K4 | Press `r` on a band and on the open tile | both re-read; no premium request is spent (`ad-fleet status` is unchanged) | _not yet measured_ | — |
+| K5 | Press `r` twice inside two seconds | the second is refused with `refresh_busy`, in the footer | _not yet measured_ | — |
+| K6 | Press `m` on a band, set a model, press save | `~/.agentdata/config.json` gains `fleet.models.<repo>`; the settings page reads it back | _not yet measured_ | — |
+| K7 | `1`–`9` on the bands | the digit opens the band carrying that number | _not yet measured_ | — |
+| K8 | Narrow the window under 900px | the column lies down into a strip above the tile | _not yet measured_ | — |
+| K9 | Press `f` with two agents needing a person | the quiet bands fold to slivers; none of them leaves | _not yet measured_ | — |
+| K10 | Open `?layout=grid` | the grid renders exactly as it did, and the dock is back under it | _not yet measured_ | — |
+
+### The open questions these rows answer
+
+- **Is 24vw the right column width on the centre monitor?** (K2) The default is a clamp between
+  260px and 420px; the sitting says whether it wants to be draggable.
+- **Does a band that turns red want to rise to the top?** (K9) It ships keeping its slot, because
+  nothing reorders itself under the operator's hand; the head counts the red ones and jumps to the
+  first instead.
+- **Is two seconds the right floor for refresh?** (K5) Or should it be the tick's own cadence.

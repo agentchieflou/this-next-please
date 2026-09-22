@@ -120,7 +120,10 @@ def gzip_for(body: bytes, key: tuple) -> bytes:
         _GZIPPED[key] = packed
     return packed
 
-LAYOUTS = ("grid", "roles", "screens")
+# `column` is first, so it is what `--layout` defaults to and what a window with no
+# `?layout=` shows. The operator chose it on the real screens (#133, #200, and
+# `docs/fleet-layouts.md` §The sitting); the other three stay reachable by URL.
+LAYOUTS = ("column", "grid", "roles", "screens")
 VIEWS = ("board", "agents", "verify")
 
 # What `.agent/out/` file counts as a verify summary, and which command wrote it. An allow-list of
@@ -296,6 +299,9 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         end_ev = run_events[-1] if run_events else start_ev
         earlier.append({
             "n": idx + 1,
+            # Which session this run belongs to, so the menu can fold it under that session instead
+            # of listing it as a second, adjacent "earlier" with different behaviour (#206).
+            "session": run_session(run_events),
             "started": start_ev.get("ts", ""),
             "ended": end_ev.get("ts", ""),
             "state": d["state"],
@@ -334,6 +340,36 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         "events": curr_events,
     }
     return curr_run, earlier
+
+
+# How often one repository may be refreshed by hand. It re-reads what the tick reads, so pressing
+# it twice in the same breath cannot tell the operator anything the first press did not.
+REFRESH_FLOOR_S = 2.0
+_refreshed_at: dict = {}
+
+
+def _model_cells(name: str, cfg: dict) -> dict:
+    """Which model this agent is launched with, and which one its last turn actually ran on.
+
+    The same two facts the settings page shows (#199), on the tile's own row, from the same two
+    functions -- `LAUNCH.model_for` and `served_model` -- so a page and a tile can never disagree
+    about what an agent is running. They differ whenever a tenant pins a model, which is exactly
+    the case the operator needs to be able to see without opening a second page.
+    """
+    try:
+        model, effort, source = LAUNCH.model_for(name, cfg)
+    except Exception:                    # noqa: BLE001 - a tile never fails to draw over a setting
+        model, effort, source = "", "", "cli-auto"
+    return {"model": model, "effort": effort, "model_source": source,
+            "actual": served_model(name)}
+
+
+def row_for(name: str) -> dict:
+    """One tile's row, exactly as `/api/fleet` would send it. What an action answers with."""
+    for row in fleet_snapshot().get("repos", []):
+        if row.get("repo") == name:
+            return row
+    return {}
 
 
 def fleet_snapshot() -> dict:
@@ -482,6 +518,11 @@ def fleet_snapshot() -> dict:
                      # What it edited against what it was given (#168). Advice to the model and a
                      # report to the human: nothing here refuses an edit, it only says what happened.
                      "scope_report": _scope_report(row.get("path", ""), derived),
+                     # Which model this agent is launched with, and which one the last turn
+                     # actually ran on -- the two differ whenever a tenant pins one. Computed by the
+                     # same functions the settings page calls, so the tile and the page cannot
+                     # disagree about what an agent is running (#205).
+                     **_model_cells(name, cfg),
                      "last_seq": stream[-1]["seq"] if stream else 0,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
                      # The project's own state (#131), beside the agent's. Named `polls` and not
@@ -644,6 +685,7 @@ def drop_handles() -> None:
                 cat.close()
             except Exception:                # noqa: BLE001 - a closed handle is the point
                 pass
+        _refreshed_at.clear()
         _desk.update(dir="", poller=None, inbox=None, catalogue=None, last_tick=0.0,
                      last_fold=0.0)
 
@@ -993,6 +1035,10 @@ def update_window(w: str = "main", **kwargs) -> dict:
             "focus": False,
             "zoomed": "",
             "section": "tickets",
+            # Which agent this window has OPEN in the column (#203). Per window, not shared: the
+            # left monitor reads one agent while the centre reads another, and `selected` -- which
+            # the inspector follows -- stays the one thing every window agrees on.
+            "open": "",
             "held": [],
             "read": {},
             "seen": "",
@@ -1012,6 +1058,9 @@ def update_window(w: str = "main", **kwargs) -> dict:
             changed = True
         if "zoomed" in kwargs and win.get("zoomed") != str(kwargs["zoomed"] or ""):
             win["zoomed"] = str(kwargs["zoomed"] or "")
+            changed = True
+        if "open" in kwargs and win.get("open") != str(kwargs["open"] or ""):
+            win["open"] = str(kwargs["open"] or "")
             changed = True
         if "section" in kwargs and win.get("section") != str(kwargs["section"] or ""):
             win["section"] = str(kwargs["section"] or "")
@@ -1500,6 +1549,29 @@ def act(what: str, body: dict) -> dict:
         # The one "action" that changes nothing on disk. It is a POST rather than a query parameter
         # because its whole point is that the *other* windows hear about it (#133 layout B).
         return select(selected=body.get("repo"), screens=body.get("screens"))
+    if what == "refresh":
+        # Read what the next tick would read, NOW. It spends no premium request -- nothing is sent
+        # to the agent -- so it is the one button on the tile that is always free to press.
+        target = _repo_record(repo)
+        now = time.time()
+        since = now - _refreshed_at.get(target.name, 0.0)
+        if since < REFRESH_FLOOR_S:
+            raise ServeError(f"{target.name} was refreshed {since:.1f}s ago",
+                             f"it re-reads what the tick reads; once every {REFRESH_FLOOR_S:g}s is "
+                             f"as often as that can tell you anything new",
+                             code="refresh_busy")
+        _refreshed_at[target.name] = now
+        try:
+            E.refresh(target.name, target.path)
+        except (OSError, ValueError):
+            pass                                  # a stream that cannot be folded is the tile's news
+        live = poller()
+        if live is not None:
+            try:
+                live.now_for(target)
+            except Exception:                     # noqa: BLE001 - see poll_tick: one cell never stops the rest
+                pass
+        return {"repo": target.name, "row": row_for(target.name)}
     if what == "arrange":
         return arrange(str(body.get("layout") or "grid"),
                        order=body.get("order"),
@@ -1578,7 +1650,7 @@ def act(what: str, body: dict) -> dict:
         return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
-                     "arrange | attach | dismiss | theme | settings")
+                     "arrange | attach | dismiss | theme | settings | refresh")
 
 
 def _sweep(url: str) -> list[dict]:

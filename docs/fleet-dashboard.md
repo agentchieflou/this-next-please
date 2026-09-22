@@ -68,13 +68,14 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 
 | On a tile | What it shows |
 | --- | --- |
-| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, width |
+| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, width |
 | Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
+| Session pill | which **session** this transcript is — `session · running · 6d` — and the one menu that changes which one it is: this session, the earlier ones with how each ended and what it cost, `+ new session`, the console, and the project's other checkouts (#206) |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
 | Cells | the **project's** own state, polled read-only: ticket, PR, refresh, git — each with its age; the git cell counts the branches and opens the inspector's branches pane (#184) |
 | Approval card | appears when that agent is waiting; the **dry-run payload in full**, Approve / Deny |
 | Transcript | assistant text, tool calls, denials, phase changes — the current run only |
-| Earlier runs | one collapsed row per earlier run with the state it ended in; never replayed as live |
+| Earlier runs | folded under their session in the pill's menu — one *earlier*, not two adjacent ones (#206) |
 | Outside strip | a session in this checkout the fleet did not start: what it is, how sure we are, and *adopt it* |
 | Held note | in focus mode only, on a tile you acted on: why it is still here, and *let it go* |
 | Bottom row | reply box (→ `send`), Start (a ticket key in the same box), **Reset**, Stop |
@@ -237,7 +238,28 @@ checkout, in the adopt strip's own words. Only where it can be named: *this fold
 in the last quarter of an hour* is evidence of somebody saving a file, and refusing every resume on
 that would refuse nearly all of them.
 
+### The column — one agent open, the rest as bands (#203)
+
+The default arrangement, chosen by the operator on the real screens (`docs/fleet-layouts.md` §The
+sitting). One agent fills the glass; every other checkout is a **band** in a column beside it, and
+the bands share the column's whole height so none of the page is empty. A band says who it is, what
+state it is in, what it last said — in full when it is asking you something — and then as much of
+its recent transcript as the row has room for. It carries the same three controls the open tile
+does: hide, refresh, and which model it runs.
+
+The dock is not drawn in this arrangement: the column *is* the dock, laid the way the operator
+asked, and two answers to one question would be two places to click. Clicking a band opens it and
+the agent that was open takes its slot; `Esc` goes back. Which agent is open is the window's own,
+so the left monitor can read one while the centre reads another, and `selected` — what the
+inspector follows — stays the one thing every window agrees on. A pinned agent is always open, and
+pins split the glass evenly.
+
+*needs me* narrows the column rather than emptying it: a band whose agent wants nothing folds to a
+sliver, still named and still counted.
+
 ### The dock — where a tile went (#173)
+
+*In `grid`, `roles` and `screens`. The column replaces it in the arrangement above.*
 
 Five `display:none` rules and one `.remove()` used to take a tile off the glass as a side effect of
 a mode — zoom, focus mode, a solo window, the laptop's narrow view, and a repository leaving the
@@ -314,10 +336,13 @@ red everywhere or the colour stops being information:
 | Key | Does |
 | --- | --- |
 | `?` | the key map — this table, in four columns, behind the footer's `?` button |
-| `1`–`9` | focus that tile — counting what is **on the glass** |
+| `1`–`9` | open that one — counting what is **on the glass**; in the column, the number printed on the band |
+| `j` / `k` | walk the column's bands; `Enter` opens the one the keyboard is on |
+| `r` | re-read the agent the keyboard is on, now — spends no premium request |
+| `m` | which model that agent runs, and which one its last turn actually ran on |
 | `f` | focus mode: only the agents that need you |
-| `h` | hide the tile the keyboard is on; its chip is in the dock |
-| `Alt`+`[` / `Alt`+`]` | walk the tile's session strip |
+| `h` | hide the agent the keyboard is on; it is counted at the foot of the column, or in the dock |
+| `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
 | `Alt`+`N` | a clean session in this checkout, beside the one it is on |
 | `/` | the search box — `where` over the catalogue |
 | `i` | the sidebar's inbox |
@@ -355,7 +380,8 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/` | the desk |
 | GET | `/settings` | the settings page: appearance, the model per agent, the Copilot launch settings |
 | GET | `/static/…` | the pages' assets: `app.css`, `common.js`, `app.js`, `settings.js` |
-| GET | `/api/fleet` | every repo's state, the recent events, and the pending approvals |
+| GET | `/api/fleet` | every repo's state, its model and the one its last turn ran on, the recent events, and the pending approvals |
+| POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
 | GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent |
 | GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195) |
 | GET | `/api/settings` | the editable keys with their type, default and effect-scope; what each is set to; the model per repository; the resolved tool lists |

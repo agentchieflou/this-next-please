@@ -15,7 +15,8 @@
   <div class="toolbar-group group-window">
     <span class="glabel">window</span>
     <div class="segmented" id="layoutgroup" role="radiogroup" aria-label="layout">
-      <button type="button" role="radio" class="segment active" data-layout="grid" aria-checked="true" title="every tile on one screen">grid</button>
+      <button type="button" role="radio" class="segment active" data-layout="column" aria-checked="true" title="one agent open, the rest as bands down the side">column</button>
+      <button type="button" role="radio" class="segment" data-layout="grid" aria-checked="false" title="every tile on one screen">grid</button>
       <button type="button" role="radio" class="segment" data-layout="roles" aria-checked="false" title="three windows that agree on one project">roles</button>
       <button type="button" role="radio" class="segment" data-layout="screens" aria-checked="false" title="one project per monitor">screens</button>
     </div>
@@ -60,6 +61,12 @@
 </div>
 
 <div class="workspace">
+<!-- The glass: the tiles, and the strip under them that says what is not on it. `.workspace` is a
+     flex ROW, so a `#dock` parked directly in it was laid out BESIDE the grid with a basis of its
+     own content — a chip carrying a long question took a third of the window off the tiles, which
+     is the desk in the photograph #200 was written from. The dock's own comment has always said it
+     sits under the grid; this is the box that makes that true. -->
+<div class="glass">
 <main id="grid" aria-live="polite"></main>
 
 <!-- #164, #183: the one dispatch card, moved into the tile's slot or under the agent rail. -->
@@ -90,6 +97,55 @@
     </li>
   </ul>
   <button type="button" id="showall" class="dock-showall">show all</button>
+</div>
+</div>
+
+<!-- #203: the column. One agent is open and fills the glass; every other checkout is a BAND here,
+     and the bands share the column's whole height so none of the page is empty. It is the dock's
+     data on a vertical axis — the same rows, the same grouping of a project's checkouts, the same
+     rule that a tile needing a person is never off the glass — which is why the dock is not drawn
+     in this arrangement: one thing, not two. -->
+<div id="column" class="column" hidden aria-label="the other agents">
+  <div class="column-head">
+    <span id="column-count" class="column-count"></span>
+    <button type="button" id="column-jump" class="column-jump" hidden></button>
+  </div>
+  <ul id="bands" class="bands">
+    <li class="band" hidden>
+      <button type="button" class="band-open">
+        <span class="b-head">
+          <span class="b-n"></span>
+          <span class="b-name"></span>
+          <span class="b-badge" hidden></span>
+        </span>
+        <span class="b-chip"></span>
+        <span class="b-last"></span>
+        <!-- What it has been doing, filling whatever height the band has left. A band stretched to
+             share the page and then showing one line would be the negative space this arrangement
+             was asked to remove, moved inside the row. Drawn from the `recent` events the row
+             already carries, so it costs the page nothing. -->
+        <ol class="b-tail"></ol>
+      </button>
+      <!-- #205: the same three, in the same order, with the same keys, as the tile's. A control
+           that exists on the open agent and not on the others is the thing this slice was asked to
+           stop doing. -->
+      <div class="band-tools">
+        <button type="button" class="band-hide toolbtn" data-tool="hide" title="take this agent off the glass (h) — it keeps its place; the column or the dock brings it back">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg><span class="sr">hide</span>
+        </button>
+        <button type="button" class="band-refresh toolbtn" data-tool="refresh" title="re-read it now (r) — spends no premium request">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v5h-5"></path></svg><span class="sr">refresh</span>
+        </button>
+        <button type="button" class="band-model toolbtn wordbtn" data-tool="model" title="which model this agent runs (m)">
+          <span class="bm-name"></span><span class="sr">model</span>
+        </button>
+      </div>
+    </li>
+  </ul>
+  <div class="column-foot">
+    <span id="column-hidden" class="column-hidden"></span>
+    <button type="button" id="column-showall" class="dock-showall" hidden>show all</button>
+  </div>
 </div>
 
 <aside id="side" hidden aria-label="sidebar">
@@ -191,11 +247,18 @@
   <!-- #180: the key map behind `?`; `.keys` stays on the container for the skins' `footer .keys`. -->
   <button id="keysbtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="keymap" title="every key (?)"><kbd>?</kbd> keys</button>
   <div id="keymap" class="popover popover-up keys" role="dialog" aria-label="the keys" hidden>
+    <div class="keys-group"><strong>the column</strong>
+      <span><kbd>j</kbd> <kbd>k</kbd> along the bands</span>
+      <span><kbd>Enter</kbd> open that one</span>
+      <span><kbd>Esc</kbd> back to the last one</span>
+    </div>
     <div class="keys-group"><strong>tiles</strong>
-      <span><kbd>1</kbd>–<kbd>9</kbd> focus</span>
+      <span><kbd>1</kbd>–<kbd>9</kbd> open</span>
       <span><kbd>f</kbd> only what needs you</span>
       <span><kbd>a</kbd> approve</span>
       <span><kbd>h</kbd> hide</span>
+      <span><kbd>r</kbd> re-read it now</span>
+      <span><kbd>m</kbd> which model it runs</span>
       <span><kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile</span>
       <span><kbd>Alt</kbd>+<kbd>Home</kbd> pin</span>
       <span><kbd>Alt</kbd>+<kbd>Enter</kbd> width</span>
@@ -217,6 +280,36 @@
   </div>
 </footer>
 
+<!-- #205: which model this agent runs, and which one its last turn actually ran on -- the two
+     differ whenever a tenant pins one. It writes the key `/settings` writes, through the same
+     function, with the same refusals in the same words: two ways to set one thing must not become
+     two rules about it. One card for the page, moved to whichever button opened it. -->
+<div id="modelcard" class="modelcard" role="dialog" aria-label="which model this agent runs" hidden>
+  <div class="mc-head">
+    <strong class="mc-repo" id="mc-repo"></strong>
+    <button type="button" class="mc-close" id="mc-close" title="close (Esc)">×</button>
+  </div>
+  <div class="mc-facts">
+    <span class="mc-k">configured</span>
+    <span class="mc-v" id="mc-configured"></span>
+    <span class="mc-src" id="mc-source"></span>
+    <span class="mc-k">last turn</span>
+    <span class="mc-v" id="mc-actual"></span>
+    <span class="mc-src" id="mc-actual-why"></span>
+  </div>
+  <div class="mc-edit">
+    <label class="sr" for="mc-model">model</label>
+    <input id="mc-model" type="text" list="mc-models" placeholder="the CLI chooses">
+    <label class="sr" for="mc-effort">effort</label>
+    <input id="mc-effort" type="text" list="mc-efforts" placeholder="effort">
+    <button type="button" id="mc-save">save</button>
+  </div>
+  <datalist id="mc-models"></datalist>
+  <datalist id="mc-efforts"></datalist>
+  <p class="mc-note" id="mc-note">takes effect on the agent's next turn</p>
+  <a class="mc-all linkbtn" id="mc-all">all models · settings</a>
+</div>
+
 <template id="tile">
   <section class="tile" tabindex="0">
     <div class="head" draggable="true" title="drag to reorder — Alt+←/→ without a mouse">
@@ -231,9 +324,15 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"></path><path d="M12 15v6"></path></svg>
         <span class="sr">pin</span>
       </button>
-      <button class="hidetoggle" type="button" title="take this tile off the glass (h) — it keeps its place and the dock brings it back">
+      <button class="hidetoggle" type="button" data-tool="hide" title="take this agent off the glass (h) — it keeps its place; the column or the dock brings it back">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg>
         <span class="sr">hide</span>
+      </button>
+      <button class="refreshtoggle" type="button" data-tool="refresh" title="re-read it now (r) — spends no premium request">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v5h-5"></path></svg><span class="sr">refresh</span>
+      </button>
+      <button class="modeltoggle wordbtn" type="button" data-tool="model" title="which model this agent runs (m)">
+        <span class="bm-name"></span><span class="sr">model</span>
       </button>
       <button class="sizetoggle" type="button" title="one column or two (Alt+Enter)" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"></path><path d="M8 8l-4 4 4 4"></path><path d="M16 8l4 4-4 4"></path></svg>
@@ -242,34 +341,47 @@
     </div>
     <!-- Which run this transcript belongs to. #147: a transcript with no era read as live. -->
     <p class="runline"></p>
-    <!-- #174: the switcher. The main tab is this checkout's live session -- where the transcript,
-         the reply box and the cards are. The tabs beside it are the project's other checkouts
-         (#175), each with its own agent and its own chip. Every tab is a button, because a tab
-         that cannot be reached from the keyboard is a window somebody loses. -->
-    <div class="strip" role="tablist" aria-label="sessions and checkouts">
-      <button class="main-tab tab" type="button" role="tab" aria-selected="true">main</button>
-      <!-- One sibling checkout, cloned per checkout. In the markup rather than built by hand so a
-           test can keep the two files in step, the way the tile itself is. -->
-      <button class="sib-tab tab" type="button" role="tab" aria-selected="false" hidden></button>
-      <button class="earlier-tab tab" type="button" aria-expanded="false" hidden></button>
-      <button class="new-tab tab" type="button"
-              title="a clean session beside this one, resumable either way (Alt+N)">+ new</button>
-      <!-- #189: a console the fleet opens. -->
-      <button class="console-tab tab" type="button"
-              title="your own cmd.exe running Copilot here; this tile shows the same session">console</button>
+    <!-- #206: one session control. The strip here was four buttons of three different kinds -- a
+         label that was not a tab, a list opener, and two verbs -- with a second, inert *earlier*
+         under the transcript. The operator's report was that it is not intuitive what to do with
+         all of them. It is one pill now, saying which session this transcript is, and one menu
+         behind it holding everything that changes which session that is. -->
+    <div class="sessionbar">
+      <button class="spill" type="button" aria-haspopup="menu" aria-expanded="false"
+              title="this checkout's sessions, its console and its other checkouts"></button>
+      <div class="smenu" role="menu" hidden>
+        <button class="sm-live smitem" type="button" role="menuitem">this session</button>
+        <ol class="live-runs"></ol>
+        <p class="sm-earlier-label sm-label" hidden></p>
+        <!-- This checkout's other sessions, from `sessions.json`. Opening one is a GET and nothing
+             else: choosing a session must never spawn an agent. Each carries its own runs, so the
+             inert `earlier runs` list that used to sit under the transcript is folded in here. -->
+        <ul class="sessions">
+          <li class="session-row" hidden>
+            <button type="button" class="ss-open" role="menuitem">
+              <span class="ss-title"></span>
+              <span class="ss-chip"></span>
+              <span class="ss-when"></span>
+              <span class="ss-cost"></span>
+            </button>
+            <ol class="ss-runs"></ol>
+          </li>
+        </ul>
+        <button class="sm-new smitem" type="button" role="menuitem"
+                title="a clean session beside this one, resumable either way (Alt+N)">+ new session</button>
+        <!-- #189: a console the fleet opens. -->
+        <button class="sm-console smitem" type="button" role="menuitem"
+                title="your own cmd.exe running Copilot here; this tile shows the same session">open in a console</button>
+        <p class="sm-sibs-label sm-label" hidden>this project, checked out elsewhere</p>
+        <ul class="sib-list">
+          <!-- One sibling checkout (#175), cloned per checkout. In the markup rather than built by
+               hand so a test can keep the two files in step, the way the tile itself is. -->
+          <li class="sib-row" hidden>
+            <button type="button" class="sib-open" role="menuitem"></button>
+          </li>
+        </ul>
+      </div>
     </div>
-    <!-- This checkout's other sessions, from `sessions.json`. Opening one is a GET and nothing
-         else: choosing a session must never spawn an agent. -->
-    <ul class="sessions" hidden>
-      <li class="session-row" hidden>
-        <button type="button" class="ss-open">
-          <span class="ss-title"></span>
-          <span class="ss-chip"></span>
-          <span class="ss-when"></span>
-          <span class="ss-cost"></span>
-        </button>
-      </li>
-    </ul>
     <!-- Why this tile is still on screen in focus mode after it stopped needing you. -->
     <p class="holdnote"><span class="holdwhy"></span><button type="button" class="release">let it go</button></p>
     <!-- A session running in this checkout that the fleet did not start (#2). -->
@@ -348,10 +460,6 @@
       <button type="button" class="ro-back">back to the live session</button>
       <span class="ro-note"></span>
     </p>
-    <details class="earlier" hidden>
-      <summary class="earlierhead">earlier runs</summary>
-      <ol class="earlierlist"></ol>
-    </details>
     <div class="row bottom">
       <input class="say" type="text" placeholder="reply, or a ticket key to start">
       <button class="send">Send</button>

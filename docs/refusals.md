@@ -71,6 +71,7 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Settings page | a value the key's type cannot take, including an empty number | `refused: bad_type`, 409; the config file is byte-identical | `test_fleet_settings_api.py::test_a_wrong_value_is_refused_rather_than_coerced` |
 | Settings page | a model or effort carrying whitespace or a leading dash, which would become a second flag | `refused: bad_model`, 409, nothing written | `test_fleet_settings_api.py::test_a_model_that_would_become_a_second_flag_is_refused` |
 | Settings page | a per-repo model with no repository named | `refused: no_repo`, 409 | `test_fleet_settings_api.py::test_a_repo_that_is_not_named_is_refused` |
+| Desk | `refresh` pressed twice inside two seconds on one checkout | `refused: refresh_busy`, 409; it re-reads what the tick reads, so the second press has nothing new to tell | `test_fleet_column.py::test_refresh_is_free_and_refuses_a_second_press_inside_two_seconds` |
 | Launch | `fleet.model` / `fleet.effort` is more than one argument | `LaunchError` before the argv is built | `test_fleet.py::test_a_model_value_that_would_become_a_second_flag_is_refused` |
 | Approval gate | an operator denied the write | `refused: approval_denied`, exit 2, quoting the reason | `test_fleet_approval.py::test_ad_jira_transition_refuses_on_a_denial_and_never_posts` |
 | Approval gate | `ad-jira create` inside a fleet, denied | `refused: approval_denied`, exit 2, nothing posted | `test_jira_create.py::test_the_gate_holds_the_post_and_a_denial_never_creates` |

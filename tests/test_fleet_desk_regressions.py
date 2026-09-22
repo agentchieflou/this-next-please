@@ -173,7 +173,7 @@ def desk(fleet_home, tmp_path):                                 # noqa: F811
     server, token = S.build(0)
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/?t={token}"
+    url = f"http://127.0.0.1:{server.server_address[1]}/?t={token}&layout=grid"
     try:
         yield url
     finally:
@@ -309,7 +309,7 @@ def test_one_control_per_meaning_in_the_toolbar(desk):
             clipped: document.querySelector('.toolbar').scrollWidth > document.querySelector('.toolbar').clientWidth,
         })""")
         browser.close()
-    assert got["segments"] == 3, got
+    assert got["segments"] == 4, got      # column, grid, roles, screens (#203)
     assert not got["legacy"], "the old layout select is back beside the segmented control"
     assert got["settings"], "there is no way from the desk to the settings"
     assert not got["pickers"], \

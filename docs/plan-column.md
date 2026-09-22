@@ -1,6 +1,6 @@
 # Plan: the column — one tile open, every other session a band in a column that fills the page
 
-_Status: PLANNED (2026-09-22) — epic #200 (slices #203–#208), under #91 (the fleet) and #122 (the desk), a
+_Status: IMPLEMENTED (2026-09-22) — epic #200 (slices #203–#208), under #91 (the fleet) and #122 (the desk), a
 sibling of #145, #162, #170, #179 and #187, and one of three plans written from the same photograph: this one, the
 meter ([plan-meter.md](plan-meter.md), #201) and ownership ([plan-ownership.md](plan-ownership.md), #202). Written from
 one phone photograph of the desk in use, taken 22 September 2026 in Chrome on the laptop, and from the operator's

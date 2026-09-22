@@ -631,7 +631,8 @@ def test_the_page_itself_is_served_for_every_layout_url(running):
     """The layouts are parameters on one page, so the server does not have to know them -- but a
     URL the CLI prints has to come back with the page and not a 404."""
     base, token = running
-    for path in ("/?layout=grid", "/?layout=roles&view=agents", "/?layout=roles&view=verify",
+    for path in ("/?layout=column", "/?layout=grid", "/?layout=roles&view=agents",
+                 "/?layout=roles&view=verify",
                  "/?layout=roles&view=board", "/?layout=screens", "/?layout=screens&screen=2"):
         sep = "&" if "?" in path else "?"
         with urllib.request.urlopen(f"{base}{path}{sep}t={token}", timeout=10) as r:
@@ -688,7 +689,12 @@ def test_the_cli_and_the_page_agree_on_the_layout_names(desk):
     A layout the CLI can print and the page does not know is a blank window."""
     assert cli_fleet.LAYOUTS == S.LAYOUTS
     js = open(APP_JS, encoding="utf-8").read()
-    assert 'var LAYOUTS = ["grid", "roles", "screens"];' in js
+    assert 'var LAYOUTS = ["column", "grid", "roles", "screens"];' in js
+    # The default is one value in three files, and it is the operator's decision (#133, #200):
+    # `--layout` defaults to it, the server names it first, and a window with no `?layout=` is it.
+    assert cli_fleet.LAYOUTS[0] == S.LAYOUTS[0] == "column"
+    assert "var DEFAULT_LAYOUT = LAYOUTS[0];" in js, \
+        "the page must take its default from the list rather than spelling it a second time"
     assert 'var VIEWS = ["board", "agents", "verify"];' in js
     assert list(S.VIEWS) == ["board", "agents", "verify"]
     assert f'"{cli_fleet.LAYOUT_PARAM}"' in js
@@ -703,8 +709,8 @@ def test_every_class_the_layout_sets_is_a_class_it_also_clears():
              if "layout-" in c]
     assert len(calls) == 1, "more than one place decides which layout this window is in"
     cleared = set(re.findall(r'"([a-z-]+)"', calls[0]))
-    assert cleared == {"layout-grid", "layout-roles", "layout-screens", "view-board", "view-agents",
-                       "view-verify", "solo", "panels"}
+    assert cleared == {"layout-column", "layout-grid", "layout-roles", "layout-screens",
+                       "view-board", "view-agents", "view-verify", "solo", "panels"}
     for layout in S.LAYOUTS:
         assert "layout-" + layout in cleared
     for view in S.VIEWS:
@@ -726,8 +732,13 @@ def test_every_arrangement_the_url_can_ask_for_is_actually_styled():
     js = open(APP_JS, encoding="utf-8").read()
     for name in ("view-agents", "solo", "panels", "needs-only"):
         assert f"body.{name}" in css, f"{name} is set by app.js and styled nowhere"
-    for name in ("layout-grid", "layout-roles", "layout-screens"):
+    for name in ("layout-column", "layout-grid", "layout-roles", "layout-screens"):
         assert f'"{name}"' in js, f"{name} is the window's identity and app.js must still set it"
+    # `layout-column` is the exception to the paragraph above: it is the one arrangement whose class
+    # really does move things -- the glass is one tile tall and the bands are beside it -- so the
+    # sheet has to carry rules for it or the column renders as a grid with one tile on it.
+    assert "body.layout-column main" in css
+    assert "body.layout-column .tile.is-solo" in css
     # Layout B's centre and right windows, and every screen of layout C, are these two between them.
     assert "body.solo .tile:not(.is-solo) { display: none; }" in css
     assert "body.panels main, body.panels #empty { display: none; }" in css
@@ -742,7 +753,7 @@ def test_the_page_offers_every_layout_without_typing_a_url():
     control per meaning, rather than one control listing every combination of two."""
     js = open(APP_JS, encoding="utf-8").read()
     html = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
-    for layout in ("grid", "roles", "screens"):
+    for layout in ("column", "grid", "roles", "screens"):
         assert f'data-layout="{layout}"' in html, layout
     for label in ("agents", "verify", "board", "laptop", "screen 1", "screen 2", "screen 3"):
         assert f'"{label}"' in js, label

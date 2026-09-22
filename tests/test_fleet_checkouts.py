@@ -375,12 +375,15 @@ def test_the_strip_carries_the_other_checkouts_of_this_project(fleet_home, tmp_p
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
 
             tile = page.locator('.tile[data-repo="luna"]')
-            page.wait_for_selector('.tile[data-repo="luna"] .sib-tab:not([hidden])', timeout=5000)
-            sib = tile.locator(".sib-tab:not([hidden])").first
+            # The sibling checkouts moved into the one session menu (#206): same rows, same
+            # handler, one control instead of a row of tabs.
+            tile.locator(".spill").click()
+            page.wait_for_selector('.tile[data-repo="luna"] .sib-row:not([hidden])', timeout=5000)
+            sib = tile.locator(".sib-row:not([hidden]) .sib-open").first
             assert "luna-hotfix" in (sib.get_attribute("title") or "") or \
                    "luna-hotfix" in sib.inner_text()
 
@@ -390,7 +393,10 @@ def test_the_strip_carries_the_other_checkouts_of_this_project(fleet_home, tmp_p
                           .classList.contains('is-focused')""",
                 timeout=5000)
             # The strip is still there on the tile it went to, so the way back is a click.
-            assert page.locator('.tile[data-repo="luna-hotfix"] .sib-tab:not([hidden])').count() == 1
+            page.locator('.tile[data-repo="luna-hotfix"] .spill').click()
+            page.wait_for_selector('.tile[data-repo="luna-hotfix"] .sib-row:not([hidden])',
+                                   timeout=5000)
+            assert page.locator('.tile[data-repo="luna-hotfix"] .sib-row:not([hidden])').count() == 1
             assert not errors, errors
             browser.close()
     finally:

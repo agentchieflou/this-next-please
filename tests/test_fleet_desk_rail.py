@@ -323,7 +323,7 @@ def test_a_refusal_in_the_grid_lands_on_the_tile_and_the_rail_note_stays_empty(f
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors: list[str] = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector(".tile[data-repo='luna']:visible", timeout=15000)
             page.evaluate("""() => {
               const tile = document.querySelector('.tile[data-repo="luna"]');
