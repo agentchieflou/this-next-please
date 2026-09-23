@@ -478,9 +478,10 @@ def _pixel(page, x, y):
 
 @pytest.mark.browser
 def test_with_ink_the_ground_on_the_glass_is_the_layers(fleet_home, tmp_path):
-    """#257: under glass with ink on, the ground the panes frost is drawn by the ink layer -- take
-    the stylesheet's own gradients away and the blobs are still there; take the layer's canvas away
-    as well and they are gone. Without ink, the stylesheet's gradients are the ground, still."""
+    """#257: under glass with ink on, the ground the panes frost is drawn by the ink layer. Put an
+    opaque sheet between the stylesheet's own gradients and the canvas, and the blob is still
+    there; take the canvas away and it is gone. (Taking the gradients themselves away would tell
+    the layer there is no ground, which it reads from them.)"""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
@@ -500,18 +501,20 @@ def test_with_ink_the_ground_on_the_glass_is_the_layers(fleet_home, tmp_path):
             page.wait_for_function(
                 "() => { const l = window.Ink && Ink.inspect().layer; return !!l && l.ground.drawn && !l.busy; }",
                 timeout=20000)
-            # The centre of the blue blob (16% 10%), with everything on the page but the layer's
-            # canvas out of sight, so the pixel is the ground's and nobody's text or card.
+            # The centre of the blue blob (16% 10%). Everything on the page but the layer's canvas
+            # goes out of sight, and an opaque magenta sheet goes under the canvas, over the
+            # stylesheet's own gradients: the stylesheet is left as it is (the layer reads its ground
+            # from it), and the only thing that can put the blob over the magenta is the canvas.
             x, y = int(1400 * 0.16), int(900 * 0.10)
-            page.add_style_tag(content="body > *:not(#ink) { visibility: hidden !important; }")
-            page.evaluate("() => { document.body.style.backgroundImage = 'none'; }")
+            page.add_style_tag(content="body > *:not(#ink):not(#cover) { visibility: hidden !important; }"
+                                       " #cover { position: fixed; inset: 0; z-index: -2; background: #f0f; }")
+            page.evaluate("() => { const c = document.createElement('div'); c.id = 'cover'; document.body.appendChild(c); }")
             page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
             inked = _pixel(page, x, y)
+            ground = page.evaluate("() => Ink.inspect().layer.ground")
             page.evaluate("() => { document.getElementById('ink').style.visibility = 'hidden'; }")
             page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
-            flat = _pixel(page, x, y)
-            page.evaluate("() => { document.getElementById('ink').style.removeProperty('visibility');"
-                          " document.body.style.removeProperty('background-image'); }")
+            cover = _pixel(page, x, y)
             assert not errors, errors
             page.close()
             browser.close()
@@ -519,8 +522,10 @@ def test_with_ink_the_ground_on_the_glass_is_the_layers(fleet_home, tmp_path):
         server.stopping.set()
         server.shutdown()
         server.server_close()
-    diff = sum(abs(a - b) for a, b in zip(inked, flat))
-    assert diff > 12, f"the layer drew no ground at the blob: {inked} against flat {flat}"
+    assert ground["blobs"] == 3 and ground["drawn"], ground
+    assert cover[0] > 200 and cover[1] < 60 and cover[2] > 200, f"the sheet under the canvas: {cover}"
+    # Over the magenta, the smoke ground at the blue blob: dark, and bluer than it is red.
+    assert inked[0] < 120 and inked[2] > inked[0] + 20, f"the layer drew no ground at the blob: {inked}"
 
 
 @pytest.mark.browser
