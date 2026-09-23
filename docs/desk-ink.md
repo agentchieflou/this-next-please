@@ -261,10 +261,11 @@ What each hook is handed:
 
 ### The skins that draw with ink
 
-| Skin | Page |
-| --- | --- |
-| `graph` (graph paper, #253) | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
-| `napkin` (napkin notes, #252) | [skin-napkin.md](skin-napkin.md): quilted two-ply, a felt tip that bleeds along the emboss, a coffee ring under a pane idle a long time |
+| Skin | Module | Its page |
+| --- | --- | --- |
+| glass (#254) | `skins/glass.js` | [skin-glass.md](skin-glass.md): a lit mesh ground, frosted panes that sample it, and a state grammar of marks and lit rims |
+| graph paper (#253) | `skins/graph.js` | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
+| napkin notes (#252) | `skins/napkin.js` | [skin-napkin.md](skin-napkin.md): quilted two-ply, a felt tip that bleeds along the emboss, a coffee ring under a pane idle a long time |
 
 ## Lanes
 

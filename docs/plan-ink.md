@@ -154,6 +154,22 @@ skin: a degraded mode of the one platform, not a second one.
       on every snapshot and retried a ground every 150 ms forever.
 - **H #254 — glass on three.js.** A real mesh ground, frosted panes that sample it through a blur pass, lit glints
   and shadows. The composited panel `theme.check` measures is read from the rendered frame.
+  - **Built (#254)**, in `static/ink/skins/glass.js` and [skin-glass.md](skin-glass.md), tested by
+    `tests/test_fleet_ink_glass.py`. What building it decided:
+    - **One mesh, two painters.** The blobs are `--glass-mesh-1..3` in skin.css. The CSS ground and the three.js
+      ground both paint from them, at the same places (`MESH`, held to skin.css by a test).
+    - **The blur is the pane's own shader**, from the layer's ground texture: 21 gaussian taps, with no render
+      target of the skin's to free. So nothing was added to the layer.
+    - **The pane's box goes transparent with ink on**, and nothing else does. Header, footer, sidebar and cards stay
+      CSS glass over the canvas.
+    - **The contrast is read back from the frame.** The test reads `gl.readPixels` in the task `Ink.sample` drew in,
+      so no readback was added to the layer either.
+    - **No pencil on glass.** It has no paper tooth. The inks are the palette's, with azure's highlighter moved to its
+      accent to keep 4.5:1 (skins.py `GLASS_INKS`, `ink_tokens`).
+    - **The state is also in the pane**: a rim drawn round it in the state's colour, which runs back when the state
+      goes, and a travelling glint for running. Materials may move, but they arrive and leave drawn too.
+    - **An idle skinned desk wrote five attributes a refresh** (`applyTheme`, `applySkin`, the #218 ground's
+      `has-ground`). Fixed in the page, with a regression test, because the ink layer repainted for each one.
 - **I #255 — farmstead on three.js.** The original `sprites.svg` art as nearest-neighbour textures at integer scale,
   lit wooden frames, and crop glyphs that grow a stage when an agent's phase advances.
 - **J #256 — voxel on three.js.** Real voxel slabs and status stacks, instanced, one draw call per material.
