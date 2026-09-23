@@ -71,6 +71,11 @@ part that goes stale fastest, and the stream brings them back within the second 
 minutes old at most — past that the shape of the fleet has probably changed, and a wrong desk held
 for a second is worse than an empty one.
 
+The snapshot is taken again as the window goes (`pagehide`), with the desk the window holds and the
+agent it has open. Taken only from the fleet's answers it was older than the last click, and a
+reload reopened the agent from before it, then jumped when the fleet answered: #230's snap-back, on
+the reload path. Its version is not believed, so the first real answer always wins.
+
 While it is showing, `body.is-stale` dims the glass a little and the footer says *"the last view,
 while this one loads"*. A stale desk that does not admit it is a desk that lies for a second, and a
 second is long enough to act on.

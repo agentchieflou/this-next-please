@@ -1384,6 +1384,22 @@ function patchRow(row, index) {
    the second anyway. */
 var SNAP_KEY = "fleet.snapshot." + W_NAME;
 var SNAP_GOOD_FOR_MS = 5 * 60 * 1000;
+var lastFleet = null;
+
+/* The desk as this window last showed it: the newest desk it holds, with the agent it has open.
+   The fleet's own answer is older than both the moment a click lands, and a snapshot kept from it
+   reopened -- on the next load -- whichever agent was open when it was taken, then jumped to the
+   right one when the fleet answered (#230). */
+function deskAsShown(fallback) {
+  var d = desk.desk || fallback;
+  if (!d) return null;
+  d = JSON.parse(JSON.stringify(d));
+  if (openTile) {
+    d.windows = d.windows || {};
+    d.windows[W_NAME] = Object.assign({}, d.windows[W_NAME] || {}, { open: openTile });
+  }
+  return d;
+}
 
 function cacheSnapshot(data) {
   try {
@@ -1393,12 +1409,16 @@ function cacheSnapshot(data) {
         return Object.assign({}, row, { recent: [], earlier: [], run: null });
       }),
       approvals: data.approvals || [],
-      desk: data.desk || null,
+      desk: deskAsShown(data.desk || null),
       spend: data.spend || {},
       theme: data.theme || null,
     }));
   } catch (e) { /* a private window, or no room: the desk simply loads the slow way */ }
 }
+
+/* Taken again as the window goes -- a reload, a navigation, a closed tab -- so the next load draws
+   what was on the screen, not what the last fleet answer said a click or two before. */
+window.addEventListener("pagehide", function () { if (lastFleet) cacheSnapshot(lastFleet); });
 
 function restoreCached() {
   var data = null;
@@ -1411,7 +1431,16 @@ function restoreCached() {
   // for a second is worse than an empty one -- the fetch is in flight either way.
   if (Date.now() - (data.at || 0) > SNAP_GOOD_FOR_MS) return false;
   if (data.theme) { applyTheme(data.theme.css, data.theme.theme); applySkin(data.theme.skin); }
-  if (data.desk) desk.desk = data.desk;
+  if (data.desk) {
+    // Shown, not believed. Its version is the snapshot's, so it is dropped: the first real answer
+    // has to win whatever number it carries, or a desk.json that started again from nought would
+    // never be heard. The window's own open agent is what is drawn, as the real answer will.
+    var shown = Object.assign({}, data.desk);
+    delete shown.version;
+    desk.desk = shown;
+    var mine = shown.windows && shown.windows[W_NAME];
+    if (mine && mine.open) openTile = String(mine.open);
+  }
   lastApprovals = data.approvals || [];
   data.repos.forEach(function (row, i) { patchRow(row, i); });
   hide(document.getElementById("empty"), true);
@@ -1474,6 +1503,7 @@ function refresh() {
     }
     if (typeof data.preflight === "boolean") PREFLIGHT = data.preflight;
     toggle(document.body, "is-stale", false);
+    lastFleet = data;
     cacheSnapshot(data);
     place();
     title(need);

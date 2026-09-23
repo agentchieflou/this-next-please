@@ -169,7 +169,9 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             """)
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector(".tile", timeout=6000)
+            # The open tile, not the first one: the column shows only the open agent, and a wait
+            # on the first tile outlasts the stale desk whenever another agent is open (#259).
+            page.wait_for_selector(".tile.is-solo", timeout=6000)
             early = page.evaluate("""() => ({
               tiles: document.querySelectorAll('#grid .tile').length,
               stale: document.body.classList.contains('is-stale'),
