@@ -162,7 +162,7 @@ class Layer {
       // and the ResizeObserver already follows what it moves.
       const attrs = new Set(["class", "id", "hidden", "data-tier", "data-skin", "data-skin-variant", "open"]);
       for (const row of t.marks) {
-        for (const sel of [row.selector, row.to]) {
+        for (const sel of [row.selector, row.to, row.grow]) {
           for (const m of String(sel || "").matchAll(/\[\s*([\w-]+)/g)) attrs.add(m[1]);
         }
       }
@@ -382,6 +382,7 @@ class Layer {
           continue;
         }
         const m = this.mark({ row, el, tool: row.tool, shape: row.shape });
+        if (row.rewrite) m.text = el.textContent;
         row.live.set(el, m);
         if (m.shape === "write" && !this.instant()) this.clip(m, 0);
         this.push(m.lane, { t: "draw", m });
@@ -399,6 +400,7 @@ class Layer {
         m.leaveOp = { t: row.leaves === "erased" ? (m.shape === "write" ? "unwrite" : "erase") : "strike", m };
         this.push(m.lane, m.leaveOp);
       }
+      if (row.rewrite) for (const m of row.live.values()) if (this.rewrite(m)) changed = true;
     }
     // Marks whose paper has gone: an element that left the page takes its marks, struck or not,
     // with it. Nothing is left to draw them on.
@@ -415,7 +417,7 @@ class Layer {
       lane: o.lane || this.laneOf(o.el), state: "queued", strokes: [], reveal: 0, strike: null,
       seed: seedOf((o.row ? o.row.index : "s") + ":" + this.idOf(o.el) + ":" + (o.strikeOf ? o.strikeOf.id : "")),
       x: 0, y: 0, w: 0, h: 0, visible: false, sig: "", scrollers: null, clip: [-1e5, -1e5, 1e5, 1e5],
-      drawOp: null, leaveOp: null, dropped: false,
+      drawOp: null, leaveOp: null, dropped: false, seen: null, grown: 0, text: null, ghost: o.ghost || null,
     };
     this.marks.add(m);
     this.watch(m.el);
@@ -445,6 +447,13 @@ class Layer {
     for (const st of m.strokes) st.dispose(this.scene);
     m.strokes = [];
     if (m.scuff) { m.scuff.dispose(this.scene); m.scuff = null; }
+    if (m.ghost && m.ghost.mesh) {
+      this.scene.remove(m.ghost.mesh);
+      m.ghost.mesh.geometry.dispose();
+      m.ghost.mesh.material.map.dispose();
+      m.ghost.mesh.material.dispose();
+      m.ghost.mesh = null;
+    }
     if (m.strike) this.drop(m.strike);
     m.lane.q = m.lane.q.filter(op => op.m !== m);
     this.marks.delete(m);
@@ -519,6 +528,14 @@ class Layer {
       m.x = r.left; m.y = r.top; m.w = r.width; m.h = r.height;
       const shape = { box: { x: 0, y: 0, w: r.width, h: r.height }, pad: m.row ? m.row.pad : 0, seed: m.seed };
       if (m.shape === "lines") shape.lines = this.linesOf(m.el, r);
+      if (m.row && m.row.grow) shape.grow = this.growth(m) * m.row.step;
+      if (m.row && (m.row.grow || m.row.tip)) {
+        const pr = m.lane.root ? m.lane.root.getBoundingClientRect() : null;
+        shape.limit = (pr ? pr.right : window.innerWidth) - r.left - 14;
+        // The pen's tip sits at the end while the mark is on the paper; a mark that is leaving has
+        // had its pen lifted, and is struck or erased without it.
+        shape.tip = m.row.tip && m.state !== "leaving" && m.state !== "struck";
+      }
       if (m.shape === "arrow") {
         const t = this.targetOf(m), tr = t && t.getBoundingClientRect();
         shape.to = tr && (tr.width || tr.height) ? { x: tr.left - r.left, y: tr.top - r.top, w: tr.width, h: tr.height } : null;
@@ -527,6 +544,7 @@ class Layer {
       if (shape.lines) sig += "|" + shape.lines.map(l => [l.x, l.y, l.w, l.h].map(v => v.toFixed(1)).join(",")).join(";");
       if (shape.to) sig += "|" + [shape.to.x, shape.to.y, shape.to.w, shape.to.h].map(v => v.toFixed(1)).join(",");
       if (m.strikeOf) sig += "|" + m.strikeOf.sig;
+      if (shape.limit !== undefined) sig += "|" + Math.round(shape.grow || 0) + "," + Math.round(shape.limit) + (shape.tip ? "t" : "");
       // A ruled mark sits on the viewport's grid, so where the anchor is against the grid is part
       // of its shape: a move by a whole square moves the mesh, anything else rules it again.
       const g = m.row && !m.strikeOf ? m.row.snap : 0;
@@ -542,12 +560,18 @@ class Layer {
     }
     for (const st of m.strokes) st.place(m.x, m.y, m.clip, m.visible);
     if (m.scuff) m.scuff.place(m.x, m.y, m.clip, m.visible);
+    if (m.ghost && m.ghost.mesh) {
+      const g = m.ghost;
+      g.mesh.position.set(m.x + g.box.x + g.box.w / 2, -(m.y + g.box.y + g.box.h / 2), 0);
+      g.mesh.visible = m.visible;
+    }
     return was !== m.visible + "|" + m.x + "|" + m.y + "|" + m.sig + "|" + m.clip.join(",");
   }
 
   pathsOf(m, shape) {
     if (m.strikeOf) {
       const target = m.strikeOf;
+      if (target.ghost) return this.S.SHAPES.strike({ box: target.ghost.box, seed: m.seed });
       if (target.shape === "write") return this.S.SHAPES.strike(shape);
       return this.S.strikeOver(target.strokes.map(s => s.bbox()), target.tool === "highlighter", m.seed);
     }
@@ -556,6 +580,12 @@ class Layer {
   }
 
   build(m, paths) {
+    // A growing line keeps what the pen has drawn, in px rather than as a fraction of a length that
+    // has changed, and the pen goes back to draw on from there (#249).
+    // A mark whose match has gone is leaving: it is struck or erased at the length it had, and grows
+    // no more -- the refresh that takes its class away often brings the line that would grow it.
+    const grows = !!(m.row && m.row.grow) && !m.leaveOp && (m.state === "drawn" || m.state === "drawing");
+    const had = grows ? m.strokes.map(st => ({ head: st.head, len: st.len, sig: st.sig })) : null;
     while (m.strokes.length > paths.length) m.strokes.pop().dispose(this.scene);
     paths.forEach((p, i) => {
       let st = m.strokes[i];
@@ -569,6 +599,93 @@ class Layer {
       // blank until its turn.
       if (m.state === "queued") st.setHead(0);
     });
+    if (!grows) return;
+    let more = false;
+    m.strokes.forEach((st, i) => {
+      const was = had[i];
+      if (st.dead || (was && was.sig === st.sig)) return;
+      // Longer than it was: what was drawn stays drawn, the rest is the pen's to draw. A stroke that
+      // is new or moved (the tip, at the new end) is drawn again from its start.
+      const keep = was && st.len > was.len ? Math.min(was.head, st.len) : (i === 0 ? st.len : 0);
+      if (keep < st.len - 0.01) {
+        st.setHead(keep);
+        st.setDone(false);
+        more = true;
+      }
+    });
+    // Drawn, or still drawing a stroke the pen has already left: the pen comes back for the rest.
+    if (more) this.push(m.lane, { t: "draw", m });
+  }
+
+  /* How many of the row's `grow` matches have arrived in this mark's pane since it was made (#249).
+     Counted once each, as they arrive, so a list that drops its oldest line as it takes a new one
+     still counts the new one. The ones already there when the mark was made are its start. */
+  growth(m) {
+    const root = m.lane.root || document;
+    let found = [];
+    try { found = root.querySelectorAll(m.row.grow); } catch (e) { found = []; }
+    if (!m.seen) {
+      m.seen = new WeakSet(found);
+      return 0;
+    }
+    for (const el of found) {
+      if (m.seen.has(el)) continue;
+      m.seen.add(el);
+      m.grown += 1;
+    }
+    return m.grown;
+  }
+
+  /* A written word whose text changed after it was written (#249, the header's count): what it said
+     is kept on the paper beside it, as it looked, and struck through in pen; the new text is written
+     again by the reveal. One struck word is kept per row and element, like every struck mark. */
+  rewrite(m) {
+    const now = m.el.textContent;
+    if (m.text === null || now === m.text) return false;
+    const was = m.text;
+    m.text = now;
+    // Still being written, the reveal is uncovering the new text already.
+    if (m.state !== "drawn") return false;
+    if (was.trim()) {
+      const g = this.mark({ row: m.row, el: m.el, lane: m.lane, tool: "pen", shape: "ghost",
+                            ghost: this.ghostOf(m, was) });
+      g.state = "drawn";
+      this.sync(g);
+      g.leaveOp = { t: "strike", m: g };
+      this.push(m.lane, g.leaveOp);
+    }
+    m.reveal = 0;
+    if (!this.instant()) this.clip(m, 0);
+    m.state = "queued";
+    this.push(m.lane, { t: "draw", m });
+    return true;
+  }
+
+  /* The old text as it looked -- its own font and colour -- drawn once into a texture and set just
+     to the left of the element, a little apart, where a hand would have left it. */
+  ghostOf(m, text) {
+    const T = this.THREE, cs = getComputedStyle(m.el), dpr = this.dpr || 1;
+    const font = [cs.fontStyle, cs.fontWeight, cs.fontSize, cs.fontFamily].join(" ");
+    const cv = document.createElement("canvas"), cx = cv.getContext("2d");
+    cx.font = font;
+    const fs = parseFloat(cs.fontSize) || 14;
+    const w = Math.ceil(cx.measureText(text).width) + 4, h = Math.ceil(fs * 1.4);
+    cv.width = Math.max(1, Math.round(w * dpr));
+    cv.height = Math.max(1, Math.round(h * dpr));
+    cx.scale(dpr, dpr);
+    cx.font = font;
+    cx.fillStyle = cs.color;
+    cx.textBaseline = "middle";
+    cx.fillText(text, 2, h / 2);
+    const tex = new T.CanvasTexture(cv);
+    tex.colorSpace = T.SRGBColorSpace;
+    const mesh = new T.Mesh(new T.PlaneGeometry(w, h),
+                            new T.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+    mesh.renderOrder = 2;
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
+    const r = m.el.getBoundingClientRect();
+    return { text, mesh, box: { x: -w - Math.max(4, fs * 0.35), y: (r.height - h) / 2, w, h } };
   }
 
   syncAll() {
@@ -712,6 +829,8 @@ class Layer {
     // A mark can leave the page while its op runs; what the op does at its end is then not done.
     const once = fn => ({ step: dt => { if (!m.dropped) fn(); return dt; } });
     if (op.t === "draw") {
+      // A draw queued before the mark began to leave (a growing line's rest) is not drawn after it.
+      if (m.leaveOp || m.state === "leaving" || m.state === "struck") return [];
       m.state = "drawing";
       this.sync(m);
       if (m.shape === "write") {
@@ -720,12 +839,13 @@ class Layer {
       }
       const out = [];
       for (const st of m.strokes) {
-        if (st.dead) continue;
+        if (st.dead || st.head >= st.len - 0.01) continue;
         out.push(this.travel(L, () => this.world(m, st.pointAt(st.head)), m.tool), this.drawSeg(L, m, st));
       }
       out.push(once(() => { m.state = "drawn"; }));
       return out;
     }
+    if (op.t === "erase" || op.t === "unwrite" || op.t === "strike") this.lift(m);
     if (op.t === "erase" || op.t === "unwrite") {
       m.state = "leaving";
       if (op.t === "unwrite") {
@@ -763,6 +883,15 @@ class Layer {
       return out;
     }
     return [];
+  }
+
+  /* A mark that is going stops being worked: its pen-tip dot (#249) is lifted before it is struck
+     or erased. */
+  lift(m) {
+    if (!m.row || !m.row.tip || m.state === "leaving") return;
+    m.state = "leaving";
+    m.sig = "";
+    this.sync(m);
   }
 
   /* A point of a mark's stroke on the viewport, or null for a mark that is not on the glass -- a
@@ -1061,7 +1190,8 @@ class Layer {
         id: m.id, lane: m.lane.key, selector: m.row ? m.row.selector : "", tool: m.tool, shape: m.shape,
         state: m.state, strikeOf: m.strikeOf ? m.strikeOf.id : null, strokes: m.strokes.length,
         len: Math.round(len * 10) / 10,
-        drawn: m.shape === "write" ? m.reveal : (len ? Math.round(head / len * 1000) / 1000 : 0),
+        drawn: m.shape === "write" ? m.reveal : m.ghost ? 1 : (len ? Math.round(head / len * 1000) / 1000 : 0),
+        was: m.ghost ? m.ghost.text : undefined,
         erased, visible: m.visible,
         box: { x: m.x, y: m.y, w: m.w, h: m.h },
         // Each stroke's extent on the viewport, so a test can see where the ink is (#253).

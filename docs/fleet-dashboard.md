@@ -419,7 +419,8 @@ screen with some CSS on it:
 | [desk-rendering.md](desk-rendering.md) | what a canvas on this page may do; the activity trace; the glass ground that drifts |
 | [desk-instant.md](desk-instant.md) | paint, post, reconcile; the optimistic arrangement and its way back; the 50 ms budget per gesture; why there is no spinner |
 | [desk-engines.md](desk-engines.md) | what each engine does with each platform feature, and what happens on the ones that have not got it |
-| [desk-ink.md](desk-ink.md) | the ink layer (#248): `window.Ink`, a mark table per skin, lanes, the tools, the gate the WebGL probe sets, `?ink=on` for tests, and the plain fallback. No skin uses it yet |
+| [desk-ink.md](desk-ink.md) | the ink layer (#248): `window.Ink`, a mark table per skin, lanes, the tools, the gate the WebGL probe sets, `?ink=on` for tests, and the plain fallback. The notebook draws with it |
+| [skin-notebook.md](skin-notebook.md) | the notebook skin (#249, #250): light and dark, its mark table (the state grammar), its paper, and how it falls back |
 
 ## Themes
 
