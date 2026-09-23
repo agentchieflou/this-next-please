@@ -165,10 +165,17 @@ def _emit(page, repo, *events):
     page.evaluate("() => refresh()")
 
 
-def _until_class(page, repo, cls, on=True):
+def _until(page, selector, present=True):
+    """Until the page shows `selector` (or stops showing it), asking it to look again while it
+    waits. One `refresh()` is not enough: a refresh already in flight when the events were written
+    answers it with the fold from before them, and nothing asks again until the next poll."""
     page.wait_for_function(
-        "([r, c, on]) => { const t = document.querySelector(`.tile[data-repo=\"${r}\"]`);"
-        " return !!t && t.classList.contains(c) === on; }", arg=[repo, cls, on], timeout=15000)
+        "([s, want]) => { if (!!document.querySelector(s) === want) return true; refresh(); return false; }",
+        arg=[selector, present], timeout=15000, polling=250)
+
+
+def _until_class(page, repo, cls, on=True):
+    _until(page, f'.tile[data-repo="{repo}"].{cls}', on)
 
 
 def _notebook(page, variant="light"):
@@ -230,8 +237,7 @@ def test_the_notebook_draws_the_state_grammar_and_each_mark_leaves_by_erase_or_s
             # It grows with the turn: a line in the transcript, a step more of pen.
             _emit(page, "alpha", ("assistant_text", {"text": "reading the view"}),
                   ("assistant_text", {"text": "and its grain"}))
-            page.wait_for_function("() => document.querySelectorAll('.tile[data-repo=\"alpha\"] .transcript > li').length >= 3",
-                                   timeout=15000)
+            _until(page, '.tile[data-repo="alpha"] .transcript > li:nth-child(3)')
             _rest(page, f"Ink.inspect().layer.marks.some(m => m.selector.includes('state-running')"
                         f" && m.state === 'drawn' && m.len > {before} + 10)")
             grown = _of(_marks(page), A, "state-running", "pen", "underline")[0]
@@ -343,8 +349,7 @@ def test_the_stale_note_the_finding_and_the_header_count(fleet_home, tmp_path, m
             _notebook(page)
             B = "pane:beta"
             stale.add("beta")
-            page.evaluate("() => refresh()")
-            page.wait_for_selector('.tile[data-repo="beta"] .oldsession:not([hidden])', timeout=15000)
+            _until(page, '.tile[data-repo="beta"] .oldsession:not([hidden])')
             _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('oldsession') && m.state === 'drawn').length === 3")
             marks = _marks(page)
             note = _of(marks, B, ".oldsession:not([hidden])", "pencil", "write")
@@ -354,7 +359,7 @@ def test_the_stale_note_the_finding_and_the_header_count(fleet_home, tmp_path, m
             assert len(arrow) == 1 and arrow[0]["strokes"] == 3 and len(outline) == 1, marks
 
             _emit(page, "beta", ("friction", {"severity": "minor", "unblock": "the grain is one row a day"}))
-            page.wait_for_selector('.tile[data-repo="beta"] .transcript > li.friction', timeout=15000)
+            _until(page, '.tile[data-repo="beta"] .transcript > li.friction')
             _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('li.friction') && m.state === 'drawn').length === 3")
             marks = _marks(page)
             assert _of(marks, B, "li.friction", "red", "ellipse")
@@ -363,8 +368,7 @@ def test_the_stale_note_the_finding_and_the_header_count(fleet_home, tmp_path, m
 
             # Renewed: the note is erased -- unwritten -- and the arrow and the outline with it.
             stale.clear()
-            page.evaluate("() => refresh()")
-            page.wait_for_selector('.tile[data-repo="beta"] .oldsession[hidden]', state="attached", timeout=15000)
+            _until(page, '.tile[data-repo="beta"] .oldsession[hidden]')
             _rest(page, "!Ink.inspect().layer.marks.some(m => m.selector.includes('oldsession'))")
 
             # The header's count, handwritten, then changed: the old number struck beside the new.
