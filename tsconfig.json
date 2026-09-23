@@ -1,0 +1,28 @@
+// The desk's types, checked and never compiled (#236, plan-panes §G). Dev-only: nothing ships from
+// here, nothing is emitted, and the page is still the bytes in `agentdata/fleet/static/`.
+//
+// Run it with the pinned compiler, which is the one CI runs:
+//     npx --yes -p typescript@7.0.2 tsc -p tsconfig.json
+// `docs/desk-types.md` says what is typed, why both files are in one program, and what the check
+// found the first time it ran.
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    // Off to begin with, as the plan says. The typed part is typed by its JSDoc; what has none stays
+    // what the language infers, which for a parameter is `any`.
+    "strict": false,
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "types": [],
+    "skipLibCheck": true
+  },
+  // Both, because `app.js` is a classic script: it reads `q`, `post`, `text` and the other setters
+  // as globals that `common.js` declares, and a global only resolves inside one program.
+  // `settings.js` and `probe.js` are not in it yet.
+  "files": [
+    "agentdata/fleet/static/common.js",
+    "agentdata/fleet/static/app.js"
+  ]
+}

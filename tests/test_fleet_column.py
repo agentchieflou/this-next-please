@@ -1005,18 +1005,20 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
 def test_the_two_focuses_have_names_that_say_which_is_which():
     """`focus()` zoomed one tile and `focusMode()` filtered for the ones that need a person: two
     modes named alike, and the toolbar's *back to grid* undid only the first. The zoom went with
-    the grid (#232), and `backAgent` and *back to grid* with it; `focus` stays as an alias, because
-    the page globals the regression tests call keep their names -- and `openAgent` is not `open`,
-    which in a non-module script would replace `window.open` for the page."""
+    the grid (#232), and `backAgent` and *back to grid* with it. `openAgent` is not `open`, which
+    in a non-module script would replace `window.open` for the page -- and the `focus` alias went
+    for the same reason once the type check read it (#236): `var focus` *was* `window.focus`, so a
+    `window.focus()` from anything on the page shut the drawer and wrote the window's record."""
     js = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
     html = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
     assert "function openAgent(name, skipPost) {" in js
-    assert "var focus = openAgent;" in js
     assert "backAgent" not in js and "unfocus" not in js
     assert 'id="unfocus"' not in html and "back to grid" not in html
-    # A declaration, not the word in the comment that explains why there is not one.
-    assert not re.search(r"(?m)^\s*function open\s*\(", js), \
-        "a bare `open` declaration replaces window.open for the whole page"
+    # Declarations, not the words in the comment that explains why there are none. A `var` only at
+    # the top of the file: one inside a function is that function's, as every `var open` here is.
+    for name in ("open", "focus"):
+        assert not re.search(rf"(?m)^(\s*function\s+{name}\s*\(|var\s+{name}\b)", js), \
+            f"a bare `{name}` declaration replaces window.{name} for the whole page"
 
 
 @pytest.mark.browser
