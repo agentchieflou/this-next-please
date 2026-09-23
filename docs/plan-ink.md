@@ -117,6 +117,24 @@ skin: a degraded mode of the one platform, not a second one.
   by the palette's luminance or named `notebook-dark`.
 - **E #251 — legal pad.** Canary stock, blue rules, a double red margin and a glued top edge. The highlighter shifts
   to orange-pink so it still reads on yellow.
+  - **Built (#251)**, as `legalpad` in `skins.py` (`static/ink/skins/legalpad.js`, `skins/legalpad/skin.css`),
+    in [desk-ink.md](desk-ink.md) §The legal pad, tested by `tests/test_fleet_ink_legalpad.py`. What building it
+    decided, each undone by a sentence from the operator:
+    - **Canary `#FCF3A6` on `eye-relief-day`**, the one light palette whose text and status colours all hold on it.
+      The inks it overrides are pencil (graphite), pen (a blue ballpoint) and the **orange-pink highlighter
+      `#FF8FA3`**; each of the six is in `skins.py` and held to the canary by `theme.check`.
+    - **The grammar is a mark table over classes the page already sets.** *Answered* is `aria-pressed` on the chosen
+      choice (the card has no answered class, and hides once the answer lands); *a finding* is a transcript line
+      the page marks `denied` or `friction`; *stale* writes the chip's own words and points at the run line;
+      *the header count* is the bell's.
+    - **The running pen's tail and the struck header count are drawn by the skin**, in its `tick`, because the
+      layer has no shape for them; the tail grows one step per transcript line of the turn. C builds the shared
+      version and K consolidates. The new count is not written again by the reveal, which the layer would need
+      to re-run on a change of text.
+    - **No font is downloaded**: a local cursive stack.
+    - **Done keys on `is-done`** (the fold's word, #253) as well as `state-done`, which today's desk rarely sets.
+    - **A skinned desk was never idle** (every refresh rewrote the skin's attributes, and the glass ground's retry
+      looped for other skins); `common.js` and `app.js` now write only what changed.
 - **F #252 — napkin notes.** Quilted two-ply with no rules. A felt tip that bleeds along the emboss. A coffee ring
   under a pane that has been idle a long time.
 - **G #253 — graph paper.** A grid on the page's own 28 px baseline, a mechanical pencil, ruled strokes snapped to the
@@ -158,6 +176,18 @@ skin: a degraded mode of the one platform, not a second one.
       `has-ground`). Fixed in the page, with a regression test, because the ink layer repainted for each one.
 - **I #255 — farmstead on three.js.** The original `sprites.svg` art as nearest-neighbour textures at integer scale,
   lit wooden frames, and crop glyphs that grow a stage when an agent's phase advances.
+  - **Built (#255)**, in `static/ink/skins/farmstead.js` and [skin-farmstead.md](skin-farmstead.md), tested by
+    `tests/test_fleet_ink_farmstead.py`. What building it decided:
+    - **The sheet is rasterised on its own grid**, one texel per art pixel, and every enlargement is NearestFilter's
+      at a whole number of device pixels (rounded down). The loader is in the skin module, not the layer.
+    - **The phase's DOM signal is the tile's `state-*`** (with `needs-human`). The page has no phase attribute. Seed,
+      sprout and bloom are the growth line, one stage drawn per step, a row of art pixels at a time.
+    - **The pane's paper is the variant's `composited_panel`**, drawn by the frame, so `theme.check` checks what is
+      read. The panes, header, footer and chip are cleared while ink is on. The accent stripe stays.
+    - **Every state is a mark from the table** (needs you, running, error, done, stale, answered, finding). Wilted,
+      sprouting and blooming crops and a scorched frame are the materials' responses.
+    - **An idle desk with any skin wrote to the page** (`applyTheme`, `applySkin`, `startGround`). Now it writes only
+      a change.
 - **J #256 — voxel on three.js.** Real voxel slabs and status stacks, instanced, one draw call per material.
   - **Built (#256)**, in `static/ink/skins/voxel.js` and [skin-voxel.md](skin-voxel.md), tested by
     `tests/test_fleet_voxel_ink.py`. What building it decided:
