@@ -294,13 +294,57 @@ def _explain_the_page(page, selector: str) -> None:
     faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
 
 
+# Three different browser tests have failed on the Windows leg with the same sign in their stderr:
+# a desk answer written only after the browser had gone. A stack taken while the request is still
+# stuck says what it is waiting on; one taken afterwards says nothing.
+SLOW_REQUEST_S = 3.0
+
+
+def _explain_a_slow_request(method: str, path: str) -> None:
+    import faulthandler
+
+    print(f"\n--- the desk has been answering {method} {path} for {SLOW_REQUEST_S:g} s; every thread ---",
+          file=sys.stderr, flush=True)
+    faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+
+
+def _watch_the_desk_for_slow_answers(monkeypatch) -> None:
+    import threading
+
+    try:
+        from agentdata.fleet import serve
+    except ImportError:
+        return
+
+    def watched(real):
+        def answer(self):
+            path = self.path.split("?", 1)[0]
+            if path == "/api/events":                  # the stream is meant to stay open
+                return real(self)
+            timer = threading.Timer(SLOW_REQUEST_S, _explain_a_slow_request, (self.command, path))
+            timer.daemon = True
+            timer.start()
+            try:
+                return real(self)
+            finally:
+                timer.cancel()
+        return answer
+
+    monkeypatch.setattr(serve.Handler, "do_GET", watched(serve.Handler.do_GET))
+    monkeypatch.setattr(serve.Handler, "do_POST", watched(serve.Handler.do_POST))
+
+
 @pytest.fixture(autouse=True)
 def _explain_a_desk_wait_that_ran_out(request, monkeypatch):
     """On a `browser` test, a `wait_for_selector` that times out prints the page's own state and a
-    stack for every thread first, then raises exactly as it would have. Nothing else changes."""
+    stack for every thread first, then raises exactly as it would have. And a desk request that
+    has not been answered after `SLOW_REQUEST_S` prints every thread's stack while it is still
+    stuck. Both print to stderr, which pytest shows only for a test that failed. Nothing else
+    changes."""
     if request.node.get_closest_marker("browser") is None:
         yield
         return
+    _watch_the_desk_for_slow_answers(monkeypatch)
     try:
         from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
     except ImportError:
