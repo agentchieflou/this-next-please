@@ -132,8 +132,7 @@ skin: a degraded mode of the one platform, not a second one.
       version and K consolidates. The new count is not written again by the reveal, which the layer would need
       to re-run on a change of text.
     - **No font is downloaded**: a local cursive stack.
-    - **`state-done` is rare on today's desk** (unsupervised reads idle, supervised reads running); the row waits
-      for the page to set it.
+    - **Done keys on `is-done`** (the fold's word, #253) as well as `state-done`, which today's desk rarely sets.
     - **A skinned desk was never idle** (every refresh rewrote the skin's attributes, and the glass ground's retry
       looped for other skins); `common.js` and `app.js` now write only what changed.
 - **F #252 — napkin notes.** Quilted two-ply with no rules. A felt tip that bleeds along the emboss. A coffee ring
