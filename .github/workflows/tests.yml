@@ -156,7 +156,12 @@ jobs:
     # 25, not 20: the ink skins (#249-#253) each bring a browser file of their own, and the serial
     # pytest step alone took 15m04s on the legal pad's run (#251), whose job was cancelled at the
     # cap three seconds before its last step, with every step before it green.
-    timeout-minutes: 25
+    # 40, not 25: with every ink skin in (#249-#257) the 3.14 leg's green runs took 24m44s (#284),
+    # 25m and 25m (#285, #276), and K's guard and trace tests (#257) took it past the cap. Five
+    # minutes at a time has been outgrown three times in a day, so this leaves room rather than
+    # another hair's breadth. A hang is still caught where it happens (`pytest · slow`, 10
+    # minutes); the lasting answer is the browser files in a Windows job of their own, in parallel.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
