@@ -11,6 +11,7 @@ Stdout still gets TOON through `policy.render`, which is the contract that actua
 """
 from __future__ import annotations
 import os
+import sys
 import time
 from datetime import datetime
 from typing import Any
@@ -102,7 +103,10 @@ def linked_tests(root: str, node_id: str) -> tuple[list[str], str]:
 def _profile_node_ms(root: str, selectors: list[str], node_path: str, node_name: str, timeout: int) -> float | None:
     """Cumulative time inside the node itself, so the number is its cost and not the suite's."""
     prof = _out_path(root, f"bench-{_stamp()}.prof")
-    argv = ["python", "-m", "cProfile", "-o", prof, "-m", "pytest", "-q", "-p", "no:cacheprovider", *selectors]
+    # The interpreter running this, as run_tests uses: a bare `python` is whichever one PATH finds
+    # first -- a system Python without pytest in a container, the Store alias on Windows -- and the
+    # profile then silently comes back empty, so every comparison falls back to suite wall time.
+    argv = [sys.executable, "-m", "cProfile", "-o", prof, "-m", "pytest", "-q", "-p", "no:cacheprovider", *selectors]
     try:
         proc.run(argv, cwd=root, timeout=timeout)
     except Exception:
