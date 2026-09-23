@@ -153,7 +153,10 @@ jobs:
     # 20, not 15: the 3.14 leg's green runs took 12m44s, 13m39s and 15m00s on 23 September 2026,
     # and the last was cancelled at the cap one second after every step had passed. A hang is still
     # caught where it happens: `pytest · slow` keeps its own 10-minute cap.
-    timeout-minutes: 20
+    # 25, not 20: the ink skins (#249-#253) each bring a browser file of their own, and the serial
+    # pytest step alone took 15m04s on the legal pad's run (#251), whose job was cancelled at the
+    # cap three seconds before its last step, with every step before it green.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
