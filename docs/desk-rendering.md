@@ -27,9 +27,11 @@ what is painted rather than laid out.
    ignores the difference draws a blurred copy of itself.
 6. **It costs what it claims to.** The ground repaints once a second and is asserted under 4 ms of
    script; the trace is drawn from a row the page already has.
-7. **No WebGL.** Not until slice F's engine rows say PyCharm's JCEF and VS Code's Simple Browser
-   run it behind a corporate proxy. A 3D ground that works on one of the four screens is worse
-   than a flat one that works on all of them.
+7. **No WebGL but the ink layer's, and only where it was measured.** `app.js` never touches
+   WebGL. The ink layer (#248, [desk-ink.md](desk-ink.md)) is the one canvas that does, and it
+   draws only on a shell whose WebGL probe said hardware ([desk-engines.md](desk-engines.md)).
+   Every other shell gets the plain fallback, because a 3D ground that works on one of the four
+   screens is worse than a flat one that works on all of them. No shipped skin draws with it yet.
 
 ## The trace: an hour in sixty numbers
 
