@@ -139,9 +139,10 @@ availability is in **Help → About**.
 
 * **Monitors 1–2**: PyCharm on the repository being reviewed, and its terminal.
 * **Monitor 3**: whatever the work needs — Power BI Desktop, a browser, Jira.
-* **Monitor 4**: the dashboard, chromeless, from `ad-fleet open --in edge`. Toasts
-  ([fleet-notifications.md](fleet-notifications.md)) then arrive in Action Center wherever the
-  operator is looking.
+* **Monitor 4**: the dashboard, chromeless, from `ad-fleet open --in edge`. It is a window of its
+  own on the desk (`w=edge`, unless `--window` names another), so it does not follow the clicks made
+  in a browser tab (#230, #232). Toasts ([fleet-notifications.md](fleet-notifications.md)) then
+  arrive in Action Center wherever the operator is looking.
 
 Whether corporate policy allows Edge's `--app` window is **unverified** — if it is blocked, the
 same URL in an ordinary Edge window differs only in the title bar.
