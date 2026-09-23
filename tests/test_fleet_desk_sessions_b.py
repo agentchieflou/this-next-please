@@ -157,11 +157,82 @@ def test_open_preserves_query_parameters_and_attaches_token(fleet_home):  # noqa
         server.server_close()
 
 
+URL = "http://127.0.0.1:8765/?t=tok"
+
+
+def _write_desk(text: str) -> None:
+    """`desk.json` as the server left it, in the isolated fleet directory."""
+    os.makedirs(fleet_dir(), exist_ok=True)
+    with open(os.path.join(fleet_dir(), S.DESK_FILE), "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _open_all(monkeypatch, capsys) -> tuple[str, list[str]]:
+    """`ad-fleet open --all --in browser` on a desk that is already up: what it printed, and every
+    URL it handed the browser."""
+    from agentdata import cli_fleet
+
+    urls = []
+    monkeypatch.setattr(O, "current_desk", lambda port=8765: ({"port": 8765, "url": URL}, "already up"))
+    monkeypatch.setattr("webbrowser.open", lambda url, *a, **k: urls.append(url) or True)
+    assert cli_fleet.main(["open", "--all", "--in", "browser"]) == 0
+    return capsys.readouterr().out, urls
+
+
+def test_cli_open_all_opens_every_window_desk_json_remembers(fleet_home, monkeypatch, capsys):  # noqa: F811
+    """#172 read `desk.json` through `.registry` and `.serve`, which do not exist beside
+    `cli_fleet`, and `except Exception` took the ImportError for an empty desk: `--all` opened `main`
+    alone whatever the desk remembered. Written by hand rather than through `S.update_window`:
+    `ad-fleet open` runs in a process of its own, and has only the file."""
+    _write_desk(json.dumps({"windows": {"main": {"open": "alpha"}, "left": {"open": "beta"}}}))
+
+    out, urls = _open_all(monkeypatch, capsys)
+
+    assert "windows[2]: main,left" in out, out
+    assert "opened[2]: default browser,default browser" in out, out
+    assert urls == [f"{URL}&w=main", f"{URL}&w=left"]
+
+
+def test_cli_open_all_leaves_the_ide_views_to_their_ide(fleet_home, monkeypatch, capsys):  # noqa: F811
+    """`pycharm` and `vscode` are the IDE views' own records (#230), and nothing outside an IDE can
+    point its view at a URL. A browser tab under either name would share the view's record -- and,
+    once `ad-fleet probe --open pycharm` marks it (#247), go to the probe in the tool window's place
+    and record the browser's WebGL as PyCharm's. `--all` says what it left instead."""
+    _write_desk(json.dumps({"windows": {"main": {}, "pycharm": {"probe": int(time.time())},
+                                        "left": {}, "vscode": {}}}))
+
+    out, urls = _open_all(monkeypatch, capsys)
+
+    assert "windows[2]: main,left" in out, out
+    assert "skipped[2]: pycharm,vscode" in out, out
+    assert urls == [f"{URL}&w=main", f"{URL}&w=left"]
+
+
+@pytest.mark.parametrize("text,skipped", [
+    ("{not json", "skipped[0]:"),
+    (json.dumps({"windows": {"pycharm": {}}}), "skipped[1]: pycharm"),
+], ids=["unreadable", "only-an-ide-view"])
+def test_cli_open_all_opens_main_when_there_is_nothing_else_to_open(  # noqa: F811
+        fleet_home, monkeypatch, capsys, text, skipped):
+    """`--all` always puts the dashboard in front of the operator. The `except` is narrowed to what
+    reading a file raises, not removed: a `desk.json` that is not JSON is still `main`, not a
+    traceback."""
+    _write_desk(text)
+
+    out, urls = _open_all(monkeypatch, capsys)
+
+    assert "windows[1]: main" in out, out
+    assert skipped in out, out
+    assert urls == [f"{URL}&w=main"]
+
+
 def test_cli_open_window_and_all(fleet_home, monkeypatch):  # noqa: F811
     from agentdata import cli_fleet
 
     S.update_window("main", focus=True)
-    S.update_window("left", focus=False)
+    # `seen` is what a page writes first. `focus=False` alone is the default, which is never written,
+    # so `left` would be a window the server knows and `desk.json` does not.
+    S.update_window("left", focus=False, seen="2026-09-11T12:00:00")
 
     opened = []
     monkeypatch.setattr(O, "running", lambda: {"port": 8765, "url": "http://127.0.0.1:8765/?t=tok"})
@@ -179,7 +250,9 @@ def test_cli_open_window_and_all(fleet_home, monkeypatch):  # noqa: F811
     args_all = parser.parse_args(["open", "--all"])
     res_all = cli_fleet.cmd_open(args_all)
     assert res_all == 0
-    all_wins = [w for _, w in opened[-2:]]
+    # What `--all` opened, and only that: `opened[-2:]` also took in the `--window left` above, which
+    # is how `--all` opening `main` alone passed here from #172 on.
+    all_wins = [w for _, w in opened[1:]]
     assert "main" in all_wins and "left" in all_wins
 
 

@@ -1204,20 +1204,22 @@ def cmd_events(a) -> int:
     return EXIT_OK
 
 
-def _remembered_windows() -> list[str]:
+def _remembered_windows() -> tuple[list[str], list[str]]:
+    """What `--all` opens -- the windows `desk.json` remembers less the IDE views (`O.IDE_WINDOWS`),
+    or `main` when that leaves none -- and the IDE views it leaves to their IDE.
+
+    Only a `desk.json` that is missing or not JSON falls back quietly. This read once sat under
+    `except Exception`, which took an import of two modules that do not exist for an empty desk:
+    from #172 on, `--all` opened `main` alone whatever the desk remembered.
+    """
     try:
-        from .registry import fleet_dir
-        from .serve import DESK_FILE
-        desk_path = os.path.join(fleet_dir(), DESK_FILE)
-        if os.path.isfile(desk_path):
-            with open(desk_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            wins = data.get("windows")
-            if isinstance(wins, dict) and wins:
-                return list(wins.keys())
-    except Exception:
-        pass
-    return ["main"]
+        data = textio.read_json(os.path.join(fleet_dir(), S.DESK_FILE))
+    except (OSError, ValueError):
+        data = {}
+    wins = data.get("windows") if isinstance(data, dict) else None
+    names = list(wins) if isinstance(wins, dict) else []
+    return ([w for w in names if w not in O.IDE_WINDOWS] or ["main"],
+            [w for w in names if w in O.IDE_WINDOWS])
 
 
 def cmd_open(a) -> int:
@@ -1235,10 +1237,11 @@ def cmd_open(a) -> int:
 
     try:
         if getattr(a, "all", False):
-            wins = _remembered_windows()
+            wins, skipped = _remembered_windows()
             dids = [O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w) for w in wins]
             return _emit("ad-fleet open", {"where": a.where, "server": server,
                                            "port": record.get("port"), "windows": wins,
+                                           "skipped": skipped,
                                            "opened": [d.get("opened") for d in dids]})
         # Edge is a window of its own, so it gets a record of its own (#230): a plain `main` would
         # follow every click made in the browser tab, and the tab every click made in Edge.

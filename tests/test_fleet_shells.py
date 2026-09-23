@@ -16,7 +16,7 @@ import re
 
 import pytest
 
-from agentdata.fleet import agentstate, notify as N, serve as S
+from agentdata.fleet import agentstate, notify as N, opener as O, serve as S
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VSCODE = os.path.join(ROOT, "ide", "vscode")
@@ -157,6 +157,15 @@ def test_each_shell_names_its_own_window_on_the_desk():
         assert names[shell] in body, f"{shell} does not name its window"
         assert "windowUrl(" in body, f"{shell} loads the page without its window name"
     assert "w=<host>" in read(DOC)
+
+
+def test_open_all_leaves_exactly_the_windows_the_shells_name():
+    """`ad-fleet open --all` leaves each IDE view's window to its IDE, and `IDE_WINDOWS` is how it
+    knows them. Read from the source rather than trusted: a shell that renamed its window would
+    otherwise be given a browser tab sharing its record the next time the operator opened them all."""
+    named = {m.group(1) for body in shells().values()
+             for m in re.finditer(r'\bWINDOW = "([^"]+)"', body)}
+    assert named == set(O.IDE_WINDOWS)
 
 
 def test_both_shells_ping_before_starting_a_second_server():
