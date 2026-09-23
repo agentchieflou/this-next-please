@@ -242,8 +242,16 @@ def test_the_skin_picker_groups_variants_under_their_skin(fleet_home, tmp_path):
             groups = page.evaluate("""() => Array.from(document.querySelectorAll('#skin optgroup'))
                 .map(g => ({ label: g.label, values: Array.from(g.children).map(o => o.value) }))""")
             by_label = {g["label"]: g["values"] for g in groups}
+            # A skin with one variant is one option, not a group of one (settings.js); the legal
+            # pad (#251) is the first.
+            singles = page.evaluate("""() => Array.from(document.querySelectorAll('#skin > option'))
+                .map(o => [o.textContent, o.value])""")
             for name, skin in K.SKINS.items():
                 label = skin["title"]
+                if len(skin["variants"]) == 1:
+                    assert [label, f"{name}:{skin['default']}"] in singles, f"{name}: {singles}"
+                    assert label not in by_label, f"{name} is a group of one"
+                    continue
                 assert label in by_label, f"{name} is not offered: {list(by_label)}"
                 assert set(by_label[label]) == {f"{name}:{v}" for v in skin["variants"]}
                 assert by_label[label][0] == f"{name}:{skin['default']}", "the default variant leads"

@@ -446,10 +446,13 @@ def fleet_snapshot() -> dict:
 
     # Sessions the fleet did not start (#2), worked out once for the whole snapshot rather than per
     # row: the process listing behind this is a PowerShell call on Windows, and it is cached besides.
+    # A desk never waits for it: a stale listing is refreshed off this thread, and this answer draws
+    # the one already held.
     from . import adopt as A
 
     try:
-        offers = {c["repo"]: c for c in A.candidates(registry)}
+        offers = {c["repo"]: c for c in A.candidates(registry,
+                                                      processes=A.agent_processes(wait=False))}
     except Exception:                    # noqa: BLE001 - never let this stop a dashboard drawing
         offers = {}
 
