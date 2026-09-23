@@ -204,8 +204,10 @@ def test_a_digit_can_no_longer_blank_the_window(fleet_home, tmp_path):
             page.keyboard.press("f")          # needs me: only alpha needs anybody
             # `2` is beta's pane -- a rail, which needs me has made it. Every agent is a pane and
             # counts, the open one included (#233), so alpha is `1`.
-            page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=5000)
-            page.wait_for_function("() => windowWrites === 0", timeout=5000)
+            # Conditions, with the headroom a loaded Windows runner needs: the preset's width write
+            # outran 5s there once (#277).
+            page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=15000)
+            page.wait_for_function("() => windowWrites === 0", timeout=15000)
             assert page.inner_text('.tile[data-repo="beta"] .pr-n') == "2"
             page.keyboard.press("2")
             # Wait for the open to have happened rather than for a clock: it goes through a view

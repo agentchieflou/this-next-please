@@ -56,6 +56,7 @@ SKINS = {
             "azure": {"title": "Azure", "base": "blues",
                       "mesh": [("#4DA3FF", 0.30), ("#5EE1E6", 0.25), ("#3FB950", 0.30)],
                       "fill": ("#1A2A48", 0.40),
+                      "ink_tokens": {"highlighter": "--accent"},
                       "composited_panel": {"darkest": "#11213B", "lightest": "#1D3F56"},
                       "why": "cold blue depth, the darkest of the three"},
             "noir": {"title": "Noir", "base": "vanta-black",
@@ -76,12 +77,22 @@ SKINS = {
         "why": "chunky bevelled slab controls and pixel status blocks inspired by voxel worlds",
         "default": "overworld",
         "variants": {
+            # `inks` (#256): the voxel's mark table drawn on its slab, whose face is the composited
+            # panel. Each is the palette's own token (`theme.to_css` of `base`) -- marker and red
+            # `--human`, green `--done`, pencil `--muted` -- and `tests/test_fleet_voxel_ink.py`
+            # holds them to it, so a palette change cannot leave a stale ink here unchecked.
             "overworld": {"title": "Overworld", "base": "matrix", "composited_panel": "#1E221E",
-                          "why": "grass, stone and daylight"},
+                          "why": "grass, stone and daylight",
+                          "inks": {"marker": "#FF3B3B", "red": "#FF3B3B", "green": "#A8FFC0",
+                                   "pencil": "#6E7681"}},
             "nether": {"title": "Nether", "base": "reds", "composited_panel": "#2A1512",
-                       "why": "netherrack and firelight"},
+                       "why": "netherrack and firelight",
+                       "inks": {"marker": "#FFD166", "red": "#FFD166", "green": "#7EE787",
+                                "pencil": "#6E7681"}},
             "end": {"title": "The End", "base": "vanta-black", "composited_panel": "#16121C",
-                    "why": "endstone and void"},
+                    "why": "endstone and void",
+                    "inks": {"marker": "#F85149", "red": "#F85149", "green": "#3FB950",
+                             "pencil": "#6E7681"}},
         },
     },
     "farmstead": {
@@ -98,7 +109,90 @@ SKINS = {
                       "why": "a wet afternoon indoors"},
         },
     },
+    # #253, the ink epic's slice G: drawn by the ink layer (`static/ink/skins/graph.js`). The pane
+    # is the paper itself, so the panel is `--paper`; `inks` are the skin's `--ink-<tool>` (and the
+    # plotted trace's), each checked on that paper; `grid` is the major line text has to cross.
+    # `skin.css` carries the same numbers and `tests/test_fleet_ink_graph.py` holds them together.
+    "graph": {
+        "name": "graph",
+        "title": "Graph paper",
+        "why": "a 28px grid, a mechanical pencil, ruled marks and every agent's hour plotted on it",
+        "default": "engineering",
+        "variants": {
+            "engineering": {"title": "Engineering", "base": "eye-relief-day",
+                            "composited_panel": "#F3F6EC", "grid": "#A8C3A0",
+                            "inks": {"pencil": "#4F555C", "pen": "#1D4E89", "red": "#B42318",
+                                     "green": "#2A733E", "marker": "#B42318",
+                                     "highlighter": "#E6DE5A", "trace": "#1D4E89"},
+                            "why": "green quad-ruled pad, graphite and a blue pen"},
+            "blueprint": {"title": "Blueprint", "base": "blues",
+                          "composited_panel": "#123A66", "grid": "#2F6096",
+                          "inks": {"pencil": "#C4D3E6", "pen": "#EAF2FF", "red": "#FF8B7E",
+                                   "green": "#7BE38B", "marker": "#FF8B7E",
+                                   "highlighter": "#B8A12E", "trace": "#EAF2FF"},
+                          "why": "white lines on a cyanotype"},
+        },
+    },
+    # #251: drawn by the ink layer (`static/ink/skins/legalpad.js`). The panel is the canary stock
+    # itself, and `inks` are the colours `skin.css` writes as `--ink-<tool>` or leaves to the
+    # palette (red, green and the marker are eye-relief-day's own), each checked on that paper.
+    "legalpad": {
+        "name": "legalpad",
+        "title": "Legal pad",
+        "why": "a yellow legal pad: canary stock, blue rules, a double red margin and a glued top, "
+               "drawn on in pencil, pen and highlighter",
+        "default": "canary",
+        "variants": {
+            "canary": {"title": "Canary", "base": "eye-relief-day", "composited_panel": "#FCF3A6",
+                       "inks": {"pencil": "#5E5A52", "pen": "#1F3F9A", "red": "#A82D2D",
+                                "green": "#2A733E", "marker": "#A82D2D", "highlighter": "#FF8FA3"},
+                       "why": "canary stock, and an orange-pink highlighter that still reads on it"},
+        },
+    },
+    # The first skin drawn with ink (#249, #250; docs/desk-ink.md §The notebook). Its panel is the
+    # paper itself: under ink the panes are transparent and the page is the stock. `inks` are the
+    # tools' colours on that paper (the prototype's), `text` and `muted` the words written on it --
+    # the skin's own, set in its skin.css, and held to the same floors by tests/test_fleet_ink_notebook.py.
+    # Dark is a variant rather than a `notebook-dark` family: skins drive palettes, so the night
+    # page's ground is named by the variant like Voxel's Nether, and one module draws both.
+    "notebook": {
+        "name": "notebook",
+        "title": "Notebook",
+        "why": "a graph-ruled notebook drawn live in pencil, pen, marker and highlighter",
+        "default": "light",
+        "variants": {
+            "light": {"title": "Notebook", "base": "eye-relief-day", "composited_panel": "#FBFBF6",
+                      "text": "#23262B", "muted": "#6B7079",
+                      "inks": {"pencil": "#50545C", "pen": "#22398F", "red": "#C8352B",
+                               "green": "#2E7A4D", "marker": "#C8352B", "highlighter": "#F3DF4B"},
+                      "why": "white stock, blue rules, a red margin"},
+            "dark": {"title": "Night notebook", "base": "dark", "composited_panel": "#1B1E25",
+                     "text": "#E7E9EE", "muted": "#9AA0AA",
+                     "inks": {"pencil": "#B5BAC4", "pen": "#94B4FF", "red": "#FF6A5E",
+                              "green": "#6FD39A", "marker": "#FF6A5E", "highlighter": "#E6D548"},
+                     "why": "charcoal stock and gel inks, the highlighter screened"},
+        },
+    },
 }
+
+
+# Glass's inks (#254): the palette token each tool of its mark table (`static/ink/skins/glass.js`)
+# is drawn in, unless a variant's `ink_tokens` names another -- which its skin.css says again as
+# `--ink-<tool>`. Resolved against the variant's own palette, so `theme.check` holds every mark on
+# both ends of the frost, and the highlighter's tint under the text, like any paper skin's inks.
+GLASS_INKS = {"pen": "--accent", "red": "--human", "green": "--done", "marker": "--human",
+              "highlighter": "--waiting"}
+
+
+def _glass_inks() -> None:
+    from .. import theme as T
+    for spec in SKINS["glass"]["variants"].values():
+        css = T.to_css(T.get(spec["base"]))
+        tokens = dict(GLASS_INKS, **spec.get("ink_tokens", {}))
+        spec["inks"] = {tool: css[token] for tool, token in tokens.items()}
+
+
+_glass_inks()
 
 
 def _over(top: tuple, alpha: float, under: tuple) -> tuple:

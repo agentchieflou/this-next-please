@@ -1,7 +1,7 @@
 """Tests for Desk on Windows skin tier (Issues #154, #155, #156, #157).
 
 Contracts:
-- list_skins() returns none, glass, voxel, farmstead with metadata and sizes.
+- list_skins() returns none, glass, voxel, farmstead, graph with metadata and sizes.
 - Size budget: each skin is under 150 KB.
 - Pixel art rule: 100% original hand-authored vector SVG pixel art; zero rasters (<image>, base64, png, jpg).
 - Composited panel check passes WCAG contrast floors for all skins.
@@ -21,10 +21,11 @@ SKINS_DIR = skins.SKINS_DIR
 
 
 def test_list_skins_returns_all_skins_with_budgets():
-    """list_skins() returns standard none plus glass, voxel, farmstead under 150 KB budget."""
+    """list_skins() returns standard none plus glass, voxel, farmstead, graph and the legal pad (#251)
+    under 150 KB budget."""
     available = skins.list_skins()
     names = [s["name"] for s in available]
-    assert names == ["none", "glass", "voxel", "farmstead"]
+    assert names == ["none", "glass", "voxel", "farmstead", "graph", "legalpad", "notebook"]
 
     for s in available:
         assert "title" in s and "why" in s and "base" in s and "variants" in s
@@ -89,8 +90,8 @@ def test_every_skin_variant_passes_the_contrast_rule_on_its_own_ground():
         panels = skins.composited_panels(spec)
         assert panels, f"{skin_name}:{variant} declares no composited panel"
         for panel in panels:
-            # `inks` (#248): a paper skin's inks on its paper. None of today's variants draws with
-            # ink, so this is the hook the notebook and its siblings (#249-#253) fill in.
+            # `inks` (#248): a paper skin's inks on its paper -- the notebook's first (#249, #250),
+            # and its siblings' (#251-#253) as they arrive.
             theme.check(base_palette, composited_panel=panel, skin=f"{skin_name}:{variant}",
                         inks=spec.get("inks"))
 
@@ -123,14 +124,47 @@ def test_the_glass_stylesheet_paints_the_numbers_skins_py_declares():
         block = re.search(r'body\[data-skin-variant="%s"\]\s*\{(.*?)\}' % variant, css, re.S)
         assert block, f"glass:{variant} is not drawn"
         body = block.group(1)
+        # The blobs are the variant's `--glass-mesh-N` (#254), which the one gradient on the page
+        # and the three.js ground (`ink/skins/glass.js`) both paint from.
         blobs = [_rgba(m) for m in re.findall(
-            r"radial-gradient\([^,]+,\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)\s*0%", body)]
+            r"--glass-mesh-\d:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)", body)]
         assert blobs == [(c, round(a, 2)) for c, a in spec["mesh"]], (variant, blobs, spec["mesh"])
         fill = re.search(r"--glass-fill:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)", body)
         assert fill and _rgba(fill.groups()) == (spec["fill"][0], round(spec["fill"][1], 2)), (variant, spec["fill"])
         # A card on the pane is one step more opaque than the pane -- layer 2 is measurable.
         card = re.search(r"--glass-card:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)", body)
         assert card and float(card.group(4)) > float(fill.group(4)), variant
+
+
+def test_the_glass_mesh_is_one_gradient_and_three_js_paints_it_at_the_same_places():
+    """#254: the CSS ground and the three.js ground are one mesh. The stylesheet paints it once,
+    from the variant's `--glass-mesh-1..3`, and `ink/skins/glass.js` puts its blobs at the same
+    places with the same radii (`MESH`) and the same 70% falloff -- so a pane over either composites
+    to the range skins.py declares."""
+    css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
+    grads = re.findall(r"radial-gradient\(ellipse (\d+)% (\d+)% at (\d+)% (\d+)%, var\(--glass-mesh-(\d)\) 0%, "
+                       r"transparent 70%\)", css)
+    assert [g[4] for g in grads] == ["1", "2", "3"], "the ground is painted once, from the custom properties"
+    js = open(os.path.join(os.path.dirname(SKINS_DIR), "ink", "skins", "glass.js"), encoding="utf-8").read()
+    mesh = re.findall(r"\{ at: \[([\d.]+), ([\d.]+)\], r: \[([\d.]+), ([\d.]+)\] \}", js)
+    assert [(float(a), float(b), float(c), float(d)) for a, b, c, d in mesh] == \
+        [(int(x) / 100, int(y) / 100, int(rx) / 100, int(ry) / 100) for rx, ry, x, y, _ in grads], (mesh, grads)
+    assert "const BLOB_END = 0.70;" in js
+
+
+def test_glass_draws_with_the_inks_skins_py_checks():
+    """#254: every tool glass's mark table draws with is an ink `theme.check` holds on both ends of
+    every variant's frost, and a variant that names another token for one says so in its
+    stylesheet as `--ink-<tool>`, which is where the layer reads it."""
+    js = open(os.path.join(os.path.dirname(SKINS_DIR), "ink", "skins", "glass.js"), encoding="utf-8").read()
+    tools = set(re.findall(r'tool: "(\w+)"', js))
+    assert tools and tools <= set(skins.GLASS_INKS), tools
+    css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
+    for variant, spec in skins.SKINS["glass"]["variants"].items():
+        assert set(spec["inks"]) == set(skins.GLASS_INKS), variant
+        block = re.search(r'body\[data-skin-variant="%s"\]\s*\{(.*?)\n\}' % variant, css, re.S).group(1)
+        said = dict(re.findall(r"--ink-(\w+):\s*var\((--[\w-]+)\)", block))
+        assert said == spec.get("ink_tokens", {}), (variant, said)
 
 
 def test_every_palette_on_its_own_passes_too():

@@ -113,19 +113,118 @@ skin: a degraded mode of the one platform, not a second one.
       rewritten, and the notebook's paper. All three are C's, and they need the state grammar.
 - **C #249 — notebook (light).** The prototype on the real desk, with the state grammar below. An answered question
   strikes the *question*, never the agent's name, which fixes the flaw both prototypes had.
+  - **Built (#249, #250)**, with D, in `static/ink/skins/notebook.js` and `static/skins/notebook/skin.css`, in
+    [skin-notebook.md](skin-notebook.md), tested by `tests/test_fleet_ink_notebook.py`. What building it decided:
+    - **Dark is the variant `notebook:dark`**, not a `notebook-dark` family: skins drive palettes, so the variant
+      names the night page's palette, and one module draws both. The layer reads light or dark from `--paper`.
+    - **Every row is a class the page already sets**, and one class was added: `is-answered`, on a question
+      `/api/answer` says it passed on. *Running* grows with the transcript lines that arrive, not with time. The
+      version line is the run line, a finding is a recorded friction, and the header's count is the unread count.
+    - **Three general row fields** in the layer: `grow`/`step` and `tip` for the running line, `rewrite` for the
+      count struck and written again.
+    - **No web font.** The handwriting is a local cursive stack, with Caveat first where it is installed.
+    - **No legend line.**
+    - An idle desk with **any** skin chosen through the config was writing to the page. Fixed, with a regression
+      test.
 - **D #250 — notebook, dark.** Charcoal stock and gel inks. The highlighter screens instead of multiplying. Chosen
-  by the palette's luminance or named `notebook-dark`.
+  by the palette's luminance or named `notebook-dark`. **Built (#250)** with C, as the variant `notebook:dark`.
 - **E #251 — legal pad.** Canary stock, blue rules, a double red margin and a glued top edge. The highlighter shifts
   to orange-pink so it still reads on yellow.
+  - **Built (#251)**, as `legalpad` in `skins.py` (`static/ink/skins/legalpad.js`, `skins/legalpad/skin.css`),
+    in [desk-ink.md](desk-ink.md) §The legal pad, tested by `tests/test_fleet_ink_legalpad.py`. What building it
+    decided, each undone by a sentence from the operator:
+    - **Canary `#FCF3A6` on `eye-relief-day`**, the one light palette whose text and status colours all hold on it.
+      The inks it overrides are pencil (graphite), pen (a blue ballpoint) and the **orange-pink highlighter
+      `#FF8FA3`**; each of the six is in `skins.py` and held to the canary by `theme.check`.
+    - **The grammar is a mark table over classes the page already sets.** *Answered* is `aria-pressed` on the chosen
+      choice (the card has no answered class, and hides once the answer lands); *a finding* is a transcript line
+      the page marks `denied` or `friction`; *stale* writes the chip's own words and points at the run line;
+      *the header count* is the bell's.
+    - **The running pen's tail and the struck header count are drawn by the skin**, in its `tick`, because the
+      layer has no shape for them; the tail grows one step per transcript line of the turn. C builds the shared
+      version and K consolidates. The new count is not written again by the reveal, which the layer would need
+      to re-run on a change of text.
+    - **No font is downloaded**: a local cursive stack.
+    - **Done keys on `is-done`** (the fold's word, #253) as well as `state-done`, which today's desk rarely sets.
+    - **A skinned desk was never idle** (every refresh rewrote the skin's attributes, and the glass ground's retry
+      looped for other skins); `common.js` and `app.js` now write only what changed.
 - **F #252 — napkin notes.** Quilted two-ply with no rules. A felt tip that bleeds along the emboss. A coffee ring
   under a pane that has been idle a long time.
 - **G #253 — graph paper.** A grid on the page's own 28 px baseline, a mechanical pencil, ruled strokes snapped to the
   grid, and traces plotted on it.
+  - **Built (#253)**, in `static/ink/skins/graph.js` and `static/skins/graph/skin.css`, documented in
+    [skin-graph.md](skin-graph.md), tested by `tests/test_fleet_ink_graph.py`. What building it decided:
+    - **A heavy line every fifth square (140 px)**, the engineering pad's count: past four, squares stop being
+      countable at a glance. The grid starts at the viewport's top-left, where ruled strokes find it.
+    - **Two variants**, Engineering (light, the default) and Blueprint (dark, so the highlighter screens).
+    - **Three general table fields in the layer**, each optional and validated, because the marks are the layer's
+      strokes and no skin can change them from inside its module: `tools` tunes a tool's hand (the mechanical
+      pencil), a row's `snap` rules its straight strokes onto a grid, and a row's `leaves` overrides how it goes
+      (the name's highlight is taken up, never struck through the name).
+    - **Two things the page did not say**: `is-done` on a pane (the fold's *done*, which the chip draws as idle, so
+      `state-done` never reached a tile), and `data-trace` on the trace (its hour as data, for a skin that plots it).
+    - **A finding is a skill's STOP** (`li.friction` in the transcript): the desk shows no other finding.
+    - **Answered is a pressed choice.** The question's highlight leaves by the pen's strike and the choice is circled.
+    - **Not drawn yet**: the running underline growing with the turn and its pen-tip dot, and the count struck and
+      rewritten beside itself. They are C's mechanism for every paper skin, adopted when it lands.
+    - Found on the way and fixed: with any skin but glass chosen, an idle desk rewrote its skin and theme attributes
+      on every snapshot and retried a ground every 150 ms forever.
 - **H #254 — glass on three.js.** A real mesh ground, frosted panes that sample it through a blur pass, lit glints
   and shadows. The composited panel `theme.check` measures is read from the rendered frame.
+  - **Built (#254)**, in `static/ink/skins/glass.js` and [skin-glass.md](skin-glass.md), tested by
+    `tests/test_fleet_ink_glass.py`. What building it decided:
+    - **One mesh, two painters.** The blobs are `--glass-mesh-1..3` in skin.css. The CSS ground and the three.js
+      ground both paint from them, at the same places (`MESH`, held to skin.css by a test).
+    - **The blur is the pane's own shader**, from the layer's ground texture: 21 gaussian taps, with no render
+      target of the skin's to free. So nothing was added to the layer.
+    - **The pane's box goes transparent with ink on**, and nothing else does. Header, footer, sidebar and cards stay
+      CSS glass over the canvas.
+    - **The contrast is read back from the frame.** The test reads `gl.readPixels` in the task `Ink.sample` drew in,
+      so no readback was added to the layer either.
+    - **No pencil on glass.** It has no paper tooth. The inks are the palette's, with azure's highlighter moved to its
+      accent to keep 4.5:1 (skins.py `GLASS_INKS`, `ink_tokens`).
+    - **The state is also in the pane**: a rim drawn round it in the state's colour, which runs back when the state
+      goes, and a travelling glint for running. Materials may move, but they arrive and leave drawn too.
+    - **An idle skinned desk wrote five attributes a refresh** (`applyTheme`, `applySkin`, the #218 ground's
+      `has-ground`). Fixed in the page, with a regression test, because the ink layer repainted for each one.
 - **I #255 — farmstead on three.js.** The original `sprites.svg` art as nearest-neighbour textures at integer scale,
   lit wooden frames, and crop glyphs that grow a stage when an agent's phase advances.
+  - **Built (#255)**, in `static/ink/skins/farmstead.js` and [skin-farmstead.md](skin-farmstead.md), tested by
+    `tests/test_fleet_ink_farmstead.py`. What building it decided:
+    - **The sheet is rasterised on its own grid**, one texel per art pixel, and every enlargement is NearestFilter's
+      at a whole number of device pixels (rounded down). The loader is in the skin module, not the layer.
+    - **The phase's DOM signal is the tile's `state-*`** (with `needs-human`). The page has no phase attribute. Seed,
+      sprout and bloom are the growth line, one stage drawn per step, a row of art pixels at a time.
+    - **The pane's paper is the variant's `composited_panel`**, drawn by the frame, so `theme.check` checks what is
+      read. The panes, header, footer and chip are cleared while ink is on. The accent stripe stays.
+    - **Every state is a mark from the table** (needs you, running, error, done, stale, answered, finding). Wilted,
+      sprouting and blooming crops and a scorched frame are the materials' responses.
+    - **An idle desk with any skin wrote to the page** (`applyTheme`, `applySkin`, `startGround`). Now it writes only
+      a change.
 - **J #256 — voxel on three.js.** Real voxel slabs and status stacks, instanced, one draw call per material.
+  - **Built (#256)**, in `static/ink/skins/voxel.js` and [skin-voxel.md](skin-voxel.md), tested by
+    `tests/test_fleet_voxel_ink.py`. What building it decided:
+    - **Three materials, three draw calls**: the ground, the slabs and the stacks, each one
+      `InstancedMesh` sharing one shader, at one agent or twenty (the renderer's own count is asserted).
+      The skin draws nothing into a pane's own frame group, because that would be a draw call per pane.
+      It builds each pane's voxels in the pane's coordinates, and a uniform per pane (`uPane[slot]`,
+      written in `onBeforeRender` from the group the layer placed) moves them. A gutter drag is a
+      uniform write in the frame that moves the panes.
+    - **The slab's face is the composited panel.** A face square to the one light is drawn in its own
+      colour, passed through as sRGB, so `--voxel-panel` (skin.css) and `composited_panel` (skins.py)
+      are one number and `theme.check`'s pair is the rendered pair. The inks the table uses are
+      declared per variant.
+    - **The stack sits in the accent strip**, the one place on a pane with no text: three sockets at
+      its top. Height is progress (one idle, two in hand, three done), and the top block's response is
+      the state: turned, raised, cracked, set. A stale session adds a pebble, and a finding adds ore.
+    - **A running block turns on a timer, not a loop**: a quarter every 3s, one `api.request()` each,
+      so an idle desk draws nothing.
+    - **The fallback is today's CSS skin, unchanged.** Only where the gate is on does skin.css stop
+      painting the texture, the tile's fill, borders and shadow, and the chip's sprite. The borders
+      keep their widths, so the layout is the same.
+    - **A chosen skin's idle desk writes nothing.** `applyTheme` and `applySkin` wrote the same
+      attributes on every refresh, and `startGround` re-armed a wait for a mesh only glass has. Each
+      was a DOM mutation, and each woke the ink layer. They now write only what changed.
 - **K #257 — one platform.** `drawGround` and `drawTrace` move to the ink layer and nothing calls
   `getContext("2d")`. Skin files keep only layout and typography (a guard refuses decoration in them). The fallback
   is the one CSS look left.
