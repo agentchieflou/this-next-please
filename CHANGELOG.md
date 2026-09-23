@@ -31,7 +31,8 @@ place and value:
     with no local model takes `'Table'[Measure]` and says it could not check it.
 - **`clusteredBarChart` and `clusteredColumnChart` join the catalog,** so `visual add` can create the chart the
   bar-end label route is drawn on. `barChart` and `columnChart` are described as what they are, the stacked
-  ones.
+  ones. `pbi-report-design`'s references now recommend the clustered types for rankings, breakdowns and
+  periods, and keep the stacked ones for series that are parts of a category's total.
 - **The tests hold it to Desktop's own files:** five bar and column charts Desktop saved, from microsoft/fabric-toolbox
   and microsoft/BCApps, in `tests/fixtures/pbip/desktop-saved/`. Every literal they set is taken out and put back
   with `visual set`, and the file must come back as Desktop saved it.

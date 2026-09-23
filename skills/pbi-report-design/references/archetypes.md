@@ -7,8 +7,8 @@ Each report page must align to one of the five canonical archetypes.
 - **Target Scan Time**: 5–10 seconds.
 - **Core Pattern**:
   - Top: 3–5 multi-metric KPI cards (`cardVisual`) with sparklines or period-over-period variance.
-  - Middle: Primary driver trend (`lineChart` or `columnChart`) showing trajectory against target.
-  - Bottom: High-level categorical breakdown (`barChart` or `waterfallChart`).
+  - Middle: Primary driver trend (`lineChart` or `clusteredColumnChart`) showing trajectory against target.
+  - Bottom: High-level categorical breakdown (`clusteredBarChart` or `waterfallChart`).
 - **Layout Variants**:
   - Variant A (Standard): Top KPI ribbon (h:120px), Middle Trend (w:800px), Side Breakdown (w:420px).
   - Variant B (Dual-Pillar): Top KPI ribbon, Left Revenue stream, Right Cost/Margin stream.
@@ -20,7 +20,7 @@ Each report page must align to one of the five canonical archetypes.
 - **Core Pattern**:
   - Top: Exception alerts and queue counts.
   - Middle: Real-time work-in-progress status grid (`tableEx`).
-  - Side: SLA status distribution (`barChart` or `donutChart`).
+  - Side: SLA status distribution (`clusteredBarChart` or `donutChart`).
 - **Layout Variants**:
   - Variant A: Left alert panel (w:320px), Center active items table (w:920px).
   - Variant B: Top alert cards, Center split active vs completed tables.
@@ -48,4 +48,4 @@ Each report page must align to one of the five canonical archetypes.
 - **Target Scan Time**: 1–3 minutes.
 - **Core Pattern**:
   - Side-by-side performance comparisons across entities (Regions, Products, Teams).
-  - Ranked bar charts (`barChart`), variance waterfalls, and quartile distribution bands.
+  - Ranked bar charts (`clusteredBarChart`), variance waterfalls, and quartile distribution bands.

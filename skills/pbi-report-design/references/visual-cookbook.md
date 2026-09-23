@@ -2,7 +2,7 @@
 
 Formatting rules and properties per visual type.
 
-## §1. columnChart & barChart
+## §1. clusteredColumnChart & clusteredBarChart (and the stacked columnChart & barChart)
 - **Sorting**:
   - Time dimensions: Always sort chronologically ascending.
   - Categorical rankings: Always sort by metric descending. Never leave sorted alphabetically by default.
