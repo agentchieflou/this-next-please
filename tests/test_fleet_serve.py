@@ -273,6 +273,18 @@ def test_a_live_stream_delivers_a_new_event_within_a_second(running, tmp_path):
 # -------------------------------------------------------------------------------- the page itself
 
 
+#: The two URLs inside the vendored three.js r160 (#247), neither of which is ever fetched: the
+#: XHTML namespace `createElementNS` is handed, and a link inside a deprecation warning's text. Named
+#: one by one, and for that file only, so the guard still reads every other byte of it -- the file
+#: itself cannot be edited, because its sha256 is pinned in `tests/test_fleet_probe.py`.
+VENDORED_NOT_FETCHED = {
+    os.path.join("vendor", "three", "three.module.min.js"): (
+        "http://www.w3.org/1999/xhtml",
+        "https://discourse.threejs.org/t/updates-to-lighting-in-three-js-r155/53733",
+    ),
+}
+
+
 def test_the_page_fetches_nothing_from_the_internet():
     """JCEF and Simple Browser both sit behind the corporate proxy. One CDN reference is a page
     that does not load at work -- and it would look like a bug in the fleet, not in the HTML."""
@@ -280,6 +292,10 @@ def test_the_page_fetches_nothing_from_the_internet():
         for name in sorted(files):
             body = open(os.path.join(root, name), encoding="utf-8").read()
             cleaned = body.replace("http://www.w3.org/2000/svg", "")
+            for allowed in VENDORED_NOT_FETCHED.get(
+                    os.path.relpath(os.path.join(root, name), STATIC), ()):
+                assert allowed in cleaned, f"{name} no longer carries {allowed}; re-read it"
+                cleaned = cleaned.replace(allowed, "")
             for bad in ("http://", "https://", "//cdn", "//unpkg", "@import url("):
                 assert bad not in cleaned, f"{name} reaches outside for {bad}"
 
