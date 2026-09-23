@@ -4,6 +4,29 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.15.0
+
+**One arrangement (#232).** `grid`, `roles` and `screens` are retired, as `docs/plan-panes.md` planned from the
+operator's request of 22 September 2026: one arrangement, hardened, where every agent is its own column. The
+column is now the only way the desk is drawn, and the later panes slices make every agent a full-height,
+resizable column (#233-#236).
+- The layout picker, the view segments, the swap, the zoom, the dock and the grid's edge resize are gone.
+- `?layout=`, `&view=` and `&screen=` in an old bookmark are ignored. The footer says so once, and the
+  address drops them.
+- `--layout` on `ad-fleet serve`, `quickstart`, `hide` and `unhide` is accepted, ignored and hidden from help,
+  so a script that passes it keeps working. The command's `note` says it was ignored.
+- `ad-fleet open --in edge` uses its own window (`w=edge`) unless `--window` names one.
+
+**`desk.json` schema 2.** The first load of an older `desk.json` migrates it once:
+- The old file is copied to `desk.v1.json` beside it first.
+- The arrangement comes from the column's, or from the grid's if the column never had one (`ad-fleet hide`
+  wrote there), keeping order, pins and hidden agents.
+- Each window keeps what it had open and its reading state. The grid's leftover `zoomed`, the one that
+  snapped a click back (#230), is dropped.
+
+Nothing to run. An older build reading a schema-2 `desk.json` finds no per-layout arrangement and starts
+from registry order; `desk.v1.json` is the file to put back if you downgrade.
+
 ## 0.13.2
 
 **A click on another agent stays where it was put (#230).** In the column, a click on a band opened
