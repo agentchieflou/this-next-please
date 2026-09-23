@@ -700,7 +700,8 @@ def test_the_rows_rules_are_the_pages_rules():
     bands beside it. Its rules became unconditional when it was the only one (#232), and the row
     that replaced it (#233) keeps that: `main` is one flex row at full height, every pane is a
     48px rail until it is open, and an open pane takes its weight of what the rails leave -- never
-    a wrap of cards, and nothing sideways past the edge but as a last resort."""
+    a wrap of cards, and nothing sideways past the edge but as a last resort. The weight is the
+    window's own width for the pane since the gutters (#234): `--w`."""
     css = open(APP_CSS, encoding="utf-8").read()
     main = css.split("\nmain {", 1)[1].split("}", 1)[0]
     assert "display: flex; flex-direction: row; align-items: stretch;" in main
@@ -708,45 +709,55 @@ def test_the_rows_rules_are_the_pages_rules():
     assert "repeat(auto-fit" not in main, "the grid's wrap is back"
     assert ".tile:not(.is-solo) { display: none; }" not in css, "the rails are off the glass"
     assert "flex: 0 0 var(--rail); min-width: 0; min-height: 0;" in css
-    assert ".tile.is-solo { flex: var(--cols, 1) 1 0; min-width: 160px; }" in css
+    assert ".tile.is-solo { flex: var(--w, 1) 1 0; min-width: 160px; }" in css
 
 
-def test_focus_mode_quiets_the_rails_that_need_nobody():
-    """The one thing on #133 that is not a layout. It filters on `needs-human`, which comes from
-    #94's fold -- the same flag the chip and the toast use, so the three cannot disagree.
+def test_needs_me_widens_what_the_fold_says_needs_a_person():
+    """The one thing on #133 that is not a layout, and since #234 not a mode either: *needs me* is
+    a preset -- one write of this window's widths -- that makes every agent needing a person wide
+    and every other a rail. It reads `needs-human`, which comes from #94's fold -- the same flag the
+    chip and the toast use, so the three cannot disagree.
 
-    What it quiets is the rails: a rail whose agent needs nobody dims (#233; in the column a quiet
-    band folded to a sliver). The filter has exactly one exception, and it is written here rather
-    than left to be discovered: an agent the operator has just acted on is `held`, because answering
-    an agent is what stops it needing you and the reply would otherwise dim the rail it was typed
-    into. What that looks like from the operator's side is covered in `test_fleet_desk_actions.py`,
-    in a browser; this only holds the line that the classes the rule turns on are still the ones the
-    script sets.
-    """
+    It replaced the needs-only filter, which dimmed the quiet rails and needed `held` to keep the one
+    just answered from dimming under the reply. A preset takes nothing back when an agent stops
+    needing you, so neither the dimming nor the hold is left; what that looks like from the
+    operator's side is `test_fleet_desk_actions.py`, in a browser."""
     js = open(APP_JS, encoding="utf-8").read()
     css = open(APP_CSS, encoding="utf-8").read()
     assert 'toggle(el, "needs-human", !!row.needs_human);' in js
-    assert 'toggle(el, "held", held.has(row.repo));' in js
-    assert 'toggle(entry.el, "is-quiet", needsOnly && !isOpen && !members.some(' in js
-    assert "return held.has(member) || (!!other && other.el.classList.contains(\"needs-human\"));" in js
-    assert "body.needs-only .tile.is-quiet { opacity: .45; }" in css
-    assert 'if (e.key === "f") { focusMode(); return; }' in js
+    preset = js[js.index("function applyPreset(which) {"):]
+    preset = preset[:preset.index("\n}\n")]
+    assert "shown.filter(needsPerson)" in preset
+    assert 'return !!entry && entry.el.classList.contains("needs-human");' in js
+    assert 'if (e.key === "f") { applyPreset("needs"); return; }' in js
+    # What the code does, not what its comments say it replaced.
+    code = re.sub(r"/\*.*?\*/|//[^\n]*", " ", js, flags=re.S)
+    rules = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+    for gone in ("needsOnly", "focusMode", '"is-quiet"', "held.has("):
+        assert gone not in code, gone
+    for gone in ("body.needs-only", ".is-quiet", ".holdnote"):
+        assert gone not in rules, gone
 
 
 def test_the_keyboard_toggle_is_written_on_the_page_itself():
-    """A shortcut documented only in a doc file is a shortcut nobody finds."""
+    """A shortcut documented only in a doc file is a shortcut nobody finds: on the preset's own
+    button, and in the key map."""
     html = open(INDEX, encoding="utf-8").read()
-    assert "<kbd>f</kbd> only what needs you" in html
-    assert '<button id="focus"' in html and "show only the agents that need you" in html
+    assert "<kbd>f</kbd> needs me wide" in html
+    assert 'id="preset-needs" data-preset="needs"' in html and "needs me <kbd>f</kbd>" in html
+    assert '<button id="focus"' not in html, "the needs-only toggle is the preset now"
 
 
-def test_focus_mode_never_empties_the_window():
-    """The open tile *is* the window. Hiding it because it does not happen to need a person would
-    leave an operator staring at an empty monitor, so no focus-mode rule hides a tile at all."""
-    css = open(APP_CSS, encoding="utf-8").read()
-    for selector, body in re.findall(r"([^{}]*body\.needs-only[^{]*)\{([^}]*)\}", css):
-        if ".tile" in selector:
-            assert "display: none" not in body, selector.strip()
+def test_needs_me_never_empties_the_window():
+    """The open tile *is* the window. A preset that left every pane a rail -- because nothing
+    happens to need a person -- would leave an operator staring at a row of strips, so *needs me*
+    with nobody needing you writes nothing and says so; and it hides nothing when somebody does."""
+    js = open(APP_JS, encoding="utf-8").read()
+    preset = js[js.index("function applyPreset(which) {"):]
+    preset = preset[:preset.index("\n}\n")]
+    assert "if (!red.length) {" in preset and "nothing needs you" in preset
+    for never in ("setHidden(", "is-hidden", "hidden:"):
+        assert never not in preset, never
 
 
 def test_a_grey_cell_carries_the_error_in_a_tooltip_and_still_shows_its_value():
@@ -759,9 +770,10 @@ def test_a_grey_cell_carries_the_error_in_a_tooltip_and_still_shows_its_value():
 
 def test_the_status_colours_are_still_the_same_in_every_mode():
     """A chip that means "needs you" has to be the same red on the left monitor and the centre one,
-    in focus mode or out of it, or the colour stops being information."""
+    stale or live, with a gutter held or not, or the colour stops being information. (Focus mode's
+    `needs-only` was one of these body classes, and went with the filter, #234.)"""
     css = open(APP_CSS, encoding="utf-8").read()
-    for body_class in ("needs-only", "is-stale", "has-ground"):
+    for body_class in ("is-resizing", "is-stale", "has-ground"):
         for rule in re.findall(r"body\." + body_class + r"[^{]*\{([^}]*)\}", css):
             for status in ("--running", "--waiting", "--human", "--done"):
                 assert status not in rule, f"body.{body_class} redefines {status}"

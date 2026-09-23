@@ -312,7 +312,11 @@ def test_an_idle_desk_makes_no_mutation_at_all(fleet_home, tmp_path):
 def test_a_tier_is_left_only_eight_pixels_past_its_boundary(fleet_home, tmp_path):
     """The hysteresis, read off the one function that decides it: a pane sitting on 360 -- a
     window edge being dragged, a scrollbar coming and going -- does not redraw itself between two
-    tiers on every frame."""
+    tiers on every frame.
+
+    Only between compact and full since the gutters (#234). A pane is a 48px rail or at least 160px
+    wide, so nothing sits on the rail's boundary to flicker across it; the slack that was there drew
+    a rail pulled out to exactly the compact minimum as a rail's face 160px wide."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, ["alpha", "beta"])
 
@@ -332,9 +336,9 @@ def test_a_tier_is_left_only_eight_pixels_past_its_boundary(fleet_home, tmp_path
     finally:
         _stop(server)
     assert got["fresh"] == ["rail", "rail", "rail", "compact", "compact", "full", "full"]
-    assert got["fromCompact"] == ["rail", "compact", "compact", "compact", "compact", "full"]
+    assert got["fromCompact"] == ["rail", "rail", "compact", "compact", "compact", "full"]
     assert got["fromFull"] == ["compact", "full", "full"]
-    assert got["fromRail"] == ["rail", "rail", "compact", "full"]
+    assert got["fromRail"] == ["rail", "compact", "compact", "full"]
 
 
 @pytest.mark.browser

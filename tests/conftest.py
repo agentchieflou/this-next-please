@@ -269,7 +269,8 @@ _PAGE_STATE = """() => {
   return {
     url: location.href, ready: document.readyState, body: document.body && document.body.className,
     layout: g('LAYOUT'), window: g('W_NAME'), open: g('openTile'), focused: g('focused'),
-    needsOnly: g('needsOnly'), windowWrites: g('windowWrites'), streamDead: g('streamDead'),
+    widths: g('myWidths'), gutterHeld: g('!!gutterHeld'), windowWrites: g('windowWrites'),
+    streamDead: g('streamDead'),
     deskVersion: d && d.desk ? d.desk.version : null,
     windows: d && d.desk ? d.desk.windows : null,
     tiles: Array.from(document.querySelectorAll('.tile')).map((t) => {

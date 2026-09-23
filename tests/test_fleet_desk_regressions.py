@@ -407,27 +407,32 @@ def test_selecting_a_project_does_not_throw_the_arrangement_away(desk):
 
     Assigning that answer wholesale dropped `arrangement`, so clicking any tile un-widened every
     tile the operator had widened and unpinned every tile they had pinned -- until the next desk
-    poll, fifteen seconds later, put them back.
+    poll, fifteen seconds later, put them back. The widening is this window's widths since the
+    gutters (#234), which a selection must not touch either.
     """
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     with sync_playwright() as p:
         browser, page, _ = _page(p, desk)
-        page.evaluate("""async () => {
-            const first = document.querySelector('.tile').dataset.repo;
-            toggleTileSize(first);
-            await new Promise(r => setTimeout(r, 700));
+        before = page.evaluate("""async () => {
+            await toggleTilePin('quiet');
+            applyPreset('all');
+            await windowChain;
+            return { widened: document.querySelectorAll('#grid .tile.is-solo').length,
+                     pinned: (getArrangement().pinned || []).slice() };
         }""")
-        widened = page.evaluate("() => document.querySelectorAll('.tile.size-2').length")
-        page.evaluate("() => choose(document.querySelectorAll('.tile')[1].dataset.repo)")
-        page.wait_for_timeout(900)
-        after = page.evaluate("""() => ({
-            widened: document.querySelectorAll('.tile.size-2').length,
-            arrangement: !!(desk.desk.arrangement && desk.desk.arrangement.size),
-        })""")
+        # Waited on the select's own answer, which is the thing that used to throw it all away.
+        after = page.evaluate("""async () => {
+            await choose('asks');
+            return { widened: document.querySelectorAll('#grid .tile.is-solo').length,
+                     pinned: (getArrangement().pinned || []).slice(),
+                     widths: !!myWidths,
+                     arrangement: !!(desk.desk.arrangement && desk.desk.arrangement.order) };
+        }""")
         browser.close()
-    assert widened == 1, "the fixture did not widen a tile"
+    assert before == {"widened": 2, "pinned": ["quiet"]}, "the fixture did not widen or pin"
     assert after["arrangement"], "the desk state lost its arrangement"
-    assert after["widened"] == 1, "selecting a project reset the tile widths"
+    assert after["pinned"] == ["quiet"], "selecting a project unpinned a tile"
+    assert after["widths"] and after["widened"] == 2, "selecting a project reset the widths"
 
 
 @pytest.mark.browser

@@ -4,8 +4,9 @@ Five agents on one desk, and the five gestures this epic exists for, done in ord
 
 * a **swap** -- open one agent, then go back to the one before, so the layout changes under a
   transition;
-* a **resize** -- the open tile two tracks wide and two rows tall, from the keyboard (its edge
-  handles snapped to the grid's tracks and went with the grid, #232);
+* a **resize** -- the gutter on the open pane's right pulled by hand, so the rail beside it opens,
+  and then one step more from the keyboard (#234; the span the keys used to write, two tracks wide
+  and two rows tall, went with the grid it spanned, #232);
 * a **hide** -- off the glass and back, painting before the server answers;
 * a **reconnect** -- the stream dropped and the desk still showing what it had;
 * and a **redraw** -- twenty passes with nothing to change, touching nothing.
@@ -124,15 +125,27 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=8000)
             page.wait_for_timeout(350)
 
-            # 2. The resize, from the keyboard on the open tile.
+            # 2. The resize: the gutter on the open pane's right, pulled left until the rail beside
+            #    it is a pane of its own (#234), and one step back from the keyboard. Once the swap
+            #    back has finished moving, or the gutter's box is where it was.
+            page.wait_for_function(
+                """() => !inViewTransition && [...document.querySelectorAll('#grid .tile')]
+                          .every(t => t.getAnimations().length === 0)""", timeout=8000)
+            box = page.locator('.tile[data-repo="rdsd-pbi-reporting"] > .gutter').bounding_box()
+            x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+            page.mouse.move(x, y)
+            page.mouse.down()
+            page.wait_for_function("() => !!gutterHeld", timeout=8000)
+            page.mouse.move(x - 500, y, steps=12)
+            page.mouse.up()
+            page.wait_for_selector('.tile[data-repo="luna"].is-solo:not([data-tier="rail"])',
+                                   timeout=8000)
             page.evaluate(
                 """() => document.querySelector('.tile[data-repo="rdsd-pbi-reporting"]').focus()""")
             page.keyboard.press("Alt+Shift+ArrowRight")
-            page.wait_for_function(
-                """() => getComputedStyle(
-                     document.querySelector('.tile[data-repo="rdsd-pbi-reporting"]'))
-                       .getPropertyValue('--cols').trim() === '2'""", timeout=8000)
-            page.evaluate("() => setTileSize('rdsd-pbi-reporting', 2, 2)")
+            page.wait_for_function("() => windowWrites === 0", timeout=8000)
+            _until(lambda: (S.desk_state()["windows"].get("main") or {}).get("widths", {})
+                   .get("luna", 0) > 0)
             page.wait_for_timeout(450)
             page.screenshot(path=os.path.join(shots, "ownership-resized.png"))
 
