@@ -137,7 +137,7 @@ Ink.setSkin({
 | `tip` | a pen-tip dot at the end of an `underline` while its mark is on the paper. It is lifted before the mark is struck or erased (#249) |
 | `rewrite` | a `write` mark whose element's text changes after it was written keeps what it said beside it (to the left, in the element's own font and colour), strikes that through in pen, and writes the new text. One struck word is kept per row and element (#249: the header's count) |
 | `snap` | a grid pitch in px (4 or more): the row's straight strokes are ruled onto a grid of that pitch from the viewport's top-left. An outline's corners meet on the grid, an underline goes down to the first line under its text, a divider to the nearest. Only `outline`, `divider` and `underline` may snap (optional, #253) |
-| `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #253) |
+| `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #252, #253) |
 
 A table may also tune a tool's hand for its own strokes with `tools: {<tool>: {...}}`, each a
 number of 0 or more (`lam`, a wavelength, more than 0): `w`, `press`, `pvar`, `wob`, `lam`, `bow`, `wmin`, `tin`, `tout` (§Tools says
@@ -197,12 +197,6 @@ every skin already has, `static/skins/<name>/skin.css`, which holds its layout, 
 `body.ink-off`. `<name>` is the skin's name in `skins.py`. That registers the skin, and so the settings page offers it
 and `theme.skin` in the config chooses it, the way `glass` is chosen today. `static/ink/skins/example.js` is the
 working pattern to copy, and the tests draw with it. It is not in `skins.py`, so nobody can choose it.
-
-**The skins that draw with ink**, each with its own page:
-
-| Skin | Module | Page |
-| --- | --- | --- |
-| voxel (#256) | `skins/voxel.js`: voxel ground, lit slabs and a status stack per pane, one draw call per material | [skin-voxel.md](skin-voxel.md) |
 
 **How it is chosen.** The server lists every `static/ink/skins/*.js` on the desk's `<body>` (`data-ink-skins`). The
 chosen skin reaches the page as `applySkin("<name>:<variant>")`, which writes `body[data-skin]` and
@@ -276,7 +270,9 @@ What each hook is handed:
 | glass (#254) | `skins/glass.js` | [skin-glass.md](skin-glass.md): a lit mesh ground, frosted panes that sample it, and a state grammar of marks and lit rims |
 | graph (#253) | `skins/graph.js` | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
 | farmstead (#255) | `skins/farmstead.js` | [skin-farmstead.md](skin-farmstead.md): the sprite sheet as nearest-neighbour textures, lit wooden frames, and a crop that grows a stage per advance of the phase |
-| legalpad (#251) | `skins/legalpad.js` | §The legal pad, below: canary stock, blue rules, a double red margin, a glued top, and an orange-pink highlighter |
+| legalpad (#251) | `skins/legalpad.js` | [§The legal pad](#the-legal-pad-251), below: canary stock, blue rules, a double red margin and a glued top, and an orange-pink highlighter |
+| napkin (#252) | `skins/napkin.js` | [skin-napkin.md](skin-napkin.md): quilted two-ply, a felt tip that bleeds along the emboss, a coffee ring under a pane idle a long time |
+| voxel (#256) | `skins/voxel.js` | [skin-voxel.md](skin-voxel.md): voxel ground, lit slabs and a status stack per pane, one draw call per material |
 | notebook (`light`, `dark`, #249, #250) | `skins/notebook.js` | [skin-notebook.md](skin-notebook.md): the state grammar's reference marks, a ruled paper shader, a margin per pane |
 
 ## The legal pad (#251)

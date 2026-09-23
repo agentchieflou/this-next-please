@@ -929,6 +929,8 @@ function startGround() {
      timed one behind it for the case where the link was already loaded. Only for glass, the one
      skin with a mesh to read: for any other the mesh is never there, and the retry re-armed itself
      every 150ms for as long as the page was open, writing to the link each time (#253). */
+  /* Once per stylesheet, and remembered here rather than on the link (#252): a flag written on the
+     link was two DOM writes on every refresh of a desk at rest. */
   if (!groundMesh && (document.body.dataset.skin || "") === "glass") {
     /** @type {HTMLLinkElement} */
     var link = document.head.querySelector("link[data-skin]");
