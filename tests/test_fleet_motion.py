@@ -329,7 +329,12 @@ def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_id
                     """() => document.querySelector('.tile.is-solo')
                               && document.querySelector('.tile.is-solo').dataset.repo === 'gamma'""",
                     timeout=8000)
-                page.wait_for_timeout(450)              # past --motion-base, whichever path ran
+                # Waited for, not slept through (#227): the names come off when the transition's
+                # `finished` settles, and that is --motion-base plus the snapshot frames plus the
+                # pane's own redraw -- 420-550 ms headless here, so a flat 450 was a coin toss.
+                page.wait_for_function(
+                    "() => !document.querySelector('[style*=\"view-transition-name\"]')",
+                    timeout=15000)
                 shapes[stubbed] = page.evaluate("""() => ({
                   open: document.querySelector('.tile.is-solo').dataset.repo,
                   rails: [...document.querySelectorAll('#grid .tile[data-tier="rail"]')]

@@ -92,6 +92,8 @@ function acceptDesk(payload) {
   var next = Object.assign({}, payload);
   delete next.ok;
   delete next.action;
+  // An arrangement write still in flight: the page's own arrangement is newer than this one.
+  if (arrangeWrites && desk.desk && desk.desk.arrangement) next.arrangement = desk.desk.arrangement;
   desk.desk = next;
   var win = next.windows && next.windows[W_NAME];
   if (win && !windowWrites) applyWindow(win);
@@ -3123,25 +3125,44 @@ function visibleOrder() {
 
    `patch` is what to send; `apply` writes it into the local arrangement and answers with a
    function that writes the old one back. */
+/* The arrangement's writes, one at a time and in the order they were made -- the rule #230 gave
+   the window's (#233). Two resize keys pressed together were two posts in flight at once, each
+   carrying the whole footprint as it stood at its press; the server applied them in whatever
+   order its threads took the lock, and the older footprint could land last and come back on the
+   next frame. While any is in flight the page's own arrangement is the one it keeps: an answer
+   or a frame from before the last press describes a desk the operator has already left. */
+var arrangeWrites = 0;
+var arrangeChain = Promise.resolve();
+
 function arrangeNow(patch, apply, what) {
   var mark = gesture("arrange:" + (what || "change"));
   var undo = apply();
   transitionMove(function () { place(); });
   settle(mark);
-  return post("arrange", patch).then(function (r) {
-    if (r && r.ok) { mergeDesk(r); place(); return r; }
-    // Refused. The arrangement goes back to what it was and the refusal is said out loud, because
-    // a tile that silently returns to where it was is a page the operator stops trusting.
-    if (undo) undo();
-    place();
-    var why = (r && r.error) || "the server refused that arrangement";
-    say(why + ((r && r.hint) ? " — " + r.hint : ""), 10);
+  arrangeWrites += 1;
+  arrangeChain = arrangeChain.then(function () {
+    return post("arrange", patch).then(function (r) {
+      if (r && r.ok) {
+        if (arrangeWrites === 1) { mergeDesk(r); place(); }   // the last one's answer is the desk
+        return r;
+      }
+      // Refused. The arrangement goes back to what it was and the refusal is said out loud,
+      // because a tile that silently returns to where it was is a page the operator stops trusting.
+      if (undo) undo();
+      place();
+      var why = (r && r.error) || "the server refused that arrangement";
+      say(why + ((r && r.hint) ? " — " + r.hint : ""), 10);
+      return r;
+    }).catch(function (e) {
+      if (undo) undo();
+      place();
+      say(String(e), 10);
+    });
+  }).then(function (r) {
+    arrangeWrites -= 1;
     return r;
-  }).catch(function (e) {
-    if (undo) undo();
-    place();
-    say(String(e), 10);
   });
+  return arrangeChain;
 }
 
 function setHidden(name, hide) {
