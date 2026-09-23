@@ -29,7 +29,10 @@ place and value:
   - each is written under the selector Desktop uses (`dataViewWildcard`, `highlightMatching`, and the series'
     queryRef), and is checked against the model. A column is refused with the aggregation to use instead. A report
     with no local model takes `'Table'[Measure]` and says it could not check it.
-- **The tests hold it to Desktop's own files:** four bar charts Desktop saved, from microsoft/fabric-toolbox
+- **`clusteredBarChart` and `clusteredColumnChart` join the catalog,** so `visual add` can create the chart the
+  bar-end label route is drawn on. `barChart` and `columnChart` are described as what they are, the stacked
+  ones.
+- **The tests hold it to Desktop's own files:** five bar and column charts Desktop saved, from microsoft/fabric-toolbox
   and microsoft/BCApps, in `tests/fixtures/pbip/desktop-saved/`. Every literal they set is taken out and put back
   with `visual set`, and the file must come back as Desktop saved it.
 

@@ -414,3 +414,35 @@ def test_check_resolves_a_label_field_once_the_model_is_there(live_report, tmp_p
     model, rep, _ = N.load_all(str(live_report))
     unresolved = [f for f in CK.check_report(rep, model) if f.kind == "field-unresolved"]
     assert any("labels[0].properties.dynamicLabelValue" in str(f.__dict__) for f in unresolved)
+
+
+# ---------- clustered charts ----------
+
+@pytest.mark.parametrize("visual_type", ["clusteredBarChart", "clusteredColumnChart", "barChart"])
+def test_desktop_saved_bar_and_column_roles_are_catalog_roles(visual_type):
+    """Every role a Desktop-saved chart of this type fills is one the catalog lets `visual add` fill."""
+    roles = set(CAT.load_catalog()["visuals"][visual_type]["roles"])
+    saved = [v for v in (_load(f)["visual"] for f in DESKTOP_SAVED) if v["visualType"] == visual_type]
+    assert saved, f"no Desktop-saved {visual_type} in fixtures/pbip/desktop-saved"
+    for vis in saved:
+        assert set(vis["query"]["queryState"]) <= roles
+
+
+def test_the_n1_recipe_on_a_clustered_bar_chart_visual_add_created(report):
+    res = AU.visual_add(str(report), "page1", "clusteredBarChart", title="Average and Recent",
+                        fields=["'Calendar'[Year]", "'Sales'[Margin]", "'Sales'[Total Sales]"],
+                        position=(20, 340, 600, 360))
+    vid = res["visual_id"]
+    AU.visual_set(str(report), vid, "labels.show", "true")
+    AU.visual_set(str(report), vid, "labels.show", "false", series="Margin")
+    AU.visual_set(str(report), vid, "labels.labelPosition", "OutsideEnd", series="Total Sales")
+    AU.visual_set(str(report), vid, "labels.dynamicLabelValue", "[Sales Amount (LY)]", series="Total Sales")
+
+    vis = _load(res["path"])["visual"]
+    assert vis["visualType"] == "clusteredBarChart"
+    assert [p["queryRef"] for p in vis["query"]["queryState"]["Y"]["projections"]] == ["Sales.Margin", "Sales.Total Sales"]
+    assert [e.get("selector") for e in vis["objects"]["labels"]] == [
+        None, {"metadata": "Sales.Margin"}, {"metadata": "Sales.Total Sales"},
+        {"data": AU.ALL_INSTANCES, "metadata": "Sales.Total Sales", "highlightMatching": 1}]
+    model, rep, _ = N.load_all(str(report))
+    assert not [f for f in CK.check_report(rep, model) if f.kind.endswith("unresolved") and vid in str(f.__dict__)]

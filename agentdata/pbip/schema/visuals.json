@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "visuals": {
     "columnChart": {
-      "description": "Clustered column chart",
+      "description": "Stacked column chart (vertical); side by side is clusteredColumnChart",
       "legacy": false,
       "roles": {
         "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "X-axis category field" },
@@ -13,7 +13,27 @@
       }
     },
     "barChart": {
-      "description": "Clustered bar chart (horizontal)",
+      "description": "Stacked bar chart (horizontal); side by side is clusteredBarChart",
+      "legacy": false,
+      "roles": {
+        "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "Y-axis category field" },
+        "Y": { "min": 1, "max": 10, "kind": "Measure", "description": "X-axis value field(s)" },
+        "Series": { "min": 0, "max": 1, "kind": "Grouping", "description": "Legend breakdown series" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Additional tooltip fields" }
+      }
+    },
+    "clusteredColumnChart": {
+      "description": "Clustered column chart (vertical, series side by side)",
+      "legacy": false,
+      "roles": {
+        "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "X-axis category field" },
+        "Y": { "min": 1, "max": 10, "kind": "Measure", "description": "Y-axis value field(s)" },
+        "Series": { "min": 0, "max": 1, "kind": "Grouping", "description": "Legend breakdown series" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Additional tooltip fields" }
+      }
+    },
+    "clusteredBarChart": {
+      "description": "Clustered bar chart (horizontal, series side by side)",
       "legacy": false,
       "roles": {
         "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "Y-axis category field" },
