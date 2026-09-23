@@ -41,6 +41,15 @@ jobs:
       # PyCharm's JCEF and VS Code's Simple Browser, so one browser covers all three hosts.
       - name: a browser, so tests/test_fleet_desk*.py run instead of skipping
         run: python -m playwright install --with-deps chromium
+      # #236: the desk's types, checked and never compiled. `tsc --noEmit` reads the JSDoc in
+      # `common.js` and `app.js` against their code (`tsconfig.json`, `docs/desk-types.md`); nothing
+      # is emitted, and the page is still the bytes in the repository. Its own step, so a type error
+      # is named here rather than as one failed test somewhere in the suite, which runs the same
+      # command (`tests/test_desk_types.py`). The runner's Node, the one the suite's `node --check`
+      # uses; the compiler pinned exactly; one leg, because the answer does not depend on Python.
+      - name: the desk's types (tsc --noEmit)
+        if: matrix.python == '3.12'
+        run: npx --yes -p typescript@7.0.2 tsc -p tsconfig.json
       # Split up, because the parts want opposite things from the machine. The bulk is independent
       # work and takes every core there is; the `measured` tier asserts durations -- a 50ms paint
       # budget, a 4ms repaint, a fold under 0.05s -- and under `-n` it measures the contention
