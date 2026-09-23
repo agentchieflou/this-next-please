@@ -910,6 +910,8 @@ function transparent(colour) {
          (nums[2] || "0").trim() + ", 0)";
 }
 
+var groundWaitedFor = "";
+
 function startGround() {
   if (groundTimer) { clearInterval(groundTimer); groundTimer = 0; }
   groundColours();
@@ -921,21 +923,19 @@ function startGround() {
      timed one behind it for the case where the link was already loaded. Only for glass, the one
      skin with a mesh to read: for any other the mesh is never there, and the retry re-armed itself
      every 150ms for as long as the page was open, writing to the link each time (#253). */
+  /* Once per stylesheet, and remembered here rather than on the link (#252): a flag written on the
+     link was two DOM writes on every refresh of a desk at rest. */
   if (!groundMesh && (document.body.dataset.skin || "") === "glass") {
     /** @type {HTMLLinkElement} */
     var link = document.head.querySelector("link[data-skin]");
-    if (link && !link.dataset.waiting) {
-      link.dataset.waiting = "1";
-      link.addEventListener("load", function () {
-        delete link.dataset.waiting;
+    if (link && groundWaitedFor !== link.href) {
+      groundWaitedFor = link.href;
+      var again = function () {
+        if (groundWaitedFor !== link.href || groundMesh) return;
         startGround();
-      }, { once: true });
-      setTimeout(function () {
-        if (!groundMesh && link.dataset.waiting) {
-          delete link.dataset.waiting;
-          startGround();
-        }
-      }, 150);
+      };
+      link.addEventListener("load", again, { once: true });
+      setTimeout(again, 150);
     }
     return;
   }

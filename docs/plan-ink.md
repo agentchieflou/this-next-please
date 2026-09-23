@@ -138,6 +138,22 @@ skin: a degraded mode of the one platform, not a second one.
       looped for other skins); `common.js` and `app.js` now write only what changed.
 - **F #252 — napkin notes.** Quilted two-ply with no rules. A felt tip that bleeds along the emboss. A coffee ring
   under a pane that has been idle a long time.
+  - **Built (#252)**, in `static/ink/skins/napkin.js` and `static/skins/napkin/skin.css` ([skin-napkin.md](skin-napkin.md)),
+    tested by `tests/test_fleet_napkin.py`. What building it decided:
+    - **Two variants**, `diner` (white, on `eye-relief-day`) and `kraft` (unbleached, on `sand`). The panel is a
+      pair: a coffee ring's rim over the quilt's seam at the dark end, the paper at the light.
+    - **The quilt is procedural** in the paper shader, a diamond lattice with seams 18.4 px apart. The felt tip's
+      bleed uses the same lattice, reaching about 14 px into a seam and under 4 px onto a pillow. It follows the
+      marker's own loop as far as the pen has drawn, read from `Ink.inspect()`.
+    - **"Idle a long time" is `.tile.state-idle` with a `.chip.stale`** (the chip's age a day or more), so no
+      class was added. The ring is a material in the pane's frame. It is put down, not drawn.
+    - **The name is erased, never struck.** A row may now say `leaves: "erased"`, the one layer addition, in its
+      own commit. The question's highlight is what gets struck.
+    - **Not drawn, because the page does not have it**: a finding's markup, the turn's length (the running line
+      is the name's), and the count's old number. The running pen's tip is drawn, as a material.
+    - **Handwriting is a local cursive stack.** No font is vendored.
+    - **A skin's desk at rest now writes nothing.** Every refresh rewrote the skin and theme attributes, and a
+      meshless skin toggled `data-waiting` on its link (a regression test holds this).
 - **G #253 — graph paper.** A grid on the page's own 28 px baseline, a mechanical pencil, ruled strokes snapped to the
   grid, and traces plotted on it.
   - **Built (#253)**, in `static/ink/skins/graph.js` and `static/skins/graph/skin.css`, documented in

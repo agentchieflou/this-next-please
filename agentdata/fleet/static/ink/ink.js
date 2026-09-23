@@ -41,8 +41,12 @@ const TOOLS = {
   highlighter: "--waiting",
 };
 
-/* Pencil is erased when its mark goes; everything else is ink, and is struck through. */
+/* Pencil is erased when its mark goes; everything else is ink, and is struck through. A row may
+   say otherwise with `leaves` (#252): the paper grammar highlights an agent's name while it needs
+   you, and a name struck through when the question is answered reads as an agent that is gone --
+   the flaw both prototypes had. That row's highlight is erased, and the question is struck. */
 const ERASABLE = new Set(["pencil"]);
+const LEAVES = ["erased", "struck"];
 
 /* Each shape as the plain fallback draws it, `%c` standing for the tool's colour. Everything the
    layer can draw is a row here: `layer.js` refuses to start if the two lists disagree. */
@@ -142,8 +146,9 @@ function normalise(table) {
     if (row.snap != null && !(Number.isFinite(row.snap) && row.snap >= 4 && SNAPS.has(row.shape))) {
       throw new TypeError(where + ": `snap` is a grid pitch of 4px or more, for " + Array.from(SNAPS).join(", "));
     }
-    if (row.leaves != null && row.leaves !== "erased" && row.leaves !== "struck") {
-      throw new TypeError(where + ": `leaves` is \"erased\" or \"struck\"");
+    // Graph paper (#253) and the napkin (#252) each added `leaves`; this is the one check for both.
+    if (row.leaves != null && !LEAVES.includes(row.leaves)) {
+      throw new TypeError(where + ": `leaves` is " + LEAVES.map(function (w) { return JSON.stringify(w); }).join(" or "));
     }
     return {
       index: i,
@@ -156,7 +161,7 @@ function normalise(table) {
       snap: Number.isFinite(row.snap) ? row.snap : 0,
       // How the mark goes: pencil is erased and ink struck, unless the row says otherwise -- the
       // paper grammar strikes the question and never the agent's name, so the name's highlight
-      // is taken up rather than struck through (#253).
+      // is taken up rather than struck through (#252, #253).
       leaves: row.leaves || (ERASABLE.has(row.tool) ? "erased" : "struck"),
     };
   });

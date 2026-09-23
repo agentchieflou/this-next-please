@@ -133,7 +133,7 @@ Ink.setSkin({
 | `dash` | a dashed stroke, for the stale pencil outline (optional) |
 | `to` | an arrow's target: a selector, looked up in the arrow's own pane first, then the page |
 | `snap` | a grid pitch in px (4 or more): the row's straight strokes are ruled onto a grid of that pitch from the viewport's top-left. An outline's corners meet on the grid, an underline goes down to the first line under its text, a divider to the nearest. Only `outline`, `divider` and `underline` may snap (optional, #253) |
-| `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #253) |
+| `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #252, #253) |
 
 A table may also tune a tool's hand for its own strokes with `tools: {<tool>: {...}}`, each a
 number of 0 or more (`lam`, a wavelength, more than 0): `w`, `press`, `pvar`, `wob`, `lam`, `bow`, `wmin`, `tin`, `tout` (§Tools says
@@ -373,6 +373,12 @@ panel. Every ink is a mark on the paper, so it needs **3:1** against it (WCAG 1.
 highlighter is read *through*, so the text needs **4.5:1** on its tint (`theme.INK_TINT`, the plain fallback's 38%).
 `tests/test_fleet_skins.py` passes each variant's `inks`. No variant declares any in B, so this is the hook the paper
 skins (#249–#253) fill in, with the composited-pane pairs of the three.js skins after them.
+
+## The skins that draw with it
+
+| Skin | Slice | Page |
+| --- | --- | --- |
+| `napkin` (`diner`, `kraft`) | F #252 | [skin-napkin.md](skin-napkin.md): quilted two-ply, a felt tip that bleeds along the emboss, a coffee ring under a pane idle a long time |
 
 ## What B does not do
 
