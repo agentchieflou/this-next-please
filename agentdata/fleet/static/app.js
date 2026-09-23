@@ -910,8 +910,6 @@ function transparent(colour) {
          (nums[2] || "0").trim() + ", 0)";
 }
 
-var groundWaitedFor = "";
-
 function startGround() {
   if (groundTimer) { clearInterval(groundTimer); groundTimer = 0; }
   groundColours();
@@ -928,14 +926,18 @@ function startGround() {
   if (!groundMesh && (document.body.dataset.skin || "") === "glass") {
     /** @type {HTMLLinkElement} */
     var link = document.head.querySelector("link[data-skin]");
-    if (link && groundWaitedFor !== link.href) {
-      groundWaitedFor = link.href;
-      var again = function () {
-        if (groundWaitedFor !== link.href || groundMesh) return;
+    if (link && !link.dataset.waiting) {
+      link.dataset.waiting = "1";
+      link.addEventListener("load", function () {
+        delete link.dataset.waiting;
         startGround();
-      };
-      link.addEventListener("load", again, { once: true });
-      setTimeout(again, 150);
+      }, { once: true });
+      setTimeout(function () {
+        if (!groundMesh && link.dataset.waiting) {
+          delete link.dataset.waiting;
+          startGround();
+        }
+      }, 150);
     }
     return;
   }

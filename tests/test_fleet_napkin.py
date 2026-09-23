@@ -211,20 +211,22 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     name underlined in pencil; running its name underlined in pen with the pen's tip at the end;
     needs you the name and the question highlighted and each choice looped in pencil; error the
     felt tip's box and a bang; stale (#240) its note written, an arrow to the run's line and a
-    dashed outline; the header count handwritten. And nothing for a state no pane is in."""
+    dashed outline; done a green check (the fold's `is-done`); the header count handwritten."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     q = {"question": "which window should ask land in?", "id": "q1", "blocking": True,
          "choices": ["left", "right"]}
     _desk(tmp_path, monkeypatch, {
         "idle": {}, "run": {}, "ask": {"more": [("question_opened", q)]},
         "err": {"more": [("error", {"exit_code": 2})]}, "old": {"install": OLD},
+        "done": {"more": [("phase_changed", {"from": "querying", "to": "done"})]},
     }, live=("run",))
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, _ = _napkin_page(browser, port, token, fleet_home, 5)
+            page, errors, _ = _napkin_page(browser, port, token, fleet_home, 6)
             page.wait_for_selector(_tile("run") + ".state-running", timeout=15000)
+            page.wait_for_selector(_tile("done") + ".is-done", timeout=15000)
             page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
             page.wait_for_selector(_tile("ask") + ".needs-human .ask-choice", timeout=15000)
             _settle(page, "Ink.inspect().layer.marks.some(m => m.shape === 'bang')"
@@ -263,7 +265,10 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     assert (".tile:has(.oldsession:not([hidden]))", "pencil", "outline") in old
     assert not [m for m in marks if "oldsession" in m["selector"] and m["lane"] != "pane:old"]
     assert [(m["tool"], m["shape"]) for m in marks if m["lane"] == "header"] == [("pen", "write")]
-    assert not [m for m in marks if "state-done" in m["selector"]], "no pane is done"
+    # Done is the fold's word, `is-done`, on a pane whose chip says idle: a check in the margin.
+    done = _kinds(_in("done", marks))
+    assert (".tile:is(.state-done, .is-done) .head", "green", "check") in done, done
+    assert not [m for m in marks if m["shape"] == "check" and m["lane"] != "pane:done"], "only one pane is done"
     # The pen's tip rests at the end of the running line: 8px past the name, just under it.
     assert napkin["run"]["pentip"] and not any(v["pentip"] for k, v in napkin.items() if k != "run")
     assert abs(napkin["run"]["tip"]["x"] - (tip["x"] + 8)) < 2 and abs(napkin["run"]["tip"]["y"] - (tip["y"] + 2.2)) < 2

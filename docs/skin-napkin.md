@@ -52,7 +52,7 @@ the skin shows no state the page does not have.
 | needs you | highlighter on the name and on the question; pencil loops round the choices | `.tile.needs-human .head .repo` (`leaves: "erased"`), `.asks:not([hidden]) .ask:not([hidden]) .ask-q`, `… .ask-choice:not([aria-pressed="true"])` |
 | answered | the chosen answer circled in pen, with its pencil loop erased. When the question goes, its highlight is struck in pen. **The name is erased, never struck** | `.ask:not([hidden]) .ask-choice[aria-pressed="true"]` ellipse. The strike is how the layer takes back any ink |
 | error | the felt tip's box round the pane, with its bleed; a bang in the margin | `.tile.state-error` marker loop, `.tile.state-error .head` red bang |
-| done | green check in the margin | `.tile.state-done .head` |
+| done | green check in the margin | `.tile:is(.state-done, .is-done) .head`: a quiet agent's chip says idle, so the fold's own *done* arrives as `is-done` (#253) |
 | stale (#240) | the chip's own words written in pencil as a margin note, an arrow from it to the run's line, a dashed pencil outline | `.oldsession:not([hidden])` write and arrow (`to: ".runline"`), `.tile:has(.oldsession:not([hidden]))` dashed outline |
 | the header count | handwritten, in pen | `#counts` write |
 
@@ -65,13 +65,10 @@ An agent in error also carries `needs-human`, because an error needs you. So its
   name's length, and the tip sits at its end.
 * **The old count struck and the new one written beside it.** When the count's text changes, the layer keeps its
   mark, and the old number has left the DOM. Both are the layer's to add, and plan-ink gives them to C (#249).
-* **Done on the desk.** A pane is `state-done` only while a process is supervised, and a quiet agent shows as idle.
-  The row is there for when the page says done.
 
 **The name is erased, never struck.** The grammar strikes the question and never the agent's name: a name struck
-through reads as an agent that has gone. The layer strikes every ink mark that leaves, so a row may now say
-`leaves: "erased"` (desk-ink.md §A skin is a mark table, one general addition in its own commit). The name's
-highlight uses it.
+through reads as an agent that has gone. The layer strikes every ink mark that leaves, so the name's highlight row
+says `leaves: "erased"` (desk-ink.md §A skin is a mark table; the field came with graph paper, #253).
 
 ## The felt tip bleeds along the emboss
 
@@ -150,6 +147,5 @@ a live lock, events three days old), because the desk's redraw owns the state cl
 * an idle napkin is zero DOM writes and zero WebGL frames, and it settles within the frames the pen needs plus the
   soak.
 
-`tests/regressions/test_20260923_any_skin_desk_at_rest_writes.py` is the bug building this found. With any skin
-chosen, every refresh rewrote `data-theme`, `data-skin` and `data-skin-variant`. For a skin with no ground mesh it
-also toggled the stylesheet link's `data-waiting`, so an idle desk was never zero writes.
+An idle napkin desk is zero writes because of the fix graph paper (#253) made for every skin chosen:
+`tests/regressions/test_20260923_any_skin_chosen_idle_desk_writes.py`.
