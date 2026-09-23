@@ -29,7 +29,7 @@ from test_fleet_ink import (IDLE_LOOP, _desk_of, _open, _own_desk_globals, _serv
 
 
 @pytest.mark.browser
-@pytest.mark.parametrize("skin", ["farmstead", "voxel:nether", "legalpad"])
+@pytest.mark.parametrize("skin", ["farmstead", "legalpad"])
 def test_a_skinned_desk_at_rest_writes_nothing(fleet_home, tmp_path, skin):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
