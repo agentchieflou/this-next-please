@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 
 import pytest
 
@@ -73,6 +74,14 @@ def _serve():
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
     return server, token, server.server_address[1]
+
+
+def _until(ready, timeout: float = 10.0) -> None:
+    """Wait for something the server holds -- a record, not a pixel -- rather than for a clock."""
+    deadline = time.monotonic() + timeout
+    while not ready():
+        assert time.monotonic() < deadline, "the server never got there"
+        time.sleep(0.05)
 
 
 def _open(page, port, token, extra=""):
@@ -394,6 +403,10 @@ def test_a_reload_opens_the_agent_that_was_clicked_not_the_one_the_address_named
             page.click(_rail("beta"))
             page.wait_for_function(f"() => {SOLO} === 'beta'", timeout=5000)
             assert page.evaluate("location.hash") == "#tile=beta"
+            # The page opens beta before the server hears of it, and the write queues behind the
+            # window's own (#230). On a slow disk those are not the same moment (#245), and a
+            # reload in between would be a different test: this one is about the address.
+            _until(lambda: S.desk_state()["windows"]["main"]["open"] == "beta")
 
             page.reload(wait_until="domcontentloaded")
             page.wait_for_selector(".tile.is-solo", timeout=10000)
