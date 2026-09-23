@@ -782,6 +782,8 @@ function transparent(colour) {
          (nums[2] || 0).trim() + ", 0)";
 }
 
+var groundWaitedFor = "";
+
 function startGround() {
   if (groundTimer) { clearInterval(groundTimer); groundTimer = 0; }
   groundColours();
@@ -791,20 +793,19 @@ function startGround() {
      the mesh can land before there is anything to read -- and a ground that gave up on that first
      read stayed blank for the whole session. One retry, when the sheet is really there, and a
      timed one behind it for the case where the link was already loaded. */
+  /* Once per stylesheet, and remembered here rather than on the link (#252): a skin with no mesh at
+     all -- the paper skins draw their ground with ink -- never stops "waiting", and a flag written
+     on the link was two DOM writes on every refresh of a desk at rest. */
   if (!groundMesh && (document.body.dataset.skin || "")) {
     var link = document.head.querySelector("link[data-skin]");
-    if (link && !link.dataset.waiting) {
-      link.dataset.waiting = "1";
-      link.addEventListener("load", function () {
-        delete link.dataset.waiting;
+    if (link && groundWaitedFor !== link.href) {
+      groundWaitedFor = link.href;
+      var again = function () {
+        if (groundWaitedFor !== link.href || groundMesh) return;
         startGround();
-      }, { once: true });
-      setTimeout(function () {
-        if (!groundMesh && link.dataset.waiting) {
-          delete link.dataset.waiting;
-          startGround();
-        }
-      }, 150);
+      };
+      link.addEventListener("load", again, { once: true });
+      setTimeout(again, 150);
     }
     return;
   }
