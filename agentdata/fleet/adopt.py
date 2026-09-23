@@ -318,6 +318,8 @@ def adopt(name: str, *, registry: Registry | None = None, pid: int = 0) -> dict:
     E.append(name, [E.event(name, "started",
                             {"external": True, "pid": lock["pid"], "adopted": True,
                              "session": lock["session"],
+                             # Began outside the fleet: what it started on is not known (#239).
+                             "install": None,
                              "why": "a session the fleet did not start was adopted"},
                             ticket=lock["ticket"])])
     return {"repo": name, "pid": lock["pid"], "session": lock["session"], "how": how,

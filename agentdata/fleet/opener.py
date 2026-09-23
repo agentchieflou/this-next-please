@@ -89,6 +89,75 @@ def running() -> dict:
     return record if port and ping(port) else {}
 
 
+def ping_info(port: int, timeout: float = PING_TIMEOUT_S) -> dict:
+    """What `/api/ping` says, or `{}` when nothing of ours answers."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=timeout) as r:
+            data = json.loads(r.read())
+    except (urllib.error.URLError, OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) and data.get("service") == "ad-fleet" else {}
+
+
+def out_of_date(info: dict) -> bool:
+    """Is the desk that answered this ping older than what is installed? The desk's own answer (#242).
+
+    A desk from before #242 has no `loaded` to give, and that absence is the answer: whatever it is
+    running predates the install that can say, so it is older than this one by definition.
+    """
+    return bool(info) and ("loaded" not in info or info.get("current") is False)
+
+
+def stop_server(record: dict, timeout: float = 10.0) -> bool:
+    """Stop the desk `record` names, politely first. True once nothing answers on its port.
+
+    `POST /api/shutdown` is the polite way, and a desk from before #242 does not have it; the pid
+    `serve.json` has always recorded is the other. Either way the answer is measured, not assumed:
+    the port has to stop answering.
+    """
+    import time
+
+    port, token, pid = int(record.get("port") or 0), str(record.get("token") or ""), int(record.get("pid") or 0)
+    if not port:
+        return True
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/shutdown?t={urllib.parse.quote(token)}",
+                                     data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=PING_TIMEOUT_S) as r:
+            json.loads(r.read())
+    except (urllib.error.URLError, OSError, ValueError):
+        pass
+    deadline = time.time() + timeout
+    killed = False
+    while time.time() < deadline:
+        if not ping(port, timeout=0.5):
+            return True
+        if not killed and pid and time.time() > deadline - timeout / 2:
+            try:
+                proc.kill_tree(pid)
+            except Exception:                # noqa: BLE001 - measured below, not trusted
+                pass
+            killed = True
+        time.sleep(0.2)
+    return not ping(port, timeout=0.5)
+
+
+def current_desk(port: int = 8765) -> tuple[dict, str]:
+    """A desk that is running the installed code, and what it took: `already up`, `started` or
+    `replaced (was 0.13.1)`. "Start the fleet" always ends on a current desk (#242)."""
+    record = running()
+    if record:
+        info = ping_info(int(record.get("port") or 0))
+        if not out_of_date(info):
+            return record, "already up"
+        was = info.get("loaded") or "an older version"
+        if not stop_server(record):
+            raise OpenError(f"the desk on port {record.get('port')} is running {was} and would not stop",
+                            "stop it by hand (Ctrl-C in its window), then `ad-fleet open` again")
+        return start_server(int(record.get("port") or port)), f"replaced (was {was})"
+    return start_server(port), "started"
+
+
 def start_server(port: int = 8765) -> dict:
     """Start `ad-fleet serve` detached, and wait for it to answer. Returns its record.
 

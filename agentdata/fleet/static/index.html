@@ -38,6 +38,24 @@
   </div>
 </header>
 
+<!-- Stale sessions (#240, #241): a strip under the toolbar, like the away strip -- beside the work,
+     never over it, and there for as long as any session began on skills that have since changed.
+     One line until `renew` asks for the preview (`POST /api/renew {dry_run: true}`); nothing runs
+     until `renewgo`. -->
+<div id="renew-strip" class="renew-strip enters" role="region" aria-label="stale sessions" hidden>
+  <!-- #242: the desk itself is older than what is installed. The server says so; the page repeats it. -->
+  <p class="renew-desk" hidden></p>
+  <p class="renew-sum"></p>
+  <button type="button" id="renew" title="see which agents would get a fresh session, and why — nothing runs yet">preview renew</button>
+  <ul class="renew-rows" hidden>
+    <li class="renew-pattern renew-row" hidden><strong class="renew-repo"></strong><span class="renew-verdict"></span><span class="renew-why"></span></li>
+  </ul>
+  <div class="renew-actions" hidden>
+    <button type="button" id="renewgo">renew</button>
+    <button type="button" id="renewcancel">cancel <kbd>Esc</kbd></button>
+  </div>
+</div>
+
 <div id="away-strip" class="away-strip enters" hidden>
   <div class="away-content">
     <span class="away-title">Since you were away:</span>
@@ -294,6 +312,8 @@
       <strong class="repo"></strong>
       <!-- Two spans, written rather than rebuilt (#215): the word and its age. -->
       <span class="chip"><span class="chipword"></span><span class="chipage"></span></span>
+      <!-- #240: this session began on skills or a CLI that have since changed. The reason is its title. -->
+      <span class="oldsession" hidden></span>
       <!-- #218: the last hour, sixty bars. `role="img"` with the sentence on it is the text twin
            -- a picture a screen reader cannot read is a picture that is not there. -->
       <canvas class="trace" width="120" height="18" role="img" aria-label=""></canvas>
