@@ -2,7 +2,7 @@
 
 _Status: BUILT, A to G (2026-09-23) — epic #229 (slices #230–#236), under #91 (the fleet) and #122 (the desk). A
 and B landed in #237, C in #259, D in #264, E in #270, F on #235's branch, and G: PR #271. What only the
-laptop can answer, the three shells' engine cells and the laptop's tier widths, is runbook §Panes P10–P16 in
+laptop can answer, the three shells' engine cells and the laptop's tier widths, is runbook §Panes P10–P16 (P17–P18 are A's and B's regressions in Chrome) in
 [windows-verification.md](windows-verification.md), and it reads *not yet measured* until it is run. Planned
 2026-09-22, from the operator's sentences of that day, recorded verbatim in §Decisions, and from three
 investigations run the same day. Each investigation reproduced its finding before anything here was written: the
