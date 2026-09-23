@@ -242,6 +242,7 @@ class FleetStep(Step):
         self._check_notifications(ctx, found)
         self._check_session_store(ctx, found)
         self._check_spend(ctx, found)
+        self._check_fresh(ctx, found)
 
     def _check_copilot(self, ctx: Context, found: dict) -> None:
         version = found.get("version") or ""
@@ -261,6 +262,35 @@ class FleetStep(Step):
                     keys=())
         elif found.get("login") == "ok":
             ctx.add(self.key, "login", "ok", "authenticated", keys=())
+
+    def _check_fresh(self, ctx: Context, found: dict) -> None:
+        """Is every agent's session on the installed skills (#240)?
+
+        Skills are read when a session begins, so an `ad-update` that changed one leaves every
+        running session on the old text until it is renewed -- and nothing about the agent's
+        behaviour says so, until it does the old thing.
+        """
+        from ...fleet import events as E, fingerprint as FP
+
+        try:
+            installed = FP.current()
+        except Exception:                    # noqa: BLE001 - a doctor row never crashes the doctor
+            return
+        stale = []
+        for repo in found["repos"]:
+            try:
+                if FP.staleness(E.read(repo.name), installed)["stale"]:
+                    stale.append(repo.name)
+            except Exception:                # noqa: BLE001 - see above
+                continue
+        if not stale:
+            ctx.add(self.key, "sessions", "ok",
+                    f"every session is on the installed skills ({installed.get('version', '?')})", keys=())
+            return
+        ctx.add(self.key, "sessions", "warn",
+                f"{len(stale)} session(s) began on older skills or CLI: " + ", ".join(stale[:6]),
+                "`ad-fleet renew --dry-run` shows why; `ad-fleet renew` starts fresh ones when "
+                "each is idle", keys=())
 
     def _check_spend(self, ctx: Context, found: dict) -> None:
         """Does the CLI's own final usage agree with the stream the fleet folded?

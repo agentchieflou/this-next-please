@@ -4,6 +4,54 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.14.1
+
+**Starting the fleet always ends on a current desk (#242).** `ad-fleet serve` is long-running, and
+after `ad-update` it went on serving the code it had loaded at start. `/api/ping` could not tell
+anyone, because its `version` read the installed metadata from disk and so already named the new
+version.
+- The desk now records what it was started on. `ping` answers `loaded` and `current`, which is the
+  desk's own answer to whether that is still what is installed.
+- `ad-fleet open` and `ad-fleet serve` replace a desk that answers `current: false`, or that is too
+  old to answer at all. They stop it through a new token-guarded `POST /api/shutdown`, falling back
+  to the pid in `serve.json` for a desk from before this version. `open` says so: `server: replaced
+  (was 0.14.0)`.
+- The PyCharm and VS Code shells treat such a desk as no desk, and the `ad-fleet serve` they start
+  replaces it.
+- The page repeats the desk's own sentence in the stale strip.
+
+**Nothing to do on update.** The next `ad-fleet open`, or the next time an IDE opens its fleet
+view, replaces the running desk.
+
+## 0.14.0
+
+**Every session says what it began on, and the stale ones are renewed in one step (#238).** Skills
+are read when a session begins, so 0.13.2's three changed skills reached no agent that was already
+running. Those agents kept asking with `--question`, which is how a tile came to count twelve
+questions nobody had open. Nothing could say which agents they were.
+- **Every start records what it began on (#239):** `install: {version, commit, skills}` on the
+  `started` event. `skills` hashes each `SKILL.md`'s *text*, so an update that only rewrote
+  timestamps changes nothing.
+- **The desk checks it on every tick (#240):** a stale tile reads *old skills*, with the reason as
+  its title, such as *started on 0.13.1 · installed 0.14.0 · skills changed: state-update*. A strip
+  under the toolbar stays for as long as anything is stale. `ad-fleet status` has a `stale` column,
+  and `ad-doctor` warns.
+- **`ad-fleet renew` and the strip's *preview renew* (#241)** give fresh sessions to the stale agents
+  only, and only when they are idle. Every agent's verdict is shown before anything runs:
+  - *now*, if it is idle;
+  - *at turn end*, if it is running (the desk carries it out once the turn ends);
+  - *skipped*, with a reason: it needs you, it is a console, it was adopted, it is done, or it is
+    not stale.
+
+  A renew goes through `start`'s own guards, so a budget refusal is reported, not swallowed.
+- `ad-fleet status`'s old advice, *`ad-fleet restart <repo>`*, now says `ad-fleet renew`: a restart
+  resumes the same session, and keeps the old skills.
+
+**After updating:** every session that began before this version counts as stale, because it
+recorded nothing and so began on an older install by definition. Run `ad-fleet renew --dry-run` to
+see them, then `ad-fleet renew`. That is also the "new chat" 0.13.2 asked for, done for every agent at
+once.
+
 ## 0.13.2
 
 **A click on another agent stays where it was put (#230).** In the column, a click on a band opened

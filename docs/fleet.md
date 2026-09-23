@@ -26,8 +26,26 @@ ad-fleet status
 5. **`ad-fleet history`** at the end of the day: what was dispatched, how it ended, what it cost.
 
 Everything in that loop is also a command, because a fleet you can only drive through a page is a
-fleet you cannot script: `approvals`, `approve`, `deny`, `send`, `restart`, `stop`, `board`,
+fleet you cannot script: `approvals`, `approve`, `deny`, `send`, `restart`, `renew`, `stop`, `board`,
 `history`, `notify`, `gc`, `doctor`.
+
+## After an update: fresh sessions
+
+Skills are read when a session begins, so after `ad-update` changes one, every agent already running
+still follows the old text. Every start records what it began on (#239). The desk compares that with
+what is installed on every tick, and shows *old skills* on each stale tile, with a strip under the
+toolbar for as long as any are stale (#240).
+
+```bash
+ad-fleet renew --dry-run     # which sessions are stale, why, and what renewing would do
+ad-fleet renew               # stale only, when idle: fresh sessions on the same tickets
+```
+
+A renew starts a fresh session on the repository's active ticket, and `.agent/state.json` says where
+the work stopped. It never renews an agent that is waiting on you. A running agent is renewed when
+its turn ends, by the desk, so keep one open. Consoles and adopted sessions are yours to renew in
+their own windows. Not `restart`: that resumes the same session, and the same session keeps the
+skills it already read.
 
 ## More than one project: the desk
 

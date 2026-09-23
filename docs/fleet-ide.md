@@ -33,9 +33,12 @@ Tokenless, loopback-only, and safe to write down, bookmark or bind to a key. It 
 local process can already read `~/.agentdata/fleet/serve.json`, loopback is still enforced on every
 request, and a cross-origin page that navigates a window there cannot read where it landed.
 
-`GET /api/ping` is the other tokenless route. It answers `{"ok": true, "service": "ad-fleet"}` and
-nothing else, so a launcher can tell "our dashboard is on 8765" from "something else is" before
-deciding whether to start a second one.
+`GET /api/ping` is the other tokenless route. It answers `{"ok": true, "service": "ad-fleet"}`, the
+port, the version and the contract, so a launcher can tell "our dashboard is on 8765" from "something
+else is" before deciding whether to start a second one. Since #242 it also answers `loaded` (the
+version this desk is running) and `current` (the desk's own answer to whether that is still what is
+installed). A launcher treats `current: false`, or a desk too old to say either, as no desk at all.
+`ad-fleet open` and `ad-fleet serve` then replace it instead of reusing last week's page.
 
 `/open?page=probe` lands on the WebGL probe (#247) rather than the desk, with the rest of the query
 string carried over — `http://127.0.0.1:8765/open?page=probe&w=vscode` is the address to paste into
@@ -154,7 +157,8 @@ same URL in an ordinary Edge window differs only in the title bar.
 
 `ad-fleet open` behaves identically from PowerShell 5.1, pwsh 7, Git Bash and the PyCharm terminal:
 it takes no shell-quoted arguments and touches no shell-specific path. Running it twice does not
-open the dashboard twice — `/api/ping` is checked first, and an already-running server is reused.
+open the dashboard twice — `/api/ping` is checked first, and an already-running server is reused
+when it is current, and replaced when it says it is not (#242).
 
 ## What a shell must do (#100)
 
@@ -164,8 +168,9 @@ new server work.
 
 1. **Find the dashboard.** Read `$AGENTDATA_FLEET_DIR/serve.json`, or `~/.agentdata/fleet/serve.json`.
    It holds `url`, `token` and `port`.
-2. **Check it is alive**, because that file outlives the process it describes: `GET /api/ping` must
-   answer `{"service": "ad-fleet"}`. No token needed.
+2. **Check it is alive and current**, because that file outlives the process it describes: `GET /api/ping`
+   must answer `{"service": "ad-fleet"}`, and a desk that also answers `current: false`, or gives no
+   `loaded` at all, counts as not running (#242). No token needed.
 3. **Start one if it is not.** `ad-fleet serve --port <n>`, falling back to
    `python -m agentdata fleet serve --port <n>` — the console scripts are frequently not on PATH,
    which is the most common way this package looks broken when it is merely unfound. Start it

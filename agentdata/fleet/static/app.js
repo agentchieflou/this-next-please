@@ -886,6 +886,7 @@ function drawTile(el, row, approvals) {
   text(chip.querySelector(".chipage"), ac.text ? " · " + ac.text : "");
   attr(chip, "title", "state from the fold" + (ac.text ? ", last event " + ac.text + " ago" : ""));
   text(el.querySelector(".ticket"), row.ticket || row.jira_project || "");
+  drawOldSession(el, row);
 
   text(el.querySelector(".why"), cold ? row.not_supervised_sentence : (row.why || ""));
 
@@ -1500,6 +1501,7 @@ function refresh() {
       }
     });
     var need = data.repos.filter(function (r) { return r.needs_human; }).length;
+    drawRenewStrip(data.repos, data.server);
     var fleetSpend = data.spend || {};
     var counts = document.getElementById("counts");
     text(counts,
@@ -4295,6 +4297,139 @@ function drawNotice() {
     hide(notice, true);
   }
 }
+
+/* ------------------------------------------------------------------ fresh sessions (#240, #241)
+
+   Skills are read when a session begins, so an `ad-update` that changed one leaves every running
+   session on the old text. The server judges each row against what is installed now, on every
+   snapshot; the page only says so -- a chip on the tile, and a header button that previews what a
+   renew would do before anything runs. */
+function drawOldSession(el, row) {
+  var old = el.querySelector(".oldsession");
+  if (!old) return;
+  var sv = row.stale || {};
+  hide(old, !sv.stale);
+  text(old, row.renew_queued ? "renew queued" : "old skills");
+  attr(old, "title", sv.stale
+    ? (sv.reason || "began on older skills") +
+      (row.renew_queued ? " — renewed when this turn ends" : " — renew stale sessions from the header")
+    : "");
+}
+
+function renewStrip() { return document.getElementById("renew-strip"); }
+var renewOpen = false;
+
+/* One line for as long as anything is stale; the preview only when asked for. Collapsed, the
+   sentence is the count; open, it is the plan's own summary, which the next frame must not undo. */
+function drawRenewStrip(rows, server) {
+  var strip = renewStrip();
+  if (!strip) return;
+  var n = (rows || []).filter(function (r) { return r.stale && r.stale.stale; }).length;
+  // The desk itself can be the stale thing (#242): a server started before `ad-update` goes on
+  // serving the code it loaded. The server judges it; this only repeats the sentence.
+  var oldDesk = !!(server && server.current === false);
+  var deskLine = strip.querySelector(".renew-desk");
+  hide(deskLine, !oldDesk);
+  text(deskLine, oldDesk ? server.reason : "");
+  hide(strip, n === 0 && !oldDesk && !renewOpen);
+  hide(strip.querySelector(".renew-sum"), n === 0 && !renewOpen);
+  hide(document.getElementById("renew"), n === 0 || renewOpen);
+  if (renewOpen) return;
+  text(strip.querySelector(".renew-sum"), n === 1
+    ? "1 session began on skills or a CLI that have since changed"
+    : n + " sessions began on skills or a CLI that have since changed");
+}
+
+function openRenew() {
+  var strip = renewStrip();
+  if (!strip) return;
+  renewOpen = true;
+  var sum = strip.querySelector(".renew-sum");
+  text(sum, "checking which sessions are stale…");
+  document.getElementById("renewgo").disabled = true;
+  hide(strip, false);
+  hide(sum, false);
+  hide(document.getElementById("renew"), true);
+  hide(strip.querySelector(".renew-rows"), false);
+  hide(strip.querySelector(".renew-actions"), false);
+  post("renew", { dry_run: true }).then(function (r) {
+    if (!r || r.ok === false) {
+      text(sum, ((r && r.error) || "the preview could not be read") + (r && r.hint ? " — " + r.hint : ""));
+      return;
+    }
+    drawRenewPlan(r);
+  }).catch(function () { text(sum, "the preview could not be read"); });
+}
+
+function drawRenewPlan(p) {
+  var strip = renewStrip();
+  var rows = (p.rows || []).filter(function (r) { return r.stale || r.unknown; });
+  patchList(strip.querySelector(".renew-rows"), rows, function (r) { return r.repo; },
+    function () {
+      // Cloned from the markup's own pattern row, so the two cannot disagree about the parts.
+      var li = strip.querySelector(".renew-pattern").cloneNode(true);
+      li.classList.remove("renew-pattern");
+      li.hidden = false;
+      return li;
+    },
+    function (li, r) {
+      text(li.querySelector(".renew-repo"), r.repo);
+      text(li.querySelector(".renew-verdict"), r.verdict === "skipped" ? "skipped" : r.verdict);
+      text(li.querySelector(".renew-why"), (r.reason ? r.reason + " — " : "") + (r.why || ""));
+      setClass(li, "renew-row verdict-" + String(r.verdict).replace(/ /g, "-"));
+    });
+  var going = (p.now || 0) + (p.at_turn_end || 0);
+  text(strip.querySelector(".renew-sum"), going
+    ? going + " fresh session" + (going === 1 ? "" : "s") + ": " + (p.now || 0) + " now, " +
+      (p.at_turn_end || 0) + " when their turn ends — about " + (p.premium_turns || 0) +
+      " premium turn" + (p.premium_turns === 1 ? "" : "s") + " between them"
+    : "nothing to renew: every stale session is waiting on you, is a console, or is done");
+  var go = document.getElementById("renewgo");
+  go.disabled = going === 0;
+  text(go, going ? "renew " + going : "renew");
+}
+
+function closeRenew() {
+  var strip = renewStrip();
+  if (!strip) return;
+  renewOpen = false;
+  hide(strip.querySelector(".renew-rows"), true);
+  hide(strip.querySelector(".renew-actions"), true);
+  hide(document.getElementById("renew"), false);
+  refresh();
+}
+
+function runRenew() {
+  var go = document.getElementById("renewgo");
+  go.disabled = true;
+  post("renew", { dry_run: false }).then(function (r) {
+    closeRenew();
+    if (!r || r.ok === false) {
+      say((r && r.error) || "the renew could not be started", 10);
+      return;
+    }
+    var started = (r.rows || []).filter(function (x) { return x.done === "started"; }).length;
+    var queued = (r.rows || []).filter(function (x) { return x.done === "queued"; }).length;
+    var refused = (r.rows || []).filter(function (x) { return x.done === "refused"; });
+    say(started + " fresh session" + (started === 1 ? "" : "s") + " started, " + queued + " queued" +
+        (refused.length ? " — refused: " + refused.map(function (x) {
+          return x.repo + " (" + (x.error || "refused") + ")"; }).join(", ") : ""), 12);
+    refresh();
+  }).catch(function () { go.disabled = false; });
+}
+
+(function bindRenew() {
+  var btn = document.getElementById("renew");
+  if (btn) btn.addEventListener("click", openRenew);
+  var go = document.getElementById("renewgo");
+  if (go) go.addEventListener("click", runRenew);
+  var cancel = document.getElementById("renewcancel");
+  if (cancel) cancel.addEventListener("click", closeRenew);
+  var strip = renewStrip();
+  if (strip) strip.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { e.stopPropagation(); closeRenew(); }
+  });
+})();
 
 /* The tab bar is the friction, so the window's own title says which screen it is. */
 function title(need) {

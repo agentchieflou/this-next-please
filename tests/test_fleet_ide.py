@@ -54,7 +54,10 @@ def test_ping_says_it_is_us_and_nothing_else(running):
         body = json.loads(r.read())
     assert body["ok"] is True and body["service"] == "ad-fleet" and body["port"] == port
     assert body["version"] and body["contract"] == S.CONTRACT
-    assert set(body) == {"ok", "service", "port", "version", "contract"}, body
+    # `loaded` and `current` (#242): what this desk is running, and the desk's own answer to "is
+    # that still what is installed" -- a launcher replaces a desk that says no.
+    assert set(body) == {"ok", "service", "port", "version", "contract", "loaded", "current"}, body
+    assert isinstance(body["current"], bool) and isinstance(body["loaded"], str)
     assert token not in json.dumps(body), "the liveness check leaked the token"
 
 
