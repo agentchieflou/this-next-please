@@ -132,6 +132,7 @@ Ink.setSkin({
 | `pad` | px the shape stands off its element (optional) |
 | `dash` | a dashed stroke, for the stale pencil outline (optional) |
 | `to` | an arrow's target: a selector, looked up in the arrow's own pane first, then the page |
+| `leaves` | how the mark goes, when not as its tool does: `erased` or `struck` (optional, #252). The paper grammar erases the highlight on an agent's name when it no longer needs you, because a struck name reads as an agent that is gone. The question is what is struck |
 
 A row the layer cannot draw is refused when the table is set. The exception names the row: `ink: mark 3
 (.tile .repo): no tool "crayon" (pencil, pen, red, green, marker, highlighter)`. A refused table leaves the one in

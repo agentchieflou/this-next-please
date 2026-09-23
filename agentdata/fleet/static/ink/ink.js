@@ -41,8 +41,12 @@ const TOOLS = {
   highlighter: "--waiting",
 };
 
-/* Pencil is erased when its mark goes; everything else is ink, and is struck through. */
+/* Pencil is erased when its mark goes; everything else is ink, and is struck through. A row may
+   say otherwise with `leaves` (#252): the paper grammar highlights an agent's name while it needs
+   you, and a name struck through when the question is answered reads as an agent that is gone --
+   the flaw both prototypes had. That row's highlight is erased, and the question is struck. */
 const ERASABLE = new Set(["pencil"]);
+const LEAVES = ["erased", "struck"];
 
 /* Each shape as the plain fallback draws it, `%c` standing for the tool's colour. Everything the
    layer can draw is a row here: `layer.js` refuses to start if the two lists disagree. */
@@ -123,6 +127,9 @@ function normalise(table) {
     if (row.shape === "arrow" && typeof row.to !== "string") {
       throw new TypeError(where + ": an arrow needs `to`, the selector it points at");
     }
+    if (row.leaves !== undefined && !LEAVES.includes(row.leaves)) {
+      throw new TypeError(where + ": leaves " + JSON.stringify(row.leaves) + " (" + LEAVES.join(", ") + ")");
+    }
     if (typeof row.to === "string") {
       try {
         document.querySelector(row.to);
@@ -138,7 +145,7 @@ function normalise(table) {
       to: typeof row.to === "string" ? row.to : "",
       pad: Number.isFinite(row.pad) ? row.pad : 0,
       dash: !!row.dash,
-      leaves: ERASABLE.has(row.tool) ? "erased" : "struck",
+      leaves: row.leaves || (ERASABLE.has(row.tool) ? "erased" : "struck"),
     };
   });
   const speed = Number.isFinite(table.speed) ? Math.min(SPEED[1], Math.max(SPEED[0], table.speed)) : 1;
