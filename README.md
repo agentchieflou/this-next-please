@@ -209,7 +209,7 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `docs/plan-cli-theming.md` | planned design for CLI theming (epic #135): the palette model, the host matrix, one theme per project |
 | `docs/plan-desk-refactor.md` | planned refactor of the fleet dashboard on Windows: the run you are in, movable tiles, HIG chrome, and one palette shared with the terminal |
 | `docs/desk-components.md` | the fleet desk's component inventory and the render contract every one of them keeps: created once, patched forever, one owner per property |
-| `docs/desk-window.md` | the tile as a window: the footprint as two numbers and how an older one migrates, the pointer drag, the resize edges and their snap, the keys |
+| `docs/desk-window.md` | the row of panes: the tiers and the widths they change at (CI's and the laptop's, set as `fleet.tiers.*`), a window's widths, the gutters and their snaps, the presets, the pointer drag, the keys |
 | `docs/desk-rendering.md` | the rules a canvas on the desk keeps, the activity trace (an hour in sixty numbers) and the glass ground that drifts |
 | `docs/desk-engines.md` | what each engine does with the platform features the desk uses, what happens on the ones that have not got them, and the numbers measured here |
 | `docs/desk-instant.md` | paint, post, reconcile: the optimistic arrangement and its way back, one round trip per action, the stale desk while the new one loads, and the 50ms budget |

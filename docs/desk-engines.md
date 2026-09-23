@@ -21,6 +21,7 @@ a smaller promise and a true one; a test refuses any cell that is neither.
 | `startViewTransition` | works | not yet measured | not yet measured | not yet measured |
 | `linear() easing` | works | not yet measured | not yet measured | not yet measured |
 | `pointer capture` | works | not yet measured | not yet measured | not yet measured |
+| `ResizeObserver` | works | not yet measured | not yet measured | not yet measured |
 | `container queries` | works | not yet measured | not yet measured | not yet measured |
 | `OffscreenCanvas` | works | not yet measured | not yet measured | not yet measured |
 | `WebGL` | falls back — software (SwiftShader) | not yet measured | not yet measured | not yet measured |
@@ -35,7 +36,17 @@ come from `/probe` rather than from `getContext`. CI's Chromium draws WebGL2 on 
 is software, so its cell says *falls back* — `test_the_webgl_row_is_what_the_probe_measured` holds
 it there.
 
-The other three columns are filled in on the laptop, by the runbook in
+Every other row is measured the same way as well (#235): `/probe` asks it in the shell it runs in,
+the desk keeps the answer, and `probe.feature_cell` turns it into this table's words.
+`test_the_feature_rows_are_what_the_probe_recorded_in_this_engine` holds CI's own probe to this
+column. The panes (#233–#234) added the `ResizeObserver` row and lean on two others. The tiers hang
+on the one observer, the head of a pane sheds words by container query, and the gutter takes
+pointer capture on the press. What each costs without it is below.
+`test_the_gutter_keeps_the_pointer_when_the_hand_leaves_its_strip` measures the capture itself in
+CI: every move is the gutter's while the hand is off its 8px strip, off the row and over the toolbar.
+
+The other three columns are filled in on the laptop, from `ad-fleet engines` (its `engines` table
+for WebGL, its `features` table for every other row), by §Ink and §Panes of the runbook in
 [windows-verification.md](windows-verification.md). Until then they say what they are.
 
 ## WebGL, probed in each shell (#247)
@@ -51,7 +62,8 @@ per shell in `~/.agentdata/fleet/probes.json`. Nothing is copied out of a dev co
 ad-fleet probe --open pycharm     # the desk in PyCharm's tool window goes to the probe itself, and comes back
 ad-fleet probe --open vscode      # the same for the Fleet view; Simple Browser takes the URL on the clipboard
 ad-fleet probe --open edge
-ad-fleet engines                  # this row, one line per column, read from the file
+ad-fleet engines                  # this row, one line per column, read from the file -- and the
+                                  # other rows (`features`) and the tier widths (`tiers`), #235
 ```
 
 Each `--open` waits for the shell's own answer and prints it, from a desk running the installed code
@@ -77,6 +89,7 @@ to the rule reclassifies every record already on disk:
 | `frames`, `p50_ms`, `p95_ms` | frame intervals from `requestAnimationFrame` over three seconds, nearest-rank. The first frame and the gap after it are left out, because both hold the shader compile and the readback |
 | `first_stroke_ms`, `load_ms` | from the page's navigation start to the first frame whose pixels hold the scene (a band across the first line is read back, so the GPU has finished it), and to three.js imported |
 | `drawn`, `hidden`, `error` | whether that first frame held any stroke at all; whether the window was hidden before it finished; what went wrong, in the browser's words |
+| `features` | one yes or no for each other row of §The rows, asked before the scene is drawn (#235). Container queries are asked to *apply*: a rule inside `@container` has to reach an element, not only parse. A row not answered reads *not yet measured*, and the answers are read from a shell's newest post, finished or not, because a scene hidden halfway says nothing against them |
 
 **The rule** — one function, `agentdata/fleet/probe.py` `classify()`, shared by the server's
 answer to the page, both CLI verbs and the tests:
@@ -118,15 +131,17 @@ holds both.
 | `transition-behavior: allow-discrete` | The longhand is ignored, `display` is not animated, and a panel leaving is removed at once — which is exactly how these panels behaved before #216. | `test_fleet_motion.py` |
 | `startViewTransition` | `transitionLayout` runs FLIP instead: measure, change, invert, release. The same gestures land identically, with every `view-transition-name` cleared. | `test_fleet_motion.py` |
 | `linear() easing` | `--ease-spring` stays the `cubic-bezier` it is declared as first. The `@supports` block that upgrades it simply does not apply — which is why it is declared twice rather than once. | `test_fleet_motion.py` |
-| `pointer capture` | `setPointerCapture` throws and is caught; the move and up listeners are on the document rather than the handle, so the drag still tracks. Touch and pen lose the guarantee that events keep arriving after the pointer leaves the element. | `test_fleet_window.py` |
-| `container queries` | The head keeps the model's word, the ticket and the chip's age on a narrow tile, and wraps to a second line rather than dropping them. `flex-wrap` is the fallback, and it is why the head has it. | `test_fleet_window.py` |
+| `pointer capture` | `setPointerCapture` throws and is caught, in both drags that take it: the reorder drag on a pane's head or a rail's face (#217, captured on lift), and the gutter (#234, captured on the press). Both hear their move and release on the document rather than the handle, so both still track and a gutter still resizes. What is lost is the guarantee that events keep arriving after the pointer leaves the element: a touch or pen off the gutter's 8px strip, or a release outside an embedded window. And with no capture to take it, the release's click lands on the pane under the hand, which is why a gutter swallows the one click after a resize. | `test_fleet_window.py`, `test_fleet_gutters.py`, `test_fleet_engines.py` |
+| `ResizeObserver` | The tiers (#233). No observer is made, and the same writer of `data-tier` is fed by a measurement of every pane after each layout pass, and a resize of the window asks for a pass. A pane still draws the tier its width says, a frame later than an observer would have said it. During a gutter drag the tier follows when the hand comes up rather than under it, because a layout pass waits for the hand. | `test_fleet_engines.py` |
+| `container queries` | Not used for the tiers: `data-tier` is an attribute, which tests and the draw code can read and a container query is not (plan-panes §The pane). So a shell without them draws every tier the same. Inside a pane, the head keeps the model's word, the ticket and the chip's age under 500px, and the trace under 560px, and wraps to a second line rather than dropping them. `flex-wrap` is the fallback, and it is why the head has it. | `test_fleet_window.py` |
 | `OffscreenCanvas` | Not used. The trace and the ground are small enough to draw on the main thread — 0.10 ms a repaint for the ground — and a worker would be a second place that has to know the palette. | — |
 | `WebGL` | Not used by the desk yet: three.js loads only on `/probe` (#247) until the ink layer (#248), as [plan-ink.md](plan-ink.md) lays out. When it is used, a shell whose probe says software, no WebGL or an unnamed renderer gets the plain fallback — the same page with plain borders and highlights and no animation — because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py` |
 
 `test_the_desk_arrives_at_the_same_place_with_every_fallback_taken` takes **all** of the fallbacks
-at once — no view transitions, no pointer capture, no `linear()`, no container queries — which is
-the worst engine anybody will actually meet. The desk still hides a tile, still reorders, still
-resizes and still draws its traces.
+at once — no view transitions, no pointer capture, no `linear()`, no container queries, no
+`ResizeObserver` — which is the worst engine anybody will actually meet. The desk still hides a
+tile, still reorders, still resizes by the gutter, still gives every pane the tier its width says,
+and still draws its traces.
 
 ## What is *not* guarded by a fallback
 

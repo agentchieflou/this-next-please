@@ -1117,7 +1117,8 @@ two embedders, at the width the operator actually works at.
 CI measures the fixture desk — 3, 6 and 12 agents at 1280, 1920 and 2560 px — in headless Chromium
 (`tests/test_fleet_panes.py`). What it cannot answer is whether 48 / 160 / 360 px are the right
 boundaries on the real monitors, and whether the two embedders run the one `ResizeObserver` the tiers
-hang on. The numbers themselves are slice F's (#235); these rows are what F measures.
+hang on. The numbers themselves are slice F's (#235): §Panes, at the end of this runbook, carries on
+from P9 with the engine rows, the gutters and the widths.
 
 | # | Do this | Expect | Result | Notes |
 | --- | --- | --- | --- | --- |
@@ -1133,8 +1134,9 @@ hang on. The numbers themselves are slice F's (#235); these rows are what F meas
 
 ### The open questions these rows answer
 
-- **Are 48 / 160 / 360 px right on the real monitors?** (P1, P2) Starting values; F records the
-  laptop's beside CI's.
+- **Are 48 / 160 / 360 px right on the real monitors?** (P1, P2) Starting values. Since #235 they
+  are settings, tried and recorded by P15 and P16 in §Panes below, beside CI's in
+  [desk-window.md](desk-window.md) §The tiers.
 - **Does the rail's label carry enough?** (P4, P9) A band showed the last line on the glass; a rail
   says it only to a pointer and a screen reader. If the operator misses reading it at a glance, the
   answer is E's *needs me* preset (a red agent compact or wider), not a wider rail.
@@ -1176,6 +1178,10 @@ Chromium's column is filled in by a test in CI; what CI cannot answer is what Py
 window and VS Code's Simple Browser do, because neither is installable on a Linux runner and both
 are pinned to whatever Chromium their host shipped with.
 
+> **O1 is copy-free since #235.** The WebGL probe asks every row below in the shell it runs in, and
+> `ad-fleet engines` prints the answers as a `features` table: run §Panes P10 and P16 instead of
+> pasting this. The console snippet stays for a shell the probe cannot reach.
+
 Run the desk in each shell and paste the console line back. The probes are the same ones
 `tests/test_fleet_engines.py` runs, so a row here and a row there mean the same thing:
 
@@ -1188,6 +1194,7 @@ Run the desk in each shell and paste the console line back. The probes are the s
   viewTransition: typeof document.startViewTransition === 'function',
   linearEasing: CSS.supports('animation-timing-function', 'linear(0, 1)'),
   pointerCapture: typeof Element.prototype.setPointerCapture === 'function',
+  resizeObserver: typeof ResizeObserver === 'function',
   containerQueries: CSS.supports('container-type', 'inline-size'),
   offscreenCanvas: typeof OffscreenCanvas !== 'undefined',
 })
@@ -1195,7 +1202,7 @@ Run the desk in each shell and paste the console line back. The probes are the s
 
 | # | Do this | Expect | Result | Notes |
 | --- | --- | --- | --- | --- |
-| O1 | The probe above, in Edge, in PyCharm's JCEF window and in VS Code's Simple Browser | one row per shell for `docs/desk-engines.md` | _not yet measured_ | paste the object back verbatim; the table is filled in from it |
+| O1 | The probe above, in Edge, in PyCharm's JCEF window and in VS Code's Simple Browser | one row per shell for `docs/desk-engines.md` | _not yet measured_ | superseded by P10 and P16 (#235), which record the same answers with nothing pasted; only for a shell the probe cannot reach |
 | O2 | Drag a tile by its head in each shell | the tile moves under the cursor, the target lights, `Esc` cancels | _not yet measured_ | without pointer capture the drag still tracks — this says whether it feels the same |
 | O3 | Pull a tile's right edge past the next track, then its bottom edge | the ghost shows `2 × 1` then `2 × 2` before the button comes up, and the tile lands there | _not yet measured_ | the snap is to the grid's measured tracks, so a narrow monitor has fewer |
 | O4 | Hide a tile, then *show all* | it leaves and comes back in about a fifth of a second, not instantly and not slowly | _not yet measured_ | this is `--motion-base` — the number to argue with if it feels wrong |
@@ -1258,3 +1265,53 @@ Render Driver) counts as *falls back* however smooth it looks, and a cell is nev
   Chromium; a difference would mean the embedding, not the engine, decides.
 - **What does a real GPU make of the scene?** (W1–W4) The prototypes were measured under
   SwiftShader at 117–150 ms a frame; these are the first numbers from hardware.
+
+
+## Panes (#235): the engine rows, the gutters and the tier widths, in all four shells
+
+The row of panes leans on three platform features: one `ResizeObserver` for the tiers, container
+queries in a pane's head, and pointer capture on the gutter. CI answers for headless Chromium:
+`tests/test_fleet_engines.py` fills that column of [desk-engines.md](desk-engines.md), measures
+that a gutter keeps every move while the hand is off its 8px strip and off the row altogether,
+and takes each feature away to prove the desk still lands in the same place. CI cannot answer three
+things. What Edge, PyCharm's JCEF window and VS Code's Simple Browser have. Whether a gutter
+behaves in each of them under a real hand. And whether 48 / 160 / 360 px are the right tier widths
+on the laptop panel and the centre monitor. These rows answer them. The step numbers carry on from
+§The row of panes, so every P step in this runbook has one meaning.
+
+Nothing here is copied out of a dev console. Since #235 the WebGL probe asks every other row of
+the engines table as well, in the shell it runs in, and `ad-fleet engines` prints the answers laid
+out as the table is. The tier widths are settings (`fleet.tiers.*`, on the settings page under
+*Appearance*), and the same command prints the ones in effect.
+
+Before starting: `ad-update`, so the desk runs this build (a probe from an older one has no feature
+answers). Then `ad-fleet open --in edge`, and open the fleet tool window in PyCharm and the Fleet view
+in VS Code, as for §Ink.
+
+| # | Do this | Expect | Result | Notes |
+| --- | --- | --- | --- | --- |
+| P10 | `ad-fleet probe --open pycharm`, then `--open vscode`, then `--open edge`; and W3 for Simple Browser | each prints `arrived: true`; the probe page's *the other rows* line reads `every row works`, or names the rows that fall back | _not yet measured_ | this is W1–W4 run again on this build. If you ran them since `ad-update`, the answers are already recorded and this step is done |
+| P11 | In each of the three shells, with one pane open and a rail to its right: press the gutter between them (the thin line at the open pane's right edge, where the cursor turns `↔`) and drag right, slowly, about 400px | the rail opens under the hand. Its face first; from about 160px its head, the three tools and the reply box (compact); from about 360px the trace in its head and the cells (full). Nothing else in the row moves, and the footer offers *undo* when the hand comes up | _not yet measured_ | the tiers changing in that shell's own engine. A pane that stays a rail's face until the hand comes up is the `ResizeObserver` row falling back: tiers measured after each layout pass |
+| P12 | Press a gutter and drag with the pointer well off its strip: along the row, then up over the toolbar, then down over the footer, and let go over the toolbar | the width follows the hand along the row the whole time; the cursor is `↔` everywhere on the page; letting go leaves the width where the hand was and opens and selects nothing | _not yet measured_ | pointer capture on the gutter. If a shell's `pointer capture` cell says it falls back, this step says whether that costs anything with a mouse |
+| P13 | The same, but take the pointer out of the window altogether (past the tool window's edge) and let go there. Then press `Esc` in the middle of another drag | the drag ends where the hand left the window, and nothing is stuck in `↔`. `Esc` puts every width back, and the footer offers no *undo* | _not yet measured_ | the tool window and the view are embedded; a release outside them is a case a desktop browser never meets |
+| P14 | Drag a gutter slowly back and forth across 360px, a few pixels each way | the pane turns full once on the way out and compact once on the way back, about 8px past 360 each time, never on every pixel | _not yet measured_ | the slack, in each shell. P3 did the same with the window's edge |
+| P15 | Try the widths. Open *settings* from the toolbar, change *compact from*, *full from*, *rail* or *tier slack* under *Appearance*, and watch the desk on the laptop panel and on the centre monitor as you do. Then try a *full from* under *compact from* + 80 | every open desk redraws at once, with no reload. The last one is refused: the box is outlined, the reason is in its tooltip, and nothing changes | _not yet measured_ | the question is whether three panes side by side on the panel read well as compact, and whether a pane on the monitor turns full where it should. Keeping the defaults is an answer too |
+| P16 | `ad-fleet engines` | `features_measured: 3` or more; a `features` table with one line per row of desk-engines.md and one column per shell; a `tiers` table of the four widths in effect, with `set: true` for each one P15 changed, and `tiers_invalid: ""` | _not yet measured_ | **paste the whole TOON block back.** The Edge, JCEF and Simple Browser cells of every feature row are filled from `features` verbatim, `ResizeObserver`, `container queries` and `pointer capture` among them. The *Laptop* column of [desk-window.md](desk-window.md) §The tiers is filled from `tiers`. The `chromium` column stays CI's: the laptop never probes `chromium`, so its cells here read *not yet measured* |
+
+The cells are not a judgement call: a shell that has the feature is *works*, and one that does not
+gets the fallback `agentdata/fleet/probe.py` `FEATURES` names for that row, which is what
+desk-engines.md §What happens without each one describes. A cell is never upgraded by hand.
+
+### The open questions these rows answer
+
+- **Do the two embedders run the one observer the tiers hang on?** (P10, P11) If one does not, the
+  tiers there follow the widths a layout pass late, and a gutter drag shows a rail's face until the
+  hand comes up. That is still correct, and it is worth knowing.
+- **Does a gutter keep the hand in JCEF?** (P12, P13) The drag is heard on the document either way.
+  What capture adds is the moves off the strip and the release outside the window.
+- **Are 48 / 160 / 360 px right on the real monitors?** (P15, P16) They were starting values
+  (plan-panes §Open questions). Now they are settings, and whatever the operator settles on is
+  recorded beside CI's in [desk-window.md](desk-window.md) §The tiers.
+- **Are container queries worth leaning on for the tiers?** (P10) plan-panes said they would be
+  used only if all three engines run them. The tiers do not use them either way, because the
+  attribute is what tests and draw code can read. The answer decides only whether a later slice may.

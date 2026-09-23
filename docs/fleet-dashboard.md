@@ -263,7 +263,9 @@ A pane draws itself by how wide it is, in three tiers:
 
 The tier is written as `data-tier` by one `ResizeObserver` on the row, with 8 px of slack between
 compact and full so a pane on that boundary does not flicker (a pane is a 48 px rail or at least
-160 px, so nothing sits on the rail's), and the numbers are starting values the laptop sets in #235.
+160 px, so nothing sits on the rail's). Those numbers are CI's and the defaults. Since #235 they are the
+operator's to set, as `fleet.tiers.*` on the settings page, and [desk-window.md](desk-window.md) §The tiers
+records the laptop's beside them.
 Three panes beside each other on a laptop panel are compact; the same desk on a 2 560 px monitor is
 three full ones.
 
