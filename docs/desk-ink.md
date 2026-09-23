@@ -194,12 +194,6 @@ every skin already has, `static/skins/<name>/skin.css`, which holds its layout, 
 and `theme.skin` in the config chooses it, the way `glass` is chosen today. `static/ink/skins/example.js` is the
 working pattern to copy, and the tests draw with it. It is not in `skins.py`, so nobody can choose it.
 
-**The skins that draw with ink**, each with its own page:
-
-| Skin | Module | Page |
-| --- | --- | --- |
-| voxel (#256) | `skins/voxel.js`: voxel ground, lit slabs and a status stack per pane, one draw call per material | [skin-voxel.md](skin-voxel.md) |
-
 **How it is chosen.** The server lists every `static/ink/skins/*.js` on the desk's `<body>` (`data-ink-skins`). The
 chosen skin reaches the page as `applySkin("<name>:<variant>")`, which writes `body[data-skin]` and
 `[data-skin-variant]`. `ink.js` follows those two attributes. When they name a listed skin, it fetches the module
@@ -265,12 +259,39 @@ What each hook is handed:
    `Ink.inspect()` shows the marks, and `.layer.skin` shows the hooks, the pieces and the frames.
    `tests/test_fleet_ink.py` has the pattern.
 
+### The skins that draw with ink
+
 | Skin | Module | Its page |
 | --- | --- | --- |
 | glass (#254) | `skins/glass.js` | [skin-glass.md](skin-glass.md): a lit mesh ground, frosted panes that sample it, and a state grammar of marks and lit rims |
 | graph (#253) | `skins/graph.js` | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
 | farmstead (#255) | `skins/farmstead.js` | [skin-farmstead.md](skin-farmstead.md): the sprite sheet as nearest-neighbour textures, lit wooden frames, and a crop that grows a stage per advance of the phase |
+| legalpad (#251) | `skins/legalpad.js` | [§The legal pad](#the-legal-pad-251), below: canary stock, blue rules, a double red margin and a glued top, and an orange-pink highlighter |
+| napkin (#252) | `skins/napkin.js` | [skin-napkin.md](skin-napkin.md): quilted two-ply, a felt tip that bleeds along the emboss, a coffee ring under a pane idle a long time |
+| voxel (#256) | `skins/voxel.js` | [skin-voxel.md](skin-voxel.md): voxel ground, lit slabs and a status stack per pane, one draw call per material |
+
+## The legal pad (#251)
+
+Slice E, a skin that ships with ink: "the yellow-page version" the operator asked for,
+which is a yellow legal pad (plan-ink Decision 4). It is `legalpad` in `skins.py`, one variant
+(`canary`, drawn against `eye-relief-day`), chosen on the settings page like any skin. Its module is
+`static/ink/skins/legalpad.js` and its stylesheet `static/skins/legalpad/skin.css`.
+`tests/test_fleet_ink_legalpad.py` is its test.
+
+**The pad.** The `paper` hook draws the whole page as the pad: canary stock with a tooth (its own
+small shader, the colour written as it is read), the gummed band across the top (10px, with the
+ragged foot glue has where it soaked into the top sheet; the header's top border makes room for
+it), and a blue rule every 28px from the first baseline under the header. The `frame` hook gives
+each pane a hairline where its edge is and the double red margin, 25px and 29px in from its left
+edge; a rail has no margin. The pane's own background, border and radius go, so the pad shows
+through, and its text starts right of the margin (`padding-left: 34px`). The project's accent stays
+on the left edge (#150).
+
+**Its colours are custom properties on `<body>`, in `skin.css`,** read by the module through
+`tokens.css(name)` at paint time and never written in the module:
+
 | Property | Is | Value |
+| --- | --- | --- |
 | `--paper` | the canary stock, and `options.paper`, so the layer knows it is light and the highlighter multiplies | `#FCF3A6` |
 | `--rule` | the blue rules and the panes' hairline | `#8FB1D8` |
 | `--margin` | the double red margin | `#D8534C` |
@@ -278,7 +299,16 @@ What each hook is handed:
 | `--ink-pencil` | graphite: the palette's `--muted` is too faint on canary | `#5E5A52` |
 | `--ink-pen` | a blue ballpoint, where the palette's accent is ochre | `#1F3F9A` |
 | `--ink-highlighter` | **orange-pink**: the palette's amber would vanish into yellow | `#FF8FA3` |
+
+Red, green and the marker keep the palette's own (`--human`, `--done`). Every one of the six inks
+is declared beside the variant in `skins.py` (`inks`) and held to the canary by `theme.check` rule
+5; a test holds `skins.py` and `skin.css` to the same numbers.
+
+**The state grammar** (plan-ink §The state grammar) is the module's mark table. Every row reads a
+class or an attribute the page already sets; the skin decides no state.
+
 | State | Rows: selector → tool, shape | What sets it |
+| --- | --- | --- |
 | idle | `.tile.state-idle` → pencil outline (inside the pane); `.tile.state-idle .head .repo` → pencil underline | `drawTile`'s `state-*` |
 | running | `.tile.state-running .head .repo` → pen underline; its tail and the pen-tip dot are the module's (below) | `drawTile` |
 | needs you | `.tile.needs-human .head .repo` → highlighter; the open question's `.ask-q` → highlighter; each `.ask-choice` → pencil loop | `needs-human` (#94's fold), the question card (#165) |
@@ -288,6 +318,59 @@ What each hook is handed:
 | stale (#240) | `.oldsession:not([hidden])` → pencil `write` (its own words, handwritten), a dashed pencil outline round it, and a pencil arrow to `.runline` | `drawOldSession` |
 | a finding | `.transcript li.denied` or `li.friction` → red ellipse; its `.k` → highlighter; its `.v` → pencil `write` | the transcript's own line classes (`appendTo`) |
 | the header count | `#bellcount` → pen `write`; a change is struck and rewritten by the module (below) | `bell()` |
+
+Decisions the table carries, each undone by a sentence:
+
+* **Answered is the operator's own press.** The card has no "answered" class, and once the answer
+  reaches the agent the card is hidden, so a struck question would never be seen. What the page
+  does have, the moment the operator chooses, is `aria-pressed` on the choice. An engine without
+  `:has()` keeps the question highlighted until the card goes.
+* **A finding is a transcript line the agent was refused or stopped on** (`denied`, `friction`).
+  The desk has no findings markup of its own; these are the lines it already marks as a problem.
+* **The stale note is the chip's own words** ("old skills", or "renew queued"), written in pencil
+  where the chip is. The DOM keeps every word, so the grammar's *stale — renew?* is the page's
+  sentence rather than one the skin makes up. The arrow points at the run line, which says which
+  session and run the transcript is.
+* **Done is reachable only when app.js sets it.** On today's desk a pane the fleet does not
+  supervise reads as idle and a supervised one as running, so `state-done` is rare. The row is
+  there for when the page sets the class, and the tests set it the way app.js would.
+* **The question card and its choices are transparent in ink** (`skin.css`): the canvas is behind
+  the page, so a mark shows only where nothing opaque covers it.
+
+**Two marks the layer has no shape for, drawn by the module** from the same classes, in its `tick`,
+as ribbons of the pen's ink (plan-ink gives both to C; this is the skin-local copy that slice K
+consolidates):
+
+* *The running pen.* When a pane turns `state-running` and the layer has finished its underline, a
+  tail runs on from the underline's end, one 6px step for each transcript line the turn writes (up
+  to 132px), with the pen-tip dot at its end. When the pane leaves `state-running` the tail is
+  struck in pen, like the underline beside it. One struck tail is kept, until the next turn.
+* *The header count.* When `#bellcount` changes, the old number is kept where it stood, beside the
+  new one, drawn as a hand writes digits, and struck through in pen. The bell has room for it
+  (`padding-left`), and one struck number is kept. The new number is the page's own text; writing
+  it again with the reveal waits for the layer to re-run a `write` on a change of text.
+
+Neither asks for a frame of its own except while its strike is being drawn, so an idle desk draws
+nothing. Under reduced motion both are drawn at once. `inspect()`, exported by the module, says
+what they are doing (the tests import the module by its URL, which is the instance the page runs).
+
+**The plain look** (`body.ink-off`) is the same pad in CSS: the canary, a rule every 28px as a
+repeating gradient, the double margin as a gradient on each pane, and the glue as the header's top
+border. The layer's fallback draws the same table over it in the same inks. Where the fallback's
+margin bar (an inset `box-shadow`) lands on a selected pane, the selection ring is kept beside it.
+
+**Fonts.** None downloaded: the handwritten bits (the stale note, the count) use a local cursive
+stack (`--hand`: Segoe Print, Bradley Hand, Chalkboard SE, Comic Neue, Comic Sans MS, `cursive`).
+
+**Its weight.** The module is 7.0 KB gzipped and the stylesheet 1.9 KB, fetched only by a desk that
+chose the skin, so neither is in the desk's static payload (desk-engines.md); `test_fleet_ink.py`
+holds each skin module under 16 KB.
+
+**One fix it needed from the page.** An idle desk with any skin but glass was never idle: every
+`/api/fleet` wrote `data-theme`, `data-skin` and `data-skin-variant` again, and `startGround`'s
+retry for glass's ground re-armed itself every 150ms for skins that have none. `applyTheme` and
+`applySkin` now write through `attr` (a no-op when the value is right), and the retry is glass's
+alone (`tests/regressions/test_20260923_any_skinned_desk_never_idle.py`).
 
 ## Lanes
 
@@ -373,12 +456,6 @@ panel. Every ink is a mark on the paper, so it needs **3:1** against it (WCAG 1.
 highlighter is read *through*, so the text needs **4.5:1** on its tint (`theme.INK_TINT`, the plain fallback's 38%).
 `tests/test_fleet_skins.py` passes each variant's `inks`. No variant declares any in B, so this is the hook the paper
 skins (#249–#253) fill in, with the composited-pane pairs of the three.js skins after them.
-
-## The skins that draw with it
-
-| Skin | Slice | Page |
-| --- | --- | --- |
-| `napkin` (`diner`, `kraft`) | F #252 | [skin-napkin.md](skin-napkin.md): quilted two-ply, a felt tip that bleeds along the emboss, a coffee ring under a pane idle a long time |
 
 ## What B does not do
 
