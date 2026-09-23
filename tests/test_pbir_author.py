@@ -51,9 +51,11 @@ def test_catalog_list_and_describe():
 
 def test_catalog_formatting():
     t_fmt = CAT.formatting_catalog(object_name="title")
-    props = {r[1]: r[2] for r in t_fmt.rows}
+    col = {c: i for i, c in enumerate(t_fmt.columns)}
+    props = {r[col["property"]]: r[col["type"]] for r in t_fmt.rows}
     assert "text" in props
     assert "fontColor" in props
+    assert {r[col["location"]] for r in t_fmt.rows} == {"visualContainerObjects"}
 
     t_search = CAT.formatting_catalog(search="shadow")
     assert len(t_search.rows) >= 1

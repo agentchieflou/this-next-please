@@ -16,6 +16,7 @@ Author Power BI reports mechanically via `ad-pbip` verbs without handwriting vis
    - Pages: `ad-pbip page add <pbip> --name "<name>" [--after <p>]`
    - Visuals: `ad-pbip visual add <pbip> --page <p> --type <type> --title "<t>" --fields <f1> <f2> ... --position x,y,w,h`
    - Formatting: `ad-pbip visual set <pbip> --visual <id> --property <object.property>=<value>`
+   - One series' data label: add `--series <measure>`; a label that shows another field: `--property labels.dynamicLabelValue=[Measure]`
    - Filters: `ad-pbip filter set <pbip> --scope report|page|visual [--page <p>] [--visual <id>] --field <ref> --values a,b`
    - Bookmarks: `ad-pbip bookmark add <pbip> --name "<name>" --page <p> [--visuals <id1,id2>]`
    - Themes: `ad-pbip theme set <pbip> --file <theme.json>`

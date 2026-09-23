@@ -9,7 +9,7 @@ This document outlines the mechanical authoring commands, the PBIR anti-pattern 
 | `ad-pbip schema update` | `[--pretty]` | Validates vendored schemas against `VERSION` metadata and reports visual types and properties. |
 | `ad-pbip catalog list` | `[--pretty]` | Lists all available visual types, required roles, and legacy deprecation status. |
 | `ad-pbip catalog describe` | `<visualType> [--pretty]` | Describes roles, min/max cardinality, and allowed data kinds (`Grouping`, `Measure`). |
-| `ad-pbip catalog formatting` | `[<visualType>] [--object <o>] [--property <p>] [--search <s>]` | Lists formatting properties, types (`string`, `bool`, `color`, `number`, `enum`), and valid values. |
+| `ad-pbip catalog formatting` | `[<visualType>] [--object <o>] [--property <p>] [--search <s>]` | Lists formatting properties, types (`string`, `bool`, `color`, `number`, `enum`), valid values, and the `location` each object is written to. |
 | `ad-pbip expr encode` | `<fieldRef>` | Converts readable field references (e.g. `'Sales'[Amount]`, `Sum('Sales'[Qty])`) into JSON `QueryExpressionContainer`. |
 | `ad-pbip expr decode` | `<json>` | Decodes JSON `QueryExpressionContainer` into readable field reference. |
 | `ad-pbip theme shade` | `--color <hex> --pct <float>` | Shades (darkens, negative %) or tints (lightens, positive %) a hex color. |
@@ -22,7 +22,8 @@ This document outlines the mechanical authoring commands, the PBIR anti-pattern 
 | `ad-pbip page remove` | `<pbip> --page <page>` | Deletes page directory and cleans up `pages.json`. |
 | `ad-pbip page move` | `<pbip> --page <page> [--after <p2>]` | Reorders page in `pages.json` `pageOrder`. |
 | `ad-pbip visual add` | `<pbip> --page <p> --type <type> [--title <t>] [--fields ...] [--position x,y,w,h]` | Adds visual with fresh 20-hex ID, schema-ordered roles, and canvas boundary checks. |
-| `ad-pbip visual set` | `<pbip> --visual <id> --property <obj.prop>=<val>` | Updates formatting or position (`position.x`, `position.width`) property. |
+| `ad-pbip visual set` | `<pbip> --visual <id> --property <obj.prop>=<val> [--series <field>]` | Updates a position (`position.x`, `position.width`) or formatting property, where and as Desktop saves it: chart objects (`labels`, `legend`, `categoryAxis`, `valueAxis`) in `visual.objects`, container objects (`title`, `subTitle`, `background`, `border`, `dropShadow`, `padding`, `visualHeader`) in `visual.visualContainerObjects`. Values are Desktop literals (`true`, `12D`, `'center'`, `'#118DFF'` in `solid.color`). `labels.dynamicLabelTitle`, `dynamicLabelValue` and `dynamicLabelDetail` take a field (`[Measure]`, `'Table'[Measure]` or `Min('Table'[Column])`), checked against the model. `--series` (a labels setting only) applies it to one of the visual's fields, by queryRef, display name or measure name. |
+| `ad-pbip visual set` (a bar-end label) | on a `clusteredBarChart` or `clusteredColumnChart`: `labels.show=true`; `--series Average labels.show=false`; `--series Recent labels.labelPosition=OutsideEnd`; `--series Recent labels.dynamicLabelValue=[Variance Label]` | Desktop's data-label *Apply settings to* a series, *Position: Outside end*, and *Value* carrying another measure. For a second line instead: `enableDetailDataLabel=true`, `detailContentType=Custom`, `dynamicLabelDetail=[Variance Label]`. |
 | `ad-pbip visual remove` | `<pbip> --visual <id>` | Removes visual directory from page. |
 | `ad-pbip filter set` | `<pbip> --scope report\|page\|visual [--page <p>] [--visual <id>] --field <ref> (--values\|--between\|--top)` | Creates canonical filter using `SourceRef.Source` alias in `Where` condition. |
 | `ad-pbip bookmark add` | `<pbip> --name "<name>" --page <p> [--visuals <id1,id2>]` | Creates bookmark capture in `definition/bookmarks/`. |
@@ -56,3 +57,4 @@ The PBIR schemas and visual catalogs are vendored as static data under `agentdat
 To verify or update:
 1. Run `ad-pbip schema update`.
 2. To update upstream definitions, update the schema JSON files in `agentdata/pbip/schema/`, update `VERSION` with the new commit SHA, and run `pytest tests/test_pbir_author.py`.
+3. The `formatting` section of `visuals.json` names objects and properties as Power BI Desktop saves them, and each object's `location` says which of `visual.objects` and `visual.visualContainerObjects` holds it. `tests/test_pbir_visual_set.py` checks both against visuals Desktop saved, in `tests/fixtures/pbip/desktop-saved/`: an object added to the catalog is pinned there, from a Desktop-saved file that carries it.

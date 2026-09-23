@@ -79,8 +79,9 @@ shows, and **Detail** adds a second line. The chart keeps cross-filtering, toolt
 arrived in May 2023 (then a *Custom label* toggle under Values); the Title, Value and Detail cards in December 2023.
 - **Outside end** exists on clustered charts, not stacked ones [10]. The Average/Recent chart is clustered.
 - The longest bar's label can be cut off: give the value axis a fixed maximum with room for it.
-- One Desktop gesture per visual: `ad-pbip visual set` writes literal properties, and this is a field reference.
-  Save, and `ad-pbip check` validates the field like any other reference.
+- `ad-pbip visual set` writes it: `--series <field>` scopes a `labels` setting to one series, as **Apply settings
+  to** does, and `labels.dynamicLabelValue`, `dynamicLabelDetail` and `dynamicLabelTitle` take the field.
+  `ad-pbip check` validates the field like any other reference.
 
 ### N2 Format strings on the series
 A three-section format string (positive;negative;zero) prints arrows and signs, e.g. `"▲ "0.0%;"▼ "0.0%;"– "0.0%`.
@@ -219,12 +220,17 @@ RETURN
 Variance Color =                        -- hex text for a colour's "Field value" format style
 SWITCH ( TRUE (), [Variance %] > 0, "#1A7F37", [Variance %] < 0, "#CF222E", "#6E7781" )
 ```
-Swap the two colours for a measure where lower is better. Then in Desktop, once:
-1. Data labels on. Apply settings to the **Average** series: labels off.
-2. Apply settings to the **Recent** series: Position **Outside end**; **Value** field `Variance Label`. The bar end
-   now reads `▲ +15.0%`. To keep the number as well, leave Value as it is and put `Variance Label` in **Detail**.
-3. Optional, where the label colour offers **fx**: Format style **Field value** → `Variance Color`.
-4. Save, then `ad-pbip check`: no `field-unresolved`.
+Swap the two colours for a measure where lower is better. Then, on a `clusteredBarChart`:
+```
+ad-pbip visual set <pbip> --visual <id> --property labels.show=true
+ad-pbip visual set <pbip> --visual <id> --series Average --property labels.show=false
+ad-pbip visual set <pbip> --visual <id> --series Recent --property labels.labelPosition=OutsideEnd
+ad-pbip visual set <pbip> --visual <id> --series Recent --property "labels.dynamicLabelValue=[Variance Label]"
+```
+The bar end now reads `▲ +15.0%`. To keep the number as well, leave the value alone and give the Recent series
+`labels.enableDetailDataLabel=true`, `labels.detailContentType=Custom` and `labels.dynamicLabelDetail=[Variance Label]`.
+Then `ad-pbip check`: no `field-unresolved`. Colouring the label by `Variance Color` (**fx**, Format style **Field
+value**) is still a Desktop step, where the label colour offers it.
 
 N2 on the same chart, where N1's fields are missing: a copy of `[Recent]` as the Recent series, with this format
 string expression. It returns `#,0"  ▲ +15.0%"`: the number, then the quoted text, its `%` taken literally.

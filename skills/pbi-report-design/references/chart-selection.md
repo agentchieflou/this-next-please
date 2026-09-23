@@ -3,23 +3,24 @@
 ## Rule 0: Sample the Data First
 Before picking a visual type, always verify:
 1. **Cardinality**: How many distinct values exist in the category column?
-   - < 7 items: `columnChart`, `barChart`, `donutChart`.
-   - 7–30 items: horizontal `barChart` (vertical column labels truncate).
+   - < 7 items: `clusteredColumnChart`, `clusteredBarChart`, `donutChart`.
+   - 7–30 items: horizontal `clusteredBarChart` (vertical column labels truncate).
    - > 30 items: searchable `tableEx` or `pivotTable`.
 2. **Data Grain**: Is it discrete periods (months, quarters) or continuous timestamps?
-   - Discrete periods: `columnChart` or `lineChart`.
+   - Discrete periods: `clusteredColumnChart` or `lineChart`.
    - Continuous high-density time: `lineChart` or `areaChart`.
 3. **Number of Measures**:
    - 1 metric: bar, column, line, or card.
    - 2 metrics: dual-axis or scatter.
    - 3+ metrics: multi-metric `cardVisual` or `tableEx`.
+   - Several series per category: `clusteredColumnChart` / `clusteredBarChart` side by side; the stacked `columnChart` / `barChart` only when the series are parts of the category's total.
 
 ## Question → Visual Type Mapping
 
 | Analytical Question | Recommended Visual Type | Avoid / Anti-Pattern |
 | :--- | :--- | :--- |
-| How did metric trend over time? | `lineChart` or `columnChart` | `pieChart`, `tableEx` |
-| Which categories rank highest? | horizontal `barChart` (sorted desc) | vertical column chart (truncated text) |
+| How did metric trend over time? | `lineChart` or `clusteredColumnChart` | `pieChart`, `tableEx` |
+| Which categories rank highest? | horizontal `clusteredBarChart` (sorted desc) | vertical column chart (truncated text) |
 | How do parts contribute to whole? | `waterfallChart`, 100% stacked bar | `pieChart` with > 5 slices |
 | How do two metrics correlate? | `scatterChart` | separate unlinked bar charts |
 | Are we meeting KPI target? | `gauge` or `cardVisual` with variance | bare single number with no context |

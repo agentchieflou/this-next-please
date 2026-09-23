@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "visuals": {
     "columnChart": {
-      "description": "Clustered column chart",
+      "description": "Stacked column chart (vertical); side by side is clusteredColumnChart",
       "legacy": false,
       "roles": {
         "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "X-axis category field" },
@@ -13,7 +13,27 @@
       }
     },
     "barChart": {
-      "description": "Clustered bar chart (horizontal)",
+      "description": "Stacked bar chart (horizontal); side by side is clusteredBarChart",
+      "legacy": false,
+      "roles": {
+        "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "Y-axis category field" },
+        "Y": { "min": 1, "max": 10, "kind": "Measure", "description": "X-axis value field(s)" },
+        "Series": { "min": 0, "max": 1, "kind": "Grouping", "description": "Legend breakdown series" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Additional tooltip fields" }
+      }
+    },
+    "clusteredColumnChart": {
+      "description": "Clustered column chart (vertical, series side by side)",
+      "legacy": false,
+      "roles": {
+        "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "X-axis category field" },
+        "Y": { "min": 1, "max": 10, "kind": "Measure", "description": "Y-axis value field(s)" },
+        "Series": { "min": 0, "max": 1, "kind": "Grouping", "description": "Legend breakdown series" },
+        "Tooltips": { "min": 0, "max": 10, "kind": "Measure", "description": "Additional tooltip fields" }
+      }
+    },
+    "clusteredBarChart": {
+      "description": "Clustered bar chart (horizontal, series side by side)",
       "legacy": false,
       "roles": {
         "Category": { "min": 0, "max": 1, "kind": "Grouping", "description": "Y-axis category field" },
@@ -167,16 +187,18 @@
   },
   "formatting": {
     "title": {
+      "location": "visualContainerObjects",
       "description": "Visual header title formatting",
       "properties": {
         "text": { "type": "string", "description": "Title display text" },
         "show": { "type": "bool", "description": "Show title container" },
         "fontSize": { "type": "number", "description": "Title font size in pt" },
         "fontColor": { "type": "color", "description": "Title font hex color (#RRGGBB)" },
-        "alignment": { "type": "enum", "enum": ["Left", "Center", "Right"], "description": "Title text alignment" }
+        "alignment": { "type": "enum", "enum": ["left", "center", "right"], "description": "Title text alignment" }
       }
     },
     "subTitle": {
+      "location": "visualContainerObjects",
       "description": "Visual subtitle formatting",
       "properties": {
         "text": { "type": "string", "description": "Subtitle display text" },
@@ -186,6 +208,7 @@
       }
     },
     "background": {
+      "location": "visualContainerObjects",
       "description": "Container background formatting",
       "properties": {
         "show": { "type": "bool", "description": "Enable background fill" },
@@ -194,6 +217,7 @@
       }
     },
     "border": {
+      "location": "visualContainerObjects",
       "description": "Container border formatting",
       "properties": {
         "show": { "type": "bool", "description": "Enable visual border" },
@@ -201,47 +225,62 @@
         "radius": { "type": "number", "description": "Border corner radius in px" }
       }
     },
-    "dataLabels": {
-      "description": "Data value labels formatting",
+    "labels": {
+      "location": "objects",
+      "series": true,
+      "description": "Data value labels formatting (Format pane: Data labels); --series applies a setting to one series",
       "properties": {
         "show": { "type": "bool", "description": "Show data value labels on chart elements" },
         "fontSize": { "type": "number", "description": "Label font size in pt" },
         "color": { "type": "color", "description": "Label text color" },
-        "position": { "type": "enum", "enum": ["InsideEnd", "OutsideEnd", "InsideCenter", "InsideBase"], "description": "Placement relative to bar/column" }
+        "labelPosition": { "type": "enum", "enum": ["Auto", "InsideEnd", "OutsideEnd", "InsideCenter", "InsideBase", "Above", "Under"], "description": "Placement relative to the bar, column or point" },
+        "enableTitleDataLabel": { "type": "bool", "description": "Show the label's Title line" },
+        "enableValueDataLabel": { "type": "bool", "description": "Show the label's Value line" },
+        "enableDetailDataLabel": { "type": "bool", "description": "Show the label's Detail line" },
+        "titleContentType": { "type": "enum", "enum": ["Series name", "Custom"], "description": "Title shows the series name, or dynamicLabelTitle (Custom)" },
+        "detailContentType": { "type": "enum", "enum": ["Percent of total", "Custom"], "description": "Detail shows percent of total, or dynamicLabelDetail (Custom)" },
+        "dynamicLabelTitle": { "type": "field", "description": "Field the Title line shows: a measure, or an aggregation such as Min('Table'[Column])" },
+        "dynamicLabelValue": { "type": "field", "description": "Field the Value line shows instead of the bar's own value: a measure, or an aggregation" },
+        "dynamicLabelDetail": { "type": "field", "description": "Field the Detail line shows: a measure, or an aggregation" }
       }
     },
     "legend": {
+      "location": "objects",
       "description": "Chart legend formatting",
       "properties": {
         "show": { "type": "bool", "description": "Show legend container" },
-        "position": { "type": "enum", "enum": ["Top", "Bottom", "Left", "Right", "TopCenter", "BottomCenter"], "description": "Legend orientation position" }
+        "position": { "type": "enum", "enum": ["Top", "TopCenter", "TopRight", "Left", "Right", "LeftCenter", "RightCenter", "Bottom", "BottomCenter", "BottomRight"], "description": "Legend orientation position" }
       }
     },
     "categoryAxis": {
+      "location": "objects",
       "description": "Category (X-axis) formatting",
       "properties": {
         "show": { "type": "bool", "description": "Show category axis" },
-        "showTitle": { "type": "bool", "description": "Show axis title text" },
+        "showAxisTitle": { "type": "bool", "description": "Show axis title text" },
         "titleText": { "type": "string", "description": "Custom axis title text" }
       }
     },
     "valueAxis": {
+      "location": "objects",
       "description": "Value (Y-axis) formatting",
       "properties": {
         "show": { "type": "bool", "description": "Show value axis" },
-        "showTitle": { "type": "bool", "description": "Show value axis title" },
+        "showAxisTitle": { "type": "bool", "description": "Show value axis title" },
         "titleText": { "type": "string", "description": "Custom axis title text" },
         "start": { "type": "number", "description": "Axis minimum bound" },
         "end": { "type": "number", "description": "Axis maximum bound" }
       }
     },
     "visualHeader": {
+      "location": "visualContainerObjects",
       "description": "Visual top-right action icon bar",
       "properties": {
         "show": { "type": "bool", "description": "Show visual action header icons" }
       }
     },
     "padding": {
+      "location": "visualContainerObjects",
       "description": "Inner visual padding",
       "properties": {
         "top": { "type": "number", "description": "Top padding px" },
@@ -251,6 +290,7 @@
       }
     },
     "dropShadow": {
+      "location": "visualContainerObjects",
       "description": "Container shadow effect",
       "properties": {
         "show": { "type": "bool", "description": "Enable shadow" },
