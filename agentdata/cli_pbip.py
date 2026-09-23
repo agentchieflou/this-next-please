@@ -113,7 +113,7 @@ def cmd_check(a) -> int:
     findings = CK.check_model(model)
     extra = {"pbip": textio.norm_path(pbip), "report": bool(report), "te2": "skipped"}
     if report:
-        findings += CK.check_report(report, model)
+        findings += CK.check_report(report, model, C.project_facts())
     else:
         findings.append(CK.Finding("warning", "report-missing", pbip, "", "no *.Report found; only the model was checked", "pass the folder that holds the .pbip"))
     cfg = C.load()
@@ -981,6 +981,7 @@ def cmd_page(a) -> int:
 
 
 def cmd_visual(a) -> int:
+    from .pbip.deneb import DenebError as DN_ERROR   # a ValueError: caught before the generic handler below
     sub_c = getattr(a, "visual_cmd", None)
     if getattr(a, "brief", None):
         stat = BR.brief_status(a.brief)
@@ -1023,8 +1024,23 @@ def cmd_visual(a) -> int:
             res = AU.visual_set(pbip, a.visual, prop_path, val, series=getattr(a, "series", None))
         elif sub_c == "remove":
             res = AU.visual_remove(pbip, a.visual)
+        elif sub_c == "deneb":
+            from .pbip import deneb as DN
+            flags = {"provider": a.provider, "cross_filter": a.cross_filter, "cross_highlight": a.cross_highlight}
+            if a.visual:
+                res = DN.update(pbip, a.visual, a.spec, **flags)
+            elif a.page:
+                pos = tuple(int(x.strip()) for x in a.position.split(",")) if a.position else None
+                res = DN.add(pbip, a.page, a.spec, a.fields or [], title=a.title, position=pos,
+                             facts=C.project_facts(), **flags)
+            else:
+                print(error("name the visual to update (--visual) or the page to add one to (--page)", "", "ad-pbip"))
+                return 2
         else:
             return 0
+    except DN_ERROR as e:
+        print(error(str(e), e.hint, f"ad-pbip visual {sub_c}"))
+        return 2
     except (FileNotFoundError, KeyError, ValueError) as e:
         print(error(str(e), "check visual parameters with `ad-pbip catalog`", "ad-pbip"))
         return 2
@@ -1529,7 +1545,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_pm.set_defaults(fn=cmd_page)
 
     # Visual
-    p_vis = sub.add_parser("visual", help="mechanical visual edits (add, set, remove)")
+    p_vis = sub.add_parser("visual", help="mechanical visual edits (add, set, remove, deneb)")
     vis_sub = p_vis.add_subparsers(dest="visual_cmd", required=True)
     p_va = vis_sub.add_parser("add", help="add visual with schema validation")
     p_va.add_argument("pbip", nargs="?", help="PBIP root path")
@@ -1553,6 +1569,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_vr.add_argument("--visual", required=True, help="visual id (20-hex) to remove")
     p_vr.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_vr.set_defaults(fn=cmd_visual)
+    p_vd = vis_sub.add_parser("deneb", help="add or update a Deneb visual (Microsoft-certified) drawing a Vega or "
+                                            "Vega-Lite specification")
+    p_vd.add_argument("pbip", nargs="?", help="PBIP root path")
+    p_vd.add_argument("--spec", required=True, help="specification file (.json) whose data is named \"dataset\"")
+    p_vd.add_argument("--page", help="page id or display name for a new visual")
+    p_vd.add_argument("--fields", nargs="+", help="a new visual's Values: 'Table'[Column] or [Measure]")
+    p_vd.add_argument("--visual", help="visual id (20-hex) of a Deneb visual whose specification to replace")
+    p_vd.add_argument("--provider", choices=["vegaLite", "vega"], default="vegaLite", help="the specification's grammar")
+    p_vd.add_argument("--title", help="visual title text")
+    p_vd.add_argument("--position", help="position format x,y,width,height (e.g. 20,20,500,300)")
+    p_vd.add_argument("--cross-filter", action="store_true", help="clicking a mark filters the page")
+    p_vd.add_argument("--cross-highlight", action="store_true", help="respond to highlights from other visuals")
+    p_vd.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_vd.set_defaults(fn=cmd_visual)
 
     # Filter
     p_flt = sub.add_parser("filter", help="mechanical filter edits")

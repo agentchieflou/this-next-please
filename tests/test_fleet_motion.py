@@ -57,9 +57,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -144,13 +143,14 @@ def test_the_reduced_motion_block_reaches_the_pseudo_elements_the_star_does_not(
 
 
 def test_every_panel_that_comes_and_goes_carries_the_one_pattern():
-    """One block, one class, nine panels -- rather than nine ways of arriving."""
+    """One block, one class, every panel -- rather than a way of arriving per panel. (The dock was
+    one of them, and went with the grid in #232.)"""
     html = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
     css = open(os.path.join(STATIC, "app.css"), encoding="utf-8").read()
     assert ".enters {" in css and ".enters[hidden]" in css
     assert "@starting-style" in css, "without it there is nothing to animate from"
     assert "transition-behavior: allow-discrete" in css, "without it only the arrival is seen"
-    for panel in ("away-strip", "dock", "notice", "modelcard", "smenu",
+    for panel in ("away-strip", "notice", "modelcard", "smenu",
                   "scopereport", "approval", "asks"):
         found = re.search(r'class="[^"]*\b' + re.escape(panel) + r'\b[^"]*"', html)
         assert found, panel
@@ -165,8 +165,13 @@ def test_the_one_door_for_a_layout_change_has_both_paths_and_takes_neither_under
     door = js[js.index("function transitionLayout(fn)"):]
     door = door[:door.index("\n}\n")]
     assert "reduceMotion()" in door, "reduced motion has to be the first thing it asks"
-    # Every gesture that moves something goes through it.
-    assert js.count("transitionLayout(") >= 6, js.count("transitionLayout(")
+    # Every gesture that moves something goes through it: opening a pane and going back. The
+    # grid's zoom, its way out and the edge resize were the other three, and went with the grid
+    # (#232); a rearrangement is FLIP through `transitionMove` (#219).
+    assert js.count("transitionLayout(") >= 3, js.count("transitionLayout(")
+    for gesture in ("function openPane(", "function backToPrevious("):
+        body = js[js.index(gesture):]
+        assert "transitionLayout(" in body[:body.index("\n}\n")], gesture
 
 
 # ------------------------------------------------------------------------------ in a browser
@@ -179,7 +184,7 @@ def test_the_gestures_animate_for_the_base_duration_and_not_at_all_under_reduced
     engine is really running, not what the stylesheet hoped for."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("column", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -257,7 +262,7 @@ def test_a_gesture_that_supersedes_another_is_not_an_unhandled_rejection(fleet_h
     as a page error on the slower of the two CI runners, which is how it was found."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
-    S.arrange("column", order=["alpha", "beta", "gamma", "delta"])
+    S.arrange(order=["alpha", "beta", "gamma", "delta"])
 
     server, token, port = _serve()
     try:
@@ -270,12 +275,12 @@ def test_a_gesture_that_supersedes_another_is_not_an_unhandled_rejection(fleet_h
                       wait_until="domcontentloaded")
             page.wait_for_selector(".tile.is-solo", timeout=15000)
             page.wait_for_function(
-                "() => document.querySelectorAll('#bands .band:not([hidden])').length >= 2",
+                "() => document.querySelectorAll('#grid .tile[data-tier=\"rail\"]').length >= 2",
                 timeout=15000)
 
             # Four opens inside a frame: every one of them supersedes the one before.
             page.evaluate("""() => {
-              openBand('beta'); openBand('gamma'); openBand('delta'); openBand('alpha');
+              openPane('beta'); openPane('gamma'); openPane('delta'); openPane('alpha');
             }""")
             # Waited on by state and not by a clock: a fixed sleep here passes on an idle machine
             # and fails on a loaded one, which is a test measuring the load.
@@ -300,7 +305,7 @@ def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_id
     good path it has to do on the other one, and end in the same place."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("column", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -319,16 +324,21 @@ def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_id
                 assert page.evaluate(
                     "() => typeof document.startViewTransition === 'function'") is not stubbed
 
-                page.evaluate("() => openBand('gamma')")
+                page.evaluate("() => openPane('gamma')")
                 page.wait_for_function(
                     """() => document.querySelector('.tile.is-solo')
                               && document.querySelector('.tile.is-solo').dataset.repo === 'gamma'""",
                     timeout=8000)
-                page.wait_for_timeout(450)              # past --motion-base, whichever path ran
+                # Waited for, not slept through (#227): the names come off when the transition's
+                # `finished` settles, and that is --motion-base plus the snapshot frames plus the
+                # pane's own redraw -- 420-550 ms headless here, so a flat 450 was a coin toss.
+                page.wait_for_function(
+                    "() => !document.querySelector('[style*=\"view-transition-name\"]')",
+                    timeout=15000)
                 shapes[stubbed] = page.evaluate("""() => ({
                   open: document.querySelector('.tile.is-solo').dataset.repo,
-                  bands: [...document.querySelectorAll('#bands .band:not([hidden])')]
-                    .map(b => b.dataset.repo),
+                  rails: [...document.querySelectorAll('#grid .tile[data-tier="rail"]')]
+                    .map(t => t.dataset.repo),
                   names: [...document.querySelectorAll('.tile')]
                     .map(t => t.style.viewTransitionName || ''),
                 })""")
@@ -336,7 +346,7 @@ def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_id
                 page.close()
 
             assert shapes[False]["open"] == shapes[True]["open"] == "gamma"
-            assert shapes[False]["bands"] == shapes[True]["bands"], shapes
+            assert shapes[False]["rails"] == shapes[True]["rails"] == ["alpha", "beta"], shapes
             assert shapes[False]["names"] == [""] * len(shapes[False]["names"]), \
                 "the names are for the duration of the transition and are cleared after it"
             browser.close()
@@ -361,7 +371,7 @@ def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp
     """
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon")
-    S.arrange("column", order=["alpha", "beta", "gamma", "delta", "epsilon"])
+    S.arrange(order=["alpha", "beta", "gamma", "delta", "epsilon"])
 
     server, token, port = _serve()
     try:
@@ -386,7 +396,7 @@ def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp
               const tick = t => { stamps.push(t); if (!stop) requestAnimationFrame(tick); };
               requestAnimationFrame(tick);
               const began = performance.now();
-              openBand('epsilon');
+              openPane('epsilon');
               const handed = performance.now() - began;
               setTimeout(() => {
                 stop = true;

@@ -142,9 +142,10 @@ availability is in **Help → About**.
 
 * **Monitors 1–2**: PyCharm on the repository being reviewed, and its terminal.
 * **Monitor 3**: whatever the work needs — Power BI Desktop, a browser, Jira.
-* **Monitor 4**: the dashboard, chromeless, from `ad-fleet open --in edge`. Toasts
-  ([fleet-notifications.md](fleet-notifications.md)) then arrive in Action Center wherever the
-  operator is looking.
+* **Monitor 4**: the dashboard, chromeless, from `ad-fleet open --in edge`. It is a window of its
+  own on the desk (`w=edge`, unless `--window` names another), so it does not follow the clicks made
+  in a browser tab (#230, #232). Toasts ([fleet-notifications.md](fleet-notifications.md)) then
+  arrive in Action Center wherever the operator is looking.
 
 Whether corporate policy allows Edge's `--app` window is **unverified** — if it is blocked, the
 same URL in an ordinary Edge window differs only in the title bar.
@@ -175,7 +176,9 @@ new server work.
 4. **Host the URL** in whatever embedded browser the host has, with `&w=<host>` on it (`pycharm`,
    `vscode`). Nothing else. The page is the UI. The `w` names this host's own window record on the
    desk (#230): without it every window shares `main`, and the tool window and a browser tab
-   followed each other's clicks.
+   followed each other's clicks. Add the name to `IDE_WINDOWS` in `agentdata/fleet/opener.py` as
+   well: `ad-fleet open --all` reopens every window the desk remembers except those, and reports
+   them as `skipped`, because a browser tab under a host's name would share that host's record.
 5. **Subscribe to `GET /api/events?t=<token>`** and act on `event: notify` frames only. Each carries
    `{repo, severity, title, body, …}` already decided by the fleet's rules.
 6. **Focus a tile with `#tile=<repo>`** — the same anchor the Windows toasts use, so there is one

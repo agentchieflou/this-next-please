@@ -78,30 +78,31 @@ def test_format_age_str():
 
 def test_desk_persistence_across_reset_and_reload(fleet_home, tmp_path):
     # Select a project
-    S.select("alpha", screens=["beta", "gamma"])
+    S.select("alpha")
     desk_path = os.path.join(registry.fleet_dir(), "desk.json")
     assert os.path.isfile(desk_path)
 
-    # Check file content
+    # Check file content: schema 2, one arrangement, and no per-monitor pinning (#232).
     with open(desk_path, encoding="utf-8") as f:
         data = json.load(f)
+    assert data["schema"] == 2
     assert data["selected"] == "alpha"
-    assert data["screens"] == ["beta", "gamma"]
+    assert "screens" not in data
     assert "arrangement" in data
 
     # Arrange a layout
-    S.arrange("grid", order=["gamma", "alpha"], size={"gamma": 2}, pinned=["gamma"])
+    S.arrange(order=["gamma", "alpha"], size={"gamma": 2}, pinned=["gamma"])
     state = S.desk_state()
-    assert state["arrangement"]["grid"]["order"] == ["gamma", "alpha"]
+    assert state["arrangement"]["order"] == ["gamma", "alpha"]
     # #217: one number became two. `size=2` on the way in is "two columns wide", and it is
     # stored -- and read back by every window -- as the footprint it always meant.
-    assert state["arrangement"]["grid"]["size"] == {"gamma": {"cols": 2, "rows": 1}}
-    assert state["arrangement"]["grid"]["pinned"] == ["gamma"]
+    assert state["arrangement"]["size"] == {"gamma": {"cols": 2, "rows": 1}}
+    assert state["arrangement"]["pinned"] == ["gamma"]
 
     # Verify on disk
     with open(desk_path, encoding="utf-8") as f:
         disk_data = json.load(f)
-    assert disk_data["arrangement"]["grid"]["pinned"] == ["gamma"]
+    assert disk_data["arrangement"]["pinned"] == ["gamma"]
 
 
 def test_fleet_snapshot_carries_run_earlier_and_supervision(fleet_home, tmp_path):
@@ -132,10 +133,11 @@ def test_fleet_snapshot_carries_run_earlier_and_supervision(fleet_home, tmp_path
 def test_hig_chrome_toolbar_and_inspector():
     static_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agentdata", "fleet", "static")
     html = open(os.path.join(static_dir, "index.html"), encoding="utf-8").read()
-    assert "toolbar-group group-window" in html
+    # The `window` group chose an arrangement, and there is one (#232).
+    assert "toolbar-group group-window" not in html
     assert "toolbar-group group-view" in html
     assert "toolbar-group group-actions" in html
-    assert 'id="layoutgroup"' in html
+    assert 'id="layoutgroup"' not in html
     assert 'id="inspector"' in html
 
 
@@ -156,9 +158,9 @@ def test_desk_arrange_api(fleet_home, tmp_path):
             res = json.loads(r.read())
             assert res["ok"] is True
             assert res["action"] == "arrange"
-            assert res["arrangement"]["grid"]["order"] == ["x", "y"]
-            assert res["arrangement"]["grid"]["size"] == {"x": {"cols": 2, "rows": 1}}
-            assert res["arrangement"]["grid"]["pinned"] == ["x"]
+            assert res["arrangement"]["order"] == ["x", "y"]
+            assert res["arrangement"]["size"] == {"x": {"cols": 2, "rows": 1}}
+            assert res["arrangement"]["pinned"] == ["x"]
     finally:
         server.stopping.set()
         server.shutdown()

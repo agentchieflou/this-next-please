@@ -41,9 +41,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -222,7 +221,7 @@ def test_the_drawn_trace_has_a_mark_a_minute_and_the_red_ones_are_the_palettes(
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
     _agent(tmp_path, "beta", [{"ts": _at(now, 5), "kind": "tool_call"}])
-    S.arrange("grid", order=["alpha", "beta"])
+    S.arrange(order=["alpha", "beta"])
 
     server, token, port = _serve()
     try:
@@ -300,7 +299,7 @@ def test_the_trace_is_repainted_when_the_palette_changes(fleet_home, tmp_path):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
-    S.arrange("grid", order=["alpha"])
+    S.arrange(order=["alpha"])
 
     server, token, port = _serve()
     try:
@@ -366,7 +365,7 @@ def test_the_ground_drifts_under_glass_and_holds_still_when_asked_to(fleet_home,
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
-    S.arrange("grid", order=["alpha"])
+    S.arrange(order=["alpha"])
     S.act("theme", {"skin": "glass:smoke"})
 
     server, token, port = _serve()
@@ -380,7 +379,7 @@ def test_the_ground_drifts_under_glass_and_holds_still_when_asked_to(fleet_home,
                 page.on("pageerror", lambda e: errors.append(str(e)))
                 page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                           wait_until="domcontentloaded")
-                page.wait_for_selector(".tile", timeout=15000)
+                page.wait_for_selector(".tile.is-solo", timeout=15000)
                 page.wait_for_function(
                     "() => !document.getElementById('ground').hidden", timeout=15000)
 
@@ -426,7 +425,7 @@ def test_the_trace_never_costs_the_head_a_second_line(fleet_home, tmp_path):
     now = time.time()
     for name in ("alpha", "beta", "gamma"):
         _agent(tmp_path, name, _busy_hour(now))
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:

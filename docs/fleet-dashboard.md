@@ -1,7 +1,9 @@
 # The multi-viewer
 
-One local page, one tile per agent, live. The epic is named for YouTube's multi-view and this is
-that page: a grid of agents, any one of which can be blown up to fill the window and dropped back.
+One local page, one pane per agent, live. The epic is named for YouTube's multi-view and this is
+that page: every agent a pane in one row at full height, the open one wide and every other one a
+narrow rail beside it that says who it is and whether it needs you, any one of which is one click
+from being the open one.
 
 ```bash
 ad-fleet serve --open
@@ -80,7 +82,7 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 | Held note | in focus mode only, on a tile you acted on: why it is still here, and *let it go* |
 | Bottom row | reply box (→ `send`), Start (a ticket key in the same box), **Reset**, Stop. Over budget, *Send* re-arms as **Send anyway**: one more turn, on a second and deliberate press (#213) |
 
-The **sidebar** sits beside the grid and holds five sections, one open at a time: the Jira **board**
+The **sidebar** sits beside the glass and holds five sections, one open at a time: the Jira **board**
 (`b`), the Downloads **inbox** (`i`), **alerts** (`n`), **where** (`/`, `ad-fleet where` over the
 catalogue), and **project** — the selected project's link rail, verify pane, facts, open friction
 and offered files. Every window on this server agrees on which project is selected, so clicking a
@@ -122,19 +124,20 @@ On the tile, the git cell is the button that opens it and carries the count on i
 `7 branches · 3 never reached main`, amber at `fleet.branches.warn` (default 6), grey with the error
 when git cannot be asked, and never a toast. `ad-fleet branches <repo>` prints the same rows.
 
-At the top of the board is the **agent rail** (#183): one chip per registered checkout — the dock's
-chip, name and state and age — each a drop target. A ticket dragged over it lights the candidates
+At the top of the board is the **agent rail** (#183): one chip per registered checkout — name,
+state and age, the chip the grid's dock used to draw — each a drop target. A ticket dragged over it lights the candidates
 `board.suggest` names for that key and dims the rest; a drop calls exactly what a drop on the tile
-calls, so the board window (`?layout=roles&view=board`, where there are no tiles) hands a ticket
-over with the same pre-flight card and the same refusals in the supervisor's words. The card is one
-element the page owns, drawn in the tile when the tile is on the glass and under the rail when it
-is not — it used to draw inside a hidden tile, so the window built for handing tickets over was the
-one place the hand-over skipped its pre-flight. A ticket row takes the keyboard: `1`–`9` picks the
+calls, so a ticket handed to an agent that is a rail, not the open pane, gets the same pre-flight
+card and the same refusals in the supervisor's words. The card is one element the page owns, drawn
+in the pane when the pane is open (compact or full) and under the agent rail when it is a 48 px
+rail with no room for it (#233) — it used to draw
+inside a hidden tile, so the board window (`roles`, before #232) was the one place the hand-over
+skipped its pre-flight. A ticket row takes the keyboard: `1`–`9` picks the
 rail chip in that position, `Enter` the row's one candidate.
 
-The **toolbar** is three labelled groups and one row: *window* (the layout segments, and which window
-of that set this one is), *see* (search, the sidebar, and a *settings* link), and *needs me* (focus
-mode, chime, the bell). Settings are a **page**, `/settings`, not a popover: the palette was never
+The **toolbar** is two labelled groups and one row: *see* (search, the sidebar, and a *settings*
+link) and *needs me* (focus mode, chime, the bell). A third, *window*, chose between the
+arrangements, and went with them (#232). Settings are a **page**, `/settings`, not a popover: the palette was never
 the only one, and the model each agent runs and the flags the Copilot CLI is launched with have no
 business behind a button on a bar that is about the agents. The link's `href` is built at runtime
 because the run token lives in the query string and `_authorized` reads it from nowhere else — a
@@ -157,11 +160,12 @@ the notice — and a `?` button (or the `?` key) opens the key map in four short
 fails to poll goes **grey with the error in a tooltip**, never wrong; a link with no fact behind it
 is absent, never broken.
 
-The grid follows the number of registered repositories: four repos, four tiles. Click a repo name
-(or double-click a tile) and it fills the window; `Esc` returns to the grid. Tiles that change place
-**travel** there rather than jumping, so you can see that the tile you were reading is the same one,
-lower down; only the paint moves, so the grid is in its final state throughout and a click during the
-movement lands where you aimed it. `prefers-reduced-motion` turns it off.
+The desk follows the number of registered repositories: four repos, one open pane and three rails.
+Click a rail (or press the number printed on it) and that agent is the open one, in its own slot,
+while the one you were reading becomes a rail in its; `Esc` goes back to the one before. Panes that
+change place **travel** there rather than jumping, so you can see that the one you were reading is
+the same one, further along; only the paint moves, so the layout is in its final state throughout
+and a click during the movement lands where you aimed it. `prefers-reduced-motion` turns it off.
 
 ### Reset, and why it is one button
 
@@ -238,48 +242,66 @@ checkout, in the adopt strip's own words. Only where it can be named: *this fold
 in the last quarter of an hour* is evidence of somebody saving a file, and refusing every resume on
 that would refuse nearly all of them.
 
-### The column — one agent open, the rest as bands (#203)
+### The row — every agent a pane (#233)
 
-The default arrangement, chosen by the operator on the real screens (`docs/fleet-layouts.md` §The
-sitting). One agent fills the glass; every other checkout is a **band** in a column beside it, and
-the bands share the column's whole height so none of the page is empty. A band says who it is, what
-state it is in, what it last said — in full when it is asking you something — and then as much of
-its recent transcript as the row has room for. It carries the same three controls the open tile
-does: hide, refresh, and which model it runs.
+The one arrangement ([fleet-layouts.md](fleet-layouts.md)). It was one of four, chosen by `?layout=`,
+until the operator retired the choice on 22 September 2026 (#232) — and with the same sentence
+corrected the column that had been the default: *each agent is a column, not each agent is stacked in
+one column — skinnier agents* ([plan-panes.md](plan-panes.md)). So every agent is a **pane** in one
+row, at full height, in the arrangement's order. The open one (and every pinned one) shares the width;
+every other one is a **rail**. Nothing scrolls sideways: a desk that scrolls hides the agent that
+needs you.
 
-The dock is not drawn in this arrangement: the column *is* the dock, laid the way the operator
-asked, and two answers to one question would be two places to click. Clicking a band opens it and
-the agent that was open takes its slot; `Esc` goes back. Which agent is open is the window's own,
-so the left monitor can read one while the centre reads another, and `selected` — what the
-inspector follows — stays the one thing every window agrees on. A pinned agent is always open, and
-pins split the glass evenly.
+A pane draws itself by how wide it is, in three tiers:
 
-*needs me* narrows the column rather than emptying it: a band whose agent wants nothing folds to a
-sliver, still named and still counted.
+| Tier | Width | What it shows |
+| --- | --- | --- |
+| rail | 48 px | its number, the state's glyph in the state's colour, the name down its length, the unread count — and the whole rail red, with `!`, when the agent needs a person. Its age and last line are its accessible name and its tooltip |
+| compact | 160 – 359 px | the head (name, state chip with its age, ticket, and the three tools: hide, refresh, which model), the approval and question cards, the last lines of the transcript, the reply box |
+| full | 360 px and up | everything a tile has |
 
-### The dock — where a tile went (#173)
+The tier is written as `data-tier` by one `ResizeObserver` on the row, with 8 px of slack so a pane on
+a boundary does not flicker, and the numbers are starting values the laptop sets in #235. Three pins
+beside the open agent on a laptop panel is three compact panes; the same desk on a 2 560 px monitor is
+three full ones.
 
-*In `grid`, `roles` and `screens`. The column replaces it in the arrangement above.*
+Clicking a rail opens it: it takes the width the open pane had, in its own slot, and the pane that was
+open becomes a rail in its own — nothing moves along the row. `Esc` goes back. Which agent is open is
+the window's own (`?w=`), so the left monitor can read one while the centre reads another, and
+`selected` — what the inspector follows — stays the one thing every window agrees on. A pinned agent
+is always open, and `Alt+Shift+←/→` still change an open pane's share (`size.cols`) until the gutters
+replace them (#234). A rail has no head, so its three tools are keys: `h`, `r` and `m` act on the rail
+the keyboard is on.
+
+When even the rails do not fit — about thirty agents on a 1 440 px window — a project's checkouts share
+one rail, named for the project, red if any of them needs a person, and a press on it opens that one.
+Only past that does the row scroll.
+
+*needs me* quiets the row rather than emptying it: a rail whose agent wants nothing dims, still named,
+still counted and still one press away. It never quiets an open pane.
+
+An address from before #232 — `?layout=`, `&view=` or `&screen=` from a bookmark or an older
+launcher — opens the desk as any other does, and the footer says once that the parameter is
+ignored.
+
+### Where a tile went (#173)
 
 Five `display:none` rules and one `.remove()` used to take a tile off the glass as a side effect of
 a mode — zoom, focus mode, a solo window, the laptop's narrow view, and a repository leaving the
 registry — and nothing anywhere said where it had gone. The operator's own answer was to reload the
 page and hope.
 
-The **dock** is a strip along the bottom with one chip per tile that is not on the glass. Each chip
-says the repo name, the state the tile was in and how old it is, and how many transcript lines have
-arrived since you last looked. One click puts it back, and the chip knows *why* it went, so it
-undoes the right thing: a hidden tile is unhidden, one quieted by focus mode leaves focus mode, one
-zoomed past unzooms. A chip for a repository that has **left the registry** says so and offers the
-`ad-fleet repo add <path>` that would bring it back, rather than the tile simply being gone.
+#173 answered it with a dock of chips under the grid. The dock went with the grid (#232), the
+column's foot that answered it next went with the column (#233), and the row answers it now:
 
-A project's checkouts are hidden and pinned as one, so they leave the glass together and come back
-as **one chip** saying how many it brings — two chips for one piece of work would be two things to
-click for one decision.
-
-A chip whose agent **needs a person** is red and chimes like the tile would — but that case should
-not arise from hiding, because a tile that needs somebody is on the glass whatever the arrangement
-says. *Show all* empties `hidden` in one press.
+* An agent you **hid** leaves the row, and the footer reads `N hidden`; a press on that empties
+  `hidden`. A hidden agent keeps its slot, so it comes back where it was.
+* An agent that **needs a person** is a red rail whatever the arrangement says — hiding a demand is
+  how a demand gets missed.
+* A repository that has **left the registry** is a dashed rail after the row, whose label offers the
+  `ad-fleet repo add <path>` that would bring it back, rather than the pane simply being gone.
+* A project's checkouts are hidden and pinned as one. Each is its own pane — one agent, one working
+  tree — until the rails do not fit, when they share one rail.
 
 `#tile=<repo>` — the anchor the Windows toasts and both IDE shells use — **reopens** a hidden tile
 rather than quietly doing nothing, and the footer says it did. An anchor naming a repository with no
@@ -315,10 +337,9 @@ being offered and quietly doing nothing. One checkout still holds one agent: a r
 already running an agent in cannot adopt a second. *Hand it back* releases it, and only ever removes
 a lock the fleet did not create.
 
-The same page has three arrangements and a focus mode, chosen by the query string —
-`ad-fleet serve --layout grid|roles|screens`. Which one is the default is **still being decided on
-the real screens**: [fleet-layouts.md](fleet-layouts.md). `grid` ships as the default pending that
-sitting; an unknown `?layout=` falls back to it with a notice in the footer.
+The page has one arrangement, the row above, and a focus mode. `ad-fleet serve` still accepts
+`--layout` for one release and ignores it, with a `note` saying so; how the four arrangements of
+#133 and #200 came down to one is in [fleet-layouts.md](fleet-layouts.md).
 
 Chip colours are fixed across every theme, because a chip that means "needs you" has to be the same
 red everywhere or the colour stops being information:
@@ -336,30 +357,32 @@ red everywhere or the colour stops being information:
 | Key | Does |
 | --- | --- |
 | `?` | the key map — this table, in four columns, behind the footer's `?` button |
-| `1`–`9` | open that one — counting what is **on the glass**; in the column, the number printed on the band |
-| `j` / `k` | walk the column's bands; `Enter` opens the one the keyboard is on |
-| `r` | re-read the agent the keyboard is on, now — spends no premium request |
+| `1`–`9` | open that one — the number printed on the pane, counting the panes **on the glass** |
+| `j` / `k` | walk the row: the open pane, then each rail; `Enter` on a rail opens it |
+| `r` | re-read the agent the keyboard is on — a rail as well — now; spends no premium request |
 | `m` | which model that agent runs, and which one its last turn actually ran on |
-| `f` | focus mode: only the agents that need you |
-| `h` | hide the agent the keyboard is on; it is counted at the foot of the column, or in the dock |
+| `f` | focus mode: the agents that need nobody dim |
+| `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
 | `Alt`+`N` | a clean session in this checkout, beside the one it is on |
 | `/` | the search box — `where` over the catalogue |
 | `i` | the sidebar's inbox |
-| `a` | approve the focused tile's pending write |
+| `a` | approve the open agent's pending write |
 | `b` | the sidebar's Jira board |
 | `n` | the sidebar's alerts |
-| `Alt`+`←` / `Alt`+`→` | move the focused tile one slot |
-| `Alt`+`Shift`+`←` / `Alt`+`Shift`+`→` | one column narrower / wider (#217) |
-| `Alt`+`Shift`+`↑` / `Alt`+`Shift`+`↓` | one row shorter / taller (#217) |
-| `Alt`+`Home` | pin the focused tile first |
-| `Alt`+`Enter` | one column or two |
-| `Esc` | close a popover, the sidebar, or back to the grid (or out of a text box) — the nearest open thing first |
+| `Alt`+`←` / `Alt`+`→` | move the focused pane one slot |
+| `Alt`+`Shift`+`←` / `Alt`+`Shift`+`→` | an open pane's share of the width, one less / one more (#217, until #234) |
+| `Alt`+`Shift`+`↑` / `Alt`+`Shift`+`↓` | still written, and nothing reads it: a pane is always full height (#233) |
+| `Alt`+`Home` | pin the focused pane first |
+| `Alt`+`Enter` | one share or two |
+| `Esc` | close a popover or the sidebar, or go back to the agent that was open before (or out of a text box) — the nearest open thing first |
 
-The number on a tile is the key that focuses it, and it follows the arrangement: move a tile and its
-number moves with it, and a tile that is off the glass has no number at all — a digit that zoomed a
-tile a mode was already hiding left a blank window, because zoom hides every other tile. Every drag gesture has a keyboard equivalent, because a desk that can only be
-arranged with a mouse cannot be arranged by someone who is typing.
+The number on a pane is the key that opens it, and it follows the arrangement: move a pane and its
+number moves with it, and an agent that is off the glass (hidden, or folded into its project's rail)
+has no number at all — a digit that zoomed a tile a mode was already hiding once left a blank window,
+because the grid's zoom hid every other tile.
+Every drag gesture has a keyboard equivalent, because a desk that can only be arranged with a mouse
+cannot be arranged by someone who is typing.
 
 Deny has no shortcut on purpose: it needs a reason typed, and a one-key refusal with an empty
 reason is the failure mode the gate was built to avoid.
@@ -418,8 +441,8 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/release` | `{repo}` — hand an adopted session back |
 | POST | `/api/approve` | `{id, reason?}` |
 | POST | `/api/deny` | `{id, reason}` |
-| POST | `/api/select` | `{repo?, screens?}` — the project every window agrees on ([fleet-layouts.md](fleet-layouts.md)) |
-| POST | `/api/arrange` | `{layout, order?, size?, pinned?, hidden?}` — the desk, shared by every window (#173) |
+| POST | `/api/select` | `{repo}` — the project every window agrees on ([fleet-layouts.md](fleet-layouts.md)) |
+| POST | `/api/arrange` | `{order?, size?, pinned?, hidden?}` — the desk's one arrangement, shared by every window (#173, #232) |
 | POST | `/api/attach` | `{id, repo}` — copies one Downloads file into `<repo>/.agent/in/<KEY>/` |
 | POST | `/api/answer` | `{repo, answers: [{id, answer}]}` — every answer in one resume (#165) |
 | POST | `/api/scope/resolve` | `{repo, files: [{name, size, sha}]}` — which of this checkout's files these are (#166) |
@@ -461,7 +484,7 @@ Authentication beyond the loopback token, and access from another machine — bo
 both would change what this is. Notifications when a tile turns red are #97. Jira intake in the side
 panel is #98.
 
-Cost and budget **are** here now (#201): a cell on every tile, a number on every band, the fleet's
+Cost and budget **are** here now (#201): a cell on every full pane, a number in every rail's label, the fleet's
 own total in the footer, and a breakdown in the inspector. What is deliberately *not* here is any
 new stop — the per-agent cap is exactly where it was and means what it meant. The caps that were
 considered and deferred, each with the one measurement it needs first, are in

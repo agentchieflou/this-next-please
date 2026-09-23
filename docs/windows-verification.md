@@ -445,6 +445,34 @@ ad-pbip model optimize --measure "Margin %" --pid <pid>
 ```
 Pass: `model apply` executes declarative ops over the port through TE2 `-S` or falls back to TMDL file editing with no `lineageTag` written; `--save` triggers UIA session save and waits for Desktop-serialised TMDL to settle; `model audit` returns actionable `fix` snippets; `audit --copilot` outputs a scored checklist; `model optimize` verifies results match before keeping rewrites and rolls back on mismatch.
 
+## 17. Custom visual: `ad-pbiviz import`, then Desktop opens it
+`ad-pbiviz import` is for trying a visual in Desktop, never for delivering one (skill `pbi-custom-visual`). It
+writes what Desktop saves for a visual imported from a file: the package's files under the report's
+`CustomVisuals\<guid>\`, and one `CustomVisual` entry in `definition\report.json`. The entry it wrote before broke
+the report schema, and Desktop refuses such a report. Use a scratch copy of a report Desktop saved as PBIR:
+```powershell
+Copy-Item -Recurse <report repo> <scratch dir>; cd <scratch dir>
+git init -q; git add -A; git commit -qm "before import"    # skip in a copy that is already a clean git checkout
+ad-pbiviz new cvcheck                                      # one word: the visual's GUID is built from it
+ad-pbiviz package cvcheck
+ad-pbiviz import cvcheck --pbip . --page "<a page name>"
+git status --short -uall    # the report: definition/report.json, CustomVisuals/cvcheck_<n>/ (2 files), one visual.json
+ad-pbip check .             # no custom-visual-guid-unregistered, no custom-visual-package-missing
+git add -A; git commit -qm "after import"
+# open the scratch .pbip in Desktop, then File > Save
+git diff --stat; git diff -- "*.Report/definition/report.json"
+```
+Pass: Desktop opens the report with no error dialog, the visual's icon is in the *Visualizations* pane, and its box
+sits on the page; after the save, the `CustomVisual` entry in `report.json` is unchanged. `ad-pbiviz package`
+compiles nothing, so what the box shows is not part of the pass. For a box that draws, build the package with
+Microsoft's tools (Node and `pbiviz`, see `ad-pbiviz doctor`): `pbiviz new cvreal` in `visuals\`, fill `author`
+(name and email), `description` and `supportUrl` in its `pbiviz.json` (`pbiviz package` refuses without them), run
+`npm install` and `pbiviz package` in `visuals\cvreal`, then `ad-pbiviz import cvreal --pbip . --page "<page>"`.
+A `custom-visual-tenant-*` row from `check` is the delivery gate working, not a failure. Paste: every Desktop
+dialog verbatim (a schema error names the file and the property), the `import` row, and the whole `git diff`
+after the save. Anything Desktop changes under `CustomVisuals\` or in that entry is what `import` should have
+written: it becomes a fix.
+
 
 ## 10. Deploy loop (`ad-pbi deploy` → `refresh` → `verify`)
 ```powershell
@@ -476,6 +504,7 @@ Pass: `deploy` creates `.agent/out/deploy-<ts>.xmla` on dry-run and logs output 
 | `desktop` finds nothing | `pbip/desktop.py` | PowerShell CIM quoting, port file encoding, Store-install paths |
 | dscmd rejects `-f` / needs `-d` | `pbip/dax.run_dax`, `steps/powerbi.py` caps probe | flag detection, catalog discovery via `$SYSTEM.DBSCHEMA_CATALOGS` |
 | visual-query wrong rows | `pbip/dax.visual_query` | filter translation, aggregation mapping, hierarchy level column |
+| Desktop refuses a report after `ad-pbiviz import`, or its save changes the `CustomVisual` entry or `CustomVisuals\` | `pbiviz/core.import_custom_visual`, `package_visual` | the entry's shape (`tests/pbir_schema.py` checks it against the vendored report schema) or the package layout |
 | reconcile class wrong | `uat/reconcile.classify` | rule order, coverage semantics |
 | `JSONDecodeError: Unexpected UTF-8 BOM` or garbled text from a file PowerShell wrote | `agentdata/textio.py` | every reader goes through `textio.read_text` (BOM / UTF-16 sniffing); Luna uses `--set` and `ad-state` instead of writing files |
 | pncli says `required option '--x <y>' not specified` | `connectors/pncli.usage_hint`, `cli.py` | pncli is commander.js: arguments are named options. The hint names the exact re-run; confirmed verbs get their own `ad-pncli` subcommand |
@@ -1066,7 +1095,7 @@ two embedders, at the width the operator actually works at.
 | K7 | `1`–`9` on the bands | the digit opens the band carrying that number | _not yet measured_ | — |
 | K8 | Narrow the window under 900px | the column lies down into a strip above the tile | _not yet measured_ | — |
 | K9 | Press `f` with two agents needing a person | the quiet bands fold to slivers; none of them leaves | _not yet measured_ | — |
-| K10 | Open `?layout=grid` | the grid renders exactly as it did, and the dock is back under it | _not yet measured_ | — |
+| K10 | Open `?layout=grid` (an old bookmark) | the column, as in K1; the footer says once that `layout=` is ignored, and the address loses it (#232) | _not yet measured_ | — |
 
 ### The open questions these rows answer
 
@@ -1076,6 +1105,41 @@ two embedders, at the width the operator actually works at.
   nothing reorders itself under the operator's hand; the head counts the red ones and jumps to the
   first instead.
 - **Is two seconds the right floor for refresh?** (K5) Or should it be the tick's own cadence.
+
+> **Superseded by the row (#233).** The column these rows describe no longer ships: every agent is a
+> pane in one row now, and the bands are rails. K4–K6 and K10 carry over word for word with *rail* for
+> *band*; the rest are the P rows below. Left here unmeasured rather than deleted, because the
+> questions they ask of the column are the history of how the row came to be.
+
+
+## The row of panes (#233): what only the laptop can answer
+
+CI measures the fixture desk — 3, 6 and 12 agents at 1280, 1920 and 2560 px — in headless Chromium
+(`tests/test_fleet_panes.py`). What it cannot answer is whether 48 / 160 / 360 px are the right
+boundaries on the real monitors, and whether the two embedders run the one `ResizeObserver` the tiers
+hang on. The numbers themselves are slice F's (#235); these rows are what F measures.
+
+| # | Do this | Expect | Result | Notes |
+| --- | --- | --- | --- | --- |
+| P1 | Open the desk in Edge, PyCharm's JCEF window and VS Code's Simple Browser | one row: the open agent wide, every other one a 48px rail with its name down its length; nothing scrolls sideways | _not yet measured_ | — |
+| P2 | Pin two agents on the laptop panel, then on the centre monitor | three compact panes on the laptop (head, the three tools, cards, last lines, reply box), three full ones on the monitor | _not yet measured_ | — |
+| P3 | Drag the window edge slowly across a tier boundary | the pane changes tier once, not back and forth (8px of slack) | _not yet measured_ | — |
+| P4 | Leave an agent asking a question | its rail is red with `!` on it; hovering it shows the question and its age | _not yet measured_ | — |
+| P5 | Click a rail, then press `Esc` | the two swap widths in their own slots, and `Esc` swaps them back | _not yet measured_ | — |
+| P6 | Tab to a rail and press `h`, `r` and `m` | hide, re-read and the model card, for that rail's agent | _not yet measured_ | — |
+| P7 | Hide one agent | it leaves the row and the footer reads `1 hidden`; pressing that brings it back to its slot | _not yet measured_ | — |
+| P8 | Register about thirty checkouts across a few projects on a 1440px window | each project's checkouts share one rail, red if any needs a person, and nothing scrolls | _not yet measured_ | — |
+| P9 | Read a rail with a screen reader (Narrator) | it reads the name, the state, its age and the last line | _not yet measured_ | — |
+
+### The open questions these rows answer
+
+- **Are 48 / 160 / 360 px right on the real monitors?** (P1, P2) Starting values; F records the
+  laptop's beside CI's.
+- **Does the rail's label carry enough?** (P4, P9) A band showed the last line on the glass; a rail
+  says it only to a pointer and a screen reader. If the operator misses reading it at a glance, the
+  answer is E's *needs me* preset (a red agent compact or wider), not a wider rail.
+- **Group or scroll when even the rails do not fit?** (P8) D ships the default, group; a red count at
+  each edge of a scrolling row is the alternative plan-panes records.
 
 
 ## The meter (#201): what only the laptop and a real tenant can answer

@@ -37,10 +37,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -165,7 +163,7 @@ def test_the_key_map_is_behind_a_question_mark_and_the_footer_keeps_what_changes
             page.keyboard.press("?")
             assert page.locator("#keymap").is_visible()
             groups = page.eval_on_selector_all("#keymap .keys-group strong", "els => els.map(e => e.textContent)")
-            assert groups == ["the column", "tiles", "sessions", "the sidebar", "this page"]
+            assert groups == ["the row", "panes", "sessions", "the sidebar", "this page"]
 
             page.keyboard.press("Escape")
             assert not page.locator("#keymap").is_visible()

@@ -51,6 +51,7 @@ def test_parse_helpers():
 
 def test_literals_and_headers():
     assert D.literal("'Done'") == '"Done"' and D.literal("2026L") == "2026" and D.literal("12.5D") == "12.5"
+    assert D.literal("'Men''s'") == '"Men\'s"' and D.literal("'say \"hi\"'") == '"say ""hi"""'
     assert D.literal("null") == "BLANK()" and D.literal("true") == "TRUE"
     assert D.literal("datetime'2025-01-31T00:00:00'") == "DATE(2025,1,31)" and D.literal("datetime'2025-01-31T10:30:00'") == "DATE(2025,1,31) + TIME(10,30,0)"
     assert D.clean_header("Sales[Margin]") == "Margin" and D.clean_header("[Value]") == "Value" and D.clean_header("plain") == "plain"

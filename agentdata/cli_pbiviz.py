@@ -123,6 +123,38 @@ def cmd_import(a) -> int:
         return 1
 
 
+def cmd_candidate(a) -> int:
+    from . import config as C
+    from .pbiviz import candidate as CV
+    tried: dict[str, str] = {}
+    for item in a.tried:
+        rid, sep, reason = item.partition("=")
+        if not sep:
+            print(error(f"invalid --tried '{item}'", "use --tried <route id>=\"<what the requirement needs that it lacks>\"",
+                        "ad-pbiviz candidate"))
+            return 1
+        tried[rid.strip().upper()] = reason.strip()
+    try:
+        res = CV.record(a.requirement, tried, where=a.where, ticket=a.ticket,
+                        tenant=C.project_facts().get("pbi_custom_visuals"))
+    except CV.CandidateError as e:
+        print(error(f"{e.code}: {e}", e.hint, "ad-pbiviz candidate"))
+        return 1
+    t = AgentTable.from_records([{"route": rid, "reason": tried[rid]} for rid in CV.ROUTE_IDS],
+                                name="routes_tried", source="ad-pbiviz candidate")
+    print(render(t, extra={"ok": True, "source": "ad-pbiviz candidate", "path": res["path"], "status": "logged"}))
+    return 0
+
+
+def cmd_candidates(a) -> int:
+    from .pbiviz import candidate as CV
+    rows = CV.listing()
+    t = AgentTable.from_records(rows, name="candidates", source="ad-pbiviz candidates",
+                                fields=["logged", "status", "requirement", "ticket", "path"])
+    print(render(t, extra={"ok": True, "source": "ad-pbiviz candidates", "count": len(rows)}))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="ad-pbiviz",
@@ -187,6 +219,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_imp.add_argument("--position", help="bounding box x,y,width,height (default: 100,100,400,300)")
     p_imp.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_imp.set_defaults(fn=cmd_import)
+
+    # candidate / candidates
+    p_cand = sub.add_parser("candidate", help="log a visual no native route or certified visual can draw "
+                                              "(a candidate for AppSource, never built here); refuses without "
+                                              "a reason per route")
+    p_cand.add_argument("requirement", help="what a viewer must see, e.g. \"variance label at each bar end\"")
+    p_cand.add_argument("--tried", action="append", required=True,
+                        help="<route id>=<what the requirement needs that the route lacks>; one per route N1-N7, C1-C2")
+    p_cand.add_argument("--where", help="the report, page and visual it was for")
+    p_cand.add_argument("--ticket", help="the ticket it was for")
+    p_cand.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_cand.set_defaults(fn=cmd_candidate)
+
+    p_cands = sub.add_parser("candidates", help="list the logged candidates in this project")
+    p_cands.add_argument("--pretty", action="store_true", help="draw it as a table")
+    p_cands.set_defaults(fn=cmd_candidates)
 
     return ap
 

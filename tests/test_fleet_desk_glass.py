@@ -33,10 +33,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -106,6 +104,9 @@ def test_the_pane_is_a_different_colour_wherever_the_mesh_is_and_stays_inside_th
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     for name in ("alpha", "beta", "gamma"):
         Registry().add(make_project(tmp_path / name), name=name)       # no events: an empty pane
+    # Three panes across the page: two pinned beside the open one, which is how the glass draws
+    # three tiles side by side now that the grid is gone (#232).
+    S.arrange(order=["alpha", "beta", "gamma"], pinned=["alpha", "beta"])
 
     server, token, port = _serve()
     try:

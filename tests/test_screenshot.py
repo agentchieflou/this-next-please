@@ -1,11 +1,13 @@
 import json
 import os
+import shutil
 import struct
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from agentdata.pbip import author as AU
 from agentdata.pbip import desktop as DT
 from agentdata.pbip.screenshot import (
     compare_rgba_buffers,
@@ -52,6 +54,16 @@ def test_find_visual_in_pbir_page_filter():
     page, visual = find_visual_in_pbir(FIXTURE_DIR, "Broken table", page_needle="page2")
     assert page is None
     assert visual is None
+
+
+def test_find_visual_in_pbir_by_a_title_with_an_apostrophe(tmp_path):
+    # Stored as 'Men''s Sales', the way Desktop stores it; looked up by the text the report shows.
+    target = tmp_path / "report"
+    shutil.copytree(FIXTURE_DIR, target)
+    vid = AU.visual_add(str(target), "page1", "columnChart", title="Men's Sales",
+                        fields=["'Calendar'[Year]", "'Sales'[Margin]"])["visual_id"]
+    page, visual = find_visual_in_pbir(target, "Men's Sales")
+    assert visual is not None and visual["id"] == vid and visual["title"] == "Men's Sales"
 
 
 def test_find_visual_not_found():

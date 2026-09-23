@@ -99,12 +99,16 @@ def test_desk_static_assets_exist():
     assert os.path.getsize(js_path) > 1000
 
 
-def test_desk_unknown_layout_fallback_contract():
-    """Verify app.js handles unknown ?layout= by falling back to grid with a sentence."""
+def test_desk_retired_layout_params_contract():
+    """An address that still chooses an arrangement (#232) is not refused and not a blank page:
+    app.js names the three parameters, says in the footer that they are ignored, and takes them off
+    the address. The unknown-layout fallback this replaces has nothing left to fall back from."""
     js_path = os.path.join(STATIC, "app.js")
     js = open(js_path, encoding="utf-8").read()
-    assert "unknown layout" in js
-    assert "using grid" in js or "grid" in js
+    assert 'var RETIRED_PARAMS = ["layout", "view", "screen"];' in js
+    assert " ignored — the desk has one arrangement now" in js
+    assert "function forgetRetiredParams()" in js and "history.replaceState(" in js
+    assert "unknown layout" not in js
 
 
 # --------------------------------------------------------------------------------- Playwright browser tests
@@ -160,22 +164,39 @@ def test_desk_browser_layouts_and_sync(running_desk):
 
 
 @pytest.mark.browser
-def test_desk_browser_unknown_layout_fallback(running_desk):
-    """An unknown ?layout= shows the default layout with a sentence saying so, rather than a blank page.
+def test_an_address_that_chooses_an_arrangement_opens_the_desk_and_says_so_once(running_desk):
+    """`?layout=roles&view=board` from a bookmark or an older launcher (#232). There is one
+    arrangement, so the address opens the desk as any other does -- the open agent and a rail for
+    the other (#233), never a blank page -- and the footer says, once, that the parameters were
+    ignored.
 
-    The sentence moved from the toolbar to the footer (#148): the toolbar is for commands, and the
-    segmented picker already says which arrangement this window is showing. A page-level notice is
-    status, so it sits beside the counts.
+    Once: a standing warning redrawn on every pass is a footer that never says anything else, and
+    `place()` runs several times a second. The parameters come off the address too, so a reload does
+    not say it a second time and the address the operator copies says only true things.
     """
     playwright_module = pytest.importorskip("playwright.sync_api")
     sync_playwright = playwright_module.sync_playwright
 
     base, token, _ = running_desk
-    url = f"{base}/?t={token}&layout=superwide"
+    url = f"{base}/?t={token}&layout=roles&view=board"
 
     with sync_playwright() as p:
         browser = launch_chromium(p)
         context = browser.new_context()
+        # Every time the footer starts saying something, from the first byte of the page on: a
+        # sentence said twice is two entries, a sentence that simply stays is one.
+        context.add_init_script("""
+          window.__said = [];
+          window.__last = "";
+          new MutationObserver(() => {
+            const n = document.getElementById('notice');
+            const now = n && !n.hidden ? n.textContent : "";
+            if (now === window.__last) return;
+            window.__last = now;
+            if (now) window.__said.push(now);
+          }).observe(document, { subtree: true, childList: true, characterData: true,
+                                 attributes: true });
+        """)
         page = context.new_page()
 
         errors = []
@@ -183,21 +204,34 @@ def test_desk_browser_unknown_layout_fallback(running_desk):
 
         res = page.goto(url)
         assert res.status == 200
-        page.wait_for_selector(".tile", timeout=15000)
+        page.wait_for_selector(".tile.is-solo", timeout=15000)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grid .tile[data-tier=\"rail\"]').length === 1",
+            timeout=15000)
         page.wait_for_selector("#notice:not([hidden])", timeout=5000)
-
-        assert not errors, f"Page JS errors: {errors}"
         notice = page.inner_text("#notice")
-        assert "unknown layout" in notice, notice
-        assert "superwide" in notice, "the notice names the parameter that was not understood"
-        # An unknown layout falls back to the DEFAULT one, which the operator chose (#203) --
-        # not to whichever arrangement happened to be first when this test was written.
-        assert page.evaluate("() => document.body.classList.contains('layout-column')")
-        assert S.LAYOUTS[0] == "column", "the notice and the fallback must name the same default"
+        assert "layout= and view= in the address are ignored" in notice, notice
+        assert notice.count("ignored") == 1, notice
 
-        # Verify the tiles are rendered
-        assert page.query_selector(".grid, #grid") is not None
+        # The stream and the fifteen-second clock redraw the page; the sentence is not said again.
+        page.evaluate("() => { for (let i = 0; i < 20; i++) redrawAll(); refresh(); }")
+        page.wait_for_timeout(800)
+        said = [line for line in page.evaluate("() => window.__said") if "ignored" in line]
+        assert len(said) == 1, said
+        assert page.evaluate("() => location.search").count("layout") == 0
+        assert "view=" not in page.evaluate("() => location.search")
+        assert f"t={token}" in page.evaluate("() => location.search"), "the token went with them"
 
+        # Nothing an arrangement used to set is on the body or in the header.
+        body = page.evaluate("() => document.body.className")
+        assert "layout-" not in body and "view-" not in body and "panels" not in body, body
+        assert page.query_selector("#layoutgroup, #viewgroup, #swap") is None
+
+        page.reload()
+        page.wait_for_selector(".tile.is-solo", timeout=15000)
+        page.wait_for_timeout(500)
+        assert "ignored" not in (page.inner_text("#notice") or ""), "a reload said it a second time"
+        assert not errors, f"Page JS errors: {errors}"
         browser.close()
 
 

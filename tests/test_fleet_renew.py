@@ -316,6 +316,8 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
     monkeypatch.setattr(S, "act", lambda what, body: posted.append((what, dict(body))) or real_act(what, body))
     monkeypatch.setattr(supervisor, "start", lambda *a, **k: pytest.fail("the preview starts nothing"))
 
+    # The stale agent is the one open: the column shows one tile, and its chip is what is asked.
+    S.update_window("main", open="old")
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
@@ -323,9 +325,11 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
             page.wait_for_selector('.tile[data-repo="old"] .oldsession:not([hidden])', timeout=15000)
-            assert page.locator('.tile[data-repo="fresh"] .oldsession').is_hidden()
+            # The chip's own attribute, not its visibility: the fresh agent's tile is behind the
+            # open one in the column, so "not visible" would pass for the wrong reason.
+            assert page.get_attribute('.tile[data-repo="fresh"] .oldsession', "hidden") is not None
             assert "0.13.1" in page.get_attribute('.tile[data-repo="old"] .oldsession', "title")
             assert "1 session began" in page.inner_text("#renew-strip .renew-sum")
 

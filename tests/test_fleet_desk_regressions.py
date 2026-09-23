@@ -188,7 +188,7 @@ def _page(p, url):
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(url, wait_until="domcontentloaded")
-    page.wait_for_selector(".tile", timeout=15000)
+    page.wait_for_selector(".tile.is-solo", timeout=15000)
     page.wait_for_timeout(900)
     return browser, page, errors
 
@@ -297,40 +297,26 @@ def test_the_sidebar_sits_beside_the_grid_and_does_not_cover_it(desk):
 
 @pytest.mark.browser
 def test_one_control_per_meaning_in_the_toolbar(desk):
-    """A segmented layout picker AND a select offering the same eight choices is two controls."""
+    """A segmented layout picker AND a select offering the same eight choices was two controls. The
+    picker then went too, with the arrangements it chose between (#232): one arrangement is not a
+    choice, and a control with one answer is not a control."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     with sync_playwright() as p:
         browser, page, _ = _page(p, desk)
         got = page.evaluate("""() => ({
-            segments: document.querySelectorAll('#layoutgroup .segment').length,
+            segments: document.querySelectorAll('#layoutgroup .segment, [data-layout]').length,
             legacy: !!document.querySelector('select#layout'),
             settings: !!document.getElementById('setbtn'),
             pickers: !!document.getElementById('skin') || !!document.getElementById('theme'),
             clipped: document.querySelector('.toolbar').scrollWidth > document.querySelector('.toolbar').clientWidth,
         })""")
         browser.close()
-    assert got["segments"] == 4, got      # column, grid, roles, screens (#203)
+    assert got["segments"] == 0, got      # one arrangement, so nothing to pick between (#232)
     assert not got["legacy"], "the old layout select is back beside the segmented control"
     assert got["settings"], "there is no way from the desk to the settings"
     assert not got["pickers"], \
         "the pickers are on /settings now; a copy on the desk is two controls for one meaning"
     assert not got["clipped"], "the toolbar is wider than the window and a control is off the edge"
-
-
-@pytest.mark.browser
-def test_changing_the_layout_keeps_the_page(desk):
-    """The picker used to set `location.search`, which reloads: every transcript and open panel went."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        page.evaluate("window.__kept = 'still here'")
-        page.click('.segment[data-layout="roles"]')
-        page.wait_for_timeout(600)
-        kept = page.evaluate("window.__kept")
-        url = page.url
-        browser.close()
-    assert kept == "still here", "the page reloaded"
-    assert "layout=roles" in url, url
 
 
 @pytest.mark.browser
@@ -346,7 +332,13 @@ def test_a_skin_loads_only_when_it_is_asked_for(desk):
                         { method: 'POST', headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ skin: 'voxel' }) });
         }""")
-        page.wait_for_timeout(2500)
+        # Waited for, not slept through (#227): the page hears of the skin from the stream's
+        # `theme` frame, which follows the config file's mtime on the loop's own tick. A flat
+        # 2.5 s was most of a tick's budget on a loaded Windows runner (the 3.14 leg of #264).
+        page.wait_for_function(
+            """() => { const l = document.head.querySelector('link[data-skin]');
+                       return !!l && l.href.indexOf('/static/skins/voxel/skin.css') >= 0; }""",
+            timeout=15000)
         href = page.evaluate("""() => { const l = document.head.querySelector('link[data-skin]');
                                         return l ? l.href : ''; }""")
         browser.close()
@@ -430,7 +422,7 @@ def test_selecting_a_project_does_not_throw_the_arrangement_away(desk):
         page.wait_for_timeout(900)
         after = page.evaluate("""() => ({
             widened: document.querySelectorAll('.tile.size-2').length,
-            arrangement: !!(desk.desk.arrangement && desk.desk.arrangement[LAYOUT]),
+            arrangement: !!(desk.desk.arrangement && desk.desk.arrangement.size),
         })""")
         browser.close()
     assert widened == 1, "the fixture did not widen a tile"
@@ -475,7 +467,7 @@ def test_a_pinned_tile_can_still_be_moved(desk):
         names = page.evaluate("() => getEffectiveOrder()")
         page.evaluate("async (n) => { await toggleTilePin(n[0]); await toggleTilePin(n[1]); }", names)
         page.wait_for_timeout(900)
-        assert page.evaluate("() => (getLayoutArrangement().pinned || []).length") == 2, \
+        assert page.evaluate("() => (getArrangement().pinned || []).length") == 2, \
             "two quick pins must both survive"
         before = page.evaluate("() => getEffectiveOrder()")
         page.evaluate("(n) => moveTile(n, 1)", before[0])
@@ -546,7 +538,7 @@ def test_the_saved_desk_comes_back_whatever_the_first_request_was(fleet_home, tm
     for name in ("alpha", "beta"):
         Registry().add(make_project(tmp_path / name), name=name)
     S.select(selected="beta")
-    S.arrange("grid", order=["beta", "alpha"], pinned=["beta"])
+    S.arrange(order=["beta", "alpha"], pinned=["beta"])
 
     # A brand new process: the file is on disk and nothing is in memory yet. (`S.reset()` is not
     # that -- it means "the fleet moved under a live process" and deliberately clears the file.)
@@ -558,12 +550,12 @@ def test_the_saved_desk_comes_back_whatever_the_first_request_was(fleet_home, tm
     # passed or hung depending on the order tests happened to run in.
     monkeypatch.setitem(S._desk, "dir", "")
     monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", dict(S._selection, selected="", screens=[], arrangement={}))
+    monkeypatch.setattr(S, "_selection", dict(S._selection, selected="", arrangement={}))
 
     state = S.desk_state()
     assert state["selected"] == "beta", "the selection did not survive"
-    assert state["arrangement"]["grid"]["order"] == ["beta", "alpha"], state
-    assert state["arrangement"]["grid"]["pinned"] == ["beta"], state
+    assert state["arrangement"]["order"] == ["beta", "alpha"], state
+    assert state["arrangement"]["pinned"] == ["beta"], state
 
 
 def test_cross_project_override_appears_when_refusal_text_is_reworded(desk, monkeypatch):

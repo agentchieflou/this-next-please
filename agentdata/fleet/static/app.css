@@ -1,8 +1,8 @@
 /* The multi-viewer. Light and dark follow the system; the palettes override surface colours only
    -- status colours never change, because a chip meaning "needs you" has to be the same red in
    every theme or the colour stops being information. That is why a failed poll's greyed cell
-   (#131) uses --idle, not a lighter --muted: "this number is old" is a status. The layouts of #133
-   are body classes over this one stylesheet, so nothing below can make a chip mean two things. */
+   (#131) uses --idle, not a lighter --muted: "this number is old" is a status. There is one
+   arrangement (#232) and one stylesheet, so nothing below can make a chip mean two things. */
 
 :root {
   --bg: #f6f7f8;
@@ -280,10 +280,6 @@ body {
   flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
   padding: 8px 10px; overflow: auto; background: var(--panel);
 }
-/* The laptop view (`?layout=screens` with no screen) is the board and the tray and no tiles, so
-   the sidebar becomes the window rather than a strip down the side of an empty grid. */
-body.panels #side { flex: 1 1 auto; border-left: 0; }
-
 /* A narrow window -- JCEF's tool window, Simple Browser in a split -- cannot afford a column
    beside the grid, so the sidebar goes back to being an overlay there and says so with a shadow. */
 @media (max-width: 900px) {
@@ -294,37 +290,48 @@ body.panels #side { flex: 1 1 auto; border-left: 0; }
   }
 }
 
+/* ------------------------------------------------------------------------ the row (#233)
+
+   The operator's sentence: *each agent is a column, not each agent is stacked in one column --
+   skinnier agents.* So every agent is a pane in one row, at full height, in the arrangement's
+   order. The open ones (the window's `open` and every pin) share what the rails leave, each by its
+   weight, and every other one is a rail. Nothing here scrolls sideways in the ordinary case: a desk
+   that scrolls hides the agent that needs you, so when even the rails cannot fit, a project's
+   checkouts share one rail (`groupRails` in app.js) before the row is ever allowed to scroll.
+
+   `.panes` is the row and what follows it: the panes themselves in `main`, and the rails of
+   repositories that left the registry after them. */
+.panes { flex: 1 1 auto; display: flex; min-height: 0; min-width: 0; }
 main {
-  flex: 1 1 auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-  /* #217. Implicit rows had no size of their own, so `grid-row: span 2` spanned two rows that
-     were as tall as their content and a tile asked to be taller was not. A floor on the row is
-     what makes the second one worth spanning. */
-  grid-auto-rows: minmax(240px, auto);
-  gap: 10px;
-  padding: 10px;
-  overflow: auto;
-  align-content: start;
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  display: flex; flex-direction: row; align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+  /* The last resort, never the design: past grouping, a row that still cannot fit scrolls rather
+     than crushing a rail under its 48px. */
+  overflow-x: auto; overflow-y: hidden;
 }
-body.focused main { grid-template-columns: 1fr; }
-body.focused .tile:not(.is-focused) { display: none; }
 
 /* The left edge is the PROJECT's accent; the chip is the state. One stripe with two meanings is
    how a four-monitor desk starts lying: the same red would say "this project" on one screen and
    "this needs you" on the next. #150 fixed the roles, and the accent is the hex that project's
-   terminal is painted in. */
+   terminal is painted in.
+
+   Every pane is a rail until it is open: 48px, which is a 28pt hit target and its padding. An
+   open pane takes `--cols` shares of the width the rails leave -- the footprint #217 wrote, which
+   is the weight until the gutters replace it (#234) -- and never goes under the compact tier's
+   160px. The width is decided HERE and nowhere else; what the pane draws is decided by the width
+   (`data-tier`), never the other way round, or a tier that changed the width would change the
+   tier. `position: relative` is what the drop line hangs from. */
 .tile {
-  display: flex; flex-direction: column; min-height: 240px;
-  /* One row is the 60vh this has always been; each further row is another third of the page,
-     which is the coarsest useful answer to "make this one taller" and the finest anyone can hit
-     by eye. `position: relative` is what the two edge handles hang from. */
-  max-height: calc(30vh * (var(--rows, 1) + 1));
+  --rail: 48px;
+  flex: 0 0 var(--rail); min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
   position: relative;
   background: var(--panel); border: 1px solid var(--line);
   border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 10px;
 }
-body.focused .tile.is-focused { max-height: none; }
+.tile.is-solo { flex: var(--cols, 1) 1 0; min-width: 160px; }
 /* The selection is one, unmistakable, and never in a state colour (HIG *Focus and selection*). */
 .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
 
@@ -489,7 +496,7 @@ body.focused .tile.is-focused { max-height: none; }
 }
 /* Every one of them, or the one left out paints its SVG with the default black fill (#180). */
 .head .pintoggle svg, .head .maxtoggle svg, .head .hidetoggle svg,
-.head .refreshtoggle svg, .toolbtn svg {
+.head .refreshtoggle svg {
   width: 16px; height: 16px; fill: none; stroke: currentColor;
   stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
 }
@@ -497,42 +504,6 @@ body.focused .tile.is-focused { max-height: none; }
 .head .refreshtoggle:hover, .head .modeltoggle:hover { border-color: var(--accent); color: var(--text); }
 .head .pintoggle.active { background: var(--select); color: var(--accent); border-color: var(--accent); }
 
-/* #217. The footprint is two custom properties the script writes and this rule spans on -- one
-   owner for `grid-column` and one for `grid-row`, rather than a class per width. `.tile.size-2`
-   remains as a state marker (it is what "is this one widened" reads) and no longer decides
-   anything. A tile may not span more tracks than the glass has, so the span is capped by the
-   grid's own `auto-fit`: asking for four on a narrow window simply gets the whole row. */
-.tile { grid-column: span var(--cols, 1); grid-row: span var(--rows, 1); }
-
-/* The two edges a tile can be pulled by. They sit inside the tile's padding rather than outside
-   it, so a resize never starts on the gap between two tiles and land on neither. */
-.tile .rsz {
-  position: absolute; z-index: 3; touch-action: none; opacity: 0;
-  transition: opacity var(--motion-fast) var(--ease-out);
-}
-.tile .rsz::before {
-  content: ""; position: absolute; inset: 0; margin: auto;
-  background: var(--accent); border-radius: 2px;
-}
-/* A short bar at the middle of each edge rather than a strip down the whole of it. A strip is
-   easier to hit and it lies over the head's own buttons at the top and the composer's at the
-   bottom, where it is a control nobody can click and a resize nobody meant. The middle of an edge
-   is where a window's resize grip has always been. */
-.tile .rsz-x {
-  right: 0; top: 50%; transform: translateY(-50%);
-  width: 8px; height: 48px; cursor: col-resize;
-}
-.tile .rsz-x::before { width: 2px; height: 24px; }
-.tile .rsz-y {
-  bottom: 0; left: 50%; transform: translateX(-50%);
-  height: 8px; width: 48px; cursor: row-resize;
-}
-.tile .rsz-y::before { height: 2px; width: 24px; }
-.tile:hover .rsz, .tile:focus-within .rsz { opacity: 0.45; }
-.tile .rsz:hover, .tile .rsz.is-resizing { opacity: 1; }
-
-/* What will happen, shown before the mouse comes up (HIG *Drag and drop*). One element for the
-   whole page: there is only ever one gesture in flight. */
 /* #219: the desk the window last saw, while the one it has now is loading. Dimmed a little and
    said out loud in the footer -- a stale desk that does not admit it is a desk that lies for a
    second, and a second is long enough to act on. No spinner: the page has something to show, and
@@ -543,20 +514,19 @@ body.is-stale #counts::after {
   color: var(--muted);
 }
 
-/* #218: the last hour, on the tile's title bar and on the band. Sized in CSS and resolved in the
-   script -- the canvas's own `width` is a pixel count, not a layout box, and the two are only the
-   same number on a 1x screen. It shrinks before anything else in the head does, and goes
-   altogether on a narrow tile, because an hour nobody can read the shape of is 120 pixels of
-   title bar spent on nothing. */
+/* #218: the last hour, on the pane's title bar. Sized in CSS and resolved in the script -- the
+   canvas's own `width` is a pixel count, not a layout box, and the two are only the same number on
+   a 1x screen. It shrinks before anything else in the head does, and goes altogether on a narrow
+   pane, because an hour nobody can read the shape of is 120 pixels of title bar spent on
+   nothing. */
 .trace {
   flex: 0 1 auto; width: 64px; height: 18px; min-width: 40px;
   opacity: 0.85; vertical-align: middle;
 }
 .trace:hover { opacity: 1; }
-.band .trace { width: 120px; height: 14px; }
 /* The head wraps before it shrinks -- that is what `flex-wrap` means -- so the trace has to be
    gone by the width at which it would have caused the wrap, not by the width at which it stops
-   fitting. Below this the band carries the same hour, at full width, for every agent at once. */
+   fitting. A compact pane and a rail do not draw it at all (#233). */
 @container (max-width: 560px) {
   .head .trace { display: none; }
 }
@@ -574,20 +544,10 @@ body.is-stale #counts::after {
    the gradients the win -- which paints the ground twice, once in CSS and once on the canvas. */
 html body.has-ground { background-image: none; }
 
-#rszghost {
-  position: fixed; z-index: 40; pointer-events: none;
-  border: 2px dashed var(--accent); border-radius: 6px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-#rszghost .rsz-says {
-  position: absolute; top: 4px; left: 6px;
-  font: 11px var(--mono); color: var(--accent);
-}
-
-/* Whatever is under the hand -- a tile in the grid, a band in the column. It is lifted out of the
-   flow's paint order and given no pointer events, so `elementFromPoint` answers with what is
-   *underneath* it rather than with the thing being dragged. Written for both from the start: the
-   rule that named only `.tile` left the column's drag with nothing to drop onto. */
+/* Whatever is under the hand -- an open pane by its head, or a rail by its face. It is lifted out
+   of the flow's paint order and given no pointer events, so `elementFromPoint` answers with what
+   is *underneath* it rather than with the thing being dragged. Written for any host from the
+   start: a rule that named only `.tile` once left the column's drag with nothing to drop onto. */
 .is-dragging {
   z-index: 30; pointer-events: none; cursor: grabbing;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
@@ -596,7 +556,7 @@ html body.has-ground { background-image: none; }
    a row into a native drag of the selection the first one had made -- which arrives as
    `pointercancel` and ends the gesture on the frame it began. `draggable` used to suppress this
    as a side effect; saying it outright is what replaces it. */
-.tile .head, .band { touch-action: none; user-select: none; -webkit-user-select: none; }
+.tile .head, .pane-rail { touch-action: none; user-select: none; -webkit-user-select: none; }
 
 /* A pinned tile says so on the tile, not only in the tint of a 28px button: the pin is why it is
    first, and "why is this one at the top" is the question the tint could not answer. */
@@ -675,7 +635,6 @@ html body.has-ground { background-image: none; }
 .err { margin: 6px 0 0; color: var(--human); }
 
 @media (max-width: 640px) {
-  main { grid-template-columns: 1fr; }
   .keys { display: none; }
 }
 
@@ -820,24 +779,20 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 #refused summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 #refusedrows { margin: 0; padding: 0; list-style: none; font: 11px var(--mono); }
 
-/* ------------------------------------------------------------------ the layouts (#133) */
-
-/* Three arrangements of one page, chosen by `?layout=` and `?view=`, because the friction the
-   operator named was managing tabs -- and a second HTML file is a second thing to keep in step.
-   `solo` is one project filling the window (layout B's centre monitor, and every screen of layout
-   C); `panels` is the laptop: the board and the unsorted tray and no tiles. */
+/* ------------------------------------------------------------------ focus mode (#133) */
 
 #focus[aria-pressed="true"] { border-color: var(--human); color: var(--human); font-weight: 600; }
 .tile.needs-human .head .repo { color: var(--human); }
 
-/* Focus mode. Not applied in the solo views: hiding the one tile the window exists to show would
-   leave an empty monitor.
+/* Focus mode never hides a pane: the open one is the window, and hiding it because it does not
+   happen to need a person would leave an empty monitor. What the mode quiets is the rails: a rail
+   whose agent wants nothing dims, keeping its name, its slot and its click (#233, below), so the
+   red ones are what the eye lands on.
 
    `.held` is what makes focus mode usable. Answering an agent stops it needing you, so without
-   this the tile just replied to matched `:not(.needs-human)` and was hidden *by that reply* -- the
-   action's only visible outcome being the disappearance of the thing acted on, which reads as data
-   loss (HIG *Feedback*). A tile the operator acted on is held until they leave or release it. */
-body.needs-only:not(.solo) .tile:not(.needs-human):not(.held) { display: none; }
+   it the rail just replied to would dim *because of that reply* -- the action's only visible
+   outcome being the disappearance of the thing acted on, which reads as data loss (HIG
+   *Feedback*). An agent the operator acted on is held until they leave or release it. */
 
 /* Held, and saying so. Dimmed rather than hidden: it is no longer a demand on the operator, but it
    is still theirs to watch. A held tile that has gone back to needing somebody is not dimmed and
@@ -870,156 +825,117 @@ body.needs-only .tile.held:not(.needs-human) .holdnote { display: flex; }
 .outside .outsidewhy { flex: 1 1 auto; min-width: 0; }
 .outside button { font-size: 11px; padding: 1px 8px; white-space: nowrap; }
 
-body.solo main { grid-template-columns: 1fr; }
-body.solo .tile:not(.is-solo) { display: none; }
-body.solo .tile.is-solo { max-height: none; }
-body.solo .transcript { max-height: 34vh; }
+/* ------------------------------------------------------------ the pane's three widths (#233)
 
-body.panels main, body.panels #empty { display: none; }
+   One component, three widths. What a pane draws is decided by how wide it is, and the width by
+   the arrangement (above) -- `data-tier` is the one bridge, written by one `ResizeObserver` with
+   8px of hysteresis so a pane on a boundary does not flicker. The draw functions skip what a tier
+   does not show; the rules below take the rest off the glass.
 
-/* The laptop view is the sidebar and nothing else, so its per-section close buttons and the
-   sidebar toggle have nothing to close it to. */
-body.panels #closeboard, body.panels #closetray, body.panels #closedrawer,
-body.panels #closefound, body.panels #closeinspector, body.panels #sidetoggle { display: none; }
+   rail     48px      the rail's face and nothing else
+   compact  160-359   the head (name, state chip with its age, ticket), the three tools, the cards
+                      that ask the operator something, the last lines, the reply box
+   full     360+      everything a tile has */
+.glass { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 
-/* The left monitor replaces a terminal, so the tiles get the width and the sidebar stays narrow. */
-body.view-agents main { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.pane-rail { display: none; }
+.tile[data-tier="rail"] { padding: 0; }
+/* `!important` for the same reason `[hidden]` has it: a rail shows its face and nothing else, and
+   a state rule elsewhere that sets `display` on a part of the pane must not put it back inside a
+   48px strip (the hold note in focus mode is one). */
+.tile[data-tier="rail"] > :not(.pane-rail) { display: none !important; }
+.tile[data-tier="rail"] > .pane-rail { display: flex; }
+.pane-rail {
+  flex: 1 1 auto; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: 8px;
+  width: 100%; min-width: 0; min-height: 0; margin: 0; padding: 8px 0;
+  background: transparent; color: var(--text); font: inherit;
+  border: 0; border-radius: 3px; cursor: pointer; overflow: hidden;
+}
+.pane-rail:hover { background: var(--select); }
+.pr-n { font: 10px var(--mono); color: var(--muted); flex: 0 0 auto; }
+/* The state's glyph, in the state's colour: the chip's palette, on a disc a rail can carry. The
+   glyph is the word for anyone who cannot tell the colours apart; the colour is the glance. */
+.pr-glyph {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  font: 600 12px/1 var(--mono); color: #fff; background: var(--idle);
+}
+.pane-rail.st-running .pr-glyph { background: var(--running); }
+.pane-rail.st-waiting_approval .pr-glyph { background: var(--waiting); }
+.pane-rail.st-blocked .pr-glyph, .pane-rail.st-error .pr-glyph { background: var(--human); }
+.pane-rail.st-done .pr-glyph { background: var(--done); }
+.pane-rail.st-group .pr-glyph { background: var(--muted); }
+/* The name down the rail's length. Clipped at the foot rather than wrapped: a name is read from
+   its start, and the whole of it is in the label. */
+.pr-name {
+  flex: 0 1 auto; min-height: 0; max-width: 100%; text-align: start;
+  writing-mode: vertical-rl; text-orientation: mixed;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 600; font-size: 12px; letter-spacing: .02em;
+}
+.pr-badge {
+  flex: 0 0 auto; font: 10px var(--mono); border-radius: 8px; padding: 0 5px;
+  background: var(--human); color: #fff;
+}
+/* The whole rail red when its agent needs a person -- the face is the rail, so the face is what is
+   red, and a skin that paints the tile's own background cannot take that away. White on the
+   status red, with the glyph turned round: `!` in red on a white disc. */
+.pane-rail.needs-human { background: var(--human); color: #fff; }
+.pane-rail.needs-human .pr-n { color: #fff; }
+.pane-rail.needs-human .pr-glyph { background: #fff; color: var(--human); }
+.pane-rail.needs-human .pr-badge { background: #fff; color: var(--human); }
+.tile[data-tier="rail"].needs-human { border-color: var(--human); }
 
-/* ------------------------------------------------------------------------ the column (#203)
+/* Compact: what a band carried, and room to answer. The name takes the head's first line; the
+   chip, its age, the ticket and the three tools wrap under it. */
+.tile[data-tier="compact"] :is(.grip, .head .trace, .pintoggle, .maxtoggle, .runline,
+                                .sessionbar, .outside, .scopereport, .cells, .assumed,
+                                .bottom .start, .bottom .reset, .bottom .stop,
+                                .transcript .k) { display: none; }
+.tile[data-tier="compact"] .head { row-gap: 2px; }
+.tile[data-tier="compact"] .head .repo { order: -1; flex: 1 1 100%; max-width: none; }
+/* The three tools on a line of their own, at the right, not wherever the wrap drops them. */
+.tile[data-tier="compact"] .head .spacer { flex-basis: 100%; }
+.tile[data-tier="compact"] .head .hidetoggle { margin-left: auto; }
+.tile[data-tier="compact"] .head .chipage,
+.tile[data-tier="compact"] .head .ticket { display: inline; }
 
-   The operator's two sentences, made two rules: *non-open sessions show vertically rather than
-   horizontally*, and *each slice that isn't being actively looked at should auto size to take up
-   the page so there isn't so much negative space.*
+/* Put away, and represented. A hidden pane leaves the row (the footer counts it); a checkout
+   grouped into its project's rail is on the glass as that rail. */
+.tile.is-hidden, .tile.is-grouped { display: none; }
 
-   `.glass` is the first of them and it fixes the grid too. `.workspace` is a flex ROW, so the dock
-   -- which has always described itself as sitting *under* the grid -- was laid out BESIDE it with a
-   basis of its own content, and one chip carrying a long question took a third of the window away
-   from the tiles. The tiles and the dock are now one vertical box, and the column is its sibling. */
-.glass { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-/* The laptop view is the sidebar and nothing else, so the box the tiles live in goes with them. */
-body.panels .glass { display: none; }
+/* *needs me*: a quiet rail dims rather than leaving. It keeps its name, its slot and its click, so
+   the mode narrows what the eye lands on instead of emptying the row -- a pane that vanished would
+   be "where did it go" again. */
+body.needs-only .tile.is-quiet { opacity: .45; }
+body.needs-only .tile.is-quiet:hover, body.needs-only .tile.is-quiet:focus-within { opacity: 1; }
 
-/* The open agent fills the glass, top to bottom. Pinned tiles are open too and split the row, which
-   is what pinning already meant in the grid. */
-body.layout-column main {
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  align-content: stretch;
+/* A repository that left the registry: a dashed rail after the row, naming what restores it. */
+.gone {
+  list-style: none; margin: 0; padding: 8px 8px 8px 0; flex: 0 0 auto;
+  display: flex; gap: 6px;
 }
-body.layout-column .tile.is-solo { max-height: none; min-height: 0; }
-/* `body.solo` caps the transcript at a third of the viewport because there it shares the window
-   with the sidebar's panes. Here the tile IS the window, so the transcript takes what is left. */
-body.layout-column .transcript, body.layout-column .history { max-height: none; }
+.gone-rail {
+  flex: 0 0 48px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 8px 0; border: 1px dashed var(--line); border-radius: 6px; color: var(--muted);
+}
+.gone-rail .pr-glyph { background: var(--muted); }
 
-.column {
-  flex: 0 0 clamp(260px, 24vw, 420px);
-  display: flex; flex-direction: column; min-height: 0; gap: 6px;
-  padding: 8px; background: var(--panel); border-left: 1px solid var(--line);
+/* The footer's count of what is put away, and the one press that brings it all back. */
+.hiddencount {
+  min-height: 24px; padding: 1px 8px; font: 11px var(--mono);
+  background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 4px;
 }
-.column-head, .column-foot {
-  display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
-  color: var(--muted); font: 11px var(--mono);
-}
-.column-jump {
-  margin-left: auto; min-height: 28px; padding: 1px 8px; font: 11px var(--ui);
-  background: var(--bg); color: var(--human); border: 1px solid var(--human); border-radius: 4px;
-}
-.bands {
-  list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-height: 0; overflow: auto;
-  display: flex; flex-direction: column; gap: 6px;
-}
-/* The whole point: N bands share the column's height and none of it is empty. `1 1 0` rather than
-   `1 1 auto`, or a band carrying a long question takes more than its share and the quiet ones are
-   squeezed to a line. Past the minimums the column scrolls and its head says how many there are. */
-/* The band is the card; the button and the tools are inside it. The border used to be on the
-   button, which put the three controls OUTSIDE the box they belong to and pushed the model's name
-   off the edge of the column. */
-.band {
-  flex: 1 1 0; min-height: 56px; display: flex; overflow: hidden;
-  background: var(--bg); border: 1px solid var(--line); border-left: 3px solid var(--line);
-  border-radius: 6px;
-}
-.band:hover { border-color: var(--accent); }
-/* An agent that wants something is the height of what it is asking. `1 0 auto` -- a basis of its
-   own content and no shrink -- so a long question is never clipped and the column scrolls instead,
-   which is the one case where "share the height evenly" is the wrong answer. */
-.band.needs-human { flex: 1 0 auto; }
-.band-open {
-  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px;
-  align-items: stretch; text-align: left; cursor: pointer; overflow: hidden;
-  background: transparent; color: var(--text); font: inherit; padding: 6px 8px;
-  border: 0; border-radius: 0;
-}
-/* Who it is, on one line, so the line under it is the news rather than the third thing down. */
-.b-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.b-n {
-  font: 10px var(--mono); color: var(--muted);
-  border: 1px solid var(--line); border-radius: 3px; padding: 0 4px;
-}
-.b-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-          white-space: nowrap; }
-.b-head .b-badge { margin-left: auto; }
-.b-chip { color: var(--muted); font: 11px var(--mono); }
-.b-badge {
-  background: var(--human); color: var(--bg); border-radius: 8px; padding: 0 5px; font-size: 11px;
-}
-/* What it last said. Two lines for a quiet agent -- enough to triage from, not enough to crowd the
-   band next to it -- and no limit at all on a red one, whose question is the point of the row. */
-/* What it last said takes whatever height the band has. That is what the height is FOR: a band
-   stretched to fill the page and then showing two clamped lines would be the negative space this
-   arrangement was asked to remove, moved inside the row. */
-.b-last {
-  flex: 0 0 auto; color: var(--muted); line-height: 1.4;
-  overflow: hidden; overflow-wrap: anywhere;
-}
-.band.needs-human .b-last { color: var(--human); }
-/* The tail takes the height the band has left, and clips: the operator reads down it until the row
-   ends, which is exactly as much as the column could afford to show them. */
-.b-tail {
-  flex: 1 1 auto; min-height: 0; overflow: hidden; margin: 2px 0 0; padding: 0; list-style: none;
-  font: 10px/1.45 var(--mono); color: var(--muted);
-  border-top: 1px dashed var(--line); padding-top: 2px;
-}
-.b-tail li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-body.needs-only .band.is-quiet .b-tail { display: none; }
-/* An agent that needs a person is the same red its tile is, and its question is shown in full: the
-   dock could only ever fit a state and an age, which is how an idle agent's last question became
-   unrecoverable from it. */
-.band.needs-human { border-color: var(--human); border-left-color: var(--human); }
-.band.needs-human .b-name { color: var(--human); }
-.band.departed { border-style: dashed; }
-.band.departed .band-open { color: var(--muted); }
-/* *needs me*, in the column: a quiet band folds to a sliver rather than leaving. It keeps its name
-   and its slot, so the mode narrows the column instead of emptying it -- a row that vanished would
-   be "where did it go" again, which is the question this arrangement exists to answer. */
-body.needs-only .band.is-quiet { flex: 0 0 28px; min-height: 28px; }
-body.needs-only .band.is-quiet .band-open { flex-direction: row; align-items: baseline; padding: 2px 8px; }
-body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-tools { display: none; }
-.column-hidden { color: var(--muted); }
 
 /* ------------------------------------------------------ hide, refresh and the model (#205)
-   The same three controls on the band and on the tile, so the eye finds them in the same place
-   whichever one it is looking at. */
-.band-tools {
-  display: flex; flex-direction: column; gap: 2px; padding: 4px 2px; flex: 0 0 auto;
-  border-left: 1px solid var(--line); align-items: stretch;
-}
-/* `stretch`, not `center`: a centred column sizes its items to their content, so the one carrying
-   a model name grew past the card it sits in and ran off the edge of the page. */
-.band-tools .toolbtn { width: 100%; min-width: 0; }
-.toolbtn {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-height: 28px; min-width: 28px; padding: 0 5px;
-  background: transparent; border: 1px solid transparent; border-radius: 4px;
-  color: var(--muted); cursor: pointer;
-}
-.toolbtn:hover { border-color: var(--accent); color: var(--text); }
+   The same three controls on every pane that has a head, so the eye finds them in the same place
+   whichever one it is looking at -- and on a rail, the same three keys. */
 /* An in-flight control is the control itself, dimmed -- never an overlay and never a spinner: the
    page has one motion budget (#216) and a refresh is over before an animation would read as one. */
-.toolbtn[aria-busy="true"], .head [aria-busy="true"] { opacity: .5; }
+.head [aria-busy="true"] { opacity: .5; }
 /* The model button says a name rather than drawing a glyph: a model is a word, and an icon for one
-   would be an icon nobody can read. */
-/* The model button says a word, so it needs room for one -- and the band's tool column is narrow,
-   so the word ellipsises inside the card rather than running off the edge of the page. */
+   would be an icon nobody can read. It ellipsises inside the head rather than running off it. */
 .wordbtn { font: 10px var(--mono); letter-spacing: .02em; white-space: nowrap;
            max-width: 100%; padding: 0 2px; overflow: hidden; }
 /* The ellipsis has to be on the element that holds the text. It was on the button, whose centred
@@ -1029,7 +945,6 @@ body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-too
   min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   text-align: center;
 }
-.band-tools { width: 3.4rem; }
 .head .modeltoggle { min-width: auto; }
 
 /* The card behind the model button. Fixed, because it is one card for the page and it is moved to
@@ -1059,24 +974,6 @@ body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-too
 }
 .mc-note { margin: 0; color: var(--muted); font-size: 11px; }
 .mc-all { align-self: flex-start; font-size: 11px; }
-
-/* A narrow window cannot afford a column beside the glass, so it lies down into a strip above the
-   tile -- which is the dock as it was always meant to read, and the laptop's own narrow view. */
-@media (max-width: 900px) {
-  body.layout-column .workspace { flex-direction: column; }
-  body.layout-column .column {
-    order: -1; flex: 0 0 auto; max-height: 38vh;
-    border-left: 0; border-bottom: 1px solid var(--line);
-  }
-  body.layout-column .bands { flex-direction: row; overflow-x: auto; }
-  body.layout-column .band { flex: 0 0 auto; min-width: 170px; }
-  body.layout-column .band-open { flex-direction: row; align-items: baseline; }
-}
-
-/* Which window is this? The grid has nothing to say -- it is the whole fleet. Every other layout is
-   one of a set, and four windows that look alike is the tab problem again, one level up. */
-
-
 
 .inspectorbody { padding: 8px 0; display: flex; flex-direction: column; gap: 12px; }
 
@@ -1133,8 +1030,6 @@ body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-too
     animation-duration: 0.01ms !important;
   }
 }
-
-/* `#view` used to name which window this was; the segmented picker says it now. */
 
 /* ------------------------------------------------------- the inspector's project detail (#148) */
 
@@ -1287,16 +1182,10 @@ body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-too
 .scopereport { color: var(--muted); margin: 2px 0; }
 .scopereport.outside { color: var(--waiting); }
 
-/* ------------------------------------------------------------------------ the dock (#173)
-   Everything that is not on the glass, so a hidden tile is never a lost one. It sits under the
-   grid rather than over it -- a strip that covered content would be the drawer problem #148 fixed. */
-.tile.is-hidden { display: none; }
-.dock {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 6px 8px; border-top: 1px solid var(--line); background: var(--panel);
-}
-.dock-label { color: var(--muted); font-size: 12px; }
-.dock-chips { list-style: none; display: flex; gap: 6px; flex-wrap: wrap; margin: 0; padding: 0; }
+/* ------------------------------------------------------------------------------ the chip (#173)
+   A hidden pane keeps its slot and leaves the row; the footer counts it (#233, above). The chip is
+   the one the grid's dock drew (#232 retired the dock with the grid), and the agent rail wears it
+   now. */
 .dock-open {
   display: flex; align-items: baseline; gap: 6px; min-height: 28px; padding: 2px 8px;
   background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 14px;
@@ -1305,15 +1194,6 @@ body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-too
 .dc-badge {
   background: var(--human); color: var(--bg); border-radius: 8px; padding: 0 5px; font-size: 11px;
 }
-/* A chip for an agent that needs a person is the same red its tile would be: hiding a demand is
-   how a demand gets missed, and the dock is where a hidden one has to still be visible. */
-.dock-chip.needs-human .dock-open { border-color: var(--human); color: var(--human); }
-.dock-chip.departed .dock-open { border-style: dashed; color: var(--muted); }
-.dock-showall {
-  margin-left: auto; min-height: 28px; background: var(--bg); color: var(--text);
-  border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px;
-}
-
 /* ------------------------------------------ the agent rail (#183): the dock's chip as a drop target,
    candidates lit and the rest dimmed while a ticket is in flight; lit is also `aria-selected`. */
 .agentrail {

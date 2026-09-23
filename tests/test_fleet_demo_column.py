@@ -1,11 +1,13 @@
-"""The column's definition-of-done demo (issue #208).
+"""The column's definition-of-done demo (issue #208), carried over to the row (issue #233).
 
 Five agents on one desk, in the state a real afternoon puts them in: one running, one waiting for a
-click, one with a question, one idle, one removed from the registry. The demo renders that in the
-`column` arrangement and measures the two things the operator asked for --
+click, one with a question, one idle, one the operator hid. The column rendered every agent that was
+not open as a band; the operator's correction was *each agent is a column -- skinnier agents*
+(docs/plan-panes.md §Decisions 3), so the demo renders the row and measures what the operator asked
+for, then and now --
 
-* every agent that is not open is a band, one above another, and
-* the bands account for the column's height, so the page has no dead space in it --
+* every agent that is not open is a rail beside the open pane, in the row's order, and
+* the panes account for the row's width and height, so the page has no dead space in it --
 
 then writes a screenshot per skin variant so the sitting has something to look at without a laptop.
 `AGENTDATA_SHOTS=<dir>` says where; without it they go to pytest's own tmp dir and are thrown away,
@@ -37,8 +39,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -61,7 +63,7 @@ def _desk_of_five(tmp_path):
                       E.event("luna", "needs_approval",
                               {"id": "a1", "kind": "jira-transition",
                                "summary": "move RDSD-118 to In Review"}, ticket="RDSD-118")])
-    # a question, which is what a band has room for and a dock chip never did
+    # a question, which a band had room for, a dock chip never did, and a rail says in its label
     E.append("velocity", [
         E.event("velocity", "turn_ended", {"turn": "0"}, ticket="RDSD-902"),
         E.event("velocity", "question_opened",
@@ -78,7 +80,7 @@ def _desk_of_five(tmp_path):
     # and one the operator hid
     E.append("arl-usage", [E.event("arl-usage", "turn_ended", {"turn": "0"}, ticket="RDSD-55")])
 
-    S.arrange("column", order=names, hidden=["arl-usage"])
+    S.arrange(order=names, hidden=["arl-usage"])
     return names
 
 
@@ -105,59 +107,73 @@ def test_five_agents_one_open_and_no_dead_space(fleet_home, tmp_path):
             page = browser.new_page(viewport={"width": 1600, "height": 1000})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
             page.wait_for_function(
-                "() => document.querySelectorAll('#bands .band:not([hidden])').length >= 3",
+                "() => document.querySelectorAll("
+                "'#grid .tile[data-tier=\"rail\"]:not(.is-hidden)').length >= 3",
                 timeout=15000)
 
             out = page.evaluate("""() => {
-              const list = document.getElementById('bands');
-              const bands = [...list.querySelectorAll('.band:not([hidden])')];
-              const gap = parseFloat(getComputedStyle(list).rowGap || '0') * (bands.length - 1);
-              const tile = document.querySelector('.tile.is-solo').getBoundingClientRect();
+              const row = document.getElementById('grid');
+              const style = getComputedStyle(row);
+              const panes = [...row.querySelectorAll('.tile:not(.is-hidden)')];
+              const rails = panes.filter(t => t.dataset.tier === 'rail');
+              const face = t => t.querySelector('.pane-rail');
+              const inner = row.clientWidth - parseFloat(style.paddingLeft) -
+                            parseFloat(style.paddingRight);
+              const tall = row.clientHeight - parseFloat(style.paddingTop) -
+                           parseFloat(style.paddingBottom);
+              const open = document.querySelector('.tile.is-solo');
               return {
-                bands: bands.map(b => b.dataset.repo),
-                red: [...list.querySelectorAll('.band.needs-human')].map(b => b.dataset.repo),
-                asks: [...list.querySelectorAll('.band.needs-human .b-last')].map(b => b.textContent),
-                says: [...bands].map(b => b.querySelector('.b-last').textContent),
-                sum: bands.reduce((n, b) => n + b.getBoundingClientRect().height, 0) + gap,
-                listH: list.getBoundingClientRect().height,
-                tileBottom: tile.bottom, page: window.innerHeight,
-                head: document.getElementById('column-count').textContent,
-                foot: document.getElementById('column-hidden').textContent,
-                dock: !document.getElementById('dock').hidden,
-                tools: [...bands[0].querySelectorAll('[data-tool]')].map(b => b.dataset.tool),
+                rails: rails.map(t => t.dataset.repo),
+                red: rails.filter(t => face(t).classList.contains('needs-human'))
+                          .map(t => t.dataset.repo),
+                glyphs: rails.filter(t => face(t).classList.contains('needs-human'))
+                             .map(t => face(t).querySelector('.pr-glyph').textContent),
+                says: rails.map(t => face(t).getAttribute('aria-label')),
+                sum: panes.reduce((n, t) => n + t.getBoundingClientRect().width, 0) +
+                     parseFloat(style.columnGap || '0') * (panes.length - 1),
+                inner: inner,
+                short: panes.filter(t => Math.abs(t.getBoundingClientRect().height - tall) > 1.5)
+                            .map(t => t.dataset.repo),
+                counts: document.getElementById('counts').textContent,
+                hidden: document.getElementById('hiddencount').textContent,
+                dock: !!document.getElementById('dock'),
+                column: !!document.getElementById('column'),
+                tools: [...open.querySelectorAll('.head [data-tool]')].map(b => b.dataset.tool),
               };
             }""")
             assert not errors, errors
 
-            # Four registered agents are not open, one of them hidden: three bands.
-            assert len(out["bands"]) == 3, out["bands"]
-            assert "arl-usage" not in out["bands"] and "1 hidden" in out["foot"], out
-            assert out["dock"] is False, "the column is the dock here; never both"
+            # Four registered agents are not open, one of them hidden: three rails.
+            assert len(out["rails"]) == 3, out["rails"]
+            assert "arl-usage" not in out["rails"] and out["hidden"] == "1 hidden", out
+            assert out["dock"] is False, "the dock went with the grid (#232)"
+            assert out["column"] is False, "the column went with #233"
 
-            # The loud two are red and their asks are readable without opening a tile.
+            # The loud two are red, with a glyph as well as the colour, and their asks are in their
+            # labels -- readable without opening a pane, by a screen reader or a pointer.
             assert sorted(out["red"]) == ["luna", "velocity"], out["red"]
-            assert any("sprint field is empty" in ask for ask in out["asks"]), out["asks"]
-            assert "2 need you" in out["head"], out["head"]
+            assert out["glyphs"] == ["!", "!"], out["glyphs"]
+            assert any("sprint field is empty" in said for said in out["says"]), out["says"]
+            assert "2 need you" in out["counts"], out["counts"]
 
             # The quiet one says what it did, which a dock chip never had room for.
             assert any("pushed feature/RDSD-771" in said for said in out["says"]), out["says"]
 
-            # No dead space: the bands account for the column and the tile reaches the bottom.
-            assert abs(out["sum"] - out["listH"]) < 1.5, out
-            assert out["tileBottom"] > out["page"] * 0.75, out
+            # No dead space: the panes account for the row's width, and every one its height.
+            assert abs(out["sum"] - out["inner"]) < 1.5, out
+            assert out["short"] == [], out
 
-            # And every band carries the same three controls the open tile has.
+            # And the open pane carries the three controls every pane with a head carries.
             assert out["tools"] == ["hide", "refresh", "model"], out["tools"]
 
             for skin in SKINS:
                 S.act("theme", {"skin": skin})
                 page.wait_for_timeout(350)
                 page.screenshot(path=os.path.join(
-                    shots, "column-" + skin.replace(":", "-") + ".png"))
+                    shots, "row-" + skin.replace(":", "-") + ".png"))
             assert not errors, errors
             browser.close()
     finally:
@@ -166,5 +182,5 @@ def test_five_agents_one_open_and_no_dead_space(fleet_home, tmp_path):
         server.server_close()
 
     for skin in SKINS:
-        shot = os.path.join(shots, "column-" + skin.replace(":", "-") + ".png")
+        shot = os.path.join(shots, "row-" + skin.replace(":", "-") + ".png")
         assert os.path.getsize(shot) > 5000, f"{shot} is not a rendered page"

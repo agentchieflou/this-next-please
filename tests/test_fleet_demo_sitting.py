@@ -1,6 +1,6 @@
 """Sitting: F — the demo (issue #185).
 
-The epic's acceptance sentence, end to end, on CI against the fake `copilot`: the board window in
+The epic's acceptance sentence, end to end, on CI against the fake `copilot`: the board in
 `glass:smoke` hands a ticket to a checkout with seven branches, the card says *ready*, the agent
 looks before it branches and continues on the ticket's own, the tile's git cell reads the count,
 the inspector's pane names the unmerged three -- and the scrollbar the operator scrolls the board
@@ -8,6 +8,11 @@ with computes to the skin's thumb, not the operating system's grey.
 
 A real `copilot` process (the fake from `tests/fakes/`, launched by the real supervisor with the
 real allow-list), a real repository built with real git, and a real browser on the real page.
+
+It was the roles layout's board window until #232 retired it. The same situation now is the board
+open beside the agent the operator is reading (`sol`), with the checkout the ticket goes to a
+48px rail in the row (a band off the glass until #233) -- which is what sends the card under the
+agent rail.
 """
 from __future__ import annotations
 import threading
@@ -36,10 +41,8 @@ def desk(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -49,6 +52,8 @@ def desk(tmp_path, monkeypatch):
     path = make_project(tmp_path / "luna", project="RDSD", phase="triaged")
     seven_branches(path, ticket=TICKET)
     Registry().add(path, name="luna")
+    Registry().add(make_project(tmp_path / "sol", project="OPS"), name="sol")
+    S.update_window("main", open="sol")
     B.write_cache({"jql": B.DEFAULT_JQL, "fetched_at": time.time(), "rows": [
         {"key": TICKET, "summary": "UAT refresh is slow", "status": "To Do", "category": "new"}]})
     PF.write_cache({"issues": {TICKET: {"description": RICH, "issuetype": "Story", "comments": 0,
@@ -89,10 +94,14 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
             browser = launch_chromium(p)
             errors: list[str] = []
 
-            # 1. The board window, in glass. Nothing on the glass but the board and the rail.
+            # 1. The board, in glass, beside the agent the operator is reading. The address is the
+            #    board window's, as an old bookmark has it; it opens the desk, and the board is a
+            #    key away.
             board = browser.new_page(viewport={"width": 1280, "height": 900})
             board.on("pageerror", lambda e: errors.append(str(e)))
             board.goto(f"http://127.0.0.1:{port}/?t={token}&layout=roles&view=board", wait_until="domcontentloaded")
+            board.wait_for_selector('.tile[data-repo="sol"].is-solo', timeout=15000)
+            board.evaluate("() => boardPanel(true)")
             board.wait_for_selector(f"#tickets li[data-key='{TICKET}']", timeout=15000)
             board.wait_for_selector("#agentrail .rail-chip[data-repo='luna']:not([hidden])", timeout=15000)
             board.evaluate("(name) => post('theme', { skin: name })", "glass:smoke")
@@ -149,10 +158,13 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
             assert "branches=7 (3 unmerged)" in said and "Continuing on feature/RDSD-7-part-2" in said
             assert Registry().get("luna").state()["branch"] == "feature/RDSD-7-part-2"
 
-            # 4. The grid window: the tile's cell reads the count, and the pane names the three.
+            # 4. A second window, opened on luna the way a toast opens it: the tile's cell reads the
+            #    count, and the pane names the three.
             grid = browser.new_page(viewport={"width": 1280, "height": 900})
             grid.on("pageerror", lambda e: errors.append(str(e)))
-            grid.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+            grid.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid#tile=luna",
+                      wait_until="domcontentloaded")
+            grid.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=15000)
             grid.wait_for_function(
                 """() => /7 branches · 3 never reached main/.test(
                      (document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]') || {}).textContent || '')""",

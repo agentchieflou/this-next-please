@@ -38,8 +38,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -82,7 +82,7 @@ def _desk_of_five(tmp_path):
                                    ticket="RDSD-1")])
     C.save({"fleet": {"budget_per_agent": 10, "log_mb": 1, "log_keep": 3}})
     assert E.NORMALIZED in lifecycle.rotate_all("arl-usage", cfg=C.load())
-    S.arrange("column", order=["rdsd-pbi-reporting", "luna", "velocity", "backlog-health",
+    S.arrange(order=["rdsd-pbi-reporting", "luna", "velocity", "backlog-health",
                               "arl-usage"])
 
 
@@ -124,9 +124,15 @@ def test_the_ledger_and_the_cli_and_the_page_all_say_the_same_number(fleet_home,
 @pytest.mark.browser
 def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_path):
     """The demo. Amber at four fifths, red at the line, both with a sentence -- and the fleet's own
-    total beside the agent count, from the same ledgers."""
+    total beside the agent count, from the same ledgers.
+
+    The cell is drawn on a pane wide enough for its cells (#233: a rail and a compact pane skip
+    them), so the four being read are open side by side -- three pinned beside the open one -- and
+    the fifth is a rail, whose label carries the same number the band's chip did."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of_five(tmp_path)
+    S.arrange(pinned=["rdsd-pbi-reporting", "luna", "velocity"])
+    S.update_window("main", open="backlog-health")
     shots = os.environ.get("AGENTDATA_SHOTS") or str(tmp_path / "shots")
     os.makedirs(shots, exist_ok=True)
 
@@ -134,14 +140,14 @@ def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1600, "height": 1000})
+            page = browser.new_page(viewport={"width": 1800, "height": 1000})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
             page.wait_for_function(
-                "() => !!document.querySelector('.cell.spend')", timeout=15000)
+                "() => document.querySelectorAll('.tile[data-tier=\"full\"] .cell.spend').length"
+                " === 4", timeout=15000)
 
             out = page.evaluate("""() => {
               const cell = t => {
@@ -157,8 +163,8 @@ def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_
                 fine: cell('velocity'),
                 none: cell('backlog-health'),
                 footer: document.getElementById('counts').textContent,
-                bands: [...document.querySelectorAll('#bands .band:not([hidden]) .b-chip')]
-                  .map(b => b.textContent),
+                rails: [...document.querySelectorAll('#grid .tile[data-tier="rail"] .pane-rail')]
+                  .map(f => f.getAttribute('aria-label')),
               };
             }""")
             assert not errors, errors
@@ -179,7 +185,8 @@ def test_the_meter_is_on_every_tile_and_the_footer_sums_the_day(fleet_home, tmp_
             assert out["none"]["over"] is False and out["none"]["warn"] is False
 
             assert "premium today" in out["footer"] and "28.9 all time" in out["footer"]
-            assert any("8.4" in chip or "2" in chip for chip in out["bands"]), out["bands"]
+            # The rail says what the band's chip said: what this agent has cost.
+            assert len(out["rails"]) == 1 and "6 premium" in out["rails"][0], out["rails"]
 
             for skin in SKINS:
                 S.act("theme", {"skin": skin})

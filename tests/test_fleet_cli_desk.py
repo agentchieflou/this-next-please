@@ -437,9 +437,9 @@ def test_a_second_quickstart_is_a_refresh_with_the_same_counts(fleet_home, tree,
         assert after[field] == before[field], f"{field} moved on a refresh"
 
 
-def test_quickstart_serves_last_and_hands_over_the_url_with_the_layout(fleet_home, tree, capsys,
-                                                                       monkeypatch):
-    """The summary is printed *before* the server blocks, or the operator would never see it."""
+def test_quickstart_serves_last_and_hands_over_the_url(fleet_home, tree, capsys, monkeypatch):
+    """The summary is printed *before* the server blocks, or the operator would never see it. A
+    `--layout` from before #232 still runs, puts nothing on the URL and says it was ignored."""
     from agentdata.fleet import serve as S
 
     served = []
@@ -451,7 +451,8 @@ def test_quickstart_serves_last_and_hands_over_the_url_with_the_layout(fleet_hom
 
     code, out = run(["quickstart", str(tree), "--yes", "--port", "0", "--layout", "roles"], capsys)
     assert code == 0 and len(served) == 2, out
-    assert "layout=roles" in out
+    assert "layout=" not in out
+    assert cli_fleet.LAYOUT_IGNORED in out
     assert out.index("elapsed") < out.index("stop with Ctrl-C"), "the summary comes first"
 
 
@@ -460,12 +461,14 @@ def test_quickstart_refuses_a_folder_that_is_not_there(fleet_home, tmp_path, cap
     assert code == 2 and "no such folder" in out
 
 
-# ------------------------------------------------------------------ serve --layout (#122)
+# ------------------------------------------------------- serve --layout, accepted and ignored (#232)
 
 
-@pytest.mark.parametrize("layout", ["grid", "roles", "screens"])
-def test_the_layout_reaches_the_page_as_a_query_parameter(fleet_home, capsys, monkeypatch, layout):
-    """The flag is this file's, the rendering is the dashboard's; the parameter name is the seam."""
+@pytest.mark.parametrize("layout", ["grid", "column", "roles", "screens", "carousel"])
+def test_serve_still_takes_a_layout_and_says_it_is_ignored(fleet_home, capsys, monkeypatch, layout):
+    """There is one arrangement, so `--layout` means nothing -- but a launcher or a habit that passes
+    it must still get a desk, for one release, and be told why nothing changed. Any value, because
+    refusing a spelling that no longer means anything would be refusing the launcher."""
     from agentdata.fleet import serve as S
 
     closed = []
@@ -473,17 +476,30 @@ def test_the_layout_reaches_the_page_as_a_query_parameter(fleet_home, capsys, mo
     code, out = run(["serve", "--port", "0", "--layout", layout], capsys)
 
     assert code == 0 and closed
-    assert f"{cli_fleet.LAYOUT_PARAM}={layout}" in out
-    assert "127.0.0.1" in out
+    assert "layout=" not in out, "the URL still chooses an arrangement"
+    assert cli_fleet.LAYOUT_IGNORED in out
+    assert "127.0.0.1" in out and "?t=" in out
 
 
-def test_an_unknown_layout_is_refused_by_the_parser(fleet_home):
-    with pytest.raises(SystemExit):
-        cli_fleet.main(["serve", "--layout", "carousel"])
+def test_serve_without_a_layout_says_nothing_about_one(fleet_home, capsys, monkeypatch):
+    from agentdata.fleet import serve as S
+
+    monkeypatch.setattr(S, "run", lambda server: server.server_close())
+    code, out = run(["serve", "--port", "0"], capsys)
+    assert code == 0
+    assert "--layout" not in out and "stop with Ctrl-C" in out
 
 
-def test_the_layout_is_appended_after_the_token(fleet_home):
-    """`url_for` already carries `?t=…`, so the layout has to join with `&` or the token is lost."""
-    assert cli_fleet._layout_url("http://127.0.0.1:1/?t=abc", "roles") == \
-        "http://127.0.0.1:1/?t=abc&layout=roles"
-    assert cli_fleet._layout_url("http://127.0.0.1:1/", "grid") == "http://127.0.0.1:1/?layout=grid"
+def test_hide_still_takes_a_layout_and_writes_the_one_arrangement(fleet_home, tmp_path, capsys):
+    """`ad-fleet hide` wrote to `grid` whatever the page showed, which is why the migration reads
+    `grid` when there is no `column`. It writes the one arrangement now, whatever `--layout` says."""
+    from agentdata.fleet import serve as S
+
+    Registry().add(make_project(tmp_path / "luna"), name="luna")
+    code, out = run(["hide", "luna", "--layout", "roles"], capsys)
+    assert code == 0
+    assert cli_fleet.LAYOUT_IGNORED in out
+    assert S.desk_state()["arrangement"]["hidden"] == ["luna"]
+    code, out = run(["unhide", "luna"], capsys)
+    assert code == 0 and cli_fleet.LAYOUT_IGNORED not in out
+    assert S.desk_state()["arrangement"]["hidden"] == []

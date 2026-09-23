@@ -50,11 +50,6 @@ def _literal(value: str) -> dict[str, Any]:
     return {"expr": {"Literal": {"Value": value}}}
 
 
-def _quote(text: str) -> str:
-    """A PBIR string literal. Desktop doubles an embedded quote: it saves `'''Segoe UI'', arial'`."""
-    return "'" + text.replace("'", "''") + "'"
-
-
 def _formatting_value(prop_path: str, pdef: dict[str, Any], value: Any) -> tuple[Any, dict[str, Any]]:
     """Coerce `value` to the catalog type; return it with the property value exactly as Desktop saves it."""
     ptype = pdef.get("type", "string")
@@ -78,12 +73,12 @@ def _formatting_value(prop_path: str, pdef: dict[str, Any], value: Any) -> tuple
         match = next((c for c in choices if c.lower() == text.lower()), None)
         if match is None:
             raise ValueError(f"'{prop_path}' is one of {', '.join(choices)}; got '{value}'")
-        return match, _literal(_quote(match))
+        return match, {"expr": E.text_literal(match)}
     if ptype == "color":
         if not HEX_COLOR.match(text):
             raise ValueError(f"'{prop_path}' is a #RRGGBB color, got '{value}'")
-        return text, {"solid": {"color": _literal(_quote(text))}}
-    return str(value), _literal(_quote(str(value)))
+        return text, {"solid": {"color": {"expr": E.text_literal(text)}}}
+    return str(value), {"expr": E.text_literal(str(value))}
 
 
 def _did_you_mean(name: str, known: Any) -> str:
@@ -398,7 +393,9 @@ def visual_add(pbip_path: str, page_name_or_id: str, visual_type: str,
             "title": [
                 {
                     "properties": {
-                        "text": _literal(_quote(title))
+                        "text": {
+                            "expr": E.text_literal(title)
+                        }
                     }
                 }
             ]
@@ -552,7 +549,7 @@ def filter_set(pbip_path: str, scope: str, field_ref: str,
                     }
                 ],
                 "Values": [
-                    [{"Literal": {"Value": f"'{v}'" if not v.isdigit() else f"{v}L"}}] for v in values
+                    [E.text_literal(v) if not v.isdigit() else {"Literal": {"Value": f"{v}L"}}] for v in values
                 ]
             }
         }

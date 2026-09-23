@@ -243,3 +243,19 @@ def test_cli_bench_compare_and_run_compare(bench_repo, tmp_path, capsys):
 def test_cli_bench_compare_missing_file(bench_repo, capsys):
     assert run_cli(["bench", bench_repo, "--compare", _fx("before.tsv"), "nope.tsv"]) == 1
     assert "bench file not found" in capsys.readouterr().out
+
+
+def test_the_profile_runs_on_this_interpreter_not_whatever_python_path_finds(bench_repo, tmp_path, monkeypatch):
+    """The profile ran a bare `python`: whichever PATH found first. In a cloud container that is a
+    system Python without pytest, on Windows it can be the Store alias. The profile came back empty,
+    `node_cum_ms` read `n/a`, and every comparison fell back to suite wall time, where a real speedup
+    reads as `same`. A decoy that fails first on PATH is that machine, on any OS."""
+    decoy = tmp_path / "decoy-bin"
+    decoy.mkdir()
+    (decoy / "python").write_text("#!/bin/sh\nexit 3\n", encoding="utf-8")
+    (decoy / "python").chmod(0o755)
+    (decoy / "python.cmd").write_text("@exit /b 3\r\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", str(decoy) + os.pathsep + os.environ.get("PATH", ""))
+    res = bench_node(bench_repo, node="src/hot.py::slow_version", runs=1, warmup=0, label="before")
+    assert res["ok"] is True, res.get("error")
+    assert res["row"]["node_cum_ms"] != "n/a"

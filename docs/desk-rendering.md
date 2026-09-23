@@ -65,7 +65,8 @@ the payload problem this repository keeps having, one field further along. The b
 whole minutes back from now, so a bar does not change width as the second hand moves — only the
 whole row shifts when a minute turns over.
 
-Drawn on the tile's title bar and on every band. One bar a minute, its height the share of the
+Drawn on a full pane's title bar (#233: a compact pane and a rail skip it, and the rail's label says
+the state and its age in words). One bar a minute, its height the share of the
 busiest minute, and a minute that stopped for a person drawn full height in `--human` whatever its
 count — *"it asked me something"* is not a quantity. A minute with anything in it is never
 invisible: one pixel is "it was awake", which is the difference between a quiet hour and no hour
@@ -73,9 +74,10 @@ at all.
 
 **The head carries it only where there is room.** `flex-wrap` wraps before it shrinks, so the
 trace has to be gone by the width at which it *would* cause a wrap, not by the width at which it
-stops fitting — a container query takes it off a tile under 560 px. Below that the column's bands
-carry the same hour at full width, for every agent at once. A title bar that wrapped to two lines
-to fit a picture is a picture that cost more than it is worth, and a test says so.
+stops fitting — a container query takes it off a pane under 560 px. (The column's bands carried
+the same hour at full width for every agent at once; they went with #233, and a 48 px rail has no
+width to draw an hour in.) A title bar that wrapped to two lines to fit a picture is a picture that
+cost more than it is worth, and a test says so.
 
 ## The ground: drawn, so it can drift
 

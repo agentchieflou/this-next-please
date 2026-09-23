@@ -102,11 +102,37 @@ def cmd_get(args: argparse.Namespace) -> int:
         return 1
 
 
+def _custom_visual_refusal(report_dir: str) -> int | None:
+    """Refuse to publish a report that carries a visual its viewers may not see.
+
+    A blocked custom visual reached the service once, because nothing between the report and the
+    publish looked at where its visuals come from. There is deliberately no override flag: the way
+    through is a route the tenant renders, or the truth about the tenant recorded in AGENTS.md."""
+    from .pbip import check as CK
+    from .pbip import pbir as P
+    blocking = [f for f in CK.custom_visual_delivery(P.load_report(report_dir), C.project_facts())
+                if f.severity == "error"]
+    if not blocking:
+        return None
+    print(toon.encode({
+        "ok": False,
+        "code": "custom_visual_blocked",
+        "error": f"{len(blocking)} custom visual finding(s): viewers may get an error where a visual should be",
+        "hint": "fix each row (skill `pbi-custom-visual` finds a route the tenant renders), then publish again",
+    }), file=sys.stderr)
+    print(toon.table("custom_visuals", ["kind", "where", "object", "message"],
+                     [[f.kind, f.where, f.object, f.message] for f in blocking]), file=sys.stderr)
+    return 1
+
+
 def cmd_publish_report(args: argparse.Namespace) -> int:
+    report_dir, default_name = _locate_report_folder(args.pbip)
+    refused = _custom_visual_refusal(report_dir)
+    if refused is not None:
+        return refused
     client = FabricClient(tenant=args.tenant)
     try:
         ws_id, ws_name = client.resolve_workspace(args.workspace)
-        report_dir, default_name = _locate_report_folder(args.pbip)
         report_name = args.name or default_name
 
         # Resolve model

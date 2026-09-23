@@ -8,6 +8,7 @@ from agentdata.pbip import catalog as CAT
 from agentdata.pbip import expr as EX
 from agentdata.pbip import author as AU
 from agentdata.pbip import check as CK
+from agentdata.pbip import dax as D
 from agentdata.pbip import normalize as N
 from agentdata.pbip import pbir as P
 from agentdata.cli_pbip import main
@@ -77,6 +78,69 @@ def test_expr_encoding_and_decoding():
     assert "Aggregation" in e3
     assert e3["Aggregation"]["Function"] == 0
     assert EX.decode_expr(e3) == "Sum('Sales'[Amount])"
+
+
+def test_text_literal_doubles_each_apostrophe_as_desktop_does():
+    # A font family exactly as Desktop saves it (microsoft/BCApps, visualContainer 2.4.0): both apostrophes doubled.
+    font = "'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif"
+    saved = "'''Segoe UI'', wf_segoe-ui_normal, helvetica, arial, sans-serif'"
+    assert EX.text_literal(font) == {"Literal": {"Value": saved}}
+    assert P.literal_text(saved) == font
+    for text in ("Men's", "O'Brien's 'best'", "'", "''", "", "no quote"):
+        assert P.literal_text(EX.text_literal(text)["Literal"]["Value"]) == text
+    assert P.literal_text("2026L") is None and P.literal_text("datetime'2026-01-31T00:00:00'") is None
+
+
+def test_a_title_with_an_apostrophe_round_trips_through_the_loader(tmp_path):
+    target = tmp_path / "report"
+    shutil.copytree(FIX, target)
+    vid = AU.visual_add(str(target), "page1", "columnChart", title="Men's Sales",
+                        fields=["'Calendar'[Year]", "'Sales'[Margin]"])["visual_id"]
+    vj = target / "Sample.Report" / "definition" / "pages" / "page1" / "visuals" / vid / "visual.json"
+
+    def stored():
+        title = json.loads(vj.read_text("utf-8"))["visual"]["visualContainerObjects"]["title"][0]
+        return title["properties"]["text"]["expr"]["Literal"]["Value"]
+
+    def loaded():
+        return next(v.title for v in P.load_report(str(target)).all_visuals() if v.id == vid)
+
+    assert stored() == "'Men''s Sales'" and loaded() == "Men's Sales"
+    AU.visual_set(str(target), vid, "title.text", "O'Brien's 'view'")
+    assert stored() == "'O''Brien''s ''view'''" and loaded() == "O'Brien's 'view'"
+
+
+def test_visual_set_writes_text_enum_and_color_values_as_text_literals(tmp_path):
+    # Desktop's own form (microsoft/BCApps): alignment 'right', fontColor's solid.color '#505C6D'.
+    target = tmp_path / "report"
+    shutil.copytree(FIX, target)
+    vid = AU.visual_add(str(target), "page1", "columnChart", fields=["'Calendar'[Year]", "'Sales'[Margin]"])["visual_id"]
+    for prop_path, value in (("title.alignment", "right"), ("title.fontColor", "#505C6D"),
+                             ("categoryAxis.titleText", "Men's")):
+        AU.visual_set(str(target), vid, prop_path, value)
+    vis = json.loads((target / "Sample.Report" / "definition" / "pages" / "page1" / "visuals" / vid / "visual.json")
+                     .read_text("utf-8"))["visual"]
+
+    def prop(obj, name):  # an axis belongs in objects; wherever visual set puts it, the value is what counts
+        where = next(w for w in ("objects", "visualContainerObjects") if obj in (vis.get(w) or {}))
+        return vis[where][obj][0]["properties"][name]
+
+    assert prop("title", "alignment") == {"expr": {"Literal": {"Value": "'right'"}}}
+    assert prop("title", "fontColor") == {"solid": {"color": {"expr": {"Literal": {"Value": "'#505C6D'"}}}}}
+    assert prop("categoryAxis", "titleText") == {"expr": {"Literal": {"Value": "'Men''s'"}}}
+
+
+def test_a_filter_value_with_an_apostrophe_round_trips_through_the_loader(tmp_path):
+    target = tmp_path / "report"
+    shutil.copytree(FIX, target)
+    AU.filter_set(str(target), "page", "'Sales'[Status]", values=["Men's", "O'Brien"], page="page1")
+
+    flt = next(p for p in P.load_report(str(target)).pages if p.id == "page1").filters[-1]
+    rows = flt["raw"]["filter"]["Where"][0]["Condition"]["In"]["Values"]
+    assert [r[0]["Literal"]["Value"] for r in rows] == ["'Men''s'", "'O''Brien'"]
+    assert [P.literal_text(r[0]["Literal"]["Value"]) for r in rows] == ["Men's", "O'Brien"]
+    # and the query a visual runs under that filter asks for the same text
+    assert D.filter_expressions([flt]) == (["TREATAS({\"Men's\", \"O'Brien\"}, 'Sales'[Status])"], [])
 
 
 def test_theme_shading():

@@ -4,7 +4,7 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
-## 0.14.3
+## 0.15.3
 
 **`ad-pbip visual set` writes formatting where, and as, Power BI Desktop saves it.** It wrote every property into
 `visual.visualContainerObjects`, under the catalog's own names. Desktop keeps chart formatting in `visual.objects`,
@@ -40,6 +40,106 @@ place and value:
 **After updating:** if the old `visual set` wrote chart formatting into a report, some `visual.json` has `dataLabels`,
 `legend`, `categoryAxis` or `valueAxis` under `visualContainerObjects`. Desktop treats a schema error as blocking and
 names the file. Delete those keys, then set the properties again with `visual set`.
+
+## 0.15.2
+
+**A visual `ad-pbiviz import` adds opens in Desktop.** Desktop refuses a report whose `report.json` breaks its
+schema, and import broke it. Its `resourcePackages` entry carried a `path`, which the report schema does not allow,
+and no `items`, which it requires. It also listed the visual in `publicCustomVisuals`, the schema's list of AppSource
+visuals, and copied the `.pbiviz` under `StaticResources/RegisteredResources/`. Fifteen Desktop-saved PBIP reports
+(report schemas 1.1.0 to 3.3.0) agree on what Desktop writes instead, and import now writes the same:
+- the package's own files under `CustomVisuals/<guid>/`: `package.json` and `resources/<guid>.pbiviz.json`;
+- one entry, `{"name": "<guid>", "type": "CustomVisual", "items": [{"name": "<guid>.pbiviz.json", "path":
+  "<guid>.pbiviz.json", "type": "CustomVisualMetadata"}]}`, in place of an earlier import's;
+- nothing in `publicCustomVisuals`.
+
+Around it:
+- **`ad-pbiviz package` builds the layout `pbiviz package` builds**, because import installs a package's files as
+  they are. It still compiles nothing, so the package's code is empty. Import refuses a package without that
+  layout, such as one an earlier `ad-pbiviz package` wrote, before it writes anything.
+- **A test validates what import writes against Microsoft's report schema 3.1.0.** The schema is vendored under
+  `agentdata/pbip/schema/fabric/`, together with the three schemas its `$ref`s reach, so the test needs no network.
+  `jsonschema` joins the `dev` extra.
+- **`ad-pbip check` and `ad-pbip catalog describe`** read the visual's roles from `CustomVisuals/<guid>/`, and still
+  from where the old import put the package.
+- `docs/windows-verification.md` §17 is the laptop run: import, open in Desktop, save, and diff.
+
+**On update:** the two standard commands; developing this repo, `pip install -e ".[dev]"` again for `jsonschema`.
+Run `ad-pbiviz package` again for a visual packaged before this version, then `ad-pbiviz import`. In a report the
+old import wrote, importing again replaces its entry; delete the GUID it added to `publicCustomVisuals` yourself,
+since import never edits that list.
+
+## 0.15.1
+
+**A custom visual that viewers cannot see never ships again.** One did: a visual of our own worked in Desktop,
+which follows Group Policy, and failed for every viewer in the service, where the tenant renders certified visuals
+only. The same week, an assistant concluded that without it the chart's bar-end variance label could not be done.
+A native data label does it, and so does Deneb, a Microsoft-certified visual. The research behind both had never
+been written into the routing. Now:
+- **Native first, then certified, never ours.** `pbi-custom-visual` takes the native routes in order: data-label
+  fields, format strings, SVG measures, analytics, composition, the paginated report visual, script visuals. Then
+  come Microsoft-certified visuals, customized to the limit. It never builds a non-certified visual to deliver a
+  report. The development loop runs only for a candidate the operator chose to build for AppSource.
+- **"Can't" costs proof.** `ad-pbiviz candidate "<requirement>" --tried N1="..."` logs a need that survives every
+  route, as a proposal to publish to AppSource for certification. It refuses without a real reason for each of the
+  nine routes. `ad-pbiviz candidates` lists them. The skill may not say "can't" without that file.
+- **Certified visuals, customized mechanically.** `ad-pbip visual deneb` adds a Deneb visual, or replaces one's
+  specification, exactly as Deneb's PBIR guide describes: the certified AppSource GUID, the `dataset` role, and the
+  spec in `objects.vega`. It refuses the uncertified Standalone edition and a spec that never names `dataset`. An
+  apostrophe in the spec is doubled, which is how Power BI escapes one. A worked spec for the Average/Recent chart
+  ships in the skill's references, rendered with the Vega and Vega-Lite versions Deneb bundles.
+- **The gate fails closed, and publish runs it.** `ad-pbi publish report` refuses (`custom_visual_blocked`) before
+  it calls the service, with no flag to force it. It refuses when the tenant blocks a visual, or when nobody
+  recorded what the tenant renders. `ad-pbip check` runs the same rules:
+  - `custom-visual-tenant-unknown` (error): the tenant is not recorded.
+  - `custom-visual-tenant-blocked` (error): the tenant will not render the visual.
+  - `custom-visual-certification-unconfirmed` (error): an AppSource visual on a certified-only tenant whose badge
+    nobody checked.
+  - `custom-visual-store-disabled` (error): a store visual the admin switched off.
+  - `custom-visual-uncertified` (warning): a file visual on a tenant that allows files, for now.
+- **`ad-pbip check` reads `report.json` again.** It never had: `json` was not imported in the checker, the error
+  was swallowed, and every custom visual in every report came back `custom-visual-guid-unregistered`. It now reads
+  all three registries in the report schema: AppSource, the organizational store, and private packages.
+  `custom-visual-package-missing` fires only for a private visual the report ships, including one that was never
+  committed.
+- **`pbi-router`** sends "custom visual", "the tenant blocks it" and "native can't do" to the skill. The row now
+  sits above the generic *visual* rows it used to lose to.
+- **Text with an apostrophe is written the way Power BI reads it.** `ad-pbip visual add --title`, `visual set
+  title.text` and `filter set --values` wrote `'Men's'`, a literal Power BI cannot parse. Every text literal is now
+  `'Men''s'`, as Desktop saves one. `visual set` had also left an axis title, an enum such as `title.alignment`, and
+  a color unquoted; they are text literals now too. The loader, `ad-pbip trace report`, `screenshot` and the DAX
+  built for a visual read them back as `Men's`. A value written before this still holds the broken literal.
+
+**On update:** the two standard commands, and start a new Copilot chat so the changed skills are read. Then add
+three facts to each project's AGENTS.md by hand (an existing AGENTS.md is never overwritten), or let the skill ask:
+- `pbi_custom_visuals`: `allowed`, `certified-only` or `org-only`, for the report's viewers. **Until it is
+  recorded, `ad-pbip check` and `ad-pbi publish report` refuse any report with a visual from a file or AppSource.**
+- `pbi_certified_visuals`: GUIDs of the AppSource visuals whose certified badge was checked. The new-project stub
+  presets Deneb's.
+- `pbi_org_visuals`: the organizational-store visuals viewers can use.
+
+## 0.15.0
+
+**One arrangement (#232).** `grid`, `roles` and `screens` are retired, as `docs/plan-panes.md` planned from the
+operator's request of 22 September 2026: one arrangement, hardened, where every agent is its own column. The
+column is now the only way the desk is drawn, and the later panes slices make every agent a full-height,
+resizable column (#233-#236).
+- The layout picker, the view segments, the swap, the zoom, the dock and the grid's edge resize are gone.
+- `?layout=`, `&view=` and `&screen=` in an old bookmark are ignored. The footer says so once, and the
+  address drops them.
+- `--layout` on `ad-fleet serve`, `quickstart`, `hide` and `unhide` is accepted, ignored and hidden from help,
+  so a script that passes it keeps working. The command's `note` says it was ignored.
+- `ad-fleet open --in edge` uses its own window (`w=edge`) unless `--window` names one.
+
+**`desk.json` schema 2.** The first load of an older `desk.json` migrates it once:
+- The old file is copied to `desk.v1.json` beside it first.
+- The arrangement comes from the column's, or from the grid's if the column never had one (`ad-fleet hide`
+  wrote there), keeping order, pins and hidden agents.
+- Each window keeps what it had open and its reading state. The grid's leftover `zoomed`, the one that
+  snapped a click back (#230), is dropped.
+
+Nothing to run. An older build reading a schema-2 `desk.json` finds no per-layout arrangement and starts
+from registry order; `desk.v1.json` is the file to put back if you downgrade.
 
 ## 0.14.1
 

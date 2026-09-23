@@ -65,9 +65,10 @@ test can check that every panel the inventory lists carries it.
 
 ## One door for anything that moves things
 
-`transitionLayout(fn)` in `app.js`. Opening a band, going back, hiding or showing a tile, and the
-grid's zoom in and out all go through it — five gestures, one place that decides how a layout
-change looks.
+`transitionLayout(fn)` in `app.js`. Opening a pane (the swap with a rail, #233) and going back go
+through it — one place that decides how a layout change looks. (The grid's zoom in and out were two
+more, and went with the grid in #232; hiding, showing and reordering are rearrangements, which are
+FLIP through `transitionMove`, #219.)
 
 1. **Reduced motion** takes neither path. The change is applied and that is the end of it.
 2. **`document.startViewTransition(fn)`** where the engine has it. The browser holds the last frame,
@@ -89,10 +90,14 @@ caught, because an unhandled rejection reaches the console as *"Transition was s
 ViewTransition started"* — which is how this was found, as a page error on the slower of the two
 CI runners.
 
-Two edges are handled rather than assumed:
+Three edges are handled rather than assumed:
 
 * `reorderDomTiles` does not play FLIP while a view transition is running (`inViewTransition`), or
   the same move is animated twice and the tile arrives, leaves and arrives again.
+* `reorderDomTiles` does not play FLIP for a pane that has just been made (`arrivedSinceLastPlace`,
+  #233). Panes are made in the order `/api/fleet` lists them and then put in the arrangement's, and
+  where a pane first appears is not a move the operator made. Played, it was a desk whose panes all
+  glided sideways on the first frame — under a hand that had already reached for one.
 * Two repositories whose names sanitise to one CSS identifier make the browser skip the transition
   and apply the change with no animation. That is a degradation, not a break.
 
@@ -133,7 +138,7 @@ stylesheet says the same thing for a transition begun from anywhere else.
   nothing at all under `prefers-reduced-motion: reduce`; hiding it leaves the panel painted on the
   next frame rather than gone before it could be seen going;
 * with `startViewTransition` deleted, the same gesture runs FLIP and the page lands identically —
-  same open tile, same bands, and every `view-transition-name` cleared;
+  same open pane, same rails, and every `view-transition-name` cleared;
 * a swap of five tiles at 1080p records **no `longtask`** and hands the main thread back inside
   50 ms.
 

@@ -44,9 +44,8 @@ def _own_desk_globals(monkeypatch):
     """
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"grid": {"order": [], "size": {}, "pinned": []},
-                        "roles": {"order": []}, "screens": {"order": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -65,8 +64,8 @@ def test_serve_run_finally_preserves_desk_json(fleet_home, tmp_path):  # noqa: F
 
     # Set up desk state
     S.select(selected="alpha")
-    S.arrange("grid", order=["alpha"], pinned=["alpha"])
-    S.update_window("main", focus=True, zoomed="alpha", section="board")
+    S.arrange(order=["alpha"], pinned=["alpha"])
+    S.update_window("main", focus=True, open="alpha", section="board")
 
     desk_file = os.path.join(fleet_dir(), S.DESK_FILE)
     assert os.path.isfile(desk_file)
@@ -97,8 +96,8 @@ def test_serve_run_finally_preserves_desk_json(fleet_home, tmp_path):  # noqa: F
     assert os.path.isfile(desk_file), "desk.json was deleted or not preserved on shutdown"
     after = json.loads(open(desk_file, encoding="utf-8").read())
     assert after["selected"] == "alpha"
-    assert after["arrangement"]["grid"]["order"] == ["alpha"]
-    assert after["windows"]["main"]["zoomed"] == "alpha"
+    assert after["arrangement"]["order"] == ["alpha"]
+    assert after["windows"]["main"]["open"] == "alpha"
     assert after["windows"]["main"]["focus"] is True
 
 
@@ -158,11 +157,82 @@ def test_open_preserves_query_parameters_and_attaches_token(fleet_home):  # noqa
         server.server_close()
 
 
+URL = "http://127.0.0.1:8765/?t=tok"
+
+
+def _write_desk(text: str) -> None:
+    """`desk.json` as the server left it, in the isolated fleet directory."""
+    os.makedirs(fleet_dir(), exist_ok=True)
+    with open(os.path.join(fleet_dir(), S.DESK_FILE), "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _open_all(monkeypatch, capsys) -> tuple[str, list[str]]:
+    """`ad-fleet open --all --in browser` on a desk that is already up: what it printed, and every
+    URL it handed the browser."""
+    from agentdata import cli_fleet
+
+    urls = []
+    monkeypatch.setattr(O, "current_desk", lambda port=8765: ({"port": 8765, "url": URL}, "already up"))
+    monkeypatch.setattr("webbrowser.open", lambda url, *a, **k: urls.append(url) or True)
+    assert cli_fleet.main(["open", "--all", "--in", "browser"]) == 0
+    return capsys.readouterr().out, urls
+
+
+def test_cli_open_all_opens_every_window_desk_json_remembers(fleet_home, monkeypatch, capsys):  # noqa: F811
+    """#172 read `desk.json` through `.registry` and `.serve`, which do not exist beside
+    `cli_fleet`, and `except Exception` took the ImportError for an empty desk: `--all` opened `main`
+    alone whatever the desk remembered. Written by hand rather than through `S.update_window`:
+    `ad-fleet open` runs in a process of its own, and has only the file."""
+    _write_desk(json.dumps({"windows": {"main": {"open": "alpha"}, "left": {"open": "beta"}}}))
+
+    out, urls = _open_all(monkeypatch, capsys)
+
+    assert "windows[2]: main,left" in out, out
+    assert "opened[2]: default browser,default browser" in out, out
+    assert urls == [f"{URL}&w=main", f"{URL}&w=left"]
+
+
+def test_cli_open_all_leaves_the_ide_views_to_their_ide(fleet_home, monkeypatch, capsys):  # noqa: F811
+    """`pycharm` and `vscode` are the IDE views' own records (#230), and nothing outside an IDE can
+    point its view at a URL. A browser tab under either name would share the view's record -- and,
+    once `ad-fleet probe --open pycharm` marks it (#247), go to the probe in the tool window's place
+    and record the browser's WebGL as PyCharm's. `--all` says what it left instead."""
+    _write_desk(json.dumps({"windows": {"main": {}, "pycharm": {"probe": int(time.time())},
+                                        "left": {}, "vscode": {}}}))
+
+    out, urls = _open_all(monkeypatch, capsys)
+
+    assert "windows[2]: main,left" in out, out
+    assert "skipped[2]: pycharm,vscode" in out, out
+    assert urls == [f"{URL}&w=main", f"{URL}&w=left"]
+
+
+@pytest.mark.parametrize("text,skipped", [
+    ("{not json", "skipped[0]:"),
+    (json.dumps({"windows": {"pycharm": {}}}), "skipped[1]: pycharm"),
+], ids=["unreadable", "only-an-ide-view"])
+def test_cli_open_all_opens_main_when_there_is_nothing_else_to_open(  # noqa: F811
+        fleet_home, monkeypatch, capsys, text, skipped):
+    """`--all` always puts the dashboard in front of the operator. The `except` is narrowed to what
+    reading a file raises, not removed: a `desk.json` that is not JSON is still `main`, not a
+    traceback."""
+    _write_desk(text)
+
+    out, urls = _open_all(monkeypatch, capsys)
+
+    assert "windows[1]: main" in out, out
+    assert skipped in out, out
+    assert urls == [f"{URL}&w=main"]
+
+
 def test_cli_open_window_and_all(fleet_home, monkeypatch):  # noqa: F811
     from agentdata import cli_fleet
 
     S.update_window("main", focus=True)
-    S.update_window("left", focus=False)
+    # `seen` is what a page writes first. `focus=False` alone is the default, which is never written,
+    # so `left` would be a window the server knows and `desk.json` does not.
+    S.update_window("left", focus=False, seen="2026-09-11T12:00:00")
 
     opened = []
     monkeypatch.setattr(O, "running", lambda: {"port": 8765, "url": "http://127.0.0.1:8765/?t=tok"})
@@ -180,18 +250,45 @@ def test_cli_open_window_and_all(fleet_home, monkeypatch):  # noqa: F811
     args_all = parser.parse_args(["open", "--all"])
     res_all = cli_fleet.cmd_open(args_all)
     assert res_all == 0
-    all_wins = [w for _, w in opened[-2:]]
+    # What `--all` opened, and only that: `opened[-2:]` also took in the `--window left` above, which
+    # is how `--all` opening `main` alone passed here from #172 on.
+    all_wins = [w for _, w in opened[1:]]
     assert "main" in all_wins and "left" in all_wins
+
+
+def test_cli_open_in_edge_is_a_window_of_its_own(fleet_home, monkeypatch):  # noqa: F811
+    """#230, #232: every window without `?w=` shared `main`, so an Edge window on a fourth monitor
+    followed every click made in the browser tab. `--in edge` names its own record unless
+    `--window` names another; a plain browser tab is still `main`."""
+    from agentdata import cli_fleet
+
+    opened = []
+    monkeypatch.setattr(O, "running", lambda: {"port": 8765, "url": "http://127.0.0.1:8765/?t=tok"})
+    monkeypatch.setattr(O, "open_in", lambda where, record, launcher_dir="", window="":
+                        opened.append((where, window)) or {"opened": f"window {window}"})
+    parser = cli_fleet.build_parser()
+    for argv, want in ((["open", "--in", "edge"], ("edge", "edge")),
+                       (["open", "--in", "edge", "--window", "left"], ("edge", "left")),
+                       (["open"], ("browser", ""))):
+        assert cli_fleet.cmd_open(parser.parse_args(argv)) == 0
+        assert opened[-1] == want, argv
 
 
 # ------------------------------------------------------------- window record & POST /api/window
 
 
 def test_update_window_api_and_desk_state(fleet_home):  # noqa: F811
+    """The one write a window makes. `zoomed`, `layout`, `view` and `screen` still arrive from a page
+    older than #232 and are not kept: a field one window writes and nothing reads is the snap-back
+    waiting for a reader (#230)."""
     res = S.act("window", {
         "w": "right",
         "focus": True,
+        "open": "omega",
         "zoomed": "omega",
+        "layout": "grid",
+        "view": "agents",
+        "screen": 2,
         "section": "drawer",
         "held": ["repo-a", "repo-b"],
         "read": {"repo-a": 15},
@@ -199,7 +296,9 @@ def test_update_window_api_and_desk_state(fleet_home):  # noqa: F811
     })
     win = res["windows"]["right"]
     assert win["focus"] is True
-    assert win["zoomed"] == "omega"
+    assert win["open"] == "omega"
+    for gone in ("zoomed", "layout", "view", "screen"):
+        assert gone not in win, gone
     assert win["section"] == "drawer"
     assert win["held"] == ["repo-a", "repo-b"]
     assert win["read"] == {"repo-a": 15}
@@ -207,7 +306,8 @@ def test_update_window_api_and_desk_state(fleet_home):  # noqa: F811
 
     # Must be written to desk.json
     disk = json.loads(open(os.path.join(fleet_dir(), S.DESK_FILE), encoding="utf-8").read())
-    assert disk["windows"]["right"]["zoomed"] == "omega"
+    assert disk["windows"]["right"]["open"] == "omega"
+    assert set(disk["windows"]["right"]) <= set(S.WINDOW_FIELDS)
 
 
 def test_sessions_b_offline_contract():
@@ -252,10 +352,10 @@ def _page(p, url):
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(url, wait_until="domcontentloaded")
-    # A *painted* tile, not the first one in the DOM. A window that restores a zoom hides every
-    # other tile (`app.css` `body.focused .tile:not(.is-focused)`), and a bare `.tile` wait resolves
-    # to the first match and then waits for that one to be visible -- which, in exactly the state
-    # this file exists to test, it never will be.
+    # A *painted* tile, not the first one in the DOM. A bare `.tile` wait resolves to the first match
+    # and then waits for that one to be visible -- which, when it is hidden, it never will be. (In
+    # the column only the open agent was on the glass; every agent is a pane since #233, but a
+    # hidden one still is not.)
     page.wait_for_selector(".tile:visible", timeout=15000)
     page.wait_for_timeout(500)
     return browser, page, errors
@@ -331,9 +431,10 @@ def test_two_named_windows_keep_different_focus_states_across_restart(fleet_home
 
 
 @pytest.mark.browser
-def test_window_reopens_with_same_zoomed_tile_after_restart(fleet_home, tmp_path):  # noqa: F811
+def test_window_reopens_with_same_open_agent_after_restart(fleet_home, tmp_path):  # noqa: F811
     """Acceptance criterion: a rendered-page test reads the same arrangement and selection,
-    and the same zoomed tile in the same named window across server restart."""
+    and the same open agent in the same named window across server restart. It was the grid's
+    zoomed tile; the zoom went with the grid (#232), and `open` is what a window keeps."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     alpha = make_project(tmp_path / "alpha", phase="done")
@@ -349,21 +450,14 @@ def test_window_reopens_with_same_zoomed_tile_after_restart(fleet_home, tmp_path
     p1 = s1.server_address[1]
 
     with sync_playwright() as p:
-        b, page, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=main")
+        b, page, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&w=main")
         assert not errs, errs
-        # Zoom tile beta. Waited for rather than slept through: 300ms is the page's budget on an
-        # idle machine, and under `-n auto` on a Windows runner four browsers share the cores --
-        # which is the load talking, not the page. The selectors are the assertions.
-        page.locator('.tile[data-repo="beta"] .repo').click()
-        page.wait_for_selector("body.focused", timeout=15000)
-        page.wait_for_selector('.tile[data-repo="beta"].is-focused', timeout=15000)
-        # The page zooms before the server hears of it, and the zoom's write queues behind the
-        # window's `seen` (#230). What survives a restart is what the server holds, so that is
-        # what is waited for -- on a slow disk it is not the same moment as the pixels (#245).
-        deadline = time.monotonic() + 15
-        while S.desk_state()["windows"].get("main", {}).get("zoomed") != "beta":
-            assert time.monotonic() < deadline, "the zoom never reached the server"
-            time.sleep(0.05)
+        # Open beta from its rail. Waited for rather than slept through: 300ms is the page's budget
+        # on an idle machine, and under `-n auto` on a Windows runner four browsers share the cores
+        # -- which is the load talking, not the page. The selectors are the assertions.
+        page.locator('.tile[data-repo="beta"] .pane-rail').click()
+        page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
+        page.wait_for_function("() => windowWrites === 0", timeout=15000)
         b.close()
 
     s1.stopping.set()
@@ -380,11 +474,11 @@ def test_window_reopens_with_same_zoomed_tile_after_restart(fleet_home, tmp_path
 
     try:
         with sync_playwright() as p:
-            b, page, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&layout=grid&w=main")
+            b, page, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&w=main")
             assert not errs, errs
-            # Tile beta is zoomed
-            assert "focused" in page.locator("body").get_attribute("class")
-            assert "is-focused" in page.locator('.tile[data-repo="beta"]').get_attribute("class")
+            # Beta is the one open, from the window's own record and not the address.
+            page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
+            assert "is-solo" not in page.locator('.tile[data-repo="alpha"]').get_attribute("class")
             b.close()
     finally:
         s2.stopping.set()
