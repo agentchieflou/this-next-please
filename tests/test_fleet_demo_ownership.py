@@ -25,6 +25,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
+from test_fleet_column import _until
 from test_fleet_desk_browser import launch_chromium
 
 SKINS = ["none", "glass:smoke"]
@@ -112,10 +113,10 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             page.wait_for_timeout(400)
             page.screenshot(path=os.path.join(shots, "ownership-desk.png"))
 
-            # 1. The swap. One agent opened from its band and then the one before it again, each
+            # 1. The swap. One agent opened from its rail and then the one before it again, each
             #    through the one door a layout change has, so the transition is the same one every
             #    gesture uses.
-            page.locator('#bands .band[data-repo="luna"] .band-open').click()
+            page.locator('.tile[data-repo="luna"] .pane-rail').click()
             page.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=8000)
             page.wait_for_timeout(450)
             page.screenshot(path=os.path.join(shots, "ownership-open.png"))
@@ -135,21 +136,24 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             page.wait_for_timeout(450)
             page.screenshot(path=os.path.join(shots, "ownership-resized.png"))
 
-            # 3. The hide, and back. Painted before the server answers, and the foot of the
-            #    column says where it went.
-            page.locator('#bands .band[data-repo="backlog-health"] [data-tool="hide"]').click()
+            # 3. The hide, and back. Painted before the server answers, and the footer says where
+            #    it went. `h` on the rail, which is where the band's hide button went (#233).
+            page.focus('.tile[data-repo="backlog-health"] .pane-rail')
+            page.keyboard.press("h")
             page.wait_for_function(
                 """() => document.querySelector('.tile[data-repo="backlog-health"]')
                            .classList.contains('is-hidden')""", timeout=8000)
             page.wait_for_function(
-                "() => document.getElementById('column-hidden').textContent === '1 hidden'",
+                "() => document.getElementById('hiddencount').textContent === '1 hidden'",
                 timeout=8000)
             page.wait_for_timeout(350)
             page.screenshot(path=os.path.join(shots, "ownership-hidden.png"))
-            page.locator("#column-showall").click()
+            page.locator("#hiddencount").click()
             page.wait_for_function(
                 """() => !document.querySelector('.tile[data-repo="backlog-health"]')
                             .classList.contains('is-hidden')""", timeout=8000)
+            # The page below is a reload; it reads the server's arrangement, not these pixels.
+            _until(lambda: S.desk_state()["arrangement"]["hidden"] == [])
 
             # 4. The reconnect. The stream is dropped and the desk keeps what it had -- and the
             #    window that comes back shows it before the fleet answers.
@@ -169,8 +173,9 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             """)
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            # The open tile, not the first one: the column shows only the open agent, and a wait
-            # on the first tile outlasts the stale desk whenever another agent is open (#259).
+            # The open pane, not the first tile: Playwright waits on the first match, and the first
+            # tile can be one that is not on the glass -- the column's hidden tile (#259), or a
+            # hidden or grouped rail in the row (#233).
             page.wait_for_selector(".tile.is-solo", timeout=6000)
             early = page.evaluate("""() => ({
               tiles: document.querySelectorAll('#grid .tile').length,

@@ -23,7 +23,8 @@ import pytest
 
 from agentdata.fleet import serve as S
 
-from test_fleet_column import _open, _own_desk_globals, _repos, _serve, fleet_home  # noqa: F401 - fixtures
+from test_fleet_column import (_open, _own_desk_globals, _rail, _repos, _serve, _until,  # noqa: F401
+                               fleet_home)
 from test_fleet_desk_browser import launch_chromium
 
 SOLO = "document.querySelector('.tile.is-solo').dataset.repo"
@@ -52,11 +53,11 @@ def test_a_click_on_another_agent_stays_where_it_was_put(fleet_home, tmp_path):
             _open(page, port, token)
             assert page.evaluate(SOLO) == "alpha"
 
-            page.click('#bands .band[data-repo="beta"] .band-open')
+            page.click(_rail("beta"))                # the band this was, the rail it is (#233)
             page.wait_for_function(f"() => {SOLO} === 'beta'", timeout=5000)
             page.wait_for_timeout(1500)               # three ticks and more: the frames that snapped it back
             assert page.evaluate(SOLO) == "beta", "the click was undone by the next desk frame"
-            assert S.desk_state()["windows"]["main"]["open"] == "beta"
+            _until(lambda: S.desk_state()["windows"]["main"]["open"] == "beta")
             assert not errors, errors
             browser.close()
     finally:

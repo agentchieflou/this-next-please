@@ -121,7 +121,7 @@ holds both.
 | `pointer capture` | `setPointerCapture` throws and is caught; the move and up listeners are on the document rather than the handle, so the drag still tracks. Touch and pen lose the guarantee that events keep arriving after the pointer leaves the element. | `test_fleet_window.py` |
 | `container queries` | The head keeps the model's word, the ticket and the chip's age on a narrow tile, and wraps to a second line rather than dropping them. `flex-wrap` is the fallback, and it is why the head has it. | `test_fleet_window.py` |
 | `OffscreenCanvas` | Not used. The trace and the ground are small enough to draw on the main thread — 0.10 ms a repaint for the ground — and a worker would be a second place that has to know the palette. | — |
-| `WebGL` | Not used by the desk yet: three.js loads only on `/probe` (#247) until the ink layer (#248). When it is used, a shell whose probe says software, no WebGL or an unnamed renderer gets the plain fallback — the same page with plain borders and highlights and no animation — because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py` |
+| `WebGL` | Not used by the desk yet: three.js loads only on `/probe` (#247) until the ink layer (#248), as [plan-ink.md](plan-ink.md) lays out. When it is used, a shell whose probe says software, no WebGL or an unnamed renderer gets the plain fallback — the same page with plain borders and highlights and no animation — because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py` |
 
 `test_the_desk_arrives_at_the_same_place_with_every_fallback_taken` takes **all** of the fallbacks
 at once — no view transitions, no pointer capture, no `linear()`, no container queries — which is

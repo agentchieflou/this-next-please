@@ -10,8 +10,9 @@ A real `copilot` process (the fake from `tests/fakes/`, launched by the real sup
 real allow-list), a real repository built with real git, and a real browser on the real page.
 
 It was the roles layout's board window until #232 retired it. The same situation now is the board
-open beside the agent the operator is reading (`sol`), with the checkout the ticket goes to off
-the glass as a band -- which is what sends the card under the rail.
+open beside the agent the operator is reading (`sol`), with the checkout the ticket goes to a
+48px rail in the row (a band off the glass until #233) -- which is what sends the card under the
+agent rail.
 """
 from __future__ import annotations
 import threading

@@ -3,9 +3,10 @@
 Five `display:none` rules and one `.remove()` used to take tiles away as side effects of modes --
 zoom, focus mode, a solo window, the laptop view, and a repository leaving the registry -- and
 nothing said where they went. #173 gave each one a chip in a dock under the grid. The grid and its
-dock went in #232, and the column answers the same question: a hidden agent is counted at its foot
-with *show all* beside the count, a departed one is a band naming what restores it, and an agent
-that needs a person is a red band whatever the arrangement says.
+dock went in #232, the column that answered the same question went in #233, and the row answers it
+now: a hidden agent leaves the row and the footer counts it (one press brings it back), a departed
+one is a rail naming what restores it, and an agent that needs a person is a red rail whatever the
+arrangement says.
 """
 from __future__ import annotations
 import os
@@ -17,6 +18,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
+from test_fleet_column import _until
 from test_fleet_desk_browser import launch_chromium
 
 
@@ -92,12 +94,15 @@ def test_a_desk_written_before_this_slice_loads_without_a_hidden_key(fleet_home,
 def test_a_hidden_agent_is_off_the_glass_and_show_all_brings_it_back_to_its_slot(fleet_home,
                                                                                  tmp_path):
     """Acceptance criterion: hide an agent, reload, read that it is put away, bring it back, and
-    read it back in its old slot. It was the dock's chip; it is the column's foot now (#232)."""
+    read it back in its old slot. It was the dock's chip, then the column's foot (#232); it is the
+    footer now (#233), and the hide is `h` on the rail the keyboard is on -- a rail has no head to
+    carry the button."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
-    bands = """() => [...document.querySelectorAll('#bands .band:not([hidden])')]
-                      .map(b => b.dataset.repo).join(',')"""
+    rails = """() => [...document.querySelectorAll(
+                         '#grid .tile[data-tier="rail"]:not(.is-hidden)')]
+                      .map(t => t.dataset.repo).join(',')"""
 
     server, token, port = _serve()
     try:
@@ -106,28 +111,32 @@ def test_a_hidden_agent_is_off_the_glass_and_show_all_brings_it_back_to_its_slot
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile:visible", timeout=15000)
-            page.wait_for_function(f"() => ({bands})() === 'beta,gamma'", timeout=5000)
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector('.tile[data-tier="full"]', timeout=15000)
+            page.wait_for_function(f"() => ({rails})() === 'beta,gamma'", timeout=5000)
 
-            page.locator('#bands .band[data-repo="beta"] [data-tool="hide"]').click()
-            page.wait_for_function(f"() => ({bands})() === 'gamma'", timeout=5000)
+            page.focus('.tile[data-repo="beta"] .pane-rail')
+            page.keyboard.press("h")
+            page.wait_for_function(f"() => ({rails})() === 'gamma'", timeout=5000)
             assert page.locator('.tile[data-repo="beta"]').evaluate(
                 "t => t.classList.contains('is-hidden')")
-            # The foot says how many are put away, and offers them back.
-            assert page.inner_text("#column-hidden") == "1 hidden"
-            assert page.locator("#column-showall").is_visible()
+            assert not page.locator('.tile[data-repo="beta"]').is_visible(), "it left the row"
+            # The footer says how many are put away, and is the press that brings them back.
+            assert page.inner_text("#hiddencount") == "1 hidden"
+            assert page.locator("#hiddencount").is_visible()
 
-            # ...and still there after a reload, because the arrangement is the server's.
+            # ...and still there after a reload, because the arrangement is the server's. The hide
+            # paints before it is written (#219), so the reload waits for the record, not the pixels.
+            _until(lambda: S.desk_state()["arrangement"]["hidden"] == ["beta"])
             page.reload(wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
             page.wait_for_function(
-                "() => document.getElementById('column-hidden').textContent === '1 hidden'",
+                "() => document.getElementById('hiddencount').textContent === '1 hidden'",
                 timeout=5000)
 
             # One click puts it back where it was -- between alpha and gamma, not at the end.
-            page.click("#column-showall")
-            page.wait_for_function(f"() => ({bands})() === 'beta,gamma'", timeout=5000)
+            page.click("#hiddencount")
+            page.wait_for_function(f"() => ({rails})() === 'beta,gamma'", timeout=5000)
             order = page.eval_on_selector_all(
                 "#grid .tile:not(.is-hidden)", "els => els.map(e => e.dataset.repo)")
             assert order == ["alpha", "beta", "gamma"], "it kept its slot, it did not go to the end"
@@ -142,7 +151,7 @@ def test_a_hidden_agent_is_off_the_glass_and_show_all_brings_it_back_to_its_slot
 @pytest.mark.browser
 def test_a_hidden_agent_that_needs_a_person_is_on_the_glass_anyway(fleet_home, tmp_path):
     """The one rule the operator's own choice cannot override: hiding a demand is how a demand
-    gets missed. On the glass means its band is drawn, red, while another agent is open."""
+    gets missed. On the glass means its rail is drawn, red, while another agent is open."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", needs=("beta",))
     S.arrange(order=["alpha", "beta"], hidden=["beta"])
@@ -154,14 +163,15 @@ def test_a_hidden_agent_that_needs_a_person_is_on_the_glass_anyway(fleet_home, t
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
             page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
 
-            beta = page.locator('#bands .band[data-repo="beta"]')
+            beta = page.locator('.tile[data-repo="beta"][data-tier="rail"] .pane-rail')
             beta.wait_for(state="visible", timeout=5000)
             assert beta.is_visible(), "it is hidden and it needs somebody, so it is on the glass"
             assert "needs-human" in (beta.get_attribute("class") or "")
-            assert page.inner_text("#column-hidden") == "", "it is not counted as put away"
+            assert page.inner_text("#hiddencount") == "", "it is not counted as put away"
+            assert not page.locator("#hiddencount").is_visible()
             assert not errors, errors
             browser.close()
     finally:
@@ -174,8 +184,8 @@ def test_a_hidden_agent_that_needs_a_person_is_on_the_glass_anyway(fleet_home, t
 def test_a_digit_can_no_longer_blank_the_window(fleet_home, tmp_path):
     """Acceptance criterion: pressing a digit for an agent focus mode is quieting no longer leaves an
     empty window. It used to zoom that tile, which hid every other one while the mode hid that
-    one. The zoom went with the grid (#232); a digit opens the band printed with it, and a quiet
-    band is folded, never gone, so what it opens is on the glass."""
+    one. The zoom went with the grid (#232); a digit opens the pane printed with it (#233), and a
+    quiet rail is dimmed, never gone, so what it opens is on the glass."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", needs=("alpha",))
     S.arrange(order=["alpha", "beta"])
@@ -193,8 +203,13 @@ def test_a_digit_can_no_longer_blank_the_window(fleet_home, tmp_path):
             page.keyboard.press("f")          # focus mode: only alpha needs anybody
             page.wait_for_function(
                 """() => document.body.classList.contains('needs-only')""", timeout=5000)
-            # `1` is beta's band, which focus mode has folded to a sliver.
-            page.keyboard.press("1")
+            # `2` is beta's pane -- a rail, which focus mode has dimmed. Every agent is a pane and
+            # counts, the open one included (#233), so alpha is `1`.
+            page.wait_for_function(
+                """() => document.querySelector('.tile[data-repo="beta"]')
+                           .classList.contains('is-quiet')""", timeout=5000)
+            assert page.inner_text('.tile[data-repo="beta"] .pr-n') == "2"
+            page.keyboard.press("2")
             # Wait for the open to have happened rather than for a clock: it goes through a view
             # transition (#216) and applies on the frame after the browser has taken its "before"
             # snapshot, which on a loaded machine is past any fixed sleep.
@@ -246,11 +261,12 @@ def test_an_anchor_reopens_a_hidden_tile_and_names_one_that_does_not_exist(fleet
 
 
 @pytest.mark.browser
-def test_a_repository_that_leaves_the_registry_keeps_a_band_naming_what_restores_it(
+def test_a_repository_that_leaves_the_registry_keeps_a_rail_naming_what_restores_it(
         fleet_home, tmp_path):
     """Acceptance criterion: removing a repository while the page is open used to make a tile --
-    and a transcript -- disappear with nothing said. It leaves a band, and the band names the
-    command. (It was a dock chip until the dock went with the grid, #232.)"""
+    and a transcript -- disappear with nothing said. It leaves a rail after the row, and the rail
+    names the command. (It was a dock chip until the dock went with the grid, #232, and a band
+    until the column went, #233.)"""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta")
     S.arrange(order=["alpha", "beta"])
@@ -264,18 +280,22 @@ def test_a_repository_that_leaves_the_registry_keeps_a_band_naming_what_restores
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
-            assert page.locator('#bands .band[data-repo="beta"]').is_visible()
+            page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=15000)
+            assert page.locator('.tile[data-repo="beta"] .pane-rail').is_visible()
 
             Registry().remove("beta")
             # The registry is not an agent event, so nothing is pushed: the page notices on the
             # desk's own fifteen-second clock, and the wait is generous enough to cross one.
             page.wait_for_function(
-                """() => document.querySelectorAll('#bands .band:not([hidden]).departed').length === 1""",
+                """() => document.querySelectorAll('#gone .gone-rail:not([hidden])').length === 1""",
                 timeout=30000)
-            band = page.locator("#bands .band.departed").first
-            assert "beta" in band.inner_text()
-            assert "removed from the registry" in band.inner_text()
-            assert "repo add" in (band.locator(".band-open").get_attribute("title") or "")
+            rail = page.locator('#gone .gone-rail[data-repo="beta"]')
+            assert rail.is_visible()
+            assert "beta" in rail.inner_text()
+            said = rail.get_attribute("title") or ""
+            assert "removed from the registry" in said and "repo add" in said, said
+            assert rail.get_attribute("aria-label") == said
+            assert page.locator('.tile[data-repo="beta"]').count() == 0, "its pane went"
             assert not errors, errors
             browser.close()
     finally:

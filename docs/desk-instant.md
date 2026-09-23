@@ -95,9 +95,9 @@ adjective.
 | any action | `action:<what>` |
 | any arrangement change | `arrange:hide` / `move` / `drop` / `pin` / `size` / `showall` |
 | this window's record | `window` |
-| opening an agent | `open:band` |
+| opening an agent | `open:pane` |
 
-The budget is **50 ms**, asserted in a browser by `tests/test_fleet_instant.py`. The `open:band`
+The budget is **50 ms**, asserted in a browser by `tests/test_fleet_instant.py`. The `open:pane`
 mark is closed *inside* the transition callback rather than around the call: the view-transition
 path runs it on the frame after the browser has taken its snapshot, and a mark closed before the
 work happened would report nought and mean nothing.

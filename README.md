@@ -218,6 +218,7 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `docs/plan-meter.md` | implemented: the meter (epic #201) — spend, budget and model on every tile, a fleet total, one arithmetic, a ledger that survives the log rolling; the caps deferred and named |
 | `docs/plan-fresh.md` | planned: fresh (epic #238) — every session records the install it started on, staleness shows on every tile at every turn, and `ad-fleet renew` starts fresh sessions for the stale agents when they are idle, previewed first |
 | `docs/plan-panes.md` | planned: panes — the snap-back and the stale questions fixed first, then one arrangement where every agent is its own full-height column, drawn by its width (rail, compact, full) and resized by dragging the gutter between any two |
+| `docs/plan-ink.md` | planned: ink (epic #246) — three.js draws every skin: a notebook, its dark twin, a legal pad, napkin notes and graph paper drawn live by pencil, pen, highlighter and marker, then glass, farmstead and voxel moved onto it, with one plain fallback where WebGL is missing |
 | `docs/plan-ownership.md` | implemented: ownership (epic #202) — every desk component named and owned, a render that patches and never rebuilds, motion with a budget, the tile as a window, rendering that earns its pixels, an instant feel |
 | `prompts/remediate-from-friction.prompt.md` | offline frontier-model repair loop |
 | `agentdata/templates/project-stub/` | the project stub `ad-setup --project` writes (ships in the wheel) |

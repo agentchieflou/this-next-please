@@ -284,6 +284,30 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
   each pane's tier, the red rail's colour and glyph, and an `aria-label` on every rail. The inventory in
   [desk-components.md](desk-components.md) loses *band* and gains *pane (rail, compact, full)*. A `MutationObserver`
   reads zero on an idle desk (ownership's proof).
+- **Built (#233).** What building it decided, each undone by a sentence from the operator:
+  - *Today's widths* are the migration's: the open pane and every pin share what the rails leave, by
+    `size.cols` as a `flex-grow` weight, never under 160 px; everything else is a 48 px rail. A compact pane
+    therefore appears when pins crowd the open one, or on a narrow window.
+  - A pane is a rail until its tier is written: the draw skips the trace, cells, session menu and cards until
+    the observer's first report, which lands before the first paint and draws the pane again at its width.
+  - The compact tier also shows the **approval** card beside the question card, because both are the pane
+    asking the operator something and neither should need a widen to answer; its reply row keeps Send and
+    drops Start, Reset and Stop.
+  - The rail's label carries the spend and the unread count as well as the age and the last line, because the
+    band's chip carried the spend and a rail has nowhere else to say it.
+  - The digits count **every** pane on the glass, the open one included, so a number never changes because
+    another pane was opened; `j`/`k` walk the same stops.
+  - *needs me* dims a quiet rail where it folded a band; it never quiets an open pane, and a toast's anchor no
+    longer turns the mode off to reach a pane, because nothing is ever off the glass for it.
+  - A reorder never changes which agent is open: with nothing opened yet, the open agent is only "the first in
+    the order", and a rail can now be dropped before it, so `holdOpen()` writes it down first. Found while
+    porting the column's drag test.
+  - A repository that leaves the registry is a dashed rail after the row, not inside it, so the row holds
+    panes and nothing else.
+  - The column's head (*N others · M need you* and *go to the first*) went: the footer already counts who needs
+    you, and a red rail is never off the glass to be jumped to.
+  - Grouping triggers when the open panes at 160 px and every rail at 48 px would not fit the row; past that
+    the row scrolls, the last resort §Open questions allows.
 
 ### E #234 — resizing: gutters, snaps, the three presets, and widths per window
 
@@ -332,6 +356,7 @@ D after C. E after D. F alongside E. G can start with D, on D's new files.
   `ad-fleet serve --open`, so one `main` window. The first cause, a stale `zoomed`, is enough on its own. (A, B)
 - When even the rails do not fit (about 30 agents on a 1 440 px window), should a project's checkouts share one rail,
   as the dock grouped them, or should the row scroll with a red count at each edge? Default: group. (D)
+  **D ships the default**; the laptop answers it (P8 in [windows-verification.md](windows-verification.md)).
 - Are 48 / 160 / 360 px the right tier boundaries on the real monitors? (F)
 - Should a click on a rail swap, as today, or open beside with swap on Shift? Default: swap, because it is the
   gesture the operator already has. (E)
