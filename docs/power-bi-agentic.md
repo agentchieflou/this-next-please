@@ -135,13 +135,30 @@ The development loop for Power BI custom visualizations connects custom TypeScri
    - `ad-pbiviz package <name> [--bump patch|minor]` bundles `dist/<guid>.<version>.pbiviz`.
    - `ad-pbiviz import <name> --pbip <dir> --page <page_name>` registers the package in `report.json` (`publicCustomVisuals`, `resourcePackages`), copies the `.pbiviz` into `StaticResources/RegisteredResources/`, and instantiates the visual container on the target page.
 7. **Validation**:
-   - `ad-pbip check` enforces custom visual rules: `custom-visual-guid-unregistered`, `custom-visual-package-missing`, `custom-visual-role-unfilled`, `custom-visual-role-kind-mismatch`.
+   - `ad-pbip check` enforces custom visual rules: `custom-visual-guid-unregistered`, `custom-visual-package-missing` (a private visual only: AppSource and store visuals are fetched by Power BI), `custom-visual-role-unfilled`, `custom-visual-role-kind-mismatch`, `custom-visual-store-disabled`, and, from the `pbi_custom_visuals` fact, `custom-visual-tenant-blocked` (error), `custom-visual-tenant-certified` and `custom-visual-tenant-unknown` (info), `custom-visual-tenant-fact-invalid` (warning).
    - `ad-pbip catalog describe <guid>` inspects capabilities directly from the imported package.
 
 ### What Stays Manual
 - **Develop a visual toggle**: Desktop requires enabling *Format -> Report settings -> Develop a visual* once per report file.
 - **Localhost Certificate**: Running `pbiviz --install-cert` once in an administrative terminal to trust the development certificate.
-- **AppSource / Org Visuals**: Publishing to the Microsoft 365 / Power BI admin center for tenant-wide deployment.
+- **Organizational store upload**: a Fabric administrator (or Power Platform administrator) adds the `.pbiviz` in the
+  Fabric admin portal, *Organizational visuals*. Nobody else can, and no API here does it for them.
+
+### Delivery under tenant policy
+A `.pbiviz` in a report renders for a viewer only if the tenant lets that viewer see visuals from a file. The skill
+therefore routes the delivery before it builds anything (`skills/pbi-custom-visual/SKILL.md` steps 1–4), and the
+evidence for each route is in `skills/pbi-custom-visual/references/delivery-routes.md`:
+- **The fact.** `pbi_custom_visuals` in the project's AGENTS.md records what the tenant renders for the report's
+  viewers: `allowed`, `certified-only` or `org-only`. `pbi_org_visuals` lists the organizational-store visuals viewers
+  already have.
+- **Native first.** Data-label fields, a dynamic format string or an SVG measure in a table need no admin and render
+  on every tenant. The bar-end variance label that once sent a chart to a custom visual is a native data label.
+- **The organizational store** is exempt from both tenant settings. It is the durable home for a visual of our own
+  on a tenant that blocks visuals from files.
+- **The gate.** `ad-pbip check` reads which registry each custom visual comes from (`publicCustomVisuals` for
+  AppSource, `organizationCustomVisuals` for the store, a `CustomVisual` resource package for a file). With the
+  fact set, it raises `custom-visual-tenant-blocked` for a visual the tenant will not render for viewers, so
+  `pbi-validate` stops it before deploy.
 
 
 

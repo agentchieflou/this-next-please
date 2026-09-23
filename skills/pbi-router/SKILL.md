@@ -10,6 +10,7 @@ description: "Domain sub-router for Power BI tasks: reports, models, TMDL, DAX, 
 |---|---|
 | numbers on a chart/visual are wrong, expected values in a document or CSV, UAT of a report | `uat-report-visual` |
 | new report, dashboard from scratch, which pages, what should it look like | `pbi-report-plan` |
+| custom visual, pbiviz, our own chart, D3, a visual the tenant or admin blocks, organizational visual, a label or chart "native can't do" | `pbi-custom-visual` |
 | layout, chart choice, colours, theme, looks wrong | `pbi-report-design` |
 | add visual, edit visual, add page, remove visual, report authoring | `pbi-report-author` |
 | PBIP, report, visual, page, "what feeds this chart", model overview | `pbip-projection` |
@@ -21,7 +22,6 @@ description: "Domain sub-router for Power BI tasks: reports, models, TMDL, DAX, 
 | deploy model, publish, XMLA, workspace | `pbi-deploy-te2` |
 | refresh model / dataset | `pbi-refresh-xmla` |
 | verify service parity, compare Desktop with service, deployed measure checks | `pbi-verify-service` |
-| custom visual, pbiviz, our own chart, D3 | `pbi-custom-visual` |
 | DAX result, vpax, export measures | `dax-studio-export` |
 
 2. Output one line: `→ <skill>: <reason in ≤ 12 words>`. `.agent/desktop.json` missing or stale → read the `external_tools` row of `ad-pbip capabilities` and ask for the one gesture its `via` names: `ribbon:machine`, press *External Tools → agentdata*; `te2:local`, in Tabular Editor pick the instance, then *Hand off to agentdata*; `zorder`, click the window you mean and run `ad-pbip handoff --active`; `file`, name the document with `ad-pbip handoff --file <name>`. Then invoke it.
