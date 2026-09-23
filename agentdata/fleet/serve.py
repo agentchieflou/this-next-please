@@ -35,6 +35,7 @@ from __future__ import annotations
 import calendar
 import gzip
 import hmac
+import itertools
 import json
 import mimetypes
 import os
@@ -753,13 +754,48 @@ def migrate_desk(v1: dict) -> dict:
     }
 
 
+# desk.json is written OUTSIDE `_desk_lock` (#245). Every desk read -- a snapshot, the stream's
+# tick, `fold_due` -- takes that lock, and on Windows one write can take seconds: `os.replace` onto
+# a file the antivirus is still scanning fails and is retried (`textio._replace_with_retry`). With
+# the write inside the lock, every request on the desk queued behind the disk; on the Windows CI
+# leg that was a page whose answers arrived ten seconds late, three different browser tests red,
+# and a console line not folded because the fold's turn had gone to a request still waiting.
+#
+# So a change takes a snapshot while it holds the lock, and the snapshot is written after it has
+# let go. Writes still reach the disk in the order the changes were made: each snapshot takes the
+# next number while the lock is held, and of two racing for the same file the older is dropped
+# rather than written over the newer one.
+_desk_write_lock = threading.Lock()
+_desk_seq = itertools.count(1)
+_desk_written: dict[str, int] = {}
+
+
+def _desk_snapshot() -> tuple[str, str, int]:
+    """What `desk.json` should hold now, and its place in line. Taken while holding `_desk_lock`."""
+    return _desk_file(), json.dumps(_selection, indent=2), next(_desk_seq)
+
+
+def _write_desk(snapshot: tuple[str, str, int] | None) -> None:
+    """Write a snapshot taken under `_desk_lock`, without holding it. The latest change wins."""
+    if not snapshot:
+        return
+    path, text, seq = snapshot
+    with _desk_write_lock:
+        if seq <= _desk_written.get(path, 0):
+            return
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            textio.write_text(path, text)
+        except Exception:
+            return
+        _desk_written[path] = seq
+
+
 def _save_desk() -> None:
-    path = _desk_file()
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        textio.write_text(path, json.dumps(_selection, indent=2))
-    except Exception:
-        pass
+    """Snapshot and write in one call, for a caller that does not hold `_desk_lock`."""
+    with _desk_lock:
+        snapshot = _desk_snapshot()
+    _write_desk(snapshot)
 
 
 def _fresh() -> dict:
@@ -808,7 +844,8 @@ def forget_desk() -> None:
             arrangement=_blank_arrangement(),
             windows={},
         )
-        _save_desk()
+        snapshot = _desk_snapshot()
+    _write_desk(snapshot)
 
 
 def reset() -> None:
@@ -1045,12 +1082,15 @@ def select(selected=None) -> dict:
     windows clicking the same tile do not each wake the other.
     """
     _ensure_desk_loaded()
+    snapshot = None
     with _desk_lock:
         if selected is not None and str(selected or "") != _selection["selected"]:
             _selection.update(selected=str(selected or ""), version=_selection["version"] + 1,
                               at=E.stamp())
-            _save_desk()
-        return desk_state()
+            snapshot = _desk_snapshot()
+        state = desk_state()
+    _write_desk(snapshot)
+    return state
 
 
 #: How wide and how tall a tile may be asked to become. Four columns was the whole of a 1920px
@@ -1102,6 +1142,7 @@ def arrange(*, order=None, size=None, pinned=None, hidden=None) -> dict:
     means the same agents in the same order on every screen.
     """
     _ensure_desk_loaded()
+    snapshot = None
     with _desk_lock:
         cur = _selection.setdefault("arrangement", _blank_arrangement())
         changed = False
@@ -1130,8 +1171,10 @@ def arrange(*, order=None, size=None, pinned=None, hidden=None) -> dict:
         if changed:
             _selection["version"] += 1
             _selection["at"] = E.stamp()
-            _save_desk()
-        return desk_state()
+            snapshot = _desk_snapshot()
+        state = desk_state()
+    _write_desk(snapshot)
+    return state
 
 
 def _whole_projects(names) -> list[str]:
@@ -1168,6 +1211,7 @@ def update_window(w: str = "main", **kwargs) -> dict:
     """
     _ensure_desk_loaded()
     w = str(w or "main")
+    snapshot = None
     with _desk_lock:
         wins = _selection.setdefault("windows", {})
         win = wins.setdefault(w, {
@@ -1207,8 +1251,10 @@ def update_window(w: str = "main", **kwargs) -> dict:
         if changed:
             _selection["version"] += 1
             _selection["at"] = E.stamp()
-            _save_desk()
-        return desk_state()
+            snapshot = _desk_snapshot()
+        state = desk_state()
+    _write_desk(snapshot)
+    return state
 
 
 
@@ -2443,6 +2489,38 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
         # `ad-fleet serve --port 8765` would bind happily and the two would split requests at
         # random. On POSIX the same flag only shortens TIME_WAIT, which is worth keeping.
         allow_reuse_address = os.name != "nt"
+        # How long closing waits for the requests still being answered (#245).
+        close_wait_s = 5.0
+
+        def __init__(self, *args, **kwargs):
+            # Before the bind: a taken port makes the base class call `server_close()` from here.
+            self.stopping = threading.Event()
+            self.handlers: list[threading.Thread] = []
+            self.handlers_lock = threading.Lock()
+            super().__init__(*args, **kwargs)
+
+        # The handler threads are daemons, so Ctrl-C never waits on an open stream -- and the
+        # standard library's `server_close` joins only non-daemon ones. A request still being
+        # answered went on after the server had closed: in one process that runs one desk that is
+        # harmless, but a suite runs a desk per test, and a window write finishing late landed in
+        # the NEXT test's desk (#245). Closing now says `stopping`, which ends every stream on its
+        # next tick, and waits a bounded time for whatever is left.
+        def process_request(self, request, client_address):
+            t = threading.Thread(target=self.process_request_thread,
+                                 args=(request, client_address), daemon=True)
+            with self.handlers_lock:
+                self.handlers = [h for h in self.handlers if h.is_alive()]
+                self.handlers.append(t)
+            t.start()
+
+        def server_close(self):
+            self.stopping.set()
+            super().server_close()
+            deadline = time.monotonic() + self.close_wait_s
+            with self.handlers_lock:
+                left = list(self.handlers)
+            for t in left:
+                t.join(max(0.0, deadline - time.monotonic()))
 
     try:
         server = Server(("127.0.0.1", port), handler)
@@ -2450,7 +2528,6 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
         raise ServeError(f"cannot bind 127.0.0.1:{port} ({e})",
                          "something else is on that port; `ad-fleet serve --port 0` picks a free one") from None
     server.daemon_threads = True             # Ctrl-C must not wait on an open SSE connection
-    server.stopping = threading.Event()
     return server, handler.token
 
 
