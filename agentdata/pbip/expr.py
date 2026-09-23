@@ -1,7 +1,7 @@
 """QueryExpressionContainer encoding/decoding and theme color utilities.
 
 Converts between human field references ('Sales'[Amount], [Margin], Sum('Sales'[Amount]))
-and PBIR QueryExpressionContainer JSON structures.
+and PBIR QueryExpressionContainer JSON structures, and builds the Literal for a text value.
 Provides theme shading / tinting utilities.
 """
 from __future__ import annotations
@@ -95,6 +95,16 @@ def decode_expr(data: dict | str) -> str:
         return refs[0].label()
 
     return json.dumps(data)
+
+
+def text_literal(text: str) -> dict[str, Any]:
+    """The Literal expression for a text value: the text in single quotes, each apostrophe inside doubled.
+
+    That is how Power BI encodes text (`PrimitiveValueEncoding.text` in its client) and how Desktop saves it: a
+    font family reads `'''Segoe UI'', wf_segoe-ui_normal, ...'` in a Desktop-saved visual.json. Every text literal
+    a verb writes goes through here; `pbir.literal_text()` reads one back.
+    """
+    return {"Literal": {"Value": "'" + text.replace("'", "''") + "'"}}
 
 
 def shade_color(hex_color: str, pct: float) -> str:

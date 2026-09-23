@@ -8,6 +8,9 @@ Formatting rules and properties per visual type.
   - Categorical rankings: Always sort by metric descending. Never leave sorted alphabetically by default.
 - **Labels**: Enable data labels only when data density is low (< 12 bars). For dense charts, rely on axis scales and tooltips.
 - **Axes**: Start value axis at zero. Never truncate baseline unless showing variance index.
+- **Variance at the bar end** (e.g. Recent vs Average): a native data label on the one series, or Deneb (certified);
+  never a reason for a custom visual. Recipes: skill `pbi-custom-visual`, `references/delivery-routes.md`
+  §Bar-end variance labels.
 
 ## §2. lineChart & areaChart
 - **Markers**: Enable small circle markers if points represent discrete months or sparse observations.

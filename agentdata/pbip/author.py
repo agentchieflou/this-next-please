@@ -289,11 +289,7 @@ def visual_add(pbip_path: str, page_name_or_id: str, visual_type: str,
                 {
                     "properties": {
                         "text": {
-                            "expr": {
-                                "Literal": {
-                                    "Value": f"'{title}'"
-                                }
-                            }
+                            "expr": E.text_literal(title)
                         }
                     }
                 }
@@ -374,10 +370,12 @@ def visual_set(pbip_path: str, visual_id: str, prop_path: str, value: Any) -> di
     obj_entry = vco.setdefault(obj_name, [{}])[0]
     props = obj_entry.setdefault("properties", {})
 
-    if ptype == "string" and prop_name == "text":
-        props[prop_name] = {"expr": {"Literal": {"Value": f"'{typed_val}'"}}}
+    # Text, an enum member and a color are text literals, as Desktop saves them
+    # (alignment 'right'; fontColor's solid.color '#505C6D').
+    if ptype in ("string", "enum"):
+        props[prop_name] = {"expr": E.text_literal(typed_val)}
     elif ptype == "color":
-        props[prop_name] = {"solid": {"color": typed_val}}
+        props[prop_name] = {"solid": {"color": {"expr": E.text_literal(typed_val)}}}
     else:
         props[prop_name] = {"expr": {"Literal": {"Value": str(typed_val)}}}
 
@@ -428,7 +426,7 @@ def filter_set(pbip_path: str, scope: str, field_ref: str,
                     }
                 ],
                 "Values": [
-                    [{"Literal": {"Value": f"'{v}'" if not v.isdigit() else f"{v}L"}}] for v in values
+                    [E.text_literal(v) if not v.isdigit() else {"Literal": {"Value": f"{v}L"}}] for v in values
                 ]
             }
         }

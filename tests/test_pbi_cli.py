@@ -412,3 +412,54 @@ def test_export_png_stretch(fake_az, capsys, tmp_path):
     out = capsys.readouterr().out
     assert "report_id: rep-0001" in out
     assert os.path.exists(out_png)
+
+
+def _report_with_a_file_visual(tmp_path):
+    """The sample report, clean, carrying one private visual imported from a .pbiviz file."""
+    rep = tmp_path / "Clean.Report"
+    shutil.copytree(SAMPLE_REPORT_DIR, rep)
+    shutil.rmtree(rep / "definition" / "pages" / "page1" / "visuals" / "aaaaaaaaaaaaaaaaaaaa")
+    vdir = rep / "definition" / "pages" / "page1" / "visuals" / "cccccccccccccccccccc"
+    vdir.mkdir(parents=True)
+    (vdir / "visual.json").write_text(json.dumps({
+        "name": "cccccccccccccccccccc", "position": {"x": 0, "y": 0, "width": 200, "height": 200},
+        "visual": {"visualType": "averageRecentBars123456"}}), encoding="utf-8")
+    rj_path = rep / "definition" / "report.json"
+    rj = json.loads(rj_path.read_text(encoding="utf-8"))
+    rj["resourcePackages"] = [{"name": "averageRecentBars123456", "type": "CustomVisual", "items": []}]
+    rj_path.write_text(json.dumps(rj), encoding="utf-8")
+    pkg = rep / "StaticResources" / "RegisteredResources"
+    pkg.mkdir(parents=True)
+    (pkg / "averageRecentBars123456.pbiviz").write_bytes(b"PK")
+    return rep
+
+
+def test_publish_report_refuses_a_visual_the_tenant_blocks_before_any_call(fake_az, capsys, tmp_path, monkeypatch):
+    """The incident: a custom visual the tenant blocks reached the service. Publish now refuses it
+    offline, before a single az call, and has no flag to force it through."""
+    rep = _report_with_a_file_visual(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("- pbi_custom_visuals: certified-only\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    rc = cli_pbi.main(["publish", "report", str(rep), "--workspace", "Sales Workspace", "--model", "Sample"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "custom_visual_blocked" in err and "custom-visual-tenant-blocked" in err
+    assert fake_az.calls == []
+
+
+def test_publish_report_refuses_when_nobody_recorded_the_tenant(fake_az, capsys, tmp_path, monkeypatch):
+    rep = _report_with_a_file_visual(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    rc = cli_pbi.main(["publish", "report", str(rep), "--workspace", "Sales Workspace", "--model", "Sample",
+                       "--dry-run"])
+    assert rc == 1 and "custom-visual-tenant-unknown" in capsys.readouterr().err
+    assert fake_az.calls == []
+
+
+def test_publish_report_lets_a_file_visual_through_where_the_tenant_allows_files(fake_az, capsys, tmp_path, monkeypatch):
+    rep = _report_with_a_file_visual(tmp_path)
+    (tmp_path / "AGENTS.md").write_text("- pbi_custom_visuals: allowed\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    rc = cli_pbi.main(["publish", "report", str(rep), "--workspace", "Sales Workspace", "--model", "Sample",
+                       "--dry-run"])
+    assert rc == 0 and "dry_run: true" in capsys.readouterr().out

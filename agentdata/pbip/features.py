@@ -518,8 +518,8 @@ def check_report_features(model: Model, report: P.Report) -> list[Any]:
         raw_objs = (v.raw.get("visual") or {}).get("objects") or {}
         for act_list in raw_objs.get("action", []):
             props = act_list.get("properties") or {}
-            act_type = str(((props.get("actionType") or {}).get("expr") or {}).get("Literal", {}).get("Value", "")).strip("'\"")
-            dest = str(((props.get("destination") or {}).get("expr") or {}).get("Literal", {}).get("Value", "")).strip("'\"")
+            act_type = P.literal_text(((props.get("actionType") or {}).get("expr") or {}).get("Literal", {}).get("Value")) or ""
+            dest = P.literal_text(((props.get("destination") or {}).get("expr") or {}).get("Literal", {}).get("Value")) or ""
             if act_type == "PageNavigation" and dest:
                 if dest not in page_names and dest not in page_ids:
                     findings.append(Finding(
