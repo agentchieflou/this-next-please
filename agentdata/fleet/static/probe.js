@@ -20,6 +20,7 @@ var INK = 0x1f3a93;
 
 var SHELL = PARAMS.get("shell") || PARAMS.get("w") || "browser";
 var posted = false;
+var FEATURES = {};                    // the table's other rows, asked first thing (#235)
 
 function show(id, value) {
   text(document.getElementById(id), value);
@@ -94,6 +95,55 @@ function caveat(kind) {
   return !gl;
 }
 
+/* The table's other rows (#235), asked the way `tests/test_fleet_engines.py` asks them of CI's
+   Chromium, so a shell's cells in docs/desk-engines.md are its own answers and not a paste out of a
+   dev console. Yes or no, and nothing more: what the desk does without one is the table's to say,
+   and `probe.feature_cell` says it. Asked before anything can fail, so a shell with no WebGL still
+   answers every row. */
+function features() {
+  var out = {};
+  var ask = function (name, probe) {
+    try { out[name] = !!probe(); } catch (e) { out[name] = false; }
+  };
+  ask("@starting-style", function () {
+    return CSS.supports("selector(:not(*))") && typeof CSSStartingStyleRule !== "undefined";
+  });
+  ask("transition-behavior: allow-discrete", function () {
+    return CSS.supports("transition-behavior", "allow-discrete");
+  });
+  ask("startViewTransition", function () { return typeof document.startViewTransition === "function"; });
+  ask("linear() easing", function () {
+    return CSS.supports("animation-timing-function", "linear(0, 1)");
+  });
+  ask("pointer capture", function () {
+    return typeof Element.prototype.setPointerCapture === "function";
+  });
+  ask("ResizeObserver", function () { return typeof ResizeObserver === "function"; });
+  ask("container queries", containerQueries);
+  ask("OffscreenCanvas", function () { return typeof OffscreenCanvas !== "undefined"; });
+  return out;
+}
+
+/* Not only "does it parse": a rule inside `@container` has to reach an element. The desk's head
+   sheds its words by container query, and a shell that understood the declaration and never
+   applied the rule would be a *works* that does not. */
+function containerQueries() {
+  if (!(window.CSS && CSS.supports("container-type", "inline-size"))) return false;
+  var sheet = document.createElement("style");
+  sheet.textContent = "#cq-probe{container-type:inline-size;width:150px;position:absolute;" +
+                      "left:-9999px;top:0}#cq-probe>i{display:block;width:3px}" +
+                      "@container (max-width: 200px){#cq-probe>i{width:7px}}";
+  var box = document.createElement("div");
+  box.id = "cq-probe";
+  box.appendChild(document.createElement("i"));
+  document.head.appendChild(sheet);
+  document.body.appendChild(box);
+  var applied = getComputedStyle(box.firstChild).width === "7px";
+  box.remove();
+  sheet.remove();
+  return applied;
+}
+
 /* A fixed page of pencil strokes: the same 480 segments on every run in every shell, so two
    shells' numbers are two measurements of one scene. No randomness anywhere. */
 function strokes() {
@@ -145,7 +195,7 @@ function finish(facts) {
   var body = Object.assign({ shell: SHELL, ua: navigator.userAgent, webgl: "none", renderer: "",
                              vendor: "", caveat: false, three: "", intervals: [],
                              first_stroke_ms: null, load_ms: null, drawn: false, hidden: false,
-                             error: "" },
+                             error: "", features: FEATURES },
                            facts || {});
   show("state", "saving…");
   post("probe", body).then(function (r) {
@@ -156,6 +206,11 @@ function finish(facts) {
     }
     var rec = r.record || {};
     show("verdict", r.verdict + " (" + r["class"] + ")");
+    var cells = r.features || {};
+    var short = Object.keys(cells).filter(function (name) { return cells[name] !== "works"; });
+    show("features", short.length
+      ? short.map(function (name) { return name + ": " + cells[name]; }).join("; ")
+      : "every row works");
     show("frames", ms(rec.p50_ms) + " / " + ms(rec.p95_ms) + " over " + rec.frames + " frames");
     show("stroke", ms(rec.first_stroke_ms));
     show("state", r.kept
@@ -297,6 +352,7 @@ function whenVisible(go) {
 
 function main() {
   show("shell", SHELL);
+  FEATURES = features();
   var canvas = document.getElementById("stage");
   var ctx = contextOf(canvas);
   var facts = { webgl: ctx.kind };

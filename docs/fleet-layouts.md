@@ -11,6 +11,12 @@
 > **the page has one arrangement**, `LAYOUTS` is gone from all three places that kept it, and the picker in
 > the header went with it. Slice D (#233) then drew the one arrangement as the operator meant it: every
 > agent a pane in one row. §The sitting below keeps the history of how the choice was made.
+>
+> **Closed (#235).** There is nothing left to decide on this page, and it is not where the arrangement
+> is described any more. The row, its tiers, its gutters, a window's widths, the presets and the keys
+> are in [desk-window.md](desk-window.md). Why it is one row and not four arrangements is in
+> [plan-panes.md](plan-panes.md). What stays here is the record: the decision above, the migration
+> from schema 1, and §The sitting.
 
 ## What the one arrangement is
 
@@ -19,7 +25,8 @@ under them — and it is not the column either. It is **a row of panes**, one pe
 with a width of its own ([plan-panes.md](plan-panes.md) §Where this plan pushes back, item 2), and since
 slice D (#233) that is what the page draws: the open agent and every pinned one share the width, every other
 agent is a 48 px **rail**, and each pane draws itself by its own width — rail, compact or full.
-[fleet-dashboard.md](fleet-dashboard.md) §The row has the rest. Resizing it by hand is slice E (#234).
+[fleet-dashboard.md](fleet-dashboard.md) §The row has the rest. Resizing it by hand is slice E (#234), and
+[desk-window.md](desk-window.md) is the whole of it.
 
 Before D it was the column's drawing (#203): one agent open at full height, pinned agents open beside it, and
 every other checkout a **band** in a column down the side. The bands, the column and `drawColumn`/`drawBand`
@@ -64,8 +71,13 @@ Nothing that used to work lands on a blank page.
   selected                              the project the inspector follows, shared by every window
   arrangement:  { order, hidden, pinned, size }       ONE record, shared by every window
   windows:
-    <w>:  { open, focus, read, seen, held, section }  one per window (#172)
+    <w>:  { open, widths, widths_at, read, seen, section }   one per window (#172, #234)
 ```
+
+`widths` joined the window record with the gutters (#234), in schema 2 as the plan drew it, so no
+second migration ran. `size` is an older build's and only read. A window record an older page wrote
+may still hold `focus` and `held`, the needs-only filter's; the server keeps them and no page reads
+them ([desk-window.md](desk-window.md) §A width is the window's, and a weight).
 
 Schema 1 had one arrangement per layout under `arrangement.column`, `.grid`, `.roles` and `.screens`, a
 `screens` list for the per-monitor pinning, and `layout`, `view`, `screen` and `zoomed` in every window record.
@@ -87,26 +99,20 @@ in it:
 
 To go back to a build from before #232, stop the server and put `desk.v1.json` back as `desk.json`.
 
-## Focus mode — not a layout (`f`)
+## Focus mode, which became a preset (`f`)
 
-**Show only the agents that need a person.** The alternative to organising tabs is having fewer things to
-look at.
-
-* `f` toggles it; the button in the header shows the state. It is remembered in the window's record, so the
-  left monitor can stay in it while the centre one does not.
-* "Needs a person" is #94's fold — `needs_human`, `waiting_approval`, `blocked`, `error` — not a guess made
-  in the page. See [fleet-events.md](fleet-events.md).
-* It quiets the row rather than emptying it: a rail whose agent wants nothing dims, still named, still
-  counted and one press away (it folded a band to a sliver in the column). It never quiets an open pane,
-  which is the window.
-* An agent the operator has just acted on is **held** through the pass, so a reply does not dim the rail it
-  was typed into.
-
-The rest of the keyboard is in [fleet-dashboard.md](fleet-dashboard.md) §Keyboard.
+The needs-only filter was the one thing on #133 that was not a layout: `f` dimmed every rail whose
+agent wanted nothing, and held the one just answered so it did not dim under the reply. It lived
+through C and D. E (#234) made it the *needs me* preset, one write of the window's widths: every
+agent that needs a person wide, the rest rails. It hides nothing and dims nothing, and since a preset
+takes nothing back when an agent stops needing you, there is nothing to hold. "Needs a person" is
+still #94's fold (`needs_human`, `waiting_approval`, `blocked`, `error`), never a guess made in the
+page ([fleet-events.md](fleet-events.md)). [desk-window.md](desk-window.md) §The presets has it, and
+the rest of the keyboard is in [fleet-dashboard.md](fleet-dashboard.md) §Keyboard.
 
 ## Hidden tiles — the operator's own arrangement (`h`) (#173)
 
-Focus mode decides for you; **hiding** is you deciding. `hidden` is a list beside `order`, `size` and
+*needs me* decides for you; **hiding** is you deciding. `hidden` is a list beside `order`, `size` and
 `pinned` in the one `arrangement`, so it is the server's and every window on this fleet agrees on it — an
 agent put away on the laptop is put away on the wall screen too, and it is still put away tomorrow.
 

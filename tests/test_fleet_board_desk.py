@@ -709,7 +709,7 @@ def test_the_rows_rules_are_the_pages_rules():
     assert "repeat(auto-fit" not in main, "the grid's wrap is back"
     assert ".tile:not(.is-solo) { display: none; }" not in css, "the rails are off the glass"
     assert "flex: 0 0 var(--rail); min-width: 0; min-height: 0;" in css
-    assert ".tile.is-solo { flex: var(--w, 1) 1 0; min-width: 160px; }" in css
+    assert ".tile.is-solo { flex: var(--w, 1) 1 0; min-width: var(--compact-from); }" in css
 
 
 def test_needs_me_widens_what_the_fold_says_needs_a_person():

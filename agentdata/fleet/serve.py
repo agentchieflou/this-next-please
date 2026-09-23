@@ -1212,7 +1212,7 @@ def theme_state() -> dict:
     """The theme and skin configuration shared across windows."""
     from .. import config as C
     from .. import theme as T
-    from . import skins
+    from . import settings as SET, skins
     cfg = C.load()
     default_name = cfg.get("theme", {}).get("default") or "none"
     skin_name = cfg.get("theme", {}).get("skin") or "none"
@@ -1260,6 +1260,11 @@ def theme_state() -> dict:
         "skin_variant": skin_info["variant"] if skin_info else "",
         "css": css_vars,
         "accents": accents,
+        # The widths a pane changes tier at (#235). Here because this is the payload the config
+        # file already reaches every window by -- `/api/fleet`, the stream's `theme` frame when the
+        # file changes, and the snapshot a reload draws first -- so the settings page's "in effect
+        # now" is true of them as it is of the palette.
+        "tiers": SET.tiers(cfg),
     }
 
 
@@ -2082,6 +2087,9 @@ def act(what: str, body: dict) -> dict:
         try:
             for item in body.get("set") or []:
                 SET.apply(cfg, str(item.get("key") or ""), item.get("value"))
+            # What only holds between keys, once the whole batch is in: two tier boundaries that
+            # only go together can be written together (#235).
+            SET.check(cfg, [str(item.get("key") or "") for item in body.get("set") or []])
             for item in body.get("models") or []:
                 SET.set_model(cfg, str(item.get("repo") or ""),
                               model=item.get("model"), effort=item.get("effort"))
@@ -2746,6 +2754,9 @@ def settings_snapshot() -> dict:
                   "efforts": ["low", "medium", "high"]},
         "editable": SET.describe(cfg),
         "current": SET.current(cfg),
+        # What the desk draws with, which is not what `current` says when the file holds a four
+        # that does not go together: then it is CI's, and `invalid` says why (#235).
+        "tiers": SET.tiers(cfg),
         "tools": SET.tools(cfg),
     }
 

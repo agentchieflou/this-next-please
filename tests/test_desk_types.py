@@ -107,6 +107,9 @@ def test_the_records_are_typed_as_the_server_writes_them(monkeypatch):
     assert _typedef("Arrangement") == set(S._blank_arrangement())
     # And what the page writes is a part of the record, never a field the server would drop.
     assert _typedef("WindowWrite") < set(S.WINDOW_FIELDS)
+    # The tier widths the theme payload carries (#235), as the settings module reads them.
+    from agentdata.fleet import settings as SET
+    assert _typedef("Tiers") == set(SET.tiers({}))
 
 
 @pytest.mark.network

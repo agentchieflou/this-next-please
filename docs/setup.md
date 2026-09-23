@@ -136,6 +136,7 @@ when a change takes effect, because the answers differ:
 | `fleet.board_ttl`, `fleet.branches.warn`, `fleet.attach.max_mb` | the Jira board cache, the branch-clutter warning, the attachment cap | now |
 | `fleet.console.host`, `fleet.console.palette` | which terminal a console opens in, and whether it is coloured | next console |
 | `fleet.notify.*` | dashboard, desktop and chime notifications, the cooldown, quiet hours | now |
+| `fleet.tiers.rail_px`, `compact_px`, `full_px`, `slack_px` | the widths at which a desk pane is a rail, compact or full, and the slack between the last two (CI's 48 / 160 / 360 / 8 by default). Under *Appearance*, bounded, and refused when the four do not go together ([desk-window.md](desk-window.md) §The tiers) | now: every open desk redraws, no reload |
 | `fleet.port` | the loopback port the page is served on | when `ad-fleet serve` restarts |
 
 `fleet.allow_tools` and `fleet.deny_tools` are **shown and not editable** there. The allow-list is

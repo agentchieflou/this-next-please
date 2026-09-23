@@ -54,7 +54,9 @@ RESTART = "when `ad-fleet serve` restarts"
 
 CONSOLE_HOSTS = ("cmd", "wt", "terminal", "fake")
 
-# key -> label, type, default, scope, why. `choices` only for an enum.
+# key -> label, type, default, scope, why. `choices` only for an enum; `min`/`max` (with `range`,
+# the hint a refusal carries) only for a number that has bounds; `section` where the page puts it,
+# when that is not the Copilot block.
 EDITABLE: dict[str, dict] = {
     "fleet.approval_timeout": {
         "label": "approval window", "type": "int", "default": 30 * 60, "scope": NOW,
@@ -108,6 +110,33 @@ EDITABLE: dict[str, dict] = {
     "fleet.port": {
         "label": "port", "type": "int", "default": 8765, "scope": RESTART,
         "why": "the loopback port this page is served on"},
+    # The pane's three widths (#235). On the page under Appearance, beside the palette, because
+    # they are how the desk is drawn; `min`/`max` are refusals (`out_of_range`), and `tiers()`
+    # below holds the four to each other.
+    "fleet.tiers.rail_px": {
+        "label": "rail (px)", "type": "int", "default": 48, "scope": NOW,
+        "min": 32, "max": 96, "section": "appearance",
+        "range": "under 32px a rail is no longer a thing to press; over 96px it is a narrow pane",
+        "why": "how wide a pane is while it is a rail: its name, its state and its count"},
+    "fleet.tiers.compact_px": {
+        "label": "compact from (px)", "type": "int", "default": 160, "scope": NOW,
+        "min": 120, "max": 720, "section": "appearance",
+        "range": "a pane pulled under 120px by its gutter settles back to the rail, so a compact "
+                 "tier narrower than that could never be landed on",
+        "why": "the narrowest a pane with a width may be: its head, its three tools, the cards "
+               "that ask you something, and the reply box"},
+    "fleet.tiers.full_px": {
+        "label": "full from (px)", "type": "int", "default": 360, "scope": NOW,
+        "min": 200, "max": 1600, "section": "appearance",
+        "range": "past 1600px no pane on one monitor would ever be full",
+        "why": "from this width a pane shows everything a tile has"},
+    "fleet.tiers.slack_px": {
+        "label": "tier slack (px)", "type": "int", "default": 8, "scope": NOW,
+        "min": 0, "max": 24, "section": "appearance",
+        "range": "wider than 24px and a pane draws the tier it was in for a hand's breadth past "
+                 "the boundary",
+        "why": "how far past the compact/full boundary a pane goes before it changes tier, so one "
+               "sitting on it does not flicker"},
 }
 
 
@@ -145,6 +174,10 @@ def coerce(key: str, spec: dict, value):
                                 "a typo here would otherwise be stored as zero", code="bad_type") from None
         if number < 0:
             raise SettingsError(f"{key} cannot be negative, got {number}", "", code="bad_type")
+        low, high = spec.get("min"), spec.get("max")
+        if (low is not None and number < low) or (high is not None and number > high):
+            raise SettingsError(f"{key} is {number}, outside {low}–{high}", spec.get("range", ""),
+                                code="out_of_range")
         return number
     if kind == "enum":
         text = str(value or "").strip()
@@ -161,9 +194,13 @@ def describe(cfg: dict) -> list[dict]:
     rows = []
     for key, spec in EDITABLE.items():
         row = {"key": key, "label": spec["label"], "type": spec["type"], "scope": spec["scope"],
-               "why": spec["why"], "default": spec["default"]}
+               "why": spec["why"], "default": spec["default"],
+               "section": spec.get("section", "copilot")}
         if spec.get("choices"):
             row["choices"] = list(spec["choices"])
+        for bound in ("min", "max"):
+            if spec.get(bound) is not None:
+                row[bound] = spec[bound]
         rows.append(row)
     return rows
 
@@ -178,13 +215,77 @@ def current(cfg: dict) -> dict:
 
 
 def apply(cfg: dict, key: str, value) -> None:
-    """Validate and write one key into `cfg`. The caller saves."""
+    """Validate and write one key into `cfg`. The caller runs `check` over the batch, then saves."""
     spec = EDITABLE.get(key)
     if spec is None:
         raise SettingsError(f"{key} is not a setting this page may change",
                             "the page writes only the keys it lists; edit "
                             "`~/.agentdata/config.json` for anything else", code="unknown_key")
     C.put(cfg, key, coerce(key, spec, value))
+
+
+def check(cfg: dict, keys) -> None:
+    """The rules that hold between keys, run once a batch has been applied and before it is saved,
+    so two values that only go together can be written together. Today that is the tiers."""
+    if any(key in TIER_KEYS.values() for key in keys):
+        _values, msg, hint = _tier_values(cfg)
+        if msg:
+            raise SettingsError(msg, hint, code="bad_tiers")
+
+
+# ------------------------------------------------------------------------------ the tiers (#235)
+
+#: What a pane draws is decided by how wide it is (plan-panes §The pane): a rail, compact from one
+#: width, full from another, with some slack between the last two so a pane sitting on the
+#: boundary does not flicker. CI's numbers are the defaults, and `docs/desk-window.md` §The tiers
+#: records them beside the laptop's. The page reads them from the theme payload, so a change here
+#: reaches every open desk on its next tick, with no reload.
+TIER_KEYS = {"rail": "fleet.tiers.rail_px", "compact": "fleet.tiers.compact_px",
+             "full": "fleet.tiers.full_px", "slack": "fleet.tiers.slack_px"}
+TIER_DEFAULTS = {name: EDITABLE[key]["default"] for name, key in TIER_KEYS.items()}
+#: How far apart the boundaries must stay. A compact pane is a head, three tools and a reply box,
+#: which a rail's width plus 64px cannot hold. And the compact tier needs room to land in: a key
+#: step is 40px, and the snaps take the hand within 8px of either boundary.
+COMPACT_PAST_RAIL = 64
+FULL_PAST_COMPACT = 80
+
+
+def _tier_values(cfg: dict) -> tuple[dict, str, str]:
+    """The four numbers `cfg` sets, CI's where it sets none, and what is wrong with them, if
+    anything, with the hint that fixes it."""
+    values = dict(TIER_DEFAULTS)
+    for name, key in TIER_KEYS.items():
+        raw = C.get(cfg, key)
+        if raw is None:
+            continue
+        try:
+            values[name] = coerce(key, EDITABLE[key], raw)
+        except SettingsError as e:
+            return values, e.msg, e.hint
+    rail, compact, full = values["rail"], values["compact"], values["full"]
+    if compact < rail + COMPACT_PAST_RAIL:
+        return values, (f"compact from {compact}px is within {COMPACT_PAST_RAIL}px of the {rail}px "
+                        f"rail"), (f"set it to {rail + COMPACT_PAST_RAIL}px or more, or narrow the "
+                                   f"rail: a compact pane carries a head, three tools and a reply "
+                                   f"box")
+    if full < compact + FULL_PAST_COMPACT:
+        return values, (f"full from {full}px is not {FULL_PAST_COMPACT}px past compact from "
+                        f"{compact}px"), (f"set full from to {compact + FULL_PAST_COMPACT}px or "
+                                          f"more first: the compact tier needs room to land in")
+    return values, "", ""
+
+
+def tiers(cfg: dict) -> dict:
+    """`{rail, compact, full, slack, invalid}`: the widths the desk draws its tiers at.
+
+    A four this module would refuse -- a hand edit, or a file from before a bound -- is not drawn.
+    The desk gets CI's numbers and `invalid` says why, the way `budget_invalid` does: a boundary
+    nobody can read is not one to guess at, and the page says so rather than drawing nonsense.
+    """
+    values, msg, _hint = _tier_values(cfg)
+    if msg:
+        return {**TIER_DEFAULTS, "invalid": msg}
+    return {**values, "invalid": ""}
 
 
 def set_model(cfg: dict, repo: str, *, model=None, effort=None) -> dict:

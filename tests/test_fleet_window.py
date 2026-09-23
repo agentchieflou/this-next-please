@@ -147,7 +147,7 @@ def test_the_footprint_has_one_owner():
     assert css.count("grid-column: span") == 0, "a span is back in a row that has no tracks"
     assert "grid-row: span" not in css, "a pane is always the row's full height"
     assert css.count("var(--w, 1)") == 1
-    assert ".tile.is-solo { flex: var(--w, 1) 1 0; min-width: 160px; }" in css
+    assert ".tile.is-solo { flex: var(--w, 1) 1 0; min-width: var(--compact-from); }" in css
     assert "var(--cols" not in css and "var(--rows" not in css
     assert ".tile.size-2 { grid-column: span 2; }" not in css
     # And the width toggle's button went with it: Alt+Shift+arrows answer that question with more
