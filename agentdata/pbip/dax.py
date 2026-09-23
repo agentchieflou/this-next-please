@@ -17,7 +17,6 @@ from .normalize import ModelIndex
 
 Runner = Callable[[list[str], int], tuple[int, str, str]]
 _HEADER = re.compile(r"^[^\[]*\[([^\]]+)\]$")
-_LIT_STR = re.compile(r"^'(.*)'$", re.S)
 _LIT_NUM = re.compile(r"^(-?\d+(?:\.\d+)?)[LDM]?$")
 _LIT_DT = re.compile(r"^datetime'(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2}))?")
 
@@ -60,9 +59,9 @@ def literal(v: str) -> str | None:
         return "BLANK()"
     if s.lower() in ("true", "false"):
         return s.upper()
-    m = _LIT_STR.match(s)
-    if m:
-        return '"' + m.group(1).replace('"', '""') + '"'
+    text = P.literal_text(s)
+    if text is not None:
+        return '"' + text.replace('"', '""') + '"'
     m = _LIT_DT.match(s)
     if m:
         y, mo, d = m.group(1), m.group(2), m.group(3)

@@ -290,12 +290,22 @@ def _load_pbir(rep: Report, defn: str) -> None:
         rep.bookmarks.append({"name": b.get("name"), "displayName": b.get("displayName"), "pages": targets, "visuals": visuals, "file": _rel(root, bj)})
 
 
+def literal_text(value: Any) -> str | None:
+    """The text a PBIR text literal holds, or None when `value` is not one: `'Men''s'` -> `Men's`.
+
+    Inside the quotes Power BI doubles each apostrophe; `expr.text_literal()` writes one that way.
+    """
+    if isinstance(value, str) and len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    return None
+
+
 def _title(vis: dict) -> str | None:
     try:
         for t in (vis.get("visualContainerObjects") or {}).get("title") or []:
             lit = (((t.get("properties") or {}).get("text") or {}).get("expr") or {}).get("Literal") or {}
             if lit.get("Value"):
-                return str(lit["Value"]).strip("'")
+                return literal_text(lit["Value"])
     except AttributeError:
         pass
     return None

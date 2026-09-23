@@ -278,6 +278,17 @@ def test_rule_nav_action_page_missing():
     assert "nav-action-page-missing" in kinds
 
 
+def test_rule_nav_action_reads_the_destination_as_a_text_literal():
+    """A page named `Director's view` is stored as 'Director''s view': it exists, so nothing is missing."""
+    rep = P.load_report(FIXTURE_REPORT)
+    mod = N.load_model(FIXTURE_MODEL)
+    rep.pages[-1].name = "Director's view"
+    v = rep.pages[0].visuals[2]
+    v.raw["visual"]["objects"]["action"][0]["properties"]["destination"]["expr"]["Literal"]["Value"] = "'Director''s view'"
+    kinds = [f.kind for f in F.check_report_features(mod, rep)]
+    assert "nav-action-page-missing" not in kinds
+
+
 def test_rule_mobile_visual_not_on_page():
     """Rule 15: mobileState referencing visual not on page produces mobile-visual-not-on-page."""
     rep = P.load_report(FIXTURE_REPORT)

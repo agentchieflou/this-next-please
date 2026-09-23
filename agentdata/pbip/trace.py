@@ -19,6 +19,7 @@ from multiprocessing.connection import Listener
 from pathlib import Path
 from typing import Callable
 from . import desktop as DT
+from . import pbir as P
 from ..model import AgentTable
 from .. import textio
 
@@ -202,7 +203,7 @@ def report_trace(jsonl_path: str, report_dir: str | None = None) -> AgentTable:
                             for t in (vis.get("visualContainerObjects") or {}).get("title") or []:
                                 lit = (((t.get("properties") or {}).get("text") or {}).get("expr") or {}).get("Literal") or {}
                                 if lit.get("Value"):
-                                    title = str(lit["Value"]).strip("'")
+                                    title = P.literal_text(lit["Value"])
                         except Exception:
                             pass
                         # Store queryRef identifiers
