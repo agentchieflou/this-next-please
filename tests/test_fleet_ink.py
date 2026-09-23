@@ -43,7 +43,7 @@ STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
 INK = os.path.join(STATIC, "ink")
 THREE_PATH = "/static/vendor/three/three.module.min.js"
 MODULES = ("ink.js", "layer.js", "shapes.js", "pen.js")
-#: Skin modules (docs/desk-ink.md §Writing a skin). Only the example ships in slice B.
+#: Skin modules (docs/desk-ink.md §Writing a skin): the example, and the skins that draw with ink.
 SKINS = tuple(sorted(n for n in os.listdir(os.path.join(INK, "skins")) if n.endswith(".js")))
 #: Every script in `static/ink/`, the skins' included, as paths under it.
 SCRIPTS = MODULES + tuple(f"skins/{n}" for n in SKINS)

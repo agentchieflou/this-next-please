@@ -46,7 +46,7 @@ WebGL (`tests/test_fleet_trace.py`).
 | `Ink.setSkin(table \| null, hooks?)` | a mark table, or none, and optionally a skin's material hooks. The desk's own skin sets itself (§Writing a skin), so this is for tests and the console. It replaces the skin's table until the skin changes again. Resolves to `{drawn: "ink" \| "plain" \| "none"}`. **Throws, naming the row**, on a table it cannot draw |
 | `Ink.refresh()` | reads the palette again, matches the table against the page and measures every mark now |
 | `Ink.off(reason)` | the plain fallback for the rest of this page's life |
-| `Ink.inspect()` | what is on the paper: lanes, marks (state, how much is drawn, where), frames. For tests and the console |
+| `Ink.inspect()` | what is on the paper: lanes, marks (state, how much is drawn, where, and each stroke's extent on the viewport as `bounds`), frames. For tests and the console |
 | `Ink.sample(box)` | how many pixels of a viewport box hold ink, read back from a frame drawn for the purpose. For tests |
 
 ## The gate: hardware WebGL, measured, and nothing else
@@ -132,6 +132,15 @@ Ink.setSkin({
 | `pad` | px the shape stands off its element (optional) |
 | `dash` | a dashed stroke, for the stale pencil outline (optional) |
 | `to` | an arrow's target: a selector, looked up in the arrow's own pane first, then the page |
+| `snap` | a grid pitch in px (4 or more): the row's straight strokes are ruled onto a grid of that pitch from the viewport's top-left. An outline's corners meet on the grid, an underline goes down to the first line under its text, a divider to the nearest. Only `outline`, `divider` and `underline` may snap (optional, #253) |
+| `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #253) |
+
+A table may also tune a tool's hand for its own strokes with `tools: {<tool>: {...}}`, each a
+number of 0 or more (`lam`, a wavelength, more than 0): `w`, `press`, `pvar`, `wob`, `lam`, `bow`, `wmin`, `tin`, `tout` (§Tools says
+what each is). The graph paper's mechanical pencil is `tools: {pencil: {w: 1.05, pvar: 0.04, wob:
+0, bow: 0, tin: 0, tout: 0, ...}}`. A tool's `kind`, `pad` and `model` are what it is, and stay
+the layer's. A skin's module gives `tools` in its `options`. A `snap`, a `leaves` or a `tools`
+entry the layer cannot honour is refused like a row it cannot draw.
 
 A row the layer cannot draw is refused when the table is set. The exception names the row: `ink: mark 3
 (.tile .repo): no tool "crayon" (pencil, pen, red, green, marker, highlighter)`. A refused table leaves the one in
@@ -250,6 +259,13 @@ What each hook is handed:
    `Ink.inspect()` shows the marks, and `.layer.skin` shows the hooks, the pieces and the frames.
    `tests/test_fleet_ink.py` has the pattern.
 
+### The skins that draw with ink
+
+| Skin | Page |
+| --- | --- |
+| `graph` (graph paper, #253) | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
+| `legalpad` (legal pad, #251) | §The legal pad, below: canary stock, blue rules, a double red margin, a glued top, and an orange-pink highlighter |
+
 ## The legal pad (#251)
 
 Slice E, a skin that ships with ink: "the yellow-page version" the operator asked for,
@@ -294,7 +310,7 @@ class or an attribute the page already sets; the skin decides no state.
 | needs you | `.tile.needs-human .head .repo` → highlighter; the open question's `.ask-q` → highlighter; each `.ask-choice` → pencil loop | `needs-human` (#94's fold), the question card (#165) |
 | answered | the chosen `.ask-choice[aria-pressed="true"]` → pen ellipse. The question's highlight and the choices' loops leave: the highlight is struck in pen along its swipe (the question struck, never the name, whose highlight stays), and the loops are erased | `aria-pressed`, which the page sets when a choice is pressed; the question rows carry `:not(:has(… [aria-pressed="true"]))` |
 | error | `.tile.state-error` → marker loop inside the pane, and a red bang in its margin | `drawTile` |
-| done | `.tile.state-done` → green check in the margin | `drawTile` (see below) |
+| done | `.tile:is(.state-done, .is-done)` → green check in the margin | `drawTile`: `is-done` is the fold's own word (#253) |
 | stale (#240) | `.oldsession:not([hidden])` → pencil `write` (its own words, handwritten), a dashed pencil outline round it, and a pencil arrow to `.runline` | `drawOldSession` |
 | a finding | `.transcript li.denied` or `li.friction` → red ellipse; its `.k` → highlighter; its `.v` → pencil `write` | the transcript's own line classes (`appendTo`) |
 | the header count | `#bellcount` → pen `write`; a change is struck and rewritten by the module (below) | `bell()` |
@@ -311,9 +327,10 @@ Decisions the table carries, each undone by a sentence:
   where the chip is. The DOM keeps every word, so the grammar's *stale — renew?* is the page's
   sentence rather than one the skin makes up. The arrow points at the run line, which says which
   session and run the transcript is.
-* **Done is reachable only when app.js sets it.** On today's desk a pane the fleet does not
-  supervise reads as idle and a supervised one as running, so `state-done` is rare. The row is
-  there for when the page sets the class, and the tests set it the way app.js would.
+* **Done keys on `is-done` as well as `state-done`.** A pane the fleet does not supervise shows
+  its chip as idle and a supervised one as running, so `state-done` is rare; `is-done`, which
+  `drawTile` sets from the fold's own state (#253), is what a finished agent carries. A finished
+  pane is idle *and* done, so it has both marks.
 * **The question card and its choices are transparent in ink** (`skin.css`): the canvas is behind
   the page, so a mark shows only where nothing opaque covers it.
 
