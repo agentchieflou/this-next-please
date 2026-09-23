@@ -696,9 +696,16 @@ function drawTrace(canvas, row) {
    a longer fuse. What comes back is Chromium's normalised form of each `radial-gradient`, which
    is where the ellipse's size, its place and its colour all are. */
 var groundMesh = null;
+var groundKey = "";
 
 function groundColours() {
+  // The mesh is the skin's and its variant's, and nothing else changes it. So it is read once per
+  // choice: every `/api/fleet` answer restarts the ground, and re-reading it each time was two
+  // class writes on <body> on an idle desk (#254).
+  var key = (document.body.dataset.skin || "") + ":" + (document.body.dataset.skinVariant || "");
+  if (groundMesh && key === groundKey) return groundMesh;
   groundMesh = null;
+  groundKey = key;
   if ((document.body.dataset.skin || "") !== "glass") return null;
   // Read before the class that blanks it: the gradients are the source, and a source that has
   // been turned off reads as `none`.
