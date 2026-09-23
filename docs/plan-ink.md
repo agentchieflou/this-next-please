@@ -130,6 +130,24 @@ skin: a degraded mode of the one platform, not a second one.
   by the palette's luminance or named `notebook-dark`. **Built (#250)** with C, as the variant `notebook:dark`.
 - **E #251 — legal pad.** Canary stock, blue rules, a double red margin and a glued top edge. The highlighter shifts
   to orange-pink so it still reads on yellow.
+  - **Built (#251)**, as `legalpad` in `skins.py` (`static/ink/skins/legalpad.js`, `skins/legalpad/skin.css`),
+    in [desk-ink.md](desk-ink.md) §The legal pad, tested by `tests/test_fleet_ink_legalpad.py`. What building it
+    decided, each undone by a sentence from the operator:
+    - **Canary `#FCF3A6` on `eye-relief-day`**, the one light palette whose text and status colours all hold on it.
+      The inks it overrides are pencil (graphite), pen (a blue ballpoint) and the **orange-pink highlighter
+      `#FF8FA3`**; each of the six is in `skins.py` and held to the canary by `theme.check`.
+    - **The grammar is a mark table over classes the page already sets.** *Answered* is `aria-pressed` on the chosen
+      choice (the card has no answered class, and hides once the answer lands); *a finding* is a transcript line
+      the page marks `denied` or `friction`; *stale* writes the chip's own words and points at the run line;
+      *the header count* is the bell's.
+    - **The running pen's tail and the struck header count are drawn by the skin**, in its `tick`, because the
+      layer has no shape for them; the tail grows one step per transcript line of the turn. C builds the shared
+      version and K consolidates. The new count is not written again by the reveal, which the layer would need
+      to re-run on a change of text.
+    - **No font is downloaded**: a local cursive stack.
+    - **Done keys on `is-done`** (the fold's word, #253) as well as `state-done`, which today's desk rarely sets.
+    - **A skinned desk was never idle** (every refresh rewrote the skin's attributes, and the glass ground's retry
+      looped for other skins); `common.js` and `app.js` now write only what changed.
 - **F #252 — napkin notes.** Quilted two-ply with no rules. A felt tip that bleeds along the emboss. A coffee ring
   under a pane that has been idle a long time.
 - **G #253 — graph paper.** A grid on the page's own 28 px baseline, a mechanical pencil, ruled strokes snapped to the
