@@ -44,9 +44,9 @@ body[data-skin="glass"] {
   --glass-ink: #E6EDF3;
   --glass-ink-soft: rgba(230, 237, 243, 0.72);
   background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(88, 166, 255, 0.35) 0%, rgba(88, 166, 255, 0) 70%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(63, 185, 80, 0.35) 0%, rgba(63, 185, 80, 0) 70%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(210, 153, 34, 0.30) 0%, rgba(210, 153, 34, 0) 70%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(88, 166, 255, 0.35) 0%, rgba(88, 166, 255, 0) 100%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(63, 185, 80, 0.35) 0%, rgba(63, 185, 80, 0) 100%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(210, 153, 34, 0.30) 0%, rgba(210, 153, 34, 0) 100%),
     var(--bg);
   background-attachment: fixed;
 }
@@ -112,9 +112,9 @@ body[data-skin-variant="smoke"] {
   --glass-fill: rgba(31, 40, 54, 0.36);
   --glass-card: rgba(31, 40, 54, 0.46);
   background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(88, 166, 255, 0.35) 0%, rgba(88, 166, 255, 0) 70%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(63, 185, 80, 0.35) 0%, rgba(63, 185, 80, 0) 70%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(210, 153, 34, 0.30) 0%, rgba(210, 153, 34, 0) 70%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(88, 166, 255, 0.35) 0%, rgba(88, 166, 255, 0) 100%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(63, 185, 80, 0.35) 0%, rgba(63, 185, 80, 0) 100%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(210, 153, 34, 0.30) 0%, rgba(210, 153, 34, 0) 100%),
     var(--bg);
   background-attachment: fixed;
 }
@@ -124,9 +124,9 @@ body[data-skin-variant="azure"] {
   --glass-fill: rgba(26, 42, 72, 0.40);
   --glass-card: rgba(26, 42, 72, 0.50);
   background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(77, 163, 255, 0.30) 0%, rgba(77, 163, 255, 0) 70%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(94, 225, 230, 0.25) 0%, rgba(94, 225, 230, 0) 70%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(63, 185, 80, 0.30) 0%, rgba(63, 185, 80, 0) 70%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(77, 163, 255, 0.30) 0%, rgba(77, 163, 255, 0) 100%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(94, 225, 230, 0.25) 0%, rgba(94, 225, 230, 0) 100%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(63, 185, 80, 0.30) 0%, rgba(63, 185, 80, 0) 100%),
     var(--bg);
   background-attachment: fixed;
 }
@@ -137,9 +137,9 @@ body[data-skin-variant="noir"] {
   --glass-fill: rgba(26, 26, 26, 0.40);
   --glass-card: rgba(26, 26, 26, 0.50);
   background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(230, 230, 230, 0.16) 0%, rgba(230, 230, 230, 0) 70%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(88, 166, 255, 0.18) 0%, rgba(88, 166, 255, 0) 70%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(154, 154, 154, 0.12) 0%, rgba(154, 154, 154, 0) 70%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(230, 230, 230, 0.16) 0%, rgba(230, 230, 230, 0) 100%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(88, 166, 255, 0.18) 0%, rgba(88, 166, 255, 0) 100%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(154, 154, 154, 0.12) 0%, rgba(154, 154, 154, 0) 100%),
     var(--bg);
   background-attachment: fixed;
 }
@@ -159,9 +159,9 @@ body[data-skin-variant="frost"] {
   --glass-ink: #2A2620;
   --glass-ink-soft: rgba(42, 38, 32, 0.75);
   background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(138, 109, 31, 0.30) 0%, rgba(138, 109, 31, 0) 70%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(42, 95, 158, 0.25) 0%, rgba(42, 95, 158, 0) 70%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(42, 115, 62, 0.25) 0%, rgba(42, 115, 62, 0) 70%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(138, 109, 31, 0.30) 0%, rgba(138, 109, 31, 0) 100%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(42, 95, 158, 0.25) 0%, rgba(42, 95, 158, 0) 100%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(42, 115, 62, 0.25) 0%, rgba(42, 115, 62, 0) 100%),
     var(--bg);
   background-attachment: fixed;
 }

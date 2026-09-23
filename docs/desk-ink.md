@@ -293,7 +293,7 @@ decoration out of the CSS skins, every pane shows the paper.
 **The ground.** The ground a stylesheet paints on `body`, its radial gradients over the palette's `--bg`, is drawn
 into the `ground` slot (`api.order.ground`, in the back pass) under every skin that brings **no `ground` of its
 own**. A skin's `ground` hook replaces it. It is read from the computed style, which is Chromium's normalised form of
-each gradient (`radial-gradient(60% 55% at 16% 10%, rgba(…) 0%, rgba(…, 0) 70%)`), so `skin.css` stays its only owner,
+each gradient (`radial-gradient(60% 55% at 16% 10%, rgba(…) 0%, rgba(…, 0) 100%)`), so `skin.css` stays its only owner,
 and it is read again when the skin, the variant, the palette, a stylesheet or the window changes. A skin with no
 gradients on `body` has no ground to draw. It is opaque, and its first frame is exactly where the stylesheet put the
 blobs. Then it **drifts a pixel a second** round a two-minute circle, which is one frame a second, not sixty. It holds
