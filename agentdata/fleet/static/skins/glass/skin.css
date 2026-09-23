@@ -1,37 +1,18 @@
 /* Glass skin: HIG *Materials* -- a translucent material blurs what is behind it and adapts to
-   light and dark while keeping content legible (#155, #182).
+   light and dark while keeping content legible (#155, #182, #254).
 
-   Glassmorphism is four things, and the first version of this file had one of them: a translucent
-   fill. It had nothing behind the fill worth blurring (two washes at .10-.15 alpha over a near-black
-   ground), no edge that caught light (a .12 hairline), and no depth (every surface one fill at one
-   alpha), so Smoke rendered as a flat #1B222C and Frost as a flat #EDE6D6 -- exactly the solid the
-   contrast test measured, which was honest about the number and silent about the material.
+   Since #257 this file paints nothing. `static/ink/skins/glass.js` draws the glass where the ink
+   layer draws: the ground as a lit mesh of three blobs, every pane as frost over it with its edge,
+   glint and shadow, and a rim for its state. Under `body.ink-off` glass is the one plain look every
+   skin shares (app.css and the palette), with glass's mark table drawn as plain CSS.
 
-   Four things now, in four layers of rules:
+   What is left here are the numbers the module reads at paint time -- the variant's fill, edge,
+   glint, shadow and mesh -- as custom properties on <body>, never a hex in the script. They are
+   the numbers `skins.py` declares as each variant's `mesh` and `fill`: `skins.composited_range`
+   turns those into the darkest and lightest colour a pane composites to, `theme.check` is run at
+   both ends, and `tests/test_fleet_skins.py` reads this file back to prove the two agree. The
+   guard in `tests/test_fleet_skin_guard.py` holds the file to layout, typography and tokens.
 
-   0. THE GROUND is a mesh: three saturated blobs per variant, `background-attachment: fixed` so
-      the blur has colour to work with wherever a panel sits. No two centres share a place.
-   1. THE PANE: the fill at .34-.40 with `blur(18px) saturate(140%)`, an outer edge and an inset
-      top glint (the light catching the pane), a long soft shadow.
-   2. THE CARDS on a pane -- the approval, the asks, the dispatch card, the scope, the read-only
-      pane -- one step more opaque and one step brighter at the edge, so what is ON the glass is
-      distinguishable from the glass. Nothing is layer 3.
-   3. THE INK on the chrome, dark or pale for the variant. Chips stay solid: a `fail` means the
-      same thing in every world, and a translucent one is a `fail` somebody has to look at twice.
-
-   The numbers are not chosen by eye. Each variant's blobs (colour, peak alpha) and fill are the
-   same numbers `skins.py` declares as its `mesh` and `fill`; `skins.composited_range` turns those
-   into the darkest and lightest colour the pane can composite to, `theme.check` is run at both
-   ends, and `tests/test_fleet_skins.py` parses this file to prove the two say the same thing --
-   declared and rendered are one number by construction, not by somebody updating both. Then
-   `tests/test_fleet_desk_glass.py` screenshots the page and checks the real pixels sit inside
-   that range and *vary* across it, which is the one thing a flat skin cannot do.
-
-   Scoped under `body[data-skin="glass"]` throughout, which out-specifies every rule in `app.css`
-   without `!important`; the one place it is kept is the reduced-transparency fallback, which
-   must win over everything here. */
-
-/* ----------------------------------------------------------------------- 0. the ground, 1. the pane
    The default is Smoke, and `data-skin-variant="smoke"` says the same numbers again below, so a
    bare `glass` in the config and a `glass:smoke` render alike. */
 body[data-skin="glass"] {
@@ -43,77 +24,27 @@ body[data-skin="glass"] {
   --glass-shadow: rgba(0, 0, 0, 0.35);
   --glass-ink: #E6EDF3;
   --glass-ink-soft: rgba(230, 237, 243, 0.72);
+  /* The three blobs, at the same three places in every variant (the module's `MESH`): each its
+     colour at its peak alpha, fading to nothing at the end of its ray. */
   --glass-mesh-1: rgba(88, 166, 255, 0.35);
   --glass-mesh-2: rgba(63, 185, 80, 0.35);
   --glass-mesh-3: rgba(210, 153, 34, 0.30);
-  /* The three blobs, at the same three places in every variant. Each is its colour at its peak
-     alpha fading to nothing at 70% of its ray -- `transparent` interpolates to the same colour at
-     zero alpha, because a gradient mixes premultiplied. `ink/skins/glass.js` draws the same mesh
-     with ink on, from these same properties and at these same places (its `MESH`). */
-  background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, var(--glass-mesh-1) 0%, transparent 100%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, var(--glass-mesh-2) 0%, transparent 100%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, var(--glass-mesh-3) 0%, transparent 100%),
-    var(--bg);
-  background-attachment: fixed;
 }
 
-body[data-skin="glass"] header, body[data-skin="glass"] footer, body[data-skin="glass"] .tile,
-body[data-skin="glass"] #side, body[data-skin="glass"] .popover {
-  background: var(--glass-fill);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  border-color: var(--glass-edge);
-  box-shadow: inset 0 1px 0 var(--glass-glint), 0 12px 32px var(--glass-shadow);
-}
-/* The sidebar's sections sit inside the sidebar's pane: one layer, not the same fill twice. */
-body[data-skin="glass"] #side > aside { background: transparent; }
-body[data-skin="glass"] .tile { border-left: 4px solid var(--accent); }
-
-/* ------------------------------------------------------------------------------- 2. the cards */
-body[data-skin="glass"] .approval, body[data-skin="glass"] .asks, body[data-skin="glass"] .dispatch,
-body[data-skin="glass"] .scope, body[data-skin="glass"] .outside, body[data-skin="glass"] .readonly {
-  background: var(--glass-card);
-  border: 1px solid var(--glass-card-edge);
-  box-shadow: inset 0 1px 0 var(--glass-glint);
-}
-
-/* --------------------------------------------------------------------------------- 3. the ink */
-body[data-skin="glass"] header, body[data-skin="glass"] footer { color: var(--glass-ink); }
-body[data-skin="glass"] header h1 { color: var(--glass-ink); }
-body[data-skin="glass"] header .glabel, body[data-skin="glass"] header .dot,
-body[data-skin="glass"] footer #counts, body[data-skin="glass"] footer .keys { color: var(--glass-ink-soft); }
-body[data-skin="glass"] #notice { color: var(--waiting); }
-
-/* Status chips, accent borders, and focus rings remain solid and fully opaque */
-body[data-skin="glass"] .chip { opacity: 1; }
-body[data-skin="glass"] .chip.running { background: var(--running); color: #fff; }
-body[data-skin="glass"] .chip.waiting_approval { background: var(--waiting); color: #fff; }
-body[data-skin="glass"] .chip.needs_human, body[data-skin="glass"] .chip.blocked, body[data-skin="glass"] .chip.error { background: var(--human); color: #fff; }
-body[data-skin="glass"] .chip.done { background: var(--done); color: #fff; }
-body[data-skin="glass"] .chip.starting, body[data-skin="glass"] .chip.idle { background: var(--idle); color: #fff; }
-body[data-skin="glass"] .chip.not-supervised { background: var(--muted); color: var(--panel); }
-
-/* HIG Accessibility: Reduced transparency fallback. The one place `!important` is kept: it has to
-   win over every rule in this file. */
-@media (prefers-reduced-transparency: reduce) {
-  body[data-skin="glass"] header, body[data-skin="glass"] footer, body[data-skin="glass"] .tile,
-  body[data-skin="glass"] #side, body[data-skin="glass"] #side > aside,
-  body[data-skin="glass"] .popover,
-  body[data-skin="glass"] .approval, body[data-skin="glass"] .asks, body[data-skin="glass"] .dispatch,
-  body[data-skin="glass"] .scope, body[data-skin="glass"] .outside, body[data-skin="glass"] .readonly {
-    background: var(--panel) !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-}
+/* The header and the footer are clear over the lit ground where the ink draws (app.css), so what
+   is written on them is written in the variant's own ink, pale on the dark grounds and dark on
+   frost. */
+body[data-skin="glass"]:not(.ink-off) header, body[data-skin="glass"]:not(.ink-off) footer,
+body[data-skin="glass"]:not(.ink-off) header h1 { color: var(--glass-ink); }
+body[data-skin="glass"]:not(.ink-off) header .glabel, body[data-skin="glass"]:not(.ink-off) header .dot,
+body[data-skin="glass"]:not(.ink-off) footer #counts,
+body[data-skin="glass"]:not(.ink-off) footer .keys { color: var(--glass-ink-soft); }
 
 /* -------------------------------------------------------------- the colour variants (#4, #182)
 
    One frost, four grounds. A variant is its mesh -- three blobs, colour and peak alpha, at the
    same three places -- its fill, and the ink written on it. The `rgba()` numbers here are the ones
-   `skins.py` declares; `tests/test_fleet_skins.py` reads them back. The ground itself is painted
-   once, above, from each variant's `--glass-mesh-N`. */
+   `skins.py` declares; `tests/test_fleet_skins.py` reads them back. */
 
 /* smoke: neutral graphite behind the frost — over dark (#14171A); composites #181D24 … #273D57 */
 body[data-skin-variant="smoke"] {
@@ -149,9 +80,9 @@ body[data-skin-variant="noir"] {
 
 /* frost: the light one: warm paper under the same frost — over eye-relief-day (#F2ECDC); composites
    #DED4B8 … #F3EDDD. The light variant is the hard one: a light pane over a light mesh has the
-   smaller contrast budget, and its blob alphas were solved against 4.5:1 at the darkest point
-   (the text is dark, so the dark end is where it is nearest to failing). Hairlines and shadows
-   drawn for a dark ground read as smears on paper, so its edge is dark and its glint is bright. */
+   smaller contrast budget, and its blob alphas were solved against 4.5:1 at the darkest point.
+   Its edge is dark and its glint bright, because hairlines drawn for a dark ground read as smears
+   on paper. */
 body[data-skin-variant="frost"] {
   --glass-fill: rgba(244, 238, 224, 0.34);
   --glass-card: rgba(244, 238, 224, 0.44);
@@ -167,8 +98,8 @@ body[data-skin-variant="frost"] {
 }
 
 /* ------------------------------------------------------------------------- the scrollbar (#181)
-   A translucent thumb with the panel's own edge highlight, over whatever is behind it. Only the
-   thumb: the track is the surface underneath, so the frost shows through it. */
+   The thumb's colour, as the tokens app.css draws every thumb with: pale on the dark grounds, dark
+   on frost. */
 body[data-skin="glass"] {
   --scroll-thumb: rgba(255, 255, 255, 0.22);
   --scroll-thumb-hover: rgba(255, 255, 255, 0.36);
@@ -177,32 +108,3 @@ body[data-skin="glass"][data-skin-variant="frost"] {
   --scroll-thumb: rgba(0, 0, 0, 0.18);
   --scroll-thumb-hover: rgba(0, 0, 0, 0.30);
 }
-body[data-skin="glass"] *::-webkit-scrollbar-thumb {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-}
-body[data-skin="glass"][data-skin-variant="frost"] *::-webkit-scrollbar-thumb {
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.10);
-}
-
-/* ---------------------------------------------------------------- ink on: three.js draws it (#254)
-   Where the ink layer draws (`body` without `.ink-off`), the pane's glass is not CSS any more:
-   `ink/skins/glass.js` draws the ground as a lit mesh and every pane as frost over it, with its
-   edge, glint, shadow and a rim for its state. So the pane here is only its box -- transparent,
-   no backdrop filter, no shadow, its edges clear -- and what three.js drew behind it is what the
-   text is read on (the contrast test reads it back from the frame). The left edge keeps its
-   accent: that is which project, drawn by the page, not decoration. The selection ring comes back,
-   which the glass shadow above had been covering.
-
-   Everything above still holds under `body.ink-off`, where the stylesheet is the whole look, and
-   under `prefers-reduced-transparency`, whose opaque panel wins over these. Header, footer, the
-   sidebar and popovers stay CSS glass: their backdrop filter blurs the canvas like anything else. */
-body[data-skin="glass"]:not(.ink-off) .tile {
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border-top-color: transparent;
-  border-right-color: transparent;
-  border-bottom-color: transparent;
-  box-shadow: none;
-}
-body[data-skin="glass"]:not(.ink-off) .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }

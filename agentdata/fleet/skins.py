@@ -1,7 +1,10 @@
 """Skins for the Desk, and the palettes each one is drawn against (#154-#157, #4).
 
-A skin is one more stylesheet over the same DOM: the approved grid with CSS and hand-drawn SVG
-swapped in. A skin that needs a page change is not a skin.
+A skin is drawn over the same DOM and never changes it. Since #257 a skin that draws with ink is its
+module (`static/ink/skins/<name>.js`, three.js) plus a stylesheet that keeps only its layout, its
+typography and the colours the module reads -- nothing it paints, which a test guards -- and under
+`body.ink-off` every skin is the one plain look. A skin with no module yet (voxel) is a stylesheet
+over the page, as every skin once was. A skin that needs a page change is not a skin.
 
 **Skins drive palettes, not the other way round.** Every skin has variants and every variant names
 the palette it is drawn against; no palette has to know that any skin exists. That asymmetry is the
