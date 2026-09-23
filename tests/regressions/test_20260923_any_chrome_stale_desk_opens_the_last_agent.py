@@ -22,7 +22,10 @@ import pytest
 
 from agentdata.fleet import serve as S  # noqa: F401 - the desk the fixtures own
 
-from test_fleet_demo_ownership import _desk_of_five, _serve, fleet_home  # noqa: F401 - fixtures
+# `_own_desk_globals` too: without it this runs on whatever desk the previous test in the worker
+# left loaded, and never reads its own desk.json.
+from test_fleet_demo_ownership import (_desk_of_five, _own_desk_globals, _serve,  # noqa: F401
+                                       fleet_home)
 from test_fleet_desk_browser import launch_chromium
 
 SOLO = "(document.querySelector('.tile.is-solo') || {dataset: {}}).dataset.repo"

@@ -145,7 +145,7 @@ def _page(p, url):
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(url, wait_until="domcontentloaded")
-    page.wait_for_selector(".tile", timeout=15000)
+    page.wait_for_selector(".tile.is-solo", timeout=15000)
     page.wait_for_timeout(900)
     return browser, page, errors
 
@@ -326,7 +326,7 @@ def test_a_viewer_who_asked_for_less_motion_gets_no_transform_at_all(desk):
         page = browser.new_page(viewport={"width": 1440, "height": 900},
                                 reduced_motion="reduce")
         page.goto(desk, wait_until="domcontentloaded")
-        page.wait_for_selector(".tile", timeout=15000)
+        page.wait_for_selector(".tile.is-solo", timeout=15000)
         page.wait_for_timeout(900)
 
         assert page.evaluate("() => reduceMotion()") is True

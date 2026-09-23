@@ -379,7 +379,7 @@ def test_the_ground_drifts_under_glass_and_holds_still_when_asked_to(fleet_home,
                 page.on("pageerror", lambda e: errors.append(str(e)))
                 page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                           wait_until="domcontentloaded")
-                page.wait_for_selector(".tile", timeout=15000)
+                page.wait_for_selector(".tile.is-solo", timeout=15000)
                 page.wait_for_function(
                     "() => !document.getElementById('ground').hidden", timeout=15000)
 
