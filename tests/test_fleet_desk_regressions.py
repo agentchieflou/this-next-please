@@ -188,7 +188,7 @@ def _page(p, url):
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(url, wait_until="domcontentloaded")
-    page.wait_for_selector(".tile", timeout=15000)
+    page.wait_for_selector(".tile.is-solo", timeout=15000)
     page.wait_for_timeout(900)
     return browser, page, errors
 

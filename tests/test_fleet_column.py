@@ -363,7 +363,7 @@ def test_another_window_writing_the_old_zoom_to_the_same_record_does_not_move_th
             _open(page, port, token)
             other = browser.new_page(viewport={"width": 1280, "height": 900})
             other.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            other.wait_for_selector(".tile", timeout=10000)
+            other.wait_for_selector(".tile.is-solo", timeout=10000)
             answer = other.evaluate("""() => post('window', {
               w: 'main', zoomed: 'gamma', layout: 'grid', view: 'all', screen: 0 })""")
             assert answer["ok"], answer

@@ -236,7 +236,7 @@ def test_the_keyboard_and_the_hover_survive_twenty_draws(fleet_home, tmp_path):
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector(".tile", timeout=15000)
+            page.wait_for_selector(".tile.is-solo", timeout=15000)
             page.wait_for_function(
                 "() => !!document.querySelector('.tile .cells .cell')", timeout=15000)
 

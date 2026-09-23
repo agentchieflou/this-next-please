@@ -159,7 +159,7 @@ def test_the_chromium_column_is_what_chromium_actually_does(fleet_home, tmp_path
             page = browser.new_page(viewport={"width": 1400, "height": 900})
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector(".tile", timeout=15000)
+            page.wait_for_selector(".tile.is-solo", timeout=15000)
             version = page.evaluate("() => navigator.userAgent")
             got = {name: bool(page.evaluate(probe)) for name, probe in FEATURES.items()}
             browser.close()
