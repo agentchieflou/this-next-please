@@ -88,12 +88,24 @@
  *   repo?: string, project?: string, path?: string, state?: string, needs_human?: boolean,
  *   why?: string, last_said?: string, last_event_age_s?: number,
  *   spend?: {total?: number, [field: string]: any}, recent?: Array<{seq: number}>,
+ *   as_of?: {run: string, n: number},
  *   [field: string]: any
  * }} Row
  */
 
 /** Which of the three widths a pane is drawing (plan-panes §The pane). `setTier` alone writes it.
  * @typedef {"rail" | "compact" | "full"} Tier
+ */
+
+/** The widths the tiers change at, in CSS pixels (#235): `fleet.tiers.*` as `settings.tiers()` reads
+ *  them, on the theme payload. CI's numbers when the file sets none -- or sets four that do not go
+ *  together, when `invalid` says why.
+ * @typedef {Object} Tiers
+ * @property {number} rail                the rail's width
+ * @property {number} compact             compact from
+ * @property {number} full                full from
+ * @property {number} slack               how far past compact/full a pane goes before it changes
+ * @property {string} invalid             why the file's four were not drawn, or ""
  */
 
 /** A pane: one agent in the row, and its entry in `tiles` (#233). `el` is its `.tile`, made once by
@@ -1431,13 +1443,24 @@ function redrawAll() {
   place();
 }
 
+/* Was this row read before the one the tile already has (#235)? The two roads race each other home:
+   a snapshot the server read a moment before a hand-back landed after the hand-back's own answer and
+   drew the adoption back, and nothing came to draw it again -- a released lock is not an event. The
+   server numbers its reads, and a row from another run of it is a desk that restarted: taken. */
+/** @param {Row | undefined} shown  @param {Row} row  @returns {boolean} */
+function readBefore(shown, row) {
+  var had = shown && shown.as_of, got = row.as_of;
+  return !!(had && got && had.run === got.run && got.n < had.n);
+}
+
 /* One row onto its tile, making the tile if this is the first sight of it. Both an action's
    answer (#219) and a whole snapshot come through here, so a tile cannot be drawn one way by one
-   path and another way by the other. */
+   path and another way by the other -- nor by the older of the two because it arrived second. */
 /** @param {Row} row  @param {number} [index]  @returns {Pane | null} */
 function patchRow(row, index) {
   if (!row || !row.repo) return null;
   var entry = tiles.get(row.repo);
+  if (entry && readBefore(entry.row, row)) return entry;
   if (!entry) {
     var el = makeTile(row, index || tiles.size);
     var grid = document.getElementById("grid");
@@ -1524,7 +1547,11 @@ function restoreCached() {
   // Five minutes. Past that the shape of the fleet has probably changed, and a wrong desk held
   // for a second is worse than an empty one -- the fetch is in flight either way.
   if (Date.now() - (data.at || 0) > SNAP_GOOD_FOR_MS) return false;
-  if (data.theme) { applyTheme(data.theme.css, data.theme.theme); applySkin(data.theme.skin); }
+  if (data.theme) {
+    applyTheme(data.theme.css, data.theme.theme);
+    applySkin(data.theme.skin);
+    applyTiers(data.theme.tiers);                 // #235: before a pane is drawn
+  }
   if (data.desk) {
     // Shown, not believed. Its version is the snapshot's, so it is dropped: the first real answer
     // has to win whatever number it carries, or a desk.json that started again from nought would
@@ -1595,6 +1622,7 @@ function refresh() {
     if (data.theme) {
       applyTheme(data.theme.css, data.theme.theme);
       applySkin(data.theme.skin);
+      applyTiers(data.theme.tiers);               // #235: the operator's tier boundaries
     }
     if (typeof data.preflight === "boolean") PREFLIGHT = data.preflight;
     toggle(document.body, "is-stale", false);
@@ -1647,6 +1675,7 @@ function connect() {
       var d = JSON.parse(m.data);
       applyTheme(d.css, d.theme);
       applySkin(d.skin);
+      applyTiers(d.tiers);                        // #235: set on the settings page, in effect now
       if (d.accents) {
         Object.keys(d.accents).forEach(function (repo) {
           if (tiles.has(repo)) paintAccent(tiles.get(repo).el, d.accents[repo]);
@@ -4575,16 +4604,63 @@ function ageOf(row) {
    is, and how wide it is by the arrangement: open panes share the row by weight, every other one is
    a 48px rail. `data-tier` is the one bridge between the two, and it has one writer. */
 
-/* The boundaries, in CSS pixels of the pane's border box. Starting values, which the laptop sets in
-   #235: 360 is the grid's narrowest tile as it was, and 160 the narrowest a head and a reply box
-   can share. The rail's own 48px is `--rail` in app.css; `RAIL_PX` and the two after it mirror the
-   stylesheet for the one sum that decides whether the rails still fit (`groupRails`). */
+/* The boundaries, in CSS pixels of the pane's border box. These are CI's, and the defaults: 360 is
+   the grid's narrowest tile as it was, and 160 the narrowest a head and a reply box can share. The
+   operator's own come from `fleet.tiers.*` (#235) through `applyTiers` below. The rail's width is
+   `--rail` in app.css; `RAIL_PX` and the two after it mirror the stylesheet for the one sum that
+   decides whether the rails still fit (`groupRails`). */
 var TIER_COMPACT_FROM = 160;
 var TIER_FULL_FROM = 360;
 var TIER_SLACK = 8;
 var RAIL_PX = 48;
 var ROW_GAP_PX = 6;
 var ROW_PAD_PX = 16;
+
+/* The four as the operator set them after trying them on the real monitors (#235): `fleet.tiers.*`
+   in config.json, from the settings page. They come with the theme -- `/api/fleet`, the stream's
+   `theme` frame when the file changes, and the snapshot a reload draws first -- so a change reaches
+   this desk on the next tick, with no reload and nothing written. The server has already refused
+   any four that do not go together, and sends CI's with `invalid` saying why when the file holds
+   one anyway, so all this checks is that it was handed numbers in order.
+
+   The stylesheet needs two of them -- the rail's width, and the floor a pane with a width never
+   goes under -- and they are written on the root only when they are not CI's, so a desk on the
+   defaults carries nothing for them. A boundary that moved under a pane that did not is a change
+   the observer never hears of, so every pane already measured has its tier taken again at the
+   width it has. */
+/** @type {{rail: number, compact: number, full: number, slack: number}} */
+var TIER_DEFAULTS = { rail: RAIL_PX, compact: TIER_COMPACT_FROM, full: TIER_FULL_FROM,
+                      slack: TIER_SLACK };
+var tiersSaid = "";
+
+/** @param {Tiers | null | undefined} t */
+function applyTiers(t) {
+  if (!t) return;
+  var rail = Number(t.rail), compact = Number(t.compact), full = Number(t.full);
+  var slack = Number(t.slack);
+  if (!(rail > 0 && compact > rail && full > compact && slack >= 0)) return;
+  if (t.invalid && t.invalid !== tiersSaid) {
+    say("fleet.tiers: " + t.invalid + " — the panes are drawn at the defaults", 20);
+  }
+  tiersSaid = t.invalid || "";
+  if (rail === RAIL_PX && compact === TIER_COMPACT_FROM && full === TIER_FULL_FROM &&
+      slack === TIER_SLACK) return;
+  RAIL_PX = rail;
+  TIER_COMPACT_FROM = compact;
+  TIER_FULL_FROM = full;
+  TIER_SLACK = slack;
+  var root = document.documentElement;
+  style(root, "--rail", rail === TIER_DEFAULTS.rail ? "" : rail + "px");
+  style(root, "--compact-from", compact === TIER_DEFAULTS.compact ? "" : compact + "px");
+  tiles.forEach(function (entry) {
+    if (!entry.el.dataset.tier) return;           // not measured yet: the observer's first report
+    var width = entry.el.getBoundingClientRect().width;
+    if (width > 0 && setTier(entry.el, width) && entry.row) {
+      drawTile(entry.el, entry.row, lastApprovals);
+    }
+  });
+  placeSoon();
+}
 
 /* Which tier a width is, remembering which one the pane was in. A pane leaves its tier only once
    it is 8px past the boundary, so a pane sitting on 360 -- a window edge being dragged, a scrollbar

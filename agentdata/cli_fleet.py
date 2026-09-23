@@ -1357,20 +1357,38 @@ def cmd_probe(a) -> int:
 
 
 def cmd_engines(a) -> int:
-    """The WebGL row of `docs/desk-engines.md`, read from what every shell's probe recorded.
+    """The rows of `docs/desk-engines.md`, read from what every shell's probe recorded.
 
-    One line per column of that table -- the four shells it names, *not yet measured* until they
-    have been -- then any other shell that has posted. The cell is `probe.verdict`, in the doc's
-    own vocabulary, so what is printed here is what goes in the doc.
+    `engines` is the WebGL row, one line per column of that table -- the four shells it names, *not
+    yet measured* until they have been -- then any other shell that has posted. `features` is every
+    other row, laid out as the table is (#235). Each cell is the doc's own vocabulary, so what is
+    printed here is what goes in the doc. `tiers` is the other half of #235's proof: the widths the
+    desk changes a pane's tier at on this machine, which `docs/desk-window.md` records beside CI's.
     """
+    from .fleet import settings as SET
+
     rows = PR.engine_rows()
     measured = sum(1 for r in rows if r[2] != "not yet measured")
+    feature_columns, features = PR.feature_rows()
+    answered = sum(1 for i in range(1, len(feature_columns))
+                   if any(r[i] != "not yet measured" for r in features))
+    try:
+        cfg = C.load()
+    except C.ConfigError:
+        cfg = {}
+    tiers = SET.tiers(cfg)
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet engines", "shells": len(rows),
-                                "measured": measured,
+                                "measured": measured, "features_measured": answered,
                                 "file": textio.norm_path(PR.probes_file()), "rule": PR.RULE,
                                 "doc": "docs/desk-engines.md",
+                                "tiers_invalid": tiers["invalid"],
                                 "next": "ad-fleet probe --open pycharm | vscode | edge | browser"}}))
     print(toon.table("engines", PR.ENGINE_COLUMNS, rows))
+    print(toon.table("features", feature_columns, features))
+    print(toon.table("tiers", ["tier", "px", "default", "set", "key"],
+                     [[name, tiers[name], SET.TIER_DEFAULTS[name],
+                       C.get(cfg, key) is not None, key]
+                      for name, key in SET.TIER_KEYS.items()]))
     return EXIT_OK
 
 
@@ -1812,7 +1830,8 @@ def build_parser() -> argparse.ArgumentParser:
     prb.add_argument("--port", type=int, default=8765, help="port to start a server on if none is up")
     prb.set_defaults(fn=cmd_probe)
 
-    eng = sub.add_parser("engines", help="the WebGL row of docs/desk-engines.md, from every shell's probe")
+    eng = sub.add_parser("engines", help="the rows of docs/desk-engines.md, from every shell's probe, "
+                                         "and the tier widths in effect")
     eng.set_defaults(fn=cmd_engines)
 
     brd = sub.add_parser("board", help="your Jira tickets, and which repo each one belongs to")

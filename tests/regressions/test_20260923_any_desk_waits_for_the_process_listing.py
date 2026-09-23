@@ -81,3 +81,15 @@ def test_an_explicit_adopt_still_waits_for_a_current_listing(slow_listing):
     assert time.monotonic() - t0 >= 0.25, "a refusal has to be current, so this one waits"
     assert rows and rows[0]["pid"] == 4242
     assert len(started) == 1
+
+
+def test_an_adopt_joins_the_listing_already_out_rather_than_starting_a_second(slow_listing):
+    """A fresh desk's first answer starts the listing, and the operator's first adopt came while it
+    was still out: a second PowerShell for the same answer, and the adopt's answer waiting on it.
+    That adopt's answer is the one the hand-back raced on the Windows 3.14 leg of main."""
+    release, started = slow_listing
+    A.agent_processes(wait=False)                              # the desk's first answer
+    threading.Timer(0.3, release.set).start()
+    rows = A.agent_processes()                                 # the adopt, a moment later
+    assert rows and rows[0]["pid"] == 4242
+    assert len(started) == 1, "two listings for one answer"

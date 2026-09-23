@@ -244,6 +244,9 @@ function controlFor(key, spec, current) {
     el = document.createElement("input");
     el.type = spec.type === "int" || spec.type === "float" ? "number" : "text";
     if (spec.type === "int") el.step = "1";
+    // The bounds the server refuses outside of, so the box's arrows stop where a refusal would start.
+    if (spec.min != null) el.min = String(spec.min);
+    if (spec.max != null) el.max = String(spec.max);
     el.value = current == null ? "" : String(current);
   }
   el.id = "cfg-" + key.replace(/\./g, "-");
@@ -262,11 +265,20 @@ function controlFor(key, spec, current) {
   return el;
 }
 
+/* Each row lands in its section: the Copilot block, or -- for the pane's tiers (#235) -- under
+   Appearance, because they are how the desk is drawn. */
+var SECTIONS = { copilot: "cfgrows", appearance: "tierrows" };
+
 function renderConfig(data) {
-  var host = document.getElementById("cfgrows");
-  if (!host) return;
-  while (host.firstChild) host.removeChild(host.firstChild);
+  var hosts = {};
+  Object.keys(SECTIONS).forEach(function (name) {
+    var el = document.getElementById(SECTIONS[name]);
+    if (el) while (el.firstChild) el.removeChild(el.firstChild);
+    hosts[name] = el;
+  });
   (data.editable || []).forEach(function (spec) {
+    var host = hosts[spec.section] || hosts.copilot;
+    if (!host) return;
     var row = document.createElement("div");
     row.className = "setrow";
     var label = document.createElement("label");
@@ -287,6 +299,16 @@ function renderConfig(data) {
     row.appendChild(why);
     host.appendChild(row);
   });
+}
+
+/* What the desk is drawing with, when that is not what the boxes say: a four in the file that does
+   not go together -- a hand edit -- is drawn at CI's numbers, and this says why (#235). */
+function renderTierNote(tiers) {
+  var note = document.getElementById("tiernote");
+  if (!note) return;
+  var why = (tiers && tiers.invalid) || "";
+  text(note, why ? "The desk is drawing at the defaults: " + why + "." : "");
+  note.hidden = !why;
 }
 
 function renderPatterns(listId, countId, rows) {
@@ -318,6 +340,7 @@ function load() {
     if (!data || data.ok === false) return;
     renderModels(data);
     renderConfig(data);
+    renderTierNote(data.tiers);
     renderPatterns("allowlist", "allowcount", (data.tools || {}).allow);
     renderPatterns("denylist", "denycount", (data.tools || {}).deny);
   }).catch(function () { /* a settings page that cannot reach the server says nothing new */ });

@@ -1,14 +1,17 @@
 # Plan: panes — one arrangement, every agent its own column, every column resizable
 
-_Status: PLANNED (2026-09-22) — epic #229 (slices #230–#236), under #91 (the fleet) and #122 (the desk). Written from the
-operator's sentences of 22 September 2026, recorded verbatim in §Decisions, and from three investigations run the
-same day. Each investigation reproduced its finding before anything here was written: the snap-back in headless
-Chromium with the repo's own browser helpers, and the stale questions against a scratch fleet driven by `ad-state`
-in a subprocess. This plan **supersedes Decision 1 of [plan-column.md](plan-column.md)** ("a column of bands … not
-side-by-side strips"), which the operator says was a misreading. It also **retires the arrangement spike of
-[fleet-layouts.md](fleet-layouts.md)** a few weeks before that page's own one-month deadline, on the operator's word.
-Every platform feature named below is measured in Edge, PyCharm's JCEF window and VS Code's Simple Browser before
-it is relied on, as every desk plan since #145 has required._
+_Status: BUILT, A to G (2026-09-23) — epic #229 (slices #230–#236), under #91 (the fleet) and #122 (the desk). A
+and B landed in #237, C in #259, D in #264, E in #270, F on #235's branch, and G: PR #271. What only the
+laptop can answer, the three shells' engine cells and the laptop's tier widths, is runbook §Panes P10–P16 (P17–P18 are A's and B's regressions in Chrome) in
+[windows-verification.md](windows-verification.md), and it reads *not yet measured* until it is run. Planned
+2026-09-22, from the operator's sentences of that day, recorded verbatim in §Decisions, and from three
+investigations run the same day. Each investigation reproduced its finding before anything here was written: the
+snap-back in headless Chromium with the repo's own browser helpers, and the stale questions against a scratch fleet
+driven by `ad-state` in a subprocess. This plan **supersedes Decision 1 of [plan-column.md](plan-column.md)** ("a
+column of bands … not side-by-side strips"), which the operator says was a misreading. It also **retires the
+arrangement spike of [fleet-layouts.md](fleet-layouts.md)** a few weeks before that page's own one-month deadline, on
+the operator's word; that page is closed (#235). Every platform feature named below is measured in Edge, PyCharm's
+JCEF window and VS Code's Simple Browser before it is relied on, as every desk plan since #145 has required._
 
 ## Why this exists
 
@@ -354,6 +357,47 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
 - Engine rows for `ResizeObserver`, container queries and pointer capture on the gutter in JCEF, Simple Browser and
   Edge. The laptop's tier thresholds, recorded beside CI's. [desk-window.md](desk-window.md) rewritten for panes and
   gutters, [fleet-layouts.md](fleet-layouts.md) closed. Plan-column's Decision 1 already links here.
+- **Built (#235)**, in `tests/test_fleet_tiers.py`, `tests/test_fleet_engines.py` and `tests/test_fleet_probe.py`.
+  What building it decided, each undone by a sentence from the operator:
+  - **The engine rows ride on the WebGL probe.** `/probe` (#247) already reaches every shell, including the two
+    that nothing outside can point at a URL, and already posts to the desk. It now asks every yes-or-no row of
+    [desk-engines.md](desk-engines.md) as well, before it draws. The desk keeps the answers as facts
+    (`features` in `probes.json`), `probe.feature_cell` turns them into the table's words, and
+    `ad-fleet engines` prints them laid out as the table is. So W1–W4 fill every row at once, and O1's
+    dev-console paste is superseded. A desk-side `?selfcheck=panes` was weighed and not built. Whether an engine
+    has a feature is the same answer on any page it opens. What only the desk could add is a hand on a gutter,
+    which no script supplies, and those are runbook steps P11–P14.
+  - **Container queries are asked to apply**, not only to parse: a rule inside `@container` has to reach an
+    element. The answers are read from a shell's newest post, finished or not, because a scene hidden halfway
+    says nothing about `ResizeObserver`.
+  - **One row per feature, not per use.** `ResizeObserver` is a new row. Pointer capture and container
+    queries keep their rows, and their fallbacks are extended for the gutter and the pane's head. The tiers do
+    not use container queries whatever the shells say, because `data-tier` is what tests and the draw code
+    read. The shells' answer decides only whether a later slice may lean on them.
+  - **CI measures the capture itself**: every move is the gutter's while the hand is off its strip, off the row,
+    over the toolbar. The every-fallback test now also takes `ResizeObserver` away and checks that every pane
+    still draws the tier its width says.
+  - **The thresholds are settings**: `fleet.tiers.rail_px`, `compact_px`, `full_px` and `slack_px`, with CI's
+    48 / 160 / 360 / 8 as the defaults. They sit on the settings page under *Appearance* and not in the Copilot
+    block, because they are how the desk is drawn. Each has bounds (`out_of_range`), and two rules hold between
+    them (`bad_tiers`): *compact from* at least 64px past the rail, and *full from* at least 80px past
+    *compact from*. The rules run once a batch is in, so two values that only go together can be written
+    together. A four in the file that does not go together is drawn at CI's numbers and said (the footer, the
+    settings page, `ad-fleet engines`'s `tiers_invalid`), which is `budget_invalid`'s pattern.
+  - **They ride the theme payload**, because that is how `config.json` already reaches every window: `/api/fleet`,
+    the stream's `theme` frame when the file changes, and the snapshot a reload draws first. So *in effect now*
+    is true with no new frame and no reload. A change takes every measured pane's tier again at the width it
+    has, because a boundary that moves under a pane that did not is a change the observer never hears.
+  - **The stylesheet reads two of them from the root**, `--rail` and `--compact-from`, written only when they
+    are not CI's, so a desk on the defaults carries nothing new. A wide pane's floor follows *compact from*,
+    or a pane between the old floor and the new one would be drawn as a rail's face, the #234 regression again.
+    The gutter's rail snap stays 120px, and *compact from* may not go under it, so a compact pane can
+    always be landed on by hand.
+  - **The laptop's numbers** are recorded in [desk-window.md](desk-window.md) §The tiers beside CI's, and read
+    *not yet measured* until runbook P15–P16. P10–P16 carry on from D's P1–P9, so every P step in the runbook
+    has one meaning.
+  - **Typed, as G types the tiers.** G landed while F was being built. `applyTiers` sits in the typed part,
+    so the payload it reads is a `Tiers` typedef, held to `settings.tiers()` by `tests/test_desk_types.py`.
 
 ### G #236 — types without a build
 
@@ -416,7 +460,9 @@ D after C. E after D. F alongside E. G can start with D, on D's new files.
 - When even the rails do not fit (about 30 agents on a 1 440 px window), should a project's checkouts share one rail,
   as the dock grouped them, or should the row scroll with a red count at each edge? Default: group. (D)
   **D ships the default**; the laptop answers it (P8 in [windows-verification.md](windows-verification.md)).
-- Are 48 / 160 / 360 px the right tier boundaries on the real monitors? (F)
+- Are 48 / 160 / 360 px the right tier boundaries on the real monitors? (F) **F makes them settings**
+  (`fleet.tiers.*`, CI's numbers the defaults); the laptop answers it (P15–P16 in
+  [windows-verification.md](windows-verification.md)), and [desk-window.md](desk-window.md) §The tiers records it.
 - Should a click on a rail swap, as today, or open beside with swap on Shift? Default: swap, because it is the
   gesture the operator already has. (E)
 - Should **all** be the default preset on a wide monitor and **one** on the laptop panel, with the window's width

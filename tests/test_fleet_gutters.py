@@ -1264,7 +1264,7 @@ def test_a_drag_draws_nothing_but_widths():
     assert js.count('style(entry.el, "--w"') == 1
     assert js.count('style(el, "--w"') == 1
     assert js.count('toggle(entry.el, "is-solo"') == 1
-    assert ".tile.is-solo { flex: var(--w, 1) 1 0; min-width: 160px; }" in css
+    assert ".tile.is-solo { flex: var(--w, 1) 1 0; min-width: var(--compact-from); }" in css
     # Pointer capture, on the gutter, and every gutter in the markup of the one pane template.
     gutter = js[js.index("function bindGutter(gutter, el) {"):]
     assert "gutter.setPointerCapture(e.pointerId)" in gutter[:gutter.index("\n}\n")]
