@@ -9,7 +9,7 @@ Read this before running `ad-update`: it says whether an update needs anything b
 **A visual `ad-pbiviz import` adds opens in Desktop.** Desktop refuses a report whose `report.json` breaks its
 schema, and import broke it. Its `resourcePackages` entry carried a `path`, which the report schema does not allow,
 and no `items`, which it requires. It also listed the visual in `publicCustomVisuals`, the schema's list of AppSource
-visuals, and copied the `.pbiviz` under `StaticResources/RegisteredResources/`. Nine Desktop-saved PBIP reports
+visuals, and copied the `.pbiviz` under `StaticResources/RegisteredResources/`. Fifteen Desktop-saved PBIP reports
 (report schemas 1.1.0 to 3.3.0) agree on what Desktop writes instead, and import now writes the same:
 - the package's own files under `CustomVisuals/<guid>/`: `package.json` and `resources/<guid>.pbiviz.json`;
 - one entry, `{"name": "<guid>", "type": "CustomVisual", "items": [{"name": "<guid>.pbiviz.json", "path":
