@@ -335,6 +335,54 @@ def _rgb_255(hexs):
 
 
 @pytest.mark.browser
+def test_the_chip_glyph_is_one_sprite_of_the_sheet_and_not_all_of_them(fleet_home, tmp_path):
+    """Under `body.ink-off` the chip carries its crop as `url("sprites.svg#crop-*")`. Every sprite in
+    the sheet sits at 0,0, so a fragment that did not hide the others drew all seven on top of each
+    other, squeezed into 16px. The sheet is a stack now: a fragment is that sprite alone, the
+    sheet's own size, and no fragment is nothing. Read as the page reads it -- an image of the
+    sheet by fragment, drawn at 16px."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _farm_desk(fleet_home, tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors = _page(browser, port, token, "")
+            drawn = page.evaluate("""async (ids) => {
+              const out = {};
+              for (const id of ids) {
+                const img = new Image();
+                img.src = q('/static/skins/farmstead/sprites.svg') + (id ? '#' + id : '');
+                await img.decode();
+                const c = document.createElement('canvas');
+                c.width = c.height = 16;
+                const g = c.getContext('2d');
+                g.imageSmoothingEnabled = false;
+                g.drawImage(img, 0, 0, 16, 16);
+                const d = g.getImageData(0, 0, 16, 16).data, seen = new Set();
+                for (let i = 0; i < d.length; i += 4) {
+                  if (d[i + 3]) seen.add('#' + [d[i], d[i + 1], d[i + 2]].map(v => v.toString(16)
+                    .padStart(2, '0')).join('').toUpperCase() + (d[i + 3] < 255 ? '~' : ''));
+                }
+                out[id || 'none'] = [...seen].sort();
+                out[(id || 'none') + ':size'] = [img.naturalWidth, img.naturalHeight];
+              }
+              return out;
+            }""", ["crop-seed", "crop-sprout", "crop-sun", "crop-bloom", "crop-wilted", ""])
+            glyph = page.evaluate("""() => getComputedStyle(document.querySelector(
+              '.tile[data-repo="alpha"] .chip'), '::before').backgroundImage""")
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    assert re.search(r"sprites\.svg(\?[^#\"]*)?#crop-seed", glyph), glyph
+    for sprite in ("crop-seed", "crop-sprout", "crop-sun", "crop-bloom", "crop-wilted"):
+        assert drawn[sprite] == sorted({c.upper() for c in _sprite(sprite)}), (sprite, drawn[sprite])
+        assert drawn[sprite + ":size"] == [16, 16], drawn[sprite + ":size"]
+    assert drawn["none"] == [], "the sheet with no fragment draws nothing"
+
+
+@pytest.mark.browser
 def test_the_sprites_are_nearest_neighbour_textures_at_a_whole_number_of_device_pixels(fleet_home, tmp_path):
     """The art is rasterised on its own grid -- one texel per art pixel -- and every enlargement is
     NearestFilter's at a whole number of DEVICE pixels. At a device pixel ratio of 2 an art pixel of
@@ -458,10 +506,20 @@ def _force(monkeypatch):
     return forced
 
 
-def _state(page, repo, cls, timeout=20000):
-    page.evaluate("refresh()")
-    page.wait_for_function(f"""() => document.querySelector('.tile[data-repo="{repo}"]')
-                               .classList.contains('{cls}')""", timeout=timeout)
+def _state(page, repo, cls, timeout=30000):
+    """Wait for the PAGE to set `cls` on a pane, from what the server now says. Asked for again
+    until it does: a `refresh()` joins one already in flight, and that one may have left before
+    the server's answer changed -- on a slow Windows runner, often enough to fail a run."""
+    import time
+    deadline = time.monotonic() + timeout / 1000
+    has = f"""() => document.querySelector('.tile[data-repo="{repo}"]').classList.contains('{cls}')"""
+    while True:
+        page.evaluate("async () => { await refresh(); }")
+        try:
+            page.wait_for_function(has, timeout=2000)
+            return
+        except Exception:                                   # noqa: BLE001 - asked again below
+            assert time.monotonic() < deadline, f"{repo} never became {cls}"
 
 
 #: Every frame from now until the paper is at rest: the crop's rows as the skin reports them.

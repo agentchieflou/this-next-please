@@ -125,13 +125,18 @@ stylesheet's cave and rain tiles were drawn from the daylight ones. The palette'
   as the shader lights it, keeps 4.5:1 under each colour `skin.css` writes the bands' text in. That is what sets the
   daylight band light at 0.55.
 
-## Two things the page needed
+## Three things the page needed
 
 * **An idle desk with a skin wrote to the page.** Every refresh applies the palette and the skin again, and
-  `applyTheme` and `applySkin` set their attributes whether or not they had changed. `startGround` also waited for an
-  already loaded sheet on every pass, for a skin with no mesh. The ink layer follows `data-skin`, so it drew a frame
-  each time. Both now write only a change (`attr`, and a loaded sheet is not waited for), and
-  `tests/regressions/test_20260923_any_idle_desk_with_a_skin_writes.py` holds it.
+  `applyTheme` and `applySkin` set their attributes whether or not they had changed. `startGround` also waited again
+  for a skin's stylesheet on every pass. The ink layer follows `data-skin`, so it drew a frame each time. They write
+  only a change now (the graph paper slice, #253, landed the same fix), and
+  `tests/regressions/test_20260923_any_idle_desk_with_a_skin_writes.py` holds it for farmstead and voxel.
+* **The chip's glyph was the whole sheet.** Under `body.ink-off` the chip carries `url("sprites.svg#crop-*")`. Every
+  sprite in the sheet sits at 0,0, and nothing hid the others, so the glyph was all seven drawn over each other and
+  squeezed into 16px. The sheet is a stack now: its root is 16x16, its sprites are hidden, and `:target` shows the
+  one a fragment names. With no fragment it shows nothing. The ink loader reads each sprite out on its own, so it
+  is unaffected.
 * **A clear header needs its own layer.** With the header's background cleared, Chromium composited the canvas with a
   band missing along the foot of the panes. The drawing buffer was whole (read back); the screen was not. The rule
   `will-change: transform` on the header puts it right. The header holds no popover that a stacking context could
@@ -150,5 +155,7 @@ stylesheet's cave and rain tiles were drawn from the daylight ones. The palette'
   (`is-done`, from a real `phase_changed` to done) is ticked and grows its seed to a bloom through the sprout.
 * **The grammar**: each state's mark and material appear from the fold's own events, and leave struck when a new run
   begins.
+* **The chip's glyph**: each `sprites.svg#crop-*` is exactly that sprite's colours at 16x16, and the sheet with no
+  fragment draws nothing.
 * **`theme.check`** pairs, the bounded catch-up in frames, the idle desk (zero writes, zero frames), and `dispose`
   freeing the textures (the renderer's own count).
