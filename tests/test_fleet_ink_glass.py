@@ -121,9 +121,31 @@ READY = """(v) => { const i = Ink.inspect(), l = i.layer;
 MODULE = """async () => { window.__glass = await import(q('/static/ink/skins/glass.js')); return true; }"""
 
 
-def _ready(page, variant, also="true", timeout=30000):
+#: What the page had when it was not ready: the gate, the table, the layer's skin and lanes, the
+#: marks still being drawn, and each pane's fill beside the stylesheet's.
+WHY = """() => { const i = Ink.inspect(), l = i.layer, cs = getComputedStyle(document.body);
+  return { on: i.verdict.on, why: i.verdict.why, table: i.table, skin: l && l.skin, busy: l && l.busy,
+           frames: l && l.frames, drawing: l && l.marks.filter(m => m.state === 'queued' || m.state === 'drawing')
+             .map(m => m.lane + ' ' + m.selector + ' ' + m.drawn),
+           fill: cs.getPropertyValue('--glass-fill').trim(),
+           panes: window.__glass ? window.__glass.inspect().panes.map(p => p.repo + ' ' + p.fill.join()) : null }; }"""
+
+
+def _ready(page, variant, also="true", timeout=30000, rest=True):
+    """Glass drawn for `variant` (`READY`), and with `rest` the ink at rest as well: every mark on
+    the page drawn. With motion allowed that is a hand's pace counted in frames -- a frame's `dt`
+    is held to 0.1s, and the dashed outline round each pane's `old skills` note takes four or five
+    -- and in SwiftShader one frame of glass (the ground drawn twice, three panes of frost at
+    twenty-one taps a pixel) costs from half a second to several. So `rest` is those frames' cost
+    on top of the layer's start, and a test that needs only the glass -- its ground target, its
+    panes, their colours -- passes `rest=False`. The dispose test waited for the ink, and on the
+    Windows leg the ink's frames ran its first wait past 30s (#254)."""
     page.evaluate(MODULE)
-    page.wait_for_function(f"(v) => ({READY})(v) && ({AT_REST})() && ({also})", arg=variant, timeout=timeout)
+    want = f"(v) => ({READY})(v) && ({AT_REST if rest else '() => true'})() && ({also})"
+    try:
+        page.wait_for_function(want, arg=variant, timeout=timeout)
+    except Exception:
+        raise AssertionError(("glass not ready", variant, "at rest" if rest else "drawn", page.evaluate(WHY)))
 
 
 def _choose(page, skin):
@@ -286,7 +308,8 @@ def test_every_variant_is_drawn_by_the_layer_and_its_panel_is_measured_from_the_
             page, errors, _ = _open(browser, port, token)
             for variant in VARIANTS:
                 _choose(page, f"glass:{variant}")
-                _ready(page, variant)
+                # The glass drawn: what is read back is behind each transcript, where no mark is.
+                _ready(page, variant, rest=False)
                 look = page.evaluate("""() => { const t = getComputedStyle(document.querySelector('#grid .tile'));
                   return { bg: t.backgroundColor, filter: t.backdropFilter, off: document.body.classList.contains('ink-off'),
                            canvas: !!document.getElementById('ink'), skin: Ink.inspect().layer.skin }; }""")
@@ -616,7 +639,10 @@ def test_dispose_frees_the_ground_target_when_the_skin_changes(fleet_home, tmp_p
             page, errors, _ = _open(browser, port, token)
             for variant in ("smoke", "azure"):
                 _choose(page, f"glass:{variant}")
-                _ready(page, variant)
+                # The glass drawn, not the ink at rest: what is measured is the ground's target,
+                # and no mark holds a texture. Motion stays allowed, so glass keeps a ground timer
+                # for `dispose` to clear.
+                _ready(page, variant, rest=False)
                 on = _glass(page)
                 page.evaluate("() => Ink.setSkin(null).then(() => true)")
                 gone = _glass(page)
