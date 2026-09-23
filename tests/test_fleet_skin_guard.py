@@ -39,12 +39,13 @@ INK_SKINS = os.path.join(STATIC, "ink", "skins")
 PALETTE = {"--bg", "--panel", "--text", "--line", "--select", "--muted", "--accent", "--focus",
            "--running", "--waiting", "--human", "--done", "--idle"}
 
-#: What lays the words out and what they are written in.
+#: What lays the words out and what they are written in -- and three hints to the engine that paint
+#: nothing themselves (`will-change`, `contain`, `color-scheme`).
 LAYOUT = re.compile(r"^(display|position|inset|top|right|bottom|left|width|height|min-width|min-height|"
                     r"max-width|max-height|margin(-[a-z]+)*|padding(-[a-z]+)*|gap|row-gap|column-gap|"
                     r"flex(-[a-z]+)*|grid(-[a-z]+)*|align-[a-z]+|justify-[a-z]+|place-[a-z]+|order|"
                     r"overflow(-[a-z]+)?|z-index|box-sizing|vertical-align|content|container(-[a-z]+)?|"
-                    r"will-change|contain)$")
+                    r"will-change|contain|color-scheme)$")
 TYPOGRAPHY = re.compile(r"^(font(-[a-z]+)*|letter-spacing|word-spacing|line-height|text-align|"
                         r"text-transform|text-indent|white-space|word-break|overflow-wrap|hyphens|"
                         r"tab-size)$")

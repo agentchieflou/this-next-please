@@ -142,6 +142,28 @@ SKINS = {
                        "why": "canary stock, and an orange-pink highlighter that still reads on it"},
         },
     },
+    # The first skin drawn with ink (#249, #250; docs/desk-ink.md §The notebook). Its panel is the
+    # paper itself: under ink the panes are transparent and the page is the stock. `inks` are the
+    # tools' colours on that paper (the prototype's), `text` and `muted` the words written on it --
+    # the skin's own, set in its skin.css, and held to the same floors by tests/test_fleet_ink_notebook.py.
+    # Dark is a variant rather than a `notebook-dark` family: skins drive palettes, so the night
+    # page's ground is named by the variant like Voxel's Nether, and one module draws both.
+    "notebook": {
+        "name": "notebook",
+        "title": "Notebook",
+        "why": "a graph-ruled notebook drawn live in pencil, pen, marker and highlighter",
+        "default": "light",
+        "variants": {
+            "light": {"title": "Notebook", "base": "eye-relief-day", "composited_panel": "#FBFBF6",
+                      "inks": {"pencil": "#50545C", "pen": "#22398F", "red": "#C8352B",
+                               "green": "#2E7A4D", "marker": "#C8352B", "highlighter": "#F3DF4B"},
+                      "why": "white stock, blue rules, a red margin"},
+            "dark": {"title": "Night notebook", "base": "dark", "composited_panel": "#1B1E25",
+                     "inks": {"pencil": "#B5BAC4", "pen": "#94B4FF", "red": "#FF6A5E",
+                              "green": "#6FD39A", "marker": "#FF6A5E", "highlighter": "#E6D548"},
+                     "why": "charcoal stock and gel inks, the highlighter screened"},
+        },
+    },
 }
 
 

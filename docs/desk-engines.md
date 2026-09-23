@@ -146,7 +146,7 @@ those is missing the page does not load, which is a failure nobody can mistake f
 | frame time during a layout swap of five tiles at 1080p | 16.7 ms median, no `longtask` | no long task, main thread back inside 50 ms |
 | the ground's drift, drawn by glass on the ink layer (#254, #257) | frames while it drifts, and none under reduced motion | frames counted, not milliseconds |
 | the worst local gesture | ~6 ms | 50 ms |
-| the static payload | 151 KB gzipped (479 KB on disk), the probe page's 6.3 KB and the ink layer's four modules (36 KB) included; three.js is not in it — 163 KB gzipped, fetched by `/probe` and by an ink layer that is drawing, never by a desk that is not | 200 KB |
+| the static payload | 154 KB gzipped (489 KB on disk), the probe page's 6.3 KB and the ink layer's four modules (39 KB) included; three.js is not in it — 163 KB gzipped, fetched by `/probe` and by an ink layer that is drawing, never by a desk that is not | 200 KB |
 | the WebGL probe, headless Chromium on SwiftShader, 1280×720 | 16.7 ms p50 and 33.4 ms p95 over ~130 frames (headless paces at 60 Hz); first stroke 265–320 ms | not asserted — software, and not what a GPU does |
 
 Every one of those is printed by the test that measures it, so a CI run carries the numbers as

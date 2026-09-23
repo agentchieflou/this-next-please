@@ -1,0 +1,81 @@
+/* The notebook (#249) and the night notebook (#250): the paper, its inks, and the page laid on it.
+
+   The drawing is the ink layer's (`static/ink/skins/notebook.js`, docs/desk-ink.md §The notebook);
+   this file holds what the module reads and the room the page leaves for what it draws: the colours
+   as custom properties, the margin, and the typography. Since #257 it paints nothing: under
+   `body.ink-off` the notebook is the one plain look every skin shares (app.css and the palette),
+   with the same mark table drawn plain in these inks. No colour lives in the module. The light
+   variant is `notebook:light` (the default, so a bare `notebook` is the same page), the dark one
+   `notebook:dark`; `skins.py` names each one's palette, and `tests/test_fleet_ink_notebook.py`
+   holds this file and `skins.py` to the same numbers. The words are the palette's own text, which
+   `theme.check` holds on each paper; a skin never recolours the palette.
+
+   The handwriting is a local cursive stack, not a web font: the desk fetches nothing it does not
+   need, and a vendored face would count against the payload budget (desk-engines.md) for a label
+   that reads the same in any hand. The prototype's Caveat is used where it is installed. */
+
+/* -------------------------------------------------------------------------- the paper and the inks */
+body[data-skin="notebook"] {
+  --paper: #FBFBF6;
+  --rule: #B7CBE3;
+  --margin: #E3908C;
+  --ink-pencil: #50545C;
+  --ink-pen: #22398F;
+  --ink-red: #C8352B;
+  --ink-marker: #C8352B;
+  --ink-green: #2E7A4D;
+  --ink-highlighter: #F3DF4B;
+  --hand: "Caveat", "Segoe Print", "Bradley Hand", "Chalkboard SE", "Comic Neue", "Comic Sans MS", cursive;
+  --pitch: 28px;
+  --gutter: 36px;
+}
+
+body[data-skin="notebook"][data-skin-variant="dark"] {
+  --paper: #1B1E25;
+  --rule: #2C3A50;
+  --margin: #6E3437;
+  --ink-pencil: #B5BAC4;
+  --ink-pen: #94B4FF;
+  --ink-red: #FF6A5E;
+  --ink-marker: #FF6A5E;
+  --ink-green: #6FD39A;
+  --ink-highlighter: #E6D548;
+  color-scheme: dark;
+}
+
+/* ------------------------------------------------------------------------------ the page on it
+   Where the ink draws, a pane is a region of the page, not a card: app.css clears it, and this
+   leaves its left padding as the margin, where the check and the bang are written, left of the red
+   line. Its inner surfaces are clear too, so the ink drawn under them shows through; a menu that
+   opens over the page is a slip of the same paper, opaque. */
+body[data-skin="notebook"]:not(.ink-off) .tile { border: 0; border-radius: 0; padding-left: var(--gutter); }
+body[data-skin="notebook"]:not(.ink-off) .tile[data-tier="rail"] { padding: 0; }
+body[data-skin="notebook"]:not(.ink-off) main { background: transparent; }
+body[data-skin="notebook"]:not(.ink-off) :is(header, footer, main) { border-color: var(--rule); }
+body[data-skin="notebook"]:not(.ink-off) .tile :is(.head, .asks, .approval, .transcript, .history, .cells,
+                                                   .scope, .assumed, .readonly, .runline, .why, button,
+                                                   input, .payload) {
+  background: transparent;
+}
+body[data-skin="notebook"]:not(.ink-off) .tile .smenu { background: var(--paper); }
+body[data-skin="notebook"]:not(.ink-off) :is(button, input, select, .segment) { background: transparent; }
+body[data-skin="notebook"]:not(.ink-off) :is(.asks, .approval) { border-color: var(--rule); }
+
+/* Handwritten: the name, the stale note, a finding's margin note and the header's count. Where the
+   ink draws, each is written in its tool's ink. */
+body[data-skin="notebook"] .tile .head .repo { font-family: var(--hand); font-size: 17px; font-weight: 600; }
+body[data-skin="notebook"] .tile .oldsession { font-family: var(--hand); font-size: 15px; padding: 0 2px; }
+body[data-skin="notebook"] .tile .oldsession::after { content: " \2014 renew?"; }
+body[data-skin="notebook"]:not(.ink-off) .tile .oldsession {
+  color: var(--ink-pencil); background: transparent; border: 0;
+}
+/* A finding's token is highlighted, so it is written in the text's colour, which keeps 4.5:1 through it. */
+body[data-skin="notebook"]:not(.ink-off) .tile .transcript > li.friction > .k { color: var(--text); }
+body[data-skin="notebook"] .tile .transcript > li.friction > .v { font-family: var(--hand); font-size: 15px; }
+body[data-skin="notebook"]:not(.ink-off) .tile .transcript > li.friction > .v { color: var(--ink-red); }
+/* The count is written, and the number it replaces is struck just to its left: room for it. */
+body[data-skin="notebook"] #bellcount {
+  display: inline-block; min-width: 1ch; margin-left: 1.6em;
+  font-family: var(--hand); font-size: 17px; font-weight: 600;
+}
+body[data-skin="notebook"]:not(.ink-off) #bellcount { color: var(--ink-pen); }

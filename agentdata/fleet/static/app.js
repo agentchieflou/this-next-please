@@ -449,7 +449,15 @@ function makeTile(row, index) {
       return;
     }
     text(el.querySelector(".asks-note"), "");
-    action(el, "answer", { repo: row.repo, answers: answers });
+    action(el, "answer", { repo: row.repo, answers: answers }).then(function (r) {
+      /* #249: a question the server says it passed on is answered, and says so until the agent
+         records it and the fold drops it -- the one signal the paper skins strike the question
+         by. The ids come back from the server, never from what was typed. */
+      var done = (r && r.ok !== false && r.answered) || [];
+      Array.prototype.forEach.call(el.querySelectorAll(".asks-list .ask"), function (li) {
+        if (done.indexOf(li.dataset.qid) >= 0) toggle(li, "is-answered", true);
+      });
+    });
   });
 
   // hide, refresh and the model -- the three the band had, on the head, from the one binder (#205).
