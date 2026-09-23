@@ -4,6 +4,7 @@ Supports scaffolding, role introspection, model field binding with strict kind c
 dev server lifecycle, packaging (.pbiviz), and PBIR report import.
 """
 from __future__ import annotations
+import base64
 import glob
 import json
 import os
@@ -16,6 +17,7 @@ import time
 import zipfile
 from typing import Any, Callable
 
+from .. import textio
 from ..model import AgentTable
 from ..pbip import normalize as N
 from ..pbip import pbir as P
@@ -430,13 +432,29 @@ def stop_dev_server(name: str) -> dict[str, Any]:
     return {"ok": True, "visual": name, "status": "stopped"}
 
 
+def _pbiviz_json_path(package_json: dict) -> str | None:
+    """The package's pbiviz.json, as its package.json names it: the resource `metadata.pbivizjson` points at.
+    `pbiviz package` always writes it as `resources/<guid>.pbiviz.json`, with `sourceType` 5."""
+    rid = ((package_json.get("metadata") or {}).get("pbivizjson") or {}).get("resourceId")
+    for res in package_json.get("resources") or []:
+        if rid and isinstance(res, dict) and res.get("resourceId") == rid and res.get("file"):
+            return res["file"]
+    return None
+
+
 def package_visual(
     name: str,
     bump: str | None = None,
     base_dir: str = "visuals",
     run: Callable | None = None,
 ) -> dict[str, Any]:
-    """Package visual into .pbiviz bundle with optional version bump."""
+    """Package visual into .pbiviz bundle with optional version bump.
+
+    The bundle has the layout `pbiviz package` gives it (microsoft/powerbi-visuals-webpack-plugin,
+    `generatePbiviz`): a package.json whose `metadata.pbivizjson` names `resources/<guid>.pbiviz.json`, and that
+    file holding the visual's metadata, capabilities and code. Nothing is compiled here, so `content.js` is empty;
+    `pbiviz package` in the visual's folder builds one with code, under the same name in dist/.
+    """
     v_dir = os.path.join(base_dir, name) if not os.path.isabs(name) else name
     pbiviz_file = os.path.join(v_dir, "pbiviz.json")
     if not os.path.exists(pbiviz_file):
@@ -468,15 +486,43 @@ def package_visual(
     os.makedirs(dist_dir, exist_ok=True)
     out_pkg = os.path.join(dist_dir, f"{guid}.{curr_ver}.pbiviz")
 
-    # Create zip bundle (.pbiviz package)
+    cap_path = os.path.join(v_dir, "capabilities.json")
+    capabilities = textio.read_json(cap_path, "capabilities.json") if os.path.exists(cap_path) else {}
+    icon_path = os.path.join(v_dir, *(config.get("assets") or {}).get("icon", "assets/icon.png").split("/"))
+    icon = ""
+    if os.path.exists(icon_path):
+        with open(icon_path, "rb") as f:
+            icon = "data:image/png;base64," + base64.b64encode(f.read()).decode("ascii")
+
+    # the two files, keys in the order the packager writes them
+    visual = {k: v_conf.get(k, "") for k in
+              ("name", "displayName", "guid", "visualClassName", "version", "description", "supportUrl", "gitHubUrl")}
+    visual.update(guid=guid, version=curr_ver)
+    author = config.get("author") or {"name": "", "email": ""}
+    metadata = {
+        "visual": visual,
+        "author": author,
+        "apiVersion": config.get("apiVersion", ""),
+        "style": "style/visual.less",
+        "stringResources": {},
+        "capabilities": capabilities,
+        "content": {"js": "", "css": "", "iconBase64": icon},
+        "visualEntryPoint": "",
+        "externalJS": [],
+        "assets": {"icon": "assets/icon.png"},
+    }
+    meta_file = f"resources/{guid}.pbiviz.json"
+    package_json = {
+        "version": curr_ver,
+        "author": author,
+        "resources": [{"resourceId": "rId0", "sourceType": 5, "file": meta_file}],
+        "visual": visual,
+        "metadata": {"pbivizjson": {"resourceId": "rId0"}},
+    }
+
     with zipfile.ZipFile(out_pkg, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(pbiviz_file, arcname="package.json")
-        cap_path = os.path.join(v_dir, "capabilities.json")
-        if os.path.exists(cap_path):
-            z.write(cap_path, arcname="resources/capabilities.json")
-        icon_path = os.path.join(v_dir, "assets", "icon.png")
-        if os.path.exists(icon_path):
-            z.write(icon_path, arcname="resources/icon.png")
+        z.writestr("package.json", json.dumps(package_json, indent=2))
+        z.writestr(meta_file, json.dumps(metadata, separators=(",", ":"), ensure_ascii=False))
 
     return {
         "ok": True,
@@ -494,56 +540,60 @@ def import_custom_visual(
     position: tuple[int, int, int, int] = (100, 100, 400, 300),
     base_dir: str = "visuals",
 ) -> dict[str, Any]:
-    """Import packaged .pbiviz into PBIP report and instantiate on requested page."""
-    v_dir = os.path.join(base_dir, name) if not os.path.isabs(name) else name
-    pbiviz_file = os.path.join(v_dir, "pbiviz.json")
-    with open(pbiviz_file, "r", encoding="utf-8") as f:
-        conf = json.load(f)
-    v_info = conf.get("visual", {})
-    guid = v_info.get("guid", name)
-    version = v_info.get("version", "1.0.0.0")
+    """Add a visual to a PBIP report from its .pbiviz, as Desktop saves "Import a visual from a file", and place
+    it on `page`. For a Desktop test only (skill `pbi-custom-visual`).
 
-    # Check/create package
-    dist_dir = os.path.join(v_dir, "dist")
-    pkgs = glob.glob(os.path.join(dist_dir, "*.pbiviz"))
-    if not pkgs:
-        pkg_res = package_visual(name, base_dir=base_dir)
-        pkg_path = pkg_res["package_path"]
-    else:
-        pkg_path = sorted(pkgs)[-1]
+    Desktop extracts the package into the report's `CustomVisuals/<guid>/` and registers it in
+    definition/report.json as a `resourcePackages` entry of type `CustomVisual` whose one item is the package's
+    pbiviz.json (type `CustomVisualMetadata`, path relative to the package's `resources/`). It does not list a
+    private visual in `publicCustomVisuals`, which the report schema keeps for AppSource visuals.
+    """
+    v_dir = os.path.join(base_dir, name) if not os.path.isabs(name) else name
+
+    # the package built last, or a new one
+    pkgs = glob.glob(os.path.join(glob.escape(os.path.join(v_dir, "dist")), "*.pbiviz"))
+    pkg_path = max(pkgs, key=os.path.getmtime) if pkgs else package_visual(name, base_dir=base_dir)["package_path"]
 
     report_dir = P.find_report_dir(pbip_dir)
+    try:
+        z = zipfile.ZipFile(pkg_path)
+    except zipfile.BadZipFile:
+        raise PbivizError(f"{pkg_path} is not a .pbiviz package: it is not a zip file",
+                          f"package it again with `ad-pbiviz package {name}`, or `pbiviz package` in {v_dir}") from None
+    with z:
+        try:
+            package_json = json.loads(textio.decode(z.read("package.json")))
+        except (KeyError, ValueError):
+            package_json = {}
+        guid = (package_json.get("visual") or {}).get("guid")
+        meta_file = _pbiviz_json_path(package_json) or ""
+        if not guid or not meta_file.startswith("resources/") or meta_file not in z.namelist():
+            raise PbivizError(
+                f"{pkg_path} is not laid out the way `pbiviz package` builds it: "
+                "its package.json names no resources/<guid>.pbiviz.json",
+                f"package it again with `ad-pbiviz package {name}`, or `pbiviz package` in {v_dir}",
+            )
+        # 1. the package's files, as they are, in CustomVisuals/<guid>/ -- replacing an older import's
+        folder = os.path.join(report_dir, "CustomVisuals", guid)
+        shutil.rmtree(folder, ignore_errors=True)
+        z.extractall(folder)
+
+    # 2. the resource package that points Desktop at the package's pbiviz.json
+    pbiviz_json = meta_file[len("resources/"):]
+    entry = {"name": guid, "type": "CustomVisual",
+             "items": [{"name": pbiviz_json, "path": pbiviz_json, "type": "CustomVisualMetadata"}]}
     report_json_path = os.path.join(report_dir, "definition", "report.json")
-    with open(report_json_path, "r", encoding="utf-8") as f:
-        rj = json.load(f)
+    rj = textio.read_json(report_json_path, "report.json")
+    packages = rj.setdefault("resourcePackages", [])
+    at = next((i for i, rp in enumerate(packages)
+               if isinstance(rp, dict) and rp.get("name") == guid and rp.get("type") == "CustomVisual"), None)
+    if at is None:
+        packages.append(entry)
+    else:
+        packages[at] = entry
+    textio.write_json(report_json_path, rj)
 
-    # 1. Register in report.json: publicCustomVisuals
-    if "publicCustomVisuals" not in rj:
-        rj["publicCustomVisuals"] = []
-    if guid not in rj["publicCustomVisuals"]:
-        rj["publicCustomVisuals"].append(guid)
-
-    # 2. Register in report.json: resourcePackages
-    if "resourcePackages" not in rj:
-        rj["resourcePackages"] = []
-    pkg_rel_path = f"StaticResources/RegisteredResources/{guid}.pbiviz"
-    if not any(rp.get("name") == guid for rp in rj["resourcePackages"]):
-        rj["resourcePackages"].append({
-            "name": guid,
-            "type": "CustomVisual",
-            "path": pkg_rel_path,
-        })
-
-    with open(report_json_path, "w", encoding="utf-8") as f:
-        json.dump(rj, f, indent=2)
-
-    # 3. Copy package to StaticResources/RegisteredResources/
-    reg_dir = os.path.join(report_dir, "StaticResources", "RegisteredResources")
-    os.makedirs(reg_dir, exist_ok=True)
-    dest_pkg = os.path.join(reg_dir, f"{guid}.pbiviz")
-    shutil.copyfile(pkg_path, dest_pkg)
-
-    # 4. Read binding file if available
+    # 3. Read binding file if available
     binding_file = os.path.join(".agent", "pbiviz", f"{name}.binding.json")
     bindings = {}
     if os.path.exists(binding_file):
@@ -551,7 +601,7 @@ def import_custom_visual(
             b_data = json.load(f)
             bindings = b_data.get("bindings", {})
 
-    # 5. Add visual instance to page
+    # 4. Add visual instance to page
     rep = P.load_report(report_dir)
     p_obj = None
     for p in rep.pages:
@@ -634,12 +684,43 @@ def import_custom_visual(
         "guid": guid,
         "page": p_obj.name,
         "visual_id": vis_id,
-        "package_installed": dest_pkg,
+        "package": pkg_path,
+        "package_installed": folder,
     }
 
 
+def _package_capabilities(read: Callable[[str], bytes | None]) -> dict[str, Any] | None:
+    """capabilities from a package's files (`read` maps a package-relative path to its bytes, or None): the
+    pbiviz.json its package.json names, else the bare capabilities.json `ad-pbiviz package` used to write."""
+    raw = read("package.json")
+    meta_file = _pbiviz_json_path(json.loads(textio.decode(raw))) if raw else None
+    raw = read(meta_file) if meta_file else None
+    if raw:
+        return json.loads(textio.decode(raw)).get("capabilities")
+    for rel in ("resources/capabilities.json", "capabilities.json"):
+        raw = read(rel)
+        if raw:
+            return json.loads(textio.decode(raw))
+    return None
+
+
 def read_visual_capabilities(guid: str, report_dir: str) -> dict[str, Any] | None:
-    """Read capabilities.json from registered .pbiviz package inside report."""
+    """capabilities of a private visual the report carries: from `CustomVisuals/<guid>/`, where Desktop and
+    `ad-pbiviz import` put it, else from a .pbiviz in `StaticResources/RegisteredResources/`, where
+    `ad-pbiviz import` used to."""
+    folder = os.path.join(report_dir, "CustomVisuals", guid)
+    if os.path.isdir(folder):
+        def read(rel: str) -> bytes | None:
+            path = os.path.join(folder, *rel.split("/"))
+            if not os.path.isfile(path):
+                return None
+            with open(path, "rb") as f:
+                return f.read()
+        try:
+            return _package_capabilities(read)
+        except (ValueError, AttributeError, OSError):
+            return None
+
     reg_pkg = os.path.join(report_dir, "StaticResources", "RegisteredResources", f"{guid}.pbiviz")
     if not os.path.exists(reg_pkg):
         # Look for any .pbiviz starting with guid
@@ -651,11 +732,7 @@ def read_visual_capabilities(guid: str, report_dir: str) -> dict[str, Any] | Non
 
     try:
         with zipfile.ZipFile(reg_pkg, "r") as z:
-            # Check for capabilities.json or resources/capabilities.json
-            for name in ("resources/capabilities.json", "capabilities.json"):
-                if name in z.namelist():
-                    with z.open(name) as f:
-                        return json.load(f)
+            names = set(z.namelist())
+            return _package_capabilities(lambda rel: z.read(rel) if rel in names else None)
     except Exception:
         return None
-    return None

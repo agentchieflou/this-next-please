@@ -71,9 +71,15 @@ def describe_visual(visual_type: str, report_dir: str | None = None) -> AgentTab
                 cap_data = PV.read_visual_capabilities(visual_type, report_dir)
             if not cap_data:
                 import glob
-                reg_pkgs = glob.glob(f"**/StaticResources/RegisteredResources/{visual_type}*.pbiviz", recursive=True)
-                if reg_pkgs:
-                    cap_data = PV.read_visual_capabilities(visual_type, os.path.dirname(os.path.dirname(os.path.dirname(reg_pkgs[0]))))
+                # a report folder under the working directory carrying it: <report>/CustomVisuals/<guid>/ as
+                # Desktop and `ad-pbiviz import` save it, or a .pbiviz where `ad-pbiviz import` used to put it
+                vt = glob.escape(visual_type)
+                for pattern in (f"**/CustomVisuals/{vt}/package.json", f"**/StaticResources/RegisteredResources/{vt}*.pbiviz"):
+                    hits = glob.glob(pattern, recursive=True)
+                    if hits:
+                        cap_data = PV.read_visual_capabilities(visual_type, os.path.dirname(os.path.dirname(os.path.dirname(hits[0]))))
+                    if cap_data:
+                        break
             if not cap_data:
                 v_dir = os.path.join("visuals", visual_type)
                 if os.path.isdir(v_dir) and os.path.exists(os.path.join(v_dir, "capabilities.json")):
