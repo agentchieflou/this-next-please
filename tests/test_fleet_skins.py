@@ -21,10 +21,10 @@ SKINS_DIR = skins.SKINS_DIR
 
 
 def test_list_skins_returns_all_skins_with_budgets():
-    """list_skins() returns standard none plus glass, voxel, farmstead under 150 KB budget."""
+    """list_skins() returns standard none plus glass, voxel, farmstead and the paper skins under 150 KB budget."""
     available = skins.list_skins()
     names = [s["name"] for s in available]
-    assert names == ["none", "glass", "voxel", "farmstead"]
+    assert names == ["none", "glass", "voxel", "farmstead", "napkin"]
 
     for s in available:
         assert "title" in s and "why" in s and "base" in s and "variants" in s
