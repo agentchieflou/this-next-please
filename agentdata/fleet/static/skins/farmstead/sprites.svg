@@ -1,4 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none;" shape-rendering="crispEdges">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" shape-rendering="crispEdges">
+  <!-- A stack, not a strip (#255): every sprite sits at 0,0, so the sheet shows only the one a
+       fragment names: `url("sprites.svg#crop-sprout")` is that sprite alone, 16x16. With no
+       fragment it shows nothing. The ink layer reads each sprite out of the file on its own. -->
+  <style>svg > svg { display: none; } svg > svg:target { display: inline; }</style>
   <!-- 16x16 soil tile texture -->
   <svg id="soil" viewBox="0 0 16 16" width="16" height="16">
     <rect width="16" height="16" fill="#8C5C38"/>
