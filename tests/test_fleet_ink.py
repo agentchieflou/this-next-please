@@ -687,17 +687,18 @@ def test_the_marks_follow_a_window_resize(fleet_home, tmp_path):
             _mark(page, "alpha", "ink-hl")
             _mark(page, "beta", "ink-loop")
             _rest(page, "Ink.inspect().layer.marks.length === 2")
-            wide = [m["box"] for m in _marks(page)]
+            wide = {m["lane"]: m["box"] for m in _marks(page)}
             page.set_viewport_size({"width": 1000, "height": 700})
             page.wait_for_function(f"() => innerWidth === 1000 && ({DRIFT})().every(d => d < 0.5)"
                                    " && document.getElementById('ink').width === 1000 * "
                                    "Math.min(2, devicePixelRatio || 1)", timeout=10000)
-            narrow = [m["box"] for m in _marks(page)]
+            narrow = {m["lane"]: m["box"] for m in _marks(page)}
             assert not errors, errors
             browser.close()
     finally:
         _stop(server)
-    assert narrow[1]["x"] < wide[1]["x"] and narrow[1]["w"] < wide[1]["w"], (wide, narrow)
+    beta = "pane:beta"   # the right-hand pane: a narrower window moves it left and makes it narrower
+    assert narrow[beta]["x"] < wide[beta]["x"] and narrow[beta]["w"] < wide[beta]["w"], (wide, narrow)
 
 
 @pytest.mark.browser
