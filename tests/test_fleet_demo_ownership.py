@@ -25,6 +25,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
+from test_fleet_column import _until
 from test_fleet_desk_browser import launch_chromium
 
 SKINS = ["none", "glass:smoke"]
@@ -151,6 +152,8 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             page.wait_for_function(
                 """() => !document.querySelector('.tile[data-repo="backlog-health"]')
                             .classList.contains('is-hidden')""", timeout=8000)
+            # The page below is a reload; it reads the server's arrangement, not these pixels.
+            _until(lambda: S.desk_state()["arrangement"]["hidden"] == [])
 
             # 4. The reconnect. The stream is dropped and the desk keeps what it had -- and the
             #    window that comes back shows it before the fleet answers.

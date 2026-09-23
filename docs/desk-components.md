@@ -64,8 +64,8 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | --- | --- | --- | --- | --- | --- | --- |
 | toolbar | brand, live dot, `see` group, settings link, `needs me` group | — (static) | `.toolbar` | — | — | `test_fleet_desk_toolbar.py` |
 | away strip | title, one line per repo, dismiss | `checkAway` | `.away-strip` | — | — | `test_fleet_desk_sessions_b.py` |
-| row | the panes in the arrangement's order, then the rails of repositories that left | `place`, `reorderDomTiles`, the tier observer (`onRowResize`) | `#grid`, `.panes` | grouped (a project's checkouts share one rail) only when the rails do not fit | `j`, `k`, `1`–`9`, `Esc` | `test_fleet_column.py` |
-| pane (rail, compact, full) | the rail's face; head, run line, session pill, cards, cells, transcript, composer | `drawTile`, `drawPaneRail` | `.tile`, `.pane-rail` | `data-tier` (`rail`, `compact`, `full`), `state-*`, `needs-human`, `held`, `is-solo`, `is-selected`, `is-hidden`, `is-grouped`, `is-quiet`, `is-pinned`, `is-dragging`, `size-2` | `Enter` on a rail, `h`, `r`, `m`, `a`, `Alt+←/→`, `Alt+Shift+arrows` | `test_fleet_column.py`, `test_fleet_window.py`, `test_fleet_desk_regressions.py` |
+| row | the panes in the arrangement's order, then the rails of repositories that left | `place`, `reorderDomTiles`, the tier observer (`onRowResize`) | `#grid`, `.panes` | grouped (a project's checkouts share one rail) only when the rails do not fit | `j`, `k`, `1`–`9`, `Esc` | `test_fleet_panes.py`, `test_fleet_column.py` |
+| pane (rail, compact, full) | the rail's face; head, run line, session pill, cards, cells, transcript, composer | `drawTile`, `drawPaneRail` | `.tile`, `.pane-rail` | `data-tier` (`rail`, `compact`, `full`), `state-*`, `needs-human`, `held`, `is-solo`, `is-selected`, `is-hidden`, `is-grouped`, `is-quiet`, `is-pinned`, `is-dragging`, `size-2` | `Enter` on a rail, `h`, `r`, `m`, `a`, `Alt+←/→`, `Alt+Shift+arrows` | `test_fleet_panes.py`, `test_fleet_column.py`, `test_fleet_window.py`, `test_fleet_desk_regressions.py` |
 | activity trace | sixty bars, one a minute | `drawTrace` | `.trace` | red where a minute needed a person | — | `test_fleet_trace.py` |
 | the ground | three blobs, drifting | `drawGround` | `#ground` | still under reduced motion or reduced transparency | — | `test_fleet_trace.py` |
 | state chip | word, age | `drawTile` | `.chip` | the five status roles, `stale` | — | `test_fleet_desk_regressions.py` |
@@ -122,8 +122,8 @@ Who writes what, one owner each:
 * **The row's order** is `reorderDomTiles`', which moves a pane only when the order is actually
   wrong and never while one is under the hand.
 
-The proof is the same as every component's: a `MutationObserver` at zero, per component
-(`tests/test_fleet_components.py`).
+The proof is the same as every component's: a `MutationObserver` at zero, per component, and over
+the whole document on an idle desk (`tests/test_fleet_panes.py`).
 
 ## How quickly it answers
 

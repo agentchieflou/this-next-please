@@ -323,7 +323,9 @@ def test_clicking_a_rail_swaps_it_with_the_open_pane_in_their_own_slots(fleet_ho
                 timeout=5000)
             assert not errors, errors
 
-            # And the server was told, so a reload opens on the same agent.
+            # And the server was told, so a reload opens on the same agent. Waited for on the
+            # server's record, not the pixels: the page swaps first and writes after (#245).
+            _until(lambda: S.desk_state()["windows"]["main"]["open"] == first)
             page.reload(wait_until="domcontentloaded")
             page.wait_for_selector(".tile.is-solo", timeout=10000)
             assert page.evaluate("document.querySelector('.tile.is-solo').dataset.repo") == first
@@ -374,7 +376,7 @@ def test_another_window_writing_the_old_zoom_to_the_same_record_does_not_move_th
             page.wait_for_function(f"() => {SOLO} === 'beta'", timeout=5000)
             page.wait_for_timeout(1500)
             assert page.evaluate(SOLO) == "beta"
-            assert S.desk_state()["windows"]["main"]["open"] == "beta"
+            _until(lambda: S.desk_state()["windows"]["main"]["open"] == "beta")
             assert not errors, errors
             browser.close()
     finally:
@@ -921,13 +923,14 @@ def test_the_same_three_controls_are_on_every_pane_and_their_keys_reach_a_rail(f
             page.wait_for_function(
                 "() => document.getElementById('hiddencount').textContent === '1 hidden'",
                 timeout=5000)
+            # The hide paints before it is written (#219); the record is what outlives the page.
+            _until(lambda: S.desk_state()["arrangement"]["hidden"] == ["delta"])
             assert not errors, errors
             browser.close()
     finally:
         server.stopping.set()
         server.shutdown()
         server.server_close()
-    assert S.desk_state()["arrangement"]["hidden"] == ["delta"]
 
 
 @pytest.mark.browser

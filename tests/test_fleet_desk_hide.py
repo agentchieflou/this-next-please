@@ -18,6 +18,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
+from test_fleet_column import _until
 from test_fleet_desk_browser import launch_chromium
 
 
@@ -124,7 +125,9 @@ def test_a_hidden_agent_is_off_the_glass_and_show_all_brings_it_back_to_its_slot
             assert page.inner_text("#hiddencount") == "1 hidden"
             assert page.locator("#hiddencount").is_visible()
 
-            # ...and still there after a reload, because the arrangement is the server's.
+            # ...and still there after a reload, because the arrangement is the server's. The hide
+            # paints before it is written (#219), so the reload waits for the record, not the pixels.
+            _until(lambda: S.desk_state()["arrangement"]["hidden"] == ["beta"])
             page.reload(wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
             page.wait_for_function(
