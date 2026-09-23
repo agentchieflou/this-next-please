@@ -136,26 +136,53 @@ def _windows_processes() -> list[dict]:
 PROCESS_CACHE_S = 10.0
 _cache = {"at": 0.0, "rows": []}
 _cache_lock = threading.Lock()
+# One listing in the background at a time. Without it, every desk request that found the cache
+# stale would start its own PowerShell -- four open desks polling at once, four CIM queries racing
+# for the same answer.
+_listing = {"thread": None}
 
 
-def agent_processes(*, max_age: float = PROCESS_CACHE_S) -> list[dict]:
+def _list_now() -> list[dict]:
+    try:
+        return _windows_processes() if os.name == "nt" else _posix_processes()
+    except Exception:      # noqa: BLE001 - see `agent_processes`
+        return []
+
+
+def _refresh(background: bool = False) -> list[dict]:
+    rows = _list_now()
+    with _cache_lock:
+        _cache["at"], _cache["rows"] = time.time(), rows
+        if background:
+            _listing["thread"] = None
+    return rows
+
+
+def agent_processes(*, max_age: float = PROCESS_CACHE_S, wait: bool = True) -> list[dict]:
     """Every Copilot session running on this machine, as far as this platform will say.
 
     Best effort by design, and never raises: a fleet that could not draw a dashboard because a
     process listing was refused would be worse than one that reports nothing found. Pass
     `max_age=0` to force a fresh listing -- what an explicit `ad-fleet adopt` should do.
+
+    `wait=False` is for drawing: a stale listing is refreshed on a thread of its own and the one
+    already held is returned now -- empty, the first time. On Windows the listing is a PowerShell
+    process, which takes seconds to start and many more on a busy machine, and a desk answer that
+    waited for it drew nothing at all until it came back: past ten seconds on a loaded CI runner,
+    where the desk test waiting for its first pane gave up first. The next tick draws what the
+    listing found.
     """
     now = time.time()
     with _cache_lock:
-        if max_age and _cache["rows"] is not None and (now - _cache["at"]) < max_age:
+        if max_age and (now - _cache["at"]) < max_age:
             return list(_cache["rows"])
-    try:
-        rows = _windows_processes() if os.name == "nt" else _posix_processes()
-    except Exception:      # noqa: BLE001 - see above
-        rows = []
-    with _cache_lock:
-        _cache["at"], _cache["rows"] = now, rows
-    return list(rows)
+        if not wait:
+            if _listing["thread"] is None:
+                _listing["thread"] = threading.Thread(target=_refresh, args=(True,),
+                                                      name="adopt-listing", daemon=True)
+                _listing["thread"].start()
+            return list(_cache["rows"])
+    return list(_refresh())
 
 
 # ------------------------------------------------------------ what is happening in a checkout

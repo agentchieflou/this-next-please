@@ -123,6 +123,22 @@ SKINS = {
                           "why": "white lines on a cyanotype"},
         },
     },
+    # #251: drawn by the ink layer (`static/ink/skins/legalpad.js`). The panel is the canary stock
+    # itself, and `inks` are the colours `skin.css` writes as `--ink-<tool>` or leaves to the
+    # palette (red, green and the marker are eye-relief-day's own), each checked on that paper.
+    "legalpad": {
+        "name": "legalpad",
+        "title": "Legal pad",
+        "why": "a yellow legal pad: canary stock, blue rules, a double red margin and a glued top, "
+               "drawn on in pencil, pen and highlighter",
+        "default": "canary",
+        "variants": {
+            "canary": {"title": "Canary", "base": "eye-relief-day", "composited_panel": "#FCF3A6",
+                       "inks": {"pencil": "#5E5A52", "pen": "#1F3F9A", "red": "#A82D2D",
+                                "green": "#2A733E", "marker": "#A82D2D", "highlighter": "#FF8FA3"},
+                       "why": "canary stock, and an orange-pink highlighter that still reads on it"},
+        },
+    },
     # #252: drawn by the ink layer (`static/ink/skins/napkin.js`). The text is read on the quilted
     # stock, which is never darker than its `seam`, and on a coffee ring's rim at the coffee's alpha
     # over that seam -- so the panel is a pair, `composited_range`-style: the ring over the seam at

@@ -57,7 +57,7 @@ body[data-skin="napkin"] {
 /* The name, the count and the margin note are handwritten; everything else keeps the page's face,
    so a transcript still reads as one. */
 body[data-skin="napkin"] .tile .head .repo,
-body[data-skin="napkin"] #counts,
+body[data-skin="napkin"] #bellcount,
 body[data-skin="napkin"] .tile .oldsession {
   font-family: var(--napkin-hand);
 }

@@ -109,6 +109,7 @@ A **skin** is one more stylesheet over the same DOM: the approved grid with CSS 
 | `glass` | Frosted panes at `.34`–`.40` with `backdrop-filter: blur(18px) saturate(140%)` over a **mesh** of three saturated blobs per variant, a one-pixel edge and an inset glint that catch the light, a second, more opaque layer for the cards on a pane; solid status chips and focus rings (#182). | *Materials*: translucent material blurs what is behind it and adapts to light and dark while keeping content legible. |
 | `voxel` | Tiled 8×8 `<rect>` dirt/stone textures, 2px bevelled slab controls, 10px accent borders, and 12px status blocks before glyphs. Inspired by block-building games; zero copied assets. | *Visual Design*: bold tactile geometry and unmistakable state indicators across a room. |
 | `farmstead` | Warm cream paper, 4px wooden frames, tan controls with 3px press shadows, journal-style inspector, and 5 crop-stage sprites (seed, sprout, sun, bloom, wilted) carrying state. Inspired by pixel farming games; zero copied assets. | *Color & Redundancy*: never colour alone; crop stages provide a second redundant carrier for agent status. |
+| `legalpad` | A yellow legal pad drawn by the ink layer (#251): canary stock, blue rules on the page's 28px baseline, a double red margin down every pane and a gummed band across the top; state is drawn on it in pencil, pen, marker and an orange-pink highlighter ([desk-ink.md](desk-ink.md) §The legal pad). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: every state is a shape as well as an ink -- an outline, a loop, a strike, a check, a bang. |
 
 A variant re-colours the surfaces and nothing else. The status chips and the crop stages are
 deliberately **not** among them: a chip means the same thing in every world, and a `fail` that were
@@ -149,6 +150,7 @@ unknown variant falls back to the default rather than taking the page down.
 | `farmstead:daytime` | Daytime *(default)* | `sand` | `#EFE6D2` | `#E8DDC3` | 9.4:1 | sunlight on paper and wood |
 | `farmstead:cave` | Cave | `eye-relief` | `#2B2A27` | `#33302A` | 8.3:1 | lamplight underground |
 | `farmstead:rainy` | Rainy day | `blues` | `#0B1B33` | `#16243D` | 12.0:1 | a wet afternoon indoors |
+| `legalpad:canary` | Canary *(default)* | `eye-relief-day` | `#F2ECDC` | `#FCF3A6` | 10.1:1 | canary stock, and an orange-pink highlighter that still reads on it |
 
 ## An Agent Never Sees This
 
