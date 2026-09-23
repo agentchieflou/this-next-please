@@ -521,7 +521,13 @@ def test_a_skin_that_draws_its_status_sprites_can_actually_fetch_them(desk):
                         { method: 'POST', headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ skin: 'farmstead' }) });
         }""")
-        page.wait_for_timeout(2800)
+        # Wait for the stylesheet to have painted the sprite, not for a clock: a fixed 2.8s was not
+        # enough for the skin's sheet to arrive on a loaded Windows runner (#277), and a sheet that
+        # never arrives still fails here, as the timeout.
+        page.wait_for_function("""() => {
+            const c = document.querySelector('.tile .chip');
+            return !!c && getComputedStyle(c, '::before').backgroundImage.includes('sprites.svg');
+        }""", timeout=20000)
         painted = page.evaluate("""() => {
             const c = document.querySelector('.tile .chip');
             const before = getComputedStyle(c, '::before');
