@@ -633,6 +633,10 @@ def test_a_write_of_widths_older_than_the_record_is_refused(fleet_home, tmp_path
     S.update_window("main", widths={"alpha": 2, "beta": 1})
     # Another window's record has its own clock.
     S.update_window("left", widths={"alpha": 1}, version=0)
+    # A version that is not a number `int()` can take is no version, never a 500: JSON allows
+    # `Infinity`, and `int(float("inf"))` overflows.
+    for unreadable in (float("inf"), float("-inf"), 1e400, "1e400", "soon", float("nan")):
+        S.update_window("left", widths={"alpha": 2}, version=unreadable)
 
     # And over the wire, as a 409 carrying the code.
     import urllib.error

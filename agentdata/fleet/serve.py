@@ -1379,7 +1379,10 @@ def update_window(w: str = "main", **kwargs) -> dict:
             heard = kwargs.get("version")
             try:
                 heard = None if heard is None or isinstance(heard, bool) else int(heard)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
+                # `Infinity` and `1e400` are JSON a page can send, and `int()` of them overflows:
+                # an unreadable version is no version, as from a page older than the check -- not
+                # a 500 (the probe's `int(float(x))` was the same trap, #261).
                 heard = None
             held_at = int((wins.get(w) or {}).get("widths_at") or 0)
             if heard is not None and held_at > heard:
