@@ -44,8 +44,10 @@ export function marks() {
     // error: a red marker box round the pane, and a bang in the margin.
     { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },
     { selector: ".tile.state-error", tool: "marker", shape: "bang" },
-    // done: a green check in the margin.
-    { selector: ".tile.state-done", tool: "green", shape: "check" },
+    // done: a green check in the margin. `state-done` is the chip's word, which a pane the fleet
+    // does not supervise shows as idle; `is-done` is the fold's own, and what a finished agent
+    // carries (#253). A finished pane is idle and done, and has both marks.
+    { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     // stale (#240): a pencil note in the margin -- the chip's own words, handwritten -- an arrow
     // from it to the run line that says which session this is, and a dashed pencil outline.
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "write" },

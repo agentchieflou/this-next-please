@@ -261,9 +261,9 @@ def test_the_notebook_draws_the_state_grammar_and_each_mark_leaves_by_erase_or_s
             finished.add("beta")
             _emit(page, "beta", ("phase_changed", {"from": "build", "to": "done"}))
             _until_class(page, "beta", "state-done")
-            _rest(page, "Ink.inspect().layer.marks.some(m => m.selector.includes('state-done') && m.state === 'drawn')")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'check' && m.lane === 'pane:beta' && m.state === 'drawn')")
             marks = _marks(page)
-            assert _of(marks, "pane:beta", "state-done", "green", "check")
+            assert _of(marks, "pane:beta", "is-done", "green", "check")
             assert not [m for m in marks if m["lane"] == "pane:beta" and "state-idle" in m["selector"]]
             assert not errors, errors
             browser.close()
@@ -330,6 +330,12 @@ def test_needing_you_is_highlighted_and_answering_strikes_the_question_never_the
             _rest(page, "!Ink.inspect().layer.marks.some(m => m.selector.includes('needs-human .head .repo'))")
             marks = _marks(page)
             assert not _struck(marks, {name[0]["id"]}) and not [m for m in marks if m["strikeOf"] == name[0]["id"]]
+            # Then it finishes, unsupervised: the chip says idle (#147) and the fold says done, which
+            # the page writes as `is-done` (#253). The check is drawn in the margin all the same.
+            _emit(page, "alpha", ("phase_changed", {"from": "build", "to": "done"}))
+            _until_class(page, "alpha", "is-done")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'check' && m.lane === 'pane:alpha')")
+            assert _of(_marks(page), A, "is-done", "green", "check")
             assert not errors, errors
             browser.close()
     finally:

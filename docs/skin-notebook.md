@@ -70,7 +70,7 @@ Every row is a class or an attribute `app.js` already sets. The skin never decid
 | needs you | the highlighter on the name and on the question, pencil loops round the choices | `.tile.needs-human .head .repo` → highlighter `lines`, `leaves: "erased"` (the name's highlight is taken up, never struck); `… .ask-q` and `… .approval .summary` → highlighter `lines`; `… .ask-choice` → pencil `loop` |
 | answered | the question and its highlight struck in pen, and the chosen answer circled. Never the agent's name | `.ask.is-answered .ask-q` → pen `strike` (the highlight leaves by strike); the pressed `.ask-choice`, or the typed `.ask-answer` → pen `ellipse` |
 | error | a red marker box round the pane, and a bang in the margin | `.tile.state-error` → marker `loop` and marker `bang` |
-| done | a green check in the margin | `.tile.state-done` → green `check` |
+| done | a green check in the margin | `.tile:is(.state-done, .is-done)` → green `check` (`is-done` is the fold's own word, set by `drawTile` (#253); an unsupervised pane's chip says idle) |
 | stale (#240) | a pencil margin note, *old skills — renew?*, with an arrow to the run line, and a dashed pencil outline | `.oldsession:not([hidden])` → pencil `write` and pencil `arrow` to `.runline`; `.tile:has(.oldsession:not([hidden]))` → pencil `outline`, `dash` |
 | a finding | a red ellipse round the line, the highlighter on its token, and its own text as a margin note | `.transcript > li.friction` → red `ellipse`; its `.k` → highlighter `lines`; its `.v` → pencil `write` |
 | the header count | handwritten; when it changes, the old number is struck and the new one written beside it | `#bellcount` → pen `write`, `rewrite` |
