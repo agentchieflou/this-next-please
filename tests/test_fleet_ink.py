@@ -407,6 +407,16 @@ IDLE_LOOP = """async () => {
   for (let i = 0; i < 400 && (window.__inflight || 0) > 0; i++) await pause(25);
   await refresh(); place(); redrawAll(); bell();
   await frame(); await frame(); await pause(200);
+  // The warm-up refresh above applies a body the server built just now, and a trace that moved on
+  // a minute since the page's last poll is drawn by the layer (#257) -- a frame that can land after
+  // two frames on a slow runner. Settle first: the layer at rest, and no render across a frame. A
+  // ground that moves never settles, so this is bounded.
+  for (let i = 0, was = -1; i < 40; i++) {
+    const l = Ink.inspect().layer;
+    if (!l || (!l.busy && l.renders === was)) break;
+    was = l.renders;
+    await frame(); await pause(50);
+  }
   const before = Ink.inspect().layer;
   let n = 0;
   const seen = [];
