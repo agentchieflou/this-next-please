@@ -595,7 +595,9 @@ def test_the_plain_fallback_is_the_same_table_on_a_css_grid(fleet_home, tmp_path
             page.wait_for_function("""() => document.body.classList.contains('ink-off')
                 && (Ink.inspect().table || '').startsWith('graph') && Ink.inspect().plain
                 && document.querySelector('.tile[data-repo="beta"]').classList.contains('needs-human')
-                && document.querySelector('.tile[data-repo="alpha"]').classList.contains('state-idle')""",
+                && document.querySelector('.tile[data-repo="alpha"]').classList.contains('state-idle')
+                // The skin's stylesheet is fetched after the skin is chosen: read the grid once it is in.
+                && getComputedStyle(document.body).backgroundImage.includes('linear-gradient')""",
                                    timeout=20000)
             got = page.evaluate("""() => {
               const cs = s => getComputedStyle(document.querySelector(s));
