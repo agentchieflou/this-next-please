@@ -17,7 +17,11 @@ The order is paint, post, reconcile — and say so out loud when the server disa
 ## Optimistic, with a way back
 
 `arrangeNow(patch, apply, what)` is the only writer of the arrangement. Everything that moves a
-tile goes through it: hide and show, move, drop, pin, resize, show-everything.
+tile goes through it: hide and show, move, drop, pin, show-everything. A pane's width is not the
+arrangement's but its window's (#234), and has a door of its own, `widthsNow(next, what, open,
+how)`, in the same order -- painted, posted once as `POST /api/window {widths}`, put back with the
+server's words if it is refused -- plus a way back the arrangement's changes do not offer: the
+footer's undo, for twelve seconds.
 
 ```js
 var undo = apply();                 // write it into the local arrangement, keep the old one
@@ -93,14 +97,21 @@ adjective.
 | Gesture | Marked |
 | --- | --- |
 | any action | `action:<what>` |
-| any arrangement change | `arrange:hide` / `move` / `drop` / `pin` / `size` / `showall` |
+| any arrangement change | `arrange:hide` / `move` / `drop` / `pin` / `showall` |
 | this window's record | `window` |
 | opening an agent | `open:pane` |
+| a change of widths (#234) | `widths:drag` / `step` / `even` / `beside` / `one` / `all` / `needs` / `undo` |
+| one frame of a gutter drag | `gutter:frame` |
 
 The budget is **50 ms**, asserted in a browser by `tests/test_fleet_instant.py`. The `open:pane`
 mark is closed *inside* the transition callback rather than around the call: the view-transition
 path runs it on the frame after the browser has taken its snapshot, and a mark closed before the
-work happened would report nought and mean nothing.
+work happened would report nought and mean nothing. The presets' marks are closed the same way.
+
+A gutter drag is the one gesture that runs a frame at a time, so each frame is marked
+(`gutter:frame`) and held to the same budget, with no long task across the drag, by
+`tests/test_fleet_gutters.py` -- what the page decides, not the runner's frame rate, which a
+headless Chromium throttles to whatever it likes; the gaps are printed beside it.
 
 On this container the worst local gesture measures about 6 ms.
 

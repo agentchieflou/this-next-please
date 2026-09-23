@@ -70,7 +70,7 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 
 | On a tile | What it shows |
 | --- | --- |
-| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, width |
+| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, maximise |
 | Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
 | Session pill | which **session** this transcript is — `session · running · 6d` — and the one menu that changes which one it is: this session, the earlier ones with how each ended and what it cost, `+ new session`, the console, and the project's other checkouts (#206) |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
@@ -79,7 +79,6 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 | Transcript | assistant text, tool calls, denials, phase changes — the current run only |
 | Earlier runs | folded under their session in the pill's menu — one *earlier*, not two adjacent ones (#206) |
 | Outside strip | a session in this checkout the fleet did not start: what it is, how sure we are, and *adopt it* |
-| Held note | in focus mode only, on a tile you acted on: why it is still here, and *let it go* |
 | Bottom row | reply box (→ `send`), Start (a ticket key in the same box), **Reset**, Stop. Over budget, *Send* re-arms as **Send anyway**: one more turn, on a second and deliberate press (#213) |
 
 The **sidebar** sits beside the glass and holds five sections, one open at a time: the Jira **board**
@@ -135,9 +134,9 @@ inside a hidden tile, so the board window (`roles`, before #232) was the one pla
 skipped its pre-flight. A ticket row takes the keyboard: `1`–`9` picks the
 rail chip in that position, `Enter` the row's one candidate.
 
-The **toolbar** is two labelled groups and one row: *see* (search, the sidebar, and a *settings*
-link) and *needs me* (focus mode, chime, the bell). A third, *window*, chose between the
-arrangements, and went with them (#232). Settings are a **page**, `/settings`, not a popover: the palette was never
+The **toolbar** is three labelled groups and one row: *widths* (the three presets, #234), *see*
+(search, the sidebar, and a *settings* link) and *alerts* (chime, the bell). A group named *window*
+chose between the arrangements, and went with them (#232); the presets stand where it was. Settings are a **page**, `/settings`, not a popover: the palette was never
 the only one, and the model each agent runs and the flags the Copilot CLI is launched with have no
 business behind a button on a bar that is about the agents. The link's `href` is built at runtime
 because the run token lives in the query string and `_authorized` reads it from nowhere else — a
@@ -178,14 +177,16 @@ agents in one working tree is what the lock exists to prevent — and `fleet.max
 its limit, at which point the button reads *Reset anyway* and one more press spends the extra turn.
 Never a silent force.
 
-### Held tiles
+### Held tiles, and why there are none now
 
-Focus mode shows the agents the fold says need a person. Answering one is exactly what stops it
+Focus mode showed the agents the fold says need a person. Answering one is exactly what stops it
 needing you, so a reply used to hide the tile it was typed into: the action's only visible outcome
-was that the thing you were working on vanished. A tile you have acted on is **held** — still on
-screen, dimmed, saying which action held it — until you release it or leave focus mode. A held tile
-that goes back to needing somebody drops the note and reads as a normal demand again; it never takes
-the credit for a question it did not answer.
+was that the thing you were working on vanished. A tile you had acted on was **held** — still on
+screen, dimmed, saying which action held it — until you released it or left focus mode.
+
+Focus mode is the *needs me* preset since #234: one write of this window's widths that makes every
+agent needing a person wide and the rest rails. Nothing takes a width back when an agent stops
+needing you, so the agent you just answered keeps its pane and there is nothing to hold.
 
 ### The switcher — the main tab and the ones beside it (#174)
 
@@ -248,9 +249,9 @@ The one arrangement ([fleet-layouts.md](fleet-layouts.md)). It was one of four, 
 until the operator retired the choice on 22 September 2026 (#232) — and with the same sentence
 corrected the column that had been the default: *each agent is a column, not each agent is stacked in
 one column — skinnier agents* ([plan-panes.md](plan-panes.md)). So every agent is a **pane** in one
-row, at full height, in the arrangement's order. The open one (and every pinned one) shares the width;
-every other one is a **rail**. Nothing scrolls sideways: a desk that scrolls hides the agent that
-needs you.
+row, at full height, in the arrangement's order. The wide ones share the width, each by its weight in
+this window's **widths** (#234); every other one is a **rail**. Nothing scrolls sideways: a desk that
+scrolls hides the agent that needs you.
 
 A pane draws itself by how wide it is, in three tiers:
 
@@ -260,25 +261,39 @@ A pane draws itself by how wide it is, in three tiers:
 | compact | 160 – 359 px | the head (name, state chip with its age, ticket, and the three tools: hide, refresh, which model), the approval and question cards, the last lines of the transcript, the reply box |
 | full | 360 px and up | everything a tile has |
 
-The tier is written as `data-tier` by one `ResizeObserver` on the row, with 8 px of slack so a pane on
-a boundary does not flicker, and the numbers are starting values the laptop sets in #235. Three pins
-beside the open agent on a laptop panel is three compact panes; the same desk on a 2 560 px monitor is
+The tier is written as `data-tier` by one `ResizeObserver` on the row, with 8 px of slack between
+compact and full so a pane on that boundary does not flicker (a pane is a 48 px rail or at least
+160 px, so nothing sits on the rail's), and the numbers are starting values the laptop sets in #235.
+Three panes beside each other on a laptop panel are compact; the same desk on a 2 560 px monitor is
 three full ones.
 
+**Resizing is the gutters (#234).** Between every two panes is a 1 px line with an 8 px hit area over
+their edge: dragging it moves width between those two panes and nothing else, snapping to a rail
+under 120 px, never under the compact minimum, and to the full minimum or an even share within 8 px.
+The drag is the preview; one write when the hand comes up, `Esc` puts it back with nothing written, a
+double click evens the pair, and the footer's *undo* (`u`) takes the last change back. Widths are the
+window's own — `POST /api/window {widths}` — so two monitors hold different widths over the same agents
+in the same order. A window that has never been given widths draws the open pane and every pin wide, at
+the `size.cols` an older build left them. [desk-window.md](desk-window.md) has the whole of it.
+
 Clicking a rail opens it: it takes the width the open pane had, in its own slot, and the pane that was
-open becomes a rail in its own — nothing moves along the row. `Esc` goes back. Which agent is open is
-the window's own (`?w=`), so the left monitor can read one while the centre reads another, and
-`selected` — what the inspector follows — stays the one thing every window agrees on. A pinned agent
-is always open, and `Alt+Shift+←/→` still change an open pane's share (`size.cols`) until the gutters
-replace them (#234). A rail has no head, so its three tools are keys: `h`, `r` and `m` act on the rail
-the keyboard is on.
+open becomes a rail in its own — nothing moves along the row. `Esc` goes back. **Shift**-click opens it
+beside the open pane instead, the two splitting that pane's width. Which agent is open is the window's
+own (`?w=`), so the left monitor can read one while the centre reads another, and `selected` — what the
+inspector follows — stays the one thing every window agrees on. A rail has no head, so its three tools
+are keys: `h`, `r` and `m` act on the rail the keyboard is on.
+
+Three **presets** stand in the header where the arrangement picker was: *one* (`1`) — the pane the
+keyboard is on wide and every other a rail; *all* (`=`) — an even share each; *needs me* (`f`) — every
+agent that needs a person wide, the rest rails. Each is one write, and undoable.
 
 When even the rails do not fit — about thirty agents on a 1 440 px window — a project's checkouts share
 one rail, named for the project, red if any of them needs a person, and a press on it opens that one.
 Only past that does the row scroll.
 
-*needs me* quiets the row rather than emptying it: a rail whose agent wants nothing dims, still named,
-still counted and still one press away. It never quiets an open pane.
+*needs me* narrows the row rather than emptying it: an agent that wants nothing is a rail, still named,
+still counted and still one press away. It hides nothing, and with nobody needing you it changes
+nothing and says so.
 
 An address from before #232 — `?layout=`, `&view=` or `&screen=` from a bookmark or an older
 launcher — opens the desk as any other does, and the footer says once that the parameter is
@@ -337,7 +352,7 @@ being offered and quietly doing nothing. One checkout still holds one agent: a r
 already running an agent in cannot adopt a second. *Hand it back* releases it, and only ever removes
 a lock the fleet did not create.
 
-The page has one arrangement, the row above, and a focus mode. `ad-fleet serve` still accepts
+The page has one arrangement, the row above, and each window's widths over it. `ad-fleet serve` still accepts
 `--layout` for one release and ignores it, with a `note` saying so; how the four arrangements of
 #133 and #200 came down to one is in [fleet-layouts.md](fleet-layouts.md).
 
@@ -357,11 +372,14 @@ red everywhere or the colour stops being information:
 | Key | Does |
 | --- | --- |
 | `?` | the key map — this table, in four columns, behind the footer's `?` button |
-| `1`–`9` | open that one — the number printed on the pane, counting the panes **on the glass** |
-| `j` / `k` | walk the row: the open pane, then each rail; `Enter` on a rail opens it |
+| `2`–`9` | open that one — the number printed on the pane, counting the panes **on the glass** (`1` is the *one* preset, #234) |
+| `←` / `→`, `j` / `k` | walk the row: the open pane, then each rail; `Enter` on a rail opens it, `Shift`+`Enter` opens it beside |
+| `1` | *one*: the pane the keyboard is on wide, every other a rail |
+| `=` | *all*: every pane on the glass an even share |
+| `u` | take the last change of widths back |
 | `r` | re-read the agent the keyboard is on — a rail as well — now; spends no premium request |
 | `m` | which model that agent runs, and which one its last turn actually ran on |
-| `f` | focus mode: the agents that need nobody dim |
+| `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
 | `Alt`+`N` | a clean session in this checkout, beside the one it is on |
@@ -371,11 +389,10 @@ red everywhere or the colour stops being information:
 | `b` | the sidebar's Jira board |
 | `n` | the sidebar's alerts |
 | `Alt`+`←` / `Alt`+`→` | move the focused pane one slot |
-| `Alt`+`Shift`+`←` / `Alt`+`Shift`+`→` | an open pane's share of the width, one less / one more (#217, until #234) |
-| `Alt`+`Shift`+`↑` / `Alt`+`Shift`+`↓` | still written, and nothing reads it: a pane is always full height (#233) |
+| `Alt`+`Shift`+`←` / `Alt`+`Shift`+`→` | the gutter on the focused pane's right, one step (#234) |
 | `Alt`+`Home` | pin the focused pane first |
-| `Alt`+`Enter` | one share or two |
-| `Esc` | close a popover or the sidebar, or go back to the agent that was open before (or out of a text box) — the nearest open thing first |
+| `Alt`+`Enter` | the focused pane and the one on its right, evened — the gutter's double click |
+| `Esc` | put down a drag with nothing written; close a popover or the sidebar, or go back to the agent that was open before (or out of a text box) — the nearest open thing first |
 
 The number on a pane is the key that opens it, and it follows the arrangement: move a pane and its
 number moves with it, and an agent that is off the glass (hidden, or folded into its project's rail)
@@ -396,7 +413,7 @@ screen with some CSS on it:
 | --- | --- |
 | [desk-components.md](desk-components.md) | every component, who draws it, and the seven rules each one keeps — created once and patched forever, one owner per property, listeners bound once, lists reconciled by key |
 | [desk-motion.md](desk-motion.md) | three duration tokens and a 320 ms ceiling a test enforces; `.enters` as the one arrival pattern; `transitionLayout` as the one door for a layout change |
-| [desk-window.md](desk-window.md) | the tile as a window: pointer drag, the two resize edges and their snap, `size {cols, rows}`, minimise and maximise |
+| [desk-window.md](desk-window.md) | the tile as a window: pointer drag, the gutters and their snaps, a window's widths, the presets, minimise and maximise |
 | [desk-rendering.md](desk-rendering.md) | what a canvas on this page may do; the activity trace; the glass ground that drifts |
 | [desk-instant.md](desk-instant.md) | paint, post, reconcile; the optimistic arrangement and its way back; the 50 ms budget per gesture; why there is no spinner |
 | [desk-engines.md](desk-engines.md) | what each engine does with each platform feature, and what happens on the ones that have not got it |
@@ -421,7 +438,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/probe` | the WebGL probe (#247): three seconds of three.js strokes in whatever shell opened it, posted once to `/api/probe`. The only page that loads three.js ([desk-engines.md](desk-engines.md) §WebGL, probed in each shell) |
 | GET | `/static/…` | the pages' assets: `app.css`, `common.js`, `app.js`, `settings.js`, `probe.js`, and the vendored `vendor/three/three.module.min.js` (r160, MIT) |
 | POST | `/api/probe` | `{shell, ua, webgl, renderer, vendor, caveat, three, intervals, first_stroke_ms, load_ms, drawn, error}` — facts only; one record per shell in `~/.agentdata/fleet/probes.json`, answered with the class and the WebGL cell `probe.classify` gives it. `409 probe_shell` / `probe_shape` for a record it cannot read. A probe that did not finish (`incomplete`) is kept as the shell's latest attempt and answered `kept: true` when a finished record stands |
-| POST | `/api/window` | `{w, …}` — one window's own record |
+| POST | `/api/window` | `{w, …}` — one window's own record. `{w, widths, version}` sets its widths (#234): repository → weight, `0` a rail; `version` is the desk version the page last heard, and a write older than the widths the record holds is refused `409 widths_stale`. Anything but repository → a number of nought or more is `409 widths_shape` |
 | POST | `/api/measure` | `{w}` asks that desk window to go to `/probe` (`ad-fleet probe --open pycharm`). The ask is held in memory for ten minutes and shows in the desk frame's `measure`. `{w, take: true}` is the window claiming it, answered `go: true` once |
 | GET | `/api/fleet` | every repo's state, its model and the one its last turn ran on, the recent events, and the pending approvals |
 | POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
@@ -446,7 +463,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/approve` | `{id, reason?}` |
 | POST | `/api/deny` | `{id, reason}` |
 | POST | `/api/select` | `{repo}` — the project every window agrees on ([fleet-layouts.md](fleet-layouts.md)) |
-| POST | `/api/arrange` | `{order?, size?, pinned?, hidden?}` — the desk's one arrangement, shared by every window (#173, #232) |
+| POST | `/api/arrange` | `{order?, size?, pinned?, hidden?}` — the desk's one arrangement, shared by every window (#173, #232). `size` is read and kept for desk files an older build wrote, and no page sends it since the widths (#234) |
 | POST | `/api/attach` | `{id, repo}` — copies one Downloads file into `<repo>/.agent/in/<KEY>/` |
 | POST | `/api/answer` | `{repo, answers: [{id, answer}]}` — every answer in one resume (#165) |
 | POST | `/api/scope/resolve` | `{repo, files: [{name, size, sha}]}` — which of this checkout's files these are (#166) |
