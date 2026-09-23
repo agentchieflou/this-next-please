@@ -22,6 +22,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
+from test_fleet_gutters import _gutter_point
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -263,7 +264,9 @@ def test_the_webgl_row_is_what_the_probe_measured(fleet_home):
 def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home, tmp_path):
     """All of them at once, which is the worst engine anyone will actually meet: no view
     transitions, no pointer capture, no `linear()`, no container queries. The desk still hides a
-    tile, still reorders, still draws its traces, and still lands where it would have."""
+    tile, still reorders, still resizes by the gutter -- whose move and release are heard on the
+    document, so a lost capture costs nothing (#234) -- still draws its traces, and still lands
+    where it would have."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
@@ -299,10 +302,21 @@ def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home
             page.wait_for_function(
                 """() => [...document.querySelectorAll('#grid .tile')]
                           .map(t => t.dataset.repo).indexOf('gamma') < 2""", timeout=8000)
-            page.evaluate("() => setTileSize('alpha', 2, 1)")
+            # The gutter between the two panes on the glass, pulled so that the rail opens -- once
+            # the move above has finished travelling, or its box is where the gutter was.
+            pair = page.evaluate("""() => {
+              const on = [...document.querySelectorAll('#grid .tile')]
+                .filter(t => !t.classList.contains('is-hidden'));
+              return { left: on[0].dataset.repo, wide: on[0].classList.contains('is-solo') };
+            }""")
+            x, y = _gutter_point(page, pair["left"])
+            page.mouse.move(x, y)
+            page.mouse.down()
+            page.wait_for_function("() => !!gutterHeld", timeout=8000)
+            page.mouse.move(x + (-400 if pair["wide"] else 400), y, steps=10)
+            page.mouse.up()
             page.wait_for_function(
-                """() => getComputedStyle(document.querySelector('.tile[data-repo="alpha"]'))
-                           .getPropertyValue('--cols').trim() === '2'""", timeout=8000)
+                "() => document.querySelectorAll('#grid .tile.is-solo').length === 2", timeout=8000)
             out = page.evaluate("""() => ({
               traces: [...document.querySelectorAll('.tile .trace')]
                         .filter(c => c.getAttribute('aria-label')).length,

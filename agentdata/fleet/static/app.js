@@ -24,11 +24,14 @@ var arrivedSinceLastPlace = false;   // a pane was made since the order was last
 var RETIRED_PARAMS = ["layout", "view", "screen"];
 var ignoredParams = RETIRED_PARAMS.filter(function (k) { return PARAMS.has(k); });
 var W_NAME = PARAMS.get("w") || "main";
+/* The anchor this page was OPENED with -- a toast's `#tile=luna` -- read before anything on it can
+   write one of its own: opening an agent marks the address with `replaceState`, which is the same
+   string the page would otherwise take for a toast's (#234). */
+var BOOT_HASH = location.hash || "";
 
 var desk = { projects: {}, offers: {}, unsorted: [], not_offered: [], folders: [],
              desk: { selected: "" } };
 var pendingDesk = null;
-var needsOnly = false;
 var readCursors = {};
 var streamDead = false;
 var awayShown = false;
@@ -40,6 +43,11 @@ var appliedInitialWindow = false;
    on. */
 var openTile = "";
 var previousOpen = "";
+/* This window's widths (#234): each pane's weight, 0 a rail and a positive number its share of
+   what the rails leave -- or null while the window has never been given any, when the open pane and
+   the pins share the row as they did before the gutters. Per window, like `openTile`, because two
+   monitors can hold different widths over the same agents in the same order. */
+var myWidths = null;
 /* Whether a drop opens the dispatch card (#164) or launches the way #98 did. The server's
    `fleet.preflight` decides; until the first `/api/fleet` answers, the card is the default,
    because showing a card and starting from it is the recoverable direction to be wrong in. */
@@ -63,6 +71,13 @@ function saveWindow(patch) {
   var body = Object.assign({ w: W_NAME }, patch);
   windowWrites += 1;
   windowChain = windowChain.then(function () {
+    /* Widths carry the version this page last heard (#234), read as the post goes rather than when
+       the gesture was made: by then the answer to this page's previous write has come in through
+       the door, so the server refuses only another page's widths under the same `?w=`, never this
+       page's own. */
+    if (body.widths !== undefined && desk.desk && desk.desk.version !== undefined) {
+      body.version = desk.desk.version;
+    }
     var mark = gesture("window");
     return post("window", body).then(function (r) {
       settle(mark);
@@ -105,29 +120,11 @@ function rehome() {
   window.location.href = "/open?w=" + encodeURIComponent(W_NAME);
 }
 
-/* Repos the operator has acted on, and the word for what they did.
-   Answering an agent is what stops it needing you, so in focus mode a reply hid the very tile it
-   was typed into: the only visible outcome of pressing Send was that the thing vanished. These are
-   held on screen until focus mode is left or the tile is released, so an action's result is
-   something the operator can see rather than something they have to go and find. */
-var held = new Map();           // repo -> what was done ("replied", "started", ...)
-
-var HELD_WORDS = { send: "replied", start: "started", stop: "stopped",
-                   reset: "reset", approve: "approved", deny: "denied" };
-
-function hold(repo, what) {
-  if (!repo || !HELD_WORDS[what]) return;
-  held.set(repo, HELD_WORDS[what]);
-  saveWindow({ held: Array.from(held.keys()) });
-}
-
-function release(repo) {
-  held.delete(repo);
-  if (tiles.has(repo)) toggle(tiles.get(repo).el, "held", false);
-  saveWindow({ held: Array.from(held.keys()) });
-  place();
-}
-
+/* There used to be a `held` map here: the agents the operator had acted on, kept on the glass by
+   focus mode after they stopped needing anybody, because a reply otherwise dimmed the very pane it
+   was typed into. *needs me* is a preset now (#234) -- one write of widths, which nothing takes back
+   when an agent stops needing you -- so there is no filter left for a pane to fall out of, and
+   nothing to hold it in. */
 
 /* The desk's answer to a 403 (common.js calls this): collect a fresh run token through `/open`,
    but only once the stream has already died -- a single refused POST against a live stream is not
@@ -281,8 +278,23 @@ function makeTile(row, index) {
      the same binder the head uses. The face is one button, so it IS the handle (#217's rule), and
      the click a real drag ends in is swallowed there. */
   var face = el.querySelector(".pane-rail");
-  face.addEventListener("click", function () { openPane(railTarget(row.repo)); });
+  /* #234: Shift opens it BESIDE the pane that has the keys, splitting that pane's width -- which is
+     how two are open without a drag. `Shift+Enter` is the same press from the keyboard; it is taken
+     on the key, because whether the click a button synthesises for `Enter` carries the Shift is the
+     engine's business. */
+  face.addEventListener("click", function (e) {
+    if (e.shiftKey) openBeside(railTarget(row.repo));
+    else openPane(railTarget(row.repo), false, true);
+  });
+  face.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    openBeside(railTarget(row.repo));
+  });
   bindDragToReorder(face, el, row.repo);
+
+  /* #234: this pane's right-hand gutter -- the line between it and the next pane on the glass. */
+  bindGutter(el.querySelector(".gutter"), el);
 
   el.addEventListener("dragover", function (e) {
     e.preventDefault();
@@ -362,22 +374,23 @@ function makeTile(row, index) {
   el.querySelector(".ro-resume").addEventListener("click", function () { resumeHere(el, row.repo); });
   el.querySelector(".ro-back").addEventListener("click", function () { backToLive(el); });
 
-  /* Every drag gesture has a keyboard equivalent, and the footer key map lists all four. */
+  /* Every drag gesture has a keyboard equivalent, and the footer key map lists them all. */
   el.addEventListener("keydown", function (e) {
     if (!e.altKey) return;
     // #217: shifted, because Alt+arrows has moved a tile since #5 and a learned gesture is not
-    // something to take away for a new one.
+    // something to take away for a new one. Since the gutters (#234) the shifted pair moves this
+    // pane's right-hand gutter, as a drag of it would; up and down went with `rows`, because a pane
+    // is always the row's full height.
     if (e.shiftKey) {
-      if (e.key === "ArrowRight") { resizeTile(row.repo, 1, 0); e.preventDefault(); }
-      else if (e.key === "ArrowLeft") { resizeTile(row.repo, -1, 0); e.preventDefault(); }
-      else if (e.key === "ArrowDown") { resizeTile(row.repo, 0, 1); e.preventDefault(); }
-      else if (e.key === "ArrowUp") { resizeTile(row.repo, 0, -1); e.preventDefault(); }
+      if (e.key === "ArrowRight") { stepGutter(el, 1); e.preventDefault(); }
+      else if (e.key === "ArrowLeft") { stepGutter(el, -1); e.preventDefault(); }
       return;
     }
     if (e.key === "ArrowLeft") { moveTile(row.repo, -1); e.preventDefault(); }
     else if (e.key === "ArrowRight") { moveTile(row.repo, 1); e.preventDefault(); }
     else if (e.key === "Home") { toggleTilePin(row.repo); e.preventDefault(); }
-    else if (e.key === "Enter") { toggleTileSize(row.repo); e.preventDefault(); }
+    // The double-click on this pane's right-hand gutter: the two beside it, evened out (#234).
+    else if (e.key === "Enter") { evenGutter(el); e.preventDefault(); }
     // The strip, without a mouse. `[` and `]` walk it; `N` is a clean session beside this one.
     else if (e.key === "[") { stepMenu(el, row.repo, -1); e.preventDefault(); }
     else if (e.key === "]") { stepMenu(el, row.repo, 1); e.preventDefault(); }
@@ -409,14 +422,6 @@ function makeTile(row, index) {
       e.stopPropagation();
       var what = adoptBtn.dataset.what === "release" ? "release" : "adopt";
       action(el, what, { repo: row.repo, pid: Number(adoptBtn.dataset.pid || 0) });
-    });
-  }
-
-  var releaseBtn = el.querySelector(".release");
-  if (releaseBtn) {
-    releaseBtn.addEventListener("click", function (e) {
-      e.stopPropagation();
-      release(row.repo);
     });
   }
 
@@ -500,9 +505,6 @@ function action(el, what, body) {
   var mark = gesture("action:" + what);
   return post(what, body).then(function (r) {
     if (!r.ok) fail(el, r.error + (r.hint ? " — " + r.hint : ""));
-    // Only a *successful* action holds the tile. A refusal leaves the agent exactly as it was, so
-    // the tile is still whatever focus mode already thought it was, and the error is on the tile.
-    else hold((body && body.repo) || el.dataset.repo, what);
     /* The row came back with the answer (#219). A `send` used to cost two round trips -- the act,
        then a whole `/api/fleet` to find out what it did -- and the second one carried every tile
        on the desk so that one of them could be redrawn. An action that did not name a row (or an
@@ -877,21 +879,10 @@ function drawTile(el, row, approvals) {
   setTileState(el, displayState);
   paintAccent(el, row.accent);
   if (shows.full) drawTrace(el.querySelector(".trace"), row);
-  // `needs-human` is the class focus mode filters on, and it comes from #94's fold rather than from
-  // anything this page works out for itself: the chip, the toast and the filter must agree.
+  // `needs-human` is the class *needs me* widens by (#234) and `isHidden` keeps on the glass, and it
+  // comes from #94's fold rather than from anything this page works out for itself: the chip, the
+  // toast and the preset must agree.
   toggle(el, "needs-human", !!row.needs_human);
-  /* The hold is NOT dropped when the agent needs the human. It was, briefly, and that only delayed
-     the disappearance: pressing Send refreshes at once, and for the moment before the agent opens
-     its turn it is still the blocked agent it was -- so the hold was deleted on that first refresh
-     and the tile vanished a second later, when the turn started. An agent needing the human again
-     is on screen on its own merit anyway; all the hold has to do is stop claiming the credit, which
-     the stylesheet handles by showing the note only while the tile is not asking for anything. */
-  toggle(el, "held", held.has(row.repo));
-  var holdNote = el.querySelector(".holdnote");
-  if (holdNote) {
-    text(holdNote.querySelector(".holdwhy"),
-         "held here because you " + (held.get(row.repo) || "acted") + " — it no longer needs you");
-  }
   // A rail's one stop for the keyboard is its face; the pane around it is not a second one.
   tabbable(el, shows.wide ? 0 : -1);
   // Every state carries its own age, in the chip, because a verdict with no date is the bug.
@@ -1355,22 +1346,17 @@ function applyWindow(win) {
     }
     saveWindow({ seen: new Date().toISOString() });
   }
-  if (win.focus !== undefined && win.focus !== needsOnly) {
-    focusMode(win.focus, true);
-  }
   /* What is open is `open` and nothing else (#230, #232). The grid's `zoomed` was a second field
      for the same fact, and the two disagreeing inside one record is what snapped a click back to
      the agent before it; the record no longer has one. */
   if (win.open !== undefined && win.open !== openTile) {
     openTile = String(win.open || "");
   }
+  /* The widths are the record's too, including none (#234). `focus` and `held` are not read: the
+     needs-only filter they served is the *needs me* preset now, one write of widths. */
+  myWidths = ownWidths(win.widths);
   if (win.section && win.section !== lastSection) {
     section(win.section, true, true);
-  }
-  if (Array.isArray(win.held)) {
-    win.held.forEach(function (repo) {
-      if (!held.has(repo)) held.set(repo, "held");
-    });
   }
   if (win.read && typeof win.read === "object") {
     Object.assign(readCursors, win.read);
@@ -1492,10 +1478,14 @@ function deskAsShown(fallback) {
   var d = desk.desk || fallback;
   if (!d) return null;
   d = JSON.parse(JSON.stringify(d));
-  if (openTile) {
-    d.windows = d.windows || {};
-    d.windows[W_NAME] = Object.assign({}, d.windows[W_NAME] || {}, { open: openTile });
-  }
+  d.windows = d.windows || {};
+  var mine = Object.assign({}, d.windows[W_NAME] || {});
+  if (openTile) mine.open = openTile;
+  // The widths it shows, for the same reason (#234): a gesture a moment before the reload is newer
+  // than the last answer the fleet gave.
+  if (myWidths) mine.widths = Object.assign({}, myWidths);
+  else delete mine.widths;
+  d.windows[W_NAME] = mine;
   return d;
 }
 
@@ -1538,6 +1528,7 @@ function restoreCached() {
     desk.desk = shown;
     var mine = shown.windows && shown.windows[W_NAME];
     if (mine && mine.open) openTile = String(mine.open);
+    if (mine) myWidths = ownWidths(mine.widths);
   }
   lastApprovals = data.approvals || [];
   data.repos.forEach(function (row, i) { patchRow(row, i); });
@@ -1581,7 +1572,6 @@ function refresh() {
     var counts = document.getElementById("counts");
     text(counts,
          data.repos.length + " agents" + (need ? "  ·  " + need + " need you" : "") +
-         (needsOnly && held.size ? "  ·  " + held.size + " held" : "") +
          (fleetSpend.all_time
             ? "  ·  " + fleetSpend.today + " premium today  ·  " + fleetSpend.all_time + " all time"
             : ""));
@@ -1681,13 +1671,14 @@ function connect() {
   };
 }
 
-/* ------------------------------------------------------------------- focus mode and the keyboard */
+/* ------------------------------------------------------------------- opening one, and the keyboard */
 
 /* ------------------------------------------------------- what the two focuses actually are (#207)
 
    `focus()` zoomed one tile and `focusMode()` filtered for the ones that need a person: two modes
-   named alike, side by side. They are `openAgent` and *needs me* now, with the old name kept as an
-   alias because the page globals the regression tests call keep their names.
+   named alike, side by side. They are `openAgent` and the *needs me* preset now (#234) -- a press
+   that widens whoever needs you, not a mode -- with the old name kept as an alias because the page
+   globals the regression tests call keep their names.
 
    Not literally `open`: a bare `function open()` in a non-module script replaces `window.open` for
    the whole page, and a name that shadows a platform function to read slightly better is a trade
@@ -1754,18 +1745,30 @@ document.addEventListener("keydown", function (e) {
     return;
   }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (/^[1-9]$/.test(e.key)) {
+  if (/^[2-9]$/.test(e.key)) {
     // The number printed on a pane comes from the arrangement, so the key that opens it must too:
     // registry order meant the badge said 3 and pressing 3 opened something else. It counts the
     // panes on the glass, in the row's order -- every agent is one now (#233), the open one
     // included, so the number on a pane never changes because another one was opened.
+    //
+    // From 2: `1` is the *one* preset since the gutters (#234), the plan's key for it. The first
+    // pane is `j` from nowhere, or `1` with the keyboard on it, which makes it the one wide pane.
     var pane = paneStops()[Number(e.key) - 1];
     var tile = pane && pane.closest ? pane.closest(".tile") : null;
-    if (tile && tile.dataset.repo) openPane(railTarget(tile.dataset.repo));
+    if (tile && tile.dataset.repo) openPane(railTarget(tile.dataset.repo), false, true);
     return;
   }
   if (e.key === "j" || e.key === "k") {
     stepRow(e.key === "j" ? 1 : -1);
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    // #234: the arrows walk the row as `j` and `k` do -- from a pane, or from nowhere. An arrow in
+    // the sidebar or a menu is that control's own, and a shifted one is not this gesture.
+    var at = document.activeElement;
+    if (e.shiftKey || (at && at !== document.body && !(at.closest && at.closest("#grid")))) return;
+    stepRow(e.key === "ArrowRight" ? 1 : -1);
     e.preventDefault();
     return;
   }
@@ -1819,7 +1822,13 @@ refresh().then(function () {
   // The anchor is answered *after* the desk, not beside it: whether a tile is hidden is the
   // server's arrangement, and a `#tile=` that lands before that has loaded reads every tile as on
   // the glass -- so the one thing it was asked to do, reopen a tile that is not, it did not (#173).
-  loadDesk().then(followHash);
+  //
+  // And only the anchor the page was opened with, and only if nothing has moved it since. The desk
+  // read is the slow one -- a catalogue, a Downloads scandir -- and a pane pressed before it answers
+  // marks the address itself: followed then, it opened that agent a second time through
+  // `openAgent`, whose `drawer(false)` shut the sidebar the operator had opened meanwhile and wrote
+  // `section`, `open` and `read` again (#234, three extra writes on the Windows leg).
+  loadDesk().then(function () { if (BOOT_HASH && location.hash === BOOT_HASH) followHash(); });
 });
 
 // The desk half is answered on its own, slower clock: a catalogue read, a Downloads scandir and a
@@ -3239,7 +3248,6 @@ function reorderDomTiles() {
   if (!grid) return;
   var order = getEffectiveOrder();
   var curArr = getArrangement();
-  var sizes = curArr.size || {};
   var pinned = curArr.pinned || [];
   // What is on the glass as a pane of its own: not hidden, and not folded into its project's rail.
   var shown = visibleOrder().filter(function (n) { return !groupedAway(n); });
@@ -3279,14 +3287,8 @@ function reorderDomTiles() {
       var at = shown.indexOf(name);
       text(entry.el.querySelector(".n"), at < 0 ? "" : String(at + 1));
       text(entry.el.querySelector(".pr-n"), at < 0 ? "" : String(at + 1));
-      var sz = sizeOf(sizes, name);
-      // One owner for the footprint: two custom properties. `--cols` is an open pane's weight in
-      // the row (#233: `flex-grow`, until the gutters' widths replace it, #234); `--rows` is still
-      // written and means nothing, because a pane is always the row's full height. `size-2` stays
-      // as a state marker for anything that reads "is this one widened".
-      style(entry.el, "--cols", String(sz.cols));
-      style(entry.el, "--rows", String(sz.rows));
-      toggle(entry.el, "size-2", sz.cols === 2);
+      // The width is not written here: it is `paintWidths`', one owner (#234). #217's `--cols`,
+      // `--rows` and `size-2` went with the span they described.
       var isPinned = pinned.indexOf(name) >= 0;
       toggle(entry.el, "is-pinned", isPinned);
       var pBtn = entry.el.querySelector(".pintoggle");
@@ -3656,62 +3658,15 @@ function moveTile(repo, dir) {
   }, "move");
 }
 
-/* #217. A tile's footprint is two numbers now. `size: 2` is what every arrangement written
-   before this holds -- one number meaning two columns wide -- and it reads as `{cols: 2, rows: 1}`
-   here exactly as it does on the server, so a desk saved by an older build opens with its tiles
-   the width they were left. */
-var SIZE_MAX_COLS = 4;
-var SIZE_MAX_ROWS = 3;
-
-function sizeOf(sizes, name) {
-  var v = (sizes || {})[name];
-  if (v && typeof v === "object") {
-    return { cols: clampSpan(v.cols, SIZE_MAX_COLS), rows: clampSpan(v.rows, SIZE_MAX_ROWS) };
-  }
-  return { cols: clampSpan(v, SIZE_MAX_COLS), rows: 1 };
-}
-
-function clampSpan(value, most) {
-  var n = Math.round(Number(value) || 1);
-  return Math.max(1, Math.min(most, n));
-}
-
-/* Every writer goes through here: `Alt+Enter` and `Alt+Shift+arrows` both mean "this tile is this
-   many tracks wide and this many tall", and there is one place that says what that costs. The edge
-   handles that also wrote it snapped to the grid's `auto-fit` tracks, and went with the grid
-   (#232); `size` itself stays until the gutters replace it (#234). */
-function setTileSize(repo, cols, rows) {
-  var curArr = getArrangement();
-  var sizes = Object.assign({}, curArr.size || {});
-  var want = { cols: clampSpan(cols, SIZE_MAX_COLS), rows: clampSpan(rows, SIZE_MAX_ROWS) };
-  var now = sizeOf(sizes, repo);
-  if (now.cols === want.cols && now.rows === want.rows) return Promise.resolve();
-  sizes[repo] = want;
-  // Optimistic, then confirmed -- the tile changes under the hand and the server's answer is what
-  // the next draw reads. Two quick presses both read the local arrangement, so neither is lost.
-  var was = Object.assign({}, curArr.size || {});
-  return arrangeNow({ size: sizes }, function () {
-    curArr.size = sizes;
-    return function () { curArr.size = was; };
-  }, "size");
-}
-
-function toggleTileSize(repo) {
-  var now = sizeOf(getArrangement().size, repo);
-  return setTileSize(repo, now.cols > 1 ? 1 : 2, now.rows);
-}
-
-/* Alt+Shift+arrows. Alt+arrows already moves a tile and has since #5, so resizing takes the
-   shifted pair rather than stealing a gesture the operator has learned. */
-function resizeTile(repo, dCols, dRows) {
-  var now = sizeOf(getArrangement().size, repo);
-  return setTileSize(repo, now.cols + dCols, now.rows + dRows);
-}
-
-/* Both toggles write the local arrangement BEFORE the round trip, not only after it. Reading
+/* The pin writes the local arrangement BEFORE the round trip, not only after it. Reading
    `desk.desk` and posting without updating it meant two quick clicks both read the same state and
    the second overwrote the first: pin two tiles in a second and one of them silently came back
-   unpinned. The returned promise is what lets a caller sequence them. */
+   unpinned. The returned promise is what lets a caller sequence them.
+
+   A pin is the order's "first" (`Alt+Home`). Until a window has widths of its own it is also open
+   beside the open pane, as it was in the column; once it has, what is wide is what the widths say
+   (#234) -- plan-panes' *Pin retires*: a pane that stays wide because it was dragged wide is the
+   same thing, drawn by the hand instead of a button. */
 function toggleTilePin(repo) {
   var curArr = getArrangement();
   var pinned = (curArr.pinned || []).slice();
@@ -3878,34 +3833,26 @@ function bindTools(root, repo) {
 
 /* ------------------------------------------------------------------------------ the row (#233) */
 
-/* Which agent is open, decided once. The window's own choice wins; then the selection every window
-   shares, so a fresh window opens on whatever the desk is already looking at; then the first pane.
-   A hidden or departed name never wins -- an arrangement that opened onto nothing would be the
-   blank window this layout exists to stop. */
+/* Which agent is open, decided once. The window's own choice wins; then, in a window with widths of
+   its own (#234), the first pane those widths make wide; then the selection every window shares, so
+   a fresh window opens on whatever the desk is already looking at; then the first pane. A hidden or
+   departed name never wins -- an arrangement that opened onto nothing would be the blank window
+   this layout exists to stop. */
 function openName() {
   if (openTile && tiles.has(openTile) && !isHidden(openTile)) return openTile;
+  var shown = visibleOrder();
+  if (myWidths) {
+    var wide = shown.filter(function (name) { return (myWidths[name] || 0) > 0; })[0];
+    if (wide) return wide;
+  }
   var sel = desk.desk.selected;
   if (sel && tiles.has(sel) && !isHidden(sel)) return sel;
-  var shown = visibleOrder();
   // A pinned agent is on the glass already, and `getEffectiveOrder` puts the pins first -- so
   // falling back to "the first one" would mean that pinning one agent silently stopped anything
   // else from ever being open. The default is the first agent that is NOT pinned.
   var pinned = (getArrangement().pinned) || [];
   var free = shown.filter(function (name) { return pinned.indexOf(name) < 0; });
   return free[0] || shown[0] || "";
-}
-
-/* Every pane with a width. A pinned pane is always open, and the open panes share what the rails
-   leave, so the set is the pins plus the one open agent. Everything else is a rail. */
-function openSet() {
-  var out = [];
-  var shown = visibleOrder();
-  ((getArrangement().pinned) || []).forEach(function (name) {
-    if (shown.indexOf(name) >= 0 && out.indexOf(name) < 0) out.push(name);
-  });
-  var open = openName();
-  if (open && out.indexOf(open) < 0) out.push(open);
-  return out;
 }
 
 /* The address says which agent is open, so a reload opens that one (#230). The column's own
@@ -3916,32 +3863,592 @@ function markTile(name) {
 }
 
 /* Open one. It takes the width the open pane had, and that pane becomes a rail in its own slot --
-   the column's swap, at the widths the row already has (resizing is #234). Nothing moves along the
-   row: the order is the operator's. What was open is remembered so `Esc` can go back. A pinned pane
-   is already open, so pressing it is not a swap -- it simply selects it. */
-function openPane(name, skipPost) {
+   the column's swap, kept because it is the gesture the operator already has. Nothing moves along
+   the row: the order is the operator's. What was open is remembered so `Esc` can go back. A pane
+   that already has a width is not swapped -- pressing it only gives it the keys.
+
+   In a window with widths of its own (#234) the swap is a write of them, in the same post as
+   `open`: one gesture, one write. A window that has never been given widths draws the open pane
+   and the pins wide by themselves, so there the swap is `open` alone, as it was.
+
+   The pane that already has the keys is not swapped with itself: an address naming it -- the
+   `#tile=` a reload answers, a toast for the agent already open -- changes no width, or a reload
+   would widen the open pane a drag had made a rail. `pressed` is a hand on its rail (a press, its
+   number, `Enter`), which does ask for it wide. */
+function openPane(name, skipPost, pressed) {
   if (!name || !tiles.has(name)) return;
   var was = openName();
   if (was && was !== name) previousOpen = was;
+  var next = skipPost || (was === name && !pressed) ? null : swappedWidths(was, name);
   openTile = name;
   markTile(name);
+  if (next) {
+    myWidths = next;
+    dropUndo();                 // `Esc` is this gesture's way back, not the footer
+  }
   // Marked inside the callback, not around the call: the view-transition path runs it on the
   // frame after the browser has taken its snapshot, and a mark closed before the work happened
   // would report nought and mean nothing (#219).
   var mark = gesture("open:pane");
   transitionLayout(function () { choose(name); place(); settle(mark); });
-  if (!skipPost) saveWindow({ open: name });
+  if (!skipPost) saveWidths(next ? { open: name, widths: next } : { open: name });
 }
 
 function backToPrevious() {
   if (!previousOpen || !tiles.has(previousOpen)) return false;
   var going = previousOpen;
-  previousOpen = openName();
+  var leaving = openName();
+  previousOpen = leaving;
+  var next = swappedWidths(leaving, going);
   openTile = going;
   markTile(going);
+  if (next) { myWidths = next; dropUndo(); }
   transitionLayout(function () { choose(going); place(); });
-  saveWindow({ open: going });
+  saveWidths(next ? { open: going, widths: next } : { open: going });
   return true;
+}
+
+/* ------------------------------------------------------------------------ the widths (#234)
+
+   A pane's width is a weight in its window's record: 0 is a rail, a positive number its share of
+   what the rails leave (plan-panes §The model). A weight and not pixels, so a window made narrower
+   scales the wide panes and leaves the rails alone. Every change of widths is one write, through
+   `widthsNow`; what the row looks like is `paintWidths`', and nothing else writes a pane's width. */
+
+/* Read out of a record leniently -- anything that is not a number of nought or more is not a width
+   -- and an empty record is none at all: the window draws as it did before it was given any. */
+function ownWidths(value) {
+  if (!value || typeof value !== "object") return null;
+  var out = {};
+  var any = false;
+  Object.keys(value).forEach(function (name) {
+    var n = Number(value[name]);
+    if (isFinite(n) && n >= 0) { out[name] = n; any = true; }
+  });
+  return any ? out : null;
+}
+
+/* The share a pane had before the gutters: `size.cols` as an older build wrote it, which the plan's
+   migration makes the weight of a pane that was wider than one column. Read, never written. */
+function legacyShare(name) {
+  var v = (getArrangement().size || {})[name];
+  var cols = v && typeof v === "object" ? v.cols : v;
+  return Math.max(1, Math.min(4, Math.round(Number(cols) || 1)));
+}
+
+/* Every pane on the glass by name, with its weight in this window. With widths of its own, those;
+   without, the open pane and every pin at the share they had, and every other pane a rail -- the
+   row as it was before the gutters. Never all rails: a row of 48px strips with nothing open is the
+   blank window this desk exists to stop, so if nothing has a share the open pane is given one. */
+function paneWeights() {
+  var shown = visibleOrder();
+  var out = {};
+  var any = false;
+  var pinned = myWidths ? [] : (getArrangement().pinned || []);
+  var one = myWidths ? "" : openName();
+  shown.forEach(function (name) {
+    var w = myWidths ? (myWidths[name] || 0)
+                     : (name === one || pinned.indexOf(name) >= 0 ? legacyShare(name) : 0);
+    out[name] = w;
+    if (w > 0) any = true;
+  });
+  if (!any && shown.length) out[openName() || shown[0]] = 1;
+  return out;
+}
+
+function wideNames(weights) {
+  return visibleOrder().filter(function (name) { return (weights[name] || 0) > 0; });
+}
+
+/* Shares scaled so that they average one, to four places. A weight means something only beside
+   its neighbours', and `flex-grow` under a sum of one leaves part of the row empty; the same
+   arithmetic on the page and in what it writes is what lets a pass with nothing new touch nothing. */
+function evenShares(weights, names) {
+  var sum = 0;
+  var n = 0;
+  names.forEach(function (name) {
+    var w = weights[name] || 0;
+    if (w > 0) { sum += w; n += 1; }
+  });
+  var k = n && sum > 0 ? n / sum : 1;
+  var out = {};
+  Object.keys(weights).forEach(function (name) {
+    var w = Number(weights[name]) || 0;
+    out[name] = w > 0 ? Math.round(w * k * 10000) / 10000 : 0;
+  });
+  return out;
+}
+
+/* The one writer of a pane's width: `is-solo` (it has one) and `--w` (its share), which is all the
+   stylesheet reads. Written from the record on every pass and from nothing else -- except the hand,
+   while a gutter is held, which this is not called during (`place` waits). */
+function paintWidths(weights) {
+  var wide = wideNames(weights).filter(function (name) { return !groupedAway(name); });
+  var shares = evenShares(weights, wide);
+  tiles.forEach(function (entry, name) {
+    var w = wide.indexOf(name) >= 0 ? shares[name] : 0;
+    toggle(entry.el, "is-solo", w > 0);
+    style(entry.el, "--w", w > 0 ? String(w) : "");
+  });
+}
+
+/* What the window keeps after a gesture: the panes it changed as it left them, and every other as
+   it was -- a hidden pane shown again comes back at its own width. */
+function widthsWith(changes) {
+  var out = Object.assign({}, myWidths || paneWeights());
+  Object.keys(changes).forEach(function (name) { out[name] = changes[name]; });
+  return evenShares(out, visibleOrder());
+}
+
+/* What a wide pane's own edges take of its width -- its padding and its borders -- which
+   `flex-grow` does not share out: a wide pane is its edges plus its share of what is left, so a
+   weight read off a width has them taken away first. Read off a wide pane, because a rail has no
+   padding; the same for every wide pane, since one rule draws them all. */
+function paneEdge() {
+  var wide = document.querySelector('#grid .tile.is-solo:not([data-tier="rail"])');
+  if (!wide) return 24;                      // the stylesheet's own 8px 10px and 3px + 1px
+  var cs = getComputedStyle(wide);
+  return (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) +
+         (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+}
+
+/* The weight that draws a pane this many pixels wide, beside others drawn the same way. */
+function weightOf(px, edge) {
+  return Math.max(1, px - edge);
+}
+
+/* The same, from the pixel width of every pane on the glass: a wide pane's weight is its width less
+   its edges, so the ones a gesture did not touch keep their width to the pixel. */
+function widthsFromPixels(px) {
+  var edge = paneEdge();
+  var changes = {};
+  Object.keys(px).forEach(function (name) {
+    changes[name] = px[name] > RAIL_PX + 0.5 ? weightOf(px[name], edge) : 0;
+  });
+  return widthsWith(changes);
+}
+
+/* How wide every pane on the glass is now, by name. */
+function measurePanes() {
+  var out = {};
+  Array.prototype.forEach.call(
+    document.querySelectorAll("#grid .tile:not(.is-hidden):not(.is-grouped)"),
+    function (el) { out[el.dataset.repo] = el.getBoundingClientRect().width; });
+  return out;
+}
+
+/* The swap in widths: the pane pressed takes the width of the one that had the keys, which becomes
+   a rail. A pane already wide keeps its width; one pressed while the pane that had the keys is a
+   rail itself takes an even share of the row. Nothing, in a window with no widths of its own. */
+function swappedWidths(was, name) {
+  if (!myWidths) return null;
+  var weights = paneWeights();
+  if ((weights[name] || 0) > 0) return null;
+  var give = was && was !== name ? (weights[was] || 0) : 0;
+  var changes = {};
+  if (give > 0) {
+    changes[was] = 0;
+    changes[name] = give;
+  } else {
+    var wide = wideNames(weights);
+    changes[name] = wide.length ? wide.reduce(function (s, n) { return s + weights[n]; }, 0) /
+                                  wide.length : 1;
+  }
+  return widthsWith(changes);
+}
+
+/* Save a window write that may carry widths, and when the server says another page under this
+   window's name moved them first, put this page's gesture back and read the desk again -- so the
+   next gesture starts from the widths that are really there. */
+function saveWidths(patch, before) {
+  return saveWindow(patch).then(function (r) {
+    if (r && r.ok === false && patch.widths !== undefined) {
+      if (before) {
+        myWidths = before.widths;
+        openTile = before.open;
+      }
+      dropUndo();
+      place();
+      loadDesk();
+    }
+    return r;
+  });
+}
+
+/* Every other change of widths: painted now, written once, put back with the server's words if it
+   is refused -- #219's order, for this window's record -- and offered back from the footer, because
+   a drag that went wrong should cost one press to take back, not another drag. `open` moves the
+   keys as well, in the same write; `how` is "layout" for the presets and the undo, which are layout
+   changes and go through the one door for those (#216), and nothing for the hand's own gestures,
+   whose preview was the real layout already. */
+var UNDO_FOR_MS = 12000;
+var undoOffer = null;
+var undoTimer = 0;
+var keyHome = null;                 // the pane the keyboard was on when the widths last changed
+
+function widthsNow(next, what, open, how) {
+  var mark = gesture("widths:" + what);
+  var before = { widths: myWidths ? Object.assign({}, myWidths) : null, open: openTile };
+  var had = document.activeElement;
+  keyHome = had && had.closest ? had.closest("#grid .tile") : null;
+  myWidths = next;
+  if (open !== undefined && open !== openTile) {
+    var was = openName();
+    if (open && was && was !== open) previousOpen = was;
+    openTile = open;
+    if (open) markTile(open);
+  }
+  if (what === "undo") dropUndo();
+  else offerUndo(before, what);
+  var paint = function () { place(); settle(mark); };
+  if (how === "layout") transitionLayout(paint);
+  else paint();
+  var patch = { widths: next || {} };
+  if (open !== undefined && open !== before.open) patch.open = open;
+  return saveWidths(patch, before);
+}
+
+var UNDO_WORDS = { drag: "the resize", step: "the resize", even: "the even split",
+                   beside: "open beside", one: "one", all: "all", needs: "needs me" };
+
+function offerUndo(before, what) {
+  undoOffer = { widths: before.widths, open: before.open, what: what,
+                until: Date.now() + UNDO_FOR_MS };
+  if (undoTimer) clearTimeout(undoTimer);
+  undoTimer = setTimeout(function () { undoTimer = 0; drawUndo(); }, UNDO_FOR_MS + 50);
+  drawUndo();
+}
+
+function dropUndo() {
+  undoOffer = null;
+  drawUndo();
+}
+
+/* The footer's one button for it (`u`): the widths, and the open pane if the gesture moved it, as
+   they were before the last change -- one more write, through the same door. */
+function undoWidths() {
+  if (!undoOffer || Date.now() > undoOffer.until) return false;
+  var back = undoOffer;
+  widthsNow(back.widths, "undo", back.open !== openTile ? back.open : undefined, "layout");
+  return true;
+}
+
+function drawUndo() {
+  var button = document.getElementById("undo");
+  if (!button) return;
+  var on = !!undoOffer && Date.now() < undoOffer.until;
+  hide(button, !on);
+  text(button, on ? "undo " + (UNDO_WORDS[undoOffer.what] || "the widths") : "");
+}
+
+/* ------------------------------------------------------------------ the three presets (#234)
+
+   One segmented control where the arrangement picker was, and three keys. Each is one write of this
+   window's widths, and the footer's undo puts it back. Presses, not modes: nothing here holds a
+   pane wide or narrow once the operator's hand moves a gutter, and *needs me* hides nothing -- it
+   replaces the needs-only filter, which only dimmed (#207's second focus). */
+function keyboardPane() {
+  var at = document.activeElement;
+  var host = at && at.closest ? at.closest("#grid .tile") : null;
+  return host && host.dataset.repo && !isHidden(host.dataset.repo) ? host.dataset.repo : "";
+}
+
+function needsPerson(name) {
+  var entry = tiles.get(name);
+  return !!entry && entry.el.classList.contains("needs-human");
+}
+
+function applyPreset(which) {
+  var shown = visibleOrder();
+  // Not while a gutter is held: the hand's own write comes when it lets go, and would undo this.
+  if (!shown.length || gutterHeld) return false;
+  var next = {};
+  var open;
+  if (which === "one") {
+    // The pane the keyboard is on, else the open one: wide, and every other a rail.
+    var one = keyboardPane() || openName();
+    shown.forEach(function (name) { next[name] = name === one ? 1 : 0; });
+    open = one;
+  } else if (which === "all") {
+    // An even share each; the tiers decide what that looks like on this glass.
+    shown.forEach(function (name) { next[name] = 1; });
+  } else if (which === "needs") {
+    var red = shown.filter(needsPerson);
+    if (!red.length) {
+      say("nothing needs you — the widths are as they were", 6);
+      return false;
+    }
+    shown.forEach(function (name) { next[name] = red.indexOf(name) >= 0 ? 1 : 0; });
+    // The keys go with the width: to the pane that had them if it is one of these, else the first.
+    var here = openName();
+    open = red.indexOf(here) >= 0 ? here : red[0];
+  } else {
+    return false;
+  }
+  widthsNow(widthsWith(next), which, open, "layout");
+  return true;
+}
+
+Array.prototype.forEach.call(document.querySelectorAll("[data-preset]"), function (button) {
+  button.addEventListener("click", function () { applyPreset(button.dataset.preset); });
+});
+
+(function bindUndo() {
+  var button = document.getElementById("undo");
+  if (button) button.addEventListener("click", function () { undoWidths(); });
+})();
+
+/* ------------------------------------------------------------------------ the gutters (#234)
+
+   A 1px line between every two panes on the glass, with an 8px hit area laid over their edges, so
+   it costs no width. Dragging one moves width between the two panes beside it and nothing else:
+   every other pane stays exactly where it is, which is what makes a resize predictable. The drag
+   IS the preview -- #217's ghost was there because a span snapped on release and the hand could not
+   see where it would land -- so while it is held the page writes those two panes' widths, once a
+   frame, and nothing else: no `place()`, no redraw, no reorder (plan-panes ground rule 4). One write
+   when the hand comes up; `Esc` puts the widths back with nothing written. */
+var RAIL_SNAP_PX = 120;       // a pane dragged under this settles to a rail
+var SNAP_PX = 8;              // how near a snap takes the hand
+var GUTTER_STEP_PX = 40;      // one press of Alt+Shift+arrow
+var gutterHeld = null;        // the drag in flight
+var placeWanted = false;      // a pass asked for while it was
+
+function onGlass(el) {
+  return !!(el && el.dataset && el.dataset.repo && tiles.has(el.dataset.repo) &&
+            !el.classList.contains("is-hidden") && !el.classList.contains("is-grouped"));
+}
+
+function nextOnGlass(el) {
+  var n = el ? el.nextElementSibling : null;
+  while (n && !onGlass(n)) n = n.nextElementSibling;
+  return n;
+}
+
+/* Where the pair can come to rest, given how wide the two are together. The same rule on both
+   sides: a pane is a 48px rail or at least the compact minimum, and one pulled under 120px settles
+   to the rail. Two panes that together cannot hold two compact ones have two states, and the
+   nearer wins. */
+function settlePair(a, total) {
+  if (total < RAIL_PX + TIER_COMPACT_FROM) return RAIL_PX;          // two rails: nowhere to go
+  a = Math.max(RAIL_PX, Math.min(total - RAIL_PX, a));
+  if (a < RAIL_SNAP_PX) return RAIL_PX;
+  if (total - a < RAIL_SNAP_PX) return total - RAIL_PX;
+  if (total < 2 * TIER_COMPACT_FROM) return a < total / 2 ? RAIL_PX : total - RAIL_PX;
+  return Math.max(TIER_COMPACT_FROM, Math.min(total - TIER_COMPACT_FROM, a));
+}
+
+/* And while the hand is on it, the places worth landing on take it within 8px: either side at the
+   compact or the full minimum, and an even share with the neighbour. */
+function snapPair(a, total) {
+  var stops = [TIER_COMPACT_FROM, TIER_FULL_FROM, total / 2,
+               total - TIER_FULL_FROM, total - TIER_COMPACT_FROM];
+  var near = null;
+  stops.forEach(function (stop) {
+    var d = Math.abs(a - stop);
+    if (d <= SNAP_PX && (near === null || d < Math.abs(a - near))) near = stop;
+  });
+  return settlePair(near === null ? a : near, total);
+}
+
+/* One press: 40px, and out of a rail or into one in a single step, because a rail cannot be 88px
+   wide and a press that did nothing would read as a key that does not work. */
+function stepPair(a, total, dir) {
+  var b = total - a;
+  var want = a + dir * GUTTER_STEP_PX;
+  if (dir > 0 && a <= RAIL_PX + 0.5) want = TIER_COMPACT_FROM;
+  else if (dir < 0 && a <= TIER_COMPACT_FROM + 0.5) want = RAIL_PX;
+  else if (dir > 0 && b <= TIER_COMPACT_FROM + 0.5) want = total - RAIL_PX;
+  else if (dir < 0 && b <= RAIL_PX + 0.5) want = total - TIER_COMPACT_FROM;
+  return settlePair(want, total);
+}
+
+/* One pane's width while the hand has it, in pixels. Every wide pane's share was made its width
+   less its edges when the drag began, so the shares add up to what the rails and the edges leave,
+   and a width written this way is the width drawn. */
+function paintHeldWidth(el, px, edge) {
+  var wide = px > RAIL_PX + 0.5;
+  toggle(el, "is-solo", wide);
+  style(el, "--w", wide ? String(Math.round(weightOf(px, edge) * 100) / 100) : "");
+}
+
+/* The frame: the two panes' widths, and nothing else (#217's lesson -- a draw in the middle of a
+   drag no longer puts the gesture down). */
+function paintHeld() {
+  var held = gutterHeld;
+  if (!held) return;
+  held.frame = 0;
+  if (held.a === held.painted) return;
+  var mark = gesture("gutter:frame");
+  if (!held.lifted) {
+    held.lifted = true;
+    Object.keys(held.px).forEach(function (name) {
+      var entry = tiles.get(name);
+      if (entry && entry.el.classList.contains("is-solo")) {
+        paintHeldWidth(entry.el, held.px[name], held.edge);
+      }
+    });
+  }
+  paintHeldWidth(held.left, held.a, held.edge);
+  paintHeldWidth(held.right, held.total - held.a, held.edge);
+  held.painted = held.a;
+  settle(mark);
+}
+
+function bindGutter(gutter, el) {
+  if (!gutter) return;
+  gutter.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0 || gutterHeld || dragging) return;
+    var right = nextOnGlass(el);
+    if (!right || !onGlass(el)) return;
+    // No text selected across two panes, no focus moved, and nothing under the gutter told.
+    e.preventDefault();
+    e.stopPropagation();
+    var px = measurePanes();
+    var a0 = px[el.dataset.repo];
+    var held = { left: el, right: right, x: e.clientX, a0: a0, total: a0 + px[right.dataset.repo],
+                 a: a0, painted: a0, px: px, edge: paneEdge(), frame: 0, lifted: false };
+    gutterHeld = held;
+    toggle(gutter, "is-held", true);
+    toggle(document.body, "is-resizing", true);
+    // Captured on the press: a gutter has no click of its own to lose to the capture, and the hand
+    // leaves an 8px strip on the first pixel of travel.
+    try { gutter.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
+
+    var finish = function () {
+      if (held.frame) cancelAnimationFrame(held.frame);
+      held.frame = 0;
+      gutterHeld = null;
+      placeWanted = false;
+      toggle(gutter, "is-held", false);
+      toggle(document.body, "is-resizing", false);
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("keydown", onKey, true);
+      try { gutter.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+    };
+    var onMove = function (ev) {
+      var a = snapPair(held.a0 + (ev.clientX - held.x), held.total);
+      if (a === held.a) return;
+      held.a = a;
+      if (!held.frame) held.frame = requestAnimationFrame(paintHeld);
+    };
+    var onUp = function (ev) {
+      // Where the hand came up, which is not always where the last move said it was: an engine
+      // that coalesces moves to the frame can deliver the release before the move that got there,
+      // and the width then lands one step short of the pointer (Windows CI on #270: 45.8px of a
+      // 50px drag, eleven of its twelve steps). The release carries the position; it is the one
+      // that counts.
+      if (ev && typeof ev.clientX === "number") {
+        held.a = snapPair(held.a0 + (ev.clientX - held.x), held.total);
+      }
+      finish();
+      if (Math.abs(held.a - held.a0) < 0.5) { place(); return; }   // a press is not a resize
+      // The release's `click` lands on whatever the hand ended over once the capture is gone --
+      // or, in an engine with no capture at all, on the pane under it -- and a pane's click
+      // selects the project for every window. A resize is not that.
+      swallowNextClick();
+      held.px[held.left.dataset.repo] = held.a;
+      held.px[held.right.dataset.repo] = held.total - held.a;
+      widthsNow(widthsFromPixels(held.px), "drag");
+    };
+    // `Esc` puts the widths back and writes nothing. Captured on the document, because the capture
+    // has taken the keyboard's usual route away and the page's own `Esc` would go back a pane. The
+    // button is still down, and the click its release ends in is not a click on a pane either
+    // (#233's lesson from the reorder drag), so that one is swallowed too.
+    var onKey = function (ev) {
+      if (ev.key !== "Escape") return;
+      ev.stopPropagation();
+      ev.preventDefault();
+      finish();
+      place();
+      var released = function () {
+        document.removeEventListener("pointerup", released, true);
+        document.removeEventListener("pointercancel", released, true);
+        swallowNextClick();
+      };
+      document.addEventListener("pointerup", released, true);
+      document.addEventListener("pointercancel", released, true);
+    };
+    var onCancel = function () { finish(); place(); };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onCancel);
+    document.addEventListener("keydown", onKey, true);
+  });
+  // The press and the release are the gutter's: not the pane's click (which selects the project for
+  // every window) nor its double click (which opens it). Two clicks here even the pair out instead.
+  gutter.addEventListener("click", function (e) { e.stopPropagation(); });
+  gutter.addEventListener("dblclick", function (e) {
+    e.stopPropagation();
+    e.preventDefault();
+    evenGutter(el);
+  });
+}
+
+/* The double-click, and `Alt+Enter` on the pane to its left: the two panes beside a gutter get an
+   even share of what they hold between them. Two that cannot both be compact are left alone. */
+function evenGutter(el) {
+  var right = onGlass(el) && !gutterHeld ? nextOnGlass(el) : null;
+  if (!right) return false;
+  var px = measurePanes();
+  var a0 = px[el.dataset.repo];
+  var total = a0 + px[right.dataset.repo];
+  if (total < 2 * TIER_COMPACT_FROM) return false;
+  var a = settlePair(total / 2, total);
+  if (Math.abs(a - a0) < 0.5) return false;
+  px[el.dataset.repo] = a;
+  px[right.dataset.repo] = total - a;
+  widthsNow(widthsFromPixels(px), "even");
+  return true;
+}
+
+/* `Alt+Shift+←/→` on a pane: its right-hand gutter, one step (#217's width keys, now the gutter's). */
+function stepGutter(el, dir) {
+  var right = onGlass(el) && !gutterHeld ? nextOnGlass(el) : null;
+  if (!right) return false;
+  var px = measurePanes();
+  var a0 = px[el.dataset.repo];
+  var total = a0 + px[right.dataset.repo];
+  var a = stepPair(a0, total, dir);
+  if (Math.abs(a - a0) < 0.5) return false;
+  px[el.dataset.repo] = a;
+  px[right.dataset.repo] = total - a;
+  widthsNow(widthsFromPixels(px), "step");
+  return true;
+}
+
+/* Shift and a rail: open it beside the pane that has the keys, the two splitting what that pane
+   had and the rail's own 48px, so nothing else in the row moves. The keys stay where they were. A
+   rail pressed while the pane with the keys is itself a rail is simply opened. */
+function openBeside(name) {
+  if (!name || !tiles.has(name) || gutterHeld) return;
+  var host = openName();
+  var weights = paneWeights();
+  var hostEntry = host ? tiles.get(host) : null;
+  if (!hostEntry || host === name || !((weights[host] || 0) > 0) || (weights[name] || 0) > 0 ||
+      !onGlass(tiles.get(name).el)) {
+    openPane(name, false, true);
+    return;
+  }
+  var px = measurePanes();
+  var share = (px[host] + RAIL_PX) / 2;
+  px[host] = share;
+  px[name] = share;
+  widthsNow(widthsFromPixels(px), "beside", undefined, "layout");
+}
+
+/* Which gutters show: one on the right of every pane on the glass but the last. Written on every
+   pass, guarded, so a pass with nothing to change touches nothing. */
+function drawGutters() {
+  var grid = document.getElementById("grid");
+  if (!grid) return;
+  var panes = Array.prototype.filter.call(grid.children, onGlass);
+  tiles.forEach(function (entry) {
+    var gutter = entry.el.querySelector(".gutter");
+    var at = panes.indexOf(entry.el);
+    hide(gutter, at < 0 || at === panes.length - 1);
+  });
 }
 
 /* Repositories that left the registry. Their pane goes, but each leaves a rail naming the command
@@ -3972,12 +4479,17 @@ var ROW_PAD_PX = 16;
 
 /* Which tier a width is, remembering which one the pane was in. A pane leaves its tier only once
    it is 8px past the boundary, so a pane sitting on 360 -- a window edge being dragged, a scrollbar
-   coming and going -- does not redraw itself between two tiers on every frame. */
+   coming and going -- does not redraw itself between two tiers on every frame.
+
+   Not at the rail's boundary (#234). A pane is a 48px rail or at least 160px wide -- the
+   stylesheet's floor for a pane with a width, and the compact minimum a gutter settles on -- so
+   nothing ever sits on that boundary to flicker across it, and the slack that was there drew a rail
+   pulled out to exactly the compact minimum as a rail's face stretched 160px wide. */
 function paneTier(width, was) {
   var raw = width >= TIER_FULL_FROM ? "full" : width >= TIER_COMPACT_FROM ? "compact" : "rail";
-  if (!was || raw === was) return raw;
-  var lo = was === "full" ? TIER_FULL_FROM : was === "compact" ? TIER_COMPACT_FROM : 0;
-  var hi = was === "rail" ? TIER_COMPACT_FROM : was === "compact" ? TIER_FULL_FROM : Infinity;
+  if (!was || raw === was || raw === "rail" || was === "rail") return raw;
+  var lo = was === "full" ? TIER_FULL_FROM : TIER_COMPACT_FROM;
+  var hi = was === "compact" ? TIER_FULL_FROM : Infinity;
   return (width >= lo - TIER_SLACK && width < hi + TIER_SLACK) ? was : raw;
 }
 
@@ -4023,6 +4535,18 @@ function onRowResize(entries) {
     var entry = tiles.get(el.dataset.repo);
     if (entry && entry.el === el && entry.row) drawTile(el, entry.row, lastApprovals);
   });
+  /* The keyboard stays on the pane it was on when a change of widths carries that pane across a
+     tier (#234). A rail's stop is its face and a wide pane's is the pane itself, so the face a
+     rail had goes `display: none` the frame it is widened -- and would take the keyboard with it,
+     leaving the next `Alt+Shift+→` addressed to nothing. */
+  if (keyHome && redraw.indexOf(keyHome) >= 0) {
+    var home = keyHome;
+    keyHome = null;
+    var stop = home.dataset.tier === "rail" ? home.querySelector(".pane-rail") : home;
+    var at = document.activeElement;
+    var kept = at && at !== document.body && home.contains(at) && at.offsetParent !== null;
+    if (stop && !kept) stop.focus({ preventScroll: true });
+  }
 }
 
 function startRowObserver() {
@@ -4181,36 +4705,27 @@ function drawPaneRail(el, row) {
 /* -------------------------------------------------------------------------- the whole window */
 
 /* The one function that decides what this window shows. The stylesheet is the layout, and there is
-   one arrangement (#232), so all this writes is which panes are open -- and so wide -- which one is
-   selected, which rails are quiet or folded into their project's, and the one mode the page has.
-   What each pane draws at its width is the observer's (#233). */
+   one arrangement (#232), so all this writes is how wide each pane is (#234), which one is
+   selected, which rails are folded into their project's, and which gutters show. What each pane
+   draws at its width is the observer's (#233).
+
+   Not while a gutter is held (#234): the hand is writing two panes' widths once a frame, and a pass
+   from the stream in the middle of that would put the record's widths back under it. The pass is
+   run when the hand comes up. */
 function place() {
-  var one = openName();
-  var open = openSet();
-  groupRails(visibleOrder(), open);
-  toggle(document.body, "needs-only", needsOnly);
+  if (gutterHeld) { placeWanted = true; return; }
+  var weights = paneWeights();
+  groupRails(visibleOrder(), wideNames(weights));
   tiles.forEach(function (entry, name) {
-    var isOpen = open.indexOf(name) >= 0;
-    var members = railGroups.get(name) || [name];
-    toggle(entry.el, "is-solo", isOpen);
     toggle(entry.el, "is-selected", name === desk.desk.selected);
     toggle(entry.el, "is-grouped", groupedAway(name));
-    /* *needs me* quiets a rail; it never removes one (#207). A rail that is red, or one the
-       operator is holding through the pass, is not quiet -- and an open pane never is. */
-    toggle(entry.el, "is-quiet", needsOnly && !isOpen && !members.some(function (member) {
-      var other = tiles.get(member);
-      return held.has(member) || (!!other && other.el.classList.contains("needs-human"));
-    }));
   });
+  paintWidths(weights);
   reorderDomTiles();
+  drawGutters();
   tiles.forEach(function (entry) { if (entry.row) drawPaneRail(entry.el, entry.row); });
-  var need = 0;
-  tiles.forEach(function (entry) { if (entry.el.classList.contains("needs-human")) need += 1; });
-  // "Nothing needs you" is only true of an EMPTY screen. Held tiles are still on it, so the prompt
-  // to leave focus mode would be sitting under the very tiles it claims are not there.
-  hide(document.getElementById("nonefocus"),
-       !(needsOnly && !one && need === 0 && held.size === 0 && tiles.size > 0));
   drawNotice();
+  drawUndo();
   drawHiddenCount();
   drawGone();
   drawRail();
@@ -4442,27 +4957,6 @@ function title(need) {
   if (document.title !== want) document.title = want;
 }
 
-/* ------------------------------------------------------------------------------- focus mode */
-
-/* The fourth thing #133 asks for, and the only one that is not a layout: quiet every agent except
-   the ones #94 says need a person. The alternative to arranging tabs is having fewer to look at.
-   It hid tiles, then folded bands; it dims rails now (#233), and never takes anything off the
-   glass. Toggled with `f`, remembered per window, and printed in the footer's key map. */
-function focusMode(on, skipPost) {
-  needsOnly = on === undefined ? !needsOnly : !!on;
-  attr(document.getElementById("focus"), "aria-pressed", String(needsOnly));
-  // Leaving focus mode lets go of the tiles held for it; otherwise the next `f` opens on the last
-  // visit's leftovers. Emptied in the *same* write as the mode: the `desk` event this rides back
-  // down re-hydrates `held` additively through `applyWindow`, so a clear not posted is undone.
-  var patch = { focus: needsOnly };
-  if (!needsOnly) {
-    held.clear();
-    patch.held = [];
-  }
-  if (!skipPost) saveWindow(patch);
-  place();
-}
-
 /* Where the keyboard stops along the row (#233): a rail's face, or an open pane itself. In the
    row's order, and only what is on the glass, so `j` never lands on something nobody can see and
    the digits count exactly the panes there are. */
@@ -4516,15 +5010,10 @@ function showEverything() {
   return arrangeNow({ hidden: [] }, function () {
     curArr.hidden = [];
     return function () { curArr.hidden = was; };
-  }, "showall").then(function (r) {
-    if (r && r.ok && needsOnly) focusMode(false);
-    return r;
-  });
+  }, "showall");
 }
 
 document.getElementById("hiddencount").addEventListener("click", showEverything);
-
-document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 
 /* ---- the popovers: the key map behind `?`. The pickers that used to sit beside it are a page of
    their own now (`/settings`), so this map has one entry -- and keeps its shape, because "one open
@@ -4581,7 +5070,11 @@ document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   if (e.key === "Escape" && !typing) { closeSide(); return; }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === "f") { focusMode(); return; }
+  // The three presets (#234), and the footer's undo of whichever widths changed last.
+  if (e.key === "1") { applyPreset("one"); return; }
+  if (e.key === "=") { applyPreset("all"); return; }
+  if (e.key === "f") { applyPreset("needs"); return; }
+  if (e.key === "u") { undoWidths(); return; }
   if (e.key === "i") { section("unsorted"); return; }
   if (e.key === "?") { popover("keymap"); return; }
   if (e.key === "/") { e.preventDefault(); document.getElementById("find").focus(); }

@@ -62,11 +62,13 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 
 | Component | Parts, in DOM order | Drawn by | Styled in | States | Keys | Tested by |
 | --- | --- | --- | --- | --- | --- | --- |
-| toolbar | brand, live dot, `see` group, settings link, `needs me` group | — (static) | `.toolbar` | — | — | `test_fleet_desk_toolbar.py` |
+| toolbar | brand, live dot, `widths` group (the presets), `see` group, settings link, `alerts` group | — (static) | `.toolbar` | — | — | `test_fleet_desk_toolbar.py` |
+| presets | *one*, *all*, *needs me*: one segmented control, three presses, each one write of this window's widths | — (static); `applyPreset` on the press | `.presets` | — (presses, not modes) | `1`, `=`, `f` | `test_fleet_gutters.py`, `test_fleet_column.py` |
 | away strip | title, one line per repo, dismiss | `checkAway` | `.away-strip` | — | — | `test_fleet_desk_sessions_b.py` |
 | renew strip | the desk's own line, sentence, preview, then one row per stale agent (repo, verdict, why), renew, cancel | `drawRenewStrip`, `drawRenewPlan` | `.renew-strip`, `.renew-row` | hidden when no session is stale; `verdict-now`, `verdict-at-turn-end`, `verdict-skipped` | `Esc` | `test_fleet_renew.py` |
-| row | the panes in the arrangement's order, then the rails of repositories that left | `place`, `reorderDomTiles`, the tier observer (`onRowResize`) | `#grid`, `.panes` | grouped (a project's checkouts share one rail) only when the rails do not fit | `j`, `k`, `1`–`9`, `Esc` | `test_fleet_panes.py`, `test_fleet_column.py` |
-| pane (rail, compact, full) | the rail's face; head, run line, session pill, cards, cells, transcript, composer | `drawTile`, `drawPaneRail` | `.tile`, `.pane-rail` | `data-tier` (`rail`, `compact`, `full`), `state-*`, `needs-human`, `held`, `is-solo`, `is-selected`, `is-hidden`, `is-grouped`, `is-quiet`, `is-pinned`, `is-dragging`, `size-2` | `Enter` on a rail, `h`, `r`, `m`, `a`, `Alt+←/→`, `Alt+Shift+arrows` | `test_fleet_panes.py`, `test_fleet_column.py`, `test_fleet_window.py`, `test_fleet_desk_regressions.py` |
+| row | the panes in the arrangement's order, then the rails of repositories that left | `place`, `reorderDomTiles`, `paintWidths`, the tier observer (`onRowResize`) | `#grid`, `.panes` | grouped (a project's checkouts share one rail) only when the rails do not fit | `←`, `→`, `j`, `k`, `2`–`9`, `Esc` | `test_fleet_panes.py`, `test_fleet_column.py`, `test_fleet_gutters.py` |
+| pane (rail, compact, full) | the rail's face; head, run line, session pill, cards, cells, transcript, composer; the gutter on its right | `drawTile`, `drawPaneRail`; its width `paintWidths` | `.tile`, `.pane-rail` | `data-tier` (`rail`, `compact`, `full`), `state-*`, `needs-human`, `is-solo` (it has a width), `is-selected`, `is-hidden`, `is-grouped`, `is-pinned`, `is-dragging` | `Enter` and `Shift+Enter` on a rail, `h`, `r`, `m`, `a`, `Alt+←/→`, `Alt+Shift+←/→`, `Alt+Enter` | `test_fleet_panes.py`, `test_fleet_column.py`, `test_fleet_window.py`, `test_fleet_gutters.py`, `test_fleet_desk_regressions.py` |
+| gutter | a 1px line in the row's gap, and the 8px strip over it that is taken hold of | `drawGutters` (which show), `bindGutter` (the drag), `paintHeld` (a frame of it) | `.gutter` | `is-held`; hidden on the last pane on the glass | `Alt+Shift+←/→` and `Alt+Enter` on the pane to its left | `test_fleet_gutters.py`, `test_fleet_engines.py` |
 | activity trace | sixty bars, one a minute | `drawTrace` | `.trace` | red where a minute needed a person | — | `test_fleet_trace.py` |
 | the ground | three blobs, drifting | `drawGround` | `#ground` | still under reduced motion or reduced transparency | — | `test_fleet_trace.py` |
 | state chip | word, age | `drawTile` | `.chip` | the five status roles, `stale` | — | `test_fleet_desk_regressions.py` |
@@ -78,6 +80,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | asks card | head, one row per question, send | `drawAsks` | `.asks` | — | — | `test_fleet_handoff_ask.py` |
 | scope report | one sentence | `drawScopeReport` | `.scopereport` | `outside` | — | `test_fleet_handoff_scope.py` |
 | hidden count | one button: how many are put away, and the press that brings them back | `drawHiddenCount` | `.hiddencount` | — | — | `test_fleet_column.py`, `test_fleet_desk_hide.py` |
+| undo | one button: the last change of widths, and the press that puts it back | `drawUndo` | `.undo` | hidden unless a change of widths is under twelve seconds old | `u` | `test_fleet_gutters.py` |
 | gone rail | glyph, name; what restores it in the label | `drawGone` | `.gone-rail` | — | — | `test_fleet_desk_hide.py` |
 | agent rail | one chip per checkout | `drawRail` | `.agentrail` | `is-candidate`, `is-dim` | `1`–`9` from a ticket row | `test_fleet_desk_rail.py` |
 | board | search, ticket rows, history | `drawBoard` | `#tickets` | `dragging` | `b` | `test_fleet_desk_rail.py` |
@@ -106,21 +109,29 @@ band when it was not — and one owner per property was twice as hard to keep. T
 
 Who writes what, one owner each:
 
-* **The width** is the stylesheet's, from two things `place()` writes: `is-solo` (open: it takes
-  `--cols` shares of what the rails leave, never under 160 px) and nothing else (a 48 px rail).
-  `--cols` and `--rows` are `reorderDomTiles`', as they were; `--rows` means nothing in a row and
-  goes with the gutters (#234).
+* **The width** is the stylesheet's, from two things `paintWidths` writes: `is-solo` (the pane has
+  a width: it takes `--w` shares of what the rails leave, never under 160 px) and nothing else (a
+  48 px rail). `--w` is the pane's weight in this window's widths (#234), or -- in a window that has
+  never been given any -- the open pane's and each pin's share as they were before the gutters.
+  While a gutter is held the hand writes the two panes beside it, once a frame, and `place()` waits
+  (plan-panes ground rule 4). #217's `--cols` and `--rows` went with the span they described.
 * **`data-tier`** has one writer, `setTier`, fed by one `ResizeObserver` on the row with 8 px of
-  hysteresis. A pane that changes tier is drawn again from its row in the same frame. The tier
-  never feeds back into the width, or a tier that changed the width would change the tier.
+  hysteresis between compact and full. None at the rail's boundary (#234): a pane is a 48 px rail
+  or at least 160 px wide, so nothing sits there to flicker, and the slack drew a rail pulled out
+  to exactly 160 px as a stretched rail. A pane that changes tier is drawn again from its row in
+  the same frame -- and keeps the keyboard, if a change of widths moved the pane it was on. The
+  tier never feeds back into the width, or a tier that changed the width would change the tier.
 * **What is drawn at a tier** is `drawTile`'s: a rail skips the trace, the session menu, the
   cards, the scope report and the cells; a compact pane skips the trace, the menu, the scope report
   and the cells. `needs-human` is written at every tier, because `isHidden` reads it.
 * **The face** is `drawPaneRail`'s — its whole `class`, its glyph, name, badge, label and title —
   and it reads the row, `unread` and the group it heads. `bell()` calls it when a count changes.
-* **`is-grouped`, `is-quiet`, `is-selected`** are `place()`'s. A project's checkouts share one
-  rail (`is-grouped` on all but the first) only when the rails do not fit (`groupRails`); a quiet
-  rail is dimmed by *needs me*, never removed.
+* **`is-grouped`, `is-selected`** are `place()`'s. A project's checkouts share one rail
+  (`is-grouped` on all but the first) only when the rails do not fit (`groupRails`). *needs me*
+  used to dim a quiet rail (`is-quiet`); it is a preset of widths now (#234), and makes a quiet
+  agent a rail rather than dimming one.
+* **Which gutter shows** is `drawGutters`': one on the right of every pane on the glass but the
+  last, written with `hide` so a pass with nothing to change touches nothing.
 * **The row's order** is `reorderDomTiles`', which moves a pane only when the order is actually
   wrong and never while one is under the hand.
 
@@ -142,7 +153,7 @@ skin's ground, drawn so that it can drift.
 ## The window gestures
 
 `docs/desk-window.md` has the other half: an open pane is dragged by its head and a rail by its
-face, and a pane's footprint is two numbers rather than one (until the gutters, #234).
+face, and a pane is made wider or narrower by the gutter on either side of it (#234).
 
 ## Motion
 

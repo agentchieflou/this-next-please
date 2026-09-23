@@ -8,7 +8,9 @@ nobody discovers; and a tile could be made wider but never taller.
 What a window manager does instead is what this file asserts: the thing under the hand moves,
 every pointer gesture has a keyboard equivalent, `Esc` leaves the arrangement alone, and a
 footprint written by an older build still reads. The edge handles that showed a snap before the
-hand came up went with the grid (#232): they snapped to its `auto-fit` tracks.
+hand came up went with the grid (#232): they snapped to its `auto-fit` tracks. The footprint itself
+went with the gutters (#234), which are `tests/test_fleet_gutters.py`: a pane's width is a weight in
+its window's record, and `size` is only read, as the starting weight of a window with none.
 """
 from __future__ import annotations
 import json
@@ -119,26 +121,34 @@ def test_the_api_takes_either_shape(fleet_home, tmp_path):
 
 
 def test_the_page_reads_the_same_two_numbers_the_server_writes():
-    """One arithmetic, on both sides of the wire -- the bug this repository keeps relearning."""
+    """One arithmetic, on both sides of the wire -- the bug this repository keeps relearning.
+
+    Since the gutters (#234) the page writes no `size` at all; what is left is the reading of one,
+    as the starting weight of a window that has no widths yet (plan-panes' migration: `size.cols`
+    becomes the weight). Both spellings, clamped to the server's own four columns."""
     js = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
-    assert "function sizeOf(sizes, name)" in js
-    assert "var SIZE_MAX_COLS = 4;" in js and "var SIZE_MAX_ROWS = 3;" in js
-    assert "function setTileSize(repo, cols, rows)" in js
-    assert "function resizeTile(repo, dCols, dRows)" in js
+    reader = js[js.index("function legacyShare(name) {"):]
+    reader = reader[:reader.index("\n}\n")]
+    assert 'typeof v === "object" ? v.cols : v' in reader, "both of #217's spellings"
+    assert "Math.min(%d," % S.SIZE_MAX_COLS in reader and "Math.max(1," in reader
+    for gone in ("function sizeOf(", "function setTileSize(", "function resizeTile(",
+                 "function toggleTileSize(", "var SIZE_MAX_ROWS"):
+        assert gone not in js, gone
 
 
 def test_the_footprint_has_one_owner():
     """`grid-column` was set by a class and then by a custom property. Both at once is the
     two-owners bug the render contract is named after, so there is exactly one rule -- and since
-    the row (#233) it is an open pane's weight, not a span: `--cols` is how many shares of what the
-    rails leave it takes. There are no tracks to span and no rows to span down, because a pane is
-    always the row's full height; `--rows` is still written, and read by nothing, until the gutters
-    replace both (#234)."""
+    the row (#233) it is a wide pane's weight, not a span. Since the gutters (#234) the weight is
+    `--w`, this window's own width for the pane, and `--cols` and `--rows` went with the span: there
+    are no tracks to span and no rows to span down, because a pane is always the row's full
+    height."""
     css = open(os.path.join(STATIC, "app.css"), encoding="utf-8").read()
     assert css.count("grid-column: span") == 0, "a span is back in a row that has no tracks"
     assert "grid-row: span" not in css, "a pane is always the row's full height"
-    assert css.count("var(--cols, 1)") == 1
-    assert ".tile.is-solo { flex: var(--cols, 1) 1 0; min-width: 160px; }" in css
+    assert css.count("var(--w, 1)") == 1
+    assert ".tile.is-solo { flex: var(--w, 1) 1 0; min-width: 160px; }" in css
+    assert "var(--cols" not in css and "var(--rows" not in css
     assert ".tile.size-2 { grid-column: span 2; }" not in css
     # And the width toggle's button went with it: Alt+Shift+arrows answer that question with more
     # than two answers, and the head was already crowded.
@@ -158,11 +168,14 @@ def test_the_gestures_are_pointer_events_and_the_handles_are_in_the_markup():
     assert 'e.dataTransfer.setData("application/x-agentdata-tile"' not in js
     assert "maxtoggle" in html
     # The edge handles and their ghost snapped to the grid's `auto-fit` tracks, and went with the
-    # grid (#232). The keys still write `size` until the gutters replace it (#234).
+    # grid (#232). What a pane is resized by now is the gutter on its right (#234), a pointer
+    # gesture of its own with the capture taken on the press.
     for gone in ("rsz-x", "rsz-y", "rszghost"):
         assert gone not in html, gone
     for gone in ("function bindResizeEdges", "function gridTracks", "function showResizeGhost"):
         assert gone not in js, gone
+    assert 'class="gutter" role="separator"' in html
+    assert "function bindGutter(gutter, el)" in js
 
 
 # ----------------------------------------------------------------------------- in a browser
@@ -255,9 +268,11 @@ def test_dragging_a_rail_onto_another_reorders_and_escape_leaves_it_alone(fleet_
 @pytest.mark.browser
 def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
     """The rule this desk has kept since #5. Alt+arrows still moves; the resize is the shifted pair,
-    because a gesture somebody has learned is not one to take away for a new one. The pointer half
-    of the resize went with the grid (#232); the keys still write the footprint, on the open tile,
-    until the gutters replace it (#234)."""
+    because a gesture somebody has learned is not one to take away for a new one. Since the gutters
+    (#234) the pair moves the gutter on the pane's right, as a drag of it would: from the open pane
+    beside a rail, one step left pulls the rail out to the compact minimum and one step right puts
+    it back -- a pair, not a ratchet. Up and down went with `rows`: a pane is always full height.
+    Every other gesture's key is `tests/test_fleet_gutters.py`."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
@@ -276,23 +291,17 @@ def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
             tile = page.locator('.tile[data-repo="alpha"]')
             tile.click(position={"x": 6, "y": 60})       # into the tile, not onto a control
             page.evaluate("""() => document.querySelector('.tile[data-repo="alpha"]').focus()""")
-            page.keyboard.press("Alt+Shift+ArrowRight")
-            page.wait_for_function(
-                """() => getComputedStyle(document.querySelector('.tile[data-repo="alpha"]'))
-                           .getPropertyValue('--cols').trim() === '2'""", timeout=8000)
-            page.keyboard.press("Alt+Shift+ArrowDown")
-            page.wait_for_function(
-                """() => getComputedStyle(document.querySelector('.tile[data-repo="alpha"]'))
-                           .getPropertyValue('--rows').trim() === '2'""", timeout=8000)
-            # And back, so the keys are a pair and not a ratchet.
             page.keyboard.press("Alt+Shift+ArrowLeft")
-            page.keyboard.press("Alt+Shift+ArrowUp")
-            page.wait_for_function(
-                """() => {
-                  const s = getComputedStyle(document.querySelector('.tile[data-repo="alpha"]'));
-                  return s.getPropertyValue('--cols').trim() === '1'
-                      && s.getPropertyValue('--rows').trim() === '1';
-                }""", timeout=8000)
+            page.wait_for_selector('.tile[data-repo="beta"].is-solo[data-tier="compact"]',
+                                   timeout=8000)
+            assert round(page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]')
+                                                  .getBoundingClientRect().width""")) == 160
+            # And back, so the keys are a pair and not a ratchet.
+            page.keyboard.press("Alt+Shift+ArrowRight")
+            page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=8000)
+            assert page.evaluate("() => document.querySelectorAll('.tile.is-solo').length") == 1
+            page.wait_for_function("() => windowWrites === 0", timeout=8000)
+            _until(lambda: (S.desk_state()["windows"]["main"].get("widths") or {}).get("beta") == 0)
 
             # Alt+arrows is still the move it has always been, and the open agent stays open.
             page.keyboard.press("Alt+ArrowRight")

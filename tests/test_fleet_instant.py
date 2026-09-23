@@ -395,12 +395,18 @@ def test_every_local_gesture_is_inside_the_budget(fleet_home, tmp_path):
               moveTile('gamma', 1);
               moveTile('gamma', -1);
               saveWindow({ read: {} });
+              // #234: a change of widths is one too -- the gutter stepped, then evened out.
+              const alpha = document.querySelector('.tile[data-repo="alpha"]');
+              stepGutter(alpha, -1);
+              evenGutter(alpha);
               return performance.getEntriesByType('measure')
                 .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1],
                              ms: m.duration }));
             }""")
             assert not errors, errors
             assert len(marks) >= 4, f"the gestures were not marked at all: {marks}"
+            names = {m["name"] for m in marks}
+            assert {"widths:step", "widths:even"} <= names, f"a change of widths is unmarked: {names}"
             over = [m for m in marks if m["ms"] > LOCAL_BUDGET_MS]
             worst = max(m["ms"] for m in marks)
             print(f"\nlocal gestures: {len(marks)} marked, worst {worst:.1f}ms "

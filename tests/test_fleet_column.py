@@ -442,7 +442,9 @@ def test_an_answer_read_before_a_click_cannot_undo_it(fleet_home, tmp_path):
             _open(page, port, token)
             assert page.evaluate(SOLO) == "alpha"
             # Hold the next `/api/fleet` answer after the server has written it: a stale answer, on
-            # purpose, delivered when the test says so.
+            # purpose, delivered when the test says so. A refresh the stream already had in flight
+            # is not one: `refresh()` answers with that one rather than fetching, and nothing would
+            # ever be held -- so it is let finish first.
             page.evaluate("""() => {
               const real = window.fetch.bind(window);
               window.fetch = function (url, opts) {
@@ -451,7 +453,12 @@ def test_an_answer_read_before_a_click_cannot_undo_it(fleet_home, tmp_path):
                 window.__held = true;
                 return p.then(r => new Promise(done => { window.__release = () => done(r); }));
               };
-              refresh();
+              const ask = () => {
+                if (window.__held) return;
+                if (pendingRefresh) { pendingRefresh.then(ask, ask); return; }
+                refresh();
+              };
+              ask();
             }""")
             page.wait_for_function("() => !!window.__release", timeout=5000)
             before = page.evaluate("desk.desk.version")
@@ -544,7 +551,8 @@ def test_the_digits_and_j_k_reach_every_pane_without_a_mouse(fleet_home, tmp_pat
     """A desk that can only be arranged with a mouse cannot be arranged by somebody typing, which is
     the rule every gesture on this page already keeps. `j`/`k` walk the row (#233): the open pane
     itself, then each rail's face -- a real button, so `Enter` swaps it in. The digits count the
-    panes on the glass in the row's order, and the number is printed on each one."""
+    panes on the glass in the row's order, and the number is printed on each one. From `2`: `1` is
+    the *one* preset since the gutters (#234), the key the plan gave it."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
     S.arrange(order=["alpha", "beta", "gamma", "delta"])
@@ -1012,11 +1020,12 @@ def test_the_two_focuses_have_names_that_say_which_is_which():
 
 
 @pytest.mark.browser
-def test_needs_me_dims_a_quiet_rail_rather_than_emptying_the_row(fleet_home, tmp_path):
-    """Acceptance criterion, ported from the column's folded band (#207, #233): two red of five
-    leaves four rails in the row, the two red at full strength and the two quiet ones dimmed, each
-    still named and still one press away, and the footer reads `2 need you`. A mode that removed
-    nine panes of ten would be the *where did it go* this arrangement exists to answer."""
+def test_needs_me_widens_the_red_rather_than_emptying_the_row(fleet_home, tmp_path):
+    """Acceptance criterion, ported from the column's folded band (#207, #233) to the *needs me*
+    preset that replaced the filter (#234): two red of five are the two wide panes, the three quiet
+    ones are rails -- each still named, still 48px, still one press away, dimmed by nothing -- and
+    the footer reads `2 need you`. A mode that removed nine panes of ten would be the *where did it
+    go* this arrangement exists to answer."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon", needs=("delta", "epsilon"))
     S.arrange(order=["alpha", "beta", "gamma", "delta", "epsilon"])
@@ -1032,26 +1041,28 @@ def test_needs_me_dims_a_quiet_rail_rather_than_emptying_the_row(fleet_home, tmp
 
             page.keyboard.press("f")
             page.wait_for_function(
-                "() => document.body.classList.contains('needs-only')", timeout=5000)
+                """() => [...document.querySelectorAll('#grid .tile.is-solo')]
+                          .map(t => t.dataset.repo).join() === 'delta,epsilon'""", timeout=5000)
+            page.wait_for_function(f"() => ({RAILS})().length === 3", timeout=5000)
             out = page.evaluate(f"""() => {{
               const rails = ({RAILS})().map(n => document.querySelector(
                 '.tile[data-repo="' + n + '"]'));
               return {{
                 n: rails.length,
-                quiet: rails.filter(t => t.classList.contains('is-quiet'))
-                            .map(t => t.dataset.repo),
+                repos: rails.map(t => t.dataset.repo),
                 dimmed: rails.filter(t => parseFloat(getComputedStyle(t).opacity) < 1)
                              .map(t => t.dataset.repo),
                 named: rails.every(t => t.querySelector('.pr-name').textContent.length > 0),
                 wide: rails.every(t => Math.round(t.getBoundingClientRect().width) === 48),
+                hidden: document.querySelectorAll('#grid .tile.is-hidden').length,
                 counts: document.getElementById('counts').textContent,
                 backBtn: !!document.getElementById('unfocus'),
               }};
             }}""")
             assert not errors, errors
-            assert out["n"] == 4, "one of five is open; none of the other four leaves"
-            assert sorted(out["quiet"]) == ["beta", "gamma"], out
-            assert sorted(out["dimmed"]) == ["beta", "gamma"], out
+            assert out["n"] == 3 and out["repos"] == ["alpha", "beta", "gamma"], out
+            assert out["hidden"] == 0, "needs me hides nothing"
+            assert out["dimmed"] == [], "a quiet rail is not dimmed: it is a rail, which says enough"
             assert out["named"] and out["wide"], "a quiet rail is still a whole rail, named"
             assert "2 need you" in out["counts"], out["counts"]
             assert out["backBtn"] is False, "there is no zoom to go back from"

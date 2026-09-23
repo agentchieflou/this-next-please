@@ -317,6 +317,37 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
 - **Tests**: a gutter drag moving width between exactly two panes; the snaps; `Esc` mid-drag writing nothing; one
   POST per gesture; undo; each preset; two windows holding different widths over the same order; frame time during a
   drag inside the existing budget (#220); every gesture done again from the keyboard.
+- **Built (#234)**, in `tests/test_fleet_gutters.py`. What building it decided, each undone by a sentence from the
+  operator:
+  - **`widths` is schema 2's**, as §The model drew it, so there is no schema 3 and no migration run: a window with
+    no widths draws the open pane and every pin wide at the `size.cols` an older build left them, and the first
+    gesture that changes a width writes the whole row. `size` is still read and kept, and no page writes it.
+  - **The version check** is the page sending the desk version it last heard with its widths; the server refuses
+    (`widths_stale`) a write older than the widths the record holds (`widths_at`), which only another page under
+    the same `?w=` can cause. The page puts its own back and reads the desk again.
+  - **`1` is the preset, as the plan keyed it.** D made the digits count every pane from 1; they open panes from
+    `2` now, and the first pane is `j`/`→` from nowhere, or `1` with the keyboard on it (which makes it the one).
+  - **The needs-only filter, `held` and the *let it go* note are gone**, not kept beside the preset: a preset takes
+    nothing back when an agent stops needing you, so there is nothing to hold. The server still reads `focus` and
+    `held` in an old record. The presets are presses with no pressed state, because after a drag no preset is true.
+    *needs me* with nobody needing you writes nothing and says so; it moves the keys to a pane it widened.
+  - **A pin** is the order's "first" in a window with widths of its own, and wide as well only in one without.
+  - **The snaps**: under 120 px a pane settles to the rail; 160 px is a floor on both sides, not only a magnet; the
+    magnets (160 and 360 on either side, and the even share) take the hand within 8 px; a pair that cannot hold two
+    compact panes has two states. A key step is 40 px, and into or out of a rail in one press.
+  - **Keys the plan did not name**: `Alt+Enter` evens a pane with the one on its right (the double click, and #217's
+    width toggle's key); `Shift+Enter` on a rail opens it beside (the Shift-click); `u` is the footer's undo.
+  - **Undo** is one level, in the footer for twelve seconds. The swap is not offered there: `Esc` is its way back.
+  - **Shift-click** splits the focused pane's width and the rail's own 48 px, so nothing else moves; it does not
+    move the rail next to the focused pane, because the order is every window's and the widths are one window's.
+  - **A weight excludes a pane's edges.** `flex-grow` shares out what is left after each pane's padding and borders,
+    so a weight read off a width is the width less those (`paneEdge`); otherwise a drag moved its neighbours by a
+    few pixels.
+  - **The tiers keep their slack only between compact and full.** A rail pulled out to exactly 160 px stayed in the
+    rail tier under D's 8 px, a rail's face stretched 160 px wide
+    (`tests/regressions/test_20260923_any_rail_widened_to_the_compact_minimum.py`).
+  - The toolbar's *needs me* group, which held the filter, the chime and the bell, is *alerts* now: *needs me* is a
+    preset in the *widths* group.
 
 ### F #235 — proof: the engine rows, the numbers on the laptop, the docs
 

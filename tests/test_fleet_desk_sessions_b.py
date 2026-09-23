@@ -5,7 +5,8 @@ Acceptance criteria:
 * A window has a name: `?w=<name>` in URL and `windows[name]` in `desk.json`.
 * `POST /api/window {w, ...}` as the one write.
 * `GET /open?w=`, `ad-fleet open --window <w>` and `--all`.
-* Two windows named `left` and `main` keep different focus-mode states across a restart on a new port.
+* Two windows named `left` and `main` keep different focus-mode states across a restart on a new port
+  (their widths since #234, which made the needs-only filter a preset of widths).
 * A tab open across a server restart draws the new run's tiles without a hand-typed URL.
 * *Since you were away*: one line per tile that changed since, dismissable.
 * Transcript pane scroll position preserved across events when scrolled up, and across reload.
@@ -362,9 +363,12 @@ def _page(p, url):
 
 
 @pytest.mark.browser
-def test_two_named_windows_keep_different_focus_states_across_restart(fleet_home, tmp_path):  # noqa: F811
-    """Acceptance criterion: Two windows named `left` and `main` keep different focus-mode states
-    across a server restart on a new port."""
+def test_two_named_windows_keep_different_widths_across_restart(fleet_home, tmp_path):  # noqa: F811
+    """Acceptance criterion: two windows named `left` and `main` keep different states across a
+    server restart on a new port. The state was the needs-only filter, one per window; the filter is
+    the *needs me* preset since #234, one write of the window's own widths -- so what each window
+    keeps across the restart is its widths: `main` given every agent an even share, `left` never
+    given any and drawing its open pane wide."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
     asks = make_project(tmp_path / "asks", phase="blocked", ticket="RDSD-1")
@@ -380,21 +384,24 @@ def test_two_named_windows_keep_different_focus_states_across_restart(fleet_home
     th1.start()
     p1 = s1.server_address[1]
 
+    wide = "() => document.querySelectorAll('#grid .tile.is-solo').length"
     with sync_playwright() as p:
-        # Window 'main': turn focus mode ON
+        # Window 'main': every agent an even share.
         b1, page_main, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=main")
         assert not errs, errs
-        btn_focus = page_main.locator("#focus")
-        btn_focus.click()
-        page_main.wait_for_timeout(300)
-        assert btn_focus.get_attribute("aria-pressed") == "true"
+        page_main.locator("#preset-all").click()
+        page_main.wait_for_function(f"() => ({wide})() === 2", timeout=8000)
+        # Painted before it is written (#219): the record, not the pixels, is waited on.
+        deadline = time.monotonic() + 10
+        while not (S.desk_state()["windows"].get("main") or {}).get("widths"):
+            assert time.monotonic() < deadline, "the widths never reached the server"
+            time.sleep(0.05)
         b1.close()
 
-        # Window 'left': verify focus mode is OFF
+        # Window 'left': never given widths, so one pane is open and the other a rail.
         b2, page_left, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=left")
         assert not errs, errs
-        btn_focus_left = page_left.locator("#focus")
-        assert btn_focus_left.get_attribute("aria-pressed") == "false"
+        page_left.wait_for_function(f"() => ({wide})() === 1", timeout=8000)
         b2.close()
 
     # Shut down server 1 cleanly (Ctrl-C / shutdown)
@@ -413,16 +420,17 @@ def test_two_named_windows_keep_different_focus_states_across_restart(fleet_home
 
     try:
         with sync_playwright() as p:
-            # Reopen window 'main' on new port: focus mode is still ON
+            # Reopen window 'main' on the new port: both agents still share the row.
             b1, page_main, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&layout=grid&w=main")
             assert not errs, errs
-            assert page_main.locator("#focus").get_attribute("aria-pressed") == "true"
+            page_main.wait_for_function(f"() => ({wide})() === 2", timeout=8000)
             b1.close()
 
-            # Reopen window 'left' on new port: focus mode is still OFF
+            # Reopen window 'left' on the new port: still one open and one rail.
             b2, page_left, errs = _page(p, f"http://127.0.0.1:{p2}/?t={t2}&layout=grid&w=left")
             assert not errs, errs
-            assert page_left.locator("#focus").get_attribute("aria-pressed") == "false"
+            page_left.wait_for_function(f"() => ({wide})() === 1", timeout=8000)
+            assert page_left.evaluate("() => myWidths") is None
             b2.close()
     finally:
         s2.stopping.set()

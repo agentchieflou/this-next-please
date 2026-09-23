@@ -33,12 +33,14 @@ first, so that D replaced one drawing rather than four:
   leaves the row and the footer counts it (one press brings it back), and one that left the registry is a
   rail saying how to bring it back.
 * **the resize edges** of #217 went. They snapped a tile to the grid's `auto-fit` tracks, and there is no
-  wrap of tracks left to snap to. `Alt+Shift+arrows` and `Alt+Enter` still write `size` until the gutters
-  replace it (#234).
+  wrap of tracks left to snap to. The gutters between panes replaced them and `size` both (#234): a
+  pane's width is a weight in its window's own record, and `Alt+Shift+←/→` moves a gutter.
 * **roles** and **screens** went, with the `window` segments in the header, the second segment that named
   which window of a set this was, and the swap select.
 
-The needs-only filter (`f`) stays: it is not an arrangement.
+The needs-only filter (`f`) stayed through C and D: it was not an arrangement. E made it the *needs me*
+preset (#234) -- one write of the window's widths, every agent that needs a person wide and the rest
+rails -- which hides nothing and dims nothing.
 
 ## An address or a flag from before
 
@@ -129,8 +131,8 @@ registry no longer knows keeps its place rather than being dropped from the desk
 | Thing | Where it lives | Why |
 | --- | --- | --- |
 | the selected project | the server, pushed on the stream | the inspector on every screen follows it |
-| the arrangement: order, hidden, pinned, size | the server | one desk: the same agents in the same order on every screen |
-| which agent is open, focus mode, what was read | the window's record on the server (`?w=`) | the left monitor reads one agent while the centre reads another |
+| the arrangement: order, hidden, pinned (and an older build's `size`, only read) | the server | one desk: the same agents in the same order on every screen |
+| which agent is open, the widths, what was read | the window's record on the server (`?w=`) | the left monitor reads one agent while the centre reads another, and holds its own widths over the same order (#234) |
 | theme, chime | that browser's `localStorage` | one operator, one habit |
 
 A window is named by `?w=`. A plain browser tab is `main`; the PyCharm tool window asks for `pycharm`, the VS

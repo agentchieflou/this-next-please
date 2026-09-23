@@ -184,8 +184,9 @@ def test_a_hidden_agent_that_needs_a_person_is_on_the_glass_anyway(fleet_home, t
 def test_a_digit_can_no_longer_blank_the_window(fleet_home, tmp_path):
     """Acceptance criterion: pressing a digit for an agent focus mode is quieting no longer leaves an
     empty window. It used to zoom that tile, which hid every other one while the mode hid that
-    one. The zoom went with the grid (#232); a digit opens the pane printed with it (#233), and a
-    quiet rail is dimmed, never gone, so what it opens is on the glass."""
+    one. The zoom went with the grid (#232); a digit opens the pane printed with it (#233); and the
+    mode is the *needs me* preset now (#234), which makes a quiet agent a rail -- on the glass, so
+    what the digit opens is there to open."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", needs=("alpha",))
     S.arrange(order=["alpha", "beta"])
@@ -200,14 +201,11 @@ def test_a_digit_can_no_longer_blank_the_window(fleet_home, tmp_path):
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
             page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
 
-            page.keyboard.press("f")          # focus mode: only alpha needs anybody
-            page.wait_for_function(
-                """() => document.body.classList.contains('needs-only')""", timeout=5000)
-            # `2` is beta's pane -- a rail, which focus mode has dimmed. Every agent is a pane and
+            page.keyboard.press("f")          # needs me: only alpha needs anybody
+            # `2` is beta's pane -- a rail, which needs me has made it. Every agent is a pane and
             # counts, the open one included (#233), so alpha is `1`.
-            page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="beta"]')
-                           .classList.contains('is-quiet')""", timeout=5000)
+            page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=5000)
+            page.wait_for_function("() => windowWrites === 0", timeout=5000)
             assert page.inner_text('.tile[data-repo="beta"] .pr-n') == "2"
             page.keyboard.press("2")
             # Wait for the open to have happened rather than for a clock: it goes through a view

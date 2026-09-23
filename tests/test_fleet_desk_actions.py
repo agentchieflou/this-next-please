@@ -161,98 +161,64 @@ def _visible(page, repo: str) -> bool:
            }""", repo)
 
 
-def _quiet(page, repo: str) -> bool:
-    """Quieted by focus mode: a rail dimmed, never gone (#203, #233)."""
+def _wide(page, repo: str) -> bool:
+    """Given a width by this window: a pane, not a rail (#233, #234)."""
     return page.evaluate(
         """(repo) => {
              const pane = document.querySelector(`.tile[data-repo="${repo}"]`);
-             return !!pane && pane.dataset.tier === 'rail' && pane.classList.contains('is-quiet');
+             return !!pane && pane.classList.contains('is-solo') && pane.dataset.tier !== 'rail';
            }""", repo)
 
 
 @pytest.mark.browser
-def test_the_tile_you_just_acted_on_does_not_vanish_from_focus_mode(desk):
+def test_the_tile_you_just_acted_on_does_not_vanish_after_needs_me(desk):
     """The defect: answering an agent hid the agent you answered.
 
-    Focus mode shows only what `#94`'s fold says needs a person. Replying is what makes an agent
+    Focus mode showed only what `#94`'s fold says needs a person. Replying is what makes an agent
     stop needing one, so the tile went out of the filter at the instant the operator acted on it --
     and the only visible outcome of pressing Send was that the thing they were working on
     disappeared. They went looking for it in the `where` scan, which is where a person goes when
     they believe they have lost something.
 
-    The grid's filter hid tiles; the column's folded bands (#232); the row dims rails (#233), and
-    never the open agent. So the hold shows when the operator moves on: the agent they acted on
-    keeps a rail at full strength while the ones nobody touched dim, until they let it go.
+    The grid's filter hid tiles; the column's folded bands (#232); the row dimmed rails (#233), and
+    kept the one acted on at full strength with a hold. The filter is the *needs me* preset now
+    (#234): one write of widths, which nothing takes back when an agent stops needing you. So the
+    agent the operator has just answered keeps the width the preset gave it -- through its fold
+    changing and through the operator opening another beside it -- with no hold, no note and
+    nothing to let go of.
     """
     playwright_module = pytest.importorskip("playwright.sync_api")
     with playwright_module.sync_playwright() as p:
         browser, page, errors = _page(p, desk)
 
-        page.click("#focus")
-        page.wait_for_timeout(300)
-        assert _visible(page, "asks"), "the agent with an open question is what focus mode is for"
-        assert _quiet(page, "quiet"), "a quiet agent nobody touched is folded"
+        page.click("#preset-needs")
+        page.wait_for_selector('.tile[data-repo="quiet"][data-tier="rail"]', timeout=5000)
+        page.wait_for_function("() => windowWrites === 0", timeout=5000)
+        assert _wide(page, "asks"), "the agent with an open question is what needs me is for"
+        assert _visible(page, "quiet"), "a quiet agent nobody touched is a rail, on the glass"
 
         # Act on it. `stop` on an agent with no live process answers ok and changes nothing on
         # disk, so this is the operator's click without a real process in the fixture.
         page.click('.tile[data-repo="asks"] .stop')
-        page.wait_for_timeout(600)
 
         # Now make it genuinely stop needing the human, which is what a real reply does: the agent
         # opens a turn, and an open turn is `running` -- the first branch of the fold, ahead of the
         # question that is still on its record.
         E.append("asks", [E.event("asks", "turn_started", {}, ticket="RDSD-1")])
         page.evaluate("() => refresh()")
-        page.wait_for_timeout(700)
-        assert not page.evaluate(
-            """() => document.querySelector('.tile[data-repo="asks"]').classList.contains('needs-human')"""
-        ), "the fixture has to actually stop needing the human, or this test proves nothing"
+        page.wait_for_function(
+            """() => !document.querySelector('.tile[data-repo="asks"]')
+                        .classList.contains('needs-human')""", timeout=8000)
+        assert _wide(page, "asks"), "the agent the operator acted on lost its width"
 
-        note = page.inner_text('.tile[data-repo="asks"] .holdnote')
-        assert "you stopped" in note, note
-        assert "no longer needs you" in note, "it says why it is still here"
-
-        # The operator moves on to another agent, and the one they acted on is held on the glass.
-        page.click('.tile[data-repo="third"] .pane-rail')
+        # The operator opens another beside it, and the one they acted on is still on the glass,
+        # at a width -- which a hold used to be needed for.
+        page.click('.tile[data-repo="third"] .pane-rail', modifiers=["Shift"])
         page.wait_for_selector('.tile[data-repo="third"].is-solo', timeout=5000)
-        page.wait_for_selector('.tile[data-repo="asks"][data-tier="rail"]', timeout=5000)
-        assert not _quiet(page, "asks"), \
-            "the agent the operator acted on is held on screen; dimming it reads as data loss"
-        assert _quiet(page, "quiet"), "holding one agent does not disable the filter"
-
-        # And the operator can let it go, which is the whole of the escape hatch.
-        page.click('.tile[data-repo="asks"] .pane-rail')
-        page.wait_for_selector('.tile[data-repo="asks"].is-solo[data-tier="full"]', timeout=5000)
-        page.click('.tile[data-repo="asks"] .release')
-        page.click('.tile[data-repo="third"] .pane-rail')
-        page.wait_for_selector('.tile[data-repo="third"].is-solo', timeout=5000)
-        page.wait_for_timeout(400)
-        assert _quiet(page, "asks"), "released, it dims in focus mode like anything else"
+        page.wait_for_function("() => windowWrites === 0", timeout=5000)
+        assert _wide(page, "asks"), "opening another took the width off the one acted on"
+        assert page.locator(".holdnote, .release").count() == 0, "there is no hold to let go of"
         assert not errors, errors
-
-
-@pytest.mark.browser
-def test_leaving_focus_mode_lets_every_held_tile_go(desk):
-    """A hold is for this pass through the queue, not for ever.
-
-    Otherwise the next `f` opens on the leftovers of the last visit and focus mode slowly fills up
-    with agents that stopped needing anybody some time yesterday.
-    """
-    playwright_module = pytest.importorskip("playwright.sync_api")
-    with playwright_module.sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
-        page.click("#focus")
-        page.wait_for_timeout(300)
-        page.click('.tile[data-repo="asks"] .stop')
-        page.wait_for_timeout(500)
-        assert page.evaluate("() => held.size") == 1
-
-        page.click("#focus")                                    # off
-        page.wait_for_timeout(300)
-        assert page.evaluate("() => held.size") == 0
-        page.click("#focus")                                    # on again
-        page.wait_for_timeout(300)
-        assert page.evaluate("() => held.size") == 0, "a new pass starts clean"
 
 
 @pytest.mark.browser

@@ -163,7 +163,7 @@ def test_the_key_map_is_behind_a_question_mark_and_the_footer_keeps_what_changes
             page.keyboard.press("?")
             assert page.locator("#keymap").is_visible()
             groups = page.eval_on_selector_all("#keymap .keys-group strong", "els => els.map(e => e.textContent)")
-            assert groups == ["the row", "panes", "sessions", "the sidebar", "this page"]
+            assert groups == ["the row", "widths", "panes", "sessions", "the sidebar", "this page"]
 
             page.keyboard.press("Escape")
             assert not page.locator("#keymap").is_visible()

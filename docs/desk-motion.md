@@ -66,9 +66,12 @@ test can check that every panel the inventory lists carries it.
 ## One door for anything that moves things
 
 `transitionLayout(fn)` in `app.js`. Opening a pane (the swap with a rail, #233) and going back go
-through it — one place that decides how a layout change looks. (The grid's zoom in and out were two
-more, and went with the grid in #232; hiding, showing and reordering are rearrangements, which are
-FLIP through `transitionMove`, #219.)
+through it — one place that decides how a layout change looks — and so do the three presets, a
+Shift-click that opens a rail beside, and the footer's undo (#234). (The grid's zoom in and out were
+two more, and went with the grid in #232; hiding, showing and reordering are rearrangements, which
+are FLIP through `transitionMove`, #219.) A gutter drag goes through neither: the hand is the
+motion, and each frame writes the two panes' widths and nothing else — so a key step or a double
+click on a gutter, the drag's two siblings, apply at once as well.
 
 1. **Reduced motion** takes neither path. The change is applied and that is the end of it.
 2. **`document.startViewTransition(fn)`** where the engine has it. The browser holds the last frame,
