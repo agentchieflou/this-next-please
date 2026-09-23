@@ -11,9 +11,9 @@
 
    THE CROP. Each pane carries the crop its chip carried (#157): seed, sprout, sun, bloom or wilted,
    from the classes `app.js` already sets -- the tile's `state-*`, which the fold derives from the
-   agent's phase and turn, and `needs-human`. When the phase advances the crop GROWS a stage: the
-   next stage is drawn up from the soil a row of art pixels at a time over the one before, and
-   seed to bloom grows through the sprout. Drawn, never faded (plan-ink ground rule 1): no two
+   agent's phase and turn, `is-done` (the fold's own done, #253), and `needs-human`. When the
+   phase advances the crop GROWS a stage: the next stage is drawn up from the soil a row of art
+   pixels at a time over the one before, and seed to bloom grows through the sprout. Drawn, never faded (plan-ink ground rule 1): no two
    stages are ever blended. Under reduced motion the stage is simply there.
 
    THE REST OF THE STATES are the mark table below, and docs/skin-farmstead.md has the grammar:
@@ -54,8 +54,10 @@ export function marks() {
     { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },
     // error: the head boxed in marker; the crop wilts and the frame is scorched.
     { selector: ".tile.state-error .head", tool: "marker", shape: "loop", pad: 2 },
-    // done: a green tick in the margin, beside the bloom.
-    { selector: ".tile.state-done .head", tool: "green", shape: "check" },
+    // done: a green tick in the margin, beside the bloom -- the chip's `done` (a supervised
+    // agent) or the fold's own (`is-done`, #253: the chip draws a finished, unsupervised agent
+    // as idle, and this is how the page still says it finished).
+    { selector: ".tile:is(.state-done, .is-done) .head", tool: "green", shape: "check" },
     // stale (#240): the session's "old skills" tag ringed in dashed pencil.
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", pad: 2, dash: true },
     // answered: the choice the operator picked is circled in pen, while the question is open.
@@ -478,7 +480,7 @@ function cropOf(el) {
   const c = el.classList;
   if (c.contains("needs-human") || c.contains("state-needs_human") || c.contains("state-blocked") ||
       c.contains("state-error")) return "crop-wilted";
-  if (c.contains("state-done")) return "crop-bloom";
+  if (c.contains("state-done") || c.contains("is-done")) return "crop-bloom";
   if (c.contains("state-waiting_approval")) return "crop-sun";
   if (c.contains("state-running")) return "crop-sprout";
   return "crop-seed";

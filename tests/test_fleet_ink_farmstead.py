@@ -41,6 +41,8 @@ MODULE = os.path.join(STATIC, "ink", "skins", "farmstead.js")
 SKIN_CSS = os.path.join(STATIC, "skins", "farmstead", "skin.css")
 SPRITES = os.path.join(STATIC, "skins", "farmstead", "sprites.svg")
 VARIANTS = tuple(skins.SKINS["farmstead"]["variants"])
+#: The done row: the chip's own `done`, or the fold's (`is-done`, #253).
+DONE = ".tile:is(.state-done, .is-done) .head"
 #: The palette colour each tool is drawn in unless the skin names its own (`ink.js` TOOLS).
 TOOL_TOKENS = {"pencil": "--muted", "pen": "--accent", "red": "--human", "green": "--done",
                "marker": "--human", "highlighter": "--waiting"}
@@ -525,6 +527,39 @@ def test_a_crop_grows_exactly_one_stage_when_the_phase_advances(fleet_home, tmp_
 
 
 @pytest.mark.browser
+def test_a_finished_agent_blooms_from_the_folds_own_word(fleet_home, tmp_path):
+    """The fold calls an agent done only once nothing supervises it, and the chip draws every quiet
+    unsupervised agent as idle -- so the page says it finished with `is-done` (#253). Farmstead
+    reads that: a phase reaching done ticks the head in green and grows the seed to a bloom,
+    through the sprout, from the fold's own events and nothing forced."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _farm_desk(fleet_home, tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors = _page(browser, port, token)
+            _inked(page, "farmstead:daytime")
+            E.append("beta", [E.event("beta", "phase_changed", {"from": "querying", "to": "done"},
+                                      ticket="RDSD-1")])
+            _state(page, "beta", "is-done")
+            chip = page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className""")
+            _settle(page, f"Ink.inspect().layer.marks.some(m => m.selector === '{DONE}' && m.drawn === 1)")
+            marks = page.evaluate("() => Ink.inspect().layer.marks")
+            farm = page.evaluate(FARM)
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    assert "state-idle" in chip.split(), f"the chip still says idle: {chip}"
+    ticks = [m for m in marks if m["selector"] == DONE and not m["strikeOf"]]
+    assert [m["lane"] for m in ticks] == ["pane:beta"] and ticks[0]["tool"] == "green", ticks
+    beta = farm["panes"]["beta"]
+    assert beta["shown"] == "crop-bloom" and beta["stage"] == 2 and beta["grows"] == 2, beta
+    assert farm["panes"]["alpha"]["shown"] == "crop-seed", farm["panes"]["alpha"]
+
+
+@pytest.mark.browser
 def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp_path, monkeypatch):
     """The grammar (docs/skin-farmstead.md), every row from the fold's own events: an agent that was
     refused a tool needs you (its name highlighted, its crop wilted); one that asked a question and
@@ -562,7 +597,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
             # Done: the fold says so for a supervised agent.
             forced["state"]["gamma"] = "done"
             _state(page, "gamma", "state-done")
-            _settle(page, "Ink.inspect().layer.marks.some(m => m.selector === '.tile.state-done .head' && m.drawn === 1)")
+            _settle(page, "Ink.inspect().layer.marks.some(m => m.selector === '.tile:is(.state-done, .is-done) .head' && m.drawn === 1)")
             done = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
             # A new run for every one of them: nothing outstanding.
             forced["live"].clear()
@@ -592,7 +627,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
     assert panes["alpha"]["shown"] == "crop-wilted" and panes["alpha"]["scorched"], panes["alpha"]
     assert panes["beta"]["shown"] == "crop-wilted" and not panes["beta"]["scorched"], panes["beta"]
     assert panes["gamma"]["shown"] == "crop-sprout" and panes["gamma"]["grows"] == 1, panes["gamma"]
-    assert live(done, "gamma", ".tile.state-done .head")[0]["tool"] == "green"
+    assert live(done, "gamma", ".tile:is(.state-done, .is-done) .head")[0]["tool"] == "green"
     assert done["farm"]["panes"]["gamma"]["shown"] == "crop-bloom", done["farm"]["panes"]["gamma"]
     # Gone: ink is struck (a strike is a mark of its own), and nothing is simply removed. The
     # friction line is history and stays in the transcript, so its ring stays with it.

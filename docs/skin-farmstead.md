@@ -57,7 +57,9 @@ size changes, inside the frame the browser laid out. So a gutter drag rebuilds i
 ## The crop grows a stage when the phase advances
 
 **The DOM signal is the tile's `state-*` class** (`setTileState` in `app.js`), which the fold derives from the agent's
-phase and its turn, together with `needs-human`. There is no phase attribute on the page, and the skin adds none. The
+phase and its turn, together with `needs-human` and `is-done`. `is-done` is the fold's own *done*: the fold calls an
+agent done only once nothing supervises it, and the chip draws every quiet unsupervised agent as idle, so the page
+says it finished with this class (#253). There is no phase attribute on the page, and the skin adds none. The
 crop is the chip's own sprite (#157):
 
 | The tile's classes | Crop |
@@ -65,7 +67,7 @@ crop is the chip's own sprite (#157):
 | `state-idle`, `state-starting` | seed |
 | `state-running` | sprout |
 | `state-waiting_approval` | sun |
-| `state-done` | bloom |
+| `state-done`, `is-done` | bloom |
 | `needs-human`, `state-needs_human`, `state-blocked`, `state-error` | wilted |
 
 **Seed, sprout, bloom** is the crop's growth. A change along that line is the phase advancing, and it grows the crop by
@@ -85,7 +87,7 @@ plain CSS under `body.ink-off`. The material is the skin's own response.
 | needs you | `.tile.needs-human` | highlighter, `lines` on the name (`.head .repo`) | the crop wilts | a tinted name, and the stylesheet's wilted chip glyph |
 | running | `.tile.state-running` | pen, `underline` under the name | a sprout grows | an underlined name, the sprout glyph |
 | error | `.tile.state-error` | marker, `loop` round the head | the crop wilts, and the frame is scorched (its boards darkened, with an ember of `--human`) | a 2px outline round the head |
-| done | `.tile.state-done` | green, `check` in the margin of the head | the sprout grows into a bloom | a bar in the head's margin, the bloom glyph |
+| done | `.tile:is(.state-done, .is-done)` | green, `check` in the margin of the head | the crop grows into a bloom | a bar in the head's margin (the chip's own glyph says what the chip says) |
 | stale (#240) | `.tile .oldsession:not([hidden])` | pencil, dashed `outline` round the *old skills* tag | — | a 1px outline |
 | answered | `.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]` | pen, `loop` round the chosen answer | — | a 2px outline |
 | finding | `.tile .transcript li.friction` | red, `ellipse` round the friction line | — | a 2px outline |
@@ -144,7 +146,8 @@ stylesheet's cave and rain tiles were drawn from the daylight ones. The palette'
 * **Crisp pixels at a whole number of device pixels**: at a device pixel ratio of 2, each crop art pixel is a 2x2
   block and each soil pixel a 4x4 block. Each block is one colour, and every colour is the art's or the paper's.
 * **Frames follow a gutter drag**: the board is where the pane now ends, and paper fills what it grew into.
-* **A crop grows exactly one stage** per advance, row by row, and at once under reduced motion.
+* **A crop grows exactly one stage** per advance, row by row, and at once under reduced motion. A finished agent
+  (`is-done`, from a real `phase_changed` to done) is ticked and grows its seed to a bloom through the sprout.
 * **The grammar**: each state's mark and material appear from the fold's own events, and leave struck when a new run
   begins.
 * **`theme.check`** pairs, the bounded catch-up in frames, the idle desk (zero writes, zero frames), and `dispose`
