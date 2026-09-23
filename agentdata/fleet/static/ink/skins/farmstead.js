@@ -3,8 +3,8 @@
    What was a stylesheet of data-URL tiles is drawn by the ink layer: the soil under the whole page,
    plank bands behind the header and the footer, and a lit wooden frame round every pane with its
    paper inside. The art is `static/skins/farmstead/sprites.svg`, the file the repo reviews, and
-   nothing else: it is fetched once, each sprite is rasterised on its own grid (one texel per art
-   pixel), and every enlargement is three.js's NearestFilter at a whole number of DEVICE pixels, so
+   nothing else: it is fetched once, each sprite is read from its rects onto its own grid (one texel
+   per art pixel, #257: no 2D context), and every enlargement is three.js's NearestFilter at a whole number of DEVICE pixels, so
    a pixel of the art is always a square block of the screen and never a blend of two. The colours
    are the art's own; what the palette and the weather change comes from the custom properties
    `skin.css` sets (`--farm-*`), read at paint time, never from a hex written here.
@@ -23,7 +23,7 @@
    classes did not say. */
 
 const SHEET = "/static/skins/farmstead/sprites.svg";
-/* The sheet is rasterised at this multiple of its own grid: one texel per art pixel. The texture
+/* The sheet is read at this multiple of its own grid: one texel per art pixel. The texture
    holds exactly the pixels in the file, and every enlargement after it is NearestFilter's. */
 const RASTER = 1;
 const CROPS = ["crop-seed", "crop-sprout", "crop-sun", "crop-bloom", "crop-wilted"];
@@ -75,7 +75,7 @@ export const sampleGround = false;
 
 /* ------------------------------------------------------------------------- the sprite sheet */
 
-let sheet = null;          // {textures, canvases, base, loaded, failed}
+let sheet = null;          // {textures, data, sizes, base, loaded, failed}
 let made = 0, freed = 0;   // textures, for `inspect` and the dispose test
 let lastApi = null;
 let U = null;              // the uniforms every material here shares, updated in place
@@ -85,8 +85,7 @@ const recs = new Map();    // pane -> its crop and frame
 const waited = new WeakSet();
 
 /* The most common opaque colour of a sprite: the colour a weather recolours from. */
-function commonest(g, w, h) {
-  const px = g.getImageData(0, 0, w, h).data;
+function commonest(px) {
   const n = new Map();
   let best = "", most = 0;
   for (let i = 0; i < px.length; i += 4) {
@@ -99,45 +98,44 @@ function commonest(g, w, h) {
   return best ? best.split(",").map(v => Number(v) / 255) : [0.5, 0.5, 0.5];
 }
 
-/* One sprite of the sheet as its own SVG document, drawn by the browser into a canvas of the
-   sprite's own grid. `shape-rendering: crispEdges` is the sheet's, so every rect lands on whole
-   pixels and nothing is antialiased. */
-function rasterise(doc, id, s) {
+/* One sprite of the sheet as its own pixels. The art is `<rect>`s on a whole-pixel grid and
+   nothing else (`test_fleet_skins` holds the sheet to that), so each rect is filled into the
+   sprite's grid in document order, the way the SVG paints it -- no browser rasterising, and no 2D
+   context: the desk has none anywhere (#257). Row 0 of the array is the art's top row. */
+function pixels(doc, id, s) {
   const node = doc.getElementById(id) || doc.querySelector("[id=\"" + id + "\"]");
-  if (!node) return Promise.reject(new Error("sprites.svg has no #" + id));
-  const one = node.cloneNode(true);
-  const cv = s.canvases[id];
-  one.setAttribute("width", String(cv.width));
-  one.setAttribute("height", String(cv.height));
-  one.setAttribute("shape-rendering", doc.documentElement.getAttribute("shape-rendering") || "crispEdges");
-  // A data: URL, because the desk's CSP allows images from itself and `data:` alone (serve.py).
-  const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(one));
-  const img = new Image();
-  return new Promise((ok, no) => {
-    img.onload = ok;
-    img.onerror = () => no(new Error("#" + id + " would not rasterise"));
-    img.src = url;
-  }).then(() => {
-    const g = cv.getContext("2d", { willReadFrequently: true });
-    g.imageSmoothingEnabled = false;
-    g.clearRect(0, 0, cv.width, cv.height);
-    g.drawImage(img, 0, 0, cv.width, cv.height);
-    s.base[id] = commonest(g, cv.width, cv.height);
-  });
+  if (!node) throw new Error("sprites.svg has no #" + id);
+  const [w, h] = s.sizes[id];
+  const px = s.data[id];
+  px.fill(0);
+  for (const r of node.getElementsByTagName("rect")) {
+    const hex = /^#([0-9a-f]{6})$/i.exec(r.getAttribute("fill") || "");
+    if (!hex) throw new Error("#" + id + ": a rect whose fill is not #rrggbb");
+    const n = parseInt(hex[1], 16), rgb = [n >> 16 & 255, n >> 8 & 255, n & 255];
+    const x0 = Number(r.getAttribute("x") || 0), y0 = Number(r.getAttribute("y") || 0);
+    const x1 = Math.min(w, x0 + Number(r.getAttribute("width") || 0));
+    const y1 = Math.min(h, y0 + Number(r.getAttribute("height") || 0));
+    for (let y = Math.max(0, y0); y < y1; y++) {
+      for (let x = Math.max(0, x0); x < x1; x++) {
+        const i = (y * w + x) * 4;
+        px[i] = rgb[0]; px[i + 1] = rgb[1]; px[i + 2] = rgb[2]; px[i + 3] = 255;
+      }
+    }
+  }
+  s.base[id] = commonest(px);
 }
 
 /* The textures exist from the first call, blank, so every material can hold them at once; the art
-   arrives in them when the sheet has been fetched and drawn, and the layer is asked for a frame. */
+   arrives in them when the sheet has been fetched and read, and the layer is asked for a frame. */
 function load(THREE, api) {
   if (sheet) return sheet;
-  const s = sheet = { textures: {}, canvases: {}, base: {}, loaded: false, failed: "",
+  const s = sheet = { textures: {}, data: {}, sizes: {}, base: {}, loaded: false, failed: "",
                       nearest: THREE.NearestFilter };
   for (const id of SPRITES) {
-    const cv = document.createElement("canvas");            // never on the page
-    cv.width = 16 * RASTER;
-    cv.height = (id === "plank" ? 8 : 16) * RASTER;
-    s.canvases[id] = cv;
-    const t = new THREE.CanvasTexture(cv);
+    const w = 16 * RASTER, h = (id === "plank" ? 8 : 16) * RASTER;
+    s.sizes[id] = [w, h];
+    s.data[id] = new Uint8Array(w * h * 4);
+    const t = new THREE.DataTexture(s.data[id], w, h, THREE.RGBAFormat);
     t.magFilter = THREE.NearestFilter;
     t.minFilter = THREE.NearestFilter;
     t.generateMipmaps = false;
@@ -153,8 +151,7 @@ function load(THREE, api) {
   }).then(text => {
     const doc = new DOMParser().parseFromString(text, "image/svg+xml");
     if (doc.getElementsByTagName("parsererror").length) throw new Error("sprites.svg does not parse");
-    return Promise.all(SPRITES.map(id => rasterise(doc, id, s)));
-  }).then(() => {
+    for (const id of SPRITES) pixels(doc, id, s);
     if (sheet !== s) return;                                  // the skin went while it loaded
     for (const t of Object.values(s.textures)) t.needsUpdate = true;
     s.loaded = true;
@@ -601,7 +598,7 @@ export function inspect() {
     textures: made - freed, made, freed,
     nearest: !!T && T.every(t => t.magFilter === sheet.nearest && t.minFilter === sheet.nearest &&
                                  !t.generateMipmaps),
-    sizes: T ? Object.fromEntries(SPRITES.map(id => [id, [sheet.canvases[id].width, sheet.canvases[id].height]])) : {},
+    sizes: T ? Object.fromEntries(SPRITES.map(id => [id, sheet.sizes[id].slice()])) : {},
     gpuTextures: lastApi && lastApi.renderer ? lastApi.renderer.info.memory.textures : null,
     units: lastApi ? { soil: unitOf(lastApi, SCALE.soil), board: unitOf(lastApi, SCALE.board),
                        crop: unitOf(lastApi, SCALE.crop), dpr: lastApi.viewport.dpr } : null,
