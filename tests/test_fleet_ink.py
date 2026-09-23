@@ -10,8 +10,9 @@ override that exists for exactly this and is never a measurement. What is assert
 * the gate: only a shell whose probe says `hardware` gets ink, and the page is told by the server,
   from `probe.classify` -- everything else, `?ink=off`, a shell with no WebGL context and a lost
   context are `body.ink-off`, with the same table drawn as plain CSS;
-* three.js is fetched from the vendored copy with the token, once, and only when the gate is on AND a
-  table is set; the desk with no skin using ink fetches none of the layer and writes nothing;
+* three.js is fetched from the vendored copy with the token, once, and only when the gate is on --
+  since #257 the layer draws the desk's own ground whatever the skin, so it no longer waits for a
+  table; the desk with no skin using ink draws none of a skin's marks and writes nothing;
 * `window.Ink` is the whole surface;
 * a mark is drawn when its selector starts matching and erased (pencil) or struck (ink) when it
   stops; lanes draw at once and one pane's marks never interleave;
@@ -53,7 +54,7 @@ LOCAL_BUDGET_MS = 50.0
 #: The pen's speed in the layer (`layer.js` PEN), in CSS px a second at 1x.
 PEN = 900
 #: What the ink layer's own modules may weigh over the wire. three.js is not in it: 163 KB,
-#: fetched only by a shell the gate turned on, once a skin draws.
+#: fetched only by a shell the gate turned on (from the start, since #257: it draws the ground).
 INK_BUDGET = 40 * 1024
 
 INTEL = "ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00003EA0) Direct3D11 vs_5_0 ps_5_0, D3D11)"
@@ -152,7 +153,13 @@ def _open(browser, port, token, extra="", *, panes=2, width=1400, height=900, re
 
 
 def _set(page, table=None):
-    return page.evaluate("t => Ink.setSkin(t)", table or TABLE)
+    """A test table, set and then waited on until the paper is at rest: with a table in force the
+    layer also draws the page's own traces (#257), in the panes' lanes, and a test that times its
+    own marks times them from there -- not from behind a trace still being drawn."""
+    out = page.evaluate("t => Ink.setSkin(t)", table or TABLE)
+    if out and out.get("drawn") == "ink":
+        _rest(page)
+    return out
 
 
 def _mark(page, repo, cls, on=True):
@@ -326,10 +333,13 @@ def test_theme_check_holds_ink_on_paper():
 
 
 @pytest.mark.browser
-def test_the_desk_with_no_skin_using_ink_is_unchanged(fleet_home, tmp_path):
-    """Nothing visible changes in slice B. With the gate off (nothing measured) and with it forced
-    on, a desk no skin draws on fetches none of the layer, puts no canvas on the page, adopts no
-    stylesheet and -- idle -- writes nothing at all."""
+def test_the_desk_with_no_skin_using_ink_draws_no_skins_marks(fleet_home, tmp_path):
+    """Slice B's "nothing visible changes", as #257 left it. With the gate off (nothing measured) a
+    desk no skin draws on fetches none of the layer, puts no canvas on the page, adopts no
+    stylesheet and -- idle -- writes nothing at all. With it forced on, the layer runs from the
+    start, because the desk's own ground is its to draw whatever the skin: one canvas, naming no
+    table, with no marks and no traces on it (the default skin has no ground either), no stylesheet
+    adopted, and -- idle -- nothing written and nothing drawn."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
@@ -346,15 +356,26 @@ def test_the_desk_with_no_skin_using_ink_is_unchanged(fleet_home, tmp_path):
                   keyed: [...document.styleSheets].flatMap(s => [...s.cssRules].map(r => r.cssText))
                            .filter(t => t.includes('ink-off')) })""")
                 assert state["off"] is off, (extra, state)
-                assert not state["ink"] and state["sheets"] == 0 and state["keyed"] == [], state
-                assert state["inspect"]["layer"] is None and state["inspect"]["plain"] is False
-                assert "ink" not in state["canvases"], state
+                assert state["sheets"] == 0 and state["keyed"] == [], state
+                assert state["inspect"]["plain"] is False and state["inspect"]["table"] is None, state
                 fetched = [u.split("?")[0].split(str(port))[1] for u in asked if "/static/" in u]
-                assert [u for u in fetched if u.startswith("/static/ink/")] == ["/static/ink/ink.js"]
-                assert not [u for u in fetched if "vendor/three" in u], fetched
+                if off:
+                    assert not state["ink"] and state["inspect"]["layer"] is None, state
+                    assert "ink" not in state["canvases"], state
+                    assert [u for u in fetched if u.startswith("/static/ink/")] == ["/static/ink/ink.js"]
+                    assert not [u for u in fetched if "vendor/three" in u], fetched
+                else:
+                    page.wait_for_function(AT_REST, timeout=20000)
+                    layer = page.evaluate("() => Ink.inspect().layer")
+                    assert layer["marks"] == [] and layer["series"] == [] and layer["skin"] is None, layer
+                    assert not layer["ground"]["drawn"], "the default skin has no ground to draw"
+                    assert page.evaluate("() => document.getElementById('ink').hasAttribute('data-skin')") is False
+                    assert state["canvases"].count("ink") <= 1, state
+                    assert [u for u in fetched if "vendor/three" in u] == ["/static/vendor/three/three.module.min.js"]
                 # And idle is idle: the panes test's loop, with the layer's module on the page.
                 count = page.evaluate(IDLE_LOOP)
                 assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+                assert count["renders"] == 0, f"an idle desk drew a frame: {count}"
                 assert not errors, errors
                 page.close()
             browser.close()
@@ -412,9 +433,10 @@ IDLE_LOOP = """async () => {
 
 @pytest.mark.browser
 def test_the_layer_fetches_three_once_from_the_vendored_copy_with_the_token(fleet_home, tmp_path):
-    """Only when the gate is on AND a skin draws: the layer's modules and the vendored three.js,
-    each once, each with this run's token, and one canvas behind the page -- a second table does
-    not make a second."""
+    """Only when the gate is on -- and from the start, since #257, because the layer draws the desk's
+    own ground whatever the skin: the layer's modules and the vendored three.js, each once, each
+    with this run's token, and one canvas behind the page -- a table, and a second table, do not
+    make a second."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
@@ -422,7 +444,8 @@ def test_the_layer_fetches_three_once_from_the_vendored_copy_with_the_token(flee
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, asked = _open(browser, port, token, "&ink=on")
-            assert not [u for u in asked if "/static/ink/layer.js" in u or "vendor/three" in u]
+            page.wait_for_function("() => !!Ink.inspect().layer && !!document.getElementById('ink')",
+                                   timeout=20000)
             assert _set(page)["drawn"] == "ink"
             assert _set(page, dict(TABLE, name="again"))["drawn"] == "ink"
             canvas = page.evaluate("""() => { const c = document.querySelectorAll('canvas#ink');
@@ -830,7 +853,9 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
     reaches the page as `applySkin`, which writes it and its variant on <body>; and the ink layer
     follows that: the module fetched with the token, its marks per variant drawn in ink where the
     gate is on and as plain CSS where it is off, its materials run -- a ground, a paper, a frame
-    per pane -- and all of it gone when the skin goes. A skin with no module is asked for nothing."""
+    per pane -- and all of it gone when the skin goes: its marks, its materials and the page's
+    traces it drew them beside. The canvas stays for the layer's own ground (#257), but names no
+    table. A skin with no module is asked for nothing."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path)
     server, token, port = _serve()
@@ -864,7 +889,9 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
                 _choose(page, "none")
                 page.wait_for_function("() => Ink.inspect().table === null", timeout=10000)
                 seen.setdefault("gone", []).append(page.evaluate(
-                    "() => ({ canvas: !!document.getElementById('ink'), layer: Ink.inspect().layer })"))
+                    """() => { const c = document.getElementById('ink');
+                      return { canvas: !!c, skin: c ? c.getAttribute('data-skin') : null,
+                               layer: Ink.inspect().layer }; }"""))
                 _choose(page, "glass")                          # a skin with no module
                 page.wait_for_function("() => document.body.dataset.skin === 'glass'", timeout=10000)
                 seen.setdefault("asked", []).extend(
@@ -881,7 +908,11 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
     assert on["skin"]["errors"] == [] and on["mode"] == 1, "a paper under the marks: multiply"
     assert on["corner"] == 400, "the skin's ground is under the whole page"
     assert seen["plain"], "the same marks, drawn plain where the gate is off"
-    assert not seen["gone"][0]["canvas"], "a skin that goes takes the canvas with it"
+    gone = seen["gone"][0]
+    assert gone["skin"] is None, "a skin that goes leaves no table named on the canvas"
+    assert gone["layer"]["marks"] == [] and gone["layer"]["series"] == [] and gone["layer"]["skin"] is None, \
+        "a skin that goes takes its marks, its materials and the traces with it"
+    assert not seen["gone"][1]["canvas"], "where the gate is off there never was a canvas"
     assert seen["asked"] and all(u.startswith(f"/static/ink/skins/example.js?t={token}")
                                  for u in seen["asked"]), seen["asked"]
 

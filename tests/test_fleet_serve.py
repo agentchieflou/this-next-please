@@ -311,8 +311,8 @@ def test_the_static_payload_is_small_enough_to_load_over_anything():
     reported beside it so a file that doubles is still visible in the failure.
 
     The ink layer's own modules (#248) are counted, every one, as a shell the gate turned on
-    fetches them. three.js is not: it is 163 KB gzipped of its own, fetched by `/probe` and by an
-    ink layer that is drawing, never by a desk that is not. Nor is a skin module
+    fetches them. three.js is not: it is 163 KB gzipped of its own, fetched by `/probe` and by a
+    desk the gate turned on (#257), never by one it turned off. Nor is a skin module
     (`static/ink/skins/`): a desk fetches the one it chose, like a skin's stylesheet.
     """
     import gzip as gz
