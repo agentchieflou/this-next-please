@@ -1,12 +1,12 @@
 """The desk half of the dashboard: the catalogue panel, the link rail, the polled cells, the
-Downloads tray and the three layouts.
+Downloads tray, and the one arrangement that replaced the layouts (#232).
 
 There is no browser here, for the same reason there is none in `test_fleet_serve.py`: what a browser
 would add is whether the arrangement *looks* right on four monitors, and that is #133's sitting with
 a person in front of it. What is proved here is everything that would otherwise break silently --
 the JSON each panel draws from, the one write the tray is allowed to make, the path the verify pane
-refuses to follow, the selection two windows share, and the fact that the page and the stylesheet
-still know every layout name the CLI can print.
+refuses to follow, the selection two windows share, and the fact that nothing in the page, the
+stylesheet or the CLI still chooses an arrangement.
 """
 from __future__ import annotations
 import http.client
@@ -467,16 +467,6 @@ def test_the_selection_frame_is_not_repeated_while_nothing_changes(desk, tmp_pat
     assert "event: desk" in "".join(out)
 
 
-def test_the_screen_pinning_is_shared_so_a_swap_moves_it_off_the_other_monitor(desk, tmp_path):
-    a_project(tmp_path, "luna")
-    a_project(tmp_path, "other", project="DATA")
-    S.act("select", {"screens": ["luna", "other"]})
-    assert S.desk_state()["screens"] == ["luna", "other"]
-    S.act("select", {"screens": ["other", "luna"]})
-    assert S.desk_state()["screens"] == ["other", "luna"]
-    assert S.fleet_snapshot()["desk"]["screens"] == ["other", "luna"]
-
-
 def test_selecting_the_same_project_twice_does_not_wake_the_other_windows(desk, tmp_path):
     a_project(tmp_path, "luna")
     first = S.select(selected="luna")["version"]
@@ -604,17 +594,6 @@ def test_the_centre_window_draws_one_project_from_one_request(running, tmp_path)
     assert whole["desk"]["selected"] == "luna"
 
 
-def test_a_screen_with_nothing_pinned_still_shows_a_project(desk, tmp_path):
-    """`?layout=screens&screen=2` on a fresh fleet must not be an empty monitor: with no pinning the
-    Nth registered repository is the Nth screen, and the swap is what changes that."""
-    js = open(APP_JS, encoding="utf-8").read()
-    assert "return pinned || names[SCREEN - 1] || \"\";" in js
-    a_project(tmp_path, "luna")
-    a_project(tmp_path, "other", project="DATA")
-    assert S.desk_state()["screens"] == []
-    assert [r.name for r in Registry().sorted()] == ["luna", "other"]
-
-
 def test_show_for_a_repo_that_is_gone_is_a_reason_the_panel_can_render(running):
     base, token = running
     body = get(base, "/api/show?project=vanished", token)
@@ -628,8 +607,9 @@ def test_where_with_no_query_asks_nothing_of_the_catalogue(running):
 
 
 def test_the_page_itself_is_served_for_every_layout_url(running):
-    """The layouts are parameters on one page, so the server does not have to know them -- but a
-    URL the CLI prints has to come back with the page and not a 404."""
+    """The layouts were parameters on one page, and a bookmark or an older launcher still carries
+    them (#232). An address the CLI once printed has to come back with the page and not a 404; the
+    page ignores the parameter and says so."""
     base, token = running
     for path in ("/?layout=column", "/?layout=grid", "/?layout=roles&view=agents",
                  "/?layout=roles&view=verify",
@@ -681,103 +661,69 @@ def test_a_directory_beside_static_is_not_served_because_its_name_starts_with_st
         assert "NOT SERVED" not in body, escape
 
 
-# ------------------------------------------------------------------- the page and the layouts
+# ------------------------------------------------------------ the page, and the one arrangement
 
 
-def test_the_cli_and_the_page_agree_on_the_layout_names(desk):
-    """`--layout` is spelled in `cli_fleet` and read in `app.js`; the middle of that seam is here.
-    A layout the CLI can print and the page does not know is a blank window."""
-    assert cli_fleet.LAYOUTS == S.LAYOUTS
+def test_nothing_chooses_an_arrangement_any_more(desk):
+    """`--layout` was spelled in `cli_fleet`, listed in `serve` and read in `app.js`, and a test kept
+    the three in step. There is one arrangement now (#232), so the seam is gone from all three -- and
+    a fourth list growing back in any of them is a choice nobody asked for."""
+    assert not hasattr(cli_fleet, "LAYOUTS") and not hasattr(cli_fleet, "LAYOUT_PARAM")
+    assert not hasattr(S, "LAYOUTS") and not hasattr(S, "VIEWS")
     js = open(APP_JS, encoding="utf-8").read()
-    assert 'var LAYOUTS = ["column", "grid", "roles", "screens"];' in js
-    # The default is one value in three files, and it is the operator's decision (#133, #200):
-    # `--layout` defaults to it, the server names it first, and a window with no `?layout=` is it.
-    assert cli_fleet.LAYOUTS[0] == S.LAYOUTS[0] == "column"
-    assert "var DEFAULT_LAYOUT = LAYOUTS[0];" in js, \
-        "the page must take its default from the list rather than spelling it a second time"
-    assert 'var VIEWS = ["board", "agents", "verify"];' in js
-    assert list(S.VIEWS) == ["board", "agents", "verify"]
-    assert f'"{cli_fleet.LAYOUT_PARAM}"' in js
+    html = open(INDEX, encoding="utf-8").read()
+    for gone in ("var LAYOUTS", "var VIEWS", "var LAYOUT ", "var VIEW ", "var SCREEN ",
+                 "VIEW_SEGMENTS", "function drawSwap", "function go(", "function readLocation"):
+        assert gone not in js, gone
+    for gone in ('id="layoutgroup"', 'id="viewgroup"', 'id="swap"', "data-layout="):
+        assert gone not in html, gone
+    # What the page still does with the parameters an old address carries: it names them.
+    assert 'var RETIRED_PARAMS = ["layout", "view", "screen"];' in js
 
 
-def test_every_class_the_layout_sets_is_a_class_it_also_clears():
-    """`place()` is the one function that decides what a window shows, and it does it by swapping
-    body classes. A class it can add and does not clear is a window that keeps the last layout's
-    arrangement on top of the new one -- which looks like the page half-loading."""
+def test_no_body_class_names_an_arrangement():
+    """`place()` swapped nine body classes -- `layout-*`, `view-*`, `solo` and `panels` -- to say which
+    of four arrangements a window was. With one, a class like that could only ever say the same
+    thing, and a skin or a rule written against it would be written against nothing."""
     js = open(APP_JS, encoding="utf-8").read()
-    calls = re.findall(r"var BODY_LAYOUT_CLASSES = \[([^\]]*)\]", js, re.S)
-    assert len(calls) == 1, "more than one place decides which layout this window is in"
-    # One declared list since #215: `place()` used to `remove` all nine and then `add` up to four,
-    # which writes `class` whether or not anything changed -- so it could never be the no-op the
-    # render contract asks for. What it sets and what it clears are the same array now.
-    assert "body.classList.remove(" not in js, "the layout classes are one write now"
-    cleared = set(re.findall(r'"([a-z-]+)"', calls[0]))
-    assert cleared == {"layout-column", "layout-grid", "layout-roles", "layout-screens",
-                       "view-board", "view-agents", "view-verify", "solo", "panels"}
-    for layout in S.LAYOUTS:
-        assert "layout-" + layout in cleared
-    for view in S.VIEWS:
-        assert "view-" + view in cleared
-
-
-def test_every_arrangement_the_url_can_ask_for_is_actually_styled():
-    """The layouts are body classes over one stylesheet -- one page, three arrangements. A class the
-    script sets to *change the layout* and the sheet does not style is a layout that silently
-    renders as the grid, so each of those is asserted here.
-
-    `layout-grid`, `layout-roles` and `layout-screens` are deliberately not in that list. They name
-    which arrangement the window is, and nothing more: what actually moves is `view-agents` (the
-    left monitor's narrower columns), `solo` (one project filling the window) and `panels` (the
-    laptop's board and tray). They earn their place as the window's identity in the DOM -- the
-    browser tests read them, and a skin can target an arrangement through them without the page
-    changing -- and a rule for them would be a rule that says "do what you already do"."""
     css = open(APP_CSS, encoding="utf-8").read()
-    js = open(APP_JS, encoding="utf-8").read()
-    for name in ("view-agents", "solo", "panels", "needs-only"):
-        assert f"body.{name}" in css, f"{name} is set by app.js and styled nowhere"
-    for name in ("layout-column", "layout-grid", "layout-roles", "layout-screens"):
-        assert f'"{name}"' in js, f"{name} is the window's identity and app.js must still set it"
-    # `layout-column` is the exception to the paragraph above: it is the one arrangement whose class
-    # really does move things -- the glass is one tile tall and the bands are beside it -- so the
-    # sheet has to carry rules for it or the column renders as a grid with one tile on it.
-    assert "body.layout-column main" in css
-    assert "body.layout-column .tile.is-solo" in css
-    # Layout B's centre and right windows, and every screen of layout C, are these two between them.
-    assert "body.solo .tile:not(.is-solo) { display: none; }" in css
-    assert "body.panels main, body.panels #empty { display: none; }" in css
+    assert "BODY_LAYOUT_CLASSES" not in js
+    assert "body.classList.remove(" not in js
+    for name in ("layout-column", "layout-grid", "layout-roles", "layout-screens",
+                 "view-board", "view-agents", "view-verify", "solo", "panels", "focused"):
+        assert f'"{name}"' not in js, f"app.js still sets {name}"
+        assert f"body.{name}" not in css, f"app.css still styles body.{name}"
 
 
-def test_the_page_offers_every_layout_without_typing_a_url():
-    """The operator is meant to reach the other two by parameter, and a parameter nobody can
-    discover is a feature nobody uses.
-
-    The eight-way `<select>` this used to check became a segmented control over the three
-    arrangements plus a second segment naming which window of that set this one is (#148): one
-    control per meaning, rather than one control listing every combination of two."""
-    js = open(APP_JS, encoding="utf-8").read()
-    html = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
-    for layout in ("column", "grid", "roles", "screens"):
-        assert f'data-layout="{layout}"' in html, layout
-    for label in ("agents", "verify", "board", "laptop", "screen 1", "screen 2", "screen 3"):
-        assert f'"{label}"' in js, label
-    assert "VIEW_SEGMENTS" in js, "the second segment is what names which window this is"
+def test_the_columns_rules_are_the_pages_rules():
+    """The column was the one arrangement whose class moved things: the glass one tile tall, the
+    bands beside it. Its rules are unconditional now, or the page renders as a wrap of cards with
+    every agent on it."""
+    css = open(APP_CSS, encoding="utf-8").read()
+    main = css.split("\nmain {", 1)[1].split("}", 1)[0]
+    assert "repeat(auto-fit, minmax(320px, 1fr))" in main
+    assert "align-content: stretch" in main
+    assert ".tile:not(.is-solo) { display: none; }" in css
+    assert ".tile.is-solo { max-height: none; min-height: 0; }" in css
 
 
-def test_focus_mode_hides_every_tile_but_the_ones_that_need_a_person():
+def test_focus_mode_narrows_the_column_to_the_agents_that_need_a_person():
     """The one thing on #133 that is not a layout. It filters on `needs-human`, which comes from
     #94's fold -- the same flag the chip and the toast use, so the three cannot disagree.
 
-    The filter has exactly one exception, and it is written here rather than left to be discovered:
-    a tile the operator has just acted on is `held`, because answering an agent is what stops it
-    needing you and the reply would otherwise hide the tile it was typed into. What that looks like
-    from the operator's side is covered in `test_fleet_desk_actions.py`, in a browser; this only
-    holds the line that the two classes the rule turns on are still the ones the script sets.
+    What it narrows is the column: a quiet band folds to a sliver. The filter has exactly one
+    exception, and it is written here rather than left to be discovered: an agent the operator has
+    just acted on is `held`, because answering an agent is what stops it needing you and the reply
+    would otherwise fold the band it was typed into. What that looks like from the operator's side
+    is covered in `test_fleet_desk_actions.py`, in a browser; this only holds the line that the
+    classes the rule turns on are still the ones the script sets.
     """
     js = open(APP_JS, encoding="utf-8").read()
     css = open(APP_CSS, encoding="utf-8").read()
     assert 'toggle(el, "needs-human", !!row.needs_human);' in js
     assert 'toggle(el, "held", held.has(row.repo));' in js
-    assert "body.needs-only:not(.solo) .tile:not(.needs-human):not(.held) { display: none; }" in css
+    assert 'toggle(li, "is-quiet", needsOnly && !li.classList.contains("needs-human") &&' in js
+    assert "body.needs-only .band.is-quiet { flex: 0 0 28px; min-height: 28px; }" in css
     assert 'if (e.key === "f") { focusMode(); return; }' in js
 
 
@@ -788,11 +734,13 @@ def test_the_keyboard_toggle_is_written_on_the_page_itself():
     assert '<button id="focus"' in html and "show only the agents that need you" in html
 
 
-def test_focus_mode_never_empties_a_window_that_exists_to_show_one_project():
-    """In the solo views the one tile *is* the window. Hiding it because it does not happen to need
-    a person would leave an operator staring at an empty monitor."""
+def test_focus_mode_never_empties_the_window():
+    """The open tile *is* the window. Hiding it because it does not happen to need a person would
+    leave an operator staring at an empty monitor, so no focus-mode rule hides a tile at all."""
     css = open(APP_CSS, encoding="utf-8").read()
-    assert "body.needs-only:not(.solo)" in css
+    for selector, body in re.findall(r"([^{}]*body\.needs-only[^{]*)\{([^}]*)\}", css):
+        if ".tile" in selector:
+            assert "display: none" not in body, selector.strip()
 
 
 def test_a_grey_cell_carries_the_error_in_a_tooltip_and_still_shows_its_value():
@@ -803,11 +751,11 @@ def test_a_grey_cell_carries_the_error_in_a_tooltip_and_still_shows_its_value():
     assert ".cell.grey" in css and "var(--idle)" in css.split(".cell.grey")[1][:200]
 
 
-def test_the_status_colours_are_still_the_same_in_every_layout():
+def test_the_status_colours_are_still_the_same_in_every_mode():
     """A chip that means "needs you" has to be the same red on the left monitor and the centre one,
-    or the colour stops being information."""
+    in focus mode or out of it, or the colour stops being information."""
     css = open(APP_CSS, encoding="utf-8").read()
-    for body_class in ("layout-roles", "layout-screens", "solo", "panels", "needs-only"):
+    for body_class in ("needs-only", "is-stale", "has-ground"):
         for rule in re.findall(r"body\." + body_class + r"[^{]*\{([^}]*)\}", css):
             for status in ("--running", "--waiting", "--human", "--done"):
                 assert status not in rule, f"body.{body_class} redefines {status}"

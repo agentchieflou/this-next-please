@@ -161,6 +161,15 @@ def _visible(page, repo: str) -> bool:
            }""", repo)
 
 
+def _quiet(page, repo: str) -> bool:
+    """Folded by focus mode: in the column that is a band down to a sliver, never gone (#203)."""
+    return page.evaluate(
+        """(repo) => {
+             const band = document.querySelector(`#bands .band[data-repo="${repo}"]`);
+             return !!band && band.classList.contains('is-quiet');
+           }""", repo)
+
+
 @pytest.mark.browser
 def test_the_tile_you_just_acted_on_does_not_vanish_from_focus_mode(desk):
     """The defect: answering an agent hid the agent you answered.
@@ -170,6 +179,10 @@ def test_the_tile_you_just_acted_on_does_not_vanish_from_focus_mode(desk):
     and the only visible outcome of pressing Send was that the thing they were working on
     disappeared. They went looking for it in the `where` scan, which is where a person goes when
     they believe they have lost something.
+
+    The grid's filter hid tiles; the column's folds bands (#232), and never the open agent. So the
+    hold shows when the operator moves on: the agent they acted on keeps a whole band while the
+    ones nobody touched fold, until they let it go.
     """
     playwright_module = pytest.importorskip("playwright.sync_api")
     with playwright_module.sync_playwright() as p:
@@ -178,7 +191,7 @@ def test_the_tile_you_just_acted_on_does_not_vanish_from_focus_mode(desk):
         page.click("#focus")
         page.wait_for_timeout(300)
         assert _visible(page, "asks"), "the agent with an open question is what focus mode is for"
-        assert not _visible(page, "quiet"), "a quiet agent nobody touched stays filtered out"
+        assert _quiet(page, "quiet"), "a quiet agent nobody touched is folded"
 
         # Act on it. `stop` on an agent with no live process answers ok and changes nothing on
         # disk, so this is the operator's click without a real process in the fixture.
@@ -195,18 +208,25 @@ def test_the_tile_you_just_acted_on_does_not_vanish_from_focus_mode(desk):
             """() => document.querySelector('.tile[data-repo="asks"]').classList.contains('needs-human')"""
         ), "the fixture has to actually stop needing the human, or this test proves nothing"
 
-        assert _visible(page, "asks"), \
-            "the tile the operator acted on is held on screen; vanishing reads as data loss"
-        assert not _visible(page, "quiet"), "holding one tile does not disable the filter"
-
         note = page.inner_text('.tile[data-repo="asks"] .holdnote')
         assert "you stopped" in note, note
         assert "no longer needs you" in note, "it says why it is still here"
 
+        # The operator moves on to another agent, and the one they acted on is held on the glass.
+        page.click('#bands .band[data-repo="third"] .band-open')
+        page.wait_for_selector('.tile[data-repo="third"].is-solo', timeout=5000)
+        assert not _quiet(page, "asks"), \
+            "the agent the operator acted on is held on screen; folding it reads as data loss"
+        assert _quiet(page, "quiet"), "holding one agent does not disable the filter"
+
         # And the operator can let it go, which is the whole of the escape hatch.
+        page.click('#bands .band[data-repo="asks"] .band-open')
+        page.wait_for_selector('.tile[data-repo="asks"].is-solo', timeout=5000)
         page.click('.tile[data-repo="asks"] .release')
+        page.click('#bands .band[data-repo="third"] .band-open')
+        page.wait_for_selector('.tile[data-repo="third"].is-solo', timeout=5000)
         page.wait_for_timeout(400)
-        assert not _visible(page, "asks"), "released, it leaves focus mode like anything else"
+        assert _quiet(page, "asks"), "released, it folds in focus mode like anything else"
         assert not errors, errors
 
 
@@ -260,6 +280,12 @@ def test_a_tile_never_ends_up_painted_away_from_where_the_layout_put_it(desk):
     playwright_module = pytest.importorskip("playwright.sync_api")
     with playwright_module.sync_playwright() as p:
         browser, page, errors = _page(p, desk)
+        # Three tiles side by side, so a move is a move on the glass: two pinned beside the open
+        # one. Only the open agents are laid out now (#232), and a tile that is not laid out has
+        # nowhere to travel from.
+        page.evaluate("() => post('arrange', { pinned: ['quiet', 'third'] })")
+        page.wait_for_function("() => document.querySelectorAll('.tile.is-solo').length === 3",
+                               timeout=5000)
 
         before = page.evaluate("() => Array.from(document.querySelectorAll('.tile')).map(t => t.dataset.repo)")
         assert len(before) == 3

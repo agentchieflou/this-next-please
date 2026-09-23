@@ -38,8 +38,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -82,7 +82,7 @@ def _desk_of_five(tmp_path):
                                    ticket="RDSD-1")])
     C.save({"fleet": {"budget_per_agent": 10, "log_mb": 1, "log_keep": 3}})
     assert E.NORMALIZED in lifecycle.rotate_all("arl-usage", cfg=C.load())
-    S.arrange("column", order=["rdsd-pbi-reporting", "luna", "velocity", "backlog-health",
+    S.arrange(order=["rdsd-pbi-reporting", "luna", "velocity", "backlog-health",
                               "arl-usage"])
 
 

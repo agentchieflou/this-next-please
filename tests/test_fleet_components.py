@@ -37,9 +37,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -144,7 +143,7 @@ def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path):
     DOM mutation at all. Everything else in this slice is in service of this one number being 0."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", needs=("gamma",))
-    S.arrange("column", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -213,7 +212,7 @@ def test_the_keyboard_and_the_hover_survive_twenty_draws(fleet_home, tmp_path):
     """What zero mutations buys: the thing under the cursor is still the thing under the cursor."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:

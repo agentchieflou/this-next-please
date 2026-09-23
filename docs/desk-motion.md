@@ -65,9 +65,10 @@ test can check that every panel the inventory lists carries it.
 
 ## One door for anything that moves things
 
-`transitionLayout(fn)` in `app.js`. Opening a band, going back, hiding or showing a tile, and the
-grid's zoom in and out all go through it — five gestures, one place that decides how a layout
-change looks.
+`transitionLayout(fn)` in `app.js`. Opening a band and going back go through it — one place that
+decides how a layout change looks. (The grid's zoom in and out were two more, and went with the
+grid in #232; hiding, showing and reordering are rearrangements, which are FLIP through
+`transitionMove`, #219.)
 
 1. **Reduced motion** takes neither path. The change is applied and that is the end of it.
 2. **`document.startViewTransition(fn)`** where the engine has it. The browser holds the last frame,
