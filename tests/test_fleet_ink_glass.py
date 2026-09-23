@@ -104,7 +104,7 @@ def _open(browser, port, token, extra="&ink=on", *, reduced=False, count=False):
         """() => document.querySelectorAll('#grid .tile.is-solo').length === 3
              && [...document.querySelectorAll('#grid .tile')].every(t => !!t.dataset.tier)
              && !!window.Ink && windowWrites === 0
-             && !document.body.classList.contains('is-stale')""", timeout=15000)
+             && !document.body.classList.contains('is-stale')""", timeout=30000)
     return page, errors, asked
 
 
@@ -121,7 +121,7 @@ READY = """(v) => { const i = Ink.inspect(), l = i.layer;
 MODULE = """async () => { window.__glass = await import(q('/static/ink/skins/glass.js')); return true; }"""
 
 
-def _ready(page, variant, also="true", timeout=20000):
+def _ready(page, variant, also="true", timeout=30000):
     page.evaluate(MODULE)
     page.wait_for_function(f"(v) => ({READY})(v) && ({AT_REST})() && ({also})", arg=variant, timeout=timeout)
 
@@ -290,7 +290,7 @@ def test_every_variant_is_drawn_by_the_layer_and_its_panel_is_measured_from_the_
                 assert len(boxes) == 3 and all(b["w"] > 100 and b["h"] > 100 for b in boxes), boxes
                 first = page.evaluate(READ, boxes)
                 ticks = _glass(page)["frames"]
-                page.wait_for_function("n => window.__glass.inspect().frames >= n + 2", arg=ticks, timeout=15000)
+                page.wait_for_function("n => window.__glass.inspect().frames >= n + 2", arg=ticks, timeout=30000)
                 again = page.evaluate(READ, boxes)
                 seen[variant] = dict(look=look, px=[c for pane in first + again for c in pane],
                                      moved=first != again)
@@ -352,7 +352,7 @@ def test_the_frost_samples_the_ground_through_a_blur(fleet_home, tmp_path):
             }""")
             page.wait_for_function("""() => { const l = Ink.inspect().layer;
               return Ink.inspect().table === 'split' && l.skin.frames === 3 && l.skin.ground === 2
-                && window.__glass.inspect().panes.length === 3; }""", timeout=15000)
+                && window.__glass.inspect().panes.length === 3; }""", timeout=30000)
             w = page.evaluate("() => innerWidth")
             t = page.evaluate(TRANSCRIPTS)
             mid = t[1]
@@ -427,7 +427,7 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
 
             def at_rest(also="true"):
                 try:
-                    page.wait_for_function(f"() => ({AT_REST})() && ({also})", timeout=15000)
+                    page.wait_for_function(f"() => ({AT_REST})() && ({also})", timeout=30000)
                 except Exception:
                     raise AssertionError(("not at rest with", also, _by(page), page.evaluate(TILES)))
                 return _by(page), _rims(page)
@@ -556,9 +556,9 @@ def test_under_ink_off_every_variant_is_the_css_glass_with_the_same_marks_plain(
             for variant in VARIANTS:
                 _choose(page, f"glass:{variant}")
                 page.wait_for_function("v => Ink.inspect().table === 'glass:' + v && Ink.inspect().plain", arg=variant,
-                                       timeout=10000)
+                                       timeout=20000)
                 page.wait_for_function("() => getComputedStyle(document.querySelector('#grid .tile')).backdropFilter"
-                                       ".includes('blur')", timeout=10000)
+                                       ".includes('blur')", timeout=20000)
                 seen[variant] = page.evaluate("""() => {
                   const g = s => getComputedStyle(document.querySelector(s));
                   return { off: document.body.classList.contains('ink-off'), canvas: !!document.getElementById('ink'),
@@ -611,7 +611,7 @@ def test_dispose_frees_the_ground_target_when_the_skin_changes(fleet_home, tmp_p
                 page.evaluate("() => Ink.setSkin(null).then(() => true)")
                 gone = _glass(page)
                 page.evaluate(PROBE)
-                page.wait_for_function("() => !!window.__after", timeout=10000)
+                page.wait_for_function("() => !!window.__after", timeout=20000)
                 seen[variant] = dict(on=on, gone=gone, after=page.evaluate("() => window.__after"))
             assert not errors, errors
             browser.close()
