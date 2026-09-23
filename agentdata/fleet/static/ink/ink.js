@@ -5,8 +5,8 @@
    whose globals (`PARAMS`, `q`) it uses. It is small on purpose, because every desk loads it and
    most never draw: it decides whether this shell gets ink, and it is the only thing `app.js` will
    ever see of the layer (`window.Ink`). The drawing half -- `layer.js`, `shapes.js`, `pen.js` and
-   the vendored three.js -- is fetched only when the gate says on AND a skin hands it a mark table,
-   and always through `import(q(...))`: a module specifier resolved against this file's URL does
+   the vendored three.js -- is fetched only when the gate says on, because then it draws the desk's
+   own ground and traces whatever the skin (#257), and always through `import(q(...))`: a module specifier resolved against this file's URL does
    not carry the run token, and every route on this server wants it (the reason `probe.js` does the
    same).
 
@@ -235,6 +235,10 @@ function start() {
         return null;
       }
       layer = running;
+      // The page's own ground is drawn from the moment the layer runs (#257). A table already
+      // waiting is set by the `apply` that asked for it, which runs next: setting it here as well
+      // would call its materials twice.
+      running.setTable(null);
       return running;
     });
     loading.catch(e => turnOff("the ink layer could not start: " + String((e && e.message) || e)));
@@ -341,6 +345,10 @@ function setSkin(next, hooks) {
   fromSkin = false;
   return apply(next, hooks);
 }
+
+/* A shell the gate turned on draws with ink from the start: the desk's ground and every agent's
+   trace are the layer's to draw under every skin (#257), so it does not wait for a skin's table. */
+if (verdict.on) start();
 
 window.Ink = Object.freeze({
   /* Settled as soon as the page has read its gate, which is when this module runs. */

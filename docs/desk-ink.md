@@ -1,8 +1,8 @@
 # The ink layer: marks drawn on the desk by pencil, pen, marker and highlighter
 
-_Slice B (#248) of the ink epic (#246, [plan-ink.md](plan-ink.md)). The layer is built, and **nothing on the desk
-uses it yet**: no shipped skin hands it a mark table, so the desk looks exactly as it did. The notebook (#249) is the
-first skin that will._
+_Slice B (#248) of the ink epic (#246, [plan-ink.md](plan-ink.md)). The layer is built. No shipped skin hands it a
+mark table yet (the notebook, #249, is the first), but since K (#257) it draws **the desk's own ground and traces**,
+which were its two 2D canvases: see §The page's own drawing._
 
 The operator chose three.js as the desk's one renderer (plan-ink Decision 1), and the theme's rule is that a mark is
 **drawn on the fly** by a writing tool. It never fades. A pencil mark that goes is erased, and an ink mark that goes
@@ -20,7 +20,7 @@ Everything is in `agentdata/fleet/static/ink/`. There is no build step and nothi
 | File | What it is | Fetched |
 | --- | --- | --- |
 | `ink.js` | the front door: the gate, `window.Ink`, the table's validation, the plain fallback | by every desk, as `<script type="module">` beside `app.js` |
-| `layer.js` | the canvas, the lanes, marks derived from the DOM, the geometry, the frame loop | only when the gate says on **and** a skin sets a table |
+| `layer.js` | the canvas, the lanes, marks derived from the DOM, the geometry, the frame loop, and the page's own ground and traces (#257) | when the gate says on, from the start |
 | `shapes.js` | each shape's paths, computed from a box. Pure arithmetic | with `layer.js` |
 | `pen.js` | each tool's physics, the stroke meshes and their shader, the paper, the hand | with `layer.js` |
 | `skins/<name>.js` | a skin's module: its mark table and its materials (§Writing a skin). `skins/example.js` is the pattern, used by the tests | when that skin is chosen, by every shell (the fallback draws its marks too) |
@@ -34,8 +34,8 @@ the only one a page names. `layer.js` is the one module on the desk that names t
 
 ## `window.Ink`: all that `app.js` sees
 
-`window.Ink` is frozen. `app.js` does not call it yet, because no skin uses ink, and `app.js` still never mentions
-WebGL (`tests/test_fleet_trace.py`).
+`window.Ink` is frozen. `app.js` does not call it: what it hands the layer, it writes on the page, like the trace's
+series (§The page's own drawing). `app.js` still never mentions WebGL, nor a 2D context (`tests/test_fleet_trace.py`).
 
 | Member | Is |
 | --- | --- |
@@ -46,8 +46,8 @@ WebGL (`tests/test_fleet_trace.py`).
 | `Ink.setSkin(table \| null, hooks?)` | a mark table, or none, and optionally a skin's material hooks. The desk's own skin sets itself (§Writing a skin), so this is for tests and the console. It replaces the skin's table until the skin changes again. Resolves to `{drawn: "ink" \| "plain" \| "none"}`. **Throws, naming the row**, on a table it cannot draw |
 | `Ink.refresh()` | reads the palette again, matches the table against the page and measures every mark now |
 | `Ink.off(reason)` | the plain fallback for the rest of this page's life |
-| `Ink.inspect()` | what is on the paper: lanes, marks (state, how much is drawn, where), frames. For tests and the console |
-| `Ink.sample(box)` | how many pixels of a viewport box hold ink, read back from a frame drawn for the purpose. For tests |
+| `Ink.inspect()` | what is on the paper: lanes, marks (state, how much is drawn, where), frames. The page's own traces are `layer.series` and its ground `layer.ground`, apart from the skin's `marks`. For tests and the console |
+| `Ink.sample(box)` | how many pixels of a viewport box hold ink, read back from a frame drawn for the purpose, without the page's ground. For tests |
 
 ## The gate: hardware WebGL, measured, and nothing else
 
@@ -250,6 +250,65 @@ What each hook is handed:
    `Ink.inspect()` shows the marks, and `.layer.skin` shows the hooks, the pieces and the frames.
    `tests/test_fleet_ink.py` has the pattern.
 
+## The page's own drawing (#257)
+
+Two things on the desk were drawn on 2D canvases by `app.js`: every agent's **trace** (`drawTrace`) and the glass
+skin's drifting **ground** (`drawGround`). K moved both to this layer, so nothing on the page asks for a 2D context.
+They are the desk's, not a skin's, and both still come from the page.
+
+**A series.** An element that carries its data is drawn as a mark:
+
+```html
+<svg class="trace" data-ink-series="0 0 .25 1 0.06 …" data-ink-ticks="14 18" role="img" aria-label="…">…</svg>
+```
+
+| Attribute | Is |
+| --- | --- |
+| `data-ink-series` | the heights, oldest first, each a fraction (0–1) of the element's box. Empty for nothing to draw |
+| `data-ink-ticks` | the slots, counted from 0, that a tick goes through: here, the minutes that stopped for a person |
+
+The layer owns two rows for it, after the skin's in each lane: `[data-ink-series]` is one line in **pen** through
+every slot, and `[data-ink-ticks]` is a **red** stroke top to bottom through each tick. A slot with anything in it is
+never flat, because a pixel above the floor means "it was awake". The shapes are `series` and `ticks`
+(`shapes.PAGE_SHAPES`), and a skin's table cannot name them. The series is read each time the element is measured,
+so new numbers are a new line, drawn whole where it stands, as a resize would be. A series is not a state, so what
+goes is **erased** when its hour empties. There is nothing to strike through.
+
+`app.js` writes the series with `attr` in `drawTrace`, beside the element's own SVG (a polyline and a path of
+ticks, coloured by the stylesheet). That SVG is the plain look.
+
+**Where it is drawn.** This canvas is behind the page, and a CSS skin's pane is opaque. So the page's rows are drawn
+**only while a skin's table is in force**. That is when a skin makes its panes show the paper (§Writing a skin, rule
+7). The layer says so on its own element, `#ink[data-skin="<table>"]`, and `app.css` lets the trace's SVG step aside
+only then:
+
+```css
+body:has(> #ink[data-skin]) .trace > * { visibility: hidden; }
+```
+
+Everywhere else, including every shell the gate turned off and a CSS skin with ink on, the SVG is the trace. It
+keeps its box and its words (`role="img"`, the sentence as its `aria-label`) either way. When phase 2 of K takes the
+decoration out of the CSS skins, every pane shows the paper.
+
+**The ground.** The ground a stylesheet paints on `body`, its radial gradients over the palette's `--bg`, is drawn
+into the `ground` slot (`api.order.ground`, in the back pass) under every skin that brings **no `ground` of its
+own**. A skin's `ground` hook replaces it. It is read from the computed style, which is Chromium's normalised form of
+each gradient (`radial-gradient(60% 55% at 16% 10%, rgba(…) 0%, rgba(…, 0) 70%)`), so `skin.css` stays its only owner,
+and it is read again when the skin, the variant, the palette, a stylesheet or the window changes. A skin with no
+gradients on `body` has no ground to draw. It is opaque, and its first frame is exactly where the stylesheet put the
+blobs. Then it **drifts a pixel a second** round a two-minute circle, which is one frame a second, not sixty. It holds
+still under `prefers-reduced-motion` and under `prefers-reduced-transparency`. With ink off, the stylesheet's own
+gradients are the ground, standing still.
+
+`Ink.inspect().layer` shows both. `series` holds each trace mark, with its lane, tool, shape, state, how much is
+drawn, and the data it was drawn from. `ground` is `{blobs, drawn, at, moving, still}`. `Ink.sample` leaves the ground
+out, because the ground is not ink.
+
+**The one 2D context left is three.js's own.** `WebGLRenderer` asks a 1×1 `OffscreenCanvas` for one as it starts, to
+learn whether it could resize a texture off the page. It never draws with it, and the vendored file is pinned by its
+sha256. `tests/test_fleet_trace.py` holds the page to exactly that, at run time, and scans `static/` (minus
+`vendor/`) for any other.
+
 ## Lanes
 
 There is one queue of drawing per agent's pane (`.tile[data-repo]`), and one for everything outside a pane: the header
@@ -281,8 +340,9 @@ a layer that stops, takes back every clip it wrote.
 
 ## Following the page
 
-The canvas is `position: fixed`, the size of the viewport, `z-index: -1` (behind the page, and after `#ground`, so in
-front of it), with `pointer-events: none` and `aria-hidden`. It is the only canvas the layer makes.
+The canvas is `position: fixed`, the size of the viewport, `z-index: -1` (behind the page, in front of the
+stylesheet's own ground), with `pointer-events: none` and `aria-hidden`. It is the only canvas on the desk, and it is
+on the page for as long as the layer runs.
 
 | What moves | How the marks follow |
 | --- | --- |
@@ -294,7 +354,7 @@ front of it), with `pointer-events: none` and `aria-hidden`. It is the only canv
 | the palette or the colour scheme | reads the inks again and repaints |
 
 **A frame with nothing new draws nothing.** An idle desk with ink on it is still zero DOM mutations and zero WebGL
-frames.
+frames. The one exception is a drifting ground, which draws one frame a second.
 
 ## The plain fallback
 
@@ -315,10 +375,10 @@ head instead.
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 141 KB gzipped for the whole desk, the layer's four modules (29 KB) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
+| the static payload | 152 KB gzipped for the whole desk, the layer's four modules (38 KB) included, against 200 KB. three.js (163 KB) is outside it: only a shell the gate turned on fetches it | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
-| an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |
+| an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper; a drifting ground draws one frame a second | `test_fleet_ink.py`, `test_fleet_trace.py` |
 
 Real-GPU frame times come from the probe on the laptop ([desk-engines.md](desk-engines.md) §WebGL), not from here.
 
@@ -340,7 +400,7 @@ skins (#249–#253) fill in, with the composited-pane pairs of the three.js skin
 These come later in the epic. The notebook's paper, its rules and margin, and the state grammar (plan-ink §The state
 grammar) arrive in C. So do the running pen's dot and its underline growing with the turn, and the header count struck
 and written again. The dark, legal-pad, napkin and graph-paper skins are D–G. Glass, farmstead and voxel on three.js
-are H–J. Moving `drawGround` and `drawTrace` onto the layer is K.
+are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phase (§The page's own drawing).
 
 ## Tests
 
@@ -360,7 +420,12 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer is K.
 * **Skins:** a skin module is fetched with the token when the config chooses it. Its marks are drawn per variant,
   in ink or plain, and its ground, paper and frames run. A hook that throws is the skin's own problem, and
   `sampleGround` hands frames the ground as a texture.
-* **At rest:** the desk with no skin using ink is unchanged, and so is an idle desk with ink on it.
+* **At rest:** the desk with no skin using ink draws none of a skin's marks, and an idle desk with ink on it writes
+  nothing and draws nothing.
+
+`tests/test_fleet_trace.py` covers the page's own drawing: the trace drawn in its pane's lane from its series and
+following its data, the ground drawn in the `ground` slot and drifting a frame a second (still under reduced
+motion), the fallback's SVG and gradients, and no 2D context, in the files or at run time.
 * **Budgets:** catch-up is counted in frames, and a gesture keeps its budget while the ink draws.
 
 `tests/test_fleet_probe.py` holds three.js to `layer.js` and `probe.js`.
