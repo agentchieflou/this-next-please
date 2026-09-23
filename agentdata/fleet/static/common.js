@@ -160,9 +160,9 @@ function applyTheme(cssVars, themeName) {
       if (cssVars[k]) root.style.setProperty(k, cssVars[k]);
       else root.style.removeProperty(k);
     });
-    // Written only when it changes (#215's render contract): every snapshot applies the theme, and
-    // an attribute set to the value it already has is still a mutation (#249).
-    if (root.getAttribute("data-theme") !== "custom") root.setAttribute("data-theme", "custom");
+    // Written only when it changes (the render contract): every snapshot applies the theme again,
+    // and an attribute set to the value it already has is still a mutation to every observer.
+    attr(root, "data-theme", "custom");
   } else {
     tokens.forEach(function (k) { root.style.removeProperty(k); });
     attr(root, "data-theme", null);

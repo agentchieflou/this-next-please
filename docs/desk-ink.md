@@ -46,7 +46,7 @@ WebGL (`tests/test_fleet_trace.py`).
 | `Ink.setSkin(table \| null, hooks?)` | a mark table, or none, and optionally a skin's material hooks. The desk's own skin sets itself (§Writing a skin), so this is for tests and the console. It replaces the skin's table until the skin changes again. Resolves to `{drawn: "ink" \| "plain" \| "none"}`. **Throws, naming the row**, on a table it cannot draw |
 | `Ink.refresh()` | reads the palette again, matches the table against the page and measures every mark now |
 | `Ink.off(reason)` | the plain fallback for the rest of this page's life |
-| `Ink.inspect()` | what is on the paper: lanes, marks (state, how much is drawn, where), frames. For tests and the console |
+| `Ink.inspect()` | what is on the paper: lanes, marks (state, how much is drawn, where, and each stroke's extent on the viewport as `bounds`), frames. For tests and the console |
 | `Ink.sample(box)` | how many pixels of a viewport box hold ink, read back from a frame drawn for the purpose. For tests |
 
 ## The gate: hardware WebGL, measured, and nothing else
@@ -136,6 +136,15 @@ Ink.setSkin({
 | `step` | px an underline grows by, per arrival (optional) |
 | `tip` | a pen-tip dot at the end of an `underline` while its mark is on the paper. It is lifted before the mark is struck or erased (#249) |
 | `rewrite` | a `write` mark whose element's text changes after it was written keeps what it said beside it (to the left, in the element's own font and colour), strikes that through in pen, and writes the new text. One struck word is kept per row and element (#249: the header's count) |
+| `snap` | a grid pitch in px (4 or more): the row's straight strokes are ruled onto a grid of that pitch from the viewport's top-left. An outline's corners meet on the grid, an underline goes down to the first line under its text, a divider to the nearest. Only `outline`, `divider` and `underline` may snap (optional, #253) |
+| `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #253) |
+
+A table may also tune a tool's hand for its own strokes with `tools: {<tool>: {...}}`, each a
+number of 0 or more (`lam`, a wavelength, more than 0): `w`, `press`, `pvar`, `wob`, `lam`, `bow`, `wmin`, `tin`, `tout` (§Tools says
+what each is). The graph paper's mechanical pencil is `tools: {pencil: {w: 1.05, pvar: 0.04, wob:
+0, bow: 0, tin: 0, tout: 0, ...}}`. A tool's `kind`, `pad` and `model` are what it is, and stay
+the layer's. A skin's module gives `tools` in its `options`. A `snap`, a `leaves` or a `tools`
+entry the layer cannot honour is refused like a row it cannot draw.
 
 A row the layer cannot draw is refused when the table is set. The exception names the row: `ink: mark 3
 (.tile .repo): no tool "crayon" (pencil, pen, red, green, marker, highlighter)`. A refused table leaves the one in
@@ -256,8 +265,9 @@ What each hook is handed:
 
 ### The skins that draw with ink
 
-| Skin | Its page |
+| Skin | Page |
 | --- | --- |
+| `graph` (graph paper, #253) | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
 | `notebook` (`light`, `dark`) | [skin-notebook.md](skin-notebook.md): the state grammar's reference marks, a ruled paper shader, a margin per pane (#249, #250) |
 
 ## Lanes
@@ -325,7 +335,7 @@ head instead.
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 152 KB gzipped for the whole desk, the layer's four modules (35 KB) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB, the notebook 3.5 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
+| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (37 KB) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB, the notebook 3.5 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |
