@@ -173,7 +173,10 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             """)
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector(".tile", timeout=6000)
+            # The open pane, not the first tile: Playwright waits on the first match, and the first
+            # tile can be one that is not on the glass -- the column's hidden tile (#259), or a
+            # hidden or grouped rail in the row (#233).
+            page.wait_for_selector(".tile.is-solo", timeout=6000)
             early = page.evaluate("""() => ({
               tiles: document.querySelectorAll('#grid .tile').length,
               stale: document.body.classList.contains('is-stale'),

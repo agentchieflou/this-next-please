@@ -450,7 +450,7 @@ def test_a_reopened_window_shows_the_desk_it_had_while_the_new_one_loads(fleet_h
             """)
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector(".tile", timeout=5000)
+            page.wait_for_selector(".tile.is-solo", timeout=5000)
             early = page.evaluate("""() => ({
               tiles: document.querySelectorAll('#grid .tile').length,
               stale: document.body.classList.contains('is-stale'),
