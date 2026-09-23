@@ -1,4 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none;" shape-rendering="crispEdges">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" width="12" height="12" shape-rendering="crispEdges">
+  <!-- A stack, not a strip (#255): every sprite sits at 0,0, so the sheet shows only the one a
+       fragment names: `url("sprites.svg#running-block")` is that block alone, 12x12. With no
+       fragment it shows nothing. Before this every chip drew the last block, idle, whatever it said. -->
+  <style>svg > svg { display: none; } svg > svg:target { display: inline; }</style>
   <!-- 8x8 dirt tile texture -->
   <svg id="dirt" viewBox="0 0 8 8" width="8" height="8">
     <rect width="8" height="8" fill="#5A3D28"/>
