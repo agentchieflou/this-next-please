@@ -1,8 +1,8 @@
 # The ink layer: marks drawn on the desk by pencil, pen, marker and highlighter
 
-_Slice B (#248) of the ink epic (#246, [plan-ink.md](plan-ink.md)). The layer is built, and **nothing on the desk
-uses it yet**: no shipped skin hands it a mark table, so the desk looks exactly as it did. The notebook (#249) is the
-first skin that will._
+_Slice B (#248) of the ink epic (#246, [plan-ink.md](plan-ink.md)). The layer is built, and the notebook (#249, #250)
+is the first skin that draws with it ([skin-notebook.md](skin-notebook.md)). A desk with any other skin looks exactly
+as it did._
 
 The operator chose three.js as the desk's one renderer (plan-ink Decision 1), and the theme's rule is that a mark is
 **drawn on the fly** by a writing tool. It never fades. A pencil mark that goes is erased, and an ink mark that goes
@@ -132,6 +132,10 @@ Ink.setSkin({
 | `pad` | px the shape stands off its element (optional) |
 | `dash` | a dashed stroke, for the stale pencil outline (optional) |
 | `to` | an arrow's target: a selector, looked up in the arrow's own pane first, then the page |
+| `grow` | an `underline` that lengthens: `step` px (default 10) for each element matching this selector that arrives in its pane after the mark was made, never past the pane's right edge. The pen draws on from where it stopped (#249: the running agent's line grows with its turn) |
+| `step` | px an underline grows by, per arrival (optional) |
+| `tip` | a pen-tip dot at the end of an `underline` while its mark is on the paper. It is lifted before the mark is struck or erased (#249) |
+| `rewrite` | a `write` mark whose element's text changes after it was written keeps what it said beside it (to the left, in the element's own font and colour), strikes that through in pen, and writes the new text. One struck word is kept per row and element (#249: the header's count) |
 | `snap` | a grid pitch in px (4 or more): the row's straight strokes are ruled onto a grid of that pitch from the viewport's top-left. An outline's corners meet on the grid, an underline goes down to the first line under its text, a divider to the nearest. Only `outline`, `divider` and `underline` may snap (optional, #253) |
 | `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #253) |
 
@@ -193,6 +197,12 @@ every skin already has, `static/skins/<name>/skin.css`, which holds its layout, 
 `body.ink-off`. `<name>` is the skin's name in `skins.py`. That registers the skin, and so the settings page offers it
 and `theme.skin` in the config chooses it, the way `glass` is chosen today. `static/ink/skins/example.js` is the
 working pattern to copy, and the tests draw with it. It is not in `skins.py`, so nobody can choose it.
+
+**The skins that draw with ink**, each with its own page:
+
+| Skin | Module | Page |
+| --- | --- | --- |
+| voxel (#256) | `skins/voxel.js`: voxel ground, lit slabs and a status stack per pane, one draw call per material | [skin-voxel.md](skin-voxel.md) |
 
 **How it is chosen.** The server lists every `static/ink/skins/*.js` on the desk's `<body>` (`data-ink-skins`). The
 chosen skin reaches the page as `applySkin("<name>:<variant>")`, which writes `body[data-skin]` and
@@ -265,7 +275,9 @@ What each hook is handed:
 | --- | --- | --- |
 | glass (#254) | `skins/glass.js` | [skin-glass.md](skin-glass.md): a lit mesh ground, frosted panes that sample it, and a state grammar of marks and lit rims |
 | graph (#253) | `skins/graph.js` | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
+| farmstead (#255) | `skins/farmstead.js` | [skin-farmstead.md](skin-farmstead.md): the sprite sheet as nearest-neighbour textures, lit wooden frames, and a crop that grows a stage per advance of the phase |
 | legalpad (#251) | `skins/legalpad.js` | §The legal pad, below: canary stock, blue rules, a double red margin, a glued top, and an orange-pink highlighter |
+| notebook (`light`, `dark`, #249, #250) | `skins/notebook.js` | [skin-notebook.md](skin-notebook.md): the state grammar's reference marks, a ruled paper shader, a margin per pane |
 | napkin (#252) | `skins/napkin.js` | [skin-napkin.md](skin-napkin.md): quilted two-ply, a felt tip that bleeds along the emboss, a coffee ring under a pane idle a long time |
 
 ## The legal pad (#251)
@@ -436,7 +448,7 @@ head instead.
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 145 KB gzipped for the whole desk, the layer's four modules (33 KB) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
+| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (37 KB) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB, the notebook 3.5 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |

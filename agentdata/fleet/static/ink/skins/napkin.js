@@ -8,62 +8,64 @@
    A pane that has been idle a long time has a coffee ring under it.
 
    The marks are the paper state grammar (plan-ink §The state grammar), and every row is a class
-   the page already sets. docs/skin-napkin.md maps each row onto its selector and says what the
-   page does not have yet (the turn's length, the count's old number).
+   the page already sets; the rows are the notebook's (#249). docs/skin-napkin.md maps each one.
 
    What is drawn where:
    * `paper` -- the quilted stock under the whole page. Its colours are `--paper` and
      `--paper-seam`, the darkest the shading ever goes (skins.py declares the pair, and the text's
      contrast is checked against it).
-   * `frame` -- per pane: the coffee ring, the felt tip's bleed and the running pen's tip. Each is
-     built once per size and shown or hidden in `tick` from the page's classes and the ink layer's
-     own marks, so a pane that changes state needs no new geometry.
+   * `frame` -- per pane: the coffee ring and the felt tip's bleed. Each is built once per size and
+     shown or hidden in `tick` from the page's classes and the ink layer's own marks, so a pane that
+     changes state needs no new geometry.
    * `tick` -- reads the page (never writes it) and `Ink.inspect()` (what is on the paper).
 
    Colours live in skin.css as custom properties and are read through `tokens.css()`. No hex
    is written here (docs/desk-ink.md §Writing a skin, rule 3). */
 
-/* A finding: a transcript line the page marks `denied` or `friction`. */
-const FOUND = ".tile .transcript li:is(.denied, .friction)";
-
-/* The same rows for both variants: a variant changes the stock and the inks, not the grammar. */
+/* The same rows for both variants: a variant changes the stock and the inks, not the grammar. The
+   rows are the notebook's (#249), the reference every paper skin is measured against; what is the
+   napkin's own is where they sit (its pads) and what the felt tip does to the paper. */
 export function marks() {
   return [
     // idle: a pencil outline, and the name underlined in pencil.
     { selector: ".tile.state-idle", tool: "pencil", shape: "outline", pad: 2 },
     { selector: ".tile.state-idle .head .repo", tool: "pencil", shape: "underline" },
-    // running: the name underlined in pen. The pen's tip rests at the end of it (`frame`).
-    { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },
-    // needs you: the name and the question highlighted, the choices looped in pencil. The name's
-    // highlight is erased when it is no longer needed: a name struck through reads as an agent
-    // that has gone.
+    // running: the name underlined in pen, growing a step for every transcript line of the turn,
+    // with the pen's tip resting at its end.
+    { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline",
+      grow: ".transcript > li", step: 12, tip: true },
+    // needs you: the name and the question highlighted, the choices looped in pencil; the approval
+    // card's summary is the other way a pane asks. The name's highlight is erased when it is no
+    // longer needed: a name struck through reads as an agent that has gone.
     { selector: ".tile.needs-human .head .repo", tool: "highlighter", shape: "lines", leaves: "erased" },
-    { selector: ".tile .asks:not([hidden]) .ask:not([hidden]) .ask-q", tool: "highlighter", shape: "lines" },
-    { selector: ".tile .asks:not([hidden]) .ask:not([hidden]) .ask-choice:not([aria-pressed=\"true\"])",
-      tool: "pencil", shape: "loop" },
-    // answered: the chosen answer circled in pen. Its pencil loop is erased as the choice is made,
-    // and the question's highlight is struck through in pen when the question goes -- which is
-    // how the layer takes back any ink. The question is struck, never the agent's name.
-    { selector: ".tile .ask:not([hidden]) .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "ellipse" },
-    // error: the felt tip's box round the pane, and a bang in the margin.
-    { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: 2 },
-    { selector: ".tile.state-error .head", tool: "red", shape: "bang" },
-    // done: a green check in the margin. A quiet agent's chip says idle, so the fold's own word
-    // arrives as `is-done` (#253); `state-done` is the chip's, while one is supervised.
-    { selector: ".tile:is(.state-done, .is-done) .head", tool: "green", shape: "check" },
+    { selector: ".tile.needs-human .ask:not([hidden]):not(.is-answered) .ask-q", tool: "highlighter", shape: "lines" },
+    { selector: ".tile.needs-human .approval:not([hidden]) .summary", tool: "highlighter", shape: "lines" },
+    { selector: ".tile.needs-human .ask:not([hidden]):not(.is-answered) .ask-choice", tool: "pencil", shape: "loop" },
+    // answered: the question struck in pen (its highlight is struck by leaving, above), and the
+    // answer circled -- the choice pressed, or the box when the answer was typed. Never the name.
+    { selector: ".ask.is-answered .ask-q", tool: "pen", shape: "strike" },
+    { selector: ".ask.is-answered .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "ellipse" },
+    { selector: ".ask.is-answered:not(:has(.ask-choice[aria-pressed=\"true\"])) .ask-answer",
+      tool: "pen", shape: "ellipse" },
+    // error: the felt tip's box round the pane (its bleed is `frame`'s), and a bang in the margin.
+    { selector: ERROR_ROW, tool: "marker", shape: "loop", pad: ERROR_PAD },
+    { selector: ERROR_ROW, tool: "marker", shape: "bang" },
+    // done: a green check in the margin. `is-done` is the fold's own word, which a finished agent
+    // carries while its chip says idle (#253).
+    { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     // stale (#240): the chip's own words written in pencil as a margin note, an arrow from it to
     // the run's line, and a dashed pencil outline round the pane.
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "write" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "arrow", to: ".runline" },
     { selector: ".tile:has(.oldsession:not([hidden]))", tool: "pencil", shape: "outline", pad: 6, dash: true },
-    // a finding: a transcript line the agent was refused or stopped on -- the lines the page
-    // already marks as a problem (the legal pad reads them the same way, #251). A red ellipse
-    // round the line, the highlighter on its kind, and its own words as a pencil note.
-    { selector: FOUND, tool: "red", shape: "ellipse", pad: -4 },
-    { selector: FOUND + " .k", tool: "highlighter", shape: "lines" },
-    { selector: FOUND + " .v", tool: "pencil", shape: "write" },
-    // the header count, handwritten: the unread count on the bell.
-    { selector: "#bellcount", tool: "pen", shape: "write" },
+    // a finding -- a friction the agent recorded: a red ellipse round the line, the highlighter on
+    // its kind, and its own words written in pencil.
+    { selector: ".tile .transcript > li.friction", tool: "red", shape: "ellipse", pad: -4 },
+    { selector: ".tile .transcript > li.friction > .k", tool: "highlighter", shape: "lines" },
+    { selector: ".tile .transcript > li.friction > .v", tool: "pencil", shape: "write" },
+    // the header count, handwritten: when it changes the old number is struck and the new one
+    // written beside it.
+    { selector: "#bellcount", tool: "pen", shape: "write", rewrite: true },
   ];
 }
 
@@ -78,9 +80,10 @@ export const sampleGround = false;
 const IDLE = ".tile.state-idle";
 const AGED = ".chip.stale";
 
-/* The felt tip's box and the running pen's line, as the mark table has them. */
+/* The felt tip's box, as the mark table has it: the bleed follows the loop shapes.js draws at
+   this pad, which is 3 + pad px outside the pane. */
 const ERROR_ROW = ".tile.state-error";
-const RUNNING_ROW = ".tile.state-running .head .repo";
+const ERROR_PAD = 2;
 
 /* How far behind the pen the felt tip's ink has soaked all the way in, in px of pen travel, and
    how long the last of it takes once the pen has lifted. */
@@ -314,8 +317,8 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   }, true), api.order.frame);
   ring.name = "coffee";
 
-  // The error row's loop: pad 2, so shapes.js draws it 5px out with a 7px corner.
-  const o = 3 + 2, loop = loopLength(box.w, box.h, o, 7);
+  // The error row's loop: shapes.js draws it 3 + pad px out, with a 7px corner.
+  const o = 3 + ERROR_PAD, loop = loopLength(box.w, box.h, o, 7);
   const ink = tokens.inks.marker || tokens.human;
   const reach = o + 18;
   const bleed = quad(THREE, -reach, -reach, box.w + reach, box.h + reach, shader(THREE, BLEED_FS, {
@@ -325,22 +328,13 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   }, true), api.order.frame + 1);
   bleed.name = "bleed";
 
-  const pen = tokens.inks.pen || tokens.accent;
-  const dot = new THREE.Mesh(new THREE.CircleGeometry(2.3, 14), new THREE.MeshBasicMaterial({
-    color: new THREE.Color().setRGB(pen[0], pen[1], pen[2], THREE.SRGBColorSpace),
-    transparent: true, depthTest: false, depthWrite: false,
-  }));
-  dot.renderOrder = api.order.frame + 2;
-  dot.frustumCulled = false;
-  dot.name = "pentip";
-
-  for (const m of [ring, bleed, dot]) { m.visible = false; scene.add(m); }
-  const rec = { el, group: scene, ring, bleed, dot, len: loop.len, centre: c, radius: R };
+  for (const m of [ring, bleed]) { m.visible = false; scene.add(m); }
+  const rec = { el, group: scene, ring, bleed, len: loop.len, centre: c, radius: R };
   panes.set(el, rec);
   show(rec, api, markOf(), 0);
 }
 
-/* What is on the paper now, by pane: the felt tip's loop and the running pen's underline. */
+/* What is on the paper now, by pane: the felt tip's loop. */
 function markOf() {
   const out = new Map();
   const ink = globalThis.Ink;
@@ -350,8 +344,7 @@ function markOf() {
     if (m.strikeOf || !m.lane.startsWith("pane:")) continue;
     const repo = m.lane.slice(5);
     const at = out.get(repo) || {};
-    if (m.selector === ERROR_ROW && m.tool === "marker") at.loop = m;
-    if (m.selector === RUNNING_ROW && m.tool === "pen") at.line = m;
+    if (m.selector === ERROR_ROW && m.tool === "marker" && m.shape === "loop") at.loop = m;
     out.set(repo, at);
   }
   return out;
@@ -360,7 +353,7 @@ function markOf() {
 /* Each piece of one pane shown as the page and the paper have it. Answers whether it is still
    soaking. Reads the page; never writes it. */
 function show(rec, api, marks, dt) {
-  const { el, ring, bleed, dot } = rec;
+  const { el, ring, bleed } = rec;
   const at = marks.get(el.dataset.repo) || {};
 
   // A pane idle a long time has a coffee ring under it. A cup is set down, not drawn: it is there
@@ -386,17 +379,6 @@ function show(rec, api, marks, dt) {
     bleed.visible = false;
   }
 
-  // The running pen's tip rests at the end of its underline once the line is drawn, and stays when
-  // the line is struck: it is ink.
-  const line = at.line;
-  if (line && (line.drawn >= 1 || line.state === "struck")) {
-    const r = el.getBoundingClientRect();
-    // shapes.js `underline`: from 3px before the text to 8px past it, 1px under it, rising 1.2px.
-    dot.position.set(line.box.x - r.left + line.box.w + 8, -(line.box.y - r.top + line.box.h + 2.2), 0);
-    dot.visible = true;
-  } else {
-    dot.visible = false;
-  }
   return soaking;
 }
 
@@ -429,7 +411,6 @@ export function inspect() {
     out[el.dataset.repo] = {
       coffee: rec.ring.visible, ring: { x: rec.centre[0], y: rec.centre[1], r: rec.radius },
       bleed: rec.bleed.visible, head: u.uHead.value, tail: u.uTail.value, loop: rec.len,
-      pentip: rec.dot.visible, tip: { x: rec.dot.position.x, y: -rec.dot.position.y },
     };
   }
   return out;

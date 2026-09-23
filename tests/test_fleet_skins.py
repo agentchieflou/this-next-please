@@ -22,10 +22,10 @@ SKINS_DIR = skins.SKINS_DIR
 
 def test_list_skins_returns_all_skins_with_budgets():
     """list_skins() returns standard none plus glass, voxel, farmstead and the paper skins (graph, the
-    legal pad #251, the napkin #252) under 150 KB budget."""
+    legal pad #251, the notebook #249, the napkin #252) under 150 KB budget."""
     available = skins.list_skins()
     names = [s["name"] for s in available]
-    assert names == ["none", "glass", "voxel", "farmstead", "graph", "legalpad", "napkin"]
+    assert names == ["none", "glass", "voxel", "farmstead", "graph", "legalpad", "notebook", "napkin"]
 
     for s in available:
         assert "title" in s and "why" in s and "base" in s and "variants" in s
@@ -90,8 +90,8 @@ def test_every_skin_variant_passes_the_contrast_rule_on_its_own_ground():
         panels = skins.composited_panels(spec)
         assert panels, f"{skin_name}:{variant} declares no composited panel"
         for panel in panels:
-            # `inks` (#248): a paper skin's inks on its paper. None of today's variants draws with
-            # ink, so this is the hook the notebook and its siblings (#249-#253) fill in.
+            # `inks` (#248): a paper skin's inks on its paper -- the notebook's first (#249, #250),
+            # and its siblings' (#251-#253) as they arrive.
             theme.check(base_palette, composited_panel=panel, skin=f"{skin_name}:{variant}",
                         inks=spec.get("inks"))
 

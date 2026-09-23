@@ -43,29 +43,23 @@ Under ink the bars, the row and the panes are transparent, so the napkin shows t
 ## The marks: the paper state grammar
 
 Every row matches a class or attribute the page already sets (`test_fleet_napkin.py` holds the table to that), so
-the skin shows no state the page does not have.
+the skin shows no state the page does not have. **The rows are the notebook's** (#249, [skin-notebook.md](skin-notebook.md)),
+the reference every paper skin is measured against. What is the napkin's own is where they sit (its pads) and what the
+felt tip does to the paper.
 
 | State | Mark | The row(s) |
 | --- | --- | --- |
 | idle | pencil outline; the name underlined in pencil | `.tile.state-idle` outline, `.tile.state-idle .head .repo` underline |
-| running | the name underlined in pen, and **the pen's tip** resting at the end of the line | `.tile.state-running .head .repo` underline. The tip is a material (`frame`/`tick`), shown when the line is drawn and kept when it is struck |
-| needs you | highlighter on the name and on the question; pencil loops round the choices | `.tile.needs-human .head .repo` (`leaves: "erased"`), `.asks:not([hidden]) .ask:not([hidden]) .ask-q`, `… .ask-choice:not([aria-pressed="true"])` |
-| answered | the chosen answer circled in pen, with its pencil loop erased. When the question goes, its highlight is struck in pen. **The name is erased, never struck** | `.ask:not([hidden]) .ask-choice[aria-pressed="true"]` ellipse. The strike is how the layer takes back any ink |
-| error | the felt tip's box round the pane, with its bleed; a bang in the margin | `.tile.state-error` marker loop, `.tile.state-error .head` red bang |
-| done | green check in the margin | `.tile:is(.state-done, .is-done) .head`: a quiet agent's chip says idle, so the fold's own *done* arrives as `is-done` (#253) |
+| running | the name underlined in pen, growing with the turn, with **the pen's tip** at its end | `.tile.state-running .head .repo` underline, `grow: ".transcript > li"` (a 12px step per line), `tip: true` |
+| needs you | highlighter on the name, on the question and on an approval's summary; pencil loops round the choices | `.tile.needs-human .head .repo` (`leaves: "erased"`), `… .ask:not([hidden]):not(.is-answered) .ask-q`, `… .approval:not([hidden]) .summary`, `… .ask-choice` loops |
+| answered | the question struck in pen (and its highlight struck by leaving), the chosen answer circled, the loops erased. **The name is erased, never struck** | `.ask.is-answered .ask-q` strike, `.ask.is-answered .ask-choice[aria-pressed="true"]` ellipse, or the typed `.ask-answer` |
+| error | the felt tip's box round the pane, with its bleed; a bang in the margin | `.tile.state-error` marker loop and marker bang |
+| done | green check in the margin | `.tile:is(.state-done, .is-done)`: a quiet agent's chip says idle, so the fold's own *done* arrives as `is-done` (#253) |
 | stale (#240) | the chip's own words written in pencil as a margin note, an arrow from it to the run's line, a dashed pencil outline | `.oldsession:not([hidden])` write and arrow (`to: ".runline"`), `.tile:has(.oldsession:not([hidden]))` dashed outline |
-| a finding | a red ellipse round the line, the highlighter on its kind, its own words written in pencil | `.tile .transcript li:is(.denied, .friction)` ellipse, its `.k` lines, its `.v` write: the lines the page already marks as a problem, read as the legal pad reads them (#251) |
-| the header count | handwritten, in pen | `#bellcount` write (the unread count on the header's bell) |
+| a finding | a red ellipse round the line, the highlighter on its kind, its own words written in pencil | `.tile .transcript > li.friction` ellipse, its `.k` lines, its `.v` write |
+| the header count | handwritten in pen; when it changes the old number is struck and the new one written beside it | `#bellcount` write, `rewrite: true` |
 
 An agent in error also carries `needs-human`, because an error needs you. So its name is highlighted too.
-
-**What the page does not have yet, and so is not drawn:**
-
-* **A line that grows with the turn.** The page does not carry the turn's length. The running pen's line is the
-  name's length, and the tip sits at its end.
-* **The old count struck and the new one written beside it.** When the count's text changes, the layer keeps its
-  mark, and the old number has left the DOM. The legal pad (#251) draws both marks in its own module. Plan-ink
-  gives them to C, and slice K consolidates, so the napkin does not keep a second copy.
 
 **The name is erased, never struck.** The grammar strikes the question and never the agent's name: a name struck
 through reads as an agent that has gone. The layer strikes every ink mark that leaves, so the name's highlight row
@@ -139,8 +133,9 @@ a live lock, events three days old), because the desk's redraw owns the state cl
 
 * skins.py and skin.css say the same numbers, and `theme.check` passes at both ends;
 * the module has no colour of its own and matches only classes the page sets;
-* each state's mark is drawn from the class, and the pen's tip is at the end of the running line;
-* a state that goes is erased or struck, the name is never struck, and the chosen answer is circled;
+* each state's mark is drawn from the class, with the running line's tip;
+* a state that goes is erased or struck, the name is never struck, and an answer (the page's own
+  choice and Send) strikes the question and circles the choice;
 * the coffee ring is under the long-idle pane only (read back from the canvas) and goes when the agent wakes;
 * the felt tip inks the seams just outside its stroke and hardly any of the pillows between;
 * reduced motion draws everything at once;

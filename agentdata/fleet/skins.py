@@ -77,12 +77,22 @@ SKINS = {
         "why": "chunky bevelled slab controls and pixel status blocks inspired by voxel worlds",
         "default": "overworld",
         "variants": {
+            # `inks` (#256): the voxel's mark table drawn on its slab, whose face is the composited
+            # panel. Each is the palette's own token (`theme.to_css` of `base`) -- marker and red
+            # `--human`, green `--done`, pencil `--muted` -- and `tests/test_fleet_voxel_ink.py`
+            # holds them to it, so a palette change cannot leave a stale ink here unchecked.
             "overworld": {"title": "Overworld", "base": "matrix", "composited_panel": "#1E221E",
-                          "why": "grass, stone and daylight"},
+                          "why": "grass, stone and daylight",
+                          "inks": {"marker": "#FF3B3B", "red": "#FF3B3B", "green": "#A8FFC0",
+                                   "pencil": "#6E7681"}},
             "nether": {"title": "Nether", "base": "reds", "composited_panel": "#2A1512",
-                       "why": "netherrack and firelight"},
+                       "why": "netherrack and firelight",
+                       "inks": {"marker": "#FFD166", "red": "#FFD166", "green": "#7EE787",
+                                "pencil": "#6E7681"}},
             "end": {"title": "The End", "base": "vanta-black", "composited_panel": "#16121C",
-                    "why": "endstone and void"},
+                    "why": "endstone and void",
+                    "inks": {"marker": "#F85149", "red": "#F85149", "green": "#3FB950",
+                             "pencil": "#6E7681"}},
         },
     },
     "farmstead": {
@@ -137,6 +147,30 @@ SKINS = {
                        "inks": {"pencil": "#5E5A52", "pen": "#1F3F9A", "red": "#A82D2D",
                                 "green": "#2A733E", "marker": "#A82D2D", "highlighter": "#FF8FA3"},
                        "why": "canary stock, and an orange-pink highlighter that still reads on it"},
+        },
+    },
+    # The first skin drawn with ink (#249, #250; docs/desk-ink.md §The notebook). Its panel is the
+    # paper itself: under ink the panes are transparent and the page is the stock. `inks` are the
+    # tools' colours on that paper (the prototype's), `text` and `muted` the words written on it --
+    # the skin's own, set in its skin.css, and held to the same floors by tests/test_fleet_ink_notebook.py.
+    # Dark is a variant rather than a `notebook-dark` family: skins drive palettes, so the night
+    # page's ground is named by the variant like Voxel's Nether, and one module draws both.
+    "notebook": {
+        "name": "notebook",
+        "title": "Notebook",
+        "why": "a graph-ruled notebook drawn live in pencil, pen, marker and highlighter",
+        "default": "light",
+        "variants": {
+            "light": {"title": "Notebook", "base": "eye-relief-day", "composited_panel": "#FBFBF6",
+                      "text": "#23262B", "muted": "#6B7079",
+                      "inks": {"pencil": "#50545C", "pen": "#22398F", "red": "#C8352B",
+                               "green": "#2E7A4D", "marker": "#C8352B", "highlighter": "#F3DF4B"},
+                      "why": "white stock, blue rules, a red margin"},
+            "dark": {"title": "Night notebook", "base": "dark", "composited_panel": "#1B1E25",
+                     "text": "#E7E9EE", "muted": "#9AA0AA",
+                     "inks": {"pencil": "#B5BAC4", "pen": "#94B4FF", "red": "#FF6A5E",
+                              "green": "#6FD39A", "marker": "#FF6A5E", "highlighter": "#E6D548"},
+                     "why": "charcoal stock and gel inks, the highlighter screened"},
         },
     },
     # #252: drawn by the ink layer (`static/ink/skins/napkin.js`). The text is read on the quilted
