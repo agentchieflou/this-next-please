@@ -33,7 +33,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import (AT_REST, IDLE_LOOP, INK, STATIC, _layer, _marks, _open, _rest, _serve,
+from test_fleet_ink import (IDLE_LOOP, INK, STATIC, _layer, _marks, _open, _rest, _serve,
                             _stop, _own_desk_globals, catch_up_frames, fleet_home)
 
 __all__ = ["_own_desk_globals", "fleet_home"]     # fixtures, used by name
@@ -64,7 +64,6 @@ GRAMMAR = {
     "the header count": [("#bellcount", "pen", "write")],
 }
 ROWS = [row for rows in GRAMMAR.values() for row in rows]
-ROW_OF = {row: state for state, rows in GRAMMAR.items() for row in rows}
 
 #: The skin module, imported again by the page by its own URL: the same instance the layer runs.
 SKIN = "(await import(q('/static/ink/skins/legalpad.js')))"
@@ -286,13 +285,18 @@ def test_the_legal_pad_is_chosen_by_name_and_drawn_on_canary(fleet_home, tmp_pat
             tx, ty, tw, th = geo["tile"]
             rule_y = next(y for y in range(28, 900, 28) if y > geo["head"] + 4 and y > ty + 40)
             blank_y = rule_y + 14
-            pts = [[tx + tw - 40, blank_y],            # the stock, between two rules
-                   [tx + tw - 40, rule_y - 1],         # a rule
-                   [tx + 25.5, blank_y],               # the margin's first line
-                   [tx + 29.5, blank_y],               # and its second
-                   [tx + 27.5, blank_y],               # the paper between them
-                   [geo["w"] / 2, 3]]                  # the glue
+            # A 1px line can land across two device pixels where a pane sits on a fractional x, so
+            # each line is looked for in the pixels around where it is drawn.
+            def near(x, y, axis):
+                return [[x + d, y] if axis == "x" else [x, y + d] for d in (-1, 0, 1)]
+            pts = ([[tx + tw - 40, blank_y]]                 # the stock, between two rules
+                   + near(tx + tw - 40, rule_y - 1, "y")     # a rule
+                   + near(tx + 25, blank_y, "x")             # the margin's first line
+                   + near(tx + 29, blank_y, "x")             # and its second
+                   + [[tx + 27.5, blank_y]]                  # the paper between them
+                   + [[geo["w"] / 2, 3]])                    # the glue
             px = page.evaluate(PIXELS, pts)
+            px = [px[0], px[1:4], px[4:7], px[7:10], px[10], px[11]]
             assert not errors, errors
             browser.close()
     finally:
@@ -304,8 +308,9 @@ def test_the_legal_pad_is_chosen_by_name_and_drawn_on_canary(fleet_home, tmp_pat
     assert skin["paper"] > 3 and skin["frames"] == 1, skin
     assert layer["mode"] == 1 and layer["dark"] is False, "light stock: the highlighter multiplies"
     assert _near(px[0], props["--paper"]), (px[0], props)
-    assert _near(px[1], props["--rule"], 24), (px[1], props)
-    assert _near(px[2], props["--margin"], 24) and _near(px[3], props["--margin"], 24), (px, props)
+    assert any(_near(c, props["--rule"], 24) for c in px[1]), (px[1], props)
+    assert any(_near(c, props["--margin"], 24) for c in px[2]), (px[2], props)
+    assert any(_near(c, props["--margin"], 24) for c in px[3]), (px[3], props)
     assert _near(px[4], props["--paper"]), "one margin line, then paper, then the other"
     assert _near(px[5], props["--glue"], 20), (px[5], props)
 
