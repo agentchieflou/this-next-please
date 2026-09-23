@@ -89,8 +89,10 @@ body[data-skin="notebook"] #bellcount {
 
 /* ------------------------------------------------------------------------ the plain fallback
    No WebGL, a software renderer, `?ink=off`: the marks are the layer's plain CSS, and the paper is
-   this -- the same rules on the same pitch and the margin as a border, printed rather than drawn. */
-body[data-skin="notebook"].ink-off {
+   this -- the same rules on the same pitch and the margin as a border, printed rather than drawn.
+   A pane is the same sheet, fixed to the page, so the rules run through it unbroken and its own
+   colour is the paper's -- the panel `skins.py` declares and the contrast test reads. */
+body[data-skin="notebook"].ink-off, body[data-skin="notebook"].ink-off .tile:not([data-tier="rail"]) {
   background-color: var(--paper);
   background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--pitch) - 1px),
                                               var(--rule) calc(var(--pitch) - 1px), var(--rule) var(--pitch));
