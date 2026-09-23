@@ -46,6 +46,12 @@ CSS = os.path.join(STATIC, "skins", "notebook", "skin.css")
 #: The tools a variant declares an ink for, and the custom property the stylesheet sets each in.
 TOOLS = ("pencil", "pen", "red", "green", "marker", "highlighter")
 
+#: The window the two tests that watch the pen travel are drawn in. The Windows leg runs the suite
+#: serially under a 20-minute cap, and CI draws in software: an outline round a pane is its
+#: perimeter at the pen's speed, so a smaller pane is a shorter wait for the same assertions. The
+#: tests that assert what is drawn rather than how run under reduced motion, which draws at once.
+DRAWN = {"width": 1000, "height": 620}
+
 
 # ============================================================================== without a browser
 
@@ -194,7 +200,7 @@ def test_the_notebook_draws_the_state_grammar_and_each_mark_leaves_by_erase_or_s
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
+            page, errors, _ = _open(browser, port, token, "&ink=on", **DRAWN)
             _notebook(page)
             A = "pane:alpha"
 
@@ -279,7 +285,7 @@ def test_needing_you_is_highlighted_and_answering_strikes_the_question_never_the
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
             # The server would resume the agent with the answer; the page only needs its reply.
             page.route("**/api/answer*", lambda route: route.fulfill(
                 status=200, content_type="application/json",
@@ -333,7 +339,7 @@ def test_the_stale_note_the_finding_and_the_header_count(fleet_home, tmp_path, m
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
             _notebook(page)
             B = "pane:beta"
             stale.add("beta")
@@ -370,8 +376,11 @@ def test_the_stale_note_the_finding_and_the_header_count(fleet_home, tmp_path, m
             ghosts = [m for m in marks if m["shape"] == "ghost"]
             assert [g["was"] for g in ghosts] == ["0"], ghosts
             assert _struck(marks, {ghosts[0]["id"]}) == {ghosts[0]["id"]}
-            count = page.evaluate("() => document.getElementById('bellcount').getBoundingClientRect().left")
-            assert ghosts[0]["box"]["x"] == pytest.approx(count, abs=0.5), "the ghost is beside the count"
+            # Beside the count: the ghost is drawn to its left, anchored where the count is. Read at
+            # rest -- the bell's own style settles a frame after its text (#249).
+            page.wait_for_function("""() => { const g = Ink.inspect().layer.marks.find(m => m.shape === 'ghost');
+              return !!g && Math.abs(g.box.x - document.getElementById('bellcount').getBoundingClientRect().left) < 0.5; }""",
+                                   timeout=10000)
             assert page.evaluate("() => document.getElementById('bellcount').style.clipPath") == ""
             # Once more: one struck number is kept, the newest.
             page.evaluate("() => { unread.set('alpha', 5); bell(); }")
@@ -426,7 +435,7 @@ def test_the_night_notebook_screens_its_highlighter_onto_charcoal(fleet_home, tm
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on")
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
             _notebook(page, "dark")
             _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('state-idle')).length === 4")
             layer = _layer(page)
@@ -497,7 +506,7 @@ def test_an_idle_notebook_writes_nothing_draws_nothing_and_settles_in_bounded_fr
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+            page, errors, _ = _open(browser, port, token, "&ink=on", count=True, **DRAWN)
             _notebook(page)
             _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector.includes('state-idle')).length === 4")
             layer = _layer(page)
