@@ -1066,7 +1066,7 @@ two embedders, at the width the operator actually works at.
 | K7 | `1`–`9` on the bands | the digit opens the band carrying that number | _not yet measured_ | — |
 | K8 | Narrow the window under 900px | the column lies down into a strip above the tile | _not yet measured_ | — |
 | K9 | Press `f` with two agents needing a person | the quiet bands fold to slivers; none of them leaves | _not yet measured_ | — |
-| K10 | Open `?layout=grid` | the grid renders exactly as it did, and the dock is back under it | _not yet measured_ | — |
+| K10 | Open `?layout=grid` (an old bookmark) | the column, as in K1; the footer says once that `layout=` is ignored, and the address loses it (#232) | _not yet measured_ | — |
 
 ### The open questions these rows answer
 

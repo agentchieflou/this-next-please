@@ -221,23 +221,22 @@ def cmd_answer(a) -> int:
 
 
 def cmd_hide(a) -> int:
-    """Take a tile off the glass, or put it back. The dock holds what is off it (#173).
+    """Take a tile off the glass, or put it back. The column counts what is off it (#173).
 
     `hide` and `show` are one function because they are one edit to one list, and two would be two
     places to keep the rule that a tile needing a person is shown regardless.
     """
-    layout = getattr(a, "layout", "") or "grid"
-    arrangement = (S.desk_state().get("arrangement") or {}).get(layout) or {}
-    hidden = list(arrangement.get("hidden") or [])
+    hidden = list((S.desk_state().get("arrangement") or {}).get("hidden") or [])
     want_hidden = bool(getattr(a, "hide", True))
     if want_hidden and a.repo not in hidden:
         hidden.append(a.repo)
     if not want_hidden and a.repo in hidden:
         hidden.remove(a.repo)
-    S.arrange(layout, hidden=hidden)
+    S.arrange(hidden=hidden)
     return _emit("ad-fleet " + ("hide" if want_hidden else "unhide"),
-                 {"repo": a.repo, "layout": layout, "hidden": ", ".join(hidden) or "-",
-                  "note": "a tile that needs a person is shown whatever this says"})
+                 {"repo": a.repo, "hidden": ", ".join(hidden) or "-",
+                  "note": _layout_note(a, "a tile that needs a person is shown "
+                                          "whatever this says")})
 
 
 def cmd_preflight(a) -> int:
@@ -669,11 +668,15 @@ def cmd_logs(a) -> int:
 SCAN_COLUMNS = ["path", "name", "branch", "has_agents_md", "has_state", "jira_project", "pbip",
                 "last_commit_age_days", "already_registered", "worktree_of", "why"]
 
-# `ad-fleet serve --layout roles` is `?layout=roles` on the page. The flag is this file's and the
-# rendering is the dashboard's, so the query parameter's name is written down once, here, rather
-# than spelled twice and drifting the first time one side is renamed.
-LAYOUT_PARAM = "layout"
-LAYOUTS = ("column", "grid", "roles", "screens")
+# `--layout` chose one of four arrangements, and there is one now (#232). The flag is still
+# accepted, for one release, so a launcher or a habit that passes it keeps working; it changes
+# nothing, and the `note` in the answer says so. The release after removes it.
+LAYOUT_IGNORED = "--layout is ignored: the desk has one arrangement now (#232)"
+
+
+def _layout_note(a, note: str) -> str:
+    """`note`, led by the sentence saying `--layout` did nothing -- when it was passed."""
+    return f"{LAYOUT_IGNORED}; {note}" if getattr(a, "layout", None) else note
 
 
 def _catalogue(source: str):
@@ -1065,11 +1068,6 @@ def _status_polls(a) -> int:
 # ---------------------------------------------------------------------- quickstart (#134)
 
 
-def _layout_url(url: str, layout: str) -> str:
-    """The dashboard's URL with the layout on it. Both halves agree on `LAYOUT_PARAM`."""
-    return f"{url}{'&' if '?' in url else '?'}{LAYOUT_PARAM}={layout}"
-
-
 def _open_browser(url: str) -> str:
     """Windows first: `os.startfile` is the shell's own "open this", and it needs no dependency.
 
@@ -1149,7 +1147,7 @@ def cmd_quickstart(a) -> int:
             server, token = S.build(a.port)
         except S.ServeError as e:
             return _refuse("ad-fleet quickstart", e)
-        url = _layout_url(S.url_for(server, token), a.layout)
+        url = S.url_for(server, token)
         S.record(server, token)
 
     _emit("ad-fleet quickstart",
@@ -1162,7 +1160,8 @@ def cmd_quickstart(a) -> int:
     sys.stdout.flush()
     if server:
         _emit("ad-fleet quickstart", {"opened": _open_browser(url), "url": url,
-                                      "bound": "127.0.0.1 only", "note": "stop with Ctrl-C"})
+                                      "bound": "127.0.0.1 only",
+                                      "note": _layout_note(a, "stop with Ctrl-C")})
         sys.stdout.flush()
         S.run(server)
     return EXIT_OK
@@ -1241,7 +1240,9 @@ def cmd_open(a) -> int:
             return _emit("ad-fleet open", {"where": a.where, "server": server,
                                            "port": record.get("port"), "windows": wins,
                                            "opened": [d.get("opened") for d in dids]})
-        w = getattr(a, "window", "") or ""
+        # Edge is a window of its own, so it gets a record of its own (#230): a plain `main` would
+        # follow every click made in the browser tab, and the tab every click made in Edge.
+        w = getattr(a, "window", "") or ("edge" if a.where == "edge" else "")
         did = O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w)
     except O.OpenError as e:
         return _refuse("ad-fleet open", e)
@@ -1396,12 +1397,12 @@ def cmd_serve(a) -> int:
         server, token = S.build(a.port)
     except S.ServeError as e:
         return _refuse("ad-fleet serve", e)
-    url = _layout_url(S.url_for(server, token), a.layout)
+    url = S.url_for(server, token)
     S.record(server, token)
     _emit("ad-fleet serve", {"url": url, "port": server.server_address[1],
-                             "bound": "127.0.0.1 only", "layout": a.layout,
-                             "note": "the token in the URL is required on every request; "
-                                     "stop with Ctrl-C"})
+                             "bound": "127.0.0.1 only",
+                             "note": _layout_note(a, "the token in the URL is required on every "
+                                                     "request; stop with Ctrl-C")})
     sys.stdout.flush()
     if a.open:
         _open_browser(url)
@@ -1571,12 +1572,12 @@ def build_parser() -> argparse.ArgumentParser:
     # `unhide`, not `show`: `ad-fleet show <project>` has meant "print this project's facts" since
     # #130, and a shipped verb does not get its meaning changed under the operator for the sake of
     # a symmetric name. `docs/plan-sessions.md` said `show`; this is the correction.
-    for verb, helptext in (("hide", "take a tile off the glass; the dock brings it back"),
+    for verb, helptext in (("hide", "take a tile off the glass; the column's show all brings "
+                                    "it back"),
                            ("unhide", "put a hidden tile back on the glass")):
         h = sub.add_parser(verb, help=helptext)
         h.add_argument("repo")
-        h.add_argument("--layout", default="grid", choices=LAYOUTS,
-                       help="which arrangement (default grid)")
+        h.add_argument("--layout", help=argparse.SUPPRESS)
         h.set_defaults(fn=cmd_hide, hide=(verb == "hide"))
 
     pf = sub.add_parser("preflight", help="is this ticket ready to hand over? (spends no premium request)")
@@ -1673,7 +1674,9 @@ def build_parser() -> argparse.ArgumentParser:
     opn.add_argument("--port", type=int, default=8765, help="port to start a server on if none is up")
     opn.add_argument("--write-launcher", dest="write_launcher", metavar="DIR",
                      help="write fleet.html into DIR, for an IDE that only opens files")
-    opn.add_argument("--window", "-w", help="which named window to open (e.g. main, left)")
+    opn.add_argument("--window", "-w",
+                     help="which named window to open (e.g. main, left; default: edge for "
+                          "--in edge, else main)")
     opn.add_argument("--all", action="store_true", help="open every window the desk remembers")
     opn.set_defaults(fn=cmd_open)
 
@@ -1708,8 +1711,7 @@ def build_parser() -> argparse.ArgumentParser:
     srv = sub.add_parser("serve", help="the multi-viewer: one local page, one tile per agent")
     srv.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 picks a free one)")
     srv.add_argument("--open", action="store_true", help="open it in the default browser")
-    srv.add_argument("--layout", default=LAYOUTS[0], choices=list(LAYOUTS),
-                     help="how the tiles are arranged: grid | roles | screens (default grid)")
+    srv.add_argument("--layout", help=argparse.SUPPRESS)
     srv.set_defaults(fn=cmd_serve)
 
     idx = sub.add_parser("index", help="read what each repo publishes into the local catalogue")
@@ -1745,8 +1747,7 @@ def build_parser() -> argparse.ArgumentParser:
     quick.add_argument("--folder-watch", action="append", dest="folder_watch", metavar="PATH",
                        help="an inbox folder to look in besides Downloads (repeatable)")
     quick.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 picks a free one)")
-    quick.add_argument("--layout", default=LAYOUTS[0], choices=list(LAYOUTS),
-                       help="how the tiles are arranged: grid | roles | screens (default grid)")
+    quick.add_argument("--layout", help=argparse.SUPPRESS)
     quick.set_defaults(fn=cmd_quickstart)
 
     spend = sub.add_parser("spend", help="what an agent has cost, in premium requests")

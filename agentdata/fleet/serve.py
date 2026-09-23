@@ -1,8 +1,7 @@
 """`ad-fleet serve`: the multi-viewer. One local page, one tile per agent, live.
 
-The epic is named for YouTube's multi-view and this is that page: a grid of agent tiles, each a
-live view of one repository's agent, any one of which can be blown up to fill the window and
-dropped back again.
+The epic is named for YouTube's multi-view and this is that page: one tile per repository's agent,
+live, with one open at full height and every other one a band beside it (#203, #232).
 
 **Why a local web page and not a GUI.** The same artefact has to render in a PyCharm JCEF tool
 window (#99), in VS Code's Simple Browser, and in Edge on a fourth monitor (#100) -- three
@@ -79,9 +78,6 @@ FOLD_EVERY_S = 0.5
 DESK_LIMIT = 12              # verify rows and friction rows per project; a tile is not a file manager
 MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is not a work queue
 
-# The three layouts of #133, and the three windows layout B splits into. The page reads them off
-# its own query string and this list is what says which spellings exist; `cli_fleet.LAYOUTS` is the
-# other half of the same seam and a test asserts the two still agree.
 # Every asset either page references. They are rewritten with the run token when the page is
 # served; see `_page`. A name missing from here is served with no `?t=`, which `_authorized`
 # refuses -- and only in a real browser, because a test fetches an asset with the token already in
@@ -120,12 +116,6 @@ def gzip_for(body: bytes, key: tuple) -> bytes:
             _GZIPPED.clear()                  # that has been restyled all day still stays small
         _GZIPPED[key] = packed
     return packed
-
-# `column` is first, so it is what `--layout` defaults to and what a window with no
-# `?layout=` shows. The operator chose it on the real screens (#133, #200, and
-# `docs/fleet-layouts.md` §The sitting); the other three stay reachable by URL.
-LAYOUTS = ("column", "grid", "roles", "screens")
-VIEWS = ("board", "agents", "verify")
 
 # What `.agent/out/` file counts as a verify summary, and which command wrote it. An allow-list of
 # *names*, like the catalogue's: `.agent/out/` also holds trace jsonl, screenshots and the debug log,
@@ -652,21 +642,38 @@ _desk = {"dir": "", "poller": None, "inbox": None, "catalogue": None, "last_tick
 _desk_lock = threading.RLock()
 
 DESK_FILE = "desk.json"
+# What `desk.json` was before schema 2, kept beside it by the migration that read it. The migration
+# is one-way and runs by itself on the first load after an update, so the file it replaced is the
+# only way back -- to an older build, or to what the operator had.
+DESK_V1_FILE = "desk.v1.json"
+DESK_SCHEMA = 2
 
-# The selected project, shared by every window on the same server, now persisted in desk.json.
-# Arrangement holds per-layout ordering, sizes and pinned tiles.
+
+def _blank_arrangement() -> dict:
+    """An arrangement nobody has touched: registry order, nothing pinned, sized or hidden."""
+    return {"order": [], "size": {}, "pinned": [], "hidden": []}
+
+
+# The desk every window on this server agrees on, persisted in desk.json (#133, #172, #232).
+#
+# Schema 2 has one arrangement where schema 1 had one per layout. Four layouts wrote one window
+# record -- the grid `zoomed`, the column `open`, roles `view` and screens `screen` -- and two of
+# them disagreeing inside it is what snapped a click in the column back to the agent before it
+# (#230). There is one arrangement now, so there is one of each: one `order`, one `hidden`, and one
+# `open` per window. `pinned` and `size` stay until the gutters replace them (#234).
 _selection = {
+    "schema": DESK_SCHEMA,
     "selected": "",
-    "screens": [],
     "version": 0,
     "at": "",
-    "arrangement": {
-        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "roles": {"order": [], "hidden": []},
-        "screens": {"order": [], "hidden": []},
-    },
+    "arrangement": _blank_arrangement(),
     "windows": {},
 }
+
+# The fields a window record carries (#172). `open` is the one agent the keys and the composer
+# address; `focus` is the needs-only filter; `read`, `seen` and `held` are what this window has
+# read, when it last looked and what it is holding through a pass; `section` is its sidebar.
+WINDOW_FIELDS = ("open", "focus", "read", "seen", "held", "section")
 
 
 def _desk_file() -> str:
@@ -694,36 +701,86 @@ def _ensure_desk_loaded() -> None:
 
 def _load_desk() -> None:
     path = _desk_file()
-    if os.path.isfile(path):
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read()
+        data = json.loads(raw)
+    except (OSError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    schema = data.get("schema")
+    if not isinstance(schema, int) or schema < DESK_SCHEMA:
+        _selection.update(migrate_desk(data))
+        # The old file first, then the new one: a migration that could not keep what it read must
+        # not be the thing that overwrites it.
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                _selection["selected"] = str(data.get("selected") or "")
-                _selection["screens"] = [str(x) for x in data.get("screens") or []]
-                _selection["version"] = int(data.get("version") or 0)
-                _selection["at"] = str(data.get("at") or "")
-                arr = data.get("arrangement")
-                if isinstance(arr, dict):
-                    loaded = {}
-                    for k, v in arr.items():
-                        if not isinstance(v, dict):
-                            loaded[k] = v
-                            continue
-                        one = dict(v)
-                        # #217: `size: 2` from an older build becomes `{cols, rows}` here, so the
-                        # page and the CLI only ever have one shape to read. The file keeps the
-                        # old spelling until the arrangement is next written.
-                        one["size"] = _sizes(one.get("size"))
-                        loaded[k] = one
-                    _selection["arrangement"] = loaded
-                wins = data.get("windows")
-                if isinstance(wins, dict):
-                    _selection["windows"] = {
-                        k: dict(v) if isinstance(v, dict) else v for k, v in wins.items()
-                    }
-        except Exception:
-            pass
+            textio.write_text(os.path.join(fleet_dir(), DESK_V1_FILE), raw)
+        except OSError:
+            return
+        _save_desk()
+        return
+    _selection["selected"] = str(data.get("selected") or "")
+    _selection["version"] = _version_of(data)
+    _selection["at"] = str(data.get("at") or "")
+    _selection["arrangement"] = _arrangement(data.get("arrangement"))
+    wins = data.get("windows")
+    if isinstance(wins, dict):
+        _selection["windows"] = {k: dict(v) for k, v in wins.items() if isinstance(v, dict)}
+
+
+def _version_of(data: dict) -> int:
+    try:
+        return int(data.get("version") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _arrangement(value) -> dict:
+    """One arrangement record, read leniently: an arrangement is a preference, and a preference that
+    cannot be parsed is a desk in registry order, not a dashboard that will not draw."""
+    one = dict(value) if isinstance(value, dict) else {}
+    out = _blank_arrangement()
+    for key in ("order", "pinned", "hidden"):
+        if isinstance(one.get(key), list):
+            out[key] = [str(x) for x in one[key]]
+    # #217: `size: 2` from an older build becomes `{cols, rows}` here, so the page and the CLI
+    # only ever have one shape to read.
+    out["size"] = _sizes(one.get("size"))
+    return out
+
+
+def migrate_desk(v1: dict) -> dict:
+    """A schema-1 `desk.json` as schema 2 (#232). Pure: it reads the old record and writes nothing.
+
+    The arrangement comes from `column` when the old file has one, because that is the drawing the
+    one arrangement keeps; else from `grid`, because `ad-fleet hide` wrote to `grid` whatever the
+    page showed, so an operator who only ever hid from a terminal has their list there. `roles` and
+    `screens` go with the arrangements they described.
+
+    Each window keeps `open` and its own reading state. `zoomed`, `layout`, `view` and `screen` go:
+    `zoomed` is the leftover that re-opened an agent on every frame (#230), and the other three
+    named an arrangement that no longer exists. `screens` goes with them. `selected` stays, because
+    the inspector reads it. The version rises by one, because this is a write like any other and
+    every window has to hear about it.
+    """
+    arr = v1.get("arrangement") if isinstance(v1.get("arrangement"), dict) else {}
+    source = arr.get("column") if isinstance(arr.get("column"), dict) else arr.get("grid")
+    old_windows = v1.get("windows") if isinstance(v1.get("windows"), dict) else {}
+    windows = {}
+    for name, win in old_windows.items():
+        if isinstance(win, dict):
+            windows[str(name)] = {k: win[k] for k in WINDOW_FIELDS if k in win}
+    return {
+        "schema": DESK_SCHEMA,
+        "selected": str(v1.get("selected") or ""),
+        "version": _version_of(v1) + 1,
+        "at": E.stamp(),
+        "arrangement": _arrangement(source),
+        "windows": windows,
+    }
 
 
 # desk.json is written OUTSIDE `_desk_lock` (#245). Every desk read -- a snapshot, the stream's
@@ -809,15 +866,11 @@ def forget_desk() -> None:
     drop_handles()
     with _desk_lock:
         _selection.update(
+            schema=DESK_SCHEMA,
             selected="",
-            screens=[],
             version=_selection["version"] + 1,
             at=E.stamp(),
-            arrangement={
-                "grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                "roles": {"order": [], "hidden": []},
-                "screens": {"order": [], "hidden": []},
-            },
+            arrangement=_blank_arrangement(),
             windows={},
         )
         snapshot = _desk_snapshot()
@@ -980,19 +1033,19 @@ def poll_state(name: str) -> dict:
 
 
 def desk_state() -> dict:
-    """What every window agrees on: the selected project, screen pinning, and tile arrangement."""
+    """What every window agrees on: the selected project and the one arrangement, beside each
+    window's own record."""
     _ensure_desk_loaded()
     with _desk_lock:
-        arr = _selection.get("arrangement") or {}
+        arr = _selection.get("arrangement") or _blank_arrangement()
         wins = _selection.get("windows") or {}
         return {
+            "schema": DESK_SCHEMA,
             "selected": _selection["selected"],
-            "screens": list(_selection["screens"]),
             "version": _selection["version"],
             "at": _selection["at"],
-            "arrangement": {
-                k: dict(v) if isinstance(v, dict) else v for k, v in arr.items()
-            },
+            "arrangement": {k: (list(v) if isinstance(v, list) else dict(v))
+                            for k, v in arr.items()},
             "windows": {
                 k: dict(v) if isinstance(v, dict) else v for k, v in wins.items()
             },
@@ -1072,8 +1125,8 @@ def theme_state() -> dict:
     }
 
 
-def select(selected=None, screens=None) -> dict:
-    """Set the shared selection and/or the screen pinning, bumping the version the stream watches.
+def select(selected=None) -> dict:
+    """Set the shared selection, bumping the version the stream watches.
 
     Returns the new state whether or not anything changed, because the caller is a button and "your
     click did nothing" is not a useful answer. The version only moves on a real change, so two
@@ -1082,20 +1135,16 @@ def select(selected=None, screens=None) -> dict:
     _ensure_desk_loaded()
     snapshot = None
     with _desk_lock:
-        after = dict(_selection)
-        if selected is not None:
-            after["selected"] = str(selected or "")
-        if screens is not None:
-            after["screens"] = [str(x) for x in list(screens)[:9] if str(x)]
-        if (after["selected"], after["screens"]) != (_selection["selected"], _selection["screens"]):
-            _selection.update(after, version=_selection["version"] + 1, at=E.stamp())
+        if selected is not None and str(selected or "") != _selection["selected"]:
+            _selection.update(selected=str(selected or ""), version=_selection["version"] + 1,
+                              at=E.stamp())
             snapshot = _desk_snapshot()
         state = desk_state()
     _write_desk(snapshot)
     return state
 
 
-#: How wide and how tall a tile may be asked to become. Four columns is the whole of a 1920px
+#: How wide and how tall a tile may be asked to become. Four columns was the whole of a 1920px
 #: glass at the grid's 360px minimum track; three rows is the page height in thirds, which is the
 #: coarsest useful answer to "make this one taller" and the finest one anybody can hit by eye.
 SIZE_MAX_COLS = 4
@@ -1137,19 +1186,16 @@ def _sizes(mapping) -> dict:
     return {str(k): size_cell(v) for k, v in mapping.items()}
 
 
-def arrange(layout: str, *, order=None, size=None, pinned=None, hidden=None) -> dict:
-    """Set the tile arrangement for a layout, persisted in desk.json and pushed down the SSE stream.
+def arrange(*, order=None, size=None, pinned=None, hidden=None) -> dict:
+    """Set the desk's one arrangement (#232), persisted in desk.json and pushed down the SSE stream.
 
-    `hidden` joins `order`, `size` and `pinned` (#173). Shared across windows like the rest of the
-    arrangement -- whether it should be per window instead is a question for the sitting, and the
-    plan says so; this is the default that ships.
+    `hidden` joins `order`, `size` and `pinned` (#173). Shared across windows, because one desk
+    means the same agents in the same order on every screen.
     """
     _ensure_desk_loaded()
     snapshot = None
     with _desk_lock:
-        arr = _selection.setdefault("arrangement", {})
-        cur = arr.setdefault(layout, {"order": [], "size": {}, "pinned": [], "hidden": []})
-        cur.setdefault("hidden", [])
+        cur = _selection.setdefault("arrangement", _blank_arrangement())
         changed = False
         if order is not None and cur.get("order") != list(order):
             cur["order"] = [str(x) for x in order]
@@ -1208,42 +1254,31 @@ def _whole_projects(names) -> list[str]:
 
 
 def update_window(w: str = "main", **kwargs) -> dict:
-    """Set per-window state in desk.json and push down the SSE stream."""
+    """Set per-window state in desk.json and push down the SSE stream.
+
+    Only `WINDOW_FIELDS` are written. A page from before #232 still sends `layout`, `view`, `screen`
+    and `zoomed`; they are dropped here rather than stored, because a field that nothing reads and
+    one window writes is the snap-back waiting for a reader.
+    """
     _ensure_desk_loaded()
     w = str(w or "main")
     snapshot = None
     with _desk_lock:
         wins = _selection.setdefault("windows", {})
         win = wins.setdefault(w, {
-            "layout": "grid",
-            "view": "all",
-            "screen": 0,
             "focus": False,
-            "zoomed": "",
             "section": "tickets",
-            # Which agent this window has OPEN in the column (#203). Per window, not shared: the
-            # left monitor reads one agent while the centre reads another, and `selected` -- which
-            # the inspector follows -- stays the one thing every window agrees on.
+            # Which agent this window has OPEN (#203). Per window, not shared: the left monitor
+            # reads one agent while the centre reads another, and `selected` -- which the inspector
+            # follows -- stays the one thing every window agrees on.
             "open": "",
             "held": [],
             "read": {},
             "seen": "",
         })
         changed = False
-        if "layout" in kwargs and win.get("layout") != str(kwargs["layout"] or ""):
-            win["layout"] = str(kwargs["layout"] or "")
-            changed = True
-        if "view" in kwargs and win.get("view") != str(kwargs["view"] or ""):
-            win["view"] = str(kwargs["view"] or "")
-            changed = True
-        if "screen" in kwargs and win.get("screen") != int(kwargs["screen"] or 0):
-            win["screen"] = int(kwargs["screen"] or 0)
-            changed = True
         if "focus" in kwargs and win.get("focus") != bool(kwargs["focus"]):
             win["focus"] = bool(kwargs["focus"])
-            changed = True
-        if "zoomed" in kwargs and win.get("zoomed") != str(kwargs["zoomed"] or ""):
-            win["zoomed"] = str(kwargs["zoomed"] or "")
             changed = True
         if "open" in kwargs and win.get("open") != str(kwargs["open"] or ""):
             win["open"] = str(kwargs["open"] or "")
@@ -1430,7 +1465,7 @@ def show_for(name: str) -> dict:
 def desk_snapshot() -> dict:
     """Every project's panel, plus the trays, in one request.
 
-    One round trip rather than one per tile: the grid layout draws N tiles at once and #133 puts them
+    One round trip rather than one per tile: the desk draws N agents at once and #133 puts them
     on a screen the operator is not looking at, so the page asks for the lot on a slow cadence and
     lets the SSE stream carry what is urgent.
     """
@@ -1775,9 +1810,9 @@ def act(what: str, body: dict) -> dict:
         state = approval.APPROVED if what == "approve" else approval.DENIED
         return approval.decide(id, state, reason=str(body.get("reason") or ""))
     if what == "select":
-        # The one "action" that changes nothing on disk. It is a POST rather than a query parameter
-        # because its whole point is that the *other* windows hear about it (#133 layout B).
-        return select(selected=body.get("repo"), screens=body.get("screens"))
+        # It is a POST rather than a query parameter because its whole point is that the *other*
+        # windows hear about it (#133): the inspector on every screen follows it.
+        return select(selected=body.get("repo"))
     if what == "refresh":
         # Read what the next tick would read, NOW. It spends no premium request -- nothing is sent
         # to the agent -- so it is the one button on the tile that is always free to press.
@@ -1802,8 +1837,9 @@ def act(what: str, body: dict) -> dict:
                 pass
         return {"repo": target.name, "row": row_for(target.name)}
     if what == "arrange":
-        return arrange(str(body.get("layout") or "grid"),
-                       order=body.get("order"),
+        # A page from before #232 still names a `layout`; there is one arrangement, so it is not
+        # read.
+        return arrange(order=body.get("order"),
                        size=body.get("size"),
                        pinned=body.get("pinned"),
                        hidden=body.get("hidden"))

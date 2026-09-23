@@ -43,9 +43,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -158,8 +157,8 @@ def test_the_cached_desk_is_the_rows_without_the_transcripts():
 def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, tmp_path):
     """The optimistic write has to land on the desk, not on a copy of it.
 
-    `getLayoutArrangement` used to answer a fresh `{order, size, pinned}` literal whenever the
-    layout had no entry yet -- which reads as harmless and is not, because every writer mutates
+    `getArrangement` (then `getLayoutArrangement`) used to answer a fresh `{order, size, pinned}`
+    literal whenever the layout had no entry yet -- which reads as harmless and is not, because every writer mutates
     what it is given. Before the first desk frame arrived, a hide wrote into a throwaway and the
     tile did not move until the server answered: exactly the thing this slice says the page no
     longer does. On a fast machine the desk has loaded before anyone can click, so it only ever
@@ -167,7 +166,7 @@ def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, t
     """
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -178,7 +177,7 @@ def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, t
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="beta"]', timeout=15000)
+            page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
 
             out = page.evaluate("""() => {
               // The desk this window has not been told about yet, and a server that will not be
@@ -189,7 +188,7 @@ def test_a_gesture_before_the_desk_has_loaded_still_paints_at_once(fleet_home, t
               return {
                 hidden: document.querySelector('.tile[data-repo="beta"]')
                           .classList.contains('is-hidden'),
-                kept: (getLayoutArrangement().hidden || []).slice(),
+                kept: (getArrangement().hidden || []).slice(),
               };
             }""")
             assert not errors, errors
@@ -210,7 +209,7 @@ def test_hiding_a_tile_paints_before_the_server_answers(fleet_home, tmp_path):
     is asserting that the network was quick, not that the page was."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -221,7 +220,7 @@ def test_hiding_a_tile_paints_before_the_server_answers(fleet_home, tmp_path):
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="beta"]', timeout=15000)
+            page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
 
             took = page.evaluate("""() => {
               // Two whole seconds before `arrange` is allowed to answer. Delayed in the page
@@ -274,7 +273,7 @@ def test_a_refused_arrangement_goes_back_and_says_why(fleet_home, tmp_path):
     operator stops trusting -- so the refusal arrives in the server's own words."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -285,7 +284,7 @@ def test_a_refused_arrangement_goes_back_and_says_why(fleet_home, tmp_path):
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="beta"]', timeout=15000)
+            page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
 
             page.route("**/api/arrange*", lambda route: route.fulfill(
                 status=409, content_type="application/json",
@@ -301,7 +300,7 @@ def test_a_refused_arrangement_goes_back_and_says_why(fleet_home, tmp_path):
             assert "refused" in said, said
             assert "another window" in said, "the server's own hint, not a shrug"
             assert page.evaluate(
-                "() => (getLayoutArrangement().hidden || []).indexOf('beta')") == -1
+                "() => (getArrangement().hidden || []).indexOf('beta')") == -1
             assert not errors, errors
             browser.close()
     finally:
@@ -315,7 +314,7 @@ def test_an_action_patches_its_tile_without_a_second_snapshot(fleet_home, tmp_pa
     """Counted, not assumed."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -326,7 +325,7 @@ def test_an_action_patches_its_tile_without_a_second_snapshot(fleet_home, tmp_pa
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="beta"]', timeout=15000)
+            page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=15000)
             page.wait_for_timeout(400)
 
             # Only the fetches this gesture caused. The stream's own tick refreshes on its own
@@ -375,7 +374,7 @@ def test_every_local_gesture_is_inside_the_budget(fleet_home, tmp_path):
     server's business and has its own numbers."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon")
-    S.arrange("grid", order=["alpha", "beta", "gamma", "delta", "epsilon"])
+    S.arrange(order=["alpha", "beta", "gamma", "delta", "epsilon"])
 
     server, token, port = _serve()
     try:
@@ -386,7 +385,7 @@ def test_every_local_gesture_is_inside_the_budget(fleet_home, tmp_path):
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="epsilon"]', timeout=15000)
+            page.wait_for_selector('.tile[data-repo="epsilon"]', state="attached", timeout=15000)
             page.wait_for_timeout(400)
 
             marks = page.evaluate("""() => {
@@ -421,7 +420,7 @@ def test_a_reopened_window_shows_the_desk_it_had_while_the_new_one_loads(fleet_h
     said "no projects", which is the wrong answer given confidently."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -432,7 +431,7 @@ def test_a_reopened_window_shows_the_desk_it_had_while_the_new_one_loads(fleet_h
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="gamma"]', timeout=15000)
+            page.wait_for_selector('.tile[data-repo="gamma"]', state="attached", timeout=15000)
             page.wait_for_function(
                 "() => { try { return !!sessionStorage.getItem(SNAP_KEY); } catch (e) "
                 "{ return false; } }", timeout=8000)
@@ -451,7 +450,7 @@ def test_a_reopened_window_shows_the_desk_it_had_while_the_new_one_loads(fleet_h
             """)
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector(".tile", timeout=5000)
+            page.wait_for_selector(".tile.is-solo", timeout=5000)
             early = page.evaluate("""() => ({
               tiles: document.querySelectorAll('#grid .tile').length,
               stale: document.body.classList.contains('is-stale'),
