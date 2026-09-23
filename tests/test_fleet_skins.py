@@ -138,17 +138,17 @@ def test_the_glass_stylesheet_paints_the_numbers_skins_py_declares():
 def test_the_glass_mesh_is_one_gradient_and_three_js_paints_it_at_the_same_places():
     """#254: the CSS ground and the three.js ground are one mesh. The stylesheet paints it once,
     from the variant's `--glass-mesh-1..3`, and `ink/skins/glass.js` puts its blobs at the same
-    places with the same radii (`MESH`) and the same 70% falloff -- so a pane over either composites
-    to the range skins.py declares."""
+    places with the same radii (`MESH`) and the same falloff, to the end of each ray (#257) -- so a pane
+    over either composites to the range skins.py declares."""
     css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
     grads = re.findall(r"radial-gradient\(ellipse (\d+)% (\d+)% at (\d+)% (\d+)%, var\(--glass-mesh-(\d)\) 0%, "
-                       r"transparent 70%\)", css)
+                       r"transparent 100%\)", css)
     assert [g[4] for g in grads] == ["1", "2", "3"], "the ground is painted once, from the custom properties"
     js = open(os.path.join(os.path.dirname(SKINS_DIR), "ink", "skins", "glass.js"), encoding="utf-8").read()
     mesh = re.findall(r"\{ at: \[([\d.]+), ([\d.]+)\], r: \[([\d.]+), ([\d.]+)\] \}", js)
     assert [(float(a), float(b), float(c), float(d)) for a, b, c, d in mesh] == \
         [(int(x) / 100, int(y) / 100, int(rx) / 100, int(ry) / 100) for rx, ry, x, y, _ in grads], (mesh, grads)
-    assert "const BLOB_END = 0.70;" in js
+    assert "const BLOB_END = 1.0;" in js
 
 
 def test_glass_draws_with_the_inks_skins_py_checks():

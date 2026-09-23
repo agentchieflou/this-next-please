@@ -30,13 +30,14 @@
 
 /* The mesh's geometry: where skin.css puts each blob, in viewport fractions, and its ellipse's
    radii. The same three places in every variant (skin.css says so, and a test holds the two
-   together). A blob's colour stop is at 0% and it is gone at 70% of its ray, as in the CSS. */
+   together). A blob's colour stop is at 0% and it is gone at the end of its ray, as in the CSS: the
+   width #218's drawn ground always showed, which #257 made the stylesheet's own. */
 export const MESH = [
   { at: [0.16, 0.10], r: [0.60, 0.55] },
   { at: [0.84, 0.82], r: [0.55, 0.50] },
   { at: [0.58, 0.42], r: [0.45, 0.40] },
 ];
-const BLOB_END = 0.70;
+const BLOB_END = 1.0;
 /* How far a blob's centre drifts, in viewport fractions, and how long one lap takes (s). Slow
    enough that the ground is never the thing on the screen that moves. */
 const DRIFT = 0.035;

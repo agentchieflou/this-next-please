@@ -12,7 +12,7 @@ Every variant (smoke, azure, noir, frost) is drawn both ways from the same numbe
 
 | Piece | With ink on (three.js) | Under `body.ink-off` (CSS) |
 | --- | --- | --- |
-| the ground | a **mesh**: a plane of a few hundred vertices whose height drifts on slow waves, lit from the top left. On it, the variant's three blobs at their skin.css places, radii and 70% falloff, from `--glass-mesh-1..3` | the same three blobs as one `radial-gradient` background, from the same properties |
+| the ground | a **mesh**: a plane of a few hundred vertices whose height drifts on slow waves, lit from the top left. On it, the variant's three blobs at their skin.css places, radii and a falloff to the end of each ray (#257), from `--glass-mesh-1..3` | the same three blobs as one `radial-gradient` background, from the same properties |
 | the pane | **frost**: one mesh per `.tile` reads the ground texture (`sampleGround`) through a gaussian blur in its fragment shader (sigma 18px, a centre tap and rings at one and two sigma), saturated by CSS `saturate(140%)`'s own matrix, with `--glass-fill` over it | `backdrop-filter: blur(18px) saturate(140%)` and `--glass-fill` |
 | the light | the edge hairline (`--glass-edge`); the top glint (`--glass-glint`), brighter towards the light; a faint sheen where the light falls; small specular glints on the mesh's waves | an inset top line and a hairline border |
 | the shadow | drawn outside the pane only, as CSS clips a `box-shadow`: `--glass-shadow`, 12px down, 32px soft | `box-shadow: 0 12px 32px` |

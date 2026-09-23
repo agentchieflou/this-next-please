@@ -51,9 +51,9 @@ body[data-skin="glass"] {
      zero alpha, because a gradient mixes premultiplied. `ink/skins/glass.js` draws the same mesh
      with ink on, from these same properties and at these same places (its `MESH`). */
   background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, var(--glass-mesh-1) 0%, transparent 70%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, var(--glass-mesh-2) 0%, transparent 70%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, var(--glass-mesh-3) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, var(--glass-mesh-1) 0%, transparent 100%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, var(--glass-mesh-2) 0%, transparent 100%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, var(--glass-mesh-3) 0%, transparent 100%),
     var(--bg);
   background-attachment: fixed;
 }
