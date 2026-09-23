@@ -28,8 +28,10 @@ export function marks() {
     { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline",
       grow: ".transcript > li", step: 12, tip: true },
     // needs you: the name and the question highlighted, pencil loops round the choices. The
-    // approval card is the other way a pane asks, and its summary is its question.
-    { selector: ".tile.needs-human .head .repo", tool: "highlighter", shape: "lines" },
+    // approval card is the other way a pane asks, and its summary is its question. The name's
+    // highlight is taken up when the agent no longer needs you, never struck: a line through an
+    // agent's name reads as the agent crossed out (the graph paper's rule, #253).
+    { selector: ".tile.needs-human .head .repo", tool: "highlighter", shape: "lines", leaves: "erased" },
     { selector: ".tile.needs-human .ask:not([hidden]):not(.is-answered) .ask-q", tool: "highlighter", shape: "lines" },
     { selector: ".tile.needs-human .approval:not([hidden]) .summary", tool: "highlighter", shape: "lines" },
     { selector: ".tile.needs-human .ask:not([hidden]):not(.is-answered) .ask-choice", tool: "pencil", shape: "loop" },

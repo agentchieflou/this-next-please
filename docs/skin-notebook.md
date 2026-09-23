@@ -67,7 +67,7 @@ Every row is a class or an attribute `app.js` already sets. The skin never decid
 | --- | --- | --- |
 | idle | pencil outline, pencil underline under the name | `.tile.state-idle` → pencil `outline`; `.tile.state-idle .head .repo` → pencil `underline` |
 | running | a pen underline that grows with the turn, and the pen-tip dot at its end | `.tile.state-running .head .repo` → pen `underline`, `grow: ".transcript > li"`, `step: 12`, `tip` |
-| needs you | the highlighter on the name and on the question, pencil loops round the choices | `.tile.needs-human .head .repo`, `… .ask-q` and `… .approval .summary` → highlighter `lines`; `… .ask-choice` → pencil `loop` |
+| needs you | the highlighter on the name and on the question, pencil loops round the choices | `.tile.needs-human .head .repo` → highlighter `lines`, `leaves: "erased"` (the name's highlight is taken up, never struck); `… .ask-q` and `… .approval .summary` → highlighter `lines`; `… .ask-choice` → pencil `loop` |
 | answered | the question and its highlight struck in pen, and the chosen answer circled. Never the agent's name | `.ask.is-answered .ask-q` → pen `strike` (the highlight leaves by strike); the pressed `.ask-choice`, or the typed `.ask-answer` → pen `ellipse` |
 | error | a red marker box round the pane, and a bang in the margin | `.tile.state-error` → marker `loop` and marker `bang` |
 | done | a green check in the margin | `.tile.state-done` → green `check` |

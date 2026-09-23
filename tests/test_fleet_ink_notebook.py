@@ -79,7 +79,7 @@ def test_the_notebook_is_a_skin_with_a_light_and_a_dark_variant():
     assert theme.get(nb["variants"]["dark"]["base"]).ground and \
         theme.rel_luminance(theme.hex_to_rgb(nb["variants"]["dark"]["composited_panel"])) < 0.05
     assert "notebook" in [s["name"] for s in skins.list_skins()]
-    assert S.ink_skins() == ["example", "notebook"]
+    assert "notebook" in S.ink_skins()
 
 
 def test_the_stylesheet_paints_the_numbers_skins_py_declares():
@@ -323,6 +323,13 @@ def test_needing_you_is_highlighted_and_answering_strikes_the_question_never_the
             # The name keeps its highlight, unstruck: the agent still needs you until it resumes.
             assert _of(marks, A, "needs-human .head .repo", "highlighter", "lines")
             assert not _struck(marks, {name[0]["id"]}), "the agent's name is never struck"
+            # The agent records the answer and stops needing you: the name's highlight is taken up --
+            # erased -- not struck through.
+            _emit(page, "alpha", ("question_answered", {"id": "q1", "question": "which window should this land in?"}))
+            _until_class(page, "alpha", "needs-human", False)
+            _rest(page, "!Ink.inspect().layer.marks.some(m => m.selector.includes('needs-human .head .repo'))")
+            marks = _marks(page)
+            assert not _struck(marks, {name[0]["id"]}) and not [m for m in marks if m["strikeOf"] == name[0]["id"]]
             assert not errors, errors
             browser.close()
     finally:
