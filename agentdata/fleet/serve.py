@@ -412,6 +412,30 @@ def _model_cells(name: str, cfg: dict) -> dict:
             "actual": served_model(name)}
 
 
+# Which of two rows the server read first (#235). A row reaches the page by two roads -- an action's
+# own answer (#219) and `/api/fleet`, which the page asks for whenever the stream says something
+# happened -- and the page drew whichever *arrived* last. Arriving is not reading. Adopting appends
+# an event, so a snapshot is asked for within the second, and on the Windows runner one read while
+# the session was still adopted landed after the hand-back's answer: the tile went back to "a session
+# outside the fleet is driving this repo", and stayed there, because a released lock is not an event
+# and nothing came to draw it again. So every row carries the order its snapshot was begun in, and
+# the page keeps the row it has over one begun before it.
+#
+# A count, not a clock: two snapshots begun in one tick of a 15 ms Windows clock would tie, and a
+# wall clock can be stepped back. `run` says which process counted, because a desk restarted under
+# the same token starts counting again, and the page must take its rows rather than hold the old
+# process's numbers over them.
+_read_order = {"run": secrets.token_hex(4), "n": 0}
+_read_order_lock = threading.Lock()
+
+
+def read_order() -> dict:
+    """`{run, n}` for a snapshot about to be read: later than every one handed out before it."""
+    with _read_order_lock:
+        _read_order["n"] += 1
+        return dict(_read_order)
+
+
 def row_for(name: str) -> dict:
     """One tile's row, exactly as `/api/fleet` would send it. What an action answers with."""
     for row in fleet_snapshot().get("repos", []):
@@ -429,6 +453,10 @@ def fleet_snapshot() -> dict:
     would know which the tile was showing. The fold (#94) is the state; the supervisor supplies only
     what the fold cannot see -- where the checkout is, and which pid is holding it.
     """
+    # Before anything is read, the lock and the offers included (#235): a row can then only be newer
+    # than its number says, so an action's answer, numbered after the action, outranks every
+    # snapshot begun before it.
+    as_of = read_order()
     rows = []
     try:
         # Once, not once per row: `Registry()` re-parses `registry.json` every time it is built.
@@ -605,6 +633,8 @@ def fleet_snapshot() -> dict:
                      "stale": _stale_cell(stream, installed),
                      "renew_queued": bool(RENEW.queued(name)),
                      "last_seq": stream[-1]["seq"] if stream else 0,
+                     # When this was read, against the other rows the page is sent (#235).
+                     "as_of": as_of,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
                      # The project's own state (#131), beside the agent's. Named `polls` and not
                      # folded into the row, because a cell can be stale or grey and the agent's

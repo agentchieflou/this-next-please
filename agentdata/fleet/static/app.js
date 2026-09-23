@@ -88,6 +88,7 @@
  *   repo?: string, project?: string, path?: string, state?: string, needs_human?: boolean,
  *   why?: string, last_said?: string, last_event_age_s?: number,
  *   spend?: {total?: number, [field: string]: any}, recent?: Array<{seq: number}>,
+ *   as_of?: {run: string, n: number},
  *   [field: string]: any
  * }} Row
  */
@@ -1584,13 +1585,24 @@ function redrawAll() {
   place();
 }
 
+/* Was this row read before the one the tile already has (#235)? The two roads race each other home:
+   a snapshot the server read a moment before a hand-back landed after the hand-back's own answer and
+   drew the adoption back, and nothing came to draw it again -- a released lock is not an event. The
+   server numbers its reads, and a row from another run of it is a desk that restarted: taken. */
+/** @param {Row | undefined} shown  @param {Row} row  @returns {boolean} */
+function readBefore(shown, row) {
+  var had = shown && shown.as_of, got = row.as_of;
+  return !!(had && got && had.run === got.run && got.n < had.n);
+}
+
 /* One row onto its tile, making the tile if this is the first sight of it. Both an action's
    answer (#219) and a whole snapshot come through here, so a tile cannot be drawn one way by one
-   path and another way by the other. */
+   path and another way by the other -- nor by the older of the two because it arrived second. */
 /** @param {Row} row  @param {number} [index]  @returns {Pane | null} */
 function patchRow(row, index) {
   if (!row || !row.repo) return null;
   var entry = tiles.get(row.repo);
+  if (entry && readBefore(entry.row, row)) return entry;
   if (!entry) {
     var el = makeTile(row, index || tiles.size);
     var grid = document.getElementById("grid");
