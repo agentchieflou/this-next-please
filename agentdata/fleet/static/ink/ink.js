@@ -130,6 +130,21 @@ function normalise(table) {
         throw new SyntaxError(where + ": `to` is not a selector the page can match");
       }
     }
+    // #249: an underline that grows with what arrives in its pane, a pen-tip dot at its end, and a
+    // written word that is struck and written again when it changes. Each belongs to one shape.
+    if ((row.grow !== undefined || row.tip) && row.shape !== "underline") {
+      throw new TypeError(where + ": `grow` and `tip` are an underline's");
+    }
+    if (row.grow !== undefined) {
+      try {
+        document.querySelector(row.grow);
+      } catch (e) {
+        throw new SyntaxError(where + ": `grow` is not a selector the page can match");
+      }
+    }
+    if (row.rewrite && row.shape !== "write") {
+      throw new TypeError(where + ": `rewrite` is a written mark's");
+    }
     return {
       index: i,
       selector: row.selector.trim(),
@@ -138,6 +153,10 @@ function normalise(table) {
       to: typeof row.to === "string" ? row.to : "",
       pad: Number.isFinite(row.pad) ? row.pad : 0,
       dash: !!row.dash,
+      grow: typeof row.grow === "string" ? row.grow : "",
+      step: Number.isFinite(row.step) && row.step > 0 ? row.step : 10,
+      tip: !!row.tip,
+      rewrite: !!row.rewrite,
       leaves: ERASABLE.has(row.tool) ? "erased" : "struck",
     };
   });

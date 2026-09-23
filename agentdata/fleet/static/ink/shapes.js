@@ -85,10 +85,16 @@ export const SHAPES = {
     if (r.w < 24) return [];
     return [{ pts: [[r.x + 10, y], [r.r - 10, y + 0.8]] }];
   },
-  /* A line under the text, a hair past both ends of it. */
+  /* A line under the text, a hair past both ends of it. `m.grow` px more on the right when the row
+     grows (#249: the running agent's line lengthens with its turn), never past `m.limit`, and with
+     `m.tip` a pen-tip dot sitting at its end. */
   underline(m) {
     const r = box(m.box), y = r.b + 1 + (m.pad || 0);
-    return [{ pts: [[r.x - 3, y], [r.r + 8, y + 1.2]], nobow: true }];
+    let x1 = r.r + 8 + (m.grow || 0);
+    if (Number.isFinite(m.limit)) x1 = Math.max(r.r + 8, Math.min(x1, m.limit));
+    const out = [{ pts: [[r.x - 3, y], [x1, y + 1.2]], nobow: true }];
+    if (m.tip) out.push({ pts: [[x1 + 2.2, y + 0.8], [x1 + 3.4, y + 1.4]], w: 4.4, nobow: true, wob: 0 });
+    return out;
   },
   /* A highlighter pass along every line the text wraps to, as wide as the line is tall. */
   lines(m) {
