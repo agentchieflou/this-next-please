@@ -324,16 +324,20 @@ main {
    of the row, which is what lets a gutter move two panes and leave every other one to the pixel.
    The width is decided HERE and nowhere else; what the pane draws is decided by the width
    (`data-tier`), never the other way round, or a tier that changed the width would change the
-   tier. `position: relative` is what the drop line and the gutter hang from. */
+   tier. `position: relative` is what the drop line and the gutter hang from.
+
+   The rail's width and the compact floor are the operator's since #235 (`fleet.tiers.*`, set on the
+   settings page): `applyTiers` in app.js writes them on the root when they are not these, which are
+   CI's, so a desk on the defaults carries no inline style for them at all. */
+:root { --rail: 48px; --compact-from: 160px; }
 .tile {
-  --rail: 48px;
   flex: 0 0 var(--rail); min-width: 0; min-height: 0;
   display: flex; flex-direction: column;
   position: relative;
   background: var(--panel); border: 1px solid var(--line);
   border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 10px;
 }
-.tile.is-solo { flex: var(--w, 1) 1 0; min-width: 160px; }
+.tile.is-solo { flex: var(--w, 1) 1 0; min-width: var(--compact-from); }
 /* The selection is one, unmistakable, and never in a state colour (HIG *Focus and selection*). */
 .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
 
@@ -814,7 +818,9 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
    rail     48px      the rail's face and nothing else
    compact  160-359   the head (name, state chip with its age, ticket), the three tools, the cards
                       that ask the operator something, the last lines, the reply box
-   full     360+      everything a tile has */
+   full     360+      everything a tile has
+
+   Those are CI's numbers and the defaults; `fleet.tiers.*` moves them (#235). */
 .glass { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 
 .pane-rail { display: none; }
@@ -912,7 +918,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   display: flex; gap: 6px;
 }
 .gone-rail {
-  flex: 0 0 48px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  flex: 0 0 var(--rail); display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 8px 0; border: 1px dashed var(--line); border-radius: 6px; color: var(--muted);
 }
 .gone-rail .pr-glyph { background: var(--muted); }
