@@ -183,6 +183,41 @@ export const PAGE_SHAPES = {
   },
 };
 
+/* Ruled strokes on a grid (#253, the graph paper): a row with `snap` has its straight strokes put
+   on the grid's lines, which are every `g` px of the viewport, where the skin's paper draws them.
+   `at` is where the anchor's top-left is on the viewport, so the paths -- in the anchor's own
+   coordinates -- are moved there, ruled, and moved back.
+
+   Each straight stroke keeps its length and moves across onto the nearest line. An outline's
+   corners meet where its lines cross: every end moves with the box edge nearest it. An underline
+   goes down to the first line at or below its text, never up through it. A box smaller than a
+   square is still a square, so an outline never folds into a line. A ruled stroke does not sag
+   or wander: it is drawn to a ruler. */
+export function snap(paths, shape, b, at, g) {
+  const near = v => Math.round(v / g) * g;
+  const down = v => Math.ceil((v - 0.5) / g) * g;
+  const L = b.x + at.x, T = b.y + at.y, R = L + b.w, B = T + b.h;
+  const sL = near(L), sT = near(T);
+  const sR = Math.max(near(R), sL + g), sB = Math.max(near(B), sT + g);
+  const shiftX = x => x + (Math.abs(x - L) <= Math.abs(x - R) ? sL - L : sR - R);
+  const shiftY = y => y + (Math.abs(y - T) <= Math.abs(y - B) ? sT - T : sB - B);
+  return paths.map(p => {
+    const pts = p.pts.map(q => [q[0] + at.x, q[1] + at.y]);
+    const a = pts[0], z = pts[pts.length - 1];
+    const flat = Math.abs(z[0] - a[0]) >= Math.abs(z[1] - a[1]);
+    const mid = pts.reduce((s, q) => s + q[flat ? 1 : 0], 0) / pts.length;
+    let out;
+    if (flat) {
+      const y = shape === "underline" ? down(mid) : shape === "outline" ? near(shiftY(mid)) : near(mid);
+      out = pts.map(q => [shape === "outline" ? shiftX(q[0]) : q[0], y]);
+    } else {
+      const x = shape === "outline" ? near(shiftX(mid)) : near(mid);
+      out = pts.map(q => [x, shape === "outline" ? shiftY(q[1]) : q[1]]);
+    }
+    return Object.assign({}, p, { pts: out.map(q => [q[0] - at.x, q[1] - at.y]), nobow: true, wob: 0 });
+  });
+}
+
 function strikeBox(b, rnd) {
   const cx = (b.x + b.r) / 2, cy = (b.y + b.b) / 2, t = (rnd() - 0.5) * 3;
   if (b.h > 90 && b.w > 30) return [{ pts: [[b.x + 8, b.y + 12], [b.r - 8, b.b - 12]] }];

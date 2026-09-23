@@ -5,8 +5,8 @@
    whose globals (`PARAMS`, `q`) it uses. It is small on purpose, because every desk loads it and
    most never draw: it decides whether this shell gets ink, and it is the only thing `app.js` will
    ever see of the layer (`window.Ink`). The drawing half -- `layer.js`, `shapes.js`, `pen.js` and
-   the vendored three.js -- is fetched only when the gate says on, because then it draws the desk's
-   own ground and traces whatever the skin (#257), and always through `import(q(...))`: a module specifier resolved against this file's URL does
+   the vendored three.js -- is fetched only when the gate says on AND a skin hands it a mark table,
+   and always through `import(q(...))`: a module specifier resolved against this file's URL does
    not carry the run token, and every route on this server wants it (the reason `probe.js` does the
    same).
 
@@ -63,6 +63,15 @@ const PLAIN = {
 
 const PLAIN_TINT = 38;           // percent of the ink in a plain highlight
 const SPEED = [0.25, 4];         // the range a table's `speed` is held to
+
+/* The shapes a row may rule onto a grid with `snap` (#253): the straight ones. A loop, an ellipse
+   or a tick drawn to a ruler is not a hand-drawn loop, ellipse or tick any more. */
+const SNAPS = new Set(["outline", "divider", "underline"]);
+
+/* A tool's physics a table may tune (#253), each a number: the graph paper's mechanical pencil is
+   the prototype's pencil made thin and even, with no taper. `kind`, `pad` and `model` are the
+   tool's identity, not its hand, and stay the layer's. */
+const TUNABLE = ["w", "press", "pvar", "wob", "lam", "bow", "wmin", "tin", "tout"];
 
 function colour(tool) {
   return "var(--ink-" + tool + ", var(" + TOOLS[tool] + "))";
@@ -130,6 +139,12 @@ function normalise(table) {
         throw new SyntaxError(where + ": `to` is not a selector the page can match");
       }
     }
+    if (row.snap != null && !(Number.isFinite(row.snap) && row.snap >= 4 && SNAPS.has(row.shape))) {
+      throw new TypeError(where + ": `snap` is a grid pitch of 4px or more, for " + Array.from(SNAPS).join(", "));
+    }
+    if (row.leaves != null && row.leaves !== "erased" && row.leaves !== "struck") {
+      throw new TypeError(where + ": `leaves` is \"erased\" or \"struck\"");
+    }
     return {
       index: i,
       selector: row.selector.trim(),
@@ -138,15 +153,37 @@ function normalise(table) {
       to: typeof row.to === "string" ? row.to : "",
       pad: Number.isFinite(row.pad) ? row.pad : 0,
       dash: !!row.dash,
-      leaves: ERASABLE.has(row.tool) ? "erased" : "struck",
+      snap: Number.isFinite(row.snap) ? row.snap : 0,
+      // How the mark goes: pencil is erased and ink struck, unless the row says otherwise -- the
+      // paper grammar strikes the question and never the agent's name, so the name's highlight
+      // is taken up rather than struck through (#253).
+      leaves: row.leaves || (ERASABLE.has(row.tool) ? "erased" : "struck"),
     };
   });
+  const tools = {};
+  for (const [tool, tune] of Object.entries(table.tools && typeof table.tools === "object" ? table.tools : {})) {
+    if (!Object.prototype.hasOwnProperty.call(TOOLS, tool) || !tune || typeof tune !== "object") {
+      throw new TypeError("ink: tools: no tool " + JSON.stringify(tool) + " to tune (" + Object.keys(TOOLS).join(", ") + ")");
+    }
+    tools[tool] = {};
+    for (const [k, v] of Object.entries(tune)) {
+      // `lam` is a wavelength, and divides: it is the one that cannot be 0.
+      if (!TUNABLE.includes(k) || !Number.isFinite(v) || v < 0 || (k === "lam" && v === 0)) {
+        throw new TypeError("ink: tools." + tool + "." + k + ": a tool tunes " + TUNABLE.join(", ") +
+                            ", each a number of 0 or more (`lam` more than 0)");
+      }
+      tools[tool][k] = v;
+    }
+  }
   const speed = Number.isFinite(table.speed) ? Math.min(SPEED[1], Math.max(SPEED[0], table.speed)) : 1;
   return {
     name: String(table.name || "unnamed"),
     paper: typeof table.paper === "string" ? table.paper : "",
     hand: table.hand !== false,
     speed,
+    tools,
+    // The page's own trace rows (#257) follow the table, unless the skin plots the hour itself.
+    series: table.series !== false,
     marks,
   };
 }
@@ -235,10 +272,6 @@ function start() {
         return null;
       }
       layer = running;
-      // The page's own ground is drawn from the moment the layer runs (#257). A table already
-      // waiting is set by the `apply` that asked for it, which runs next: setting it here as well
-      // would call its materials twice.
-      running.setTable(null);
       return running;
     });
     loading.catch(e => turnOff("the ink layer could not start: " + String((e && e.message) || e)));
@@ -305,7 +338,7 @@ function fromModule(m, family, variant) {
   const o = valueOf(m.options, variant) || {};
   return {
     table: { name: family + (variant ? ":" + variant : ""), paper: o.paper, hand: o.hand, speed: o.speed,
-             marks: valueOf(m.marks, variant) || [] },
+             tools: o.tools, series: o.series, marks: valueOf(m.marks, variant) || [] },
     hooks: m,
   };
 }
@@ -345,10 +378,6 @@ function setSkin(next, hooks) {
   fromSkin = false;
   return apply(next, hooks);
 }
-
-/* A shell the gate turned on draws with ink from the start: the desk's ground and every agent's
-   trace are the layer's to draw under every skin (#257), so it does not wait for a skin's table. */
-if (verdict.on) start();
 
 window.Ink = Object.freeze({
   /* Settled as soon as the page has read its gate, which is when this module runs. */

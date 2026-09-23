@@ -104,21 +104,13 @@ The glass skin's ground is three saturated blobs. It is three `radial-gradient`s
 `background-attachment: fixed` — which cannot move, and a still image behind a frosted pane is the
 thing that reads as a screenshot of an interface rather than an interface.
 
-Where a shell draws ink, the ink layer draws the same three blobs in its `ground` slot and drifts
-them a pixel a second around a two-minute circle (#257; it was a canvas of `app.js`'s, `#ground`,
-from #218). Slow enough that nobody can point at it; enough that the room has a window in it.
+Where a shell draws ink, the glass skin's own ink module draws the same three blobs as a lit mesh
+in the layer's `ground` slot and drifts them (#254, [skin-glass.md](skin-glass.md)). It was a canvas
+of `app.js`'s, `#ground`, from #218, and #257 took it away. Slow enough that nobody can point at it;
+enough that the room has a window in it.
 
-Three things about it are deliberate:
-
-* **The mesh is read out of the stylesheet, not written anywhere else.** The layer parses
-  `getComputedStyle(body).backgroundImage` — Chromium's normalised form of each gradient, which is
-  where the ellipse's size, its place, its colour and its stops all are. `skins.py` and `skin.css`
-  already keep one copy of those numbers between them and a test reads them back; a third copy in
-  a script would be the two-owners bug with a longer fuse. So no skin is named: any gradients a
-  stylesheet paints on `body` are the ground.
-* **It is one frame a second.** The shader composites the gradients the way CSS paints them, and
-  its first frame is exactly where the stylesheet put them, which is what the glass skin's contrast
-  range was solved against. After that it redraws once a second and not sixty times.
+* **The mesh has one owner.** `skin.css` declares the blobs as custom properties, `skins.py` holds
+  the same numbers and a test reads them back; the ink module reads the properties at paint time.
 * **It holds still when asked to.** `prefers-reduced-motion: reduce` stops the drift, and so does
   `prefers-reduced-transparency: reduce` — the second is the one people forget, and it is the
   setting somebody turns on *because* a moving translucent ground is what they cannot read over.

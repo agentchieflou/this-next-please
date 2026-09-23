@@ -109,8 +109,8 @@ and its MIT `LICENSE`, from the npm tarball of `three@0.160.0`, pinned by sha256
 `tests/test_fleet_probe.py` and kept byte-exact on Windows checkouts by `.gitattributes`. The
 probe page imports it, and so does the desk's ink layer (#248, [desk-ink.md](desk-ink.md)), but
 only on a shell whose record here says hardware (or a page opened with `?ink=on`, the test
-override). There it is fetched from the start, because since #257 the layer draws the desk's own
-ground and traces, which were its two 2D canvases, whatever the skin. Tests hold all three.
+override), and only once a skin draws with ink. There, since #257, it also draws every agent's trace,
+which was one of the desk's two 2D canvases. Tests hold all three.
 
 ## What happens without each one
 
@@ -123,7 +123,7 @@ ground and traces, which were its two 2D canvases, whatever the skin. Tests hold
 | `pointer capture` | `setPointerCapture` throws and is caught; the move and up listeners are on the document rather than the handle, so the drag still tracks. Touch and pen lose the guarantee that events keep arriving after the pointer leaves the element. | `test_fleet_window.py` |
 | `container queries` | The head keeps the model's word, the ticket and the chip's age on a narrow tile, and wraps to a second line rather than dropping them. `flex-wrap` is the fallback, and it is why the head has it. | `test_fleet_window.py` |
 | `OffscreenCanvas` | Nothing of the desk's own is lost: the desk has no 2D canvas at all since #257, on or off the page. three.js asks a 1×1 one for a 2D context once, as its renderer starts, to learn whether it could resize a texture off the page. Without it three.js would use a page canvas for that, and the layer never hands it an image to resize. | `test_fleet_trace.py` |
-| `WebGL` | Drawn by the ink layer (#248, [desk-ink.md](desk-ink.md)), and only on a shell whose probe says hardware (the table above). There it draws the desk's own ground and every agent's trace (#257), and a skin's marks and materials where the skin has them. Every other shell gets the plain fallback (`body.ink-off`), and so do a shell nobody has measured, `?ink=off`, a shell that will not give a context, and a lost context. The trace is its own SVG, the ground is the stylesheet's gradients standing still, and a skin's mark table is drawn as plain borders and highlights. None of it animates, because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py`, `test_fleet_ink.py`, `test_fleet_trace.py` |
+| `WebGL` | Drawn by the ink layer (#248, [desk-ink.md](desk-ink.md)), and only on a shell whose probe says hardware (the table above). There it draws a skin's marks and materials (glass's ground among them), and every agent's trace beside them (#257). Every other shell gets the plain fallback (`body.ink-off`), and so do a shell nobody has measured, `?ink=off`, a shell that will not give a context, and a lost context. The trace is its own SVG, the ground is the stylesheet's gradients standing still, and a skin's mark table is drawn as plain borders and highlights. None of it animates, because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py`, `test_fleet_ink.py`, `test_fleet_trace.py` |
 
 `test_the_desk_arrives_at_the_same_place_with_every_fallback_taken` takes **all** of the fallbacks
 at once — no view transitions, no pointer capture, no `linear()`, no container queries — which is
@@ -144,9 +144,9 @@ those is missing the page does not load, which is a failure nobody can mistake f
 | Measurement | Here | Asserted at |
 | --- | --- | --- |
 | frame time during a layout swap of five tiles at 1080p | 16.7 ms median, no `longtask` | no long task, main thread back inside 50 ms |
-| the ground's drift, drawn by the ink layer (#257) | one frame a second, and none under reduced motion | frames counted, not milliseconds: at most two a second of drift |
+| the ground's drift, drawn by glass on the ink layer (#254, #257) | frames while it drifts, and none under reduced motion | frames counted, not milliseconds |
 | the worst local gesture | ~6 ms | 50 ms |
-| the static payload | 156 KB gzipped (494 KB on disk), the probe page's 6.3 KB and the ink layer's four modules (38 KB) included; three.js is not in it — 163 KB gzipped, fetched by `/probe` and by the desk in a shell the gate turned on, never by one it turned off | 200 KB |
+| the static payload | 151 KB gzipped (479 KB on disk), the probe page's 6.3 KB and the ink layer's four modules (36 KB) included; three.js is not in it — 163 KB gzipped, fetched by `/probe` and by an ink layer that is drawing, never by a desk that is not | 200 KB |
 | the WebGL probe, headless Chromium on SwiftShader, 1280×720 | 16.7 ms p50 and 33.4 ms p95 over ~130 frames (headless paces at 60 Hz); first stroke 265–320 ms | not asserted — software, and not what a GPU does |
 
 Every one of those is printed by the test that measures it, so a CI run carries the numbers as

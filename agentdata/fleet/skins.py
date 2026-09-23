@@ -99,6 +99,30 @@ SKINS = {
                       "why": "a wet afternoon indoors"},
         },
     },
+    # #253, the ink epic's slice G: drawn by the ink layer (`static/ink/skins/graph.js`). The pane
+    # is the paper itself, so the panel is `--paper`; `inks` are the skin's `--ink-<tool>` (and the
+    # plotted trace's), each checked on that paper; `grid` is the major line text has to cross.
+    # `skin.css` carries the same numbers and `tests/test_fleet_ink_graph.py` holds them together.
+    "graph": {
+        "name": "graph",
+        "title": "Graph paper",
+        "why": "a 28px grid, a mechanical pencil, ruled marks and every agent's hour plotted on it",
+        "default": "engineering",
+        "variants": {
+            "engineering": {"title": "Engineering", "base": "eye-relief-day",
+                            "composited_panel": "#F3F6EC", "grid": "#A8C3A0",
+                            "inks": {"pencil": "#4F555C", "pen": "#1D4E89", "red": "#B42318",
+                                     "green": "#2A733E", "marker": "#B42318",
+                                     "highlighter": "#E6DE5A", "trace": "#1D4E89"},
+                            "why": "green quad-ruled pad, graphite and a blue pen"},
+            "blueprint": {"title": "Blueprint", "base": "blues",
+                          "composited_panel": "#123A66", "grid": "#2F6096",
+                          "inks": {"pencil": "#C4D3E6", "pen": "#EAF2FF", "red": "#FF8B7E",
+                                   "green": "#7BE38B", "marker": "#FF8B7E",
+                                   "highlighter": "#B8A12E", "trace": "#EAF2FF"},
+                          "why": "white lines on a cyanotype"},
+        },
+    },
 }
 
 

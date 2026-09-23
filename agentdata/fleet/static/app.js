@@ -784,6 +784,11 @@ function drawTrace(el, row) {
     return h ? String(Math.round(h * 1000) / 1000) : "0";
   }).join(" ") : "");
   attr(el, "data-ink-ticks", any ? ticks.join(" ") : "");
+  /* The same hour as counts, for a skin that plots it on its own paper (#253, the graph paper): the
+     peak, then a minute's count each, `!` on a minute that stopped for a person. */
+  setData(el, "trace", (tr.peak || 1) + "|" + (tr.n || []).map(function (n, j) {
+    return n + (needs[j] ? "!" : "");
+  }).join(" "));
 
   // The plain look: the same numbers, in the SVG's own units (a minute wide, a pixel tall).
   var line = el.querySelector(".tr-line");
@@ -868,6 +873,10 @@ function drawTile(el, row, approvals) {
   // comes from #94's fold rather than from anything this page works out for itself: the chip, the
   // toast and the preset must agree.
   toggle(el, "needs-human", !!row.needs_human);
+  // Finished, in the fold's own word (#253). The chip cannot say it: the fold calls an agent done
+  // only once nothing supervises it, and `shownState` draws every quiet unsupervised agent as
+  // idle. So a paper skin's green check has this to key on, and it is the fold's, not the page's.
+  toggle(el, "is-done", row.state === "done");
   // A rail's one stop for the keyboard is its face; the pane around it is not a second one.
   tabbable(el, shows.wide ? 0 : -1);
   // Every state carries its own age, in the chip, because a verdict with no date is the bug.

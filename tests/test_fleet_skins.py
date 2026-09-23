@@ -1,7 +1,7 @@
 """Tests for Desk on Windows skin tier (Issues #154, #155, #156, #157).
 
 Contracts:
-- list_skins() returns none, glass, voxel, farmstead with metadata and sizes.
+- list_skins() returns none, glass, voxel, farmstead, graph with metadata and sizes.
 - Size budget: each skin is under 150 KB.
 - Pixel art rule: 100% original hand-authored vector SVG pixel art; zero rasters (<image>, base64, png, jpg).
 - Composited panel check passes WCAG contrast floors for all skins.
@@ -21,10 +21,10 @@ SKINS_DIR = skins.SKINS_DIR
 
 
 def test_list_skins_returns_all_skins_with_budgets():
-    """list_skins() returns standard none plus glass, voxel, farmstead under 150 KB budget."""
+    """list_skins() returns standard none plus glass, voxel, farmstead, graph under 150 KB budget."""
     available = skins.list_skins()
     names = [s["name"] for s in available]
-    assert names == ["none", "glass", "voxel", "farmstead"]
+    assert names == ["none", "glass", "voxel", "farmstead", "graph"]
 
     for s in available:
         assert "title" in s and "why" in s and "base" in s and "variants" in s

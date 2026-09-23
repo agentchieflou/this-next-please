@@ -121,6 +121,23 @@ skin: a degraded mode of the one platform, not a second one.
   under a pane that has been idle a long time.
 - **G #253 — graph paper.** A grid on the page's own 28 px baseline, a mechanical pencil, ruled strokes snapped to the
   grid, and traces plotted on it.
+  - **Built (#253)**, in `static/ink/skins/graph.js` and `static/skins/graph/skin.css`, documented in
+    [skin-graph.md](skin-graph.md), tested by `tests/test_fleet_ink_graph.py`. What building it decided:
+    - **A heavy line every fifth square (140 px)**, the engineering pad's count: past four, squares stop being
+      countable at a glance. The grid starts at the viewport's top-left, where ruled strokes find it.
+    - **Two variants**, Engineering (light, the default) and Blueprint (dark, so the highlighter screens).
+    - **Three general table fields in the layer**, each optional and validated, because the marks are the layer's
+      strokes and no skin can change them from inside its module: `tools` tunes a tool's hand (the mechanical
+      pencil), a row's `snap` rules its straight strokes onto a grid, and a row's `leaves` overrides how it goes
+      (the name's highlight is taken up, never struck through the name).
+    - **Two things the page did not say**: `is-done` on a pane (the fold's *done*, which the chip draws as idle, so
+      `state-done` never reached a tile), and `data-trace` on the trace (its hour as data, for a skin that plots it).
+    - **A finding is a skill's STOP** (`li.friction` in the transcript): the desk shows no other finding.
+    - **Answered is a pressed choice.** The question's highlight leaves by the pen's strike and the choice is circled.
+    - **Not drawn yet**: the running underline growing with the turn and its pen-tip dot, and the count struck and
+      rewritten beside itself. They are C's mechanism for every paper skin, adopted when it lands.
+    - Found on the way and fixed: with any skin but glass chosen, an idle desk rewrote its skin and theme attributes
+      on every snapshot and retried a ground every 150 ms forever.
 - **H #254 — glass on three.js.** A real mesh ground, frosted panes that sample it through a blur pass, lit glints
   and shadows. The composited panel `theme.check` measures is read from the rendered frame.
   - **Built (#254)**, in `static/ink/skins/glass.js` and [skin-glass.md](skin-glass.md), tested by
@@ -164,12 +181,13 @@ skin: a degraded mode of the one platform, not a second one.
       the same shape the pen draws, it is two elements rather than sixty bars, it is coloured by the stylesheet
       (so a palette change needs no redraw), and `vector-effect: non-scaling-stroke` keeps it a hairline at any
       width.
-    - **The ground is the stylesheet's, drawn in the `ground` slot.** The layer reads `body`'s radial gradients
-      from the computed style and composites them in one shader quad, under every skin with no `ground` hook of
-      its own. So `app.js` no longer knows which skin has a ground. It drifts one frame a second, and is still
-      under reduced motion or reduced transparency. With ink off, the gradients are the ground, standing still.
-    - **The layer runs from the start** on a shell the gate turned on, because the ground is its to draw whatever
-      the skin. It no longer waits for a table, and its canvas stays on the page while it runs.
+    - **The ground is a skin's.** Where ink draws, glass's own `ground` hook (H, #254) is the ground in the
+      layer's `ground` slot, drifting and still under reduced motion. With ink off, the stylesheet's gradients
+      are the ground, standing still. So `app.js` no longer knows which skin has a ground. (A page ground in the
+      layer, read from `body`'s gradients, was built here and then dropped once glass's arrived: no other skin
+      paints one.)
+    - **A skin that plots the hour itself** says `series: false`, and the layer's trace rows stay off. The graph
+      paper (G, #253) does: it plots `data-trace`, the counts `drawTrace` still writes beside the series.
     - **Colours are parsed without a 2D context**: `rgb()`/`rgba()` by hand, anything else by three.js's
       `Color`. The one 2D context left on the page is three.js's own 1×1 `OffscreenCanvas` probe in
       `WebGLRenderer`. The vendored file is pinned, so a run-time test names that probe instead of patching it
