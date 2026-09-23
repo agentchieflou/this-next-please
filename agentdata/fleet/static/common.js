@@ -140,7 +140,7 @@ function patchList(parent, rows, keyOf, create, update) {
   var wrong = inDom.length !== out.length ||
               inDom.some(function (el, i) { return el !== out[i]; });
   if (wrong) {
-    var keyboard = document.activeElement;
+    var keyboard = /** @type {HTMLElement} */ (document.activeElement);
     out.forEach(function (el) { parent.appendChild(el); });
     if (keyboard && keyboard.isConnected && keyboard !== document.body) keyboard.focus();
   }
@@ -175,6 +175,7 @@ function applyTheme(cssVars, themeName) {
    the same art twice and letting the two copies drift. Switching variant therefore re-paints
    without a fetch, and only changing skin loads anything. */
 function applySkin(skinName) {
+  /** @type {HTMLLinkElement} */
   var link = document.head.querySelector("link[data-skin]");
   var parts = String(skinName || "").split(":");
   var family = parts[0];
