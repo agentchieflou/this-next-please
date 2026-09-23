@@ -110,8 +110,9 @@ function normals(P) {
 /* One path as the tool would lay it: the points it passes through (`P`), the distance along it at
    each (`D`), its length, and the triangle strip the shader draws -- a quad per step with a round
    cap at each end, carrying distance, side, half-width, width and pressure per vertex. */
-export function geometry(path, tool, seed) {
-  const T = TOOLS[tool];
+export function geometry(path, tool, seed, tune) {
+  // A table may tune a tool's hand (#253): its numbers over the tool's own, for this stroke only.
+  const T = tune ? Object.assign({}, TOOLS[tool], tune) : TOOLS[tool];
   let P = resample(path.smooth ? catmull(path.pts) : path.pts, 2);
   let D = cumd(P);
   const L0 = D[D.length - 1] || 1;
@@ -318,9 +319,10 @@ export function makePen(THREE, shared) {
 
   /* One stroke of one mark: its geometry in the anchor's coordinates, drawn up to `head`. */
   class Stroke {
-    constructor(tool, seed, dash) {
+    constructor(tool, seed, dash, tune) {
       this.tool = tool;
       this.T = TOOLS[tool];
+      this.tune = tune || null;
       this.seed = seed;
       this.dash = !!dash;
       this.head = 0;
@@ -353,7 +355,7 @@ export function makePen(THREE, shared) {
       const ef = this.erase === Infinity ? null : (this.erase < 0 ? -1 : this.erase / (this.len || 1));
       this.sig = sig;
       this.dead = false;
-      const g = geometry(path, this.tool, this.seed);
+      const g = geometry(path, this.tool, this.seed, this.tune);
       this.P = g.P; this.D = g.D; this.len = g.len; this.maxHalf = g.maxHalf; this.segD = g.segD; this.idx = g.index.length;
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(g.attrs.position, 3));

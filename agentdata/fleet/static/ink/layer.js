@@ -527,6 +527,13 @@ class Layer {
       if (shape.lines) sig += "|" + shape.lines.map(l => [l.x, l.y, l.w, l.h].map(v => v.toFixed(1)).join(",")).join(";");
       if (shape.to) sig += "|" + [shape.to.x, shape.to.y, shape.to.w, shape.to.h].map(v => v.toFixed(1)).join(",");
       if (m.strikeOf) sig += "|" + m.strikeOf.sig;
+      // A ruled mark sits on the viewport's grid, so where the anchor is against the grid is part
+      // of its shape: a move by a whole square moves the mesh, anything else rules it again.
+      const g = m.row && !m.strikeOf ? m.row.snap : 0;
+      if (g) {
+        shape.snap = { g, at: { x: r.left, y: r.top } };
+        sig += "|" + (((r.left % g) + g) % g).toFixed(1) + "," + (((r.top % g) + g) % g).toFixed(1);
+      }
       if (sig !== m.sig) {
         m.sig = sig;
         this.build(m, this.pathsOf(m, shape));
@@ -544,7 +551,8 @@ class Layer {
       if (target.shape === "write") return this.S.SHAPES.strike(shape);
       return this.S.strikeOver(target.strokes.map(s => s.bbox()), target.tool === "highlighter", m.seed);
     }
-    return (this.S.SHAPES[m.shape] || (() => []))(shape);
+    const paths = (this.S.SHAPES[m.shape] || (() => []))(shape);
+    return shape.snap ? this.S.snap(paths, m.shape, shape.box, shape.snap.at, shape.snap.g) : paths;
   }
 
   build(m, paths) {
@@ -552,7 +560,8 @@ class Layer {
     paths.forEach((p, i) => {
       let st = m.strokes[i];
       if (!st) {
-        st = m.strokes[i] = new this.pen.Stroke(m.tool, (m.seed * 31 + i * 7919) % 100003, m.row && m.row.dash);
+        const tune = this.table && this.table.tools ? this.table.tools[m.tool] : null;
+        st = m.strokes[i] = new this.pen.Stroke(m.tool, (m.seed * 31 + i * 7919) % 100003, m.row && m.row.dash, tune);
         if (m.state !== "queued" && m.state !== "drawing") st.done = true;
       }
       st.build(p, this.scene, this.inks[m.tool] || [0.3, 0.3, 0.3], this.mode);
@@ -1055,6 +1064,9 @@ class Layer {
         drawn: m.shape === "write" ? m.reveal : (len ? Math.round(head / len * 1000) / 1000 : 0),
         erased, visible: m.visible,
         box: { x: m.x, y: m.y, w: m.w, h: m.h },
+        // Each stroke's extent on the viewport, so a test can see where the ink is (#253).
+        bounds: m.strokes.filter(st => !st.dead).map(st => st.bbox()).filter(Boolean).map(b =>
+          ({ x: m.x + b.x, y: m.y + b.y, r: m.x + b.r, b: m.y + b.b })),
         clip: m.shape === "write" ? m.el.style.getPropertyValue("clip-path") : "",
       });
     }
