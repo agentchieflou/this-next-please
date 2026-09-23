@@ -271,6 +271,36 @@ def cmd_restart(a) -> int:
                                       "restarts": lock.get("restarts", 1)})
 
 
+def cmd_renew(a) -> int:
+    """Fresh sessions for the stale agents, when they are idle (#241). `--dry-run` only shows."""
+    from .fleet import opener as O
+    from .fleet import renew as RENEW
+
+    names = list(a.repo or [])
+    try:
+        out = RENEW.plan(names or None) if a.dry_run else RENEW.run(names or None, cfg=C.load())
+    except (RegistryError, OSError) as e:
+        return _refuse("ad-fleet renew", e)
+    if out["unknown_repos"]:
+        print(toon.encode({"meta": {"ok": False, "source": "ad-fleet renew",
+                                    "error": "no registered repository named "
+                                             + ", ".join(out["unknown_repos"]),
+                                    "hint": "`ad-fleet repo list` names the registered ones"}}))
+        return EXIT_REFUSED
+    rows = [[r["repo"], r["verdict"], r.get("done", "-") if not a.dry_run else "-",
+             r.get("reason") or "-", r.get("error") or r.get("why") or "-"]
+            for r in out["rows"]]
+    meta = {"dry_run": bool(a.dry_run), "stale": out["stale"], "now": out["now"],
+            "at_turn_end": out["at_turn_end"], "premium_turns": out["premium_turns"],
+            "installed": out["installed"].get("version", "")}
+    if out["at_turn_end"] and not a.dry_run and not O.running():
+        meta["note"] = ("no desk is running, and the desk is what renews an agent when its turn "
+                        "ends: `ad-fleet open`")
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet renew", **meta}}))
+    print(toon.table("agents", ["repo", "verdict", "done", "reason", "why"], rows))
+    return EXIT_OK
+
+
 def cmd_reset(a) -> int:
     """Stop and resume in one verb, because "it is stuck, make it go again" is one intention.
 
@@ -374,7 +404,9 @@ COLUMNS = ["repo", "agent", "ticket", "session", "phase", "turns", "premium_requ
            # What it is launched with, and what the last turn actually ran on: the two differ
            # whenever a tenant pins a model, and the configured value alone cannot tell you (#211).
            "model", "actual",
-           "denied_tools", "last_event", "pid", "accent"]
+           "denied_tools", "last_event", "pid", "accent",
+           # Is the session on the installed skills (#240)? `ad-fleet renew --dry-run` says why.
+           "stale"]
 
 
 def cmd_status(a) -> int:
@@ -433,6 +465,14 @@ def cmd_status(a) -> int:
             row["actual"] = SERVE.served_model(row["repo"]) or "-"
         except Exception:                      # noqa: BLE001 - a table never fails over a setting
             row["model"] = row["actual"] = "-"
+        # Is its session on the installed skills (#240)? `yes`, `-`, or `?` for an adopted one.
+        try:
+            from .fleet import events as E, fingerprint as FP
+
+            verdict = FP.staleness(E.read(row["repo"]))
+            row["stale"] = "?" if verdict["unknown"] else ("yes" if verdict["stale"] else "-")
+        except Exception:                      # noqa: BLE001 - a table never fails over a column
+            row["stale"] = "?"
         t_name = C.get(cfg, f"theme.projects.{row['repo']}") or C.get(cfg, "theme.default") or "none"
         try:
             t = theme.get(t_name, seed=row["repo"])
@@ -469,8 +509,9 @@ def _skills_warning() -> str:
         live = [r["repo"] for r in supervisor.status() if r.get("pid")]
         if not live:
             return ""
+        # Not `restart`: that resumes the same session, which keeps the skills it already read.
         return (f"the installed skills are older than the CLI, and {', '.join(live)} loaded them "
-                f"at session start: `ad-update --skills`, then `ad-fleet restart <repo>`")
+                f"at session start: `ad-update --skills`, then `ad-fleet renew` for fresh sessions")
     except Exception:                        # noqa: BLE001 - a status row must never fail the command
         return ""
 
@@ -1541,6 +1582,12 @@ def build_parser() -> argparse.ArgumentParser:
     send.add_argument("message")
     send.add_argument("--force", action="store_true", help="send even if the agent is over budget")
     send.set_defaults(fn=cmd_send)
+
+    fresh = sub.add_parser("renew", help="fresh sessions for the stale agents, when they are idle")
+    fresh.add_argument("repo", nargs="*", help="only these (default: every registered agent)")
+    fresh.add_argument("--dry-run", action="store_true",
+                       help="show which agents are stale, why, and what renewing would do; change nothing")
+    fresh.set_defaults(fn=cmd_renew)
 
     again = sub.add_parser("restart", help="resume a stopped agent on its own session")
     again.add_argument("repo")

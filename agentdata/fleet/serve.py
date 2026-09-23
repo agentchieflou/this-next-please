@@ -423,6 +423,16 @@ def fleet_snapshot() -> dict:
     except Exception:                    # noqa: BLE001 - never let this stop a dashboard drawing
         offers = {}
 
+    # What a new session would start on, read once per snapshot (#240). Every row is judged
+    # against it, so staleness is checked on every tick of every open desk -- at every turn.
+    from . import fingerprint as FP
+    from . import renew as RENEW
+
+    try:
+        installed = FP.current()
+    except Exception:                    # noqa: BLE001 - an unreadable skills folder is not a dead desk
+        installed = None
+
     for row in supervisor.status():
         name = row["repo"]
         repo = None                          # rebound per row: a lookup that raised used to leave
@@ -557,6 +567,10 @@ def fleet_snapshot() -> dict:
                      # `recent`, because forty events is not an hour -- a busy agent fills that
                      # in two minutes -- and no text comes with it.
                      "trace": TRACE.trace(stream),
+                     # Is this session on the installed skills and CLI (#240)? Derived from the
+                     # stream's own `started` events against what is on disk now, never stored.
+                     "stale": _stale_cell(stream, installed),
+                     "renew_queued": bool(RENEW.queued(name)),
                      "last_seq": stream[-1]["seq"] if stream else 0,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
                      # The project's own state (#131), beside the agent's. Named `polls` and not
@@ -585,6 +599,20 @@ def fleet_snapshot() -> dict:
             "desk": desk_state(), "theme": theme_state(),
             "preflight": C.get(C.load(), "fleet.preflight") is not False,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
+
+
+def _stale_cell(stream: list[dict], installed: dict | None) -> dict:
+    """`{stale, unknown, reason, skills_changed}` for the tile. Never raises: a desk draws regardless."""
+    from . import fingerprint as FP
+
+    if installed is None:
+        return {"stale": False, "unknown": True, "reason": "the installed skills could not be read",
+                "skills_changed": []}
+    try:
+        verdict = FP.staleness(stream, installed)
+    except Exception:                    # noqa: BLE001 - see the docstring
+        return {"stale": False, "unknown": True, "reason": "", "skills_changed": []}
+    return {k: verdict[k] for k in ("stale", "unknown", "reason", "skills_changed")}
 
 
 def _add_siblings(rows: list[dict]) -> None:
@@ -891,6 +919,28 @@ def poll_tick(now: float | None = None) -> list[dict]:
 
         debug_exc("fleet poll tick")
         return []
+
+
+RENEW_EVERY_S = 2.0
+
+
+def renew_tick(now: float | None = None) -> list[dict]:
+    """Carry out the renews queued for a turn's end (#241), at most once every `RENEW_EVERY_S` for
+    the whole process -- every open window runs this loop, and one of them doing it is enough."""
+    now = time.time() if now is None else float(now)
+    with _desk_lock:
+        bag = _fresh()
+        if now - bag.get("last_renew", 0.0) < RENEW_EVERY_S:
+            return []
+        bag["last_renew"] = now
+    from .. import config as C
+    from . import renew as RENEW
+
+    try:
+        cfg = C.load()
+    except Exception:                        # noqa: BLE001 - a broken config must not stop the stream
+        return []
+    return RENEW.carry_out(cfg=cfg)
 
 
 def fold_due(now: float | None = None) -> bool:
@@ -1662,6 +1712,16 @@ def act(what: str, body: dict) -> dict:
         # reaches it. A click, a copy into `.agent/in/<KEY>/`, an `inbox.attached` event -- the
         # Downloads tray's rules, with `source: "drop"`.
         return _attach_bytes(body)
+    if what == "renew":
+        # Stale only, when idle, previewed first (#241). The page asks with `dry_run` and shows the
+        # rows before it asks again without; the CLI verb calls the same two functions.
+        from .. import config as C
+        from . import renew as RENEW
+
+        names = [str(n) for n in (body.get("repos") or []) if str(n)]
+        if body.get("dry_run"):
+            return RENEW.plan(names or None)
+        return RENEW.run(names or None, cfg=C.load())
     if what == "answer":
         # Every answer the operator typed, in one resume. `send` is the transport, because a reply
         # to a stopped agent has always been a respawn with `--resume` -- there is no pipe to an
@@ -1898,6 +1958,9 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             if seen_polls is None:
                 seen_polls = _poll_digests()
             poll_tick()
+        # Not behind `polls`: a renew queued for a turn's end (#241) is the fleet's own work, and a
+        # desk with project polling switched off must still carry it out.
+        renew_tick()
         if time.time() - last_sweep >= notify_every:
             last_sweep = time.time()
             for item in _sweep(url):

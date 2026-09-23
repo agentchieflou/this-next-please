@@ -71,10 +71,15 @@ Three sources feed one stream.
 **`started`** — `ad-fleet start` or `ad-fleet send` launched a process. The stream begins here, so
 "never launched" is distinguishable from "launched and silent". Grown at schema 1 with `new: true`
 for unresumed/fresh starts, `session` populated on adopted starts when supplied by the store, and
-optional `answers: [ids]` and `scope: n` from the handoff pipeline (#162).
+optional `answers: [ids]` and `scope: n` from the handoff pipeline (#162). Since #239 every start
+carries `install: {version, commit, skills}`, which is what the session began on. `skills` is a hash
+of every installed `SKILL.md`'s text. A resume also carries `origin_install`, the install its session
+*began* on, looked up when it resumed so that it survives the stream rolling over. An adopted
+session records `install: null`, because nobody knows what it started on. The desk compares these
+with what is installed now to say which sessions are stale (`docs/plan-fresh.md`).
 
 ```json
-{"schema": 1, "seq": 1, "ts": "2026-01-04T09:30:02", "repo": "luna", "ticket": "RDSD-118", "kind": "started", "data": {"pid": 24188, "prompt": "Work RDSD-118 end to end.", "resumed": false, "new": true, "session": "", "answers": ["q1"], "scope": 3}}
+{"schema": 1, "seq": 1, "ts": "2026-01-04T09:30:02", "repo": "luna", "ticket": "RDSD-118", "kind": "started", "data": {"pid": 24188, "prompt": "Work RDSD-118 end to end.", "resumed": false, "new": true, "session": "", "install": {"version": "0.14.0", "commit": "ca45368e1f02", "skills": "5d1e0c9a7b3f"}, "answers": ["q1"], "scope": 3}}
 ```
 
 **`said`** — `ad-fleet say` typed a line into the console the fleet opened for this checkout (#190).
