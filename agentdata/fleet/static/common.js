@@ -160,10 +160,10 @@ function applyTheme(cssVars, themeName) {
       if (cssVars[k]) root.style.setProperty(k, cssVars[k]);
       else root.style.removeProperty(k);
     });
-    root.setAttribute("data-theme", "custom");
+    attr(root, "data-theme", "custom");
   } else {
     tokens.forEach(function (k) { root.style.removeProperty(k); });
-    root.removeAttribute("data-theme");
+    attr(root, "data-theme", null);
   }
 }
 
@@ -179,8 +179,8 @@ function applySkin(skinName) {
   var variant = parts[1] || "";
   if (!family || family === "none") {
     if (link) link.remove();
-    document.body.removeAttribute("data-skin");
-    document.body.removeAttribute("data-skin-variant");
+    attr(document.body, "data-skin", null);
+    attr(document.body, "data-skin-variant", null);
     return;
   }
   if (!link) {
@@ -191,9 +191,11 @@ function applySkin(skinName) {
   }
   var href = q("/static/skins/" + family + "/skin.css");
   if (link.href !== href) link.href = href;   // re-assigning re-fetches and flashes the page
-  document.body.setAttribute("data-skin", family);
-  if (variant) document.body.setAttribute("data-skin-variant", variant);
-  else document.body.removeAttribute("data-skin-variant");
+  // Written only when they change (the render contract, `attr`): every refresh applies the skin
+  // again, and an idle desk with a skin chosen wrote these twice a pass -- which the ink layer,
+  // following `data-skin`, answered with a frame each time (#255).
+  attr(document.body, "data-skin", family);
+  attr(document.body, "data-skin-variant", variant || null);
 }
 
 /* ------------------------------------------------------------ #219: how long a gesture took

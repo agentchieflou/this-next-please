@@ -793,7 +793,9 @@ function startGround() {
      timed one behind it for the case where the link was already loaded. */
   if (!groundMesh && (document.body.dataset.skin || "")) {
     var link = document.head.querySelector("link[data-skin]");
-    if (link && !link.dataset.waiting) {
+    // A sheet that has loaded has been read: a skin with no mesh (farmstead, voxel) has none to
+    // wait for, and waiting again on every refresh wrote `data-waiting` on an idle desk (#255).
+    if (link && !link.sheet && !link.dataset.waiting) {
       link.dataset.waiting = "1";
       link.addEventListener("load", function () {
         delete link.dataset.waiting;
