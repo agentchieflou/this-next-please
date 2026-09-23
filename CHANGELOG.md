@@ -4,6 +4,34 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.15.2
+
+**A visual `ad-pbiviz import` adds opens in Desktop.** Desktop refuses a report whose `report.json` breaks its
+schema, and import broke it. Its `resourcePackages` entry carried a `path`, which the report schema does not allow,
+and no `items`, which it requires. It also listed the visual in `publicCustomVisuals`, the schema's list of AppSource
+visuals, and copied the `.pbiviz` under `StaticResources/RegisteredResources/`. Fifteen Desktop-saved PBIP reports
+(report schemas 1.1.0 to 3.3.0) agree on what Desktop writes instead, and import now writes the same:
+- the package's own files under `CustomVisuals/<guid>/`: `package.json` and `resources/<guid>.pbiviz.json`;
+- one entry, `{"name": "<guid>", "type": "CustomVisual", "items": [{"name": "<guid>.pbiviz.json", "path":
+  "<guid>.pbiviz.json", "type": "CustomVisualMetadata"}]}`, in place of an earlier import's;
+- nothing in `publicCustomVisuals`.
+
+Around it:
+- **`ad-pbiviz package` builds the layout `pbiviz package` builds**, because import installs a package's files as
+  they are. It still compiles nothing, so the package's code is empty. Import refuses a package without that
+  layout, such as one an earlier `ad-pbiviz package` wrote, before it writes anything.
+- **A test validates what import writes against Microsoft's report schema 3.1.0.** The schema is vendored under
+  `agentdata/pbip/schema/fabric/`, together with the three schemas its `$ref`s reach, so the test needs no network.
+  `jsonschema` joins the `dev` extra.
+- **`ad-pbip check` and `ad-pbip catalog describe`** read the visual's roles from `CustomVisuals/<guid>/`, and still
+  from where the old import put the package.
+- `docs/windows-verification.md` §17 is the laptop run: import, open in Desktop, save, and diff.
+
+**On update:** the two standard commands; developing this repo, `pip install -e ".[dev]"` again for `jsonschema`.
+Run `ad-pbiviz package` again for a visual packaged before this version, then `ad-pbiviz import`. In a report the
+old import wrote, importing again replaces its entry; delete the GUID it added to `publicCustomVisuals` yourself,
+since import never edits that list.
+
 ## 0.15.1
 
 **A custom visual that viewers cannot see never ships again.** One did: a visual of our own worked in Desktop,

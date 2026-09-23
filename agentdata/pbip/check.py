@@ -204,9 +204,10 @@ def check_report(report: P.Report, model: Model, facts: dict | None = None) -> l
 # (microsoft/json-schemas, fabric/item/report/definition/report/3.1.0) keeps three registries:
 # `publicCustomVisuals` names AppSource visuals, `organizationCustomVisuals` the organizational
 # store's, and a `resourcePackages` entry of type `CustomVisual` a private visual imported from a
-# .pbiviz file. Only a private visual travels inside the report (Desktop writes it under
-# `CustomVisuals/`, `ad-pbiviz import` under `StaticResources/RegisteredResources/`): Power BI
-# fetches AppSource and store visuals itself, so asking them for a package is a false error.
+# .pbiviz file. Only a private visual travels inside the report (Desktop and `ad-pbiviz import`
+# write it under `CustomVisuals/<guid>/`; `ad-pbiviz import` once copied the .pbiviz under
+# `StaticResources/RegisteredResources/`, which still counts): Power BI fetches AppSource and store
+# visuals itself, so asking them for a package is a false error.
 ORG, FILE, APPSOURCE = "organizational store", "file", "AppSource"
 
 # `pbi_custom_visuals` (AGENTS.md): what the tenant renders for the report's viewers, i.e. the

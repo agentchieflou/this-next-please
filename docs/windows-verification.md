@@ -445,6 +445,34 @@ ad-pbip model optimize --measure "Margin %" --pid <pid>
 ```
 Pass: `model apply` executes declarative ops over the port through TE2 `-S` or falls back to TMDL file editing with no `lineageTag` written; `--save` triggers UIA session save and waits for Desktop-serialised TMDL to settle; `model audit` returns actionable `fix` snippets; `audit --copilot` outputs a scored checklist; `model optimize` verifies results match before keeping rewrites and rolls back on mismatch.
 
+## 17. Custom visual: `ad-pbiviz import`, then Desktop opens it
+`ad-pbiviz import` is for trying a visual in Desktop, never for delivering one (skill `pbi-custom-visual`). It
+writes what Desktop saves for a visual imported from a file: the package's files under the report's
+`CustomVisuals\<guid>\`, and one `CustomVisual` entry in `definition\report.json`. The entry it wrote before broke
+the report schema, and Desktop refuses such a report. Use a scratch copy of a report Desktop saved as PBIR:
+```powershell
+Copy-Item -Recurse <report repo> <scratch dir>; cd <scratch dir>
+git init -q; git add -A; git commit -qm "before import"    # skip in a copy that is already a clean git checkout
+ad-pbiviz new cvcheck                                      # one word: the visual's GUID is built from it
+ad-pbiviz package cvcheck
+ad-pbiviz import cvcheck --pbip . --page "<a page name>"
+git status --short -uall    # the report: definition/report.json, CustomVisuals/cvcheck_<n>/ (2 files), one visual.json
+ad-pbip check .             # no custom-visual-guid-unregistered, no custom-visual-package-missing
+git add -A; git commit -qm "after import"
+# open the scratch .pbip in Desktop, then File > Save
+git diff --stat; git diff -- "*.Report/definition/report.json"
+```
+Pass: Desktop opens the report with no error dialog, the visual's icon is in the *Visualizations* pane, and its box
+sits on the page; after the save, the `CustomVisual` entry in `report.json` is unchanged. `ad-pbiviz package`
+compiles nothing, so what the box shows is not part of the pass. For a box that draws, build the package with
+Microsoft's tools (Node and `pbiviz`, see `ad-pbiviz doctor`): `pbiviz new cvreal` in `visuals\`, fill `author`
+(name and email), `description` and `supportUrl` in its `pbiviz.json` (`pbiviz package` refuses without them), run
+`npm install` and `pbiviz package` in `visuals\cvreal`, then `ad-pbiviz import cvreal --pbip . --page "<page>"`.
+A `custom-visual-tenant-*` row from `check` is the delivery gate working, not a failure. Paste: every Desktop
+dialog verbatim (a schema error names the file and the property), the `import` row, and the whole `git diff`
+after the save. Anything Desktop changes under `CustomVisuals\` or in that entry is what `import` should have
+written: it becomes a fix.
+
 
 ## 10. Deploy loop (`ad-pbi deploy` → `refresh` → `verify`)
 ```powershell
@@ -476,6 +504,7 @@ Pass: `deploy` creates `.agent/out/deploy-<ts>.xmla` on dry-run and logs output 
 | `desktop` finds nothing | `pbip/desktop.py` | PowerShell CIM quoting, port file encoding, Store-install paths |
 | dscmd rejects `-f` / needs `-d` | `pbip/dax.run_dax`, `steps/powerbi.py` caps probe | flag detection, catalog discovery via `$SYSTEM.DBSCHEMA_CATALOGS` |
 | visual-query wrong rows | `pbip/dax.visual_query` | filter translation, aggregation mapping, hierarchy level column |
+| Desktop refuses a report after `ad-pbiviz import`, or its save changes the `CustomVisual` entry or `CustomVisuals\` | `pbiviz/core.import_custom_visual`, `package_visual` | the entry's shape (`tests/pbir_schema.py` checks it against the vendored report schema) or the package layout |
 | reconcile class wrong | `uat/reconcile.classify` | rule order, coverage semantics |
 | `JSONDecodeError: Unexpected UTF-8 BOM` or garbled text from a file PowerShell wrote | `agentdata/textio.py` | every reader goes through `textio.read_text` (BOM / UTF-16 sniffing); Luna uses `--set` and `ad-state` instead of writing files |
 | pncli says `required option '--x <y>' not specified` | `connectors/pncli.usage_hint`, `cli.py` | pncli is commander.js: arguments are named options. The hint names the exact re-run; confirmed verbs get their own `ad-pncli` subcommand |

@@ -138,10 +138,18 @@ def test_package_visual_and_bump(tmp_path):
     pkg_path = res["package_path"]
     assert os.path.exists(pkg_path)
 
-    # Inspect zip contents
+    # the layout `pbiviz package` builds: package.json names resources/<guid>.pbiviz.json, which carries the rest
+    guid = res["guid"]
     with zipfile.ZipFile(pkg_path, "r") as z:
-        assert "package.json" in z.namelist()
-        assert "resources/capabilities.json" in z.namelist()
+        assert sorted(z.namelist()) == ["package.json", f"resources/{guid}.pbiviz.json"]
+        package_json = json.loads(z.read("package.json"))
+        pbiviz_json = json.loads(z.read(f"resources/{guid}.pbiviz.json"))
+    assert package_json["resources"] == [{"resourceId": "rId0", "sourceType": 5, "file": f"resources/{guid}.pbiviz.json"}]
+    assert package_json["metadata"] == {"pbivizjson": {"resourceId": "rId0"}}
+    assert package_json["version"] == package_json["visual"]["version"] == "1.0.1.0"
+    assert pbiviz_json["visual"]["guid"] == guid
+    assert [r["name"] for r in pbiviz_json["capabilities"]["dataRoles"]] == ["category", "measure"]
+    assert pbiviz_json["content"]["iconBase64"].startswith("data:image/png;base64,")
 
     # Minor bump
     res2 = PV.package_visual("heatmap", bump="minor", base_dir=str(tmp_path))
@@ -150,9 +158,19 @@ def test_package_visual_and_bump(tmp_path):
 
 # ---------------- Import, Catalog & Visual Query ----------------
 
-def test_import_custom_visual(tmp_path):
-    """import_custom_visual registers package in report.json and instantiates visual on page."""
-    # Copy fixture report to tmp_path
+def _desktop_entry(guid):
+    """The `resourcePackages` entry Desktop saves for a visual imported from a file, as in every Desktop-saved PBIP
+    report checked (report schemas 1.1.0 to 3.3.0): one item, the package's pbiviz.json, relative to `resources/`."""
+    return {"name": guid, "type": "CustomVisual",
+            "items": [{"name": f"{guid}.pbiviz.json", "path": f"{guid}.pbiviz.json", "type": "CustomVisualMetadata"}]}
+
+
+def test_import_custom_visual(tmp_path, monkeypatch):
+    """import_custom_visual saves the visual as Desktop saves "Import a visual from a file", and places it on the page.
+
+    Desktop extracts the .pbiviz into CustomVisuals/<guid>/ and registers it as a `CustomVisual` resource package.
+    It leaves `publicCustomVisuals` alone: the report schema defines that as the AppSource visuals."""
+    monkeypatch.chdir(tmp_path)
     dest_rep = tmp_path / "Native.Report"
     shutil.copytree(FIXTURE_REPORT, dest_rep)
 
@@ -164,14 +182,18 @@ def test_import_custom_visual(tmp_path):
     assert imp_res["ok"] is True
     guid = imp_res["guid"]
 
-    # Check report.json registration
+    # report.json: the resource package, and nothing in the AppSource list
     rj = json.loads((dest_rep / "definition" / "report.json").read_text(encoding="utf-8"))
-    assert guid in rj.get("publicCustomVisuals", [])
-    assert any(rp.get("name") == guid for rp in rj.get("resourcePackages", []))
+    assert "publicCustomVisuals" not in rj
+    assert rj["resourcePackages"] == [_desktop_entry(guid)]
 
-    # Check package on disk
-    pkg_file = dest_rep / "StaticResources" / "RegisteredResources" / f"{guid}.pbiviz"
-    assert pkg_file.exists()
+    # the package's own files, under CustomVisuals/<guid>/ and nowhere else
+    folder = dest_rep / "CustomVisuals" / guid
+    assert sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file()) == \
+        ["package.json", f"resources/{guid}.pbiviz.json"]
+    package_json = json.loads((folder / "package.json").read_text(encoding="utf-8"))
+    assert package_json["resources"][0]["file"] == f"resources/{guid}.pbiviz.json"
+    assert not list(dest_rep.rglob("*.pbiviz"))
 
     # Check visual instance
     vis_file = dest_rep / "definition" / "pages" / "overview" / "visuals" / imp_res["visual_id"] / "visual.json"
@@ -179,6 +201,118 @@ def test_import_custom_visual(tmp_path):
     v_data = json.loads(vis_file.read_text(encoding="utf-8"))
     assert v_data["visual"]["visualType"] == guid
     assert "category" in v_data["visual"]["projections"]
+
+
+# A report.json as Desktop saves one with no custom visual, declaring report schema 3.1.0. The Native fixture's
+# report.json predates that schema and does not validate against it.
+DESKTOP_REPORT_3_1 = {
+    "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/3.1.0/schema.json",
+    "themeCollection": {"baseTheme": {"name": "CY24SU10", "type": "SharedResources",
+                                      "reportVersionAtImport": {"visual": "1.8.50", "report": "2.0.50", "page": "1.3.50"}}},
+    "resourcePackages": [{"name": "SharedResources", "type": "SharedResources",
+                          "items": [{"name": "CY24SU10", "path": "BaseThemes/CY24SU10.json", "type": "BaseTheme"}]}],
+    "settings": {"useStylableVisualContainerHeader": True, "exportDataMode": "AllowSummarized"},
+}
+
+
+def test_imported_report_json_validates_against_report_schema_3_1_0(tmp_path, monkeypatch):
+    """Desktop refuses to open a report whose report.json breaks its schema (Microsoft's PBIP docs list that among
+    the blocking errors). The entry import used to write broke report schema 3.1.0 twice: a `ResourcePackage`
+    takes no `path`, and requires `items`."""
+    import pbir_schema as S  # jsonschema, from the dev extra
+    monkeypatch.chdir(tmp_path)
+    dest_rep = tmp_path / "Native.Report"
+    shutil.copytree(FIXTURE_REPORT, dest_rep)
+    rj_path = dest_rep / "definition" / "report.json"
+    rj_path.write_text(json.dumps(DESKTOP_REPORT_3_1, indent=2), encoding="utf-8")
+    assert S.errors(DESKTOP_REPORT_3_1) == []
+
+    PV.scaffold_visual("schema-check", base_dir=str(tmp_path))
+    guid = PV.import_custom_visual("schema-check", str(dest_rep), page="Overview", base_dir=str(tmp_path))["guid"]
+
+    written = json.loads(rj_path.read_text(encoding="utf-8"))
+    assert S.errors(written) == []
+    assert written["resourcePackages"] == DESKTOP_REPORT_3_1["resourcePackages"] + [_desktop_entry(guid)]
+
+    # the same schema refuses what import used to write
+    old = {**DESKTOP_REPORT_3_1, "publicCustomVisuals": [guid], "resourcePackages": [
+        *DESKTOP_REPORT_3_1["resourcePackages"],
+        {"name": guid, "type": "CustomVisual", "path": f"StaticResources/RegisteredResources/{guid}.pbiviz"}]}
+    problems = S.errors(old)
+    assert len(problems) == 2 and all(p.startswith("$.resourcePackages[1]: ") for p in problems), problems
+    assert any("'items'" in p for p in problems) and any("'path'" in p for p in problems), problems
+
+
+def test_importing_again_replaces_the_entry_and_the_files(tmp_path, monkeypatch):
+    """A second import (a newer build, or a report the old import wrote) leaves one entry, in Desktop's shape, and
+    only the files of the package it installed."""
+    monkeypatch.chdir(tmp_path)
+    dest_rep = tmp_path / "Native.Report"
+    shutil.copytree(FIXTURE_REPORT, dest_rep)
+    PV.scaffold_visual("reimport", base_dir=str(tmp_path))
+    guid = PV.import_custom_visual("reimport", str(dest_rep), page="Overview", base_dir=str(tmp_path))["guid"]
+
+    rj_path = dest_rep / "definition" / "report.json"
+    rj = json.loads(rj_path.read_text(encoding="utf-8"))
+    rj["resourcePackages"] = [{"name": guid, "type": "CustomVisual",
+                               "path": f"StaticResources/RegisteredResources/{guid}.pbiviz"}]
+    rj_path.write_text(json.dumps(rj), encoding="utf-8")
+    stale = dest_rep / "CustomVisuals" / guid / "resources" / "stale.pbiviz.json"
+    stale.write_text("{}", encoding="utf-8")
+
+    PV.import_custom_visual("reimport", str(dest_rep), page="Overview", base_dir=str(tmp_path))
+    assert json.loads(rj_path.read_text(encoding="utf-8"))["resourcePackages"] == [_desktop_entry(guid)]
+    assert not stale.exists()
+
+
+def test_import_refuses_a_package_that_names_no_pbiviz_json(tmp_path, monkeypatch):
+    """An item whose file is missing hands Desktop a report it cannot load. So a package not laid out the way
+    `pbiviz package` builds it, like the one `ad-pbiviz package` used to write, stops the import before any write."""
+    monkeypatch.chdir(tmp_path)
+    dest_rep = tmp_path / "Native.Report"
+    shutil.copytree(FIXTURE_REPORT, dest_rep)
+    PV.scaffold_visual("old-layout", base_dir=str(tmp_path))
+    v_dir = tmp_path / "old-layout"
+    (v_dir / "dist").mkdir()
+    with zipfile.ZipFile(v_dir / "dist" / "old-layout.1.0.0.0.pbiviz", "w") as z:
+        z.write(v_dir / "pbiviz.json", arcname="package.json")
+        z.write(v_dir / "capabilities.json", arcname="resources/capabilities.json")
+    before = (dest_rep / "definition" / "report.json").read_bytes()
+
+    with pytest.raises(PV.PbivizError, match="pbiviz package") as ei:
+        PV.import_custom_visual("old-layout", str(dest_rep), page="Overview", base_dir=str(tmp_path))
+    assert "ad-pbiviz package old-layout" in ei.value.hint
+
+    (v_dir / "dist" / "old-layout.1.0.0.0.pbiviz").write_bytes(b"not a zip")
+    with pytest.raises(PV.PbivizError, match="not a zip file"):
+        PV.import_custom_visual("old-layout", str(dest_rep), page="Overview", base_dir=str(tmp_path))
+    assert (dest_rep / "definition" / "report.json").read_bytes() == before
+    assert not (dest_rep / "CustomVisuals").exists()
+
+
+def test_capabilities_still_read_where_import_used_to_put_the_package(tmp_path):
+    """`ad-pbip check` still reads the roles of a report the old import wrote: a .pbiviz of the old layout under
+    StaticResources/RegisteredResources/."""
+    PV.scaffold_visual("legacy", base_dir=str(tmp_path))
+    v_dir = tmp_path / "legacy"
+    guid = json.loads((v_dir / "pbiviz.json").read_text(encoding="utf-8"))["visual"]["guid"]
+    reg = tmp_path / "Old.Report" / "StaticResources" / "RegisteredResources"
+    reg.mkdir(parents=True)
+    with zipfile.ZipFile(reg / f"{guid}.pbiviz", "w") as z:
+        z.write(v_dir / "pbiviz.json", arcname="package.json")
+        z.write(v_dir / "capabilities.json", arcname="resources/capabilities.json")
+    caps = PV.read_visual_capabilities(guid, str(tmp_path / "Old.Report"))
+    assert [r["name"] for r in caps["dataRoles"]] == ["category", "measure"]
+
+
+def test_catalog_describe_finds_an_imported_visual_under_the_working_directory(tmp_path, monkeypatch):
+    """`ad-pbip catalog describe <guid>` names no report folder: it finds CustomVisuals/<guid>/ below the cwd."""
+    monkeypatch.chdir(tmp_path)
+    dest_rep = tmp_path / "Native.Report"
+    shutil.copytree(FIXTURE_REPORT, dest_rep)
+    PV.scaffold_visual("cwd-funnel", base_dir=str(tmp_path))
+    guid = PV.import_custom_visual("cwd-funnel", str(dest_rep), page="Overview", base_dir=str(tmp_path))["guid"]
+    assert [r[0] for r in CAT.describe_visual(guid).rows] == ["category", "measure"]
 
 
 def test_catalog_describe_custom_visual(tmp_path):
@@ -233,8 +367,7 @@ def test_check_custom_visual_package_missing(tmp_path):
     imp_res = PV.import_custom_visual("sparkline", str(dest_rep), page="Overview", base_dir=str(tmp_path))
     guid = imp_res["guid"]
 
-    pkg_file = dest_rep / "StaticResources" / "RegisteredResources" / f"{guid}.pbiviz"
-    pkg_file.unlink()
+    shutil.rmtree(dest_rep / "CustomVisuals" / guid)
 
     rep = P.load_report(str(dest_rep))
     mod = N.load_model(FIXTURE_MODEL)
@@ -339,7 +472,7 @@ def _registered_as(dest_rep, guid, channel, disabled=False):
     else:
         rj["organizationCustomVisuals"] = [{"name": guid, "path": f"orgstore/{guid}", "disabled": disabled}]
     rj_path.write_text(json.dumps(rj), encoding="utf-8")
-    (dest_rep / "StaticResources" / "RegisteredResources" / f"{guid}.pbiviz").unlink()
+    shutil.rmtree(dest_rep / "CustomVisuals" / guid)
 
 
 def _cv(dest_rep, facts=None):
