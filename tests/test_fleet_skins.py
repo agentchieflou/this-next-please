@@ -89,7 +89,10 @@ def test_every_skin_variant_passes_the_contrast_rule_on_its_own_ground():
         panels = skins.composited_panels(spec)
         assert panels, f"{skin_name}:{variant} declares no composited panel"
         for panel in panels:
-            theme.check(base_palette, composited_panel=panel, skin=f"{skin_name}:{variant}")
+            # `inks` (#248): a paper skin's inks on its paper. None of today's variants draws with
+            # ink, so this is the hook the notebook and its siblings (#249-#253) fill in.
+            theme.check(base_palette, composited_panel=panel, skin=f"{skin_name}:{variant}",
+                        inks=spec.get("inks"))
 
 
 def test_glass_declares_the_range_its_own_mesh_composites_to():

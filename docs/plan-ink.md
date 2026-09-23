@@ -62,6 +62,55 @@ skin: a degraded mode of the one platform, not a second one.
   by hand. The WebGL rows of `desk-engines.md` are filled from the results. **This is the gate**: a shell that
   reports software or no WebGL gets the fallback.
 - **B #248 — the ink layer.** Everything in §The model. Nothing visible changes until a skin uses it.
+  - **Built (#248)**, in `static/ink/` and [desk-ink.md](desk-ink.md), tested by `tests/test_fleet_ink.py`. What
+    building it decided, each undone by a sentence from the operator:
+    - **The verdict is two words on `<body>`**, written by the server as it serves `/`: `data-ink-shell` and
+      `data-ink-probe` (`probe.classify` of that shell's record, or `unmeasured`). It is not a field of
+      `/api/fleet` or the desk frame. So the gate is decided when the module runs, with no second request, nothing
+      drawn and taken back, and nothing added to `app.js`. The page turns ink on for `hardware` alone, which is
+      `probe.works`.
+    - **A window's shell is the name the probe filed it under**: `shell=`, else `w=`, else `browser`. A window opened
+      under its own name reads its own record, or names one with `shell=`.
+    - **`?ink=on` is the test override** (`Ink.verdict.source` is `override`, and nothing is written), and `?ink=off`
+      forces the fallback.
+    - **Lazy in two steps.** Every desk loads `ink/ink.js` (6 KB gzipped), which holds the gate, `window.Ink`, the
+      fallback and the choosing of a skin module. `layer.js`, `shapes.js`, `pen.js` and three.js are fetched only when the gate is on **and** a
+      skin sets a table. So until the notebook ships, no desk fetches three.js. The WebGL context is asked for
+      before three.js is fetched.
+    - **A lost context, no context, or three.js failing** turns ink off for the rest of the page. It is not brought
+      back on `webglcontextrestored`.
+    - **The fallback is a constructed stylesheet** generated from the same table, one rule per row under
+      `body.ink-off :is(<selector>)`. It needs no DOM write and no observer. The plain look for each shape is the
+      table in desk-ink.md: outline, tint, underline, line-through, a margin bar.
+    - **Lanes are `.tile[data-repo]`**, and everything outside a pane is the header lane. Rows are queued in table
+      order.
+    - **Leaving:** pencil is erased and everything else is struck with the pen. One struck mark is kept per row and
+      element, so the history shows without piling up. An element that leaves the page takes its marks with it. A
+      match that returns before its eraser starts keeps its mark, and a mark that goes before its pen starts is
+      never drawn. A mark on a hidden pane or a rail is finished at once.
+    - **Geometry is in the anchor's own coordinates**, so a move moves meshes and only a resize rebuilds them. A
+      `ResizeObserver` redraws in the frame the browser laid out, which is how marks follow a gutter drag with no
+      DOM write. Each mark is clipped to its scrolling ancestors.
+    - **The handwriting reveal is the layer's one page write**: `clip-path` on the element being written, while it
+      is written. It is taken back when the table changes or the layer stops.
+    - **A minimal paper material** (a colour with the tooth) exists so the highlighter can multiply into light
+      paper and screen onto dark. With no paper, the highlighter is a translucent swipe. The notebook's rules and
+      margin are C's.
+    - **Inks come from `--ink-<tool>`, then a palette token**: pencil `--muted`, pen `--accent`, red and marker
+      `--human`, green `--done`, highlighter `--waiting`.
+    - **The prototype's lit hand is ported**, one per lane. It is off under reduced motion, and a table can turn it
+      off with `hand: false`.
+    - **`theme.check(..., inks=)`** is rule 5: each ink needs 3:1 on the paper, and text needs 4.5:1 through the
+      highlighter's 38% tint. The pairs come with C–G's skins.
+    - **A skin is one module**, `static/ink/skins/<name>.js`, named as in `skins.py`. It exports its `marks` (a
+      function of the variant, or rows), its `options`, and the material hooks the layer calls: `ground`, `paper`,
+      `frame(el, box)` per pane, `tick(dt)`, `dispose`, and `sampleGround` for a frosted pane. Each hook gets
+      `{THREE, scene, camera, tokens, api}`. The server lists the modules on `<body>`. `ink.js` follows
+      `body[data-skin]`, which `applySkin` writes when the config's skin changes, so the settings page chooses an
+      ink skin the way it chooses glass. No skin patches the layer. `skins/example.js` is the pattern, and only
+      the tests use it.
+    - Not in B: the running pen's dot and its underline growing with the turn, the header count struck and
+      rewritten, and the notebook's paper. All three are C's, and they need the state grammar.
 - **C #249 — notebook (light).** The prototype on the real desk, with the state grammar below. An answered question
   strikes the *question*, never the agent's name, which fixes the flaw both prototypes had.
 - **D #250 — notebook, dark.** Charcoal stock and gel inks. The highlighter screens instead of multiplying. Chosen
