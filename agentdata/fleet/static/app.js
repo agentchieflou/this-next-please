@@ -12,6 +12,7 @@
 var tiles = new Map();          // repo name -> {el, seq}
 var pendingRefresh = null;
 var source = null;
+var arrivedSinceLastPlace = false;   // a pane was made since the order was last put right (#233)
 
 /* #232: one arrangement. The page used to be four, chosen by `?layout=` -- `column`, `grid`,
    `roles` and `screens` -- and all four wrote one window record, which is how a `zoomed` the grid
@@ -1396,6 +1397,7 @@ function patchRow(row, index) {
     var grid = document.getElementById("grid");
     if (grid) grid.appendChild(el);
     watchPane(el);                               // #233: its width decides what it draws
+    arrivedSinceLastPlace = true;                // and where it first lands is not a move
     entry = { el: el, seq: 0 };
     tiles.set(row.repo, entry);
     (row.recent || []).forEach(function (ev) { append(el, ev); entry.seq = ev.seq; });
@@ -3150,7 +3152,15 @@ function reorderDomTiles() {
   // `appendChild` alone teleports, and a grid reshuffling while agents talk reads as flicker, not
   // movement -- the operator cannot see it is the same tile, lower down. Measured only when
   // something is moving, and not at all when the viewer has asked for less of it.
-  var first = (needsMove && !reduceMotion() && !inViewTransition) ? measureTiles() : null;
+  //
+  // Nor when a pane has just arrived (#233). Panes are made in the order `/api/fleet` lists them
+  // and then put in the arrangement's, and since every agent became a pane on the glass the first
+  // of those moves was visible: the rails shuffled into place for a fifth of a second on every
+  // load, and anything aimed at one in that time -- a click, a test's drag -- landed beside it.
+  // Where a pane first appears is not a move the operator made.
+  var first = (needsMove && !arrivedSinceLastPlace && !reduceMotion() && !inViewTransition)
+    ? measureTiles() : null;
+  arrivedSinceLastPlace = false;
 
   order.forEach(function (name, index) {
     var entry = tiles.get(name);

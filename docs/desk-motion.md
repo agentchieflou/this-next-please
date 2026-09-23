@@ -90,10 +90,14 @@ caught, because an unhandled rejection reaches the console as *"Transition was s
 ViewTransition started"* — which is how this was found, as a page error on the slower of the two
 CI runners.
 
-Two edges are handled rather than assumed:
+Three edges are handled rather than assumed:
 
 * `reorderDomTiles` does not play FLIP while a view transition is running (`inViewTransition`), or
   the same move is animated twice and the tile arrives, leaves and arrives again.
+* `reorderDomTiles` does not play FLIP for a pane that has just been made (`arrivedSinceLastPlace`,
+  #233). Panes are made in the order `/api/fleet` lists them and then put in the arrangement's, and
+  where a pane first appears is not a move the operator made. Played, it was a desk whose panes all
+  glided sideways on the first frame — under a hand that had already reached for one.
 * Two repositories whose names sanitise to one CSS identifier make the browser skip the transition
   and apply the change with no animation. That is a degradation, not a break.
 

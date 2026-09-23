@@ -382,6 +382,47 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
     assert rails == [RAIL_PX] * 3, rails
 
 
+@pytest.mark.browser
+def test_a_pane_that_has_just_arrived_does_not_travel_into_its_slot(fleet_home, tmp_path):
+    """Panes are made in the order `/api/fleet` lists them and then put in the arrangement's. In
+    the column that first move happened to tiles nobody could see; in the row every agent is on the
+    glass, so it played as a FLIP -- the rails shuffling into place for a fifth of a second on every
+    load, and a press aimed at one in that time landing beside it (a test's drag did, one run in
+    twenty under load). Where a pane first appears is not a move the operator made. A real move
+    still travels."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    names = ["alpha", "beta", "delta", "gamma"]
+    _repos(tmp_path, names)
+    S.arrange(order=["gamma", "delta", "beta", "alpha"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors = _page(browser, port, token, 1400)
+            page.wait_for_function(
+                "() => document.querySelectorAll('#grid .tile[data-tier]').length === 4",
+                timeout=15000)
+            arrived = page.evaluate("""() => ({
+              order: [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo),
+              travelled: [...document.querySelectorAll('#grid .tile')]
+                           .filter(t => t.classList.contains('flip') || t.style.transform)
+                           .map(t => t.dataset.repo),
+            })""")
+            moved = page.evaluate("""() => {
+              moveTile('delta', 1);
+              return [...document.querySelectorAll('#grid .tile')]
+                       .filter(t => t.style.transform).map(t => t.dataset.repo);
+            }""")
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    assert arrived["order"] == ["gamma", "delta", "beta", "alpha"], arrived
+    assert arrived["travelled"] == [], f"panes travelled into the slots they arrived in: {arrived}"
+    assert moved, "a move the operator made no longer travels"
+
+
 # ------------------------------------------------------------- when the rails do not fit
 
 
