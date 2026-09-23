@@ -36,6 +36,7 @@ from __future__ import annotations
 import calendar
 import gzip
 import hmac
+import itertools
 import json
 import mimetypes
 import os
@@ -422,6 +423,16 @@ def fleet_snapshot() -> dict:
     except Exception:                    # noqa: BLE001 - never let this stop a dashboard drawing
         offers = {}
 
+    # What a new session would start on, read once per snapshot (#240). Every row is judged
+    # against it, so staleness is checked on every tick of every open desk -- at every turn.
+    from . import fingerprint as FP
+    from . import renew as RENEW
+
+    try:
+        installed = FP.current()
+    except Exception:                    # noqa: BLE001 - an unreadable skills folder is not a dead desk
+        installed = None
+
     for row in supervisor.status():
         name = row["repo"]
         repo = None                          # rebound per row: a lookup that raised used to leave
@@ -556,6 +567,10 @@ def fleet_snapshot() -> dict:
                      # `recent`, because forty events is not an hour -- a busy agent fills that
                      # in two minutes -- and no text comes with it.
                      "trace": TRACE.trace(stream),
+                     # Is this session on the installed skills and CLI (#240)? Derived from the
+                     # stream's own `started` events against what is on disk now, never stored.
+                     "stale": _stale_cell(stream, installed),
+                     "renew_queued": bool(RENEW.queued(name)),
                      "last_seq": stream[-1]["seq"] if stream else 0,
                      "needs_human": agentstate.needs_the_human(derived["state"]),
                      # The project's own state (#131), beside the agent's. Named `polls` and not
@@ -582,8 +597,23 @@ def fleet_snapshot() -> dict:
                       "all_time": round(sum((r.get("spend") or {}).get("total", 0.0) for r in rows), 2),
                       "budget_invalid": lifecycle.settings(cfg).get("budget_invalid", "")},
             "desk": desk_state(), "theme": theme_state(),
+            "server": desk_currency(),
             "preflight": C.get(C.load(), "fleet.preflight") is not False,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
+
+
+def _stale_cell(stream: list[dict], installed: dict | None) -> dict:
+    """`{stale, unknown, reason, skills_changed}` for the tile. Never raises: a desk draws regardless."""
+    from . import fingerprint as FP
+
+    if installed is None:
+        return {"stale": False, "unknown": True, "reason": "the installed skills could not be read",
+                "skills_changed": []}
+    try:
+        verdict = FP.staleness(stream, installed)
+    except Exception:                    # noqa: BLE001 - see the docstring
+        return {"stale": False, "unknown": True, "reason": "", "skills_changed": []}
+    return {k: verdict[k] for k in ("stale", "unknown", "reason", "skills_changed")}
 
 
 def _add_siblings(rows: list[dict]) -> None:
@@ -618,7 +648,7 @@ def _add_siblings(rows: list[dict]) -> None:
 # is an environment variable, and is what every test does -- drops the handles rather than answering
 # from the previous one's sqlite file.
 _desk = {"dir": "", "poller": None, "inbox": None, "catalogue": None, "last_tick": 0.0,
-         "last_fold": 0.0}
+         "last_fold": 0.0, "last_renew": 0.0}
 _desk_lock = threading.RLock()
 
 DESK_FILE = "desk.json"
@@ -696,13 +726,48 @@ def _load_desk() -> None:
             pass
 
 
+# desk.json is written OUTSIDE `_desk_lock` (#245). Every desk read -- a snapshot, the stream's
+# tick, `fold_due` -- takes that lock, and on Windows one write can take seconds: `os.replace` onto
+# a file the antivirus is still scanning fails and is retried (`textio._replace_with_retry`). With
+# the write inside the lock, every request on the desk queued behind the disk; on the Windows CI
+# leg that was a page whose answers arrived ten seconds late, three different browser tests red,
+# and a console line not folded because the fold's turn had gone to a request still waiting.
+#
+# So a change takes a snapshot while it holds the lock, and the snapshot is written after it has
+# let go. Writes still reach the disk in the order the changes were made: each snapshot takes the
+# next number while the lock is held, and of two racing for the same file the older is dropped
+# rather than written over the newer one.
+_desk_write_lock = threading.Lock()
+_desk_seq = itertools.count(1)
+_desk_written: dict[str, int] = {}
+
+
+def _desk_snapshot() -> tuple[str, str, int]:
+    """What `desk.json` should hold now, and its place in line. Taken while holding `_desk_lock`."""
+    return _desk_file(), json.dumps(_selection, indent=2), next(_desk_seq)
+
+
+def _write_desk(snapshot: tuple[str, str, int] | None) -> None:
+    """Write a snapshot taken under `_desk_lock`, without holding it. The latest change wins."""
+    if not snapshot:
+        return
+    path, text, seq = snapshot
+    with _desk_write_lock:
+        if seq <= _desk_written.get(path, 0):
+            return
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            textio.write_text(path, text)
+        except Exception:
+            return
+        _desk_written[path] = seq
+
+
 def _save_desk() -> None:
-    path = _desk_file()
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        textio.write_text(path, json.dumps(_selection, indent=2))
-    except Exception:
-        pass
+    """Snapshot and write in one call, for a caller that does not hold `_desk_lock`."""
+    with _desk_lock:
+        snapshot = _desk_snapshot()
+    _write_desk(snapshot)
 
 
 def _fresh() -> dict:
@@ -734,7 +799,7 @@ def drop_handles() -> None:
                 pass
         _refreshed_at.clear()
         _desk.update(dir="", poller=None, inbox=None, catalogue=None, last_tick=0.0,
-                     last_fold=0.0)
+                     last_fold=0.0, last_renew=0.0)
 
 
 def forget_desk() -> None:
@@ -755,7 +820,8 @@ def forget_desk() -> None:
             },
             windows={},
         )
-        _save_desk()
+        snapshot = _desk_snapshot()
+    _write_desk(snapshot)
 
 
 def reset() -> None:
@@ -854,6 +920,28 @@ def poll_tick(now: float | None = None) -> list[dict]:
 
         debug_exc("fleet poll tick")
         return []
+
+
+RENEW_EVERY_S = 2.0
+
+
+def renew_tick(now: float | None = None) -> list[dict]:
+    """Carry out the renews queued for a turn's end (#241), at most once every `RENEW_EVERY_S` for
+    the whole process -- every open window runs this loop, and one of them doing it is enough."""
+    now = time.time() if now is None else float(now)
+    with _desk_lock:
+        bag = _fresh()
+        if now - bag["last_renew"] < RENEW_EVERY_S:
+            return []
+        bag["last_renew"] = now
+    from .. import config as C
+    from . import renew as RENEW
+
+    try:
+        cfg = C.load()
+    except Exception:                        # noqa: BLE001 - a broken config must not stop the stream
+        return []
+    return RENEW.carry_out(cfg=cfg)
 
 
 def fold_due(now: float | None = None) -> bool:
@@ -992,6 +1080,7 @@ def select(selected=None, screens=None) -> dict:
     windows clicking the same tile do not each wake the other.
     """
     _ensure_desk_loaded()
+    snapshot = None
     with _desk_lock:
         after = dict(_selection)
         if selected is not None:
@@ -1000,8 +1089,10 @@ def select(selected=None, screens=None) -> dict:
             after["screens"] = [str(x) for x in list(screens)[:9] if str(x)]
         if (after["selected"], after["screens"]) != (_selection["selected"], _selection["screens"]):
             _selection.update(after, version=_selection["version"] + 1, at=E.stamp())
-            _save_desk()
-        return desk_state()
+            snapshot = _desk_snapshot()
+        state = desk_state()
+    _write_desk(snapshot)
+    return state
 
 
 #: How wide and how tall a tile may be asked to become. Four columns is the whole of a 1920px
@@ -1054,6 +1145,7 @@ def arrange(layout: str, *, order=None, size=None, pinned=None, hidden=None) -> 
     plan says so; this is the default that ships.
     """
     _ensure_desk_loaded()
+    snapshot = None
     with _desk_lock:
         arr = _selection.setdefault("arrangement", {})
         cur = arr.setdefault(layout, {"order": [], "size": {}, "pinned": [], "hidden": []})
@@ -1084,8 +1176,10 @@ def arrange(layout: str, *, order=None, size=None, pinned=None, hidden=None) -> 
         if changed:
             _selection["version"] += 1
             _selection["at"] = E.stamp()
-            _save_desk()
-        return desk_state()
+            snapshot = _desk_snapshot()
+        state = desk_state()
+    _write_desk(snapshot)
+    return state
 
 
 def _whole_projects(names) -> list[str]:
@@ -1117,6 +1211,7 @@ def update_window(w: str = "main", **kwargs) -> dict:
     """Set per-window state in desk.json and push down the SSE stream."""
     _ensure_desk_loaded()
     w = str(w or "main")
+    snapshot = None
     with _desk_lock:
         wins = _selection.setdefault("windows", {})
         win = wins.setdefault(w, {
@@ -1172,8 +1267,10 @@ def update_window(w: str = "main", **kwargs) -> dict:
         if changed:
             _selection["version"] += 1
             _selection["at"] = E.stamp()
-            _save_desk()
-        return desk_state()
+            snapshot = _desk_snapshot()
+        state = desk_state()
+    _write_desk(snapshot)
+    return state
 
 
 
@@ -1616,6 +1713,26 @@ def act(what: str, body: dict) -> dict:
         # reaches it. A click, a copy into `.agent/in/<KEY>/`, an `inbox.attached` event -- the
         # Downloads tray's rules, with `source: "drop"`.
         return _attach_bytes(body)
+    if what == "shutdown":
+        # How `ad-fleet open` replaces an out-of-date desk (#242). Token and loopback, like every
+        # other action: this is a local server being asked to stop by the one tool that starts it.
+        # The answer goes out first; the stop happens on its own thread, because `shutdown()` waits
+        # for the serving loop and the serving loop is waiting for this handler to return.
+        server = _SERVING.get("server")
+        if server is None:
+            raise ServeError("this desk is not serving", "nothing to stop")
+        threading.Thread(target=server.shutdown, daemon=True).start()
+        return {"stopping": True, "pid": os.getpid()}
+    if what == "renew":
+        # Stale only, when idle, previewed first (#241). The page asks with `dry_run` and shows the
+        # rows before it asks again without; the CLI verb calls the same two functions.
+        from .. import config as C
+        from . import renew as RENEW
+
+        names = [str(n) for n in (body.get("repos") or []) if str(n)]
+        if body.get("dry_run"):
+            return RENEW.plan(names or None)
+        return RENEW.run(names or None, cfg=C.load())
     if what == "answer":
         # Every answer the operator typed, in one resume. `send` is the transport, because a reply
         # to a stopped agent has always been a respawn with `--resume` -- there is no pipe to an
@@ -1852,6 +1969,9 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             if seen_polls is None:
                 seen_polls = _poll_digests()
             poll_tick()
+        # Not behind `polls`: a renew queued for a turn's end (#241) is the fleet's own work, and a
+        # desk with project polling switched off must still carry it out.
+        renew_tick()
         if time.time() - last_sweep >= notify_every:
             last_sweep = time.time()
             for item in _sweep(url):
@@ -1989,10 +2109,16 @@ class Handler(BaseHTTPRequestHandler):
                 # mismatch. It rides on `ping` rather than a route of its own because a shell that
                 # is already asking "are you there" should not need a second round trip to find out
                 # "and are we the same age".
+                currency = desk_currency()
                 return self._json({"ok": True, "service": "ad-fleet",
                                    "port": self.server.server_address[1],
                                    "version": version_string().split()[1],
-                                   "contract": CONTRACT})
+                                   "contract": CONTRACT,
+                                   # What this process is running, and whether that is still
+                                   # what is installed (#242). A launcher replaces a desk that
+                                   # says `current: false`; it compares nothing itself.
+                                   "loaded": (currency["loaded"] or {}).get("version", ""),
+                                   "current": currency["current"]})
             forward = [(k, v[0] if isinstance(v, list) and len(v) == 1 else v)
                        for k, vs in query.items() if k != "t"
                        for v in (vs if isinstance(vs, list) else [vs])]
@@ -2398,8 +2524,45 @@ def serve_file() -> str:
     return os.path.join(fleet_dir(), SERVE_FILE)
 
 
+# What this process was started on (#242). `ad-fleet serve` is long-running: after `ad-update` it
+# keeps serving the code it imported, while `/api/ping`'s `version` -- read from the installed
+# metadata on every call -- already names the new one. So the running desk could not tell that it
+# was older than the thing it reported. Captured when a server is built, not at import, because a
+# test or a CLI verb that imports this module is not a desk.
+LOADED: dict | None = None
+
+
+def desk_currency() -> dict:
+    """`{loaded, installed, current, reason}`: is the running desk the installed one?
+
+    The CLI half only -- version and commit. Skills are the agents' concern (#240); the desk does not
+    read them. Judged here, by the server, so a shell only ever reads the answer (#100's rule).
+    """
+    from . import fingerprint as FP
+
+    try:
+        installed = FP.current()
+    except Exception:                        # noqa: BLE001 - an unreadable install is not a dead desk
+        installed = None
+    if LOADED is None or installed is None:
+        return {"loaded": LOADED, "installed": installed, "current": True, "reason": ""}
+    same = LOADED.get("version") == installed.get("version") and (
+        not LOADED.get("commit") or not installed.get("commit")
+        or LOADED.get("commit") == installed.get("commit"))
+    reason = "" if same else (f"the desk is running {FP._label(LOADED)} · installed "
+                              f"{FP._label(installed)} — `ad-fleet open` replaces it")
+    return {"loaded": LOADED, "installed": installed, "current": same, "reason": reason}
+
+
 def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPServer, str]:
     """Bind and return the server, without serving. `port=0` picks a free one."""
+    global LOADED
+    from . import fingerprint as FP
+
+    try:
+        LOADED = FP.current()
+    except Exception:                        # noqa: BLE001 - see `desk_currency`
+        LOADED = None
     handler = type("BoundHandler", (Handler,), {"token": token or secrets.token_urlsafe(24)})
 
     class Server(ThreadingHTTPServer):
@@ -2407,6 +2570,38 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
         # `ad-fleet serve --port 8765` would bind happily and the two would split requests at
         # random. On POSIX the same flag only shortens TIME_WAIT, which is worth keeping.
         allow_reuse_address = os.name != "nt"
+        # How long closing waits for the requests still being answered (#245).
+        close_wait_s = 5.0
+
+        def __init__(self, *args, **kwargs):
+            # Before the bind: a taken port makes the base class call `server_close()` from here.
+            self.stopping = threading.Event()
+            self.handlers: list[threading.Thread] = []
+            self.handlers_lock = threading.Lock()
+            super().__init__(*args, **kwargs)
+
+        # The handler threads are daemons, so Ctrl-C never waits on an open stream -- and the
+        # standard library's `server_close` joins only non-daemon ones. A request still being
+        # answered went on after the server had closed: in one process that runs one desk that is
+        # harmless, but a suite runs a desk per test, and a window write finishing late landed in
+        # the NEXT test's desk (#245). Closing now says `stopping`, which ends every stream on its
+        # next tick, and waits a bounded time for whatever is left.
+        def process_request(self, request, client_address):
+            t = threading.Thread(target=self.process_request_thread,
+                                 args=(request, client_address), daemon=True)
+            with self.handlers_lock:
+                self.handlers = [h for h in self.handlers if h.is_alive()]
+                self.handlers.append(t)
+            t.start()
+
+        def server_close(self):
+            self.stopping.set()
+            super().server_close()
+            deadline = time.monotonic() + self.close_wait_s
+            with self.handlers_lock:
+                left = list(self.handlers)
+            for t in left:
+                t.join(max(0.0, deadline - time.monotonic()))
 
     try:
         server = Server(("127.0.0.1", port), handler)
@@ -2414,7 +2609,6 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
         raise ServeError(f"cannot bind 127.0.0.1:{port} ({e})",
                          "something else is on that port; `ad-fleet serve --port 0` picks a free one") from None
     server.daemon_threads = True             # Ctrl-C must not wait on an open SSE connection
-    server.stopping = threading.Event()
     return server, handler.token
 
 
@@ -2436,12 +2630,17 @@ def forget() -> None:
         pass
 
 
+_SERVING: dict = {"server": None}
+
+
 def run(server: ThreadingHTTPServer) -> None:
+    _SERVING["server"] = server
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass
     finally:
+        _SERVING["server"] = None
         server.stopping.set()
         server.shutdown()
         server.server_close()

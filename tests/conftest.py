@@ -257,3 +257,107 @@ def _no_browser_in_tests(monkeypatch):
     if hasattr(os, "startfile"):
         monkeypatch.setattr(os, "startfile", _no_startfile, raising=False)
     monkeypatch.setattr("webbrowser.open", lambda *a, **k: False, raising=False)
+
+
+# What the page and the server were doing when a wait on the desk ran out. A browser test that
+# times out says only "waiting for locator('.tile') to be visible", which is the one fact nobody
+# needed. The Windows browser leg has failed that way on two tests since #237 while passing on the
+# same code the next run, and never locally -- so the next failure has to explain itself.
+_PAGE_STATE = """() => {
+  const g = (name) => { try { return eval(name); } catch (e) { return '<' + e.name + '>'; } };
+  const d = g('desk');
+  return {
+    url: location.href, ready: document.readyState, body: document.body && document.body.className,
+    layout: g('LAYOUT'), window: g('W_NAME'), open: g('openTile'), focused: g('focused'),
+    needsOnly: g('needsOnly'), windowWrites: g('windowWrites'), streamDead: g('streamDead'),
+    deskVersion: d && d.desk ? d.desk.version : null,
+    windows: d && d.desk ? d.desk.windows : null,
+    tiles: Array.from(document.querySelectorAll('.tile')).map((t) => {
+      const r = t.getBoundingClientRect();
+      return [t.dataset.repo, t.className, getComputedStyle(t).display, Math.round(r.width), Math.round(r.height)];
+    }),
+  };
+}"""
+
+
+def _explain_the_page(page, selector: str) -> None:
+    import faulthandler
+    import json
+
+    print(f"\n--- the page, when the wait for {selector!r} ran out ---", file=sys.stderr)
+    try:
+        print(json.dumps(page.evaluate(_PAGE_STATE), indent=1, default=str), file=sys.stderr)
+    except Exception as e:                                   # noqa: BLE001 - diagnostics never mask the failure
+        print(f"(the page could not be read: {e})", file=sys.stderr)
+    print("--- every thread in this process: the desk server's handlers are among them ---",
+          file=sys.stderr, flush=True)
+    faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+
+
+# Three different browser tests have failed on the Windows leg with the same sign in their stderr:
+# a desk answer written only after the browser had gone. A stack taken while the request is still
+# stuck says what it is waiting on; one taken afterwards says nothing.
+SLOW_REQUEST_S = 3.0
+
+
+def _explain_a_slow_request(method: str, path: str) -> None:
+    import faulthandler
+
+    print(f"\n--- the desk has been answering {method} {path} for {SLOW_REQUEST_S:g} s; every thread ---",
+          file=sys.stderr, flush=True)
+    faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+
+
+def _watch_the_desk_for_slow_answers(monkeypatch) -> None:
+    import threading
+
+    try:
+        from agentdata.fleet import serve
+    except ImportError:
+        return
+
+    def watched(real):
+        def answer(self):
+            path = self.path.split("?", 1)[0]
+            if path == "/api/events":                  # the stream is meant to stay open
+                return real(self)
+            timer = threading.Timer(SLOW_REQUEST_S, _explain_a_slow_request, (self.command, path))
+            timer.daemon = True
+            timer.start()
+            try:
+                return real(self)
+            finally:
+                timer.cancel()
+        return answer
+
+    monkeypatch.setattr(serve.Handler, "do_GET", watched(serve.Handler.do_GET))
+    monkeypatch.setattr(serve.Handler, "do_POST", watched(serve.Handler.do_POST))
+
+
+@pytest.fixture(autouse=True)
+def _explain_a_desk_wait_that_ran_out(request, monkeypatch):
+    """On a `browser` test, a `wait_for_selector` that times out prints the page's own state and a
+    stack for every thread first, then raises exactly as it would have. And a desk request that
+    has not been answered after `SLOW_REQUEST_S` prints every thread's stack while it is still
+    stuck. Both print to stderr, which pytest shows only for a test that failed. Nothing else
+    changes."""
+    if request.node.get_closest_marker("browser") is None:
+        yield
+        return
+    _watch_the_desk_for_slow_answers(monkeypatch)
+    try:
+        from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+    except ImportError:
+        yield
+        return
+    real = Page.wait_for_selector
+
+    def wait_for_selector(self, selector, *args, **kwargs):
+        try:
+            return real(self, selector, *args, **kwargs)
+        except PlaywrightTimeout:
+            _explain_the_page(self, selector)
+            raise
+
+    monkeypatch.setattr(Page, "wait_for_selector", wait_for_selector)
+    yield

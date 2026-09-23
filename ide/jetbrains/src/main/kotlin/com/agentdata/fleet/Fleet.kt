@@ -33,7 +33,8 @@ object Fleet {
 
     data class Record(val url: String, val token: String, val port: Int)
 
-    data class Ping(val service: String, val version: String, val contract: Int)
+    /** `current` is the server's own answer to "am I the installed code?" (#242); false when absent. */
+    data class Ping(val service: String, val version: String, val contract: Int, val current: Boolean = true)
 
     data class Note(
         val repo: String,
@@ -82,7 +83,9 @@ object Fleet {
                 Ping(
                     "ad-fleet",
                     json.get("version")?.asString ?: "",
-                    json.get("contract")?.asInt ?: 0
+                    json.get("contract")?.asInt ?: 0,
+                    // A desk from before #242 has no `loaded`, and is older than this one by definition.
+                    json.has("loaded") && json.get("current")?.asBoolean != false
                 )
             }
         } catch (e: Exception) {
@@ -91,9 +94,14 @@ object Fleet {
     }
 
     /** The record of a dashboard that is actually answering. A stale file is not a running one. */
+    /**
+     * The record of a desk that answers and runs the installed code. One that says it is out of date
+     * (#242) is treated as missing: starting `ad-fleet serve` replaces it. The server judges; this reads.
+     */
     fun running(): Record? {
         val record = readRecord() ?: return null
-        return if (ping(record.port) != null) record else null
+        val answer = ping(record.port) ?: return null
+        return if (answer.current) record else null
     }
 
     /**

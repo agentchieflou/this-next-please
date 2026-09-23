@@ -356,11 +356,22 @@ def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = F
     """
     try:
         from . import events as E
+        from . import fingerprint as FP
 
+        # What this session began on (#239), so the desk can tell which agents still follow skills
+        # that have since changed. A resume carries its session's origin forward instead: the
+        # skills it follows are the ones it read when it *began*, and the origin's own `started`
+        # may be gone by the time anyone asks, rolled over with the stream.
+        stamp = {"install": FP.current()}
+        if resumed:
+            began, how = FP.began_on(E.read(name))
+            stamp = {"install": FP.current(),
+                     "origin_install": began if how == "recorded" else None}
         E.append(name, [E.event(name, "started",
                                 {"pid": lock.get("pid"), "prompt": (lock.get("prompt") or "")[:400],
                                  "summary": lock.get("summary", ""),
                                  "resumed": resumed, "new": new, "session": lock.get("session", ""),
+                                 **stamp,
                                  **({"console": True} if console else {})},
                                 ticket=lock.get("ticket", ""))])
     except Exception:  # noqa: BLE001 - a missing breadcrumb must never fail a launch

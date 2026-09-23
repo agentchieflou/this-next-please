@@ -141,7 +141,10 @@ jobs:
     # and a real `pip install` from a `git+file://` clone. Venv creation is the entire cost and it
     # is minutes on a Windows runner -- four venvs blew straight through an 18-minute cap, so the
     # lifecycle is one venv stepped through, and the module shares one pip cache.
-    timeout-minutes: 15
+    # 20, not 15: the 3.14 leg's green runs took 12m44s, 13m39s and 15m00s on 23 September 2026,
+    # and the last was cancelled at the cap one second after every step had passed. A hang is still
+    # caught where it happens: `pytest · slow` keeps its own 10-minute cap.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -163,7 +166,7 @@ jobs:
 
       # #146 asked for this harness on WINDOWS specifically: the dashboard's job is to render in
       # Edge, PyCharm's JCEF window and VS Code's Simple Browser on the operator's laptop, and all
-      # three are Chromium. The 15-minute cap is why only one leg pays for the download.
+      # three are Chromium. The job cap is why only one leg pays for the download.
       - name: a browser, so tests/test_fleet_desk*.py run instead of skipping
         if: matrix.python == '3.14'
         shell: pwsh
