@@ -54,36 +54,45 @@ stops rendering in existing reports" [2].
 | N1 | native chart, data-label fields | no | always | full: cross-filter, tooltips, drill | a label or annotation on a bar, column or point |
 | N2 | native chart, dynamic format string | no | always | full | N1's fields are not there, or the label must be the bar's own value plus text |
 | N3 | SVG measure in a table or matrix | no | always | a row click cross-filters; no per-mark hover | the drawing itself is custom: shapes, layout, micro-charts |
-| S1 | a store visual the tenant already has (`pbi_org_visuals`, e.g. Deneb) | no | always | depends on the visual | a spec-driven visual can draw it |
+| S1 | a store visual the tenant already has (`pbi_org_visuals`, e.g. Deneb); on a `certified-only` tenant also a certified AppSource visual (Deneb is certified) | no | always | depends on the visual | a spec-driven visual can draw it |
 | S2 | our own `.pbiviz` in the organizational store | one upload | always | as built | nothing above meets it |
 | X1 | the SDK setting scoped to a security group | yes | members only | as built | a closed audience, and the admin prefers it to S2 |
-| X2 | R or Python visual | only if its setting is off | while the tenant-wide setting is on | a static image: filtered by others, filters nothing | statistical drawings; last resort |
+| X2 | R or Python visual | only if its setting is off | while the tenant-wide setting is on; viewers need Pro or PPU | a static image: filtered by others, filters nothing | statistical drawings; last resort |
+| X3 | paginated report visual | no (a paginated report in a Pro or PPU workspace) | always: a native visual | driven by the report's filters; no per-mark interaction | printable, pixel-exact output; chart labels are expressions |
 
-Never a route: the Developer visual (Desktop only, for building), a report moved to another tenant to get round the
-policy, or certifying our own visual to satisfy `certified-only` (an AppSource submission and Microsoft's review,
-weeks at best, for a visual that then becomes public).
+Never a route: the Developer visual (Desktop only, for building); Microsoft's own AppSource visuals (Bullet Chart,
+Tornado, Power KPI and the rest are custom visuals, blocked by the same setting); a report moved to another tenant to
+get round the policy; or certifying our own visual to satisfy `certified-only` (an AppSource submission and
+Microsoft's review, weeks at best, for a visual that then becomes public).
 
 ## Native routes (no admin, every tenant)
 
 ### N1 Data-label fields on the native chart
-A bar, column or line chart's data label can show a different field from the one the bar is drawn from, and a
-second line from another. Format pane → **Data labels**: **Apply settings to** picks the series, **Options →
-Position** puts the label at **Outside end**, **Value** carries the field the label shows, and **Detail** adds a
-second line. The variance is a measure, so the bar end shows it, and the chart keeps cross-filtering, tooltips and
-drill.
+A bar, column, line or ribbon chart's data label can show a different field from the one the bar is drawn from, a
+text measure included, and a second line from another [8][9]. Format pane → **Data labels**: **Apply settings to**
+picks the series, **Options → Position** puts the label at **Outside end**, **Value** carries the field the label
+shows, and **Detail** adds a second line. The variance is a measure, so the bar end shows it, and the chart keeps
+cross-filtering, tooltips and drill. The custom label field arrived in May 2023 (then a *Custom label* toggle under
+Values); the Title, Value and Detail cards in December 2023.
+- **Outside end** exists on clustered charts, not stacked ones [10]. The Average/Recent chart is clustered.
+- The longest bar's label can be cut off: give the value axis a fixed maximum with room for it.
 - It is one Desktop gesture per visual: `ad-pbip visual set` writes literal properties, and this is a field
   reference. Save, and `ad-pbip check` validates the field like any other reference.
 
 ### N2 Dynamic format string on the series
-A measure's format string can be a DAX expression, and text in double quotes inside a format string prints as
-itself. A copy of the series measure can therefore keep its value and print the variance after it:
-`138  ▲ +15.0%`. Use it where N1's fields are missing, or where the label must stay the bar's own number.
-- The format string follows the measure everywhere it appears (tooltips, the value axis), so keep the copy to
-  this one visual and check the axis.
+A measure's format string can be a DAX expression (generally available since October 2024 [11]), and text in double
+quotes inside a format string prints as itself: the suffix is wrapped in quotes written as four double-quote
+characters in DAX [12]. A copy of the series measure therefore keeps its value, sorts and plots as a number, and
+prints the variance after it: `138  ▲ +15.0%`. Use it where N1's fields are missing, or where the label must stay the
+bar's own number.
+- Tooltips show the formatted text; the value axis does not follow a per-point format. If the number looks wrong,
+  set the label's display units to None.
+- Model measures only: a report measure in a live-connected report cannot have one.
 
 ### N3 SVG measure in a table or matrix
-A measure returns an SVG as a `data:` URL; its data category is **Image URL**, and a table or matrix draws it per
-row. It is Power BI's own image rendering, not a visual, so no visuals setting applies to it. The drawing is
+A measure returns an SVG as a `data:` URL; its data category is **Image URL** (measures can carry one since
+August 2018), and a table or matrix draws it per row. It is Power BI's own image rendering, not a visual, so no
+visuals setting applies to it. The drawing is
 anything SVG can express. The trade-off is interaction: a row click cross-filters the page, but there is no hover
 on an individual mark.
 
@@ -94,6 +103,13 @@ Rules that break it when forgotten:
 - Scale every row against the largest value in the visual (`MAXX ( ALLSELECTED ( … ), … )`), or each row's bar is
   full width.
 - Size the image in the table's format pane (image height and width), matching the SVG's `width` and `height`.
+- Tooltips show the SVG's source text; give the visual a report-page tooltip or turn its tooltips off.
+- If it renders in Desktop and is blank in the service, percent-encode `<`, `>` and `'` as well (`%3C`, `%3E`,
+  `%27`). Either way, the route is done when it renders in the service.
+
+Besides a table or matrix, an Image URL measure also draws in a slicer, a multi-row card and the new Card visual
+(image, with the **fx** on Image URL) [13]. No tenant setting governs any of it: the tenant settings index has none
+for images.
 
 The worked measure is in §Bar-end variance labels. Its output was rendered in Chromium from a line-by-line emulation
 of the DAX, for five sample rows, and all five decoded. It has not yet run in Power BI Desktop: `ad-pbip check --te2`
@@ -102,10 +118,14 @@ parses it, and a Desktop screenshot is the proof.
 ## Organizational store
 
 ### A general-purpose store visual (Deneb)
-Deneb draws a Vega or Vega-Lite specification over the fields you give it, so one store visual covers most custom
-charts, bar-end labels included. When the `pbi_org_visuals` fact lists it (Desktop: Visualizations pane → … →
-Get more visuals → My organization), build the chart as a specification in it. No admin, no upload, and it
-cross-filters like a native visual when the specification enables interactivity.
+Deneb draws a Vega or Vega-Lite specification over the fields you give it, so one visual covers most custom
+charts, bar-end labels included. It is free, open source, and Microsoft-certified [14]. When the `pbi_org_visuals`
+fact lists it (Desktop: Visualizations pane → … → Get more visuals → My organization), build the chart as a
+specification in it: no admin, no upload.
+- Certification does not get it past a disabled "Allow visuals created using the Power BI SDK": on an `org-only`
+  tenant only the store copy renders. On a `certified-only` tenant, its AppSource edition renders as well.
+- Deneb's own guidance for enterprises is the organizational store, which pins the approved version [14]. Its
+  enterprise FAQ is written to be handed to IT.
 
 ### Our own .pbiviz
 Build and test it in Desktop with the skill's Loop. Then:
@@ -157,7 +177,7 @@ Swap the two colours for a measure where lower is better.
 1. Data labels on. Apply settings to the **Average** series: labels off.
 2. Apply settings to the **Recent** series: Position **Outside end**; **Value** field `Variance Label`. The bar end
    now reads `▲ +15.0%`. To keep the number as well, leave Value as it is and put `Variance Label` in **Detail**.
-3. Optional: the label colour's **fx** → Format style **Field value** → `Variance Color`.
+3. Optional, where the label colour offers **fx**: Format style **Field value** → `Variance Color`.
 4. Save, then `ad-pbip check`: no `field-unresolved`.
 
 **N2, the same chart where N1's fields are missing**: a copy of `[Recent]` as the Recent series, with this format
@@ -239,3 +259,16 @@ gray dash at zero, and no label where there is no Average to compare against. No
    organizational visuals itself.
 7. OKVIZ, *Power BI Organizational Visuals Store* (docs.okviz.com/visuals/get-started/org-store), paraphrased: import
    the visual from the store and each new release is a single update there, not one per report.
+8. Power BI May 2023 Feature Summary, "Measure driven data labels"; Kerry Kolosko, *Measure driven data labels*
+   (kerrykolosko.com), a text measure as the custom label.
+9. Power BI December 2023 Feature Summary: data label Title, Value and Detail cards, "available across Columns,
+   Bars, Lines, and Ribbon charts".
+10. Erik Svensen, 2024-04-09 (eriksvensen.wordpress.com): stacked charts offer Auto, Inside end, Inside center,
+    Inside base; clustered bar and column charts add Outside end.
+11. Power BI October 2024 Feature Summary: dynamic format strings for measures generally available.
+12. SQLBI, *Improving data labels with format strings* (Kurt Buhler, 2025-03-21).
+13. Power BI docs, *Display images in a table, matrix, or slicer* (power-bi-images-tables); Kerry Kolosko, *Adding
+    sparklines to the new card visual*.
+14. Deneb, *Enterprise and Security FAQ* (deneb-viz.github.io/enterprise, 2026-09-14).
+
+Sources 8–13 were read as search excerpts: those sites are not reachable from where this file was written.
