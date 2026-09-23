@@ -1,6 +1,6 @@
 # Rendering that earns its pixels
 
-The rule this page exists to make checkable: **a canvas on the desk has to say something the DOM
+The rule this page exists to make checkable: **a picture on the desk has to say something the DOM
 cannot, and it has to say it in words as well.** Everything below follows from that.
 
 This is the page the ownership plan calls "the rules in themes.md". There is no `themes.md`; the
@@ -8,30 +8,39 @@ desk's documentation lives in this family — `desk-components.md` for what is d
 it, `desk-motion.md` for how it moves, `desk-window.md` for how it is arranged, and this one for
 what is painted rather than laid out.
 
-## The seven rules for a canvas
+**There is no 2D canvas on the desk (#257).** The trace and the ground were the two, and K of the
+ink epic moved both to the ink layer ([desk-ink.md](desk-ink.md) §The page's own drawing). Nothing
+under `static/` asks for a 2D context with `getContext`, and a test scans for one and watches the
+page at run time. The one exception is the vendored three.js's own 1×1 feature probe, named there.
 
-1. **It reads the palette; it never carries one.** Every colour comes from a custom property at
-   paint time, through `token(name, fallback)`. A canvas that holds its own hex stays the old
-   colour when the operator changes theirs — which is the accent-stripe bug of #215 with a bitmap
-   instead of a stylesheet.
-2. **It repaints when the palette changes.** The `theme` stream frame clears the token cache and
-   draws every trace again. A picture is pixels, not rules: nothing else will do it.
+## The seven rules for a picture
+
+1. **It reads the palette; it never carries one.** Every colour comes from a custom property: the
+   trace's SVG is stroked in `var(--running)` and `var(--human)` by the stylesheet, and the ink
+   layer reads the palette at paint time. A picture that holds its own hex stays the old colour
+   when the operator changes theirs — which is the accent-stripe bug of #215 with a bitmap instead
+   of a stylesheet.
+2. **It follows the palette without being drawn again.** The SVG is rules, not pixels, so a
+   palette that changes has already repainted it. The ink layer watches the palette and repaints
+   its inks. Nothing in `app.js` has to remember to (it used to, for the canvas).
 3. **It has a text twin.** `role="img"` and an `aria-label` carrying the same fact in a sentence.
    A picture a screen reader cannot read is a picture that is not there — and a sentence is also
    what a test can assert, which is why the trace's label is generated on the server beside the
    numbers rather than assembled in the page.
-4. **It carries nothing the DOM lacks.** The trace draws `row.trace` and nothing else. A canvas
+4. **It carries nothing the DOM lacks.** The trace draws `row.trace` and nothing else, written on
+   the element as `data-ink-series` and `data-ink-ticks`, and the ink layer draws those. A picture
    that is the only place a fact appears is a fact half the fleet cannot reach.
-5. **It is `devicePixelRatio`-aware.** A canvas has two sizes — the box the page lays out and the
-   grid of pixels it owns — and on a 2× screen they are not the same number. A canvas that
-   ignores the difference draws a blurred copy of itself.
-6. **It costs what it claims to.** The ground repaints once a second and is asserted under 4 ms of
-   script; the trace is drawn from a row the page already has.
+5. **It is resolution-independent.** The SVG scales to whatever box the head gives it with
+   `vector-effect: non-scaling-stroke`, and the ink layer draws at `devicePixelRatio` (to 2×). The
+   old canvas had to size its own pixel grid to the screen; neither has a grid to get wrong.
+6. **It costs what it claims to.** The ground drifts at one frame a second and none under reduced
+   motion, counted in frames. The trace is written from a row the page already has, with `attr`,
+   so a row that did not change writes nothing.
 7. **No WebGL but the ink layer's, and only where it was measured.** `app.js` never touches
-   WebGL. The ink layer (#248, [desk-ink.md](desk-ink.md)) is the one canvas that does, and it
+   WebGL. The ink layer (#248, [desk-ink.md](desk-ink.md)) is the one canvas on the desk, and it
    draws only on a shell whose WebGL probe said hardware ([desk-engines.md](desk-engines.md)).
    Every other shell gets the plain fallback, because a 3D ground that works on one of the four
-   screens is worse than a flat one that works on all of them. No shipped skin draws with it yet.
+   screens is worse than a flat one that works on all of them.
 
 ## The trace: an hour in sixty numbers
 
@@ -68,11 +77,19 @@ whole minutes back from now, so a bar does not change width as the second hand m
 whole row shifts when a minute turns over.
 
 Drawn on a full pane's title bar (#233: a compact pane and a rail skip it, and the rail's label says
-the state and its age in words). One bar a minute, its height the share of the
-busiest minute, and a minute that stopped for a person drawn full height in `--human` whatever its
-count — *"it asked me something"* is not a quantity. A minute with anything in it is never
-invisible: one pixel is "it was awake", which is the difference between a quiet hour and no hour
-at all.
+the state and its age in words). One point a minute on a single line, its height the share of the
+busiest minute, and a minute that stopped for a person ticked full height in `--human` whatever
+its count — *"it asked me something"* is not a quantity. A minute with anything in it is never
+flat: one pixel above the floor is "it was awake", which is the difference between a quiet hour and
+no hour at all.
+
+**Where ink is drawn it is the ink layer's; everywhere else it is an SVG (#257).** `drawTrace`
+writes the hour on the element twice from one set of numbers: as `data-ink-series` and
+`data-ink-ticks`, which the ink layer draws in the pane's own lane as a pen line and red ticks, and
+as the element's own `<polyline>` and `<path>`, which is the plain look. The SVG steps aside only
+while a skin draws with ink, because a CSS skin's opaque pane would cover the layer's canvas (see
+[desk-ink.md](desk-ink.md) §The page's own drawing). Plain, it is a polyline rather than sixty
+bars because it is the same shape the pen draws, in two elements rather than sixty.
 
 **The head carries it only where there is room.** `flex-wrap` wraps before it shrinks, so the
 trace has to be gone by the width at which it *would* cause a wrap, not by the width at which it
@@ -83,30 +100,31 @@ cost more than it is worth, and a test says so.
 
 ## The ground: drawn, so it can drift
 
-The glass skin's ground is three saturated blobs. It was three `radial-gradient`s on `body` with
+The glass skin's ground is three saturated blobs. It is three `radial-gradient`s on `body` with
 `background-attachment: fixed` — which cannot move, and a still image behind a frosted pane is the
 thing that reads as a screenshot of an interface rather than an interface.
 
-`#ground` is a canvas, fixed behind everything, painting the same three blobs and drifting a pixel
-a second around a two-minute circle. Slow enough that nobody can point at it; enough that the room
-has a window in it.
+Where a shell draws ink, the ink layer draws the same three blobs in its `ground` slot and drifts
+them a pixel a second around a two-minute circle (#257; it was a canvas of `app.js`'s, `#ground`,
+from #218). Slow enough that nobody can point at it; enough that the room has a window in it.
 
 Three things about it are deliberate:
 
-* **The mesh is read out of the stylesheet, not written here.** `groundColours()` parses
+* **The mesh is read out of the stylesheet, not written anywhere else.** The layer parses
   `getComputedStyle(body).backgroundImage` — Chromium's normalised form of each gradient, which is
-  where the ellipse's size, its place and its colour all are. `skins.py` and `skin.css` already
-  keep one copy of those numbers between them and a test reads them back; a third copy in `app.js`
-  would be the two-owners bug with a longer fuse. The read happens *before* the class that blanks
-  the gradients, because a source that has been turned off reads as `none`.
-* **It paints at half resolution.** Three soft blobs with no edge in them: the pixels nobody can
-  distinguish are pixels nobody should pay for, and this is the one canvas that covers the whole
-  window.
+  where the ellipse's size, its place, its colour and its stops all are. `skins.py` and `skin.css`
+  already keep one copy of those numbers between them and a test reads them back; a third copy in
+  a script would be the two-owners bug with a longer fuse. So no skin is named: any gradients a
+  stylesheet paints on `body` are the ground.
+* **It is one frame a second.** The shader composites the gradients the way CSS paints them, and
+  its first frame is exactly where the stylesheet put them, which is what the glass skin's contrast
+  range was solved against. After that it redraws once a second and not sixty times.
 * **It holds still when asked to.** `prefers-reduced-motion: reduce` stops the drift, and so does
   `prefers-reduced-transparency: reduce` — the second is the one people forget, and it is the
   setting somebody turns on *because* a moving translucent ground is what they cannot read over.
 
-Every other skin is untouched: no mesh, no canvas, and `body` keeps whatever background it had.
+Every shell without ink shows the stylesheet's gradients themselves, standing still: the plain
+fallback has no animation. Every skin with no gradients on `body` is untouched.
 
 ## What is measured
 
@@ -115,11 +133,16 @@ Every other skin is untouched: no mesh, no canvas, and `body` keeps whatever bac
 * the fold — sixty buckets oldest first, what falls outside the hour stays outside it, the
   sentence in every plural it has;
 * the row carries numbers and one sentence, under 700 bytes;
-* every canvas in the markup has `role="img"` and a label (or is `aria-hidden`, which the ground
-  is — it says nothing, so it says so), and no `webgl` anywhere in `app.js`;
-* in Chromium, the drawn trace has a mark for every minute with something in it and exactly two
-  full-height marks in the palette's own `--human`, read back off the canvas with `getImageData`;
-* changing the palette repaints it to the colour the stylesheet now has;
-* the ground reads three blobs, the gradients are blanked so nothing paints twice, the drift timer
-  is off under reduced motion, and a repaint's median is under 4 ms;
+* there is no canvas in the markup, the trace has `role="img"` and a label, and neither `webgl`
+  nor `getContext` is anywhere in `app.js`;
+* nothing under `static/` (minus the vendored three.js) asks for a 2D context, and at run time no
+  canvas on the page is asked for one, with ink on or off;
+* in Chromium, the plain trace has a point a minute, raised for every minute with something in it,
+  and exactly two ticks in the palette's own `--human`, and the series the ink layer reads is the
+  same hour;
+* changing the palette recolours it with nothing drawn again;
+* with ink, the trace is a pen line and red ticks in its pane's lane, it follows its data and is
+  erased when the hour empties, and the SVG steps aside;
+* with ink, the ground is the layer's, three blobs, drifting at a frame a second and still under
+  reduced motion; without ink, the stylesheet's gradients and the SVG are the page's own;
 * and the trace never costs the head a second line, at five window widths.
