@@ -126,6 +126,29 @@ def _read(page):
     return {p["repo"]: p for p in page.evaluate(READ)}
 
 
+# The row's widths, twice, two frames apart.
+_STILL = """() => new Promise(done => {
+  const widths = () => [...document.querySelectorAll('#grid .tile')]
+    .map(t => t.getBoundingClientRect().width.toFixed(1)).join();
+  const first = widths();
+  requestAnimationFrame(() => requestAnimationFrame(() => done(first === widths())));
+})"""
+
+
+def _read_settled(page, timeout=10.0):
+    """The row as it came to rest after a gesture: nothing travelling, no view transition, and the
+    same widths two frames apart. Read the moment a write is answered, a slower runner was still
+    drawing the step before -- 45.8px of a 50px drag on Windows 3.14 (#270), and one of five even
+    shares 20px wide -- so it is waited for, not assumed. A width that is wrong at rest still fails."""
+    import time
+    deadline = time.monotonic() + timeout
+    while True:
+        if page.evaluate(SETTLED) and page.evaluate(_STILL):
+            return _read(page)
+        assert time.monotonic() < deadline, "the row never came to rest"
+        page.wait_for_timeout(50)
+
+
 def _window_posts(posts):
     return [json.loads(body) for url, body in posts if "/api/window" in url]
 
@@ -209,11 +232,11 @@ def test_a_gutter_drag_moves_width_between_exactly_two_panes_in_one_post(fleet_h
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, posts = _page(browser, port, token, wide=3)
-            before = _read(page)
+            before = _read_settled(page)
             posts.clear()
             _drag_gutter(page, "alpha", 90, steps=30)
             page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
-            after = _read(page)
+            after = _read_settled(page)
             edge = page.evaluate("() => paneEdge()")
             sent = list(posts)
             assert not errors, errors
@@ -270,13 +293,13 @@ def test_the_snaps_are_the_rail_the_two_minimums_and_an_even_share(fleet_home, t
               rails: snapPair(70, 96),
               narrow: [100, 135, 155].map(a => snapPair(a, 290)),
             })""")
-            before = _read(page)
+            before = _read_settled(page)
             posts.clear()
             # Pull alpha down to 100px: it settles to a rail and beta takes the rest.
             _drag_gutter(page, "alpha", 100 - before["alpha"]["width"], steps=20)
             page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            after = _read(page)
+            after = _read_settled(page)
             sent = list(posts)
             assert not errors, errors
             browser.close()
@@ -320,7 +343,7 @@ def test_escape_in_the_middle_of_a_drag_puts_the_widths_back_and_writes_nothing(
             page, errors, posts = _page(browser, port, token, wide=2)
             # A pane to go back to, so that an `Esc` that leaked through would show.
             page.evaluate("() => { previousOpen = 'gamma'; }")
-            before = _read(page)
+            before = _read_settled(page)
             posts.clear()
             x, y = _gutter_point(page, "alpha")
             page.mouse.move(x, y)
@@ -339,7 +362,7 @@ def test_escape_in_the_middle_of_a_drag_puts_the_widths_back_and_writes_nothing(
             page.keyboard.press("Escape")
             page.mouse.up()
             page.wait_for_function("() => !gutterHeld", timeout=8000)
-            after = _read(page)
+            after = _read_settled(page)
             # Nothing is waited for to arrive, so give anything that was going to be sent the time.
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
             page.wait_for_timeout(300)
@@ -375,7 +398,7 @@ def test_the_footers_undo_takes_a_drag_back_in_one_more_write(fleet_home, tmp_pa
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, posts = _page(browser, port, token, wide=2)
-            before = _read(page)
+            before = _read_settled(page)
             assert not page.locator("#undo").is_visible()
             posts.clear()
             _drag_gutter(page, "alpha", -120)
@@ -388,7 +411,7 @@ def test_the_footers_undo_takes_a_drag_back_in_one_more_write(fleet_home, tmp_pa
                            .getBoundingClientRect().width - {before['alpha']['width']}) < 1""",
                 timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            after = _read(page)
+            after = _read_settled(page)
             gone = page.evaluate("() => document.getElementById('undo').hidden")
             sent = list(posts)
             assert not errors, errors
@@ -434,7 +457,7 @@ def test_each_preset_is_one_write_and_needs_me_hides_nothing(fleet_home, tmp_pat
             page.wait_for_function(
                 "() => document.querySelectorAll('#grid .tile.is-solo').length === 5", timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            seen["all"] = (_read(page), list(posts))
+            seen["all"] = (_read_settled(page), list(posts))
 
             posts.clear()
             page.keyboard.press("f")
@@ -442,7 +465,7 @@ def test_each_preset_is_one_write_and_needs_me_hides_nothing(fleet_home, tmp_pat
                 """() => [...document.querySelectorAll('#grid .tile.is-solo')]
                           .map(t => t.dataset.repo).join() === 'gamma,epsilon'""", timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            seen["needs"] = (_read(page), list(posts), page.evaluate("() => openName()"),
+            seen["needs"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"),
                              page.evaluate("() => document.querySelectorAll('.tile.is-hidden').length"))
 
             posts.clear()
@@ -450,7 +473,7 @@ def test_each_preset_is_one_write_and_needs_me_hides_nothing(fleet_home, tmp_pat
             page.wait_for_function(
                 "() => document.querySelectorAll('#grid .tile.is-solo').length === 1", timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            seen["one"] = (_read(page), list(posts), page.evaluate("() => openName()"))
+            seen["one"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"))
 
             # The keyboard on a rail: `1` makes THAT pane the one.
             posts.clear()
@@ -458,7 +481,7 @@ def test_each_preset_is_one_write_and_needs_me_hides_nothing(fleet_home, tmp_pat
             page.keyboard.press("1")
             page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            seen["one-here"] = (_read(page), list(posts), page.evaluate("() => openName()"))
+            seen["one-here"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"))
             _until(lambda: S.desk_state()["windows"]["main"].get("open") == "beta")
 
             # And back: the undo of a preset is the preset before it.
@@ -466,7 +489,7 @@ def test_each_preset_is_one_write_and_needs_me_hides_nothing(fleet_home, tmp_pat
             page.keyboard.press("u")
             page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            seen["undo"] = (_read(page), list(posts), page.evaluate("() => openName()"))
+            seen["undo"] = (_read_settled(page), list(posts), page.evaluate("() => openName()"))
             assert not errors, errors
             browser.close()
     finally:
@@ -672,7 +695,7 @@ def test_a_refused_write_of_widths_puts_the_page_back_and_says_why(fleet_home, t
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, posts = _page(browser, port, token, wide=2)
-            before = _read(page)
+            before = _read_settled(page)
 
             def refuse(route):
                 body = json.loads(route.request.post_data or "{}")
@@ -722,7 +745,7 @@ def test_a_double_click_on_a_gutter_evens_the_two_panes_in_one_write(fleet_home,
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, posts = _page(browser, port, token, wide=3)
-            before = _read(page)
+            before = _read_settled(page)
             assert before["alpha"]["width"] > before["beta"]["width"] + 100, before
             posts.clear()
             page.locator('.tile[data-repo="alpha"] > .gutter').dblclick()
@@ -732,7 +755,7 @@ def test_a_double_click_on_a_gutter_evens_the_two_panes_in_one_write(fleet_home,
                            return Math.abs(w('alpha') - w('beta')) < 1; }""", timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
             page.wait_for_timeout(300)
-            after = _read(page)
+            after = _read_settled(page)
             sent = list(posts)
             assert not errors, errors
             browser.close()
@@ -760,13 +783,13 @@ def test_shift_click_opens_a_rail_beside_the_open_pane(fleet_home, tmp_path):
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, posts = _page(browser, port, token, wide=2)
-            before = _read(page)
+            before = _read_settled(page)
             posts.clear()
             page.locator('.tile[data-repo="delta"] .pane-rail').click(modifiers=["Shift"])
             page.wait_for_selector('.tile[data-repo="delta"].is-solo:not([data-tier="rail"])',
                                    timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            after = _read(page)
+            after = _read_settled(page)
             open_ = page.evaluate("() => openName()")
             sent = list(posts)
             assert not errors, errors
@@ -799,12 +822,12 @@ def test_a_rail_pressed_takes_the_width_of_the_pane_that_had_the_keys(fleet_home
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, posts = _page(browser, port, token, wide=2)
-            before = _read(page)
+            before = _read_settled(page)
             posts.clear()
             page.locator('.tile[data-repo="gamma"] .pane-rail').click()
             page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            after = _read(page)
+            after = _read_settled(page)
             sent = list(posts)
             assert not errors, errors
             browser.close()
@@ -840,7 +863,7 @@ def test_every_gesture_again_from_the_keyboard(fleet_home, tmp_path):
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, posts = _page(browser, port, token, wide=2)
-            start = _read(page)
+            start = _read_settled(page)
             posts.clear()
 
             # The gutter, one step.
@@ -848,13 +871,13 @@ def test_every_gesture_again_from_the_keyboard(fleet_home, tmp_path):
             page.keyboard.press("Alt+Shift+ArrowRight")
             page.wait_for_function(f"() => Math.abs(({width})('alpha') - "
                                    f"{start['alpha']['width'] + 40}) < 1", timeout=8000)
-            step = _read(page)
+            step = _read_settled(page)
             # The double click: even.
             page.keyboard.press("Alt+Enter")
             page.wait_for_function(f"() => Math.abs(({width})('alpha') - ({width})('beta')) < 1",
                                    timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            even = _read(page)
+            even = _read_settled(page)
 
             # Along the row, and Shift+Enter on a rail: open beside the pane with the keys.
             page.keyboard.press("ArrowRight")
@@ -867,14 +890,14 @@ def test_every_gesture_again_from_the_keyboard(fleet_home, tmp_path):
             page.keyboard.press("Shift+Enter")
             page.wait_for_selector('.tile[data-repo="gamma"].is-solo', timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            beside = _read(page)
+            beside = _read_settled(page)
             beside_open = page.evaluate("() => openName()")
 
             # `u`: back to before the Shift+Enter.
             page.keyboard.press("u")
             page.wait_for_selector('.tile[data-repo="gamma"][data-tier="rail"]', timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            undone = _read(page)
+            undone = _read_settled(page)
 
             # Enter on the rail: the swap.
             page.focus('.tile[data-repo="gamma"] .pane-rail')
@@ -1050,10 +1073,10 @@ def test_under_reduced_motion_a_preset_applies_at_once_and_the_drag_is_unchanged
                                    .map(t => t.getBoundingClientRect().width);
                            return Math.max(...w) - Math.min(...w) < 1; }""", timeout=5000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            before = _read(page)
+            before = _read_settled(page)
             _drag_gutter(page, "alpha", 50)
             page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
-            after = _read(page)
+            after = _read_settled(page)
             assert not errors, errors
             browser.close()
     finally:
@@ -1142,7 +1165,7 @@ def test_a_reload_draws_the_widths_it_left_and_writes_none(fleet_home, tmp_path)
             page.locator('.tile[data-repo="alpha"] .head .repo').click()
             page.wait_for_function("() => location.hash === '#tile=alpha' && windowWrites === 0",
                                    timeout=8000)
-            before = _read(page)
+            before = _read_settled(page)
             assert before["alpha"]["wide"] and before["beta"]["wide"], "opening it swapped it"
             _drag_gutter(page, "alpha", RAIL_PX + 10 - before["alpha"]["width"], steps=16)
             page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=8000)
@@ -1158,7 +1181,7 @@ def test_a_reload_draws_the_widths_it_left_and_writes_none(fleet_home, tmp_path)
             # The anchor is answered after the desk loads; give it that turn, then read.
             page.wait_for_function("() => pendingDesk === null", timeout=8000)
             page.wait_for_function("() => windowWrites === 0", timeout=8000)
-            after = _read(page)
+            after = _read_settled(page)
             reloaded = list(posts)
             assert not after["alpha"]["wide"] and after["beta"]["wide"], \
                 f"the reload widened the rail the hand had made: {after}"
@@ -1204,7 +1227,7 @@ def test_a_desk_an_older_build_wrote_still_draws_its_widths(fleet_home, tmp_path
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, posts = _page(browser, port, token, wide=2)
-            panes = _read(page)
+            panes = _read_settled(page)
             edge = page.evaluate("() => paneEdge()")
             mine = page.evaluate("() => myWidths")
             assert not errors, errors

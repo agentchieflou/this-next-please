@@ -24,7 +24,8 @@ from agentdata.fleet import serve as S
 
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_gutters import (_gutter_point, _near, _own_desk_globals, _page,  # noqa: F401
-                                _read, _repos, _serve, _stop, _widths_posts, fleet_home)
+                                _read_settled, _repos, _serve, _stop, _widths_posts,
+                                fleet_home)
 
 
 @pytest.mark.browser
@@ -40,7 +41,7 @@ def test_a_gutter_released_past_its_last_move_lands_where_the_hand_came_up(fleet
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, posts = _page(browser, port, token, wide=2)
-            before = _read(page)
+            before = _read_settled(page)
             posts.clear()
             x, y = _gutter_point(page, "alpha")
             page.mouse.move(x, y)
@@ -56,7 +57,7 @@ def test_a_gutter_released_past_its_last_move_lands_where_the_hand_came_up(fleet
                           [x + 50, y])
             page.wait_for_function("() => !gutterHeld && windowWrites === 0", timeout=8000)
             page.mouse.up()
-            after = _read(page)
+            after = _read_settled(page)
             sent = list(posts)
             assert not errors, errors
             browser.close()
