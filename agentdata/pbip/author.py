@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 from . import catalog as CAT
 from . import expr as E
+from . import normalize as N
 from . import pbir as P
 from .. import textio
 
@@ -88,6 +89,61 @@ def _formatting_value(prop_path: str, pdef: dict[str, Any], value: Any) -> tuple
 def _did_you_mean(name: str, known: Any) -> str:
     near = difflib.get_close_matches(name, list(known), n=1)
     return f" Did you mean '{near[0]}'?" if near else ""
+
+
+# Desktop saves a label's field under this selector: every data point, highlighted or not.
+ALL_INSTANCES = [{"dataViewWildcard": {"matchingOption": 1}}]
+
+
+def _series_query_ref(vis: dict[str, Any], series: str) -> str:
+    """The queryRef of the projection `series` names: its queryRef, display name, field or measure name."""
+    want = series.strip().casefold()
+    refs: list[str] = []
+    for role in ((vis.get("query") or {}).get("queryState") or {}).values():
+        for proj in role.get("projections") or []:
+            f = proj.get("field") or {}
+            names = {proj.get("queryRef"), proj.get("nativeQueryRef"), E.decode_expr(f),
+                     (f.get("Measure") or f.get("Column") or {}).get("Property")}
+            if want in {str(n).casefold() for n in names if n} and proj.get("queryRef") not in refs:
+                refs.append(proj["queryRef"])
+    if len(refs) == 1:
+        return refs[0]
+    every = sorted({p.get("queryRef") for r in ((vis.get("query") or {}).get("queryState") or {}).values()
+                    for p in r.get("projections") or [] if p.get("queryRef")})
+    what = "matches several fields" if refs else "is not a field of this visual"
+    raise ValueError(f"series '{series}' {what}; the visual's fields are: {', '.join(every) or 'none'}")
+
+
+def _label_field(pbip_path: str, prop_path: str, text: str) -> tuple[dict[str, Any], bool]:
+    """Encode a label's field as Desktop does, checked against the model: (expression, checked)."""
+    enc = E.encode_expr(text, is_measure=True)
+    try:
+        report = P.load_report(pbip_path)
+        model = N.load_model(N.find_model_dir(pbip_path, report))
+    except FileNotFoundError:  # a live-connected report: no local model to look the field up in
+        if "Aggregation" not in enc and not enc["Measure"].get("Expression"):
+            raise ValueError(f"'{prop_path}': with no model to look [{enc['Measure']['Property']}] up in, "
+                             "name its table: 'Table'[Measure]") from None
+        return enc, False
+    idx = N.ModelIndex(model, report)
+    if "Aggregation" in enc:
+        col = enc["Aggregation"]["Expression"].get("Column") or {}
+        entity = ((col.get("Expression") or {}).get("SourceRef") or {}).get("Entity")
+        if col.get("Property") not in idx.tables.get(entity, {}).get("columns", set()):
+            raise ValueError(f"'{prop_path}': {text} aggregates no column of the model")
+        return enc, True
+    meas = enc["Measure"]
+    name = meas["Property"]
+    entity = ((meas.get("Expression") or {}).get("SourceRef") or {}).get("Entity") or idx.measure_table.get(name)
+    table = idx.tables.get(entity or "", {})
+    if name in table.get("measures", set()):
+        return {"Measure": {"Expression": {"SourceRef": {"Entity": entity}}, "Property": name}}, True
+    if name in table.get("columns", set()):
+        raise ValueError(f"'{prop_path}': '{entity}'[{name}] is a column; a label shows a measure or an "
+                         f"aggregation, e.g. Min('{entity}'[{name}])")
+    owner = idx.measure_table.get(name)
+    where = f"; it lives in '{owner}'" if owner and owner != entity else ""
+    raise ValueError(f"'{prop_path}': no measure {text} in the model{where}")
 
 
 def find_page_dir(report_root: str, page_name_or_id: str) -> tuple[Path, dict]:
@@ -378,7 +434,8 @@ def find_visual_file(report_root: str, visual_id: str) -> tuple[Path, dict]:
     raise KeyError(f"Visual '{visual_id}' not found in report")
 
 
-def visual_set(pbip_path: str, visual_id: str, prop_path: str, value: Any) -> dict[str, Any]:
+def visual_set(pbip_path: str, visual_id: str, prop_path: str, value: Any,
+               series: str | None = None) -> dict[str, Any]:
     """Set visual formatting or position property with validation against schema."""
     root = P.find_report_dir(pbip_path)
     vj_path, vis_data = find_visual_file(root, visual_id)
@@ -410,22 +467,46 @@ def visual_set(pbip_path: str, visual_id: str, prop_path: str, value: Any) -> di
         raise KeyError(f"Property '{prop_name}' not valid for object '{obj_name}'."
                        f"{_did_you_mean(prop_name, obj_props)}")
 
-    typed_val, encoded = _formatting_value(prop_path, obj_props[prop_name], value)
+    if series and not obj_def.get("series"):
+        raise ValueError(f"'{obj_name}' applies to the whole visual; --series is for "
+                         f"{', '.join(o for o, d in formatting.items() if d.get('series'))}")
+    vis = vis_data.setdefault("visual", {})
+    query_ref = _series_query_ref(vis, series) if series else None
+
+    checked = None
+    if obj_props[prop_name].get("type") == "field":
+        field, checked = _label_field(pbip_path, prop_path, str(value))
+        typed_val, encoded = E.decode_expr(field), {"expr": field}
+        # Desktop keeps a label's field in an entry for every data point, of one series when one is named.
+        selector: dict[str, Any] | None = {"data": ALL_INSTANCES, **({"metadata": query_ref} if query_ref else {}),
+                                           "highlightMatching": 1}
+    else:
+        typed_val, encoded = _formatting_value(prop_path, obj_props[prop_name], value)
+        selector = {"metadata": query_ref} if query_ref else None
 
     # Chart formatting (labels, legend, axes) lives in visual.objects. The container's (title, background,
     # border, ...) lives in visual.visualContainerObjects, whose schema admits no other key.
     location = obj_def["location"]
-    entries = vis_data.setdefault("visual", {}).setdefault(location, {}).setdefault(obj_name, [])
-    # A visual-wide setting belongs to the entry without a selector; Desktop may save a per-series one first.
-    entry = next((e for e in entries if not e.get("selector")), None)
+    entries = vis.setdefault(location, {}).setdefault(obj_name, [])
+    # Each setting goes in the entry with exactly its selector. A visual-wide one has none, and Desktop may save
+    # a per-series entry before it.
+    entry = next((e for e in entries if (e.get("selector") or None) == selector), None)
     if entry is None:
-        entry = {"properties": {}}
-        entries.insert(0, entry)
+        entry = {"properties": {}, **({"selector": selector} if selector else {})}
+        if selector:
+            entries.append(entry)
+        else:
+            entries.insert(0, entry)
     entry.setdefault("properties", {})[prop_name] = encoded
 
     _save_json(vj_path, vis_data)
-    return {"ok": True, "action": "visual_set", "visual_id": visual_id, "property": prop_path,
-            "location": f"visual.{location}.{obj_name}", "value": typed_val}
+    res = {"ok": True, "action": "visual_set", "visual_id": visual_id, "property": prop_path,
+           "location": f"visual.{location}.{obj_name}", "value": typed_val}
+    if query_ref:
+        res["series"] = query_ref
+    if checked is not None:
+        res["field_checked"] = "against the model" if checked else "no local model: `ad-pbip check` cannot see it either"
+    return res
 
 
 def visual_remove(pbip_path: str, visual_id: str) -> dict[str, Any]:

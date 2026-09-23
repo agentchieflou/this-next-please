@@ -1020,7 +1020,7 @@ def cmd_visual(a) -> int:
                 print(error("property must be format <object.property>=<value>", "", "ad-pbip"))
                 return 2
             prop_path, val = a.property.split("=", 1)
-            res = AU.visual_set(pbip, a.visual, prop_path, val)
+            res = AU.visual_set(pbip, a.visual, prop_path, val, series=getattr(a, "series", None))
         elif sub_c == "remove":
             res = AU.visual_remove(pbip, a.visual)
         else:
@@ -1545,6 +1545,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_vs.add_argument("pbip", nargs="?", help="PBIP root path")
     p_vs.add_argument("--visual", required=True, help="visual id (20-hex)")
     p_vs.add_argument("--property", required=True, help="property in format <object.property>=<value> or position.x=10")
+    p_vs.add_argument("--series", help="apply a labels setting to one series: its queryRef, display name or measure")
     p_vs.add_argument("--pretty", action="store_true", help="draw it as a table")
     p_vs.set_defaults(fn=cmd_visual)
     p_vr = vis_sub.add_parser("remove", help="remove visual")

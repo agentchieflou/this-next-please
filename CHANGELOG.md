@@ -22,7 +22,14 @@ place and value:
   is left alone. `visual add` doubles a quote in its title too.
 - **A visual-wide setting goes in the entry without a selector.** Desktop can save a chart's per-series labels entry
   first, and the old write went into that one.
-- **The tests hold it to Desktop's own files:** three `clusteredBarChart`s Desktop saved, from microsoft/fabric-toolbox
+- **A data label can show another field, on one series.** This makes the native bar-end label route mechanical:
+  - `--series` applies a `labels` setting to one of the visual's fields, which Desktop's *Apply settings to* does;
+  - `labels.dynamicLabelValue`, `dynamicLabelDetail` and `dynamicLabelTitle` take `[Measure]`, `'Table'[Measure]`
+    or `Min('Table'[Column])`, together with the `enable…DataLabel` and `…ContentType` switches;
+  - each is written under the selector Desktop uses (`dataViewWildcard`, `highlightMatching`, and the series'
+    queryRef), and is checked against the model. A column is refused with the aggregation to use instead. A report
+    with no local model takes `'Table'[Measure]` and says it could not check it.
+- **The tests hold it to Desktop's own files:** four bar charts Desktop saved, from microsoft/fabric-toolbox
   and microsoft/BCApps, in `tests/fixtures/pbip/desktop-saved/`. Every literal they set is taken out and put back
   with `visual set`, and the file must come back as Desktop saved it.
 
