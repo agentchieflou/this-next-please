@@ -454,7 +454,7 @@ the pane's accent on its left and the selection ring, and lets the trace's SVG s
 trace. It is keyed on the canvas being there, not on `:not(.ink-off)`, so a clear pane always has something behind
 it.
 
-Every skin with a module is under the guard; a skin that lands without one (napkin, #252, at the time) is a CSS skin still, and joins it the day its module does.
+Every skin with a module is under the guard, and it reads each selector of a list on its own, so an ink-off selector cannot ride in beside an ink-on one.
 
 ## Lanes
 

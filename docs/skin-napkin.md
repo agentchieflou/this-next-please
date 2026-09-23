@@ -13,7 +13,7 @@ long time.** Its marks are the same paper state grammar as the notebook.
 | File | Holds |
 | --- | --- |
 | `static/ink/skins/napkin.js` | the mark table, and the `paper`, `frame`, `tick` and `dispose` hooks. It writes no colour of its own, and reads the page but never writes it. It also exports `inspect()`, what it has on the paper per pane, for tests and the console |
-| `static/skins/napkin/skin.css` | the colours as custom properties per variant (`--paper`, `--paper-seam`, `--coffee`, `--ink-<tool>`), the handwriting stack, the panes made transparent under ink, and the napkin under `body.ink-off` |
+| `static/skins/napkin/skin.css` | the colours as custom properties per variant (`--paper`, `--paper-seam`, `--coffee`, `--ink-<tool>`), and the handwriting stack; since #257 nothing it paints (the guard in `test_fleet_skin_guard.py`) |
 | `agentdata/fleet/skins.py` | the two variants, the palette each is drawn against, the panel pair `theme.check` reads, and the inks |
 
 The module is 7.4 KB gzipped. Like every skin's module, only a desk that chose it fetches it, and it is outside the
@@ -37,8 +37,9 @@ The paper hook draws one quad under the whole page. Its shader has three parts:
 no rules and no margin. The seams are in page px, so they stay put while panes move across them. The felt tip's
 bleed uses the same lattice, so its ink runs down the seams the paper shows.
 
-Under ink the bars, the row and the panes are transparent, so the napkin shows through them. Cards on a pane
-(the approval, the questions, menus) keep their own ground.
+Under ink the bars, the row and the panes are transparent (`app.css` clears the bars and the panes for every
+skin that draws; the stylesheet clears the row), so the napkin shows through them. Cards on a pane (the approval,
+the questions, menus) keep their own ground.
 
 ## The marks: the paper state grammar
 
@@ -121,16 +122,14 @@ skin.css back to prove the stylesheet draws the numbers skins.py checks.
 
 ## Without ink
 
-Every shell whose probe did not say `hardware` gets `body.ink-off` (plan-ink Decision 3). There the napkin is CSS:
+Every shell whose probe did not say `hardware` gets `body.ink-off` (plan-ink Decision 3). Since #257 that is the
+one plain look every skin shares: the palette's page and panes, with the same mark table drawn plain by the
+layer's own fallback (outlines, tints, underlines and margin bars). The quilt and the coffee ring are the module's
+to draw, and there is no CSS copy of them to drift from it. No layer and no three.js is fetched.
 
-* the same quilting as two `repeating-linear-gradient`s at the shader's spacing, on the page and on each pane;
-* the ring as a `radial-gradient` under `.tile.state-idle:has(.chip.stale)`;
-* the same mark table, drawn plain by the layer's own fallback: outlines, tints, underlines and margin bars.
-
-No layer and no three.js is fetched.
-
-**Reduced transparency** (`prefers-reduced-transparency: reduce`, in either mode) puts each pane on plain paper.
-The quilt and the coffee ring stay on the napkin between the panes, and nothing shows behind the words.
+The CSS quilt and ring went with #257, and with them the stylesheet's opaque panes under
+`prefers-reduced-transparency`: the plain look has nothing behind its words, and under ink an opaque pane would
+hide the marks the layer draws behind it (glass's CSS fallback went the same way).
 
 ## Tests
 
@@ -144,7 +143,7 @@ a live lock, events three days old), because the desk's redraw owns the state cl
 * the coffee ring is under the long-idle pane only (read back from the canvas) and goes when the agent wakes;
 * the felt tip inks the seams just outside its stroke and hardly any of the pillows between;
 * reduced motion draws everything at once;
-* the plain fallback draws the napkin, both variants;
+* the plain fallback is the plain look with the same marks, both variants;
 * an idle napkin is zero DOM writes and zero WebGL frames, and it settles within the frames the pen needs plus the
   soak.
 

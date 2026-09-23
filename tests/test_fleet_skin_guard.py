@@ -20,8 +20,8 @@ The guard, per rule of every such stylesheet:
    `none`, `0`, or `var(--...)`. Never a literal colour, never a `url()`: a skin stands aside for
    the canvas and never paints over it.
 
-It covers every skin that ships an ink module. A skin with none yet (napkin, #252, when this was
-written) is a CSS skin still, and joins the guard the day its module lands.
+It covers every skin that ships an ink module; a skin that lands without one is a CSS skin still,
+and joins the guard the day its module does.
 """
 from __future__ import annotations
 import os
@@ -98,7 +98,9 @@ def refused(css: str) -> list[str]:
             continue
         if LAYOUT.match(prop) or TYPOGRAPHY.match(prop):
             continue
-        if not INK_ON.search(selector):
+        # Every selector of a list, not the list: `a:not(.ink-off) x, a.ink-off x` is one rule that
+        # paints the plain look too.
+        if not all(INK_ON.search(s) for s in re.split(r",(?![^(]*\))", selector)):
             bad.append(f"paints {prop} for every look, the plain one included: {where}")
         elif not CLEARING.match(value):
             bad.append(f"paints {prop} over the canvas (only transparent, none, 0 or a token): {where}")
@@ -124,7 +126,8 @@ def test_the_guard_knows_decoration_when_it_sees_it():
                 "body[data-skin=x]:not(.ink-off) header { background: #7A4B24; }",
                 "body[data-skin=x]:not(.ink-off) .chip::before { background-image: url(sprites.svg#a); }",
                 "@media (prefers-reduced-transparency: reduce) { body[data-skin=x] .tile { background: var(--panel); } }",
-                "/* a comment { background: red } */ body[data-skin=x] .tile { border: 4px solid #6E4A28; }"):
+                "/* a comment { background: red } */ body[data-skin=x] .tile { border: 4px solid #6E4A28; }",
+                "body[data-skin=x]:not(.ink-off) .tile, body[data-skin=x].ink-off .tile { background: var(--paper); }"):
         assert refused(css), css
     # A value with a `;` inside brackets is one declaration, and nested blocks are read.
     assert len(rules("a { background: url('x;y'); } @media (x) { b { color: red; } }")) == 2
@@ -132,7 +135,7 @@ def test_the_guard_knows_decoration_when_it_sees_it():
 
 def test_the_guard_covers_every_skin_that_draws_with_ink():
     names = ink_skins()
-    assert {"glass", "graph", "legalpad", "farmstead", "notebook", "voxel"} <= set(names), names
+    assert {"glass", "graph", "legalpad", "farmstead", "notebook", "voxel", "napkin"} <= set(names), names
     for name in names:
         assert os.path.exists(os.path.join(skins.SKINS_DIR, name, "skin.css")), name
 

@@ -512,11 +512,11 @@ def test_reduced_motion_draws_the_napkin_at_once(fleet_home, tmp_path, monkeypat
 
 
 @pytest.mark.browser
-def test_the_plain_fallback_draws_the_napkin_and_the_same_marks(fleet_home, tmp_path, monkeypatch):
-    """Where the gate is off (every shell but a measured hardware one), the napkin is CSS: the
-    quilted stock on the page and the panes, the coffee ring under the long-idle pane and no other,
-    and the same mark table drawn plain by the layer's fallback -- the error pane boxed, the name
-    that needs you tinted. No layer, no three.js. Both variants."""
+def test_the_plain_fallback_is_the_plain_look_with_the_same_marks(fleet_home, tmp_path, monkeypatch):
+    """Where the gate is off (every shell but a measured hardware one), the napkin is the one plain
+    look every skin shares since #257 -- the palette's page and panes, no quilt and no ring, which
+    are the module's to draw -- and the same mark table drawn plain by the layer's fallback: the
+    error pane boxed, the name that needs you tinted. No layer, no three.js. Both variants."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     q = {"question": "which window?", "id": "q1", "blocking": True, "choices": ["left", "right"]}
     _desk(tmp_path, monkeypatch, {
@@ -544,6 +544,8 @@ def test_the_plain_fallback_draws_the_napkin_and_the_same_marks(fleet_home, tmp_
                     paper: cs(document.body).getPropertyValue('--paper').trim(),
                     page: cs(document.body).backgroundImage,
                     old: cs(t('old')).backgroundImage, err: cs(t('err')).backgroundImage,
+                    panel: cs(t('err')).backgroundColor,
+                    want: cs(document.body).getPropertyValue('--panel').trim(),
                     box: cs(t('err')).outlineStyle + ' ' + cs(t('err')).outlineWidth,
                     name: cs(t('ask').querySelector('.head .repo')).backgroundColor,
                     bare: cs(t('old').querySelector('.head .repo')).backgroundColor,
@@ -560,9 +562,9 @@ def test_the_plain_fallback_draws_the_napkin_and_the_same_marks(fleet_home, tmp_
         spec = skins.SKINS["napkin"]["variants"][variant]
         assert look["off"] and look["drawn"], look
         assert look["paper"].upper() == spec["paper"], look
-        assert look["page"].count("repeating-linear-gradient") == 2, look["page"]
-        assert "radial-gradient" in look["old"] and "radial-gradient" not in look["err"], look
-        assert look["err"].count("repeating-linear-gradient") == 2, "the pane is the napkin too"
+        assert look["page"] == "none" and look["old"] == "none" and look["err"] == "none", look
+        want = tuple(round(c * 255) for c in theme.hex_to_rgb(look["want"]))
+        assert look["panel"] == "rgb(%d, %d, %d)" % want, look
         assert look["box"].startswith("solid 2px"), look
         assert look["name"] != look["bare"] and look["under"] == "underline", look
 
