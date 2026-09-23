@@ -46,7 +46,7 @@ WebGL (`tests/test_fleet_trace.py`).
 | `Ink.setSkin(table \| null, hooks?)` | a mark table, or none, and optionally a skin's material hooks. The desk's own skin sets itself (§Writing a skin), so this is for tests and the console. It replaces the skin's table until the skin changes again. Resolves to `{drawn: "ink" \| "plain" \| "none"}`. **Throws, naming the row**, on a table it cannot draw |
 | `Ink.refresh()` | reads the palette again, matches the table against the page and measures every mark now |
 | `Ink.off(reason)` | the plain fallback for the rest of this page's life |
-| `Ink.inspect()` | what is on the paper: lanes, marks (state, how much is drawn, where), frames. For tests and the console |
+| `Ink.inspect()` | what is on the paper: lanes, marks (state, how much is drawn, where, and each stroke's extent on the viewport as `bounds`), frames. For tests and the console |
 | `Ink.sample(box)` | how many pixels of a viewport box hold ink, read back from a frame drawn for the purpose. For tests |
 
 ## The gate: hardware WebGL, measured, and nothing else
@@ -132,6 +132,15 @@ Ink.setSkin({
 | `pad` | px the shape stands off its element (optional) |
 | `dash` | a dashed stroke, for the stale pencil outline (optional) |
 | `to` | an arrow's target: a selector, looked up in the arrow's own pane first, then the page |
+| `snap` | a grid pitch in px (4 or more): the row's straight strokes are ruled onto a grid of that pitch from the viewport's top-left. An outline's corners meet on the grid, an underline goes down to the first line under its text, a divider to the nearest. Only `outline`, `divider` and `underline` may snap (optional, #253) |
+| `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #253) |
+
+A table may also tune a tool's hand for its own strokes with `tools: {<tool>: {...}}`, each a
+number of 0 or more (`lam`, a wavelength, more than 0): `w`, `press`, `pvar`, `wob`, `lam`, `bow`, `wmin`, `tin`, `tout` (§Tools says
+what each is). The graph paper's mechanical pencil is `tools: {pencil: {w: 1.05, pvar: 0.04, wob:
+0, bow: 0, tin: 0, tout: 0, ...}}`. A tool's `kind`, `pad` and `model` are what it is, and stay
+the layer's. A skin's module gives `tools` in its `options`. A `snap`, a `leaves` or a `tools`
+entry the layer cannot honour is refused like a row it cannot draw.
 
 A row the layer cannot draw is refused when the table is set. The exception names the row: `ink: mark 3
 (.tile .repo): no tool "crayon" (pencil, pen, red, green, marker, highlighter)`. A refused table leaves the one in
@@ -249,6 +258,12 @@ What each hook is handed:
 9. **Test with `?ink=on`**, choosing the skin with `POST /api/theme {skin: "<name>"}` as the settings page does.
    `Ink.inspect()` shows the marks, and `.layer.skin` shows the hooks, the pieces and the frames.
    `tests/test_fleet_ink.py` has the pattern.
+
+### The skins that draw with ink
+
+| Skin | Page |
+| --- | --- |
+| `graph` (graph paper, #253) | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
 
 ## Lanes
 

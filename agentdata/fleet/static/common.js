@@ -160,10 +160,12 @@ function applyTheme(cssVars, themeName) {
       if (cssVars[k]) root.style.setProperty(k, cssVars[k]);
       else root.style.removeProperty(k);
     });
-    root.setAttribute("data-theme", "custom");
+    // Written only when it changes (the render contract): every snapshot applies the theme again,
+    // and an attribute set to the value it already has is still a mutation to every observer.
+    attr(root, "data-theme", "custom");
   } else {
     tokens.forEach(function (k) { root.style.removeProperty(k); });
-    root.removeAttribute("data-theme");
+    attr(root, "data-theme", null);
   }
 }
 
@@ -180,8 +182,8 @@ function applySkin(skinName) {
   var variant = parts[1] || "";
   if (!family || family === "none") {
     if (link) link.remove();
-    document.body.removeAttribute("data-skin");
-    document.body.removeAttribute("data-skin-variant");
+    attr(document.body, "data-skin", null);
+    attr(document.body, "data-skin-variant", null);
     return;
   }
   if (!link) {
@@ -192,9 +194,8 @@ function applySkin(skinName) {
   }
   var href = q("/static/skins/" + family + "/skin.css");
   if (link.href !== href) link.href = href;   // re-assigning re-fetches and flashes the page
-  document.body.setAttribute("data-skin", family);
-  if (variant) document.body.setAttribute("data-skin-variant", variant);
-  else document.body.removeAttribute("data-skin-variant");
+  attr(document.body, "data-skin", family);
+  attr(document.body, "data-skin-variant", variant || null);
 }
 
 /* ------------------------------------------------------------ #219: how long a gesture took
