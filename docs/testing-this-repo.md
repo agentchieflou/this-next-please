@@ -122,7 +122,7 @@ silently selecting nothing.
 | `laptop` | needs real tools and a real machine; gated on `AGENTDATA_LAPTOP=1` |
 | `windows` / `posix` | only meaningful on that OS |
 | `real_home` | opts out of the isolated home, for tests *about* the real checkout |
-| `network` | reaches the network. Nothing carries it today — it exists so adding one is a decision |
+| `network` | reaches the network. One test carries it: `tests/test_desk_types.py`'s `tsc`, whose `npx` fetches the pinned compiler until it is cached (#236). `AGENTDATA_OFFLINE=1` skips it without trying; a machine with no Node skips it as well. Adding a second is still a decision |
 | `browser` | loads the fleet dashboard in Chromium and asserts on the rendered page |
 | `measured` | asserts a duration. Runs with the machine to itself — see *The tiers* above |
 | `scale` | cost grows with the repository or the data; correct, and not what an inner loop is for |
@@ -518,7 +518,7 @@ one that invents output is worth less than no test.
 
 | Job | What it proves |
 |---|---|
-| `ubuntu · 3.12 / 3.14` | the suite on the floor and on the laptop's Python: the bulk on every core, then `measured` + `scale` with the machine to themselves, then `slow` serially |
+| `ubuntu · 3.12 / 3.14` | the suite on the floor and on the laptop's Python: the bulk on every core, then `measured` + `scale` with the machine to themselves, then `slow` serially. The 3.12 leg first type-checks the desk, `tsc --noEmit` with a pinned compiler ([desk-types.md](desk-types.md), #236) |
 | `windows · 3.12 / 3.14` | the same tiers but **serially** (see *Parallelism* — #227), plus pwsh 7 / Git Bash / cmd smoke steps, under both `core.autocrlf` settings |
 | `floor · pip refuses the wheel on 3.11` | `Requires-Python` really stops an older interpreter, in the words the user sees |
 | `lint · shellcheck + PSScriptAnalyzer` | the shipped scripts parse and target the right floors |

@@ -214,6 +214,7 @@ it serially, and `docs/testing-this-repo.md` says what each tier costs and why i
 | `docs/desk-engines.md` | what each engine does with the platform features the desk uses, what happens on the ones that have not got them, and the numbers measured here |
 | `docs/desk-instant.md` | paint, post, reconcile: the optimistic arrangement and its way back, one round trip per action, the stale desk while the new one loads, and the 50ms budget |
 | `docs/desk-motion.md` | the desk's motion budget — three duration tokens, one arrival pattern, one door for a layout change, and what is asserted about all of it |
+| `docs/desk-types.md` | the desk's types without a build: `tsc --noEmit` over JSDoc in `common.js` and `app.js`, what is typed and why the whole of both files is read, and what the check found (#236) |
 | `docs/plan-column.md` | implemented: the column (epic #200) — one tile open, every other session a band in a column that fills the page; hide, refresh and the model on every band and tile; one session control where the strip was |
 | `docs/plan-meter.md` | implemented: the meter (epic #201) — spend, budget and model on every tile, a fleet total, one arithmetic, a ledger that survives the log rolling; the caps deferred and named |
 | `docs/plan-fresh.md` | planned: fresh (epic #238) — every session records the install it started on, staleness shows on every tile at every turn, and `ad-fleet renew` starts fresh sessions for the stale agents when they are idle, previewed first |
