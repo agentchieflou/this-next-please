@@ -31,7 +31,7 @@ import urllib.request
 import pytest
 
 from agentdata import theme
-from agentdata.fleet import events as E, probe as PR, registry, serve as S, skins as SK
+from agentdata.fleet import events as E, probe as PR, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
@@ -43,7 +43,7 @@ STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
 INK = os.path.join(STATIC, "ink")
 THREE_PATH = "/static/vendor/three/three.module.min.js"
 MODULES = ("ink.js", "layer.js", "shapes.js", "pen.js")
-#: Skin modules (docs/desk-ink.md §Writing a skin). Only the example ships in slice B.
+#: Skin modules (docs/desk-ink.md §Writing a skin): the example, and every skin that draws with ink.
 SKINS = tuple(sorted(n for n in os.listdir(os.path.join(INK, "skins")) if n.endswith(".js")))
 #: Every script in `static/ink/`, the skins' included, as paths under it.
 SCRIPTS = MODULES + tuple(f"skins/{n}" for n in SKINS)
@@ -238,9 +238,11 @@ def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
     assert files == sorted(MODULES), "a module the budget does not count"
     assert sorted(os.listdir(INK)) == sorted(MODULES + ("skins",))
-    # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost,
-    # and each on a budget of its own. Every one but the example is a skin skins.py offers.
-    assert "example.js" in SKINS and {n[:-3] for n in SKINS} - {"example"} <= set(SK.SKINS), SKINS
+    # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost.
+    # Every one but the example is a skin skins.py offers (#249-#256 ship them).
+    from agentdata.fleet import skins as K
+    assert "example.js" in SKINS and all(n[:-3] in K.SKINS for n in SKINS if n != "example.js"), SKINS
+    # And each on a budget of its own over the wire (#256).
     for n in SKINS:
         size = len(gzip.compress(open(os.path.join(INK, "skins", n), "rb").read(), 6, mtime=0))
         assert size < SKIN_BUDGET, (n, size)
@@ -288,10 +290,9 @@ def test_the_server_writes_the_probe_class_on_the_desk_and_nowhere_else(fleet_ho
         assert gate("?x=1") == ("browser", "unmeasured")
         assert gate('?w="><script>') == ("", "unmeasured")
         # And the skins that ship a module: the example, which skins.py does not offer, and every
-        # other one a skin skins.py does (the voxel, #256, and the skins after it).
+        # skin that draws with ink (#249-#256).
         assert f'data-ink-skins="{" ".join(S.ink_skins())}">' in body_of("?x=1")
-        assert "example" in S.ink_skins()
-        assert set(S.ink_skins()) - {"example"} <= set(SK.SKINS), S.ink_skins()
+        assert S.ink_skins() == sorted(n[:-3] for n in SKINS), S.ink_skins()
         for other in ("settings?x=1", "probe?x=1"):
             assert "data-ink" not in body_of(other), other
         # Compressed once per shell and class, not once for every window: two shells, two pages.
@@ -841,6 +842,9 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
     gate is on and as plain CSS where it is off, its materials run -- a ground, a paper, a frame
     per pane -- and all of it gone when the skin goes. A skin with no module is asked for nothing."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    from agentdata.fleet import skins as K
+    # A skin skins.py offers that ships no module yet, if one is left (#249-#256 ship them).
+    plain_skin = next((n for n in K.SKINS if n not in S.ink_skins()), "")
     _desk_of(tmp_path)
     server, token, port = _serve()
     seen = {}
@@ -852,8 +856,7 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
                                                             encoding="utf-8")
                 page, errors, asked = _open(browser, port, token, extra)
                 _no_skin_css(page)
-                # Every skin that ships a module is listed; the example is one of them.
-                assert "example" in page.evaluate("() => document.body.dataset.inkSkins").split()
+                assert page.evaluate("() => document.body.dataset.inkSkins") == " ".join(S.ink_skins())
                 page.wait_for_function("() => Ink.inspect().table === 'example'", timeout=10000)
                 _mark(page, "alpha", "ink-example")
                 if extra:
@@ -875,8 +878,10 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
                 page.wait_for_function("() => Ink.inspect().table === null", timeout=10000)
                 seen.setdefault("gone", []).append(page.evaluate(
                     "() => ({ canvas: !!document.getElementById('ink'), layer: Ink.inspect().layer })"))
-                _choose(page, "glass")                          # a skin with no module
-                page.wait_for_function("() => document.body.dataset.skin === 'glass'", timeout=10000)
+                if plain_skin:                                  # a skin with no module
+                    _choose(page, plain_skin)
+                    page.wait_for_function("s => document.body.dataset.skin === s", arg=plain_skin,
+                                           timeout=10000)
                 seen.setdefault("asked", []).extend(
                     u.split(str(port))[1] for u in asked if "/static/ink/skins/" in u)
                 assert not errors, errors

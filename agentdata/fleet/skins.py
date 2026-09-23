@@ -56,6 +56,7 @@ SKINS = {
             "azure": {"title": "Azure", "base": "blues",
                       "mesh": [("#4DA3FF", 0.30), ("#5EE1E6", 0.25), ("#3FB950", 0.30)],
                       "fill": ("#1A2A48", 0.40),
+                      "ink_tokens": {"highlighter": "--accent"},
                       "composited_panel": {"darkest": "#11213B", "lightest": "#1D3F56"},
                       "why": "cold blue depth, the darkest of the three"},
             "noir": {"title": "Noir", "base": "vanta-black",
@@ -108,7 +109,50 @@ SKINS = {
                       "why": "a wet afternoon indoors"},
         },
     },
+    # #253, the ink epic's slice G: drawn by the ink layer (`static/ink/skins/graph.js`). The pane
+    # is the paper itself, so the panel is `--paper`; `inks` are the skin's `--ink-<tool>` (and the
+    # plotted trace's), each checked on that paper; `grid` is the major line text has to cross.
+    # `skin.css` carries the same numbers and `tests/test_fleet_ink_graph.py` holds them together.
+    "graph": {
+        "name": "graph",
+        "title": "Graph paper",
+        "why": "a 28px grid, a mechanical pencil, ruled marks and every agent's hour plotted on it",
+        "default": "engineering",
+        "variants": {
+            "engineering": {"title": "Engineering", "base": "eye-relief-day",
+                            "composited_panel": "#F3F6EC", "grid": "#A8C3A0",
+                            "inks": {"pencil": "#4F555C", "pen": "#1D4E89", "red": "#B42318",
+                                     "green": "#2A733E", "marker": "#B42318",
+                                     "highlighter": "#E6DE5A", "trace": "#1D4E89"},
+                            "why": "green quad-ruled pad, graphite and a blue pen"},
+            "blueprint": {"title": "Blueprint", "base": "blues",
+                          "composited_panel": "#123A66", "grid": "#2F6096",
+                          "inks": {"pencil": "#C4D3E6", "pen": "#EAF2FF", "red": "#FF8B7E",
+                                   "green": "#7BE38B", "marker": "#FF8B7E",
+                                   "highlighter": "#B8A12E", "trace": "#EAF2FF"},
+                          "why": "white lines on a cyanotype"},
+        },
+    },
 }
+
+
+# Glass's inks (#254): the palette token each tool of its mark table (`static/ink/skins/glass.js`)
+# is drawn in, unless a variant's `ink_tokens` names another -- which its skin.css says again as
+# `--ink-<tool>`. Resolved against the variant's own palette, so `theme.check` holds every mark on
+# both ends of the frost, and the highlighter's tint under the text, like any paper skin's inks.
+GLASS_INKS = {"pen": "--accent", "red": "--human", "green": "--done", "marker": "--human",
+              "highlighter": "--waiting"}
+
+
+def _glass_inks() -> None:
+    from .. import theme as T
+    for spec in SKINS["glass"]["variants"].values():
+        css = T.to_css(T.get(spec["base"]))
+        tokens = dict(GLASS_INKS, **spec.get("ink_tokens", {}))
+        spec["inks"] = {tool: css[token] for tool, token in tokens.items()}
+
+
+_glass_inks()
 
 
 def _over(top: tuple, alpha: float, under: tuple) -> tuple:

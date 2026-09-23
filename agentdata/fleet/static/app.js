@@ -770,6 +770,12 @@ function drawTrace(canvas, row) {
   var needs = tr.needs || [];
   attr(canvas, "aria-label", tr.says || "nothing in the last hour");
   attr(canvas, "title", tr.says || "nothing in the last hour");
+  /* The same hour as data, for a skin that plots it rather than painting this canvas (#253, the
+     graph paper): the peak, then a minute's count each, `!` on a minute that stopped for a person.
+     Written only when it changes, like every other attribute here. */
+  setData(canvas, "trace", (tr.peak || 1) + "|" + counts.map(function (n, i) {
+    return n + (needs[i] ? "!" : "");
+  }).join(" "));
 
   /* A canvas has two sizes: the box the page lays out and the grid of pixels it owns. On a 2x
      screen they are not the same number, and a canvas that ignores the difference draws a blurred
@@ -811,9 +817,16 @@ function drawTrace(canvas, row) {
    a longer fuse. What comes back is Chromium's normalised form of each `radial-gradient`, which
    is where the ellipse's size, its place and its colour all are. */
 var groundMesh = null;
+var groundKey = "";
 
 function groundColours() {
+  // The mesh is the skin's and its variant's, and nothing else changes it. So it is read once per
+  // choice: every `/api/fleet` answer restarts the ground, and re-reading it each time was two
+  // class writes on <body> on an idle desk (#254).
+  var key = (document.body.dataset.skin || "") + ":" + (document.body.dataset.skinVariant || "");
+  if (groundMesh && key === groundKey) return groundMesh;
   groundMesh = null;
+  groundKey = key;
   if ((document.body.dataset.skin || "") !== "glass") return null;
   // Read before the class that blanks it: the gradients are the source, and a source that has
   // been turned off reads as `none`.
@@ -905,10 +918,10 @@ function startGround() {
   /* A skin's stylesheet is fetched *after* `applySkin` sets the link's href, so the first read of
      the mesh can land before there is anything to read -- and a ground that gave up on that first
      read stayed blank for the whole session. One retry, when the sheet is really there, and a
-     timed one behind it for the case where the link was already loaded. Glass is the only skin
-     whose sheet has a mesh to read: waiting on any other re-armed this on every refresh, and an
-     idle desk under that skin wrote to the page forever (#256). */
-  if (!groundMesh && document.body.dataset.skin === "glass") {
+     timed one behind it for the case where the link was already loaded. Only for glass, the one
+     skin with a mesh to read: for any other the mesh is never there, and the retry re-armed itself
+     every 150ms for as long as the page was open, writing to the link each time (#253). */
+  if (!groundMesh && (document.body.dataset.skin || "") === "glass") {
     /** @type {HTMLLinkElement} */
     var link = document.head.querySelector("link[data-skin]");
     if (link && !link.dataset.waiting) {
@@ -1002,6 +1015,10 @@ function drawTile(el, row, approvals) {
   // comes from #94's fold rather than from anything this page works out for itself: the chip, the
   // toast and the preset must agree.
   toggle(el, "needs-human", !!row.needs_human);
+  // Finished, in the fold's own word (#253). The chip cannot say it: the fold calls an agent done
+  // only once nothing supervises it, and `shownState` draws every quiet unsupervised agent as
+  // idle. So a paper skin's green check has this to key on, and it is the fold's, not the page's.
+  toggle(el, "is-done", row.state === "done");
   // A rail's one stop for the keyboard is its face; the pane around it is not a second one.
   tabbable(el, shows.wide ? 0 : -1);
   // Every state carries its own age, in the chip, because a verdict with no date is the bug.

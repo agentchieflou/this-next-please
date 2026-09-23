@@ -156,19 +156,15 @@ function applyTheme(cssVars, themeName) {
   var tokens = ["--bg", "--text", "--panel", "--line", "--select", "--muted", "--accent",
                 "--focus", "--running", "--waiting", "--human", "--done", "--idle"];
   if (cssVars && themeName && themeName !== "none") {
-    // Written only where it differs: every refresh applies the theme again, and an idle desk is
-    // zero DOM mutations (the render contract) -- a write of the same value is still a mutation,
-    // and it wakes everything that observes the root, the ink layer among them (#256).
     tokens.forEach(function (k) {
-      if (cssVars[k]) {
-        if (root.style.getPropertyValue(k) !== cssVars[k]) root.style.setProperty(k, cssVars[k]);
-      } else if (root.style.getPropertyValue(k)) {
-        root.style.removeProperty(k);
-      }
+      if (cssVars[k]) root.style.setProperty(k, cssVars[k]);
+      else root.style.removeProperty(k);
     });
+    // Written only when it changes (the render contract): every snapshot applies the theme again,
+    // and an attribute set to the value it already has is still a mutation to every observer.
     attr(root, "data-theme", "custom");
   } else {
-    tokens.forEach(function (k) { if (root.style.getPropertyValue(k)) root.style.removeProperty(k); });
+    tokens.forEach(function (k) { root.style.removeProperty(k); });
     attr(root, "data-theme", null);
   }
 }
@@ -198,7 +194,9 @@ function applySkin(skinName) {
   }
   var href = q("/static/skins/" + family + "/skin.css");
   if (link.href !== href) link.href = href;   // re-assigning re-fetches and flashes the page
-  // Only where it changed, as the theme above: the same skin applied on every refresh is no write.
+  // Written only when they change (the render contract's `attr`): every `/api/fleet` answer
+  // carries the theme, and a desk that rewrote the same three attributes on each was an idle desk
+  // making DOM mutations -- and an ink layer, which follows them, repainting for nothing (#254).
   attr(document.body, "data-skin", family);
   attr(document.body, "data-skin-variant", variant || null);
 }

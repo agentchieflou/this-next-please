@@ -575,7 +575,12 @@ def test_every_skin_variant_actually_repaints_the_page(desk):
             body = page.evaluate("""() => ({
                 skin: document.body.getAttribute('data-skin'),
                 variant: document.body.getAttribute('data-skin-variant'),
-                tile: getComputedStyle(document.querySelector('.tile')).backgroundColor,
+                // What the pane's text is read on: the tile's own fill, or -- for a paper skin whose
+                // panes are regions ruled on the page (#253) -- the first ancestor that paints one.
+                tile: (() => { for (let e = document.querySelector('.tile'); e; e = e.parentElement) {
+                  const c = getComputedStyle(e).backgroundColor;
+                  if (c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent') return c; }
+                  return ''; })(),
                 sheets: Array.from(document.head.querySelectorAll('link[data-skin]')).length,
             })""")
             assert body["skin"] == skin_name, (full, body)
