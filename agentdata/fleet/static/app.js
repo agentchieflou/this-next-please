@@ -245,8 +245,8 @@ function makeTile(row, index) {
     } catch (e) {}
   });
 
-  el.querySelector(".repo").addEventListener("click", function () { focus(row.repo); });
-  el.addEventListener("dblclick", function () { focus(row.repo); });
+  el.querySelector(".repo").addEventListener("click", function () { openAgent(row.repo); });
+  el.addEventListener("dblclick", function () { openAgent(row.repo); });
   // Clicking anywhere on a tile *selects* the project for every window on this server (#133 layout
   // B), which is what makes the left monitor drive the centre one. Blowing a tile up is still the
   // repo name or a double click: one gesture per meaning.
@@ -778,8 +778,8 @@ function drawGround() {
    and a gradient that ends at a different hue has a visible ring in it. */
 function transparent(colour) {
   var nums = String(colour).replace(/^rgba?\(|\)$/g, "").split(",");
-  return "rgba(" + (nums[0] || 0).trim() + ", " + (nums[1] || 0).trim() + ", " +
-         (nums[2] || 0).trim() + ", 0)";
+  return "rgba(" + (nums[0] || "0").trim() + ", " + (nums[1] || "0").trim() + ", " +
+         (nums[2] || "0").trim() + ", 0)";
 }
 
 function startGround() {
@@ -1078,7 +1078,7 @@ function drawSessionPill(el, row) {
     var button = li.querySelector(".sib-open");
     text(button, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
     attr(button, "title", "the same project, checked out at " + (sib.path || sib.repo));
-    button.addEventListener("click", function () { closeMenu(el); focus(sib.repo); });
+    button.addEventListener("click", function () { closeMenu(el); openAgent(sib.repo); });
     sibList.appendChild(li);
   });
 }
@@ -1321,7 +1321,7 @@ function checkAway(prevSeen) {
       li.appendChild(descSpan);
       li.appendChild(whenSpan);
       li.addEventListener("click", function () {
-        if (tiles.has(item.repo)) focus(item.repo);
+        if (tiles.has(item.repo)) openAgent(item.repo);
       });
       list.appendChild(li);
     });
@@ -1677,12 +1677,15 @@ function connect() {
 
    `focus()` zoomed one tile and `focusMode()` filtered for the ones that need a person: two modes
    named alike, side by side. They are `openAgent` and the *needs me* preset now (#234) -- a press
-   that widens whoever needs you, not a mode -- with the old name kept as an alias because the page
-   globals the regression tests call keep their names.
+   that widens whoever needs you, not a mode.
 
    Not literally `open`: a bare `function open()` in a non-module script replaces `window.open` for
    the whole page, and a name that shadows a platform function to read slightly better is a trade
-   this page does not need to make. */
+   this page does not need to make. Nor `focus`, the old name, which stayed as an alias until the
+   type check read it (#236: `Duplicate identifier 'focus'`). `var focus` in a non-module script IS
+   `window.focus`, so a `window.focus()` from anything on the page opened nobody, shut the drawer and
+   wrote this window's record twice. Nothing called the alias -- the shells open an agent with
+   `#tile=`, and no test named it but to say it was there -- so it went. */
 function openAgent(name, skipPost) {
   unread.delete(name);                       // looking at it is what "read" means
   var entry = tiles.get(name);
@@ -1698,9 +1701,6 @@ function openAgent(name, skipPost) {
   openPane(name, skipPost);
   if (!skipPost) saveWindow({ read: readCursors });
 }
-
-/* The name the rest of this file, the IDE shells and the regression tests already use. */
-var focus = openAgent;
 
 /* A toast launches `…/?t=…#tile=luna`, so the click lands on the agent that needs the operator
    rather than on "one of these four". Also fired on hashchange, because the window may already be
@@ -1724,7 +1724,7 @@ function followHash() {
   // Focus mode is left alone. It used to be turned off when it was what kept the agent off the
   // glass; since #233 it never keeps anything off the glass -- a quiet rail is dimmed, and an open
   // pane is never quiet -- so turning it off would only throw away the pass the operator was in.
-  focus(name);
+  openAgent(name);
 }
 
 window.addEventListener("hashchange", followHash);
@@ -1898,7 +1898,7 @@ function noteRow(item) {
   li.appendChild(t);
   li.appendChild(b);
   li.appendChild(when);
-  li.addEventListener("click", function () { if (tiles.has(item.repo)) focus(item.repo); });
+  li.addEventListener("click", function () { if (tiles.has(item.repo)) openAgent(item.repo); });
   return li;
 }
 
@@ -2343,7 +2343,7 @@ function dispatch(key, repo, brief) {
   var body = { repo: repo, ticket: key };
   if (brief) body.brief = brief;
   return action(el, "start", body).then(function (r) {
-    if (r && r.ok) { boardPanel(false); closeDispatch(); said(repo, ""); focus(repo); }
+    if (r && r.ok) { boardPanel(false); closeDispatch(); said(repo, ""); openAgent(repo); }
     else if (r && !r.ok && (r.code === "cross_project" || /jira_project/.test(r.error || ""))) {
       // The one refusal worth offering an override for in the page: the operator can see both
       // projects on screen and is better placed than the guard to say it is deliberate.
@@ -2396,7 +2396,7 @@ function drawRail() {
       var button = li.querySelector(".rail-open");
       attr(button, "aria-label", name);
       attr(button, "title", "drop a ticket here to start it on " + name);
-      button.addEventListener("click", function () { focus(name); });
+      button.addEventListener("click", function () { openAgent(name); });
       button.addEventListener("dragover", function (e) {
         if (!ticketInFlight(e)) return;
         e.preventDefault();
