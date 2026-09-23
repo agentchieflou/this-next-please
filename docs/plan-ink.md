@@ -121,6 +121,23 @@ skin: a degraded mode of the one platform, not a second one.
   under a pane that has been idle a long time.
 - **G #253 — graph paper.** A grid on the page's own 28 px baseline, a mechanical pencil, ruled strokes snapped to the
   grid, and traces plotted on it.
+  - **Built (#253)**, in `static/ink/skins/graph.js` and `static/skins/graph/skin.css`, documented in
+    [skin-graph.md](skin-graph.md), tested by `tests/test_fleet_ink_graph.py`. What building it decided:
+    - **A heavy line every fifth square (140 px)**, the engineering pad's count: past four, squares stop being
+      countable at a glance. The grid starts at the viewport's top-left, where ruled strokes find it.
+    - **Two variants**, Engineering (light, the default) and Blueprint (dark, so the highlighter screens).
+    - **Three general table fields in the layer**, each optional and validated, because the marks are the layer's
+      strokes and no skin can change them from inside its module: `tools` tunes a tool's hand (the mechanical
+      pencil), a row's `snap` rules its straight strokes onto a grid, and a row's `leaves` overrides how it goes
+      (the name's highlight is taken up, never struck through the name).
+    - **Two things the page did not say**: `is-done` on a pane (the fold's *done*, which the chip draws as idle, so
+      `state-done` never reached a tile), and `data-trace` on the trace (its hour as data, for a skin that plots it).
+    - **A finding is a skill's STOP** (`li.friction` in the transcript): the desk shows no other finding.
+    - **Answered is a pressed choice.** The question's highlight leaves by the pen's strike and the choice is circled.
+    - **Not drawn yet**: the running underline growing with the turn and its pen-tip dot, and the count struck and
+      rewritten beside itself. They are C's mechanism for every paper skin, adopted when it lands.
+    - Found on the way and fixed: with any skin but glass chosen, an idle desk rewrote its skin and theme attributes
+      on every snapshot and retried a ground every 150 ms forever.
 - **H #254 — glass on three.js.** A real mesh ground, frosted panes that sample it through a blur pass, lit glints
   and shadows. The composited panel `theme.check` measures is read from the rendered frame.
   - **Built (#254)**, in `static/ink/skins/glass.js` and [skin-glass.md](skin-glass.md), tested by
