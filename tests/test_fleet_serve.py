@@ -390,7 +390,8 @@ def test_the_script_writes_text_rather_than_markup():
 # Each page and the script that drives it. `common.js` is deliberately not a row: it is loaded by
 # both and holds what neither owns, so its hooks are checked against whichever page uses them.
 PAGE_SCRIPTS = [("index.html", ["app.js", "common.js"]),
-                ("settings.html", ["settings.js", "common.js"])]
+                ("settings.html", ["settings.js", "common.js"]),
+                ("probe.html", ["probe.js", "common.js"])]
 
 
 @pytest.mark.parametrize("page,names", PAGE_SCRIPTS, ids=[p for p, _ in PAGE_SCRIPTS])

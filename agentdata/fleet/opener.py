@@ -192,13 +192,16 @@ def edge_exe() -> str:
     return ""
 
 
-def open_in(where: str, record: dict, *, launcher_dir: str = "", window: str = "") -> dict:
+def open_in(where: str, record: dict, *, launcher_dir: str = "", window: str = "",
+            urls: tuple[str, str] | None = None) -> dict:
     """Put the dashboard in front of the operator, and say exactly what was done.
 
     Every branch returns a row rather than printing one, so `ad-fleet open` and any later caller
-    report the same thing -- including the branches that could not do it and fell back.
+    report the same thing -- including the branches that could not do it and fell back. `urls` is
+    `(tokened, stable)` for a page other than the desk, which is how `ad-fleet probe --open` (#247)
+    reuses every branch here rather than growing a second copy of them.
     """
-    url, stable = url_of(record, window=window), open_in_url(record, window=window)
+    url, stable = urls or (url_of(record, window=window), open_in_url(record, window=window))
     if where == "browser":
         import webbrowser
 
@@ -237,6 +240,50 @@ def open_in(where: str, record: dict, *, launcher_dir: str = "", window: str = "
                          "`ad-fleet open --in pycharm --write-launcher .` for a file to open")
 
     raise OpenError(f"unknown target {where!r}", "one of " + " | ".join(WHERE))
+
+
+def page_urls(record: dict, page: str, params: dict | None = None) -> tuple[str, str]:
+    """`(tokened, stable)` for one of the server's pages other than the desk.
+
+    The stable one goes through `/open?page=`, so it carries no token and still works tomorrow --
+    the address to paste into a Simple Browser or bind to a key.
+    """
+    port = int(record.get("port") or 0)
+    token = str(record.get("token") or "")
+    if not port:
+        return "", ""
+    extra = dict(params or {})
+    tokened = f"http://127.0.0.1:{port}/{page}?" + urllib.parse.urlencode({"t": token, **extra})
+    stable = f"http://127.0.0.1:{port}/open?" + urllib.parse.urlencode({"page": page, **extra})
+    return tokened, stable
+
+
+def post_action(record: dict, action: str, body: dict, timeout: float = 5.0) -> dict:
+    """One `POST /api/<action>` to the running dashboard, with its token, as a page would send it.
+
+    For the CLI verbs that have to reach a window the operator already has open -- a desk inside an
+    IDE cannot be pointed anywhere from outside, but it listens to its own record. Never raises: a
+    refusal or an unreachable server comes back as `{"ok": false, ...}` and the caller says so.
+    """
+    port = int(record.get("port") or 0)
+    token = str(record.get("token") or "")
+    if not port or not token:
+        return {"ok": False, "error": "no dashboard is running", "hint": "`ad-fleet serve`"}
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/{action}?" + urllib.parse.urlencode({"t": token}),
+        data=json.dumps(body).encode("utf-8"), method="POST",
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read())
+        except ValueError:
+            return {"ok": False, "error": f"HTTP {e.code}", "hint": ""}
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        return {"ok": False, "error": f"the dashboard did not answer ({e})",
+                "hint": "is `ad-fleet serve` still running?"}
 
 
 def open_in_url(record: dict, window: str = "") -> str:

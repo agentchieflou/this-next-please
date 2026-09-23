@@ -1354,6 +1354,34 @@ function applyWindow(win) {
   if (win.read && typeof win.read === "object") {
     Object.assign(readCursors, win.read);
   }
+  if (win.probe) goProbe(win.probe);
+}
+
+/* `ad-fleet probe --open pycharm` (#247). Nothing outside the IDE can point PyCharm's tool window
+   or VS Code's view at a URL, so the CLI marks this window's record and the desk already inside it
+   goes to `/probe` by itself, carrying its own query string so the probe can bring it back. The
+   mark is cleared first, so a window returning from the probe does not go straight round again;
+   a mark older than ten minutes is cleared without going, because an operator opening the tool
+   window tomorrow asked for the desk and not for a measurement. The desk loads no three.js: the
+   probe page does, and only while it measures. */
+var PROBE_FRESH_S = 600;
+var probing = false;
+
+function goProbe(asked) {
+  if (probing) return;
+  probing = true;
+  var fresh = Date.now() / 1000 - Number(asked) < PROBE_FRESH_S;
+  saveWindow({ probe: 0 }).then(function () {
+    if (!fresh) {
+      probing = false;
+      return;
+    }
+    var dest = new URL("/probe", location.origin);
+    PARAMS.forEach(function (value, key) { dest.searchParams.set(key, value); });
+    dest.searchParams.set("w", W_NAME);
+    dest.searchParams.set("back", "1");
+    location.assign(dest.toString());
+  });
 }
 
 /* The approvals from the last answer, kept so a redraw does not need a fetch to be honest. */

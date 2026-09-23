@@ -23,15 +23,87 @@ a smaller promise and a true one; a test refuses any cell that is neither.
 | `pointer capture` | works | not yet measured | not yet measured | not yet measured |
 | `container queries` | works | not yet measured | not yet measured | not yet measured |
 | `OffscreenCanvas` | works | not yet measured | not yet measured | not yet measured |
-| `WebGL` | works | n/a — not used | n/a — not used | n/a — not used |
+| `WebGL` | falls back — software (SwiftShader) | not yet measured | not yet measured | not yet measured |
 
 The Chromium column is **measured, not remembered**: `test_the_chromium_column_is_what_chromium_
 actually_does` probes each feature in the browser CI runs against and fails if this table and the
 engine disagree. The userAgent it measured is
 `HeadlessChrome/141.0.0.0`.
 
+The WebGL row is the exception, and the reason is below: a context is not a verdict, so its cells
+come from `/probe` rather than from `getContext`. CI's Chromium draws WebGL2 on SwiftShader, which
+is software, so its cell says *falls back* — `test_the_webgl_row_is_what_the_probe_measured` holds
+it there.
+
 The other three columns are filled in on the laptop, by the runbook in
 [windows-verification.md](windows-verification.md). Until then they say what they are.
+
+## WebGL, probed in each shell (#247)
+
+The operator chose three.js as the desk's one renderer (epic #246). Whether a shell *has* WebGL
+is the wrong question for that: SwiftShader has it, and draws a page of strokes correctly at
+software speed. So WebGL is measured by drawing. `/probe` on the desk opens a context
+(WebGL2, else WebGL1), loads the vendored three.js r160, draws a fixed scene of 480 pencil and ink
+segments for three seconds, and posts what it saw to `POST /api/probe`. The desk keeps one record
+per shell in `~/.agentdata/fleet/probes.json`. Nothing is copied out of a dev console:
+
+```bash
+ad-fleet probe --open pycharm     # the desk in PyCharm's tool window goes to the probe itself, and comes back
+ad-fleet probe --open vscode      # the same for the Fleet view; Simple Browser takes the URL on the clipboard
+ad-fleet probe --open edge
+ad-fleet engines                  # this row, one line per column, read from the file
+```
+
+Each `--open` waits for the shell's own answer and prints it. PyCharm's JCEF window and VS Code's
+view cannot be pointed at a URL from outside, so the CLI marks that window's record on the desk
+(`probe`, in epoch seconds) and the desk already inside the IDE takes itself to `/probe` — or does
+when it is next opened, within ten minutes. `ad-fleet probe` with no flag lists every record.
+
+**What a record holds** — facts only; the verdict is computed when it is read, so a pattern added
+to the rule reclassifies every record already on disk:
+
+| Field | What it is |
+| --- | --- |
+| `shell`, `at` | the `shell=` or `w=` the page was opened with, and when the desk received it (UTC) |
+| `ua` | `navigator.userAgent` |
+| `webgl` | `webgl2`, `webgl1` or `none` |
+| `renderer`, `vendor` | the **unmasked** strings (`WEBGL_debug_renderer_info`); the masked one is `WebKit WebGL` everywhere |
+| `caveat` | the browser refused a context asked for with `failIfMajorPerformanceCaveat` |
+| `three` | three.js's `REVISION` as loaded: `160` |
+| `frames`, `p50_ms`, `p95_ms` | frame intervals from `requestAnimationFrame` over three seconds, nearest-rank, after the first frame |
+| `first_stroke_ms`, `load_ms` | from the page's navigation start to the first frame whose pixels hold the scene (read back, so the GPU has finished it), and to three.js imported |
+| `drawn`, `error` | whether that first frame held any stroke at all; what went wrong, in the browser's words |
+
+**The rule** — one function, `agentdata/fleet/probe.py` `classify()`, shared by the server's
+answer to the page, both CLI verbs and the tests:
+
+| Class | When | The WebGL cell |
+| --- | --- | --- |
+| `hardware` | a context that drew, with a named renderer that is not software | works |
+| `software` | the unmasked renderer contains `SwiftShader`, `llvmpipe`, `lavapipe`, `softpipe`, `Microsoft Basic Render`, `Apple Software Renderer`, `Mesa OffScreen` or `software rasterizer` (case-insensitive), **or** `caveat` is true | falls back — software (…) |
+| `none` | no context, or a first frame with no stroke in it | falls back — no WebGL |
+| `unknown` | a context that drew and would not name its renderer — not proven hardware | falls back — renderer unknown |
+
+**A software renderer counts as falls back, not works.** And the rule for the rest of the epic
+follows from it: **a shell whose probe says anything but `hardware` gets the plain fallback**
+(the ink layer's `body.ink-off`, #248: the same marks as plain CSS borders and highlights). A skin ships switched on only
+for shells whose cell here says *works*.
+
+| Shell | Context | Renderer | Class | Frames p50 / p95 | First stroke |
+| --- | --- | --- | --- | --- | --- |
+| Chromium 141 (CI, headless) | WebGL2 | `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)` | software | printed by the test, not asserted | printed by the test |
+| Edge (current) | not yet measured | not yet measured | not yet measured | not yet measured | not yet measured |
+| JCEF (PyCharm 2026.1) | not yet measured | not yet measured | not yet measured | not yet measured | not yet measured |
+| Simple Browser (VS Code) | not yet measured | not yet measured | not yet measured | not yet measured | not yet measured |
+
+The three laptop rows are filled from `ad-fleet engines` by the runbook's §Ink (#247) in
+[windows-verification.md](windows-verification.md), and stay *not yet measured* until then.
+
+three.js is **vendored**, never fetched: `agentdata/fleet/static/vendor/three/three.module.min.js`
+and its MIT `LICENSE`, from the npm tarball of `three@0.160.0`, pinned by sha256 in
+`tests/test_fleet_probe.py` and kept byte-exact on Windows checkouts by `.gitattributes`. The
+probe page imports it; the desk does not load it until the ink layer (#248) does, and a test
+holds both.
 
 ## What happens without each one
 
@@ -44,7 +116,7 @@ The other three columns are filled in on the laptop, by the runbook in
 | `pointer capture` | `setPointerCapture` throws and is caught; the move and up listeners are on the document rather than the handle, so the drag still tracks. Touch and pen lose the guarantee that events keep arriving after the pointer leaves the element. | `test_fleet_window.py` |
 | `container queries` | The head keeps the model's word, the ticket and the chip's age on a narrow tile, and wraps to a second line rather than dropping them. `flex-wrap` is the fallback, and it is why the head has it. | `test_fleet_window.py` |
 | `OffscreenCanvas` | Not used. The trace and the ground are small enough to draw on the main thread — 0.10 ms a repaint for the ground — and a worker would be a second place that has to know the palette. | — |
-| `WebGL` | Not used, and will not be until these rows say all four shells run it. A 3D ground that works on one of the four screens is worse than a flat one that works on all of them. | — |
+| `WebGL` | Not used by the desk yet: three.js loads only on `/probe` (#247) until the ink layer (#248). When it is used, a shell whose probe says software, no WebGL or an unnamed renderer gets the plain fallback — the same page with plain borders and highlights and no animation — because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py` |
 
 `test_the_desk_arrives_at_the_same_place_with_every_fallback_taken` takes **all** of the fallbacks
 at once — no view transitions, no pointer capture, no `linear()`, no container queries — which is
@@ -67,8 +139,9 @@ those is missing the page does not load, which is a failure nobody can mistake f
 | frame time during a layout swap of five tiles at 1080p | 16.7 ms median, no `longtask` | no long task, main thread back inside 50 ms |
 | the ground's repaint | 0.10 ms median | 4 ms |
 | the worst local gesture | ~6 ms | 50 ms |
-| the static payload | 96.6 KB gzipped (321 KB on disk) | 200 KB |
+| the static payload | 104.4 KB gzipped (340 KB on disk), the probe page's 5.4 KB included; three.js is not in it — 163 KB gzipped, fetched by `/probe` alone | 200 KB |
+| the WebGL probe, headless Chromium on SwiftShader, 1280×720 | 16.7 ms p50 and 33.4 ms p95 over ~130 frames (headless paces at 60 Hz); first stroke 265–320 ms | not asserted — software, and not what a GPU does |
 
 Every one of those is printed by the test that measures it, so a CI run carries the numbers as
-well as the verdict. `tests/test_fleet_motion.py`, `tests/test_fleet_trace.py` and
-`tests/test_fleet_instant.py` are where they live.
+well as the verdict. `tests/test_fleet_motion.py`, `tests/test_fleet_trace.py`,
+`tests/test_fleet_instant.py` and `tests/test_fleet_engines.py` are where they live.

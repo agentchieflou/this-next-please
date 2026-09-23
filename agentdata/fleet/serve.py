@@ -49,7 +49,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
                inbox as IN, launch as LAUNCH, lifecycle, links as LK, notify as N, poll as P,
-               supervisor, trace as TRACE)
+               probe as PROBE, supervisor, trace as TRACE)
 from .registry import Registry, RegistryError, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
@@ -86,13 +86,17 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # refuses -- and only in a real browser, because a test fetches an asset with the token already in
 # hand. That is the bug `_page`'s docstring is about, and adding a page means adding its script
 # here in the same edit.
-ASSETS = ("app.css", "common.js", "app.js", "settings.js")
+ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
 # (an EventSource, a 15-second `loadDesk`, a `place()` that rewrites `document.body` several times
 # a second) that has no business running under somebody editing a dropdown.
-PAGES = {"/": "index.html", "/settings": "settings.html"}
+#
+# `/probe` (#247) is the third, and the only one that loads three.js: it measures WebGL in whatever
+# shell it is opened in and posts the facts to `/api/probe`. The desk itself does not load three.js
+# until the ink layer (#248) does, and a test holds it to that.
+PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html"}
 
 # The page, compressed once per build of it rather than once per window (#195). Below a kilobyte the
 # gzip header costs more than the compression saves, and a skin's PNG is already compressed, so only
@@ -1169,6 +1173,18 @@ def update_window(w: str = "main", **kwargs) -> dict:
         if "seen" in kwargs and win.get("seen") != str(kwargs["seen"] or ""):
             win["seen"] = str(kwargs["seen"] or "")
             changed = True
+        # `ad-fleet probe --open pycharm` (#247): when the CLI asked this window to measure WebGL,
+        # in epoch seconds, and 0 once the window has gone. Nothing outside PyCharm can point its
+        # JCEF tool window at a URL, but the desk already inside it reads this record down the
+        # stream -- so the desk takes itself to `/probe`, and nobody types an address anywhere.
+        if "probe" in kwargs:
+            try:
+                asked = max(0, int(float(kwargs["probe"] or 0)))
+            except (TypeError, ValueError):
+                asked = 0
+            if int(win.get("probe") or 0) != asked:
+                win["probe"] = asked
+                changed = True
         if changed:
             _selection["version"] += 1
             _selection["at"] = E.stamp()
@@ -1694,6 +1710,11 @@ def act(what: str, body: dict) -> dict:
         w = str(body.get("w") or "main")
         kwargs = {k: v for k, v in body.items() if k != "w"}
         return update_window(w, **kwargs)
+    if what == "probe":
+        # What `/probe` measured in this shell (#247). Facts in, one record per shell out to
+        # `~/.agentdata/fleet/probes.json`; the answer carries the class `probe.classify` gave it,
+        # so the page shows the verdict without holding a rule of its own.
+        return PROBE.record(body)
     if what == "attach":
         # The single exception in the epic's "nothing is written outside ~/.agentdata/fleet without
         # a click": this is the click. `Inbox.attach` does the copy and holds the rule that it lands
@@ -1762,7 +1783,7 @@ def act(what: str, body: dict) -> dict:
         return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
-                     "arrange | attach | dismiss | theme | settings | refresh")
+                     "arrange | attach | dismiss | theme | settings | refresh | probe")
 
 
 def _sweep(url: str) -> list[dict]:
@@ -1993,10 +2014,15 @@ class Handler(BaseHTTPRequestHandler):
                                    "port": self.server.server_address[1],
                                    "version": version_string().split()[1],
                                    "contract": CONTRACT})
+            # `page=probe` lands on `/probe` instead of the desk (#247): the one stable address a
+            # person can paste into VS Code's Simple Browser to measure it. Only a page this server
+            # serves; anything else is the desk, as it always was.
+            page = (query.get("page") or [""])[0]
+            path = "/" + page if page and ("/" + page) in PAGES else "/"
             forward = [(k, v[0] if isinstance(v, list) and len(v) == 1 else v)
-                       for k, vs in query.items() if k != "t"
+                       for k, vs in query.items() if k not in ("t", "page")
                        for v in (vs if isinstance(vs, list) else [vs])]
-            dest = f"/?t={self.token}"
+            dest = f"{path}?t={self.token}"
             if forward:
                 dest += f"&{urlencode(forward)}"
             self.send_response(302)
@@ -2280,7 +2306,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "action": what, **out})
         except (ServeError, RegistryError, supervisor.SupervisorError,
                 approval.ApprovalError, IN.InboxError, CAT.CatalogueError,
-                HO.HandoffError, SCOPE_ERROR) as e:
+                HO.HandoffError, SCOPE_ERROR, PROBE.ProbeError) as e:
             # The same refusal the CLI gives, with the same hint. One vocabulary.
             ref_code = getattr(e, "code", "") or "refused"
             return self._refuse(409, e.msg, getattr(e, "hint", ""), refusal_code=ref_code)
