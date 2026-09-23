@@ -76,12 +76,22 @@ SKINS = {
         "why": "chunky bevelled slab controls and pixel status blocks inspired by voxel worlds",
         "default": "overworld",
         "variants": {
+            # `inks` (#256): the voxel's mark table drawn on its slab, whose face is the composited
+            # panel. Each is the palette's own token (`theme.to_css` of `base`) -- marker and red
+            # `--human`, green `--done`, pencil `--muted` -- and `tests/test_fleet_voxel_ink.py`
+            # holds them to it, so a palette change cannot leave a stale ink here unchecked.
             "overworld": {"title": "Overworld", "base": "matrix", "composited_panel": "#1E221E",
-                          "why": "grass, stone and daylight"},
+                          "why": "grass, stone and daylight",
+                          "inks": {"marker": "#FF3B3B", "red": "#FF3B3B", "green": "#A8FFC0",
+                                   "pencil": "#6E7681"}},
             "nether": {"title": "Nether", "base": "reds", "composited_panel": "#2A1512",
-                       "why": "netherrack and firelight"},
+                       "why": "netherrack and firelight",
+                       "inks": {"marker": "#FFD166", "red": "#FFD166", "green": "#7EE787",
+                                "pencil": "#6E7681"}},
             "end": {"title": "The End", "base": "vanta-black", "composited_panel": "#16121C",
-                    "why": "endstone and void"},
+                    "why": "endstone and void",
+                    "inks": {"marker": "#F85149", "red": "#F85149", "green": "#3FB950",
+                             "pencil": "#6E7681"}},
         },
     },
     "farmstead": {
