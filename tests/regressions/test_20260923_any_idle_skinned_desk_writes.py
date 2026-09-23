@@ -42,9 +42,9 @@ def test_an_idle_desk_with_a_skin_writes_nothing(fleet_home, tmp_path):
             page.wait_for_function(
                 """() => document.querySelectorAll('#grid .tile.is-solo').length === 2
                      && document.body.dataset.skinVariant === 'azure'
-                     // The skin's stylesheet is painting its ground (`has-ground` went with
-                     // the 2D ground, #257).
-                     && /radial-gradient/.test(getComputedStyle(document.body).backgroundImage)
+                     // The skin's stylesheet has arrived (`has-ground` went with the 2D
+                     // ground, and the stylesheet paints no ground of its own, #257).
+                     && !!(document.head.querySelector('link[data-skin]') || {}).sheet
                      && !document.body.classList.contains('is-stale')""", timeout=15000)
             count = page.evaluate(IDLE_LOOP)
             assert not errors, errors

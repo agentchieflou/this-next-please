@@ -270,8 +270,9 @@ def test_every_variant_is_drawn_in_ink_and_plain(fleet_home, tmp_path):
     """plan-ink: *a skin ships switched on only for shells measured as hardware; until then it is
     selectable and falls back.* With `?ink=on` every variant is the ink layer's -- ground, bands,
     a frame per pane, the pane's paper the variant's composited panel, the chip's glyph box left
-    for the crop -- and with the gate off it is the stylesheet's farm, with the same marks drawn
-    plain (the pencil ring round a stale session is a CSS outline)."""
+    for the crop -- and with the gate off it is the one plain look every skin shares since #257 (no
+    wood, no crop in the chip), with the same marks drawn plain (the pencil ring round a stale
+    session is a CSS outline)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
@@ -327,7 +328,7 @@ def test_every_variant_is_drawn_in_ink_and_plain(fleet_home, tmp_path):
         assert not on["look"]["off"]
         off = seen[("plain", variant)]
         assert off["off"] and not off["canvas"] and off["layer"] is None, off
-        assert off["tile"] != "rgba(0, 0, 0, 0)" and "sprites.svg" in off["glyph"], off
+        assert off["tile"] != "rgba(0, 0, 0, 0)" and off["glyph"] == "none", off
 
 
 def _rgb_255(hexs):
@@ -336,11 +337,12 @@ def _rgb_255(hexs):
 
 @pytest.mark.browser
 def test_the_chip_glyph_is_one_sprite_of_the_sheet_and_not_all_of_them(fleet_home, tmp_path):
-    """Under `body.ink-off` the chip carries its crop as `url("sprites.svg#crop-*")`. Every sprite in
-    the sheet sits at 0,0, so a fragment that did not hide the others drew all seven on top of each
-    other, squeezed into 16px. The sheet is a stack now: a fragment is that sprite alone, the
-    sheet's own size, and no fragment is nothing. Read as the page reads it -- an image of the
-    sheet by fragment, drawn at 16px."""
+    """Every sprite in the sheet sits at 0,0, so a fragment that did not hide the others drew all
+    seven on top of each other, squeezed into 16px. The sheet is a stack: a fragment is that
+    sprite alone, the sheet's own size, and no fragment is nothing -- read here as a browser reads
+    an image of the sheet by fragment, drawn at 16px. Since #257 the chip no longer carries the
+    crop in CSS under `body.ink-off` (the plain look is every skin's); the crop is the module's, read
+    from the same sheet (`test_the_sprites_are_nearest_neighbour_textures...`)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
     server, token, port = _serve()
@@ -375,7 +377,7 @@ def test_the_chip_glyph_is_one_sprite_of_the_sheet_and_not_all_of_them(fleet_hom
             browser.close()
     finally:
         _stop(server)
-    assert re.search(r"sprites\.svg(\?[^#\"]*)?#crop-seed", glyph), glyph
+    assert glyph == "none", f"the plain chip paints a crop in CSS: {glyph}"
     for sprite in ("crop-seed", "crop-sprout", "crop-sun", "crop-bloom", "crop-wilted"):
         assert drawn[sprite] == sorted({c.upper() for c in _sprite(sprite)}), (sprite, drawn[sprite])
         assert drawn[sprite + ":size"] == [16, 16], drawn[sprite + ":size"]

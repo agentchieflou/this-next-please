@@ -106,8 +106,12 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
             board.wait_for_selector("#agentrail .rail-chip[data-repo='luna']:not([hidden])", timeout=15000)
             board.evaluate("(name) => post('theme', { skin: name })", "glass:smoke")
             board.wait_for_function("() => document.body.getAttribute('data-skin-variant') === 'smoke'", timeout=5000)
-            board.wait_for_timeout(450)
-            assert "blur" in board.evaluate("() => getComputedStyle(document.getElementById('side')).backdropFilter")
+            # The skin has arrived when its stylesheet's tokens are on <body>. Since #257 glass paints
+            # nothing in CSS -- the sidebar is the page's own opaque panel, not frost -- so what is
+            # read is the skin's own input, and the sidebar stays readable as the plain look.
+            board.wait_for_function("""() => getComputedStyle(document.body)
+                .getPropertyValue('--glass-fill').trim() !== ''""", timeout=5000)
+            assert board.evaluate("() => getComputedStyle(document.getElementById('side')).backdropFilter") == "none"
 
             # The scrollbar the board scrolls with is the skin's thumb, read off the computed style.
             bar = board.evaluate("""() => {

@@ -574,7 +574,11 @@ def test_skin_tier_stylesheet_serving_and_budget(running):
             assert r.status == 200
             content = r.read()
             assert len(content) > 0
-            assert b"prefers-reduced-" in content
+            # A skin that still paints in CSS owes its reduced-motion or reduced-transparency
+            # fallback. One that draws with ink paints nothing there to fall back from (#257, the
+            # guard in test_fleet_skin_guard.py): its motion is the module's, held by the layer.
+            inked = os.path.exists(os.path.join(STATIC, "ink", "skins", skin["name"] + ".js"))
+            assert inked or b"prefers-reduced-" in content, skin["name"]
 
 
 

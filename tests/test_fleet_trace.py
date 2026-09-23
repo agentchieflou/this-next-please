@@ -528,7 +528,8 @@ def test_with_ink_the_ground_on_the_glass_is_the_layers(fleet_home, tmp_path):
 def test_without_ink_the_trace_and_the_ground_are_the_pages_own(fleet_home, tmp_path):
     """#257, the fallback: a shell the gate turned off -- every shell nothing has measured as
     hardware -- has no canvas on the page at all. The trace is its SVG, with its minutes and its
-    red ticks, and the ground is the stylesheet's gradients, standing still."""
+    red ticks, and the ground is the one plain look every skin shares: the palette's own colour,
+    with nothing painted on it and nothing moving (glass included, whose mesh is its module's)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     now = time.time()
     _agent(tmp_path, "alpha", _busy_hour(now))
@@ -548,7 +549,7 @@ def test_without_ink_the_trace_and_the_ground_are_the_pages_own(fleet_home, tmp_
                 page.wait_for_function(
                     """() => !!window.Ink && document.body.dataset.skin === 'glass'
                              && !!document.querySelector('.tile.is-solo .trace[data-ink-ticks]')
-                             && /radial-gradient/.test(getComputedStyle(document.body).backgroundImage)""",
+                             && !!(document.head.querySelector('link[data-skin]') || {}).sheet""",
                     timeout=15000)
                 out = page.evaluate(READ_TRACE, "alpha")
                 page_state = page.evaluate("""() => ({
@@ -559,7 +560,7 @@ def test_without_ink_the_trace_and_the_ground_are_the_pages_own(fleet_home, tmp_
                 assert not errors, errors
                 page.close()
                 assert page_state["off"] and page_state["canvases"] == 0 and page_state["layer"] is None, page_state
-                assert page_state["ground"] == 3 and page_state["moving"] == "none", page_state
+                assert page_state["ground"] == 0 and page_state["moving"] == "none", page_state
                 assert out["shown"] == "visible" and out["display"] != "none", out
                 assert len(out["points"]) == 60 and len(out["tickXs"]) == 2, out
             browser.close()

@@ -137,18 +137,22 @@ def test_the_glass_stylesheet_paints_the_numbers_skins_py_declares():
 
 
 def test_the_glass_mesh_is_one_gradient_and_three_js_paints_it_at_the_same_places():
-    """#254: the CSS ground and the three.js ground are one mesh. The stylesheet paints it once,
-    from the variant's `--glass-mesh-1..3`, and `ink/skins/glass.js` puts its blobs at the same
-    places with the same radii (`MESH`) and the same falloff, to the end of each ray (#257) -- so a pane
-    over either composites to the range skins.py declares."""
+    """#254: the glass ground is one mesh. Since #257 it has one painter: `ink/skins/glass.js` puts
+    three blobs at the same three places with the same radii (`MESH`) and a falloff to the end of
+    each ray, in the colours each variant declares as `--glass-mesh-1..3` -- the numbers skins.py
+    checks. The stylesheet paints none of it any more; it names the colours, and the module reads
+    them (`PROPS`)."""
     css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
-    grads = re.findall(r"radial-gradient\(ellipse (\d+)% (\d+)% at (\d+)% (\d+)%, var\(--glass-mesh-(\d)\) 0%, "
-                       r"transparent 100%\)", css)
-    assert [g[4] for g in grads] == ["1", "2", "3"], "the ground is painted once, from the custom properties"
+    assert "radial-gradient" not in css, "the stylesheet paints a ground: that is the module's"
+    for variant in skins.SKINS["glass"]["variants"]:
+        block = re.search(r'body\[data-skin-variant="%s"\]\s*\{([^}]*)\}' % variant, css)
+        assert block, variant
+        assert all(f"--glass-mesh-{i}:" in block.group(1) for i in (1, 2, 3)), variant
     js = open(os.path.join(os.path.dirname(SKINS_DIR), "ink", "skins", "glass.js"), encoding="utf-8").read()
     mesh = re.findall(r"\{ at: \[([\d.]+), ([\d.]+)\], r: \[([\d.]+), ([\d.]+)\] \}", js)
-    assert [(float(a), float(b), float(c), float(d)) for a, b, c, d in mesh] == \
-        [(int(x) / 100, int(y) / 100, int(rx) / 100, int(ry) / 100) for rx, ry, x, y, _ in grads], (mesh, grads)
+    assert [tuple(float(v) for v in m) for m in mesh] == \
+        [(0.16, 0.10, 0.60, 0.55), (0.84, 0.82, 0.55, 0.50), (0.58, 0.42, 0.45, 0.40)], mesh
+    assert all(f'"--glass-mesh-{i}"' in js for i in (1, 2, 3)), "the module reads the variant's mesh"
     assert "const BLOB_END = 1.0;" in js
 
 
@@ -222,14 +226,19 @@ def test_broken_composited_panel_refused_with_skin_hint():
 
 
 def test_accessibility_fallbacks_present_in_skin_stylesheets():
-    """Reduced transparency and reduced motion fallbacks are present in skin stylesheets."""
-    glass_css = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
-    assert "prefers-reduced-transparency: reduce" in glass_css
-    assert "backdrop-filter: none" in glass_css
-
-    farm_css = open(os.path.join(SKINS_DIR, "farmstead", "skin.css"), encoding="utf-8").read()
-    assert "prefers-reduced-motion" in farm_css
-    assert "animation: none" in farm_css
+    """Reduced transparency and reduced motion. Since #257 a skin that draws with ink paints nothing
+    in CSS, so it has nothing translucent or moving there to fall back from: the plain look is the
+    page's, which honours reduced motion, and what moves is the module's, which the layer holds
+    still under it (docs/desk-ink.md §Reduced motion). A skin that still paints in CSS (voxel,
+    until its module lands) keeps its own fallbacks, below."""
+    base = open(os.path.join(os.path.dirname(SKINS_DIR), "app.css"), encoding="utf-8").read()
+    assert "prefers-reduced-motion" in base
+    for name in ("glass", "farmstead"):
+        css = open(os.path.join(SKINS_DIR, name, "skin.css"), encoding="utf-8").read()
+        for painted in ("backdrop-filter", "animation", "@keyframes", "transition"):
+            assert painted not in css, f"{name} paints {painted} in CSS: it has a fallback to owe"
+    glass_js = open(os.path.join(os.path.dirname(SKINS_DIR), "ink", "skins", "glass.js"), encoding="utf-8").read()
+    assert "api.reduced" in glass_js, "the glass ground drifts only when motion is allowed"
 
 
 def test_every_skin_writes_the_accessibility_fallbacks_it_promised():
@@ -254,8 +263,9 @@ def test_every_skin_writes_the_accessibility_fallbacks_it_promised():
             assert "prefers-reduced-motion" in css, f"{name} animates and never stops"
         assert ".sidebars" not in css and "aside#inspector" not in css, \
             f"{name} styles a sidebar that no longer exists"
+    # Glass's opaque fallback for reduced transparency went with its CSS frost (#257): the sidebar,
+    # the popovers and the plain panes are the page's own opaque panel now, and a stylesheet that
+    # frosted them again would owe the fallback back -- which the guard refuses in the first place.
     glass = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
-    assert "prefers-reduced-transparency" in glass
-    block = glass[glass.index("prefers-reduced-transparency"):]
-    assert "#side" in block, "the opaque fallback must cover the sidebar too"
-    assert "backdrop-filter: none" in block
+    assert "backdrop-filter" not in glass and "#side" not in glass, \
+        "glass frosts the sidebar in CSS again, and owes its reduced-transparency fallback"

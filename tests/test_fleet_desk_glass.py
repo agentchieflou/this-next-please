@@ -20,6 +20,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
+from test_fleet_ink_glass import MODULE, READY
 
 
 @pytest.fixture()
@@ -100,7 +101,11 @@ def test_the_pane_is_a_different_colour_wherever_the_mesh_is_and_stays_inside_th
     """Acceptance criterion. Three tiles with empty transcripts -- a pane with nothing written on
     it -- sampled on a grid, in every glass variant. Every sample is inside the declared range
     (the contrast test's numbers bound what the operator actually sees), and the samples are not
-    all one colour (the mesh shows through, which is the material)."""
+    all one colour (the mesh shows through, which is the material).
+
+    Since #257 the frost is the ink layer's (`ink/skins/glass.js`): the stylesheet paints none, and
+    where the gate is off glass is the one plain look. So this reads the desk with `?ink=on`, the
+    test override, once glass's own module says every pane is frosted."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     for name in ("alpha", "beta", "gamma"):
         Registry().add(make_project(tmp_path / name), name=name)       # no events: an empty pane
@@ -115,7 +120,7 @@ def test_the_pane_is_a_different_colour_wherever_the_mesh_is_and_stays_inside_th
             page = browser.new_page(viewport={"width": 1280, "height": 800})
             errors: list[str] = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&ink=on", wait_until="domcontentloaded")
             page.wait_for_selector(".tile:visible", timeout=15000)
             # The first poll tick sends a `polls` frame and the page redraws its tiles with their
             # cells (#184), which moves every transcript down a row. Sample after that, not
@@ -128,9 +133,9 @@ def test_the_pane_is_a_different_colour_wherever_the_mesh_is_and_stays_inside_th
                 page.evaluate("(name) => post('theme', { skin: name })", f"glass:{variant}")
                 page.wait_for_function(
                     "(v) => document.body.getAttribute('data-skin-variant') === v", arg=variant, timeout=5000)
-                page.wait_for_timeout(500)
-                assert "blur" in page.evaluate("() => getComputedStyle(document.querySelector('.tile')).backdropFilter"), \
-                    f"glass:{variant} did not apply"
+                page.evaluate(MODULE)
+                page.wait_for_function(f"v => ({READY})(v) && !Ink.inspect().layer.busy", arg=variant, timeout=30000)
+                page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 
                 # An empty transcript is a band, not a box -- the tile is content-sized -- so the
                 # samples run along its midline, five per tile, fifteen across the page's width,

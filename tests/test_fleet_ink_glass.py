@@ -549,10 +549,10 @@ def test_the_rim_is_drawn_round_and_runs_back_and_the_ink_settles_in_frames(flee
 
 @pytest.mark.browser
 def test_under_ink_off_every_variant_is_the_css_glass_with_the_same_marks_plain(fleet_home, tmp_path):
-    """The gate off (nothing measured): no canvas, no three.js, and the desk is the CSS glass --
-    the frost is `backdrop-filter`, the panel its `--glass-fill` -- in every variant, with the
-    same mark table drawn plain by the layer's fallback: the name that needs you tinted, the done
-    pane's margin barred."""
+    """The gate off (nothing measured): no canvas, no three.js, and -- since #257 -- no CSS glass
+    either: the desk is the one plain look every skin shares, the pane the palette's own opaque
+    panel with no frost, in every variant, and the same mark table drawn plain by the layer's
+    fallback: the name that needs you tinted, the done pane's margin barred."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
@@ -567,13 +567,20 @@ def test_under_ink_off_every_variant_is_the_css_glass_with_the_same_marks_plain(
                 _choose(page, f"glass:{variant}")
                 page.wait_for_function("v => Ink.inspect().table === 'glass:' + v && Ink.inspect().plain", arg=variant,
                                        timeout=20000)
-                page.wait_for_function("() => getComputedStyle(document.querySelector('#grid .tile')).backdropFilter"
-                                       ".includes('blur')", timeout=20000)
+                page.wait_for_function("v => document.body.dataset.skinVariant === v"
+                                       " && !!(document.head.querySelector('link[data-skin]') || {}).sheet"
+                                       " && getComputedStyle(document.body).getPropertyValue('--glass-fill').trim() !== ''",
+                                       arg=variant, timeout=20000)
                 seen[variant] = page.evaluate("""() => {
                   const g = s => getComputedStyle(document.querySelector(s));
+                  const probe = document.createElement('span');
+                  probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--panel').trim();
+                  document.body.appendChild(probe);
+                  const panel = getComputedStyle(probe).color;
+                  probe.remove();
                   return { off: document.body.classList.contains('ink-off'), canvas: !!document.getElementById('ink'),
-                           layer: Ink.inspect().layer, tile: g('#grid .tile').backgroundColor,
-                           fill: getComputedStyle(document.body).getPropertyValue('--glass-fill').trim(),
+                           layer: Ink.inspect().layer, tile: g('#grid .tile').backgroundColor, panel,
+                           blur: g('#grid .tile').backdropFilter,
                            hl: g('.tile[data-repo="alpha"] .repo').backgroundColor,
                            done: g('.tile[data-repo="gamma"] .head').boxShadow }; }""")
             assert not errors, errors
@@ -584,8 +591,8 @@ def test_under_ink_off_every_variant_is_the_css_glass_with_the_same_marks_plain(
     assert not three, three
     for variant, got in seen.items():
         assert got["off"] and not got["canvas"] and got["layer"] is None, (variant, got)
-        r, g, b, a = (float(x) for x in re.findall(r"[\d.]+", got["fill"]))
-        assert got["tile"] == f"rgba({int(r)}, {int(g)}, {int(b)}, {a:g})", (variant, got)
+        assert got["tile"] == got["panel"] and got["blur"] == "none", \
+            (variant, "the plain pane is the palette's panel, with no frost", got)
         assert got["hl"] not in ("rgba(0, 0, 0, 0)", "transparent"), (variant, got)
         assert "inset" in got["done"], (variant, got)
 

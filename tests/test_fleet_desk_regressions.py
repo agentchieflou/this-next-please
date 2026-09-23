@@ -508,11 +508,13 @@ def test_a_skin_that_draws_its_status_sprites_can_actually_fetch_them(desk):
     """#156 and #157 are "the state as a block / as a crop stage, beside the glyph".
 
     The art was on disk and referenced by nothing, and the only test covering it asserted the file
-    existed. This asks the page for it the way the page asks.
+    existed. This asks the page for it the way the page asks. Since #257 farmstead's crop is drawn
+    by its ink module, which fetches the sheet itself and reads each crop out of it, so this opens
+    the desk with `?ink=on` and asks the module what it drew.
     """
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     with sync_playwright() as p:
-        browser, page, _ = _page(p, desk)
+        browser, page, _ = _page(p, desk + "&ink=on")
         seen = []
         page.on("response", lambda r: seen.append((r.status, r.url)) if "sprites.svg" in r.url else None)
         page.evaluate("""async () => {
@@ -521,14 +523,14 @@ def test_a_skin_that_draws_its_status_sprites_can_actually_fetch_them(desk):
                         { method: 'POST', headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ skin: 'farmstead' }) });
         }""")
-        page.wait_for_timeout(2800)
-        painted = page.evaluate("""() => {
-            const c = document.querySelector('.tile .chip');
-            const before = getComputedStyle(c, '::before');
-            return { image: before.backgroundImage, width: before.width };
-        }""")
+        page.wait_for_function("() => (Ink.inspect().table || '').indexOf('farmstead') === 0", timeout=20000)
+        # The module the page runs: the same URL is the same instance.
+        page.evaluate("async () => { window.__farm = await import(q('/static/ink/skins/farmstead.js')); }")
+        page.wait_for_function("() => window.__farm.inspect().loaded || !!window.__farm.inspect().failed",
+                               timeout=20000)
+        painted = page.evaluate("() => window.__farm.inspect()")
         browser.close()
-    assert "sprites.svg" in painted["image"], painted
+    assert painted["loaded"] and not painted["failed"], painted
     assert seen, "the page never asked for the sprite sheet"
     assert all(status == 200 for status, _ in seen), seen
 
