@@ -1,223 +1,62 @@
-/* Voxel skin: Chunky bevelled slab controls and pixel status blocks (Issue #156).
-   Inspired by voxel worlds with 100% original hand-drawn <rect> SVG pixel art.
-   Effective composited panel: #1E221E.
-*/
+/* Voxel skin: bevelled slabs and pixel status blocks (#156, on three.js #256).
 
-body {
-  background-color: #382416;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%235A3D28'/%3E%3Crect x='0' y='0' width='2' height='2' fill='%234B3220'/%3E%3Crect x='4' y='1' width='2' height='1' fill='%236B4B32'/%3E%3Crect x='2' y='3' width='1' height='2' fill='%23402B1B'/%3E%3Crect x='6' y='3' width='2' height='2' fill='%234B3220'/%3E%3Crect x='1' y='6' width='2' height='1' fill='%236B4B32'/%3E%3Crect x='5' y='6' width='2' height='2' fill='%233D2919'/%3E%3Crect x='3' y='7' width='1' height='1' fill='%236B4B32'/%3E%3C/svg%3E");
-  background-size: 32px 32px;
-  image-rendering: pixelated;
-}
+   Since #257 this file paints nothing. Where the gate turns ink on, `static/ink/skins/voxel.js`
+   draws the world: the ground as a floor of voxels, every pane's frame as a lit slab -- the panel
+   the text is read on, its drop shadow, the accent strip as a column of cubes -- and a status stack
+   in the strip's sockets. Under `body.ink-off` voxel is the one plain look every skin shares
+   (app.css and the palette), with its mark table drawn as plain CSS by the layer's fallback.
 
-header, footer {
-  background-color: #303030;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%23383838'/%3E%3Crect x='0' y='0' width='3' height='1' fill='%23484848'/%3E%3Crect x='4' y='0' width='2' height='2' fill='%23282828'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%23303030'/%3E%3Crect x='6' y='2' width='2' height='1' fill='%23505050'/%3E%3Crect x='3' y='4' width='3' height='2' fill='%23202020'/%3E%3Crect x='0' y='5' width='2' height='2' fill='%23404040'/%3E%3Crect x='6' y='5' width='2' height='2' fill='%232c2c2c'/%3E%3Crect x='2' y='7' width='3' height='1' fill='%23444444'/%3E%3C/svg%3E");
-  background-size: 32px 32px;
-  image-rendering: pixelated;
-  border-color: #111 !important;
-  border-radius: 0 !important;
-}
+   What is left: the module's inputs, read at paint time, and the room the page leaves for what it
+   draws. The surfaces are the skin's, not the palette's, so they are named here once per world
+   (`--voxel-*`) and no colour is written in the script. `--voxel-panel` is the variant's
+   `composited_panel` in skins.py -- the slab's face is exactly it, and
+   `tests/test_fleet_voxel_ink.py` holds the two together. The guard in
+   `tests/test_fleet_skin_guard.py` holds the file to layout, typography and tokens.
 
-/* Controls: No border-radius, bevelled slab styling */
-button, select, input, .segment, .segmented, kbd, .keys kbd {
-  border-radius: 0 !important;
-  border: 2px solid #111 !important;
-  background: #3A3D40 !important;
-  color: #E3E7EA !important;
-  box-shadow: inset 2px 2px 0 rgba(255, 255, 255, 0.25), inset -2px -2px 0 rgba(0, 0, 0, 0.6) !important;
-}
-
-button:active, .segment.active {
-  box-shadow: inset 2px 2px 0 rgba(0, 0, 0, 0.7), inset -2px -2px 0 rgba(255, 255, 255, 0.2) !important;
-}
-
-/* Tiles: 10px accent border, no border-radius */
-.tile {
-  background: #1E221E !important;
-  border-radius: 0 !important;
-  border: 2px solid #111 !important;
-  border-left: 10px solid var(--accent) !important;
-  box-shadow: 0 4px 0 #111;
-}
-
-
-/* Status chips: Keep role colour & glyph, gain 12px status block */
-.chip {
-  border-radius: 0 !important;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #111 !important;
-}
-
-.chip::before {
-  content: "";
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-right: 5px;
-  background-size: 12px 12px;
-  image-rendering: pixelated;
-}
-
-.chip.running::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%231C3D5A'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%2358A6FF'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%2379C0FF'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23FFFFFF'/%3E%3C/svg%3E");
-}
-
-.chip.waiting_approval::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%234D3605'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%23D29922'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%23E3B341'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23FFF2D6'/%3E%3C/svg%3E");
-}
-
-.chip.needs_human::before, .chip.blocked::before, .chip.error::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%234A1010'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%23FF5C5C'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%23FFA1A1'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23FFFFFF'/%3E%3C/svg%3E");
-}
-
-.chip.done::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%230E3D18'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%233FB950'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%237EE787'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23E6FFED'/%3E%3C/svg%3E");
-}
-
-.chip.starting::before, .chip.idle::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect width='12' height='12' fill='%2325282B'/%3E%3Crect x='1' y='1' width='10' height='10' fill='%238B949E'/%3E%3Crect x='3' y='3' width='6' height='6' fill='%23B1BAC4'/%3E%3Crect x='4' y='4' width='4' height='4' fill='%23F0F6FC'/%3E%3C/svg%3E");
-}
-
-/* HIG Accessibility: Reduced motion */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
-  }
-}
-
-/* The toolbar and the footer are repainted above, so everything written ON them is repainted here
-   too. Leaving these to the palette put the group labels, the brand, the live dot and the whole
-   key map in a colour chosen for the panel and rendered on a texture, where they disappeared. */
-header, footer { color: #F2F2F2 !important; }
-header h1, header .glabel, header .dot,
-footer, footer #counts, footer .keys { color: #B8C4B8 !important; }
-header h1 { color: #F2F2F2 !important; }
-#notice { color: var(--waiting) !important; }
-
-/* One 8-pixel block per status role, beside the glyph and never instead of it (#156). The art is
-   `sprites.svg` in this directory, referenced by fragment, so there is one copy of it. */
-.chip::before {
-  content: "";
-  width: 12px; height: 12px; flex: 0 0 12px;
-  background-size: 12px 12px; background-repeat: no-repeat;
-  image-rendering: pixelated; border: 1px solid #111;
-}
-.chip { display: inline-flex; align-items: center; gap: 6px; }
-.chip.running::before          { background-image: url("sprites.svg#running-block"); }
-.chip.waiting_approval::before { background-image: url("sprites.svg#waiting-block"); }
-.chip.needs_human::before,
-.chip.blocked::before,
-.chip.error::before            { background-image: url("sprites.svg#human-block"); }
-.chip.done::before             { background-image: url("sprites.svg#done-block"); }
-.chip.idle::before,
-.chip.starting::before         { background-image: url("sprites.svg#idle-block"); }
-
-/* ------------------------------------------------------------------ the three worlds (#4)
-
-   Same bevels, same sprites, same 8-pixel grid; a different ground. A variant is not a second skin
-   -- shipping Nether as its own stylesheet would be shipping this art twice and letting the two
-   copies drift -- so it re-colours the surfaces and nothing else. The status blocks below are
-   deliberately NOT among them: a chip means the same thing in every world, and a `fail` that were
-   red in one and orange in another would be a state the operator has to translate.
-
-   Each variant's ground is the palette named in `skins.py`, and the panel colour here is the
-   `composited_panel` the contrast test measures the text against. */
-
-/* nether: netherrack and firelight */
-body[data-skin-variant="nether"] {
-  background-color: #4E1C16;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%236B2A22'/%3E%3Crect x='0' y='0' width='2' height='2' fill='%234E1C16'/%3E%3Crect x='4' y='1' width='2' height='1' fill='%238A3A2C'/%3E%3Crect x='2' y='3' width='1' height='2' fill='%233A1310'/%3E%3Crect x='6' y='3' width='2' height='2' fill='%234E1C16'/%3E%3Crect x='1' y='6' width='2' height='1' fill='%238A3A2C'/%3E%3Crect x='5' y='6' width='2' height='2' fill='%2345170F'/%3E%3Crect x='3' y='7' width='1' height='1' fill='%238A3A2C'/%3E%3C/svg%3E");
-}
-body[data-skin-variant="nether"] header, body[data-skin-variant="nether"] footer {
-  background-color: #3A1B15;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%2343201A'/%3E%3Crect x='0' y='0' width='3' height='1' fill='%2355291F'/%3E%3Crect x='4' y='0' width='2' height='2' fill='%232E1310'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%233A1B15'/%3E%3Crect x='6' y='2' width='2' height='1' fill='%23663127'/%3E%3Crect x='3' y='4' width='3' height='2' fill='%232E1310'/%3E%3Crect x='0' y='5' width='2' height='2' fill='%2355291F'/%3E%3Crect x='6' y='5' width='2' height='2' fill='%233A1B15'/%3E%3Crect x='2' y='7' width='3' height='1' fill='%23663127'/%3E%3C/svg%3E");
-}
-body[data-skin-variant="nether"] button, body[data-skin-variant="nether"] select, body[data-skin-variant="nether"] input, body[data-skin-variant="nether"] .segment, body[data-skin-variant="nether"] .segmented,
-body[data-skin-variant="nether"] kbd, body[data-skin-variant="nether"] .keys kbd {
-  background: #5A2A20 !important;
-  color: #F7E2DE !important;
-  border-color: #1A0907 !important;
-}
-body[data-skin-variant="nether"] .tile { background: #2A1512 !important; border-color: #1A0907 !important; }
-body[data-skin-variant="nether"] .tile { box-shadow: 0 4px 0 #1A0907; }
-body[data-skin-variant="nether"] .chip { border-color: #1A0907 !important; }
-body[data-skin-variant="nether"] header, body[data-skin-variant="nether"] footer { color: #FFEFEA !important; border-color: #1A0907 !important; }
-body[data-skin-variant="nether"] header h1 { color: #FFEFEA !important; }
-body[data-skin-variant="nether"] header .glabel, body[data-skin-variant="nether"] header .dot,
-body[data-skin-variant="nether"] footer, body[data-skin-variant="nether"] footer #counts, body[data-skin-variant="nether"] footer .keys { color: #E0B3AA !important; }
-
-/* end: endstone and void */
-body[data-skin-variant="end"] {
-  background-color: #1E1829;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%232A2136'/%3E%3Crect x='0' y='0' width='2' height='2' fill='%231E1829'/%3E%3Crect x='4' y='1' width='2' height='1' fill='%233A2F4A'/%3E%3Crect x='2' y='3' width='1' height='2' fill='%23171122'/%3E%3Crect x='6' y='3' width='2' height='2' fill='%231E1829'/%3E%3Crect x='1' y='6' width='2' height='1' fill='%233A2F4A'/%3E%3Crect x='5' y='6' width='2' height='2' fill='%23221A2E'/%3E%3Crect x='3' y='7' width='1' height='1' fill='%233A2F4A'/%3E%3C/svg%3E");
-}
-body[data-skin-variant="end"] header, body[data-skin-variant="end"] footer {
-  background-color: #1F1A2B;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' width='8' height='8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%23272036'/%3E%3Crect x='0' y='0' width='3' height='1' fill='%23332A45'/%3E%3Crect x='4' y='0' width='2' height='2' fill='%2318121F'/%3E%3Crect x='1' y='2' width='2' height='2' fill='%231F1A2B'/%3E%3Crect x='6' y='2' width='2' height='1' fill='%233E3352'/%3E%3Crect x='3' y='4' width='3' height='2' fill='%2318121F'/%3E%3Crect x='0' y='5' width='2' height='2' fill='%23332A45'/%3E%3Crect x='6' y='5' width='2' height='2' fill='%231F1A2B'/%3E%3Crect x='2' y='7' width='3' height='1' fill='%233E3352'/%3E%3C/svg%3E");
-}
-body[data-skin-variant="end"] button, body[data-skin-variant="end"] select, body[data-skin-variant="end"] input, body[data-skin-variant="end"] .segment, body[data-skin-variant="end"] .segmented,
-body[data-skin-variant="end"] kbd, body[data-skin-variant="end"] .keys kbd {
-  background: #332A45 !important;
-  color: #E8E2D0 !important;
-  border-color: #0B0810 !important;
-}
-body[data-skin-variant="end"] .tile { background: #16121C !important; border-color: #0B0810 !important; }
-body[data-skin-variant="end"] .tile { box-shadow: 0 4px 0 #0B0810; }
-body[data-skin-variant="end"] .chip { border-color: #0B0810 !important; }
-body[data-skin-variant="end"] header, body[data-skin-variant="end"] footer { color: #F3EEDC !important; border-color: #0B0810 !important; }
-body[data-skin-variant="end"] header h1 { color: #F3EEDC !important; }
-body[data-skin-variant="end"] header .glabel, body[data-skin-variant="end"] header .dot,
-body[data-skin-variant="end"] footer, body[data-skin-variant="end"] footer #counts, body[data-skin-variant="end"] footer .keys { color: #C6BFA6 !important; }
-
-/* ------------------------------------------------------------------------- the scrollbar (#181)
-   A slab, bevelled the way the buttons are, and no rounding anywhere. Only the thumb. */
-body[data-skin="voxel"] {
-  --scroll-thumb: #3A3D40;
-  --scroll-thumb-hover: #4A4E52;
-}
-body[data-skin="voxel"] *::-webkit-scrollbar { width: 14px; height: 14px; }
-body[data-skin="voxel"] *::-webkit-scrollbar-thumb {
-  border-radius: 0; border: 2px solid #111; background-clip: border-box;
-  box-shadow: inset 2px 2px 0 rgba(255, 255, 255, 0.25), inset -2px -2px 0 rgba(0, 0, 0, 0.6);
-}
-
-/* --------------------------------------------------------------------- on three.js (#256)
-
-   Where the ink layer draws (the gate said on: no `body.ink-off`), the decoration above is
-   three.js's: `static/ink/skins/voxel.js` lays the ground as voxels, builds every pane's frame as
-   a lit slab -- the panel the text is read on, its drop shadow, the accent strip as a column of
-   cubes -- and sits a status stack in the strip. So here the page stops painting what the slabs
-   paint: the ground's texture, the pane's fill, its borders' colour and its shadow, and the chip's
-   sprite, whose job the stack does. The borders keep their widths, so the layout is the same
-   either way, and everything written on the page stays page text.
-
-   The surfaces are the skin's, not the palette's, so they are named here once per world and the
-   module reads them (`--voxel-*`); no colour is written in the script. `--voxel-panel` is the
-   variant's `composited_panel` in skins.py -- the slab's face is exactly it, and
-   `tests/test_fleet_voxel_ink.py` holds the two together. Under `body.ink-off` none of this
-   applies and the skin is the CSS above, as it was. */
+   A variant re-colours the surfaces and nothing else: the stacks mean the same thing in every
+   world (#4). `--voxel-band-ink` is what is written on the header and the footer, which the page
+   clears over the ground where the ink draws; it keeps 4.5:1 on the lightest voxel of its ground. */
 body[data-skin="voxel"] {
   --voxel-ground: #5A3D28;
   --voxel-panel: #1E221E;
   --voxel-edge: #111111;
+  --voxel-band-ink: #F2F2F2;
+  --voxel-band-ink-soft: #B8C4B8;
+  /* The scrollbar (#181): stone, as the tokens app.css draws every thumb with. */
+  --scroll-thumb: #3A3D40;
+  --scroll-thumb-hover: #4A4E52;
 }
+
+/* nether: netherrack and firelight */
 body[data-skin="voxel"][data-skin-variant="nether"] {
   --voxel-ground: #6B2A22;
   --voxel-panel: #2A1512;
   --voxel-edge: #1A0907;
+  --voxel-band-ink: #FFEFEA;
+  --voxel-band-ink-soft: #E0B3AA;
 }
+
+/* end: endstone and void */
 body[data-skin="voxel"][data-skin-variant="end"] {
   --voxel-ground: #2A2136;
   --voxel-panel: #16121C;
   --voxel-edge: #0B0810;
+  --voxel-band-ink: #F3EEDC;
+  --voxel-band-ink-soft: #C6BFA6;
 }
-body[data-skin="voxel"]:not(.ink-off) { background-image: none; }
-body[data-skin="voxel"]:not(.ink-off) .tile {
-  background: transparent !important;
-  border-color: transparent !important;
-}
-body[data-skin="voxel"]:not(.ink-off) .tile:not(.is-selected) { box-shadow: none; }
-body[data-skin="voxel"]:not(.ink-off) .chip::before { display: none; }
+
+/* ------------------------------------------------------------------ where the ink draws (#256)
+
+   The page stands aside for the canvas (app.css clears the panes, the header and the footer). The
+   pane's left edge is the slab's strip, ten pixels of cubes: the page's own accent border is
+   cleared so it does not draw over them (over the page's inline accent, #215, hence the
+   `!important`), and the content keeps the room the strip takes. What is
+   written on the header and the footer is written in the band's ink. */
+body[data-skin="voxel"]:not(.ink-off) .tile { border-left-color: transparent !important; padding-left: 17px; }
+body[data-skin="voxel"]:not(.ink-off) header,
+body[data-skin="voxel"]:not(.ink-off) header h1,
+body[data-skin="voxel"]:not(.ink-off) footer { color: var(--voxel-band-ink); }
+body[data-skin="voxel"]:not(.ink-off) header .glabel,
+body[data-skin="voxel"]:not(.ink-off) header .dot,
+body[data-skin="voxel"]:not(.ink-off) footer #counts,
+body[data-skin="voxel"]:not(.ink-off) footer .keys { color: var(--voxel-band-ink-soft); }

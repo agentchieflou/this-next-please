@@ -20,8 +20,8 @@ The guard, per rule of every such stylesheet:
    `none`, `0`, or `var(--...)`. Never a literal colour, never a `url()`: a skin stands aside for
    the canvas and never paints over it.
 
-It covers every skin that ships an ink module. A skin with none yet (`voxel`, until #256) is a CSS
-skin still, and joins the guard the day its module lands.
+It covers every skin that ships an ink module. A skin with none yet (napkin, #252, when this was
+written) is a CSS skin still, and joins the guard the day its module lands.
 """
 from __future__ import annotations
 import os
@@ -132,7 +132,7 @@ def test_the_guard_knows_decoration_when_it_sees_it():
 
 def test_the_guard_covers_every_skin_that_draws_with_ink():
     names = ink_skins()
-    assert {"glass", "graph", "legalpad", "farmstead"} <= set(names), names
+    assert {"glass", "graph", "legalpad", "farmstead", "notebook", "voxel"} <= set(names), names
     for name in names:
         assert os.path.exists(os.path.join(skins.SKINS_DIR, name, "skin.css")), name
 

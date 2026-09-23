@@ -1,7 +1,7 @@
 /* Voxel on three.js (#256, slice J of the ink epic #246): the depth the CSS skin (#156) faked with
    inset shadows and an SVG sprite, made real. `docs/skin-voxel.md` is the page this implements;
-   `static/skins/voxel/skin.css` keeps the layout, the typography and the whole of the look under
-   `body.ink-off`, which is today's CSS skin unchanged.
+   `static/skins/voxel/skin.css` keeps the surfaces this reads and the room the page leaves for what it
+   draws; under `body.ink-off` voxel is the one plain look every skin shares (#257).
 
    WHAT IS DRAWN. Three materials, and so three draw calls, however many agents there are:
 

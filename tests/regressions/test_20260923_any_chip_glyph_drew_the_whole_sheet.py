@@ -63,7 +63,8 @@ GLYPHS = _glyphs()
 
 
 def test_every_skin_that_names_a_sprite_is_checked():
-    assert {g[0] for g in GLYPHS} >= {"farmstead", "voxel"}, GLYPHS
+    # Voxel's sheet went with its CSS look (#257): its status is the stack its module builds.
+    assert {g[0] for g in GLYPHS} >= {"farmstead"}, GLYPHS
 
 
 @pytest.mark.browser

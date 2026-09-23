@@ -51,8 +51,10 @@ def test_zero_raster_bitmaps_in_skins():
 
 
 def test_all_svg_sprites_use_rect_pixel_art_with_named_comments():
-    """All SVG sprites are hand-drawn with <rect> elements and named comments."""
-    for skin_name in ("voxel", "farmstead"):
+    """All SVG sprites are hand-drawn with <rect> elements and named comments. Voxel's sheet went
+    with its CSS look (#257): its ground, frames and status blocks are voxels its module builds."""
+    assert not os.path.exists(os.path.join(SKINS_DIR, "voxel", "sprites.svg"))
+    for skin_name in ("farmstead",):
         svg_path = os.path.join(SKINS_DIR, skin_name, "sprites.svg")
         assert os.path.isfile(svg_path), f"Missing sprites.svg for {skin_name}"
         content = open(svg_path, "r", encoding="utf-8").read()
@@ -60,14 +62,9 @@ def test_all_svg_sprites_use_rect_pixel_art_with_named_comments():
         assert "shape-rendering=\"crispEdges\"" in content or "shape-rendering='crispEdges'" in content
         # Check comments naming textures and states
         assert "<!--" in content and "-->" in content
-        if skin_name == "voxel":
-            assert "dirt tile" in content
-            assert "stone tile" in content
-            assert "status block" in content
-        elif skin_name == "farmstead":
-            assert "soil tile" in content
-            assert "wood plank" in content
-            assert "crop stage" in content
+        assert "soil tile" in content
+        assert "wood plank" in content
+        assert "crop stage" in content
 
 
 def test_every_skin_variant_passes_the_contrast_rule_on_its_own_ground():
@@ -229,11 +226,10 @@ def test_accessibility_fallbacks_present_in_skin_stylesheets():
     """Reduced transparency and reduced motion. Since #257 a skin that draws with ink paints nothing
     in CSS, so it has nothing translucent or moving there to fall back from: the plain look is the
     page's, which honours reduced motion, and what moves is the module's, which the layer holds
-    still under it (docs/desk-ink.md §Reduced motion). A skin that still paints in CSS (voxel,
-    until its module lands) keeps its own fallbacks, below."""
+    still under it (docs/desk-ink.md §Reduced motion)."""
     base = open(os.path.join(os.path.dirname(SKINS_DIR), "app.css"), encoding="utf-8").read()
     assert "prefers-reduced-motion" in base
-    for name in ("glass", "farmstead"):
+    for name in ("glass", "farmstead", "voxel"):
         css = open(os.path.join(SKINS_DIR, name, "skin.css"), encoding="utf-8").read()
         for painted in ("backdrop-filter", "animation", "@keyframes", "transition"):
             assert painted not in css, f"{name} paints {painted} in CSS: it has a fallback to owe"
