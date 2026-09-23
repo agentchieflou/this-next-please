@@ -76,6 +76,7 @@ The Fabric REST item-definition API (`/v1/workspaces/{ws}/reports`, `/getDefinit
 | Backslash path separators | API rejects payloads with backslashes with `MissingDefinitionParts`. | Every part path is normalized to forward slashes (`/`) regardless of local OS conventions. |
 | Local `byPath` semantic model reference | Service reports cannot use local relative paths (`byPath`); visual rendering fails. | `definition.pbir` is dynamically rewritten in memory to `byConnection` referencing the cloud model ID; the file on disk stays `byPath`. |
 | Out-of-sync model entities | If a table or column was renamed in the target model, visual fields break silently upon publish. | Binding verification diff: `ad-pbi` fetches the target model TMDL and diffs PBIR field references against `ModelIndex` before publishing. Unbound references halt publish unless `--allow-unbound`. |
+| A custom visual the tenant will not render | Desktop follows Group Policy and the service follows the tenant settings, so the visual works locally and every viewer gets an error in its place. | `ad-pbi publish report` reads where each custom visual comes from and refuses (`custom_visual_blocked`) before any call, when the `pbi_custom_visuals` fact says the tenant blocks it or nobody recorded the tenant. There is no override flag. |
 | Credential leakage in logs/traces | Bearer tokens exposed in CLI output, logs, or error traces. | Tokens obtained through `az account get-access-token` are held in memory only, never printed to stdout/stderr, and scrubbed from error output. The token Tabular Editor is handed rides in its argv; `auth.redact` runs on the deploy log, every error tail, every result's `source` line and the doctor rows. |
 | `az login` that signs nothing in | The Azure CLI has a token cache; Tabular Editor 2 and DAX Studio (AMO / ADOMD.NET) have another, filled only by their own sign-in window. REST works, `TabularEditor.exe powerbi://…` stalls until a person opens the GUI and connects. | `powerbi.auth.mode: token` (default): every Tabular Editor launch gets a connection string carrying a token az just minted for the Power BI audience (`Password=<token>`, empty `User ID`), so no cache is consulted. Service DAX goes through Tabular Editor (`ad-pbi dax`); dscmd keeps Desktop and `.vpax`. A signed-out CLI is signed in by the command (`az login --allow-no-subscriptions`, once). `ad-pbi auth --probe` proves it; `interactive` is the way back. |
 
@@ -135,33 +136,35 @@ The development loop for Power BI custom visualizations connects custom TypeScri
    - `ad-pbiviz package <name> [--bump patch|minor]` bundles `dist/<guid>.<version>.pbiviz`.
    - `ad-pbiviz import <name> --pbip <dir> --page <page_name>` registers the package in `report.json` (`publicCustomVisuals`, `resourcePackages`), copies the `.pbiviz` into `StaticResources/RegisteredResources/`, and instantiates the visual container on the target page.
 7. **Validation**:
-   - `ad-pbip check` enforces custom visual rules: `custom-visual-guid-unregistered`, `custom-visual-package-missing` (a private visual only: AppSource and store visuals are fetched by Power BI), `custom-visual-role-unfilled`, `custom-visual-role-kind-mismatch`, `custom-visual-store-disabled`, and, from the `pbi_custom_visuals` fact, `custom-visual-tenant-blocked` (error), `custom-visual-tenant-certified` and `custom-visual-tenant-unknown` (info), `custom-visual-tenant-fact-invalid` (warning).
+   - `ad-pbip check` enforces custom visual rules: `custom-visual-guid-unregistered`, `custom-visual-package-missing` (a private visual only: AppSource and store visuals are fetched by Power BI), `custom-visual-role-unfilled`, `custom-visual-role-kind-mismatch`, `custom-visual-store-disabled`, and, from the `pbi_custom_visuals` and `pbi_certified_visuals` facts, `custom-visual-tenant-unknown`, `custom-visual-tenant-blocked` and `custom-visual-certification-unconfirmed` (errors), `custom-visual-uncertified` and `custom-visual-tenant-fact-invalid` (warnings). `ad-pbi publish report` refuses on the same errors.
    - `ad-pbip catalog describe <guid>` inspects capabilities directly from the imported package.
 
 ### What Stays Manual
 - **Develop a visual toggle**: Desktop requires enabling *Format -> Report settings -> Develop a visual* once per report file.
 - **Localhost Certificate**: Running `pbiviz --install-cert` once in an administrative terminal to trust the development certificate.
-- **Organizational store upload**: a Fabric administrator (or Power Platform administrator) adds the `.pbiviz` in the
-  Fabric admin portal, *Organizational visuals*. Nobody else can, and no API here does it for them.
+- **Organizational store**: a Fabric administrator (or Power Platform administrator) adds a certified visual such as
+  Deneb in the Fabric admin portal, *Organizational visuals*, for a tenant that renders store visuals only. Nobody
+  else can, and no API here does it for them.
 
 ### Delivery under tenant policy
-A `.pbiviz` in a report renders for a viewer only if the tenant lets that viewer see visuals from a file. The skill
-therefore routes the delivery before it builds anything (`skills/pbi-custom-visual/SKILL.md` steps 1–4), and the
-evidence for each route is in `skills/pbi-custom-visual/references/delivery-routes.md`:
-- **The fact.** `pbi_custom_visuals` in the project's AGENTS.md records what the tenant renders for the report's
-  viewers: `allowed`, `certified-only` or `org-only`. `pbi_org_visuals` lists the organizational-store visuals viewers
-  already have.
-- **Native first.** Data-label fields, a dynamic format string or an SVG measure in a table need no admin and render
-  on every tenant. The bar-end variance label that once sent a chart to a custom visual is a native data label.
-- **The organizational store** is exempt from both tenant settings. It is the durable home for a visual of our own
-  on a tenant that blocks visuals from files.
-- **The gate.** `ad-pbip check` reads which registry each custom visual comes from (`publicCustomVisuals` for
-  AppSource, `organizationCustomVisuals` for the store, a `CustomVisual` resource package for a file). With the
-  fact set, it raises `custom-visual-tenant-blocked` for a visual the tenant will not render for viewers, so
-  `pbi-validate` stops it before deploy.
-
-
-
+A custom visual the tenant blocked reached production once: it worked in Desktop, which follows Group Policy, and
+failed for every viewer in the service, which follows the tenant settings. The routing now works in this order, and
+the evidence for each route is in `skills/pbi-custom-visual/references/delivery-routes.md`:
+- **Native first.** Data-label fields, format strings, SVG measures, analytics, composition, the paginated report
+  visual, script visuals (N1–N7). None needs an admin. The bar-end variance label that sent a chart to a custom
+  visual is a native data label.
+- **Then Microsoft-certified, customized to the limit.** Deneb draws any Vega or Vega-Lite specification, and
+  `ad-pbip visual deneb` writes one into a report exactly as Deneb's PBIR guide describes: no hand-written visual
+  JSON, and never the uncertified Standalone edition.
+- **Never a non-certified visual of our own.** A need that survives every route is logged with
+  `ad-pbiviz candidate`, which refuses without a reason per route: a proposal to build it and publish it to
+  AppSource for certification. The development loop runs only for a candidate the operator chose to build.
+- **Nothing ships that viewers may not see.** `pbi_custom_visuals` in the project's AGENTS.md records what the
+  tenant renders for the report's viewers (`allowed`, `certified-only`, `org-only`), and `pbi_certified_visuals`
+  the AppSource visuals whose certified badge was checked. `ad-pbip check` and `ad-pbi publish report` read which
+  registry each custom visual comes from (`publicCustomVisuals` for AppSource, `organizationCustomVisuals` for the
+  store, a `CustomVisual` resource package for a file) and fail closed: with the tenant unrecorded, nothing from a
+  file or AppSource passes, and publish refuses before it calls the service, with no flag to force it.
 
 ---
 

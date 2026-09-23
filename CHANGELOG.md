@@ -6,36 +6,47 @@ Read this before running `ad-update`: it says whether an update needs anything b
 
 ## 0.13.3
 
-**A custom chart is routed to something the tenant renders.** A production tenant would not render our own
-`.pbiviz`, and the conclusion drawn was that without it a bar-end variance label could not be had. It can: a
-native data label carries it. The research that knew this had been done before and never written into the
-routing, so `pbi-custom-visual` went straight to building a visual and nothing asked whether anyone would be
-allowed to see it. Now:
-- **The route comes first.** The skill reads a new `pbi_custom_visuals` fact (what the tenant renders for the
-  report's viewers: `allowed`, `certified-only`, `org-only`), asks once when it is missing, and takes the first
-  route that meets the requirement. The native routes are data-label fields, a dynamic format string, and an
-  SVG measure in a table; none needs an admin. Next come a store visual the tenant already has
-  (`pbi_org_visuals`, e.g. Deneb), then our own visual in the organizational store, which both tenant settings
-  exempt. `references/delivery-routes.md` holds each route, Microsoft's own wording for who controls what, a
-  ready-to-send admin request, and the worked bar-end variance recipe.
-- **`pbi-router` sends "custom visual" to it.** The row now sits above the generic *visual* rows. With first
-  match winning, "the tenant blocks our custom visual" used to land on `pbip-projection`.
-- **`ad-pbip check` reads `report.json` again.** It never had: `json` was not imported in the checker, the
-  `NameError` was swallowed, and every custom visual in every report came back `custom-visual-guid-unregistered`.
-  `pbi-validate` could not reach zero errors on any report with one. The checker now reads all three
-  registries the report schema has: AppSource (`publicCustomVisuals`), the organizational store
-  (`organizationCustomVisuals`), and a private `CustomVisual` package. `custom-visual-package-missing` fires only
-  for a visual the report says it ships, including one whose package was never committed, which used to pass.
-- **New rules from the fact:** `custom-visual-tenant-blocked` (error) for a file or AppSource visual the tenant will
-  not render for viewers; `custom-visual-tenant-certified` (info) for an AppSource visual on a certified-only tenant;
-  `custom-visual-tenant-unknown` (info) when the fact is not recorded; `custom-visual-tenant-fact-invalid`
-  (warning) for a value that is none of the three. Also `custom-visual-store-disabled` (error) for a store
-  visual the admin switched off.
+**A custom visual that viewers cannot see never ships again.** One did: a visual of our own worked in Desktop,
+which follows Group Policy, and failed for every viewer in the service, where the tenant renders certified visuals
+only. The same week, an assistant concluded that without it the chart's bar-end variance label could not be done.
+A native data label does it, and so does Deneb, a Microsoft-certified visual. The research behind both had never
+been written into the routing. Now:
+- **Native first, then certified, never ours.** `pbi-custom-visual` takes the native routes in order: data-label
+  fields, format strings, SVG measures, analytics, composition, the paginated report visual, script visuals. Then
+  come Microsoft-certified visuals, customized to the limit. It never builds a non-certified visual to deliver a
+  report. The development loop runs only for a candidate the operator chose to build for AppSource.
+- **"Can't" costs proof.** `ad-pbiviz candidate "<requirement>" --tried N1="..."` logs a need that survives every
+  route, as a proposal to publish to AppSource for certification. It refuses without a real reason for each of the
+  nine routes. `ad-pbiviz candidates` lists them. The skill may not say "can't" without that file.
+- **Certified visuals, customized mechanically.** `ad-pbip visual deneb` adds a Deneb visual, or replaces one's
+  specification, exactly as Deneb's PBIR guide describes: the certified AppSource GUID, the `dataset` role, and the
+  spec in `objects.vega`. It refuses the uncertified Standalone edition, a spec that never names `dataset`, and an
+  apostrophe the guide does not say how to escape. A worked spec for the Average/Recent chart ships in the skill's
+  references, rendered with the Vega and Vega-Lite versions Deneb bundles.
+- **The gate fails closed, and publish runs it.** `ad-pbi publish report` refuses (`custom_visual_blocked`) before
+  it calls the service, with no flag to force it. It refuses when the tenant blocks a visual, or when nobody
+  recorded what the tenant renders. `ad-pbip check` runs the same rules:
+  - `custom-visual-tenant-unknown` (error): the tenant is not recorded.
+  - `custom-visual-tenant-blocked` (error): the tenant will not render the visual.
+  - `custom-visual-certification-unconfirmed` (error): an AppSource visual on a certified-only tenant whose badge
+    nobody checked.
+  - `custom-visual-store-disabled` (error): a store visual the admin switched off.
+  - `custom-visual-uncertified` (warning): a file visual on a tenant that allows files, for now.
+- **`ad-pbip check` reads `report.json` again.** It never had: `json` was not imported in the checker, the error
+  was swallowed, and every custom visual in every report came back `custom-visual-guid-unregistered`. It now reads
+  all three registries in the report schema: AppSource, the organizational store, and private packages.
+  `custom-visual-package-missing` fires only for a private visual the report ships, including one that was never
+  committed.
+- **`pbi-router`** sends "custom visual", "the tenant blocks it" and "native can't do" to the skill. The row now
+  sits above the generic *visual* rows it used to lose to.
 
-**On update:** the two standard commands, and start a new Copilot chat so the changed skills are read. An
-existing project's AGENTS.md is never overwritten, so add the two facts by hand, or let the skill ask the first
-time it runs. `pbi_custom_visuals` is one of `allowed`, `certified-only`, `org-only`. `pbi_org_visuals` is a
-comma-separated list, e.g. `Deneb`.
+**On update:** the two standard commands, and start a new Copilot chat so the changed skills are read. Then add
+three facts to each project's AGENTS.md by hand (an existing AGENTS.md is never overwritten), or let the skill ask:
+- `pbi_custom_visuals`: `allowed`, `certified-only` or `org-only`, for the report's viewers. **Until it is
+  recorded, `ad-pbip check` and `ad-pbi publish report` refuse any report with a visual from a file or AppSource.**
+- `pbi_certified_visuals`: GUIDs of the AppSource visuals whose certified badge was checked. The new-project stub
+  presets Deneb's.
+- `pbi_org_visuals`: the organizational-store visuals viewers can use.
 
 ## 0.13.2
 

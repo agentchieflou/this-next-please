@@ -10,7 +10,7 @@ description: "Domain sub-router for Power BI tasks: reports, models, TMDL, DAX, 
 |---|---|
 | numbers on a chart/visual are wrong, expected values in a document or CSV, UAT of a report | `uat-report-visual` |
 | new report, dashboard from scratch, which pages, what should it look like | `pbi-report-plan` |
-| custom visual, pbiviz, our own chart, D3, a visual the tenant or admin blocks, organizational visual, a label or chart "native can't do" | `pbi-custom-visual` |
+| custom visual, pbiviz, our own chart, D3, Deneb, certified visual, a visual the tenant or admin blocks, a label or chart "native can't do" | `pbi-custom-visual` |
 | layout, chart choice, colours, theme, looks wrong | `pbi-report-design` |
 | add visual, edit visual, add page, remove visual, report authoring | `pbi-report-author` |
 | PBIP, report, visual, page, "what feeds this chart", model overview | `pbip-projection` |
