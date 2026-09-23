@@ -137,6 +137,10 @@ STUB = """async () => {
   if (window.__fleet) return true;
   const real = window.fetch.bind(window);
   window.__fleet = await (await real(q('/api/fleet'))).json();
+  // The rows only. The theme in this snapshot is the one chosen when it was taken, and a refresh
+  // that replayed it would put an old skin variant back after the test chose another; the page
+  // still hears a new theme down its stream.
+  delete window.__fleet.theme;
   window.fetch = function (url, opts) {
     if (String(url).indexOf('/api/fleet') >= 0) {
       return Promise.resolve(new Response(JSON.stringify(window.__fleet), {
@@ -391,7 +395,14 @@ def test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_
                 _ready(page, "smoke")
                 before = _glass(page)
                 count = page.evaluate(IDLE_LOOP)
-                seen[reduced] = dict(before=before, after=_glass(page), count=count)
+                after = _glass(page)
+                # And it goes on: the ground's own timer asks for the next frame, and the next.
+                # Read as the clock moving again, not as the timer being set -- between its firing
+                # and the frame it asked for, it is not.
+                if not reduced:
+                    page.wait_for_function("c => window.__glass.inspect().clock > c", arg=after["clock"],
+                                           timeout=30000)
+                seen[reduced] = dict(before=before, after=after, count=count)
                 assert not errors, errors
                 page.close()
             browser.close()
@@ -400,7 +411,6 @@ def test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_
     moving, still = seen[False], seen[True]
     assert moving["count"]["n"] == 0, f"an idle glass desk wrote to the page: {moving['count']}"
     assert moving["after"]["clock"] > moving["before"]["clock"] and moving["count"]["renders"] > 0, moving
-    assert moving["after"]["timer"], "the ground's next frame is asked for while motion is allowed"
     assert still["count"]["n"] == 0, f"an idle glass desk wrote to the page: {still['count']}"
     assert still["count"]["renders"] == 0, f"a still ground was redrawn {still['count']['renders']} times"
     assert still["after"]["clock"] == 0 and not still["after"]["timer"], still["after"]
