@@ -5,9 +5,13 @@ Enforces Microsoft PBIR schemas and anti-pattern rules:
 - Role cardinality validated against schema catalog.
 - Canonical Filter Where conditions using SourceRef.Source (never SourceRef.Entity).
 - Canvas bounds and positioning validation.
+- Formatting written where and as Desktop saves it: chart objects (labels, legend, axes) in
+  visual.objects, container objects (title, background, border, ...) in visual.visualContainerObjects.
 """
 from __future__ import annotations
+import difflib
 import json
+import math
 import os
 import re
 import shutil
@@ -34,6 +38,56 @@ def _save_json(path: str | Path, data: Any) -> None:
 def _load_json(path: str | Path) -> Any:
     with open(path, "r", encoding="utf-8-sig") as f:
         return json.load(f)
+
+
+HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+BOOL_WORDS = {"true": True, "1": True, "yes": True, "false": False, "0": False, "no": False}
+
+
+def _literal(value: str) -> dict[str, Any]:
+    """A PBIR property value holding one literal, `value` already in literal syntax (`true`, `12D`, `'x'`)."""
+    return {"expr": {"Literal": {"Value": value}}}
+
+
+def _quote(text: str) -> str:
+    """A PBIR string literal. Desktop doubles an embedded quote: it saves `'''Segoe UI'', arial'`."""
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _formatting_value(prop_path: str, pdef: dict[str, Any], value: Any) -> tuple[Any, dict[str, Any]]:
+    """Coerce `value` to the catalog type; return it with the property value exactly as Desktop saves it."""
+    ptype = pdef.get("type", "string")
+    text = str(value).strip()
+    if ptype == "bool":
+        flag = BOOL_WORDS.get(text.lower())
+        if flag is None:
+            raise ValueError(f"'{prop_path}' is true or false, got '{value}'")
+        return flag, _literal("true" if flag else "false")
+    if ptype == "number":
+        try:
+            num = float(text)
+        except ValueError:
+            num = math.nan
+        if not math.isfinite(num):
+            raise ValueError(f"'{prop_path}' is a number, got '{value}'")
+        typed: Any = int(num) if num.is_integer() else num
+        return typed, _literal(f"{typed}D")
+    if ptype == "enum":
+        choices = pdef.get("enum") or []
+        match = next((c for c in choices if c.lower() == text.lower()), None)
+        if match is None:
+            raise ValueError(f"'{prop_path}' is one of {', '.join(choices)}; got '{value}'")
+        return match, _literal(_quote(match))
+    if ptype == "color":
+        if not HEX_COLOR.match(text):
+            raise ValueError(f"'{prop_path}' is a #RRGGBB color, got '{value}'")
+        return text, {"solid": {"color": _literal(_quote(text))}}
+    return str(value), _literal(_quote(str(value)))
+
+
+def _did_you_mean(name: str, known: Any) -> str:
+    near = difflib.get_close_matches(name, list(known), n=1)
+    return f" Did you mean '{near[0]}'?" if near else ""
 
 
 def find_page_dir(report_root: str, page_name_or_id: str) -> tuple[Path, dict]:
@@ -288,13 +342,7 @@ def visual_add(pbip_path: str, page_name_or_id: str, visual_type: str,
             "title": [
                 {
                     "properties": {
-                        "text": {
-                            "expr": {
-                                "Literal": {
-                                    "Value": f"'{title}'"
-                                }
-                            }
-                        }
+                        "text": _literal(_quote(title))
                     }
                 }
             ]
@@ -354,35 +402,30 @@ def visual_set(pbip_path: str, visual_id: str, prop_path: str, value: Any) -> di
     cat = CAT.load_catalog()
     formatting = cat.get("formatting", {})
     if obj_name not in formatting:
-        raise KeyError(f"Formatting object '{obj_name}' not in schema catalog. Run `ad-pbip catalog formatting` for available objects.")
-    obj_props = formatting[obj_name].get("properties", {})
+        raise KeyError(f"Formatting object '{obj_name}' not in schema catalog.{_did_you_mean(obj_name, formatting)} "
+                       "Run `ad-pbip catalog formatting` for available objects.")
+    obj_def = formatting[obj_name]
+    obj_props = obj_def.get("properties", {})
     if prop_name not in obj_props:
-        raise KeyError(f"Property '{prop_name}' not valid for object '{obj_name}'.")
+        raise KeyError(f"Property '{prop_name}' not valid for object '{obj_name}'."
+                       f"{_did_you_mean(prop_name, obj_props)}")
 
-    # Coerce value based on type
-    ptype = obj_props[prop_name].get("type", "string")
-    if ptype == "number":
-        typed_val: Any = float(value) if "." in str(value) else int(value)
-    elif ptype == "bool":
-        typed_val = str(value).lower() in ("true", "1", "yes")
-    else:
-        typed_val = str(value)
+    typed_val, encoded = _formatting_value(prop_path, obj_props[prop_name], value)
 
-    # Set in visualContainerObjects (or visual.objects)
-    vis = vis_data.setdefault("visual", {})
-    vco = vis.setdefault("visualContainerObjects", {})
-    obj_entry = vco.setdefault(obj_name, [{}])[0]
-    props = obj_entry.setdefault("properties", {})
-
-    if ptype == "string" and prop_name == "text":
-        props[prop_name] = {"expr": {"Literal": {"Value": f"'{typed_val}'"}}}
-    elif ptype == "color":
-        props[prop_name] = {"solid": {"color": typed_val}}
-    else:
-        props[prop_name] = {"expr": {"Literal": {"Value": str(typed_val)}}}
+    # Chart formatting (labels, legend, axes) lives in visual.objects. The container's (title, background,
+    # border, ...) lives in visual.visualContainerObjects, whose schema admits no other key.
+    location = obj_def["location"]
+    entries = vis_data.setdefault("visual", {}).setdefault(location, {}).setdefault(obj_name, [])
+    # A visual-wide setting belongs to the entry without a selector; Desktop may save a per-series one first.
+    entry = next((e for e in entries if not e.get("selector")), None)
+    if entry is None:
+        entry = {"properties": {}}
+        entries.insert(0, entry)
+    entry.setdefault("properties", {})[prop_name] = encoded
 
     _save_json(vj_path, vis_data)
-    return {"ok": True, "action": "visual_set", "visual_id": visual_id, "property": prop_path, "value": typed_val}
+    return {"ok": True, "action": "visual_set", "visual_id": visual_id, "property": prop_path,
+            "location": f"visual.{location}.{obj_name}", "value": typed_val}
 
 
 def visual_remove(pbip_path: str, visual_id: str) -> dict[str, Any]:

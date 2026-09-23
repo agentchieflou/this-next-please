@@ -4,6 +4,32 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.14.3
+
+**`ad-pbip visual set` writes formatting where, and as, Power BI Desktop saves it.** It wrote every property into
+`visual.visualContainerObjects`, under the catalog's own names. Desktop keeps chart formatting in `visual.objects`,
+and the container schema admits fifteen keys (title, background, border and the like), so
+`--property dataLabels.show=true` wrote a key that schema refuses. Microsoft's own saved reports settled each name,
+place and value:
+- **Chart objects go to `visual.objects`:** `labels`, `legend`, `categoryAxis`, `valueAxis`. Container objects stay
+  in `visual.visualContainerObjects`: `title`, `subTitle`, `background`, `border`, `dropShadow`, `padding`,
+  `visualHeader`. `ad-pbip catalog formatting` shows each object's `location`, and `visual set` reports it.
+- **Desktop's names:** `dataLabels` is `labels`, its `position` is `labelPosition` (which adds `Auto`), and the axes'
+  `showTitle` is `showAxisTitle`. An old name is refused with the new one: *Did you mean 'labels'?*
+- **Desktop's literals:** `true` where it wrote `True`, `12D` where it wrote `12`, quoted enums, text with an
+  embedded quote doubled (`'Margin''s trend'`), and colours as `solid.color` expressions. `title.alignment` is
+  lowercase, and `legend.position` has all ten positions. A value the catalog does not allow is refused, and the file
+  is left alone. `visual add` doubles a quote in its title too.
+- **A visual-wide setting goes in the entry without a selector.** Desktop can save a chart's per-series labels entry
+  first, and the old write went into that one.
+- **The tests hold it to Desktop's own files:** three `clusteredBarChart`s Desktop saved, from microsoft/fabric-toolbox
+  and microsoft/BCApps, in `tests/fixtures/pbip/desktop-saved/`. Every literal they set is taken out and put back
+  with `visual set`, and the file must come back as Desktop saved it.
+
+**After updating:** if the old `visual set` wrote chart formatting into a report, some `visual.json` has `dataLabels`,
+`legend`, `categoryAxis` or `valueAxis` under `visualContainerObjects`. Desktop treats a schema error as blocking and
+names the file. Delete those keys, then set the properties again with `visual set`.
+
 ## 0.14.1
 
 **Starting the fleet always ends on a current desk (#242).** `ad-fleet serve` is long-running, and

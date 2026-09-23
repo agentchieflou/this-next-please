@@ -149,6 +149,7 @@ def formatting_catalog(visual_type: str | None = None, object_name: str | None =
 
             rows.append([
                 obj,
+                odata.get("location", ""),
                 prop,
                 ptype,
                 enums,
@@ -156,7 +157,7 @@ def formatting_catalog(visual_type: str | None = None, object_name: str | None =
                 f"{schema_path}#/formatting/{obj}/properties/{prop}",
             ])
 
-    cols = ["object", "property", "type", "enum_values", "description", "schema_path"]
+    cols = ["object", "location", "property", "type", "enum_values", "description", "schema_path"]
     return AgentTable("formatting_catalog", cols, rows, source=f"schema {schema_path}")
 
 

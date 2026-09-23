@@ -167,16 +167,18 @@
   },
   "formatting": {
     "title": {
+      "location": "visualContainerObjects",
       "description": "Visual header title formatting",
       "properties": {
         "text": { "type": "string", "description": "Title display text" },
         "show": { "type": "bool", "description": "Show title container" },
         "fontSize": { "type": "number", "description": "Title font size in pt" },
         "fontColor": { "type": "color", "description": "Title font hex color (#RRGGBB)" },
-        "alignment": { "type": "enum", "enum": ["Left", "Center", "Right"], "description": "Title text alignment" }
+        "alignment": { "type": "enum", "enum": ["left", "center", "right"], "description": "Title text alignment" }
       }
     },
     "subTitle": {
+      "location": "visualContainerObjects",
       "description": "Visual subtitle formatting",
       "properties": {
         "text": { "type": "string", "description": "Subtitle display text" },
@@ -186,6 +188,7 @@
       }
     },
     "background": {
+      "location": "visualContainerObjects",
       "description": "Container background formatting",
       "properties": {
         "show": { "type": "bool", "description": "Enable background fill" },
@@ -194,6 +197,7 @@
       }
     },
     "border": {
+      "location": "visualContainerObjects",
       "description": "Container border formatting",
       "properties": {
         "show": { "type": "bool", "description": "Enable visual border" },
@@ -201,47 +205,53 @@
         "radius": { "type": "number", "description": "Border corner radius in px" }
       }
     },
-    "dataLabels": {
-      "description": "Data value labels formatting",
+    "labels": {
+      "location": "objects",
+      "description": "Data value labels formatting (Format pane: Data labels)",
       "properties": {
         "show": { "type": "bool", "description": "Show data value labels on chart elements" },
         "fontSize": { "type": "number", "description": "Label font size in pt" },
         "color": { "type": "color", "description": "Label text color" },
-        "position": { "type": "enum", "enum": ["InsideEnd", "OutsideEnd", "InsideCenter", "InsideBase"], "description": "Placement relative to bar/column" }
+        "labelPosition": { "type": "enum", "enum": ["Auto", "InsideEnd", "OutsideEnd", "InsideCenter", "InsideBase", "Above", "Under"], "description": "Placement relative to the bar, column or point" }
       }
     },
     "legend": {
+      "location": "objects",
       "description": "Chart legend formatting",
       "properties": {
         "show": { "type": "bool", "description": "Show legend container" },
-        "position": { "type": "enum", "enum": ["Top", "Bottom", "Left", "Right", "TopCenter", "BottomCenter"], "description": "Legend orientation position" }
+        "position": { "type": "enum", "enum": ["Top", "TopCenter", "TopRight", "Left", "Right", "LeftCenter", "RightCenter", "Bottom", "BottomCenter", "BottomRight"], "description": "Legend orientation position" }
       }
     },
     "categoryAxis": {
+      "location": "objects",
       "description": "Category (X-axis) formatting",
       "properties": {
         "show": { "type": "bool", "description": "Show category axis" },
-        "showTitle": { "type": "bool", "description": "Show axis title text" },
+        "showAxisTitle": { "type": "bool", "description": "Show axis title text" },
         "titleText": { "type": "string", "description": "Custom axis title text" }
       }
     },
     "valueAxis": {
+      "location": "objects",
       "description": "Value (Y-axis) formatting",
       "properties": {
         "show": { "type": "bool", "description": "Show value axis" },
-        "showTitle": { "type": "bool", "description": "Show value axis title" },
+        "showAxisTitle": { "type": "bool", "description": "Show value axis title" },
         "titleText": { "type": "string", "description": "Custom axis title text" },
         "start": { "type": "number", "description": "Axis minimum bound" },
         "end": { "type": "number", "description": "Axis maximum bound" }
       }
     },
     "visualHeader": {
+      "location": "visualContainerObjects",
       "description": "Visual top-right action icon bar",
       "properties": {
         "show": { "type": "bool", "description": "Show visual action header icons" }
       }
     },
     "padding": {
+      "location": "visualContainerObjects",
       "description": "Inner visual padding",
       "properties": {
         "top": { "type": "number", "description": "Top padding px" },
@@ -251,6 +261,7 @@
       }
     },
     "dropShadow": {
+      "location": "visualContainerObjects",
       "description": "Container shadow effect",
       "properties": {
         "show": { "type": "bool", "description": "Enable shadow" },
