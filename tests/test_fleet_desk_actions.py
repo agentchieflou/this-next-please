@@ -556,7 +556,13 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
         assert "inferred from recent activity" in offer, "it says how strong the claim is"
 
         page.click('.tile[data-repo="busy"] .adopt')
-        page.wait_for_timeout(900)
+        # Waited for, not slept through (#227): the tile changes on the adopt's answer, and on the
+        # Windows 3.14 leg of #269 that answer took over 3 s (the adoption's first write, into a
+        # fleet directory the antivirus was still looking at). 900 ms was a guess at a clock.
+        page.wait_for_function(
+            """() => /is driving this repo/.test(
+                   document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
+            timeout=15000)
 
         after = page.inner_text('.tile[data-repo="busy"] .outside')
         assert "is driving this repo" in after, after
@@ -567,7 +573,10 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
         assert page.get_attribute('.tile[data-repo="busy"] .send', "disabled") is not None
 
         page.click('.tile[data-repo="busy"] .adopt')            # hand it back
-        page.wait_for_timeout(900)
+        page.wait_for_function(
+            """() => /the fleet did not start/.test(
+                   document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
+            timeout=15000)
         assert "the fleet did not start" in page.inner_text('.tile[data-repo="busy"] .outside')
         assert not errors, errors
 
