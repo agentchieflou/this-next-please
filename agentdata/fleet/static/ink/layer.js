@@ -582,7 +582,9 @@ class Layer {
   build(m, paths) {
     // A growing line keeps what the pen has drawn, in px rather than as a fraction of a length that
     // has changed, and the pen goes back to draw on from there (#249).
-    const grows = !!(m.row && m.row.grow) && (m.state === "drawn" || m.state === "drawing");
+    // A mark whose match has gone is leaving: it is struck or erased at the length it had, and grows
+    // no more -- the refresh that takes its class away often brings the line that would grow it.
+    const grows = !!(m.row && m.row.grow) && !m.leaveOp && (m.state === "drawn" || m.state === "drawing");
     const had = grows ? m.strokes.map(st => ({ head: st.head, len: st.len, sig: st.sig })) : null;
     while (m.strokes.length > paths.length) m.strokes.pop().dispose(this.scene);
     paths.forEach((p, i) => {
@@ -827,6 +829,8 @@ class Layer {
     // A mark can leave the page while its op runs; what the op does at its end is then not done.
     const once = fn => ({ step: dt => { if (!m.dropped) fn(); return dt; } });
     if (op.t === "draw") {
+      // A draw queued before the mark began to leave (a growing line's rest) is not drawn after it.
+      if (m.leaveOp || m.state === "leaving" || m.state === "struck") return [];
       m.state = "drawing";
       this.sync(m);
       if (m.shape === "write") {
