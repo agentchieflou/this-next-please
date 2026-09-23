@@ -9,8 +9,8 @@ Everything here follows Deneb's own PBIR guide (deneb-viz.github.io/pbir-guide, 
 Guide", 2026-09): the visual type is the AppSource GUID, the fields go in the `dataset` role, and the
 specification is `visual.objects.vega[0].properties.jsonSpec`, stringified inside single quotes, with
 booleans as `true`/`false` and text in single quotes. The guide does not say how an apostrophe inside
-the specification is escaped, so a specification containing one is refused rather than guessed at:
-Vega expressions take `\\"` for their strings just as well.
+is escaped. Power BI doubles it, as in every PBIR text literal (`expr.text_literal`), so a
+specification may hold one: a Vega expression string in single quotes, or `Men's` in a label.
 """
 from __future__ import annotations
 
@@ -53,11 +53,6 @@ def _uses_dataset(node: Any) -> bool:
 def load_spec(path: str) -> tuple[dict, str]:
     """Parse the specification and return it with the text that goes into `jsonSpec`."""
     text = textio.read_text(path)
-    if "'" in text:
-        line = text[:text.index("'")].count("\n") + 1
-        raise DenebError(f"{path}:{line}: the specification contains an apostrophe (')",
-                         "PBIR stores it inside single quotes: write Vega expression strings with \\\" instead, "
-                         "and ’ in label text")
     try:
         spec = json.loads(text)
     except json.JSONDecodeError as e:
@@ -73,7 +68,7 @@ def load_spec(path: str) -> tuple[dict, str]:
 
 
 def _text(value: str) -> dict:
-    return {"expr": {"Literal": {"Value": f"'{value}'"}}}
+    return {"expr": E.text_literal(value)}
 
 
 def _bool(value: bool) -> dict:
@@ -150,7 +145,7 @@ def add(pbip_path: str, page: str, spec_path: str, fields: list[str], *, provide
         },
     }
     if title:
-        vis["visual"]["visualContainerObjects"] = {"title": [{"properties": {"text": _text(title.replace("'", "’"))}}]}
+        vis["visual"]["visualContainerObjects"] = {"title": [{"properties": {"text": _text(title)}}]}
     path = page_dir / "visuals" / visual_id / "visual.json"
     AU._save_json(path, vis)
     return {"ok": True, "action": "deneb_add", "visual_id": visual_id, "visualType": GUID, "provider": provider,

@@ -76,7 +76,8 @@ def test_report_trace_aggregation():
         assert "formula" in sales_row[5] and "vertipaq" in sales_row[5]
 
 
-def test_report_trace_visual_correlation():
+@pytest.mark.parametrize("literal,title", [("'Sales by Region'", "Sales by Region"), ("'Men''s Sales'", "Men's Sales")])
+def test_report_trace_visual_correlation(literal, title):
     with tempfile.TemporaryDirectory() as td:
         # Build mock PBIR report directory
         pages_dir = os.path.join(td, "definition", "pages", "page1", "visuals", "vis1")
@@ -86,7 +87,7 @@ def test_report_trace_visual_correlation():
             "visual": {
                 "visualType": "barChart",
                 "visualContainerObjects": {
-                    "title": [{"properties": {"text": {"expr": {"Literal": {"Value": "'Sales by Region'"}}}}}]
+                    "title": [{"properties": {"text": {"expr": {"Literal": {"Value": literal}}}}}]
                 },
                 "query": {
                     "queryState": {
@@ -113,8 +114,8 @@ def test_report_trace_visual_correlation():
 
         rep = TR.report_trace(out_file, report_dir=td)
         assert len(rep.rows) == 1
-        # Correlated visual should be "Sales by Region"
-        assert rep.rows[0][1] == "Sales by Region"
+        # Correlated visual carries its title, the literal's apostrophes undoubled
+        assert rep.rows[0][1] == title
 
 
 def test_cli_trace_report(capsys):

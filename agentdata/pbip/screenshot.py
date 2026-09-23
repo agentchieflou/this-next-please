@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 from . import desktop as DT
+from . import pbir as P
 from ..model import AgentTable
 from .. import textio
 
@@ -223,7 +224,7 @@ def find_visual_in_pbir(report_dir: str | Path, visual_needle: str, page_needle:
                 for t in title_obj:
                     lit = (((t.get("properties") or {}).get("text") or {}).get("expr") or {}).get("Literal") or {}
                     if lit.get("Value"):
-                        title = str(lit["Value"]).strip("'")
+                        title = P.literal_text(lit["Value"])
             except Exception:
                 pass
 
