@@ -265,13 +265,29 @@ What each hook is handed:
    `Ink.inspect()` shows the marks, and `.layer.skin` shows the hooks, the pieces and the frames.
    `tests/test_fleet_ink.py` has the pattern.
 
-### The skins that draw with ink
-
 | Skin | Module | Its page |
 | --- | --- | --- |
 | glass (#254) | `skins/glass.js` | [skin-glass.md](skin-glass.md): a lit mesh ground, frosted panes that sample it, and a state grammar of marks and lit rims |
 | graph (#253) | `skins/graph.js` | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
 | farmstead (#255) | `skins/farmstead.js` | [skin-farmstead.md](skin-farmstead.md): the sprite sheet as nearest-neighbour textures, lit wooden frames, and a crop that grows a stage per advance of the phase |
+| Property | Is | Value |
+| `--paper` | the canary stock, and `options.paper`, so the layer knows it is light and the highlighter multiplies | `#FCF3A6` |
+| `--rule` | the blue rules and the panes' hairline | `#8FB1D8` |
+| `--margin` | the double red margin | `#D8534C` |
+| `--glue` | the gummed band | `#9C3B2E` |
+| `--ink-pencil` | graphite: the palette's `--muted` is too faint on canary | `#5E5A52` |
+| `--ink-pen` | a blue ballpoint, where the palette's accent is ochre | `#1F3F9A` |
+| `--ink-highlighter` | **orange-pink**: the palette's amber would vanish into yellow | `#FF8FA3` |
+| State | Rows: selector → tool, shape | What sets it |
+| idle | `.tile.state-idle` → pencil outline (inside the pane); `.tile.state-idle .head .repo` → pencil underline | `drawTile`'s `state-*` |
+| running | `.tile.state-running .head .repo` → pen underline; its tail and the pen-tip dot are the module's (below) | `drawTile` |
+| needs you | `.tile.needs-human .head .repo` → highlighter; the open question's `.ask-q` → highlighter; each `.ask-choice` → pencil loop | `needs-human` (#94's fold), the question card (#165) |
+| answered | the chosen `.ask-choice[aria-pressed="true"]` → pen ellipse. The question's highlight and the choices' loops leave: the highlight is struck in pen along its swipe (the question struck, never the name, whose highlight stays), and the loops are erased | `aria-pressed`, which the page sets when a choice is pressed; the question rows carry `:not(:has(… [aria-pressed="true"]))` |
+| error | `.tile.state-error` → marker loop inside the pane, and a red bang in its margin | `drawTile` |
+| done | `.tile.state-done` → green check in the margin | `drawTile` (see below) |
+| stale (#240) | `.oldsession:not([hidden])` → pencil `write` (its own words, handwritten), a dashed pencil outline round it, and a pencil arrow to `.runline` | `drawOldSession` |
+| a finding | `.transcript li.denied` or `li.friction` → red ellipse; its `.k` → highlighter; its `.v` → pencil `write` | the transcript's own line classes (`appendTo`) |
+| the header count | `#bellcount` → pen `write`; a change is struck and rewritten by the module (below) | `bell()` |
 
 ## Lanes
 
