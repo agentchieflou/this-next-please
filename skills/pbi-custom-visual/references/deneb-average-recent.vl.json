@@ -1,0 +1,52 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+  "description": "Average and Recent per category, with the variance of Recent against Average at the end of each pair of bars. Rename Category, Average and Recent to the display names of the fields in the Values well of the visual.",
+  "data": {"name": "dataset"},
+  "transform": [
+    {"calculate": "datum.Average ? (datum.Recent - datum.Average) / datum.Average : null", "as": "Variance"},
+    {"calculate": "max(datum.Average, datum.Recent)", "as": "LabelAt"},
+    {"calculate": "datum.LabelAt * 1.22", "as": "LabelRoom"},
+    {"calculate": "datum.Variance == null ? \"\" : datum.Variance > 0 ? \"▲ \" + format(datum.Variance, \"+.1%\") : datum.Variance < 0 ? \"▼ \" + format(datum.Variance, \".1%\") : \"– 0.0%\"", "as": "VarianceLabel"}
+  ],
+  "encoding": {
+    "y": {"field": "Category", "type": "nominal", "sort": null, "axis": {"title": null, "domain": false, "ticks": false}}
+  },
+  "layer": [
+    {
+      "transform": [{"fold": ["Average", "Recent"], "as": ["Series", "Value"]}],
+      "mark": {"type": "bar", "cornerRadiusEnd": 2},
+      "encoding": {
+        "x": {"field": "Value", "type": "quantitative", "axis": {"title": null}},
+        "yOffset": {"field": "Series", "sort": ["Average", "Recent"]},
+        "color": {
+          "field": "Series", "type": "nominal",
+          "scale": {"domain": ["Average", "Recent"], "range": ["#C8CDD2", "#336699"]},
+          "legend": {"orient": "top", "title": null}
+        },
+        "tooltip": [
+          {"field": "Category", "type": "nominal"},
+          {"field": "Series", "type": "nominal"},
+          {"field": "Value", "type": "quantitative", "format": ",.0f"}
+        ]
+      }
+    },
+    {
+      "mark": {"type": "text", "align": "left", "baseline": "middle", "dx": 6, "fontSize": 11, "fontWeight": "bold"},
+      "encoding": {
+        "x": {"field": "LabelAt", "type": "quantitative"},
+        "text": {"field": "VarianceLabel"},
+        "color": {
+          "condition": [
+            {"test": "datum.Variance > 0", "value": "#1A7F37"},
+            {"test": "datum.Variance < 0", "value": "#CF222E"}
+          ],
+          "value": "#6E7781"
+        }
+      }
+    },
+    {
+      "mark": {"type": "point", "opacity": 0},
+      "encoding": {"x": {"field": "LabelRoom", "type": "quantitative"}}
+    }
+  ]
+}
