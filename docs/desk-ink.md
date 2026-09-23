@@ -250,6 +250,12 @@ What each hook is handed:
    `Ink.inspect()` shows the marks, and `.layer.skin` shows the hooks, the pieces and the frames.
    `tests/test_fleet_ink.py` has the pattern.
 
+### The skins that draw with ink
+
+| Skin | Module | Its page |
+| --- | --- | --- |
+| glass (#254) | `skins/glass.js` | [skin-glass.md](skin-glass.md): a lit mesh ground, frosted panes that sample it, and a state grammar of marks and lit rims |
+
 ## Lanes
 
 There is one queue of drawing per agent's pane (`.tile[data-repo]`), and one for everything outside a pane: the header
