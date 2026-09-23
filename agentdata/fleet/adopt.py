@@ -171,17 +171,29 @@ def agent_processes(*, max_age: float = PROCESS_CACHE_S, wait: bool = True) -> l
     waited for it drew nothing at all until it came back: past ten seconds on a loaded CI runner,
     where the desk test waiting for its first pane gave up first. The next tick draws what the
     listing found.
+
+    A caller that waits joins a listing already out rather than starting a second beside it (#235).
+    A fresh desk starts one with its first answer, and the operator's first adopt came while it was
+    still running: on Windows, two PowerShells for the same answer, and the adopt waiting on its own.
+    What the joined listing finds is seconds old, well inside `max_age` -- except at `max_age=0`,
+    which asked for one begun now.
     """
     now = time.time()
     with _cache_lock:
         if max_age and (now - _cache["at"]) < max_age:
             return list(_cache["rows"])
+        out = _listing["thread"]
         if not wait:
-            if _listing["thread"] is None:
+            if out is None:
                 _listing["thread"] = threading.Thread(target=_refresh, args=(True,),
                                                       name="adopt-listing", daemon=True)
                 _listing["thread"].start()
             return list(_cache["rows"])
+    if out is not None and max_age:
+        out.join()
+        with _cache_lock:
+            if (time.time() - _cache["at"]) < max_age:
+                return list(_cache["rows"])
     return list(_refresh())
 
 
