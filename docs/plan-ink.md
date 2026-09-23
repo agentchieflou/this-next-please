@@ -222,6 +222,24 @@ skin: a degraded mode of the one platform, not a second one.
       `Color`. The one 2D context left on the page is three.js's own 1×1 `OffscreenCanvas` probe in
       `WebGLRenderer`. The vendored file is pinned, so a run-time test names that probe instead of patching it
       out, and the file scan skips `vendor/`.
+  - **Phase 2 built (#257): a skin's stylesheet paints nothing**, on glass, graph paper, the legal pad and
+    farmstead, the four skins merged with a module when the operator started it. [desk-ink.md](desk-ink.md) §What a
+    skin's stylesheet holds is the rule, and `tests/test_fleet_skin_guard.py` refuses a decorative property in
+    any skin that ships a module. What it decided:
+    - **The guard is a rule about scope and value, not a list of banned properties.** A custom property is
+      allowed (the palette's thirteen excepted); layout and typography are allowed; anything else only where the
+      ink is on the page, and only `transparent`, `none`, `0` or a token. So a skin can stand aside for its
+      canvas and name its inks, and cannot paint.
+    - **The page stands aside once, for every skin** (`app.css`, keyed on `body:has(> #ink[data-skin])`): the
+      panes, the header, the footer and the cards clear, the accent and the selection ring kept.
+    - **The plain look is `app.css` and the palette**, with the mark table drawn plain in the skin's inks, and
+      the fallback keeps a pane's selection ring beside a margin bar for every skin.
+    - **Every skin × palette passes `theme.check` both ways**: at the variant's composited paper, and at the
+      palette's own panel, which is what the plain look reads on.
+    - **Farmstead's sprites are read from their rects**, into `DataTexture`s: the module had rasterised them on
+      a 2D canvas, and the desk has none.
+    - **Voxel keeps its stylesheet** until its module lands (#256), and joins the guard that day; so do the
+      notebook (#249, #250) and napkin (#252), which were not merged yet.
 
 Build order: A and B first, in either order, because neither changes what anyone sees. Then C, whose marks are the
 reference every later skin is measured against. D through G follow in any order, then H through J, and K last. A

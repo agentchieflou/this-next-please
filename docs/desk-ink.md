@@ -189,8 +189,8 @@ in the script ([desk-rendering.md](desk-rendering.md) rule 1).
 ## Writing a skin
 
 A skin that draws with ink is **one module**, `agentdata/fleet/static/ink/skins/<name>.js`, beside the stylesheet
-every skin already has, `static/skins/<name>/skin.css`, which holds its layout, its typography and its look under
-`body.ink-off`. `<name>` is the skin's name in `skins.py`. That registers the skin, and so the settings page offers it
+every skin already has, `static/skins/<name>/skin.css`, which holds its layout, its typography and the colours its
+module reads, and nothing it paints (§What a skin's stylesheet holds). `<name>` is the skin's name in `skins.py`. That registers the skin, and so the settings page offers it
 and `theme.skin` in the config chooses it, the way `glass` is chosen today. `static/ink/skins/example.js` is the
 working pattern to copy, and the tests draw with it. It is not in `skins.py`, so nobody can choose it.
 
@@ -250,9 +250,9 @@ What each hook is handed:
 5. **Put the pieces under the marks**, with `api.order`. A mark is drawn at order 0 and above.
 6. **Drawn, never faded** (ground rule 1). A skin animates its materials, never its marks. Under reduced motion,
    `tick` gets no loop of its own.
-7. **The fallback is CSS.** The marks draw plain by themselves. What a skin's paper or ground looks like with
-   `body.ink-off` is its `skin.css`'s business. So is making the panes transparent (`body[data-skin="<name>"]:not(.ink-off)
-   .tile { background: transparent }`) where the paper should show through.
+7. **The fallback is the page's.** The marks draw plain by themselves, and under `body.ink-off` every skin is the
+   one plain look (§What a skin's stylesheet holds). Where the skin draws, the page stands aside for it by itself:
+   `app.css` clears the panes, the header, the footer and the cards once a canvas with a table is on the page.
 8. **A hook that throws is the skin's problem.** It is said once in the console and shows in
    `Ink.inspect().layer.skin.errors`, and the desk goes on drawing its marks.
 9. **Test with `?ink=on`**, choosing the skin with `POST /api/theme {skin: "<name>"}` as the settings page does.
@@ -333,8 +333,8 @@ Decisions the table carries, each undone by a sentence:
   its chip as idle and a supervised one as running, so `state-done` is rare; `is-done`, which
   `drawTile` sets from the fold's own state (#253), is what a finished agent carries. A finished
   pane is idle *and* done, so it has both marks.
-* **The question card and its choices are transparent in ink** (`skin.css`): the canvas is behind
-  the page, so a mark shows only where nothing opaque covers it.
+* **The question card and its choices are transparent in ink** (`app.css`, for every skin that
+  draws): the canvas is behind the page, so a mark shows only where nothing opaque covers it.
 
 **Two marks the layer has no shape for, drawn by the module** from the same classes, in its `tick`,
 as ribbons of the pen's ink (plan-ink gives both to C; this is the skin-local copy that slice K
@@ -353,10 +353,10 @@ Neither asks for a frame of its own except while its strike is being drawn, so a
 nothing. Under reduced motion both are drawn at once. `inspect()`, exported by the module, says
 what they are doing (the tests import the module by its URL, which is the instance the page runs).
 
-**The plain look** (`body.ink-off`) is the same pad in CSS: the canary, a rule every 28px as a
-repeating gradient, the double margin as a gradient on each pane, and the glue as the header's top
-border. The layer's fallback draws the same table over it in the same inks. Where the fallback's
-margin bar (an inset `box-shadow`) lands on a selected pane, the selection ring is kept beside it.
+**The plain look** (`body.ink-off`) is the one every skin shares since #257: the palette's page,
+with the layer's fallback drawing the same table in the pad's inks. The canary, the rules, the
+margin and the glue are the module's alone. Where the fallback's margin bar (an inset `box-shadow`)
+lands on a selected pane, the fallback keeps the selection ring beside it, for every skin.
 
 **Fonts.** None downloaded: the handwritten bits (the stale note, the count) use a local cursive
 stack (`--hand`: Segoe Print, Bradley Hand, Chalkboard SE, Comic Neue, Comic Sans MS, `cursive`).
@@ -422,6 +422,32 @@ it was drawn from, apart from the skin's `marks`.
 learn whether it could resize a texture off the page. It never draws with it, and the vendored file is pinned by its
 sha256. `tests/test_fleet_trace.py` holds the page to exactly that, at run time, and scans `static/` (minus
 `vendor/`) for any other.
+
+## What a skin's stylesheet holds (#257)
+
+Three.js is the one platform: a skin that draws with ink draws everything it looks like in its module, and its
+`skin.css` keeps what the page needs to lay its words out. `tests/test_fleet_skin_guard.py` reads every rule of the
+stylesheet of every skin that ships a module and refuses the rest:
+
+| A declaration | Allowed |
+| --- | --- |
+| a custom property (`--paper`, `--ink-pen`, `--glass-mesh-1`…): the colours and numbers the module reads | anywhere, **except** the palette's own thirteen tokens (`--bg`, `--panel`, `--text`…): a skin never recolours the palette, which it shares with the terminal |
+| layout (`display`, `padding`, `margin`, `gap`, `width`, `flex`…) and typography (`font-*`, `line-height`, `letter-spacing`, `text-*`…) | anywhere |
+| anything else: a background, a border, a shadow, a radius, a filter, an opacity, a colour | only where the skin's ink is on the page (a selector with `:not(.ink-off)`), and only to clear the page for the canvas or to name a token: `transparent`, `none`, `0` or `var(--…)`. Never a literal colour, never a `url()` |
+
+So a skin stands aside for its canvas and never paints over it. **The plain look is the one CSS look left**: under
+`body.ink-off` every skin is `app.css` and its variant's palette, with its mark table drawn as plain CSS by the
+layer's fallback in the skin's own inks. `theme.check` holds every skin and palette pair both ways it can be drawn:
+at the variant's composited paper (ink) and at the palette's own panel (plain), with the variant's inks
+(`test_every_skin_and_palette_passes_theme_check_plain_and_in_ink`).
+
+**What the page does for every skin that draws.** Once a canvas with a table is on the page
+(`body:has(> #ink[data-skin])`), `app.css` clears the panes, the header, the footer and the cards on a pane, keeps
+the pane's accent on its left and the selection ring, and lets the trace's SVG step aside when the layer draws the
+trace. It is keyed on the canvas being there, not on `:not(.ink-off)`, so a clear pane always has something behind
+it.
+
+A skin with no module yet (`voxel`, until #256) is a CSS skin still, and joins the guard the day its module lands.
 
 ## Lanes
 
