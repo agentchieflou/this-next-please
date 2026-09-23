@@ -332,7 +332,13 @@ def test_a_skin_loads_only_when_it_is_asked_for(desk):
                         { method: 'POST', headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ skin: 'voxel' }) });
         }""")
-        page.wait_for_timeout(2500)
+        # Waited for, not slept through (#227): the page hears of the skin from the stream's
+        # `theme` frame, which follows the config file's mtime on the loop's own tick. A flat
+        # 2.5 s was most of a tick's budget on a loaded Windows runner (the 3.14 leg of #264).
+        page.wait_for_function(
+            """() => { const l = document.head.querySelector('link[data-skin]');
+                       return !!l && l.href.indexOf('/static/skins/voxel/skin.css') >= 0; }""",
+            timeout=15000)
         href = page.evaluate("""() => { const l = document.head.querySelector('link[data-skin]');
                                         return l ? l.href : ''; }""")
         browser.close()
