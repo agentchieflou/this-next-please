@@ -29,6 +29,8 @@ place and value:
   - each is written under the selector Desktop uses (`dataViewWildcard`, `highlightMatching`, and the series'
     queryRef), and is checked against the model. A column is refused with the aggregation to use instead. A report
     with no local model takes `'Table'[Measure]` and says it could not check it.
+  - `pbi-custom-visual`'s `delivery-routes.md` gives N1 as those four `visual set` lines. Colouring the label by a
+    field value is still a Desktop step.
 - **`clusteredBarChart` and `clusteredColumnChart` join the catalog,** so `visual add` can create the chart the
   bar-end label route is drawn on. `barChart` and `columnChart` are described as what they are, the stacked
   ones. `pbi-report-design`'s references now recommend the clustered types for rankings, breakdowns and
