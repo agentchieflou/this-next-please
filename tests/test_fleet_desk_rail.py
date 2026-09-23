@@ -10,7 +10,8 @@ The rail is one chip per registered checkout at the top of the board, each a dro
 calls exactly what a drop on the tile calls; the card is one element the page owns, drawn under the
 rail when the tile is not on the glass. The board window went with `roles` (#232); what these tests
 drive now is the board open beside the agent the operator is reading, with the two checkouts a
-ticket can go to off the glass as bands -- the same situation, one window instead of three. Same rules as `tests/test_fleet_handoff_pickup.py`: the
+ticket can go to as rails with no room for the card (bands, off the glass, until #233) -- the same
+situation, one window instead of three. Same rules as `tests/test_fleet_handoff_pickup.py`: the
 drop is built in page context, and the assertions are on the rendered page and on the consequence
 (the `started` events on the checkout), never on the source text.
 """
@@ -96,8 +97,9 @@ def _serve():
 
 
 def _board_window(p, port, token):
-    """The board, open beside `sol`: the checkouts a ticket can go to are bands, not on the glass.
-    The address is the roles layout's board window, as a bookmark from before #232 still has it."""
+    """The board, open beside `sol`: the checkouts a ticket can go to are rails, with no room on the
+    glass for the card (#233; they were bands in the column, off the glass altogether). The address
+    is the roles layout's board window, as a bookmark from before #232 still has it."""
     browser = launch_chromium(p)
     page = browser.new_page(viewport={"width": 1280, "height": 900})
     errors: list[str] = []
@@ -107,9 +109,11 @@ def _board_window(p, port, token):
     page.evaluate("() => boardPanel(true)")
     page.wait_for_selector("#tickets li[data-key='RDSD-118']", timeout=15000)
     page.wait_for_selector("#agentrail .rail-chip[data-repo='luna']:not([hidden])", timeout=15000)
-    assert page.evaluate("""() => ['luna', 'mars'].every(name =>
-        document.querySelector('.tile[data-repo="' + name + '"]').offsetParent === null)"""), \
-        "a checkout the ticket can go to is on the glass"
+    page.wait_for_function("""() => ['luna', 'mars'].every(name =>
+        document.querySelector('.tile[data-repo="' + name + '"]').dataset.tier === 'rail')""",
+        timeout=15000)
+    assert page.evaluate("() => ['luna', 'mars'].every(name => !onTheGlass(name))"), \
+        "a checkout the ticket can go to has room for the card on the glass"
     return browser, page, errors
 
 

@@ -166,8 +166,9 @@ def test_desk_browser_layouts_and_sync(running_desk):
 @pytest.mark.browser
 def test_an_address_that_chooses_an_arrangement_opens_the_desk_and_says_so_once(running_desk):
     """`?layout=roles&view=board` from a bookmark or an older launcher (#232). There is one
-    arrangement, so the address opens the desk as any other does -- the open agent and its bands,
-    never a blank page -- and the footer says, once, that the parameters were ignored.
+    arrangement, so the address opens the desk as any other does -- the open agent and a rail for
+    the other (#233), never a blank page -- and the footer says, once, that the parameters were
+    ignored.
 
     Once: a standing warning redrawn on every pass is a footer that never says anything else, and
     `place()` runs several times a second. The parameters come off the address too, so a reload does
@@ -205,7 +206,7 @@ def test_an_address_that_chooses_an_arrangement_opens_the_desk_and_says_so_once(
         assert res.status == 200
         page.wait_for_selector(".tile.is-solo", timeout=15000)
         page.wait_for_function(
-            "() => document.querySelectorAll('#bands .band:not([hidden])').length === 1",
+            "() => document.querySelectorAll('#grid .tile[data-tier=\"rail\"]').length === 1",
             timeout=15000)
         page.wait_for_selector("#notice:not([hidden])", timeout=5000)
         notice = page.inner_text("#notice")

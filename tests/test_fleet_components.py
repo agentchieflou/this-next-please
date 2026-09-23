@@ -116,8 +116,14 @@ def test_the_contract_names_one_reconciler_and_the_page_uses_it():
     for setter in ("function setClass(", "function toggle(", "function attr(",
                    "function hide(", "function style("):
         assert setter in common, setter
-    # The four lists that used to be rebuilt on every draw.
-    assert app.count("patchList(") >= 4, app.count("patchList(")
+    # The lists that used to be rebuilt on every draw: the cells, the agent rail's chips, and the
+    # rails of repositories that left the registry. The column's two -- its bands and each band's
+    # tail -- went with the column (#233); a pane is one element per agent that is never removed
+    # and re-added, so the row is reordered by `reorderDomTiles`, not reconciled.
+    assert app.count("patchList(") >= 3, app.count("patchList(")
+    for owner in ("function drawCells(", "function drawRail(", "function drawGone("):
+        body = app[app.index(owner):]
+        assert "patchList(" in body[:body.index("\n}\n")], owner
     assert "while (list.children.length > 1) list.removeChild(list.lastChild);" not in app or \
         app.count("while (list.children.length > 1) list.removeChild(list.lastChild);") <= 2, \
         "a list is still being torn down and cloned on every draw"
@@ -152,11 +158,10 @@ def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path):
             page = browser.new_page(viewport={"width": 1400, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
             page.wait_for_function(
-                "() => document.querySelectorAll('#bands .band:not([hidden])').length >= 2",
+                "() => document.querySelectorAll('#grid .tile[data-tier=\"rail\"]').length >= 2",
                 timeout=15000)
 
             counts = page.evaluate("""() => {
@@ -172,7 +177,9 @@ def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path):
               };
               const tile = document.querySelector('.tile.is-solo');
               const row = tiles.get(tile.dataset.repo).row;
-              const band = document.querySelector('#bands .band:not([hidden])');
+              // The red one, as a rail: the pane at its narrowest, and the face that says it (#233).
+              const rail = document.querySelector('#grid .tile[data-tier="rail"].needs-human');
+              const railRow = tiles.get(rail.dataset.repo).row;
               const out = {};
               // Each drawn once more first, so the FIRST of the two passes is not the one that
               // fills in a value for the first time.
@@ -184,8 +191,14 @@ def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path):
               drawSessionPill(tile, row);
               out.pill = watch(tile.querySelector('.sessionbar'),
                                () => drawSessionPill(tile, row));
-              drawColumn();
-              out.column = watch(document.getElementById('bands'), () => drawColumn());
+              drawTile(rail, railRow, []);
+              out.rail = watch(rail, () => drawTile(rail, railRow, []));
+              drawPaneRail(rail, railRow);
+              out.face = watch(rail, () => drawPaneRail(rail, railRow));
+              drawHiddenCount();
+              out.hidden = watch(document.querySelector('footer'), () => drawHiddenCount());
+              drawGone();
+              out.gone = watch(document.getElementById('gone'), () => drawGone());
               place();
               out.place = watch(document.body, () => place());
               /* Together, and last. Each of the above is idempotent on its own, and #220's demo

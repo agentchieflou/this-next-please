@@ -162,11 +162,11 @@ def _visible(page, repo: str) -> bool:
 
 
 def _quiet(page, repo: str) -> bool:
-    """Folded by focus mode: in the column that is a band down to a sliver, never gone (#203)."""
+    """Quieted by focus mode: a rail dimmed, never gone (#203, #233)."""
     return page.evaluate(
         """(repo) => {
-             const band = document.querySelector(`#bands .band[data-repo="${repo}"]`);
-             return !!band && band.classList.contains('is-quiet');
+             const pane = document.querySelector(`.tile[data-repo="${repo}"]`);
+             return !!pane && pane.dataset.tier === 'rail' && pane.classList.contains('is-quiet');
            }""", repo)
 
 
@@ -180,9 +180,9 @@ def test_the_tile_you_just_acted_on_does_not_vanish_from_focus_mode(desk):
     disappeared. They went looking for it in the `where` scan, which is where a person goes when
     they believe they have lost something.
 
-    The grid's filter hid tiles; the column's folds bands (#232), and never the open agent. So the
-    hold shows when the operator moves on: the agent they acted on keeps a whole band while the
-    ones nobody touched fold, until they let it go.
+    The grid's filter hid tiles; the column's folded bands (#232); the row dims rails (#233), and
+    never the open agent. So the hold shows when the operator moves on: the agent they acted on
+    keeps a rail at full strength while the ones nobody touched dim, until they let it go.
     """
     playwright_module = pytest.importorskip("playwright.sync_api")
     with playwright_module.sync_playwright() as p:
@@ -213,20 +213,21 @@ def test_the_tile_you_just_acted_on_does_not_vanish_from_focus_mode(desk):
         assert "no longer needs you" in note, "it says why it is still here"
 
         # The operator moves on to another agent, and the one they acted on is held on the glass.
-        page.click('#bands .band[data-repo="third"] .band-open')
+        page.click('.tile[data-repo="third"] .pane-rail')
         page.wait_for_selector('.tile[data-repo="third"].is-solo', timeout=5000)
+        page.wait_for_selector('.tile[data-repo="asks"][data-tier="rail"]', timeout=5000)
         assert not _quiet(page, "asks"), \
-            "the agent the operator acted on is held on screen; folding it reads as data loss"
+            "the agent the operator acted on is held on screen; dimming it reads as data loss"
         assert _quiet(page, "quiet"), "holding one agent does not disable the filter"
 
         # And the operator can let it go, which is the whole of the escape hatch.
-        page.click('#bands .band[data-repo="asks"] .band-open')
-        page.wait_for_selector('.tile[data-repo="asks"].is-solo', timeout=5000)
+        page.click('.tile[data-repo="asks"] .pane-rail')
+        page.wait_for_selector('.tile[data-repo="asks"].is-solo[data-tier="full"]', timeout=5000)
         page.click('.tile[data-repo="asks"] .release')
-        page.click('#bands .band[data-repo="third"] .band-open')
+        page.click('.tile[data-repo="third"] .pane-rail')
         page.wait_for_selector('.tile[data-repo="third"].is-solo', timeout=5000)
         page.wait_for_timeout(400)
-        assert _quiet(page, "asks"), "released, it folds in focus mode like anything else"
+        assert _quiet(page, "asks"), "released, it dims in focus mode like anything else"
         assert not errors, errors
 
 

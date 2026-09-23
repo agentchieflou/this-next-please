@@ -9,7 +9,8 @@ The desk a window draws while its first `/api/fleet` is in flight is the snapsho
 its LAST fleet answer. That answer was older than the window's last click: taken while luna was
 open, it reopened luna on the reload, and the desk jumped to the agent actually left open only when
 the fleet answered (#230's snap-back, on the reload path). The test then waited on the first tile,
-which the column was hiding behind luna, until the stale desk had gone.
+which the column was hiding behind luna, until the stale desk had gone. (The column went with #233;
+luna is opened here from its rail, and the stale desk is the same.)
 
 The snapshot is now taken again as the window goes, with the agent it has open, and the stale desk
 opens that one. Its version is not believed, so the first real answer always wins.
@@ -53,7 +54,7 @@ def test_a_reload_draws_the_agent_that_was_open_not_the_one_the_last_answer_saw(
             page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=15000)
 
             # The fleet answers while luna is open, and then the operator goes back.
-            page.locator('#bands .band[data-repo="luna"] .band-open').click()
+            page.locator('.tile[data-repo="luna"] .pane-rail').click()
             page.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=8000)
             page.evaluate("() => refresh()")
             page.wait_for_function(f"() => {SOLO} === 'luna' && !pendingRefresh", timeout=8000)

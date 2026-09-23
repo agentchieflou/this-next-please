@@ -65,10 +65,19 @@
 </div>
 
 <div class="workspace">
-<!-- The glass: the open tiles, top to bottom. `.workspace` is a flex ROW, and the column of bands
-     is the glass's sibling in it. -->
+<!-- The glass. `.workspace` is a flex ROW, and the sidebar is the glass's sibling in it. -->
 <div class="glass">
+<!-- #233: the row. Every agent is a pane in it, at full height, in the arrangement's order: the
+     open ones share the width and every other one is a rail. A pane draws itself by how wide it
+     is -- rail, compact or full -- and `data-tier` says which. The column of bands this replaces
+     was a second component beside the tiles; there is one now. A repository that left the
+     registry is a rail at the end naming what restores it. -->
+<div class="panes">
 <main id="grid" aria-live="polite"></main>
+<ul id="gone" class="gone" aria-label="removed from the registry" hidden>
+  <li class="gone-rail" tabindex="0" hidden><span class="pr-glyph" aria-hidden="true">&#x2715;</span><span class="pr-name"></span></li>
+</ul>
+</div>
 
 <!-- #164, #183: the one dispatch card, moved into the tile's slot or under the agent rail. -->
 <div id="dispatch" class="dispatch" hidden>
@@ -85,55 +94,6 @@
     <span class="dispatch-note"></span>
   </div>
 </div>
-</div>
-
-<!-- #203: the column. One agent is open and fills the glass; every other checkout is a BAND here,
-     and the bands share the column's whole height so none of the page is empty. It is also where
-     a tile went: a project's checkouts are one band, a hidden one is counted at the foot, one that
-     left the registry is a band saying how to bring it back, and a tile needing a person is never
-     off the glass. The grid's dock answered the same question and retired with the grid (#232). -->
-<div id="column" class="column" hidden aria-label="the other agents">
-  <div class="column-head">
-    <span id="column-count" class="column-count"></span>
-    <button type="button" id="column-jump" class="column-jump" hidden></button>
-  </div>
-  <ul id="bands" class="bands">
-    <li class="band" hidden>
-      <button type="button" class="band-open">
-        <span class="b-head">
-          <span class="b-n"></span>
-          <span class="b-name"></span>
-          <span class="b-badge" hidden></span>
-        </span>
-        <span class="b-chip"></span>
-        <canvas class="b-trace trace" width="120" height="14" role="img" aria-label=""></canvas>
-        <span class="b-last"></span>
-        <!-- What it has been doing, filling whatever height the band has left. A band stretched to
-             share the page and then showing one line would be the negative space this arrangement
-             was asked to remove, moved inside the row. Drawn from the `recent` events the row
-             already carries, so it costs the page nothing. -->
-        <ol class="b-tail"></ol>
-      </button>
-      <!-- #205: the same three, in the same order, with the same keys, as the tile's. A control
-           that exists on the open agent and not on the others is the thing this slice was asked to
-           stop doing. -->
-      <div class="band-tools">
-        <button type="button" class="band-hide toolbtn" data-tool="hide" title="minimise — off the glass (h), keeping its place; the column's show all brings it back">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg><span class="sr">hide</span>
-        </button>
-        <button type="button" class="band-refresh toolbtn" data-tool="refresh" title="re-read it now (r) — spends no premium request">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v5h-5"></path></svg><span class="sr">refresh</span>
-        </button>
-        <button type="button" class="band-model toolbtn wordbtn" data-tool="model" title="which model this agent runs (m)">
-          <span class="bm-name"></span><span class="sr">model</span>
-        </button>
-      </div>
-    </li>
-  </ul>
-  <div class="column-foot">
-    <span id="column-hidden" class="column-hidden"></span>
-    <button type="button" id="column-showall" class="dock-showall" hidden>show all</button>
-  </div>
 </div>
 
 <aside id="side" hidden aria-label="sidebar">
@@ -230,17 +190,21 @@
 
 <footer>
   <span id="counts"></span>
+  <!-- #233: where a hidden agent went. It leaves the row, and this says how many have, in the
+       footer where the column's foot used to say it; one press brings every one of them back, each
+       to its own slot. An agent that needs a person is never counted here: it is on the glass. -->
+  <button type="button" id="hiddencount" class="hiddencount" hidden title="bring them back — each to the slot it had"></button>
   <span id="notice" class="notice enters" hidden></span>
   <span class="spacer"></span>
   <!-- #180: the key map behind `?`; `.keys` stays on the container for the skins' `footer .keys`. -->
   <button id="keysbtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="keymap" title="every key (?)"><kbd>?</kbd> keys</button>
   <div id="keymap" class="popover popover-up keys" role="dialog" aria-label="the keys" hidden>
-    <div class="keys-group"><strong>the column</strong>
-      <span><kbd>j</kbd> <kbd>k</kbd> along the bands</span>
-      <span><kbd>Enter</kbd> open that one</span>
+    <div class="keys-group"><strong>the row</strong>
+      <span><kbd>j</kbd> <kbd>k</kbd> along the panes</span>
+      <span><kbd>Enter</kbd> open the rail you are on</span>
       <span><kbd>Esc</kbd> back to the last one</span>
     </div>
-    <div class="keys-group"><strong>tiles</strong>
+    <div class="keys-group"><strong>panes</strong>
       <span><kbd>1</kbd>–<kbd>9</kbd> open</span>
       <span><kbd>f</kbd> only what needs you</span>
       <span><kbd>a</kbd> approve</span>
@@ -306,6 +270,18 @@
 
 <template id="tile">
   <section class="tile" tabindex="0">
+    <!-- #233: the pane at its narrowest. A rail is one button: the name set down its length, the
+         state's glyph in the state's colour (never the colour alone), the unread count, and the
+         whole of it red when the agent needs a person. What it cannot fit -- the age and the last
+         thing the agent said -- is its accessible name and its title. Pressing it swaps it with the
+         pane that was open; it is also the rail's drag handle, and `h`, `r` and `m` act on the rail
+         the keyboard is on. Every other part of the pane is off while it is a rail. -->
+    <button type="button" class="pane-rail" aria-label="">
+      <span class="pr-n"></span>
+      <span class="pr-glyph" aria-hidden="true"></span>
+      <span class="pr-name"></span>
+      <span class="pr-badge" hidden></span>
+    </button>
     <div class="head" title="drag to reorder — Alt+←/→ without a mouse; Alt+Shift+arrows to resize">
       <span class="grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span class="n"></span>
@@ -324,7 +300,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"></path><path d="M12 15v6"></path></svg>
         <span class="sr">pin</span>
       </button>
-      <button class="hidetoggle" type="button" data-tool="hide" title="minimise — off the glass (h), keeping its place; the column's show all brings it back">
+      <button class="hidetoggle" type="button" data-tool="hide" title="minimise — off the glass (h), keeping its place; the footer's hidden count brings it back">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg>
         <span class="sr">hide</span>
       </button>
