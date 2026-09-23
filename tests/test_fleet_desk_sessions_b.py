@@ -357,6 +357,13 @@ def test_window_reopens_with_same_zoomed_tile_after_restart(fleet_home, tmp_path
         page.locator('.tile[data-repo="beta"] .repo').click()
         page.wait_for_selector("body.focused", timeout=15000)
         page.wait_for_selector('.tile[data-repo="beta"].is-focused', timeout=15000)
+        # The page zooms before the server hears of it, and the zoom's write queues behind the
+        # window's `seen` (#230). What survives a restart is what the server holds, so that is
+        # what is waited for -- on a slow disk it is not the same moment as the pixels (#245).
+        deadline = time.monotonic() + 15
+        while S.desk_state()["windows"].get("main", {}).get("zoomed") != "beta":
+            assert time.monotonic() < deadline, "the zoom never reached the server"
+            time.sleep(0.05)
         b.close()
 
     s1.stopping.set()
