@@ -10,9 +10,14 @@ still held a zoom from the days the grid was the default -- so within one 0.4 s 
 the frame carrying `open: beta` also carried `zoomed: alpha`, and the page opened alpha again while
 the server said beta. Reproduced headless: alpha -> beta at 0.11 s -> alpha at 0.33 s.
 
+Since #232 the record has no `zoomed` to hold, so the stale zoom is seeded the way the laptop really
+had it: a schema-1 `desk.json` on disk, which the first load migrates. The click must still stay.
+
 Issue: https://github.com/agentchieflou/this-next-please/issues/230
 """
 from __future__ import annotations
+import json
+import os
 
 import pytest
 
@@ -28,9 +33,14 @@ SOLO = "document.querySelector('.tile.is-solo').dataset.repo"
 def test_a_click_on_another_agent_stays_where_it_was_put(fleet_home, tmp_path):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("column", order=["alpha", "beta", "gamma"])
     # What the laptop's desk.json held: alpha open, and a zoom on alpha left by the grid.
-    S.update_window("main", open="alpha", zoomed="alpha")
+    with open(os.path.join(fleet_home, "desk.json"), "w", encoding="utf-8", newline="\n") as f:
+        json.dump({"selected": "", "screens": [], "version": 7, "at": "",
+                   "arrangement": {"column": {"order": ["alpha", "beta", "gamma"], "size": {},
+                                              "pinned": [], "hidden": []},
+                                   "grid": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+                   "windows": {"main": {"layout": "column", "view": "", "screen": 0,
+                                        "focus": False, "zoomed": "alpha", "open": "alpha"}}}, f)
 
     server, token, port = _serve()
     try:

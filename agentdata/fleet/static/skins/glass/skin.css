@@ -52,7 +52,7 @@ body[data-skin="glass"] {
 }
 
 body[data-skin="glass"] header, body[data-skin="glass"] footer, body[data-skin="glass"] .tile,
-body[data-skin="glass"] #side, body[data-skin="glass"] .popover, body[data-skin="glass"] .dock {
+body[data-skin="glass"] #side, body[data-skin="glass"] .popover {
   background: var(--glass-fill);
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
@@ -92,7 +92,7 @@ body[data-skin="glass"] .chip.not-supervised { background: var(--muted); color: 
 @media (prefers-reduced-transparency: reduce) {
   body[data-skin="glass"] header, body[data-skin="glass"] footer, body[data-skin="glass"] .tile,
   body[data-skin="glass"] #side, body[data-skin="glass"] #side > aside,
-  body[data-skin="glass"] .popover, body[data-skin="glass"] .dock,
+  body[data-skin="glass"] .popover,
   body[data-skin="glass"] .approval, body[data-skin="glass"] .asks, body[data-skin="glass"] .dispatch,
   body[data-skin="glass"] .scope, body[data-skin="glass"] .outside, body[data-skin="glass"] .readonly {
     background: var(--panel) !important;
