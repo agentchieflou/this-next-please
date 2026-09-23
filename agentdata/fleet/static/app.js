@@ -655,6 +655,12 @@ function drawTrace(canvas, row) {
   var needs = tr.needs || [];
   attr(canvas, "aria-label", tr.says || "nothing in the last hour");
   attr(canvas, "title", tr.says || "nothing in the last hour");
+  /* The same hour as data, for a skin that plots it rather than painting this canvas (#253, the
+     graph paper): the peak, then a minute's count each, `!` on a minute that stopped for a person.
+     Written only when it changes, like every other attribute here. */
+  setData(canvas, "trace", (tr.peak || 1) + "|" + counts.map(function (n, i) {
+    return n + (needs[i] ? "!" : "");
+  }).join(" "));
 
   /* A canvas has two sizes: the box the page lays out and the grid of pixels it owns. On a 2x
      screen they are not the same number, and a canvas that ignores the difference draws a blurred
