@@ -9,6 +9,103 @@
 
 /* `PARAMS`, `TOKEN`, `q`, `post`, `text`, `applyTheme` and `applySkin` come from common.js, which
    every page loads before its own script. */
+
+/* ------------------------------------------------------------------ the records, typed (#236)
+
+   What the desk moves, written down once where a checker can read it. `tsc` reads these comments
+   against the code (`tsconfig.json`, docs/desk-types.md) and nothing compiles them, so the page is
+   still exactly this file. Typed where plan-panes §G asked: the one door and the window's writes
+   (#230), the row and its panes (#233), the widths and the gutters (#234). */
+
+/** The desk every window on this server agrees on: `desk_state()` in serve.py. It reaches the page
+ *  four ways -- the stream's `desk` frame, `/api/fleet`, `/api/desk` and a window write's own answer
+ *  -- and all four come in through `acceptDesk`. Optional throughout, because the page also holds
+ *  desks that are not the server's: the one it starts with, and the snapshot it draws while the
+ *  first answer loads (#219), whose version is taken off so that answer wins.
+ * @typedef {Object} DeskRecord
+ * @property {number} [schema]            2 since #232
+ * @property {string} [selected]          the project every window's inspector follows (#133)
+ * @property {number} [version]           only ever rises; anything lower is dropped at the door
+ * @property {string} [at]                when it last changed, UTC
+ * @property {Arrangement} [arrangement]  one for the whole desk (#232)
+ * @property {Object<string, WindowRecord>} [windows]  each window's own record, by its `?w=`
+ * @property {Object<string, number>} [measure]  `ad-fleet probe` asking a window to measure (#247)
+ */
+
+/** The one arrangement (#232): the same agents in the same order on every screen. `size` is #217's
+ *  footprint as an older build wrote it -- a bare number in an older file still -- read as the
+ *  starting widths of a window that has none of its own, and never written (#234).
+ * @typedef {Object} Arrangement
+ * @property {string[]} [order]
+ * @property {Object<string, {cols: number, rows: number} | number>} [size]
+ * @property {string[]} [pinned]
+ * @property {string[]} [hidden]
+ */
+
+/** One window's own record: `WINDOW_FIELDS` in serve.py (#172). `focus` and `held` are an older
+ *  page's -- the needs-only filter the *needs me* preset replaced (#234) -- which the server keeps
+ *  for it; this page neither reads nor writes them.
+ * @typedef {Object} WindowRecord
+ * @property {string} [open]              the one pane the keys and the composer address (#230)
+ * @property {boolean} [focus]
+ * @property {Object<string, number>} [read]  the last event read, by repository
+ * @property {string} [seen]              when this window last looked; the away strip reads it
+ * @property {string[]} [held]
+ * @property {string} [section]           the sidebar's open section (#148)
+ * @property {Widths} [widths]
+ * @property {number} [widths_at]         the desk version the widths were written at: a write of
+ *                                        widths heard before it is refused (`widths_stale`)
+ */
+
+/** A window's widths (#234): each pane's weight, by repository. 0 is a 48px rail, and a positive
+ *  number that pane's share of what the rails leave.
+ * @typedef {Object<string, number>} Widths
+ */
+
+/** What this page writes to its own record -- not the whole record. A field one arrangement wrote
+ *  and another read was the snap-back (plan-panes ground rule 2), so writing `zoomed`, or the
+ *  retired `focus`, is a type error here before it is a bug on the glass.
+ * @typedef {Object} WindowWrite
+ * @property {string} [open]
+ * @property {Widths} [widths]
+ * @property {Object<string, number>} [read]
+ * @property {string} [seen]
+ * @property {string} [section]
+ */
+
+/** A desk as it arrives: the record, and on an action's answer the envelope every POST carries,
+ *  which `acceptDesk` takes off. A refusal is the envelope alone, with the server's words (#163).
+ * @typedef {DeskRecord & {ok?: boolean, action?: string, error?: string, hint?: string,
+ *                         code?: string}} DeskAnswer
+ */
+
+/** One agent's row, as `/api/fleet` sends it. Typed in the fields the typed part reads -- `project` is
+ *  the project the checkout is one of (#175), `why` what it asks when it needs a person, `recent`
+ *  the last events of its run -- and open for the rest, which the rest of the page reads as it
+ *  always has. Open means a field this list does not name reads as `any`, not as an error: closing
+ *  it is the widening's to do, not this slice's.
+ * @typedef {{
+ *   repo?: string, project?: string, path?: string, state?: string, needs_human?: boolean,
+ *   why?: string, last_said?: string, last_event_age_s?: number,
+ *   spend?: {total?: number, [field: string]: any}, recent?: Array<{seq: number}>,
+ *   [field: string]: any
+ * }} Row
+ */
+
+/** Which of the three widths a pane is drawing (plan-panes §The pane). `setTier` alone writes it.
+ * @typedef {"rail" | "compact" | "full"} Tier
+ */
+
+/** A pane: one agent in the row, and its entry in `tiles` (#233). `el` is its `.tile`, made once by
+ *  `makeTile` and patched after (#215), carrying `data-repo` and `data-tier`; `seq` is the last event
+ *  drawn into its transcript, and `row` what it was last drawn from.
+ * @typedef {Object} Pane
+ * @property {HTMLElement} el
+ * @property {number} seq
+ * @property {Row} [row]
+ */
+
+/** @type {Map<string, Pane>} */
 var tiles = new Map();          // repo name -> {el, seq}
 var pendingRefresh = null;
 var source = null;
@@ -29,9 +126,12 @@ var W_NAME = PARAMS.get("w") || "main";
    string the page would otherwise take for a toast's (#234). */
 var BOOT_HASH = location.hash || "";
 
+/** Everything the last `/api/desk` said, and in `desk.desk` the record every window agrees on.
+ *  @type {{desk: DeskRecord, [answer: string]: any}} */
 var desk = { projects: {}, offers: {}, unsorted: [], not_offered: [], folders: [],
              desk: { selected: "" } };
 var pendingDesk = null;
+/** @type {Object<string, number>} */
 var readCursors = {};
 var streamDead = false;
 var awayShown = false;
@@ -47,6 +147,7 @@ var previousOpen = "";
    what the rails leave -- or null while the window has never been given any, when the open pane and
    the pins share the row as they did before the gutters. Per window, like `openTile`, because two
    monitors can hold different widths over the same agents in the same order. */
+/** @type {Widths | null} */
 var myWidths = null;
 /* Whether a drop opens the dispatch card (#164) or launches the way #98 did. The server's
    `fleet.preflight` decides; until the first `/api/fleet` answers, the card is the default,
@@ -65,9 +166,13 @@ var PREFLIGHT = true;
    `windowWrites` is above nought. Each answer is the desk as of its own write, and comes in through
    the one door like everything else. */
 var windowWrites = 0;
+/** @type {Promise<DeskAnswer | null | void>} */
 var windowChain = Promise.resolve();
 
+/** @param {WindowWrite} patch
+ *  @returns {Promise<DeskAnswer | null | void>} the server's answer, or null when the post failed */
 function saveWindow(patch) {
+  /** @type {WindowWrite & {w: string, version?: number}} */
   var body = Object.assign({ w: W_NAME }, patch);
   windowWrites += 1;
   windowChain = windowChain.then(function () {
@@ -99,6 +204,8 @@ function saveWindow(patch) {
    frame that carried it and roll the page back -- `version` from 5 to 3, and the agent the operator
    had just left open again. The version only ever rises, so an older payload is simply dropped;
    an equal one is the same desk. */
+/** @param {DeskAnswer} payload
+ *  @returns {boolean} whether it was taken */
 function acceptDesk(payload) {
   if (!payload || typeof payload !== "object") return false;
   var have = desk.desk ? desk.desk.version : undefined;
@@ -229,8 +336,10 @@ function appendTo(list, ev) {
   }
 }
 
+/** @param {Row} row  @param {number} index  @returns {HTMLElement} */
 function makeTile(row, index) {
-  var el = document.getElementById("tile").content.firstElementChild.cloneNode(true);
+  var el = /** @type {HTMLElement} */ (/** @type {HTMLTemplateElement} */ (
+    document.getElementById("tile")).content.firstElementChild.cloneNode(true));
   text(el.querySelector(".n"), index + 1);
   var repoEl = el.querySelector(".repo");
   text(repoEl, row.repo);
@@ -245,12 +354,12 @@ function makeTile(row, index) {
     } catch (e) {}
   });
 
-  el.querySelector(".repo").addEventListener("click", function () { focus(row.repo); });
-  el.addEventListener("dblclick", function () { focus(row.repo); });
+  el.querySelector(".repo").addEventListener("click", function () { openAgent(row.repo); });
+  el.addEventListener("dblclick", function () { openAgent(row.repo); });
   // Clicking anywhere on a tile *selects* the project for every window on this server (#133 layout
   // B), which is what makes the left monitor drive the centre one. Blowing a tile up is still the
   // repo name or a double click: one gesture per meaning.
-  el.addEventListener("click", function (e) {
+  el.addEventListener("click", function (/** @type {MouseEvent & {target: Element}} */ e) {
     // Clicking a tile selects the project for every window on this server -- which is what makes
     // the left monitor drive the centre one. Pressing Send, or clicking into the reply box, is not
     // that gesture: it re-pointed three other screens as a side effect of typing.
@@ -277,6 +386,7 @@ function makeTile(row, index) {
      kept because it is the one the operator already has -- and a drag moves it along the row, by
      the same binder the head uses. The face is one button, so it IS the handle (#217's rule), and
      the click a real drag ends in is swallowed there. */
+  /** @type {HTMLElement} */
   var face = el.querySelector(".pane-rail");
   /* #234: Shift opens it BESIDE the pane that has the keys, splitting that pane's width -- which is
      how two are open without a drag. `Shift+Enter` is the same press from the keyboard; it is taken
@@ -416,6 +526,7 @@ function makeTile(row, index) {
     });
   }
 
+  /** @type {HTMLElement} */
   var adoptBtn = el.querySelector(".adopt");
   if (adoptBtn) {
     adoptBtn.addEventListener("click", function (e) {
@@ -425,7 +536,9 @@ function makeTile(row, index) {
     });
   }
 
+  /** @type {HTMLInputElement} */
   var say = el.querySelector(".say");
+  /** @type {HTMLButtonElement} */
   var sendBtn = el.querySelector(".send");
   sendBtn.addEventListener("click", function () {
     // A console is typed into, not sent to: `send` would be a second agent in one working tree.
@@ -448,7 +561,7 @@ function makeTile(row, index) {
       });
   });
   say.addEventListener("keydown", function (e) {
-    if (e.key === "Enter") el.querySelector(".send").click();
+    if (e.key === "Enter") /** @type {HTMLElement} */ (el.querySelector(".send")).click();
   });
   el.querySelector(".start").addEventListener("click", function () {
     action(el, "start", { repo: row.repo, ticket: say.value.trim() || null });
@@ -462,6 +575,7 @@ function makeTile(row, index) {
      and refuses past it -- correctly, since an agent that has died twice the same way will die a
      third time -- so the refusal is shown and the button becomes the second, deliberate press that
      spends the extra turn. Two clicks, never a silent `force`. */
+  /** @type {HTMLButtonElement} */
   var resetBtn = el.querySelector(".reset");
   resetBtn.addEventListener("click", function () {
     var forcing = resetBtn.dataset.force === "1";
@@ -478,10 +592,11 @@ function makeTile(row, index) {
     });
   });
   el.querySelector(".approve").addEventListener("click", function () {
-    action(el, "approve", { id: el.dataset.approval, reason: el.querySelector(".reason").value });
+    action(el, "approve", { id: el.dataset.approval,
+                            reason: /** @type {HTMLInputElement} */ (el.querySelector(".reason")).value });
   });
   el.querySelector(".deny").addEventListener("click", function () {
-    var reason = el.querySelector(".reason").value.trim();
+    var reason = /** @type {HTMLInputElement} */ (el.querySelector(".reason")).value.trim();
     if (!reason) { return fail(el, "a denial needs a reason: the agent quotes it and then stops"); }
     action(el, "deny", { id: el.dataset.approval, reason: reason });
   });
@@ -732,7 +847,7 @@ function groundStill() {
 }
 
 function drawGround() {
-  var canvas = document.getElementById("ground");
+  var canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("ground"));
   if (!canvas || !canvas.getContext) return;
   var mesh = groundMesh || groundColours();
   if (!mesh) {
@@ -778,8 +893,8 @@ function drawGround() {
    and a gradient that ends at a different hue has a visible ring in it. */
 function transparent(colour) {
   var nums = String(colour).replace(/^rgba?\(|\)$/g, "").split(",");
-  return "rgba(" + (nums[0] || 0).trim() + ", " + (nums[1] || 0).trim() + ", " +
-         (nums[2] || 0).trim() + ", 0)";
+  return "rgba(" + (nums[0] || "0").trim() + ", " + (nums[1] || "0").trim() + ", " +
+         (nums[2] || "0").trim() + ", 0)";
 }
 
 function startGround() {
@@ -795,6 +910,7 @@ function startGround() {
      armed the next, and wrote `data-waiting` every 150ms for the life of the page -- an idle desk
      that was never idle, found by the legal pad's idle test (#251). */
   if (!groundMesh && (document.body.dataset.skin || "") === "glass") {
+    /** @type {HTMLLinkElement} */
     var link = document.head.querySelector("link[data-skin]");
     if (link && !link.dataset.waiting) {
       link.dataset.waiting = "1";
@@ -863,6 +979,7 @@ function shownState(row) {
    first report -- before anything is painted -- writes its real tier and draws it again at that
    width. A pane that is never laid out (hidden from the start) is never reported, and draws the
    rest of itself the frame it is shown. */
+/** @param {HTMLElement} el  @returns {{wide: boolean, full: boolean}} */
 function paneShows(el) {
   var tier = el.dataset.tier || "rail";
   return { wide: tier !== "rail", full: tier === "full" };
@@ -1081,7 +1198,7 @@ function drawSessionPill(el, row) {
     var button = li.querySelector(".sib-open");
     text(button, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
     attr(button, "title", "the same project, checked out at " + (sib.path || sib.repo));
-    button.addEventListener("click", function () { closeMenu(el); focus(sib.repo); });
+    button.addEventListener("click", function () { closeMenu(el); openAgent(sib.repo); });
     sibList.appendChild(li);
   });
 }
@@ -1324,7 +1441,7 @@ function checkAway(prevSeen) {
       li.appendChild(descSpan);
       li.appendChild(whenSpan);
       li.addEventListener("click", function () {
-        if (tiles.has(item.repo)) focus(item.repo);
+        if (tiles.has(item.repo)) openAgent(item.repo);
       });
       list.appendChild(li);
     });
@@ -1340,6 +1457,7 @@ if (dismissBtn) {
   });
 }
 
+/** @param {WindowRecord} win */
 function applyWindow(win) {
   if (!win) return;
   if (!appliedInitialWindow) {
@@ -1381,6 +1499,7 @@ var probing = false;
 var probeWaiting = 0;
 
 function unsentText() {
+  /** @type {NodeListOf<HTMLInputElement | HTMLTextAreaElement>} */
   var boxes = document.querySelectorAll(".say, .brief");
   for (var i = 0; i < boxes.length; i++) {
     if (String(boxes[i].value || "").trim()) return true;
@@ -1433,6 +1552,7 @@ function redrawAll() {
 /* One row onto its tile, making the tile if this is the first sight of it. Both an action's
    answer (#219) and a whole snapshot come through here, so a tile cannot be drawn one way by one
    path and another way by the other. */
+/** @param {Row} row  @param {number} [index]  @returns {Pane | null} */
 function patchRow(row, index) {
   if (!row || !row.repo) return null;
   var entry = tiles.get(row.repo);
@@ -1477,6 +1597,7 @@ var lastFleet = null;
    The fleet's own answer is older than both the moment a click lands, and a snapshot kept from it
    reopened -- on the next load -- whichever agent was open when it was taken, then jumped to the
    right one when the fleet answered (#230). */
+/** @param {DeskRecord | null} fallback  @returns {DeskRecord | null} */
 function deskAsShown(fallback) {
   var d = desk.desk || fallback;
   if (!d) return null;
@@ -1680,12 +1801,15 @@ function connect() {
 
    `focus()` zoomed one tile and `focusMode()` filtered for the ones that need a person: two modes
    named alike, side by side. They are `openAgent` and the *needs me* preset now (#234) -- a press
-   that widens whoever needs you, not a mode -- with the old name kept as an alias because the page
-   globals the regression tests call keep their names.
+   that widens whoever needs you, not a mode.
 
    Not literally `open`: a bare `function open()` in a non-module script replaces `window.open` for
    the whole page, and a name that shadows a platform function to read slightly better is a trade
-   this page does not need to make. */
+   this page does not need to make. Nor `focus`, the old name, which stayed as an alias until the
+   type check read it (#236: `Duplicate identifier 'focus'`). `var focus` in a non-module script IS
+   `window.focus`, so a `window.focus()` from anything on the page opened nobody, shut the drawer and
+   wrote this window's record twice. Nothing called the alias -- the shells open an agent with
+   `#tile=`, and no test named it but to say it was there -- so it went. */
 function openAgent(name, skipPost) {
   unread.delete(name);                       // looking at it is what "read" means
   var entry = tiles.get(name);
@@ -1701,9 +1825,6 @@ function openAgent(name, skipPost) {
   openPane(name, skipPost);
   if (!skipPost) saveWindow({ read: readCursors });
 }
-
-/* The name the rest of this file, the IDE shells and the regression tests already use. */
-var focus = openAgent;
 
 /* A toast launches `…/?t=…#tile=luna`, so the click lands on the agent that needs the operator
    rather than on "one of these four". Also fired on hashchange, because the window may already be
@@ -1727,7 +1848,7 @@ function followHash() {
   // Focus mode is left alone. It used to be turned off when it was what kept the agent off the
   // glass; since #233 it never keeps anything off the glass -- a quiet rail is dimmed, and an open
   // pane is never quiet -- so turning it off would only throw away the pass the operator was in.
-  focus(name);
+  openAgent(name);
 }
 
 window.addEventListener("hashchange", followHash);
@@ -1741,7 +1862,7 @@ document.addEventListener("keydown", function (e) {
     if (closePopovers()) { e.stopImmediatePropagation(); return; }
     var card = document.getElementById("dispatch");
     if (card && !card.hidden) { closeDispatch(); e.stopImmediatePropagation(); return; }
-    if (typing) document.activeElement.blur();
+    if (typing) /** @type {HTMLElement} */ (document.activeElement).blur();
     // There is no zoom to leave, so `Esc` is "show me the last one again" -- which is the other
     // half of the glance the swap is for.
     else backToPrevious();
@@ -1757,6 +1878,7 @@ document.addEventListener("keydown", function (e) {
     // From 2: `1` is the *one* preset since the gutters (#234), the plan's key for it. The first
     // pane is `j` from nowhere, or `1` with the keyboard on it, which makes it the one wide pane.
     var pane = paneStops()[Number(e.key) - 1];
+    /** @type {HTMLElement} */
     var tile = pane && pane.closest ? pane.closest(".tile") : null;
     if (tile && tile.dataset.repo) openPane(railTarget(tile.dataset.repo), false, true);
     return;
@@ -1778,6 +1900,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "r" || e.key === "m") {
     // The pane the keyboard is on, rail or wide -- the same two keys on either, because a rail has
     // no head to carry the buttons and the keys are how it keeps them (#205, #233).
+    /** @type {HTMLElement} */
     var host = document.activeElement && document.activeElement.closest
       ? document.activeElement.closest(".tile") : null;
     var name = host ? host.dataset.repo : openName();
@@ -1790,6 +1913,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "h") {
     // Hide the tile the operator is on. Every drag gesture has a keyboard equivalent, and so does
     // this one -- a desk that can only be arranged with a mouse cannot be arranged by someone typing.
+    /** @type {HTMLElement} */
     var onTile = document.activeElement && document.activeElement.closest && document.activeElement.closest(".tile");
     if (onTile && onTile.dataset.repo) { setHidden(onTile.dataset.repo, true); return; }
   }
@@ -1800,8 +1924,9 @@ document.addEventListener("keydown", function (e) {
     // so in the column it approved nothing at all.
     var open = openName();
     var entry = open ? tiles.get(open) : null;
-    if (entry && entry.el.dataset.approval && !entry.el.querySelector(".approval").hidden) {
-      entry.el.querySelector(".approve").click();
+    if (entry && entry.el.dataset.approval &&
+        !/** @type {HTMLElement} */ (entry.el.querySelector(".approval")).hidden) {
+      /** @type {HTMLElement} */ (entry.el.querySelector(".approve")).click();
     }
   }
 });
@@ -1816,7 +1941,7 @@ document.addEventListener("keydown", function (e) {
 /* The token is per run and `_authorized` reads it from the query string alone, so the settings
    link cannot be a static href in the markup -- it would 403 and read as a dead button, which is
    exactly what the operator reported. */
-var setLink = document.getElementById("setbtn");
+var setLink = /** @type {HTMLAnchorElement} */ (document.getElementById("setbtn"));
 if (setLink) setLink.href = q("/settings");
 
 refresh().then(function () {
@@ -1848,7 +1973,7 @@ setInterval(loadDesk, 15000);
 function chime() {
   if (!chimeOn) return;
   try {
-    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var ctx = new (window.AudioContext || /** @type {any} */ (window).webkitAudioContext)();
     var osc = ctx.createOscillator();
     var gain = ctx.createGain();
     osc.type = "sine";
@@ -1901,7 +2026,7 @@ function noteRow(item) {
   li.appendChild(t);
   li.appendChild(b);
   li.appendChild(when);
-  li.addEventListener("click", function () { if (tiles.has(item.repo)) focus(item.repo); });
+  li.addEventListener("click", function () { if (tiles.has(item.repo)) openAgent(item.repo); });
   return li;
 }
 
@@ -1952,7 +2077,7 @@ function syncSide() {
   });
   hide(document.getElementById("side"), open.length === 0);
   attr(document.getElementById("sidetoggle"), "aria-pressed", String(open.length > 0));
-  document.querySelectorAll(".side-tabs .segment").forEach(function (b) {
+  document.querySelectorAll(".side-tabs .segment").forEach(function (/** @type {HTMLElement} */ b) {
     var on = open.indexOf(b.dataset.section) >= 0;
     toggle(b, "active", on);
     attr(b, "aria-selected", String(on));
@@ -2154,12 +2279,13 @@ function filesFromDrop(dt) {
 
   var out = [];
   var walk = function (dir) {
-    return new Promise(function (done) {
+    return new Promise(function (/** @type {(value?: any) => void} */ done) {
       dir.createReader().readEntries(function (children) {
         Promise.all(children.map(function (child) {
           if (out.length >= SCOPE_MAX_FILES) return Promise.resolve();
           if (child.isDirectory) return walk(child);
-          return new Promise(function (got) { child.file(function (f) { out.push(f); got(); }, got); });
+          return /** @type {Promise<void>} */ (
+            new Promise(function (got) { child.file(function (f) { out.push(f); got(); }, got); }));
         })).then(done);
       }, function () { done(); });
     });
@@ -2274,6 +2400,7 @@ function dispatchHome(repo) {
 function dispatchCard(key, repo) {
   var card = document.getElementById("dispatch");
   var rows = card.querySelector(".dispatch-rows");
+  /** @type {HTMLTextAreaElement} */
   var brief = card.querySelector(".brief");
   var home = dispatchHome(repo);
   if (card.parentNode !== home) home.appendChild(card);       // moved, never copied
@@ -2346,7 +2473,7 @@ function dispatch(key, repo, brief) {
   var body = { repo: repo, ticket: key };
   if (brief) body.brief = brief;
   return action(el, "start", body).then(function (r) {
-    if (r && r.ok) { boardPanel(false); closeDispatch(); said(repo, ""); focus(repo); }
+    if (r && r.ok) { boardPanel(false); closeDispatch(); said(repo, ""); openAgent(repo); }
     else if (r && !r.ok && (r.code === "cross_project" || /jira_project/.test(r.error || ""))) {
       // The one refusal worth offering an override for in the page: the operator can see both
       // projects on screen and is better placed than the guard to say it is deliberate.
@@ -2372,10 +2499,14 @@ function dispatch(key, repo, brief) {
   if (!card) return;
   card.querySelector(".dispatch-close").addEventListener("click", function () { closeDispatch(); });
   card.querySelector(".dispatch-go").addEventListener("click", function () {
-    dispatch(card.dataset.key || "", card.dataset.repo || "", card.querySelector(".brief").value.trim());
+    dispatch(card.dataset.key || "", card.dataset.repo || "",
+             /** @type {HTMLTextAreaElement} */ (card.querySelector(".brief")).value.trim());
   });
-  card.querySelector(".brief").addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { card.querySelector(".dispatch-go").click(); e.preventDefault(); }
+  card.querySelector(".brief").addEventListener("keydown", function (/** @type {KeyboardEvent} */ e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      /** @type {HTMLElement} */ (card.querySelector(".dispatch-go")).click();
+      e.preventDefault();
+    }
     else if (e.key === "Escape") { closeDispatch(); e.stopPropagation(); }
   });
 })();
@@ -2393,13 +2524,14 @@ function drawRail() {
 
   patchList(list, names, function (name) { return name; },
     function (name) {
-      var li = pattern.cloneNode(true);
+      var li = /** @type {HTMLElement} */ (pattern.cloneNode(true));
       hide(li, false);
       setData(li, "repo", name);
+      /** @type {HTMLElement} */
       var button = li.querySelector(".rail-open");
       attr(button, "aria-label", name);
       attr(button, "title", "drop a ticket here to start it on " + name);
-      button.addEventListener("click", function () { focus(name); });
+      button.addEventListener("click", function () { openAgent(name); });
       button.addEventListener("dragover", function (e) {
         if (!ticketInFlight(e)) return;
         e.preventDefault();
@@ -2450,13 +2582,16 @@ function railLight(row) {
   });
 }
 
-document.getElementById("tickets").addEventListener("keydown", function (e) {
+document.getElementById("tickets").addEventListener("keydown", function (
+    /** @type {KeyboardEvent & {target: Element}} */ e) {
+  /** @type {HTMLElement} */
   var li = e.target.closest && e.target.closest("li[data-key]");
   if (!li) return;
   var row = board.filter(function (r) { return r.key === li.dataset.key; })[0];
   if (!row) return;
   // Stops here: the page's own `1`-`9` zooms a tile, closing the board under the card.
   if (/^[1-9]$/.test(e.key)) {
+    /** @type {NodeListOf<HTMLElement>} */
     var chips = document.querySelectorAll("#agentrail .rail-chip:not([hidden])");
     var chip = chips[Number(e.key) - 1];
     if (chip) { takeTicket(row.key, chip.dataset.repo); e.preventDefault(); e.stopPropagation(); }
@@ -2469,10 +2604,12 @@ document.getElementById("tickets").addEventListener("keydown", function (e) {
 
 function drawBoard(rows) {
   var list = document.getElementById("tickets");
-  var needle = (document.getElementById("boardsearch").value || "").toLowerCase();
+  var needle = (/** @type {HTMLInputElement} */ (document.getElementById("boardsearch")).value || "")
+    .toLowerCase();
   // A redraw keeps the keyboard on its row (#183).
   var had = document.activeElement && list.contains(document.activeElement) ?
-            (document.activeElement.closest("li[data-key]") || {}).dataset : null;
+            /** @type {{dataset?: DOMStringMap}} */ (document.activeElement.closest("li[data-key]") || {})
+              .dataset : null;
   while (list.firstChild) list.removeChild(list.firstChild);
   var shown = rows.filter(function (r) {
     return !needle || (r.key + " " + r.summary + " " + r.status).toLowerCase().indexOf(needle) >= 0;
@@ -2480,6 +2617,7 @@ function drawBoard(rows) {
   shown.forEach(function (r) { list.appendChild(ticketRow(r)); });
   hide(document.getElementById("noboard"), shown.length > 0);
   if (had && had.key) {
+    /** @type {HTMLElement} */
     var back = list.querySelector('li[data-key="' + had.key + '"]');
     if (back) back.focus();
   }
@@ -2523,7 +2661,7 @@ function loadHistory() {
 
 function boardPanel(open) { return section("board", open); }
 
-document.querySelectorAll(".side-tabs .segment").forEach(function (b) {
+document.querySelectorAll(".side-tabs .segment").forEach(function (/** @type {HTMLElement} */ b) {
   b.addEventListener("click", function () { section(b.dataset.section); });
 });
 document.getElementById("sidetoggle").addEventListener("click", function () {
@@ -2542,6 +2680,7 @@ document.getElementById("boardsearch").addEventListener("input", function () { d
    All of it comes from one `/api/desk` on a slow clock rather than a fetch per tile: four screens
    of tiles is four screens of requests otherwise, and none of this is urgent. */
 
+/** @param {string[]} order */
 function registryChanged(order) {
   if (!Array.isArray(order)) return false;
   if (order.length !== tiles.size) return true;
@@ -2944,7 +3083,7 @@ var findSoon = (function () {
   return function () {
     clearTimeout(timer);
     timer = setTimeout(function () {
-      var needle = document.getElementById("find").value.trim();
+      var needle = /** @type {HTMLInputElement} */ (document.getElementById("find")).value.trim();
       if (!needle) return foundPanel(false);
       foundPanel(true);
       fetch(q("/api/where", { q: needle, limit: 20 })).then(function (r) { return r.json(); })
@@ -2974,6 +3113,7 @@ document.getElementById("closefound").addEventListener("click", function () { fo
    comparison and the losing answer is simply dropped -- the winning one already describes the
    same arrangement. `selected` has no version of its own and is set locally, so it is merged
    either way. */
+/** @param {DeskAnswer} answer */
 function mergeDesk(answer) {
   if (!answer) return;
   var next = Object.assign({}, desk.desk);
@@ -2987,6 +3127,7 @@ function mergeDesk(answer) {
   desk.desk = next;
 }
 
+/** @param {string} name  @returns {Promise<void>} */
 function choose(name) {
   if (desk.desk.selected === name) {
     drawInspector(name);
@@ -3145,6 +3286,7 @@ document.getElementById("closeinspector").addEventListener("click", function () 
    #219 claims the page no longer does, and on a fast machine the desk has loaded before anyone
    can click, so it only showed up on the slowest runner in CI. The record is created on the desk
    instead; `mergeDesk` replaces it with the server's the moment one arrives. */
+/** @returns {Arrangement} */
 function getArrangement() {
   if (!desk.desk) desk.desk = {};
   if (!desk.desk.arrangement) {
@@ -3153,6 +3295,7 @@ function getArrangement() {
   return desk.desk.arrangement;
 }
 
+/** @returns {string[]} */
 function getEffectiveOrder() {
   var curArr = getArrangement();
   var pinned = curArr.pinned || [];
@@ -3171,12 +3314,14 @@ function getEffectiveOrder() {
    A hidden tile keeps its slot in `order`, so reopening puts it back where it was. The one rule
    that overrides the operator's own choice is the fold's: a tile that needs somebody is on the
    glass whatever the arrangement says, because hiding a demand is how a demand gets missed. */
+/** @param {string} name */
 function isHidden(name) {
   var entry = tiles.get(name);
   if (entry && entry.el.classList.contains("needs-human")) return false;
   return ((getArrangement().hidden) || []).indexOf(name) >= 0;
 }
 
+/** @returns {string[]} */
 function visibleOrder() {
   return getEffectiveOrder().filter(function (n) { return !isHidden(n); });
 }
@@ -3196,8 +3341,14 @@ function visibleOrder() {
    next frame. While any is in flight the page's own arrangement is the one it keeps: an answer
    or a frame from before the last press describes a desk the operator has already left. */
 var arrangeWrites = 0;
+/** @type {Promise<DeskAnswer | void>} */
 var arrangeChain = Promise.resolve();
 
+/** @param {Arrangement} patch  what to post
+ *  @param {() => (() => void) | void} apply  writes it into the page's arrangement, and answers
+ *                                          with what puts the old one back
+ *  @param {string} [what]  the gesture's name, for its timing mark (#219)
+ *  @returns {Promise<DeskAnswer | void>} */
 function arrangeNow(patch, apply, what) {
   var mark = gesture("arrange:" + (what || "change"));
   var undo = apply();
@@ -3229,6 +3380,7 @@ function arrangeNow(patch, apply, what) {
   return arrangeChain;
 }
 
+/** @param {string} name  @param {boolean} hide */
 function setHidden(name, hide) {
   var curArr = getArrangement();
   var was = (curArr.hidden || []).slice();
@@ -3261,7 +3413,7 @@ function reorderDomTiles() {
 
   var inDom = Array.prototype.map.call(grid.children, function (el) { return el.dataset.repo; });
   var needsMove = inDom.join("\u0000") !== order.filter(function (n) { return tiles.has(n); }).join("\u0000");
-  var active = document.activeElement;
+  var active = /** @type {HTMLElement} */ (document.activeElement);
   var refocus = needsMove && active && active.closest && active.closest(".tile") ? active : null;
 
   // FLIP, first half: where every tile is *now*, before the DOM moves. A tile that reorders by
@@ -3760,10 +3912,10 @@ function openModelCard(repo, anchor) {
   text(document.getElementById("mc-actual"), row.actual || "no turn has run yet");
   text(document.getElementById("mc-actual-why"),
        row.actual && row.model && row.actual !== row.model ? "the tenant pinned it" : "");
-  document.getElementById("mc-model").value = row.model || "";
-  document.getElementById("mc-effort").value = row.effort || "";
+  /** @type {HTMLInputElement} */ (document.getElementById("mc-model")).value = row.model || "";
+  /** @type {HTMLInputElement} */ (document.getElementById("mc-effort")).value = row.effort || "";
   text(document.getElementById("mc-note"), "takes effect on the agent's next turn");
-  var all = document.getElementById("mc-all");
+  var all = /** @type {HTMLAnchorElement} */ (document.getElementById("mc-all"));
   all.href = q("/settings") + "#model-" + encodeURIComponent(repo);
 
   loadModelChoices().then(function (choices) {
@@ -3806,8 +3958,10 @@ function saveModel() {
   var repo = card.dataset.repo || "";
   if (!repo) return;
   var body = { models: [{ repo: repo,
-                          model: document.getElementById("mc-model").value.trim(),
-                          effort: document.getElementById("mc-effort").value.trim() }] };
+                          model: /** @type {HTMLInputElement} */ (
+                            document.getElementById("mc-model")).value.trim(),
+                          effort: /** @type {HTMLInputElement} */ (
+                            document.getElementById("mc-effort")).value.trim() }] };
   post("settings", body).then(function (r) {
     if (r && r.ok) {
       text(document.getElementById("mc-note"), "saved — it reaches the agent on its next turn");
@@ -3841,6 +3995,7 @@ function bindTools(root, repo) {
    a fresh window opens on whatever the desk is already looking at; then the first pane. A hidden or
    departed name never wins -- an arrangement that opened onto nothing would be the blank window
    this layout exists to stop. */
+/** @returns {string} */
 function openName() {
   if (openTile && tiles.has(openTile) && !isHidden(openTile)) return openTile;
   var shown = visibleOrder();
@@ -3861,6 +4016,7 @@ function openName() {
 /* The address says which agent is open, so a reload opens that one (#230). The column's own
    gestures never wrote it, and `followHash` on reload re-opened whichever agent the fragment still
    named -- the one before the click -- and saved it over the server's record too. */
+/** @param {string} name */
 function markTile(name) {
   if (name && location.hash !== "#tile=" + name) history.replaceState(null, "", "#tile=" + name);
 }
@@ -3878,6 +4034,9 @@ function markTile(name) {
    `#tile=` a reload answers, a toast for the agent already open -- changes no width, or a reload
    would widen the open pane a drag had made a rail. `pressed` is a hand on its rail (a press, its
    number, `Enter`), which does ask for it wide. */
+/** @param {string} name
+ *  @param {boolean} [skipPost]  the record already says so: draw it, write nothing
+ *  @param {boolean} [pressed]   a hand on its rail, which does ask for it wide */
 function openPane(name, skipPost, pressed) {
   if (!name || !tiles.has(name)) return;
   var was = openName();
@@ -3897,6 +4056,7 @@ function openPane(name, skipPost, pressed) {
   if (!skipPost) saveWidths(next ? { open: name, widths: next } : { open: name });
 }
 
+/** @returns {boolean} */
 function backToPrevious() {
   if (!previousOpen || !tiles.has(previousOpen)) return false;
   var going = previousOpen;
@@ -3918,8 +4078,19 @@ function backToPrevious() {
    scales the wide panes and leaves the rails alone. Every change of widths is one write, through
    `widthsNow`; what the row looks like is `paintWidths`', and nothing else writes a pane's width. */
 
+/** How wide each pane on the glass is, in CSS pixels, by repository: what a gesture measures, and
+ *  what `widthsFromPixels` turns back into weights.
+ * @typedef {Object<string, number>} Pixels
+ */
+
+/** What a change of widths leaves behind to put back: the widths the window had -- null, none of
+ *  its own -- and the pane that had the keys.
+ * @typedef {{widths: Widths | null, open: string}} WidthsBefore
+ */
+
 /* Read out of a record leniently -- anything that is not a number of nought or more is not a width
    -- and an empty record is none at all: the window draws as it did before it was given any. */
+/** @param {*} value  @returns {Widths | null} */
 function ownWidths(value) {
   if (!value || typeof value !== "object") return null;
   var out = {};
@@ -3933,6 +4104,7 @@ function ownWidths(value) {
 
 /* The share a pane had before the gutters: `size.cols` as an older build wrote it, which the plan's
    migration makes the weight of a pane that was wider than one column. Read, never written. */
+/** @param {string} name  @returns {number} */
 function legacyShare(name) {
   var v = (getArrangement().size || {})[name];
   var cols = v && typeof v === "object" ? v.cols : v;
@@ -3943,6 +4115,7 @@ function legacyShare(name) {
    without, the open pane and every pin at the share they had, and every other pane a rail -- the
    row as it was before the gutters. Never all rails: a row of 48px strips with nothing open is the
    blank window this desk exists to stop, so if nothing has a share the open pane is given one. */
+/** @returns {Widths} */
 function paneWeights() {
   var shown = visibleOrder();
   var out = {};
@@ -3959,6 +4132,7 @@ function paneWeights() {
   return out;
 }
 
+/** @param {Widths} weights  @returns {string[]} */
 function wideNames(weights) {
   return visibleOrder().filter(function (name) { return (weights[name] || 0) > 0; });
 }
@@ -3966,6 +4140,7 @@ function wideNames(weights) {
 /* Shares scaled so that they average one, to four places. A weight means something only beside
    its neighbours', and `flex-grow` under a sum of one leaves part of the row empty; the same
    arithmetic on the page and in what it writes is what lets a pass with nothing new touch nothing. */
+/** @param {Widths} weights  @param {string[]} names  @returns {Widths} */
 function evenShares(weights, names) {
   var sum = 0;
   var n = 0;
@@ -3985,6 +4160,7 @@ function evenShares(weights, names) {
 /* The one writer of a pane's width: `is-solo` (it has one) and `--w` (its share), which is all the
    stylesheet reads. Written from the record on every pass and from nothing else -- except the hand,
    while a gutter is held, which this is not called during (`place` waits). */
+/** @param {Widths} weights */
 function paintWidths(weights) {
   var wide = wideNames(weights).filter(function (name) { return !groupedAway(name); });
   var shares = evenShares(weights, wide);
@@ -3997,6 +4173,7 @@ function paintWidths(weights) {
 
 /* What the window keeps after a gesture: the panes it changed as it left them, and every other as
    it was -- a hidden pane shown again comes back at its own width. */
+/** @param {Widths} changes  @returns {Widths} */
 function widthsWith(changes) {
   var out = Object.assign({}, myWidths || paneWeights());
   Object.keys(changes).forEach(function (name) { out[name] = changes[name]; });
@@ -4007,6 +4184,7 @@ function widthsWith(changes) {
    `flex-grow` does not share out: a wide pane is its edges plus its share of what is left, so a
    weight read off a width has them taken away first. Read off a wide pane, because a rail has no
    padding; the same for every wide pane, since one rule draws them all. */
+/** @returns {number} */
 function paneEdge() {
   var wide = document.querySelector('#grid .tile.is-solo:not([data-tier="rail"])');
   if (!wide) return 24;                      // the stylesheet's own 8px 10px and 3px + 1px
@@ -4016,12 +4194,14 @@ function paneEdge() {
 }
 
 /* The weight that draws a pane this many pixels wide, beside others drawn the same way. */
+/** @param {number} px  @param {number} edge  @returns {number} */
 function weightOf(px, edge) {
   return Math.max(1, px - edge);
 }
 
 /* The same, from the pixel width of every pane on the glass: a wide pane's weight is its width less
    its edges, so the ones a gesture did not touch keep their width to the pixel. */
+/** @param {Pixels} px  @returns {Widths} */
 function widthsFromPixels(px) {
   var edge = paneEdge();
   var changes = {};
@@ -4032,6 +4212,7 @@ function widthsFromPixels(px) {
 }
 
 /* How wide every pane on the glass is now, by name. */
+/** @returns {Pixels} */
 function measurePanes() {
   var out = {};
   Array.prototype.forEach.call(
@@ -4043,6 +4224,7 @@ function measurePanes() {
 /* The swap in widths: the pane pressed takes the width of the one that had the keys, which becomes
    a rail. A pane already wide keeps its width; one pressed while the pane that had the keys is a
    rail itself takes an even share of the row. Nothing, in a window with no widths of its own. */
+/** @param {string} was  @param {string} name  @returns {Widths | null} */
 function swappedWidths(was, name) {
   if (!myWidths) return null;
   var weights = paneWeights();
@@ -4063,6 +4245,8 @@ function swappedWidths(was, name) {
 /* Save a window write that may carry widths, and when the server says another page under this
    window's name moved them first, put this page's gesture back and read the desk again -- so the
    next gesture starts from the widths that are really there. */
+/** @param {WindowWrite} patch  @param {WidthsBefore} [before]
+ *  @returns {Promise<DeskAnswer | null | void>} */
 function saveWidths(patch, before) {
   return saveWindow(patch).then(function (r) {
     if (r && r.ok === false && patch.widths !== undefined) {
@@ -4085,10 +4269,17 @@ function saveWidths(patch, before) {
    changes and go through the one door for those (#216), and nothing for the hand's own gestures,
    whose preview was the real layout already. */
 var UNDO_FOR_MS = 12000;
+/** @type {(WidthsBefore & {what: string, until: number}) | null} */
 var undoOffer = null;
 var undoTimer = 0;
+/** @type {HTMLElement | null} */
 var keyHome = null;                 // the pane the keyboard was on when the widths last changed
 
+/** @param {Widths | null} next  null: none of its own, as before the gutters
+ *  @param {string} what  the gesture, which the undo names
+ *  @param {string} [open]  the pane the keys go to, in the same write
+ *  @param {string} [how]  "layout" for a change that goes through the one door for those (#216)
+ *  @returns {Promise<DeskAnswer | null | void>} */
 function widthsNow(next, what, open, how) {
   var mark = gesture("widths:" + what);
   var before = { widths: myWidths ? Object.assign({}, myWidths) : null, open: openTile };
@@ -4114,6 +4305,7 @@ function widthsNow(next, what, open, how) {
 var UNDO_WORDS = { drag: "the resize", step: "the resize", even: "the even split",
                    beside: "open beside", one: "one", all: "all", needs: "needs me" };
 
+/** @param {WidthsBefore} before  @param {string} what */
 function offerUndo(before, what) {
   undoOffer = { widths: before.widths, open: before.open, what: what,
                 until: Date.now() + UNDO_FOR_MS };
@@ -4129,6 +4321,7 @@ function dropUndo() {
 
 /* The footer's one button for it (`u`): the widths, and the open pane if the gesture moved it, as
    they were before the last change -- one more write, through the same door. */
+/** @returns {boolean} */
 function undoWidths() {
   if (!undoOffer || Date.now() > undoOffer.until) return false;
   var back = undoOffer;
@@ -4150,17 +4343,21 @@ function drawUndo() {
    window's widths, and the footer's undo puts it back. Presses, not modes: nothing here holds a
    pane wide or narrow once the operator's hand moves a gutter, and *needs me* hides nothing -- it
    replaces the needs-only filter, which only dimmed (#207's second focus). */
+/** @returns {string} */
 function keyboardPane() {
   var at = document.activeElement;
+  /** @type {HTMLElement} */
   var host = at && at.closest ? at.closest("#grid .tile") : null;
   return host && host.dataset.repo && !isHidden(host.dataset.repo) ? host.dataset.repo : "";
 }
 
+/** @param {string} name  @returns {boolean} */
 function needsPerson(name) {
   var entry = tiles.get(name);
   return !!entry && entry.el.classList.contains("needs-human");
 }
 
+/** @param {string} which  "one", "all" or "needs"  @returns {boolean} */
 function applyPreset(which) {
   var shown = visibleOrder();
   // Not while a gutter is held: the hand's own write comes when it lets go, and would undo this.
@@ -4213,17 +4410,37 @@ Array.prototype.forEach.call(document.querySelectorAll("[data-preset]"), functio
 var RAIL_SNAP_PX = 120;       // a pane dragged under this settles to a rail
 var SNAP_PX = 8;              // how near a snap takes the hand
 var GUTTER_STEP_PX = 40;      // one press of Alt+Shift+arrow
+
+/** A gutter under the hand: the two panes beside it, where the drag began (`x`, `a0`), the left
+ *  pane's width now (`a`) and as last painted, what the two hold between them (`total`), every
+ *  pane's width as the drag began (`px`), and the frame that will paint it.
+ * @typedef {Object} GutterHold
+ * @property {HTMLElement} left
+ * @property {HTMLElement} right
+ * @property {number} x
+ * @property {number} a0
+ * @property {number} total
+ * @property {number} a
+ * @property {number} painted
+ * @property {Pixels} px
+ * @property {number} edge     what a wide pane's padding and borders take (`paneEdge`)
+ * @property {number} frame    the animation frame asked for, or 0
+ * @property {boolean} lifted  whether the other wide panes were pinned to their pixels yet
+ */
+/** @type {GutterHold | null} */
 var gutterHeld = null;        // the drag in flight
 var placeWanted = false;      // a pass asked for while it was
 
+/** @param {HTMLElement} el  @returns {boolean} */
 function onGlass(el) {
   return !!(el && el.dataset && el.dataset.repo && tiles.has(el.dataset.repo) &&
             !el.classList.contains("is-hidden") && !el.classList.contains("is-grouped"));
 }
 
+/** @param {HTMLElement} el  @returns {HTMLElement | null} */
 function nextOnGlass(el) {
-  var n = el ? el.nextElementSibling : null;
-  while (n && !onGlass(n)) n = n.nextElementSibling;
+  var n = el ? /** @type {HTMLElement} */ (el.nextElementSibling) : null;
+  while (n && !onGlass(n)) n = /** @type {HTMLElement} */ (n.nextElementSibling);
   return n;
 }
 
@@ -4231,6 +4448,7 @@ function nextOnGlass(el) {
    sides: a pane is a 48px rail or at least the compact minimum, and one pulled under 120px settles
    to the rail. Two panes that together cannot hold two compact ones have two states, and the
    nearer wins. */
+/** @param {number} a  @param {number} total  @returns {number} */
 function settlePair(a, total) {
   if (total < RAIL_PX + TIER_COMPACT_FROM) return RAIL_PX;          // two rails: nowhere to go
   a = Math.max(RAIL_PX, Math.min(total - RAIL_PX, a));
@@ -4242,6 +4460,7 @@ function settlePair(a, total) {
 
 /* And while the hand is on it, the places worth landing on take it within 8px: either side at the
    compact or the full minimum, and an even share with the neighbour. */
+/** @param {number} a  @param {number} total  @returns {number} */
 function snapPair(a, total) {
   var stops = [TIER_COMPACT_FROM, TIER_FULL_FROM, total / 2,
                total - TIER_FULL_FROM, total - TIER_COMPACT_FROM];
@@ -4255,6 +4474,7 @@ function snapPair(a, total) {
 
 /* One press: 40px, and out of a rail or into one in a single step, because a rail cannot be 88px
    wide and a press that did nothing would read as a key that does not work. */
+/** @param {number} a  @param {number} total  @param {number} dir  @returns {number} */
 function stepPair(a, total, dir) {
   var b = total - a;
   var want = a + dir * GUTTER_STEP_PX;
@@ -4268,6 +4488,7 @@ function stepPair(a, total, dir) {
 /* One pane's width while the hand has it, in pixels. Every wide pane's share was made its width
    less its edges when the drag began, so the shares add up to what the rails and the edges leave,
    and a width written this way is the width drawn. */
+/** @param {HTMLElement} el  @param {number} px  @param {number} edge */
 function paintHeldWidth(el, px, edge) {
   var wide = px > RAIL_PX + 0.5;
   toggle(el, "is-solo", wide);
@@ -4297,6 +4518,7 @@ function paintHeld() {
   settle(mark);
 }
 
+/** @param {HTMLElement} gutter  @param {HTMLElement} el */
 function bindGutter(gutter, el) {
   if (!gutter) return;
   gutter.addEventListener("pointerdown", function (e) {
@@ -4330,12 +4552,14 @@ function bindGutter(gutter, el) {
       document.removeEventListener("keydown", onKey, true);
       try { gutter.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
     };
+    /** @param {PointerEvent} ev */
     var onMove = function (ev) {
       var a = snapPair(held.a0 + (ev.clientX - held.x), held.total);
       if (a === held.a) return;
       held.a = a;
       if (!held.frame) held.frame = requestAnimationFrame(paintHeld);
     };
+    /** @param {PointerEvent} ev */
     var onUp = function (ev) {
       // Where the hand came up, which is not always where the last move said it was: an engine
       // that coalesces moves to the frame can deliver the release before the move that got there,
@@ -4359,6 +4583,7 @@ function bindGutter(gutter, el) {
     // has taken the keyboard's usual route away and the page's own `Esc` would go back a pane. The
     // button is still down, and the click its release ends in is not a click on a pane either
     // (#233's lesson from the reorder drag), so that one is swallowed too.
+    /** @param {KeyboardEvent} ev */
     var onKey = function (ev) {
       if (ev.key !== "Escape") return;
       ev.stopPropagation();
@@ -4391,6 +4616,7 @@ function bindGutter(gutter, el) {
 
 /* The double-click, and `Alt+Enter` on the pane to its left: the two panes beside a gutter get an
    even share of what they hold between them. Two that cannot both be compact are left alone. */
+/** @param {HTMLElement} el  @returns {boolean} */
 function evenGutter(el) {
   var right = onGlass(el) && !gutterHeld ? nextOnGlass(el) : null;
   if (!right) return false;
@@ -4407,6 +4633,7 @@ function evenGutter(el) {
 }
 
 /* `Alt+Shift+←/→` on a pane: its right-hand gutter, one step (#217's width keys, now the gutter's). */
+/** @param {HTMLElement} el  @param {number} dir  @returns {boolean} */
 function stepGutter(el, dir) {
   var right = onGlass(el) && !gutterHeld ? nextOnGlass(el) : null;
   if (!right) return false;
@@ -4424,6 +4651,7 @@ function stepGutter(el, dir) {
 /* Shift and a rail: open it beside the pane that has the keys, the two splitting what that pane
    had and the rail's own 48px, so nothing else in the row moves. The keys stay where they were. A
    rail pressed while the pane with the keys is itself a rail is simply opened. */
+/** @param {string} name */
 function openBeside(name) {
   if (!name || !tiles.has(name) || gutterHeld) return;
   var host = openName();
@@ -4457,8 +4685,10 @@ function drawGutters() {
 /* Repositories that left the registry. Their pane goes, but each leaves a rail naming the command
    that restores it (#173), because a transcript disappearing with no explanation is exactly the
    "where did it go" the row exists to answer. */
+/** @type {Map<string, {path: string}>} */
 var departed = new Map();
 
+/** @param {Row} row  @returns {number} */
 function ageOf(row) {
   return row && typeof row.last_event_age_s === "number" ? row.last_event_age_s : 0;
 }
@@ -4488,7 +4718,9 @@ var ROW_PAD_PX = 16;
    stylesheet's floor for a pane with a width, and the compact minimum a gutter settles on -- so
    nothing ever sits on that boundary to flicker across it, and the slack that was there drew a rail
    pulled out to exactly the compact minimum as a rail's face stretched 160px wide. */
+/** @param {number} width  @param {Tier | ""} [was]  @returns {Tier} */
 function paneTier(width, was) {
+  /** @type {Tier} */
   var raw = width >= TIER_FULL_FROM ? "full" : width >= TIER_COMPACT_FROM ? "compact" : "rail";
   if (!was || raw === was || raw === "rail" || was === "rail") return raw;
   var lo = was === "full" ? TIER_FULL_FROM : TIER_COMPACT_FROM;
@@ -4498,22 +4730,25 @@ function paneTier(width, was) {
 
 /* The one writer of `data-tier`. It answers whether the tier changed, because a change is a
    redraw: a narrower tier skipped drawing what it does not show. */
+/** @param {HTMLElement} el  @param {number} width  @returns {boolean} whether it changed */
 function setTier(el, width) {
-  var was = el.dataset.tier || "";
+  var was = /** @type {Tier | ""} */ (el.dataset.tier || "");
   var tier = paneTier(width, was);
   if (tier === was) return false;
   attr(el, "data-tier", tier);
   return true;
 }
 
+/** @type {ResizeObserver | null} */
 var rowObserver = null;
 var rowWidth = 0;
 var rowSoon = 0;
 
 /* The border box, which is what the tiers are measured in and what `flex-basis` sets. */
+/** @param {ResizeObserverEntry} entry  @returns {number} */
 function entryWidth(entry) {
   var box = entry.borderBoxSize;
-  var first = box && (box[0] || box);
+  var first = /** @type {ResizeObserverSize} */ (box && (box[0] || box));  // a bare one, in old engines
   if (first && typeof first.inlineSize === "number") return first.inlineSize;
   return entry.target.getBoundingClientRect().width;
 }
@@ -4523,10 +4758,11 @@ function entryWidth(entry) {
    same frame, so what the narrower tier skipped is there before anything is painted. A pane taken
    off the glass -- hidden, or folded into its project's rail -- measures nought and keeps the tier
    it had, rather than being called a rail it is not. */
+/** @param {ResizeObserverEntry[]} entries */
 function onRowResize(entries) {
   var redraw = [];
   entries.forEach(function (entry) {
-    var el = entry.target;
+    var el = /** @type {HTMLElement} */ (entry.target);
     var width = entryWidth(entry);
     if (el.id === "grid") {
       if (Math.round(width) !== Math.round(rowWidth)) { rowWidth = width; placeSoon(); }
@@ -4545,8 +4781,9 @@ function onRowResize(entries) {
   if (keyHome && redraw.indexOf(keyHome) >= 0) {
     var home = keyHome;
     keyHome = null;
+    /** @type {HTMLElement} */
     var stop = home.dataset.tier === "rail" ? home.querySelector(".pane-rail") : home;
-    var at = document.activeElement;
+    var at = /** @type {HTMLElement} */ (document.activeElement);
     var kept = at && at !== document.body && home.contains(at) && at.offsetParent !== null;
     if (stop && !kept) stop.focus({ preventScroll: true });
   }
@@ -4561,11 +4798,13 @@ function startRowObserver() {
   tiles.forEach(function (entry) { rowObserver.observe(entry.el, { box: "border-box" }); });
 }
 
+/** @param {HTMLElement} el */
 function watchPane(el) {
   startRowObserver();
   if (rowObserver) rowObserver.observe(el, { box: "border-box" });
 }
 
+/** @param {HTMLElement} el */
 function forgetPane(el) {
   if (rowObserver) rowObserver.unobserve(el);
 }
@@ -4603,9 +4842,12 @@ window.addEventListener("resize", function () {
    that needs you past its edge, and the dock grouped checkouts the same way (#175). The first
    checkout of a project, in the row's order, is the head; the others fold into its rail. Past
    grouping the row scrolls, which is the last resort and not the design. */
+/** @type {Map<string, string[]>} */
 var railGroups = new Map();           // head -> [head, member...], only while grouping
+/** @type {Map<string, string>} */
 var groupedInto = new Map();          // member -> head, for every member but the head
 
+/** @param {string[]} shown  @param {string[]} open */
 function groupRails(shown, open) {
   railGroups = new Map();
   groupedInto = new Map();
@@ -4633,12 +4875,14 @@ function groupRails(shown, open) {
   });
 }
 
+/** @param {string} name  @returns {boolean} */
 function groupedAway(name) {
   return groupedInto.has(name);
 }
 
 /* Where a press on a rail goes: the agent itself -- or, on a project's shared rail, the first of
    its checkouts that needs a person, then the first one. The red is why the operator pressed it. */
+/** @param {string} name  @returns {string} */
 function railTarget(name) {
   var members = railGroups.get(name);
   if (!members) return name;
@@ -4661,6 +4905,7 @@ var RAIL_GLYPHS = {
 
 /* One agent, in the words a rail cannot fit: who, in what state, since when, what it has cost,
    what is unread, and the last thing it said -- or, when it needs a person, what it is asking. */
+/** @param {Row} row  @returns {string} */
 function railLine(row) {
   var ac = ageChip(row.last_event_age_s);
   var bits = [row.needs_human ? "needs you" : (shownState(row).replace(/_/g, " ") || "no run yet")];
@@ -4678,6 +4923,7 @@ function railLine(row) {
    accessible name and its title. Drawn on every pass whatever the tier -- it is a handful of
    guarded writes -- so a pane that narrows to a rail is already right. It owns the face's `class`
    and nothing on the pane around it. */
+/** @param {HTMLElement} el  @param {Row} row */
 function drawPaneRail(el, row) {
   var face = el.querySelector(".pane-rail");
   if (!face || !row) return;
@@ -4850,7 +5096,7 @@ function openRenew() {
   renewOpen = true;
   var sum = strip.querySelector(".renew-sum");
   text(sum, "checking which sessions are stale…");
-  document.getElementById("renewgo").disabled = true;
+  /** @type {HTMLButtonElement} */ (document.getElementById("renewgo")).disabled = true;
   hide(strip, false);
   hide(sum, false);
   hide(document.getElementById("renew"), true);
@@ -4871,7 +5117,7 @@ function drawRenewPlan(p) {
   patchList(strip.querySelector(".renew-rows"), rows, function (r) { return r.repo; },
     function () {
       // Cloned from the markup's own pattern row, so the two cannot disagree about the parts.
-      var li = strip.querySelector(".renew-pattern").cloneNode(true);
+      var li = /** @type {HTMLElement} */ (strip.querySelector(".renew-pattern").cloneNode(true));
       li.classList.remove("renew-pattern");
       li.hidden = false;
       return li;
@@ -4888,7 +5134,7 @@ function drawRenewPlan(p) {
       (p.at_turn_end || 0) + " when their turn ends — about " + (p.premium_turns || 0) +
       " premium turn" + (p.premium_turns === 1 ? "" : "s") + " between them"
     : "nothing to renew: every stale session is waiting on you, is a console, or is done");
-  var go = document.getElementById("renewgo");
+  var go = /** @type {HTMLButtonElement} */ (document.getElementById("renewgo"));
   go.disabled = going === 0;
   text(go, going ? "renew " + going : "renew");
 }
@@ -4904,7 +5150,7 @@ function closeRenew() {
 }
 
 function runRenew() {
-  var go = document.getElementById("renewgo");
+  var go = /** @type {HTMLButtonElement} */ (document.getElementById("renewgo"));
   go.disabled = true;
   post("renew", { dry_run: false }).then(function (r) {
     closeRenew();
@@ -4963,6 +5209,7 @@ function title(need) {
 /* Where the keyboard stops along the row (#233): a rail's face, or an open pane itself. In the
    row's order, and only what is on the glass, so `j` never lands on something nobody can see and
    the digits count exactly the panes there are. */
+/** @returns {HTMLElement[]} */
 function paneStops() {
   return Array.prototype.map.call(
     document.querySelectorAll("#grid .tile:not(.is-hidden):not(.is-grouped)"),
@@ -4971,6 +5218,7 @@ function paneStops() {
 
 /* `j` and `k` walk the row. A rail's stop is a real button, so `Enter` opens it, and there is no
    second model of "which one is selected" to disagree with what is on the glass. */
+/** @param {number} dir */
 function stepRow(dir) {
   var stops = paneStops();
   if (!stops.length) return;
@@ -4984,7 +5232,7 @@ function stepRow(dir) {
   stops[at].focus();
 }
 
-document.addEventListener("click", function (e) {
+document.addEventListener("click", function (/** @type {MouseEvent & {target: Element}} */ e) {
   // One menu open at a time, and a click off it closes it -- the rule every popover here keeps.
   if (e.target.closest && (e.target.closest(".smenu") || e.target.closest(".spill"))) return;
   closeMenus();
@@ -4999,7 +5247,7 @@ document.addEventListener("click", function (e) {
     if (e.key === "Enter") { saveModel(); e.preventDefault(); }
   });
   // A click anywhere else closes it, the way it closes a popover.
-  document.addEventListener("click", function (e) {
+  document.addEventListener("click", function (/** @type {MouseEvent & {target: Element}} */ e) {
     if (card.hidden) return;
     if (card.contains(e.target)) return;
     if (e.target.closest && e.target.closest('[data-tool="model"]')) return;
@@ -5038,6 +5286,7 @@ function popover(id, open) {
     if (ob) attr(ob, "aria-expanded", String(on));
   });
   if (want) {
+    /** @type {HTMLElement} */
     var first = box.querySelector("select:not(:disabled), button:not(:disabled), input:not(:disabled), [tabindex]");
     if (first) first.focus();
   } else if (hadTheKeyboard) {
@@ -5059,7 +5308,7 @@ Object.keys(POPOVERS).forEach(function (id) {
   var button = document.getElementById(POPOVERS[id]);
   if (button) button.addEventListener("click", function () { popover(id); });
 });
-document.addEventListener("click", function (e) {
+document.addEventListener("click", function (/** @type {MouseEvent & {target: Element}} */ e) {
   Object.keys(POPOVERS).forEach(function (id) {
     var box = document.getElementById(id);
     var button = document.getElementById(POPOVERS[id]);

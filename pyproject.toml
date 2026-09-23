@@ -95,7 +95,7 @@ markers = [
     "windows: only meaningful on nt; skipped elsewhere with a reason",
     "posix: only meaningful off nt",
     "real_home: opts out of the isolated_home fixture; for tests about the real checkout",
-    "network: reaches the network. Nothing carries this today -- the marker exists so that adding one is a decision",
+    "network: reaches the network. One test carries it, the desk's type check (#236), which fetches its pinned compiler; AGENTDATA_OFFLINE skips it",
     "browser: Playwright browser tests for the fleet Desk (deselect with -m 'not browser')",
     # The two tiers that exist for what they COST rather than what they cover. TOML has no
     # implicit string concatenation, so these are one line each however long they read.
