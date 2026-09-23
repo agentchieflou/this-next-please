@@ -39,10 +39,8 @@ def _project(root: str, project: str = "RDSD") -> str:
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -137,11 +135,11 @@ def test_two_checkouts_two_sessions_one_desk_that_comes_back(project, monkeypatc
 def test_the_desk_survives_being_closed_and_comes_back_by_name(project, monkeypatch):
     """Acceptance criterion: arrange, hide, `Ctrl-C`, and open the same window again."""
     monkeypatch.setenv("AGENTDATA_FAKE_CASE", "new-session")
-    S.arrange("grid", order=["luna", "luna-hotfix"], hidden=["luna"])
+    S.arrange(order=["luna", "luna-hotfix"], hidden=["luna"])
     S.update_window("left", focus=True, section="inspector")
 
     # A project's checkouts are hidden as one, so putting `luna` away took its worktree with it.
-    assert sorted(S.desk_state()["arrangement"]["grid"]["hidden"]) == ["luna", "luna-hotfix"]
+    assert sorted(S.desk_state()["arrangement"]["hidden"]) == ["luna", "luna-hotfix"]
 
     # `Ctrl-C`: the handles go, the desk stays.
     S.drop_handles()
@@ -150,8 +148,8 @@ def test_the_desk_survives_being_closed_and_comes_back_by_name(project, monkeypa
     S._selection["windows"] = {}
 
     again = S.desk_state()
-    assert sorted(again["arrangement"]["grid"]["hidden"]) == ["luna", "luna-hotfix"]
-    assert again["arrangement"]["grid"]["order"] == ["luna", "luna-hotfix"]
+    assert sorted(again["arrangement"]["hidden"]) == ["luna", "luna-hotfix"]
+    assert again["arrangement"]["order"] == ["luna", "luna-hotfix"]
     assert again["windows"]["left"]["focus"] is True
     assert again["windows"]["left"]["section"] == "inspector"
 
@@ -162,7 +160,7 @@ def test_a_hidden_checkout_that_needs_a_person_is_on_the_glass_and_reachable_by_
     needing a person overrides it. The rendered half -- the red dock chip and the toast anchor
     reopening the tile -- is `tests/test_fleet_desk_hide.py`."""
     monkeypatch.setenv("AGENTDATA_FAKE_CASE", "asks-question")
-    S.arrange("grid", order=["luna", "luna-hotfix"], hidden=["luna-hotfix"])
+    S.arrange(order=["luna", "luna-hotfix"], hidden=["luna-hotfix"])
 
     supervisor.start("luna-hotfix", key="RDSD-2", cfg={"fleet": {"notify": {"toast": False}}})
     _settle("luna-hotfix")
@@ -170,5 +168,5 @@ def test_a_hidden_checkout_that_needs_a_person_is_on_the_glass_and_reachable_by_
     row = _fold("luna-hotfix", project["luna-hotfix"])
     assert row["needs_human"], row["state"]
     assert row["why"], "and it says what it needs"
-    assert "luna-hotfix" in S.desk_state()["arrangement"]["grid"]["hidden"], \
+    assert "luna-hotfix" in S.desk_state()["arrangement"]["hidden"], \
         "the arrangement is unchanged: it is the page that refuses to hide a demand"

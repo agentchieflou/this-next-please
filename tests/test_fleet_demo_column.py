@@ -37,8 +37,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -78,7 +78,7 @@ def _desk_of_five(tmp_path):
     # and one the operator hid
     E.append("arl-usage", [E.event("arl-usage", "turn_ended", {"turn": "0"}, ticket="RDSD-55")])
 
-    S.arrange("column", order=names, hidden=["arl-usage"])
+    S.arrange(order=names, hidden=["arl-usage"])
     return names
 
 
@@ -127,7 +127,7 @@ def test_five_agents_one_open_and_no_dead_space(fleet_home, tmp_path):
                 tileBottom: tile.bottom, page: window.innerHeight,
                 head: document.getElementById('column-count').textContent,
                 foot: document.getElementById('column-hidden').textContent,
-                dock: !document.getElementById('dock').hidden,
+                dock: !!document.getElementById('dock'),
                 tools: [...bands[0].querySelectorAll('[data-tool]')].map(b => b.dataset.tool),
               };
             }""")
@@ -136,7 +136,7 @@ def test_five_agents_one_open_and_no_dead_space(fleet_home, tmp_path):
             # Four registered agents are not open, one of them hidden: three bands.
             assert len(out["bands"]) == 3, out["bands"]
             assert "arl-usage" not in out["bands"] and "1 hidden" in out["foot"], out
-            assert out["dock"] is False, "the column is the dock here; never both"
+            assert out["dock"] is False, "the dock went with the grid (#232)"
 
             # The loud two are red and their asks are readable without opening a tile.
             assert sorted(out["red"]) == ["luna", "velocity"], out["red"]

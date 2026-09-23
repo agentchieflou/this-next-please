@@ -1,9 +1,11 @@
 """The ownership epic's definition-of-done demo (issue #220).
 
-Five agents on the glass, and the five gestures this epic exists for, done in order on one page:
+Five agents on one desk, and the five gestures this epic exists for, done in order on one page:
 
-* a **swap** -- open one agent, then another, so the layout changes under a transition;
-* a **resize** -- the same tile two tracks wide and two rows tall, from its own edge;
+* a **swap** -- open one agent, then go back to the one before, so the layout changes under a
+  transition;
+* a **resize** -- the open tile two tracks wide and two rows tall, from the keyboard (its edge
+  handles snapped to the grid's tracks and went with the grid, #232);
 * a **hide** -- off the glass and back, painting before the server answers;
 * a **reconnect** -- the stream dropped and the desk still showing what it had;
 * and a **redraw** -- twenty passes with nothing to change, touching nothing.
@@ -39,9 +41,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -81,7 +82,7 @@ def _desk_of_five(tmp_path):
     _agent(tmp_path, "velocity", says="sprint replay written to .agent/out/", events=8)
     _agent(tmp_path, "backlog-health", says="nothing to do", events=2)
     _agent(tmp_path, "arl-usage", says="reading the usage extract", events=31)
-    S.arrange("grid", order=["rdsd-pbi-reporting", "luna", "velocity", "backlog-health",
+    S.arrange(order=["rdsd-pbi-reporting", "luna", "velocity", "backlog-health",
                              "arl-usage"])
 
 
@@ -105,34 +106,27 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="arl-usage"]', timeout=15000)
+            page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=15000)
             page.wait_for_function(
                 "() => !!document.querySelector('.tile .trace[aria-label]')", timeout=15000)
             page.wait_for_timeout(400)
-            page.screenshot(path=os.path.join(shots, "ownership-grid.png"))
+            page.screenshot(path=os.path.join(shots, "ownership-desk.png"))
 
-            # 1. The swap. Two agents opened in turn, each through the one door a layout change
-            #    has, so the transition is the same one every gesture uses.
-            page.locator('.tile[data-repo="luna"] .maxtoggle').click()
-            page.wait_for_function(
-                "() => document.body.classList.contains('focused')", timeout=8000)
+            # 1. The swap. One agent opened from its band and then the one before it again, each
+            #    through the one door a layout change has, so the transition is the same one every
+            #    gesture uses.
+            page.locator('#bands .band[data-repo="luna"] .band-open').click()
+            page.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=8000)
             page.wait_for_timeout(450)
             page.screenshot(path=os.path.join(shots, "ownership-open.png"))
-            page.evaluate("() => backAgent()")
-            page.wait_for_function(
-                "() => !document.body.classList.contains('focused')", timeout=8000)
+            page.evaluate("() => backToPrevious()")
+            page.wait_for_selector('.tile[data-repo="rdsd-pbi-reporting"].is-solo', timeout=8000)
             page.wait_for_timeout(350)
 
-            # 2. The resize, from the tile's own edge, snapping to the grid's tracks.
-            grip = page.locator('.tile[data-repo="rdsd-pbi-reporting"] .rsz-x').bounding_box()
-            box = page.locator('.tile[data-repo="rdsd-pbi-reporting"]').bounding_box()
-            page.mouse.move(grip["x"] + grip["width"] / 2, grip["y"] + grip["height"] / 2)
-            page.mouse.down()
-            page.mouse.move(box["x"] + box["width"] * 1.7, grip["y"] + grip["height"] / 2,
-                            steps=12)
-            page.wait_for_timeout(200)
-            page.screenshot(path=os.path.join(shots, "ownership-resize-ghost.png"))
-            page.mouse.up()
+            # 2. The resize, from the keyboard on the open tile.
+            page.evaluate(
+                """() => document.querySelector('.tile[data-repo="rdsd-pbi-reporting"]').focus()""")
+            page.keyboard.press("Alt+Shift+ArrowRight")
             page.wait_for_function(
                 """() => getComputedStyle(
                      document.querySelector('.tile[data-repo="rdsd-pbi-reporting"]'))
@@ -141,17 +135,18 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             page.wait_for_timeout(450)
             page.screenshot(path=os.path.join(shots, "ownership-resized.png"))
 
-            # 3. The hide, and back. Painted before the server answers, and the dock says where
-            #    it went.
-            page.locator('.tile[data-repo="backlog-health"] .hidetoggle').click()
+            # 3. The hide, and back. Painted before the server answers, and the foot of the
+            #    column says where it went.
+            page.locator('#bands .band[data-repo="backlog-health"] [data-tool="hide"]').click()
             page.wait_for_function(
                 """() => document.querySelector('.tile[data-repo="backlog-health"]')
                            .classList.contains('is-hidden')""", timeout=8000)
             page.wait_for_function(
-                "() => !document.getElementById('dock').hidden", timeout=8000)
+                "() => document.getElementById('column-hidden').textContent === '1 hidden'",
+                timeout=8000)
             page.wait_for_timeout(350)
             page.screenshot(path=os.path.join(shots, "ownership-hidden.png"))
-            page.locator("#showall").click()
+            page.locator("#column-showall").click()
             page.wait_for_function(
                 """() => !document.querySelector('.tile[data-repo="backlog-health"]')
                             .classList.contains('is-hidden')""", timeout=8000)

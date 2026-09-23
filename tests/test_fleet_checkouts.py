@@ -34,10 +34,8 @@ def _own_desk_globals(monkeypatch):
     `tests/test_fleet_desk_sessions_b.py`."""
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -275,8 +273,8 @@ def test_a_project_is_hidden_and_pinned_as_one(fleet_home, tmp_path):
     reg.add(tree)
     reg.add(other, name="velocity")
 
-    S.arrange("grid", hidden=["luna"], pinned=["velocity"])
-    arr = S.desk_state()["arrangement"]["grid"]
+    S.arrange(hidden=["luna"], pinned=["velocity"])
+    arr = S.desk_state()["arrangement"]
     assert sorted(arr["hidden"]) == ["luna", "luna-hotfix"]
     assert arr["pinned"] == ["velocity"], "a project of one is still just itself"
 
@@ -286,8 +284,8 @@ def test_an_arrangement_naming_an_unregistered_tile_keeps_it(fleet_home, tmp_pat
     operator's desk."""
     repo = make_project(tmp_path / "luna", ticket="RDSD-1")
     Registry().add(repo, name="luna")
-    S.arrange("grid", hidden=["luna", "gone-last-week"])
-    assert S.desk_state()["arrangement"]["grid"]["hidden"] == ["luna", "gone-last-week"]
+    S.arrange(hidden=["luna", "gone-last-week"])
+    assert S.desk_state()["arrangement"]["hidden"] == ["luna", "gone-last-week"]
 
 
 def test_both_checkouts_hold_their_own_lock(fleet_home, tmp_path):
@@ -387,10 +385,11 @@ def test_the_strip_carries_the_other_checkouts_of_this_project(fleet_home, tmp_p
             assert "luna-hotfix" in (sib.get_attribute("title") or "") or \
                    "luna-hotfix" in sib.inner_text()
 
+            # It opens that checkout: the zoom this used to be went with the grid (#232).
             sib.click()
             page.wait_for_function(
                 """() => document.querySelector('.tile[data-repo="luna-hotfix"]')
-                          .classList.contains('is-focused')""",
+                          .classList.contains('is-solo')""",
                 timeout=5000)
             # The strip is still there on the tile it went to, so the way back is a click.
             page.locator('.tile[data-repo="luna-hotfix"] .spill').click()

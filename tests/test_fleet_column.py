@@ -3,7 +3,7 @@
 The operator's two sentences, and what each one is asserted by here:
 
 * *non-open sessions show vertically rather than horizontally* -- the bands are one above another in
-  a box beside the glass, and the dock is not drawn at all in this arrangement;
+  a box beside the glass (and the grid's dock, which answered the same question, is gone: #232);
 * *each slice that isn't being actively looked at should auto size to take up the page so there
   isn't so much negative space* -- the bands SUM to the column's height, measured at three viewport
   heights, which is the one thing a `flex-wrap: wrap` row of chips could never do.
@@ -41,11 +41,8 @@ def _own_desk_globals(monkeypatch):
     that gives every test a fresh fleet directory."""
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -87,17 +84,6 @@ def _open(page, port, token, extra=""):
 # ----------------------------------------------------------------------------------- the server
 
 
-def test_the_column_is_the_default_everywhere_it_is_named(fleet_home, tmp_path):
-    """The operator's decision, in the three files a test already keeps in step. A default that is
-    right in two of them and wrong in the third is a window that opens on a layout nobody chose."""
-    from agentdata import cli_fleet
-
-    assert S.LAYOUTS[0] == "column"
-    assert cli_fleet.LAYOUTS[0] == "column"
-    js = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
-    assert 'var LAYOUTS = ["column", "grid", "roles", "screens"];' in js
-
-
 def test_the_open_agent_is_the_windows_own_and_the_selection_is_shared(fleet_home, tmp_path):
     """Two monitors read two agents; the inspector still follows one selection. `open` is therefore
     per window and `selected` is not, and a restart brings each window back to its own."""
@@ -137,7 +123,7 @@ def test_the_bands_fill_the_column_at_every_viewport_height(fleet_home, tmp_path
     account for the column's height rather than sitting in a clump at the top of it."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon")
-    S.arrange("column", order=["alpha", "beta", "gamma", "delta", "epsilon"])
+    S.arrange(order=["alpha", "beta", "gamma", "delta", "epsilon"])
 
     server, token, port = _serve()
     try:
@@ -184,7 +170,7 @@ def test_many_agents_make_the_column_scroll_and_the_head_counts_them(fleet_home,
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["r%02d" % n for n in range(12)]
     _repos(tmp_path, *names, needs=("r03", "r07"))
-    S.arrange("column", order=names)
+    S.arrange(order=names)
 
     server, token, port = _serve()
     try:
@@ -244,13 +230,13 @@ def test_one_checkout_draws_no_column_and_its_tile_fills_the_page(fleet_home, tm
               const tile = document.querySelector('.tile').getBoundingClientRect();
               return {
                 column: !document.getElementById('column').hidden,
-                dock: !document.getElementById('dock').hidden,
+                dock: !!document.getElementById('dock'),
                 width: tile.width, page: window.innerWidth,
               };
             }""")
             assert not errors, errors
             assert out["column"] is False, "no other agent, so no column"
-            assert out["dock"] is False, "the column is the dock here; never both"
+            assert out["dock"] is False, "the dock went with the grid (#232)"
             assert out["width"] > out["page"] * 0.9, out
             browser.close()
     finally:
@@ -265,7 +251,7 @@ def test_clicking_a_band_opens_it_and_the_tile_that_was_open_takes_its_slot(flee
     column is for, and it has to be two keystrokes rather than a hunt."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("column", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -310,12 +296,18 @@ SOLO = "document.querySelector('.tile.is-solo').dataset.repo"
 
 
 @pytest.mark.browser
-def test_a_grid_window_zooming_on_the_same_record_does_not_move_the_column(fleet_home, tmp_path):
+def test_another_window_writing_the_old_zoom_to_the_same_record_does_not_move_the_column(
+        fleet_home, tmp_path):
     """#230: every window without `?w=` shares `main`. A grid window's zoom wrote `zoomed` there, and
-    the column window re-opened that agent on every frame after -- twice per click."""
+    the column window re-opened that agent on every frame after -- twice per click.
+
+    The grid is gone (#232), but the shape of the bug is not: a second window on the same record,
+    writing a field this window does not own. A tab still running a page from before the update
+    sends exactly that -- `zoomed` and the arrangement it thought it was in -- and the server keeps
+    none of it, so the click on beta stays on beta."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("column", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -325,18 +317,22 @@ def test_a_grid_window_zooming_on_the_same_record_does_not_move_the_column(fleet
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
-            grid = browser.new_page(viewport={"width": 1280, "height": 900})
-            grid.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            grid.wait_for_selector(".tile", timeout=10000)
-            grid.evaluate("() => { openAgent('gamma'); }")
-            grid.wait_for_function("() => document.body.classList.contains('focused')", timeout=5000)
+            other = browser.new_page(viewport={"width": 1280, "height": 900})
+            other.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            other.wait_for_selector(".tile", timeout=10000)
+            answer = other.evaluate("""() => post('window', {
+              w: 'main', zoomed: 'gamma', layout: 'grid', view: 'all', screen: 0 })""")
+            assert answer["ok"], answer
             page.wait_for_timeout(600)
-            assert S.desk_state()["windows"]["main"]["zoomed"] == "gamma"
+            record = S.desk_state()["windows"]["main"]
+            for gone in ("zoomed", "layout", "view", "screen"):
+                assert gone not in record, f"the server kept {gone}: {record}"
 
             page.click('#bands .band[data-repo="beta"] .band-open')
             page.wait_for_function(f"() => {SOLO} === 'beta'", timeout=5000)
             page.wait_for_timeout(1500)
             assert page.evaluate(SOLO) == "beta"
+            assert S.desk_state()["windows"]["main"]["open"] == "beta"
             assert not errors, errors
             browser.close()
     finally:
@@ -351,7 +347,7 @@ def test_a_reload_opens_the_agent_that_was_clicked_not_the_one_the_address_named
     before the click -- and saved it over the server's record as well."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("column", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -385,7 +381,7 @@ def test_an_answer_read_before_a_click_cannot_undo_it(fleet_home, tmp_path):
     `version` from 5 to 3. Every payload now comes through `acceptDesk`, which drops an older one."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("column", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
     S.update_window("main", open="alpha")
 
     server, token, port = _serve()
@@ -439,7 +435,7 @@ def test_four_opens_in_one_frame_leave_the_record_on_the_last(fleet_home, tmp_pa
     operator asked for alpha last. Found by `test_fleet_motion.py`'s superseded gestures under load."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
-    S.arrange("column", order=["alpha", "beta", "gamma", "delta"])
+    S.arrange(order=["alpha", "beta", "gamma", "delta"])
 
     server, token, port = _serve()
     try:
@@ -465,7 +461,7 @@ def test_a_pinned_agent_is_open_too_and_the_two_split_the_glass(fleet_home, tmp_
     thing, so a pinned agent is one that is always on the glass -- and two of them share it."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("column", order=["alpha", "beta", "gamma"], pinned=["gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"], pinned=["gamma"])
 
     server, token, port = _serve()
     try:
@@ -502,7 +498,7 @@ def test_the_digits_and_j_k_reach_every_band_without_a_mouse(fleet_home, tmp_pat
     the rule every gesture on this page already keeps."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
-    S.arrange("column", order=["alpha", "beta", "gamma", "delta"])
+    S.arrange(order=["alpha", "beta", "gamma", "delta"])
 
     server, token, port = _serve()
     try:
@@ -549,11 +545,12 @@ def test_one_age_formatter_dates_the_agent_everywhere_it_is_dated():
     js = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
     assert "function agentAge(seconds) { return ageChip(seconds).text; }" in js
     assert "age(row.last_event_age_s)" not in js, "the strip is back on the short formatter"
-    assert "age(ageOf(row))" not in js, "the dock or the rail is back on the short formatter"
-    # The three surfaces that used to disagree with the chip now call it: the strip's main tab,
-    # the dock chip and the rail chip. The chip and the band read `ageChip` straight, because they
-    # want the `stale` flag beside the text -- the same formatter either way, which is the point.
-    assert js.count("agentAge(") >= 4, js.count("agentAge(")
+    assert "age(ageOf(row))" not in js, "the rail is back on the short formatter"
+    # The surfaces that used to disagree with the chip now call it: the strip's main tab and the
+    # rail chip (the dock chip was the third, and went with the grid in #232). The chip and the
+    # band read `ageChip` straight, because they want the `stale` flag beside the text -- the same
+    # formatter either way, which is the point.
+    assert js.count("agentAge(") >= 3, js.count("agentAge(")
     assert js.count("ageChip(") >= 3, js.count("ageChip(")
 
 
@@ -573,17 +570,15 @@ def test_the_fold_says_what_the_agent_last_said(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_every_band_says_what_its_agent_last_said_and_the_dock_still_does_not(fleet_home, tmp_path):
-    """The dock can fit a state and an age, which is how an agent that spoke an hour ago and went
-    quiet became unreadable from it. The band has the room, so it uses it -- and the dock, which is
-    answering a different question in the other three arrangements, is left exactly as it was."""
+def test_every_band_says_what_its_agent_last_said(fleet_home, tmp_path):
+    """The dock could fit a state and an age, which is how an agent that spoke an hour ago and went
+    quiet became unreadable from it. The band has the room, so it uses it."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta")
     E.append("beta", [E.event("beta", "assistant_text",
                               {"text": "rebuilt the semantic model and pushed the branch"},
                               ticket="RDSD-1")])
-    S.arrange("column", order=["alpha", "beta"])
-    S.arrange("grid", order=["alpha", "beta"], hidden=["beta"])
+    S.arrange(order=["alpha", "beta"])
 
     server, token, port = _serve()
     try:
@@ -595,14 +590,6 @@ def test_every_band_says_what_its_agent_last_said_and_the_dock_still_does_not(fl
             _open(page, port, token)
             band = page.inner_text('#bands .band[data-repo="beta"]')
             assert "rebuilt the semantic model" in band, band
-
-            # The same agent, in the grid, is the dock's business and says what it always said.
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector("#dock:not([hidden]) .dock-chip:not([hidden])", timeout=10000)
-            chip = page.inner_text("#dock .dock-chip:not([hidden])")
-            assert "beta" in chip and "idle" in chip, chip
-            assert "rebuilt the semantic model" not in chip, chip
             assert not errors, errors
             browser.close()
     finally:
@@ -617,7 +604,7 @@ def test_a_bands_node_survives_every_tick_so_the_keyboard_and_the_hover_do(fleet
     cloned its rows on every pass would take the keyboard off the band `j` had just reached."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("column", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -657,7 +644,7 @@ def test_a_hidden_agent_is_counted_at_the_foot_and_show_all_brings_it_back(fleet
     says how many they have put away. One press brings them all back."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("column", order=["alpha", "beta", "gamma"], hidden=["gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"], hidden=["gamma"])
 
     server, token, port = _serve()
     try:
@@ -690,7 +677,7 @@ def test_an_agent_that_needs_a_person_keeps_its_slot_and_shows_its_ask_in_full(f
     put it -- and the head counts it and jumps to it instead. Its question is never clipped."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", needs=("gamma",))
-    S.arrange("column", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -807,7 +794,7 @@ def test_the_same_three_controls_are_on_the_band_and_on_the_tile(fleet_home, tmp
     a control that exists on one and not the other is exactly what it was asked to stop."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta")
-    S.arrange("column", order=["alpha", "beta"])
+    S.arrange(order=["alpha", "beta"])
 
     server, token, port = _serve()
     try:
@@ -853,7 +840,7 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
     os.environ["AGENTDATA_CONFIG"] = str(monkey)
     try:
         _repos(tmp_path, "rdsd.pbi", "beta")
-        S.arrange("column", order=["beta", "rdsd.pbi"])
+        S.arrange(order=["beta", "rdsd.pbi"])
 
         server, token, port = _serve()
         try:
@@ -901,13 +888,16 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
 
 def test_the_two_focuses_have_names_that_say_which_is_which():
     """`focus()` zoomed one tile and `focusMode()` filtered for the ones that need a person: two
-    modes named alike, and the toolbar's *back to grid* undid only the first. The old names stay
-    as aliases, because the page globals the regression tests call keep their names -- and neither
-    new name is `open`, which in a non-module script would replace `window.open` for the page."""
+    modes named alike, and the toolbar's *back to grid* undid only the first. The zoom went with
+    the grid (#232), and `backAgent` and *back to grid* with it; `focus` stays as an alias, because
+    the page globals the regression tests call keep their names -- and `openAgent` is not `open`,
+    which in a non-module script would replace `window.open` for the page."""
     js = open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
+    html = open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
     assert "function openAgent(name, skipPost) {" in js
-    assert "function backAgent(skipPost) {" in js
-    assert "var focus = openAgent;" in js and "var unfocus = backAgent;" in js
+    assert "var focus = openAgent;" in js
+    assert "backAgent" not in js and "unfocus" not in js
+    assert 'id="unfocus"' not in html and "back to grid" not in html
     # A declaration, not the word in the comment that explains why there is not one.
     assert not re.search(r"(?m)^\s*function open\s*\(", js), \
         "a bare `open` declaration replaces window.open for the whole page"
@@ -920,7 +910,7 @@ def test_needs_me_folds_a_quiet_band_rather_than_emptying_the_column(fleet_home,
     *where did it go* this arrangement exists to answer, one level up."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon", needs=("delta", "epsilon"))
-    S.arrange("column", order=["alpha", "beta", "gamma", "delta", "epsilon"])
+    S.arrange(order=["alpha", "beta", "gamma", "delta", "epsilon"])
 
     server, token, port = _serve()
     try:
@@ -942,7 +932,7 @@ def test_needs_me_folds_a_quiet_band_rather_than_emptying_the_column(fleet_home,
                 slivers: bands.filter(b => b.getBoundingClientRect().height <= 30).length,
                 named: bands.every(b => b.querySelector('.b-name').textContent.length > 0),
                 head: document.getElementById('column-count').textContent,
-                backBtn: !document.getElementById('unfocus').hidden,
+                backBtn: !!document.getElementById('unfocus'),
               };
             }""")
             assert not errors, errors
@@ -950,39 +940,7 @@ def test_needs_me_folds_a_quiet_band_rather_than_emptying_the_column(fleet_home,
             assert out["quiet"] == 2 and out["slivers"] == 2, out
             assert out["named"], "a folded band still says who it is"
             assert "2 need you" in out["head"], out["head"]
-            assert out["backBtn"] is False, "there is no zoom in the column to go back from"
-            browser.close()
-    finally:
-        server.stopping.set()
-        server.shutdown()
-        server.server_close()
-
-
-@pytest.mark.browser
-def test_back_to_grid_is_drawn_where_a_zoom_exists_and_not_where_it_does_not(fleet_home, tmp_path):
-    """The toolbar button undoes the zoom, so it is drawn in the arrangements that have one."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    _repos(tmp_path, "alpha", "beta")
-    S.arrange("grid", order=["alpha", "beta"])
-
-    server, token, port = _serve()
-    try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile", timeout=10000)
-            assert page.evaluate("() => document.getElementById('unfocus').hidden") is True
-
-            page.click('.tile[data-repo="alpha"] .repo')
-            page.wait_for_function(
-                "() => document.body.classList.contains('focused')", timeout=5000)
-            assert page.evaluate("() => !document.getElementById('unfocus').hidden"), \
-                "the grid has a zoom, so it has a way out of one"
-            assert not errors, errors
+            assert out["backBtn"] is False, "there is no zoom to go back from"
             browser.close()
     finally:
         server.stopping.set()

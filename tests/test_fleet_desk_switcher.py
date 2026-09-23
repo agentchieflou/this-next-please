@@ -34,10 +34,8 @@ def _own_desk_globals(monkeypatch):
     `tests/test_fleet_desk_sessions_b.py`."""
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,

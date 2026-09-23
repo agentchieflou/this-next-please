@@ -6,9 +6,9 @@ which is the gesture reading as "nothing is happening"; on a trackpad it needed 
 nobody discovers; and a tile could be made wider but never taller.
 
 What a window manager does instead is what this file asserts: the thing under the hand moves,
-what will happen is shown before the hand comes up, every pointer gesture has a keyboard
-equivalent, `Esc` leaves the arrangement alone, and a footprint written by an older build still
-reads.
+every pointer gesture has a keyboard equivalent, `Esc` leaves the arrangement alone, and a
+footprint written by an older build still reads. The edge handles that showed a snap before the
+hand came up went with the grid (#232): they snapped to its `auto-fit` tracks.
 """
 from __future__ import annotations
 import json
@@ -38,9 +38,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -89,33 +88,33 @@ def test_a_desk_written_before_this_opens_with_its_tiles_the_width_they_were_lef
         fleet_home, tmp_path):
     """The migration, which is the whole of it: an old file is brought forward by being used."""
     _repos(tmp_path, "alpha", "beta")
-    S.arrange("grid", order=["alpha", "beta"])
+    S.arrange(order=["alpha", "beta"])
     path = S._desk_file()
     with open(path, encoding="utf-8") as handle:
         data = json.load(handle)
-    data["arrangement"]["grid"]["size"] = {"alpha": 2}        # what an older build wrote
+    data["arrangement"]["size"] = {"alpha": 2}        # what an older build wrote
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(data, handle)
 
     S._desk_loaded = False
     S._selection["arrangement"] = {}
     state = S.desk_state()
-    assert state["arrangement"]["grid"]["size"] == {"alpha": {"cols": 2, "rows": 1}}, \
+    assert state["arrangement"]["size"] == {"alpha": {"cols": 2, "rows": 1}}, \
         "an old size did not come forward"
 
     # And the file itself is migrated the next time the arrangement changes, not before.
-    S.arrange("grid", order=["beta", "alpha"])
+    S.arrange(order=["beta", "alpha"])
     with open(path, encoding="utf-8") as handle:
         again = json.load(handle)
-    assert again["arrangement"]["grid"]["size"] == {"alpha": {"cols": 2, "rows": 1}}
+    assert again["arrangement"]["size"] == {"alpha": {"cols": 2, "rows": 1}}
 
 
 def test_the_api_takes_either_shape(fleet_home, tmp_path):
     _repos(tmp_path, "alpha")
-    S.arrange("grid", size={"alpha": 2})
-    assert S.desk_state()["arrangement"]["grid"]["size"] == {"alpha": {"cols": 2, "rows": 1}}
-    S.arrange("grid", size={"alpha": {"cols": 3, "rows": 2}})
-    assert S.desk_state()["arrangement"]["grid"]["size"] == {"alpha": {"cols": 3, "rows": 2}}
+    S.arrange(size={"alpha": 2})
+    assert S.desk_state()["arrangement"]["size"] == {"alpha": {"cols": 2, "rows": 1}}
+    S.arrange(size={"alpha": {"cols": 3, "rows": 2}})
+    assert S.desk_state()["arrangement"]["size"] == {"alpha": {"cols": 3, "rows": 2}}
 
 
 def test_the_page_reads_the_same_two_numbers_the_server_writes():
@@ -135,8 +134,8 @@ def test_the_footprint_has_one_owner():
     assert "grid-column: span var(--cols, 1)" in css
     assert "grid-row: span var(--rows, 1)" in css
     assert ".tile.size-2 { grid-column: span 2; }" not in css
-    # And the width toggle's button went with it: the edge handles and Alt+Shift+arrows answer
-    # that question with more than two answers, and the head was already crowded.
+    # And the width toggle's button went with it: Alt+Shift+arrows answer that question with more
+    # than two answers, and the head was already crowded.
     assert "sizetoggle" not in css
     assert "sizetoggle" not in open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
     assert "sizetoggle" not in open(os.path.join(STATIC, "index.html"), encoding="utf-8").read()
@@ -151,8 +150,13 @@ def test_the_gestures_are_pointer_events_and_the_handles_are_in_the_markup():
     # The head is no longer an HTML5 drag source; tickets and files still are, on the tile.
     assert 'class="head" draggable="true"' not in html
     assert 'e.dataTransfer.setData("application/x-agentdata-tile"' not in js
-    for hook in ("rsz-x", "rsz-y", "rszghost", "maxtoggle"):
-        assert hook in html, hook
+    assert "maxtoggle" in html
+    # The edge handles and their ghost snapped to the grid's `auto-fit` tracks, and went with the
+    # grid (#232). The keys still write `size` until the gutters replace it (#234).
+    for gone in ("rsz-x", "rsz-y", "rszghost"):
+        assert gone not in html, gone
+    for gone in ("function bindResizeEdges", "function gridTracks", "function showResizeGhost"):
+        assert gone not in js, gone
 
 
 # ----------------------------------------------------------------------------- in a browser
@@ -174,8 +178,8 @@ def _drag(page, handle, target, *, steps=8, cancel=False):
     page.mouse.move(a["x"] + a["width"] / 2 + 10, a["y"] + a["height"] / 2 + 10, steps=2)
     page.wait_for_function("() => !!dragging", timeout=8000)
     # A quarter of the way in on both axes: before the midpoint, which is what makes the drop land
-    # *before* the target -- across in the grid, down in the column -- and far enough from the
-    # edges to be the target rather than whatever is drawn over its corner. Eight pixels in was
+    # *before* the target -- across for the open tiles, down in the column -- and far enough from
+    # the edges to be the target rather than whatever is drawn over its corner. Eight pixels in was
     # the column's own sticky head on Windows, where the scrollbar takes a different width and the
     # first band sits that much higher: `elementFromPoint` answered with the head, `closest`
     # found no repo on it, and nothing ever lit.
@@ -188,41 +192,41 @@ def _drag(page, handle, target, *, steps=8, cancel=False):
     page.mouse.up()
 
 
+BANDS = """() => [...document.querySelectorAll('#bands .band:not([hidden])')]
+                  .map(b => b.dataset.repo)"""
+
+
 @pytest.mark.browser
-def test_dragging_a_tile_onto_another_reorders_and_escape_leaves_it_alone(fleet_home, tmp_path):
-    """Both halves of the acceptance criterion in one gesture each, on the same page."""
+def test_dragging_a_band_onto_another_reorders_and_escape_leaves_it_alone(fleet_home, tmp_path):
+    """Both halves of the acceptance criterion in one gesture each, on the same page. It was a tile
+    in the grid; the grid went (#232), and the bands are where the order is read and changed."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    _repos(tmp_path, "alpha", "beta", "gamma", "delta")
+    S.arrange(order=["alpha", "beta", "gamma", "delta"])
 
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="gamma"]', timeout=15000)
-
-            order = lambda: page.evaluate(                                    # noqa: E731
-                "() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)")
-            assert order() == ["alpha", "beta", "gamma"]
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
+            page.wait_for_function(f"() => ({BANDS})().length === 3", timeout=15000)
+            assert page.evaluate(BANDS) == ["beta", "gamma", "delta"]
 
             # Cancelled mid-flight: the order is exactly what it was.
-            _drag(page, '.tile[data-repo="gamma"] .grip', '.tile[data-repo="alpha"]', cancel=True)
+            _drag(page, '.band[data-repo="delta"] .band-open', '.band[data-repo="beta"]', cancel=True)
             page.wait_for_timeout(500)
-            assert order() == ["alpha", "beta", "gamma"], "Esc did not cancel the drag"
-            assert page.evaluate("() => document.querySelectorAll('.tile.is-dragging').length") == 0
+            assert page.evaluate(BANDS) == ["beta", "gamma", "delta"], "Esc did not cancel the drag"
+            assert page.evaluate("() => document.querySelectorAll('.is-dragging').length") == 0
 
-            # And carried through: gamma lands before alpha, and the server agrees.
-            _drag(page, '.tile[data-repo="gamma"] .grip', '.tile[data-repo="alpha"]')
-            page.wait_for_function(
-                """() => [...document.querySelectorAll('#grid .tile')]
-                          .map(t => t.dataset.repo)[0] === 'gamma'""", timeout=15000)
+            # And carried through: delta lands before beta, and the server agrees.
+            _drag(page, '.band[data-repo="delta"] .band-open', '.band[data-repo="beta"]')
+            page.wait_for_function(f"() => ({BANDS})()[0] === 'delta'", timeout=15000)
             page.wait_for_timeout(400)
-            assert order() == ["gamma", "alpha", "beta"]
+            assert page.evaluate(BANDS) == ["delta", "beta", "gamma"]
             assert not errors, errors
             browser.close()
     finally:
@@ -231,67 +235,18 @@ def test_dragging_a_tile_onto_another_reorders_and_escape_leaves_it_alone(fleet_
         server.server_close()
 
     # Every other window agrees, because the arrangement is the fleet's and not the page's.
-    assert S.desk_state()["arrangement"]["grid"]["order"] == ["gamma", "alpha", "beta"]
-
-
-@pytest.mark.browser
-def test_the_edge_shows_the_snap_before_the_hand_comes_up_and_writes_two_numbers(
-        fleet_home, tmp_path):
-    """HIG *Drag and drop*: show what will happen. The ghost is that sentence, drawn."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
-
-    server, token, port = _serve()
-    try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1600, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="alpha"] .rsz-x', timeout=15000)
-
-            grip = page.locator('.tile[data-repo="alpha"] .rsz-x').bounding_box()
-            box = page.locator('.tile[data-repo="alpha"]').bounding_box()
-            page.mouse.move(grip["x"] + grip["width"] / 2, grip["y"] + grip["height"] / 2)
-            page.mouse.down()
-            # Out to somewhere inside the second track.
-            page.mouse.move(box["x"] + box["width"] * 1.7, grip["y"] + grip["height"] / 2,
-                            steps=10)
-            ghost = page.evaluate("""() => {
-              const g = document.getElementById('rszghost');
-              return { shown: !g.hidden, says: g.querySelector('.rsz-says').textContent,
-                       width: Math.round(g.getBoundingClientRect().width) };
-            }""")
-            assert ghost["shown"], "nothing said what would happen"
-            assert ghost["says"].startswith("2 "), ghost
-            assert ghost["width"] > box["width"] * 1.5, ghost
-
-            page.mouse.up()
-            page.wait_for_function(
-                """() => getComputedStyle(document.querySelector('.tile[data-repo="alpha"]'))
-                           .getPropertyValue('--cols').trim() === '2'""", timeout=8000)
-            assert page.evaluate("() => document.getElementById('rszghost').hidden") is True
-            assert not errors, errors
-            browser.close()
-    finally:
-        server.stopping.set()
-        server.shutdown()
-        server.server_close()
-
-    assert S.desk_state()["arrangement"]["grid"]["size"]["alpha"] == {"cols": 2, "rows": 1}
+    assert S.desk_state()["arrangement"]["order"] == ["alpha", "delta", "beta", "gamma"]
 
 
 @pytest.mark.browser
 def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
-    """The rule this desk has kept since #5, applied to two new gestures. Alt+arrows still moves;
-    the resize is the shifted pair, because a gesture somebody has learned is not one to take
-    away for a new one."""
+    """The rule this desk has kept since #5. Alt+arrows still moves; the resize is the shifted pair,
+    because a gesture somebody has learned is not one to take away for a new one. The pointer half
+    of the resize went with the grid (#232); the keys still write the footprint, on the open tile,
+    until the gutters replace it (#234)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -302,7 +257,7 @@ def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="alpha"]', timeout=15000)
+            page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
 
             tile = page.locator('.tile[data-repo="alpha"]')
             tile.click(position={"x": 6, "y": 60})       # into the tile, not onto a control
@@ -325,11 +280,13 @@ def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
                       && s.getPropertyValue('--rows').trim() === '1';
                 }""", timeout=8000)
 
-            # Alt+arrows is still the move it has always been.
+            # Alt+arrows is still the move it has always been, and the open agent stays open.
             page.keyboard.press("Alt+ArrowRight")
             page.wait_for_function(
                 """() => [...document.querySelectorAll('#grid .tile')]
                           .map(t => t.dataset.repo)[0] === 'beta'""", timeout=8000)
+            assert page.evaluate(
+                "() => document.querySelector('.tile.is-solo').dataset.repo") == "alpha"
             assert not errors, errors
             browser.close()
     finally:
@@ -337,13 +294,18 @@ def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
         server.shutdown()
         server.server_close()
 
+    assert S.desk_state()["arrangement"]["order"] == ["beta", "alpha", "gamma"]
+
 
 @pytest.mark.browser
 def test_minimise_takes_it_off_the_glass_and_maximise_opens_it(fleet_home, tmp_path):
-    """Two gestures the desk already had, under the names everybody already knows."""
+    """Two gestures the desk already had, under the names everybody already knows. Maximise is
+    `openAgent`: on a pinned tile beside the open one, it makes that one the open agent and the
+    other goes back to its band. Minimise is hide: off the glass, its place kept, and counted at
+    the foot of the column (the dock that used to hold it went with the grid, #232)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"], pinned=["beta"])
 
     server, token, port = _serve()
     try:
@@ -354,27 +316,28 @@ def test_minimise_takes_it_off_the_glass_and_maximise_opens_it(fleet_home, tmp_p
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="beta"]', timeout=15000)
+            page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
+            page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
 
             page.locator('.tile[data-repo="beta"] .maxtoggle').click()
             page.wait_for_function(
-                "() => document.body.classList.contains('focused')", timeout=8000)
-            assert page.evaluate(
-                """() => document.querySelector('.tile[data-repo="beta"]')
-                           .classList.contains('is-focused')""")
-
-            page.evaluate("() => backAgent()")
-            page.wait_for_function(
-                "() => !document.body.classList.contains('focused')", timeout=8000)
+                """() => !document.querySelector('.tile[data-repo="alpha"]')
+                           .classList.contains('is-solo')""", timeout=8000)
+            assert page.evaluate("() => openName()") == "beta"
+            page.wait_for_function("() => windowWrites === 0", timeout=8000)
+            assert S.desk_state()["windows"]["main"]["open"] == "beta"
 
             page.locator('.tile[data-repo="beta"] .hidetoggle').click()
             page.wait_for_function(
                 """() => document.querySelector('.tile[data-repo="beta"]')
                            .classList.contains('is-hidden')""", timeout=8000)
-            # It keeps its place: minimise is not "remove", and the dock is one click back.
+            # It keeps its place: minimise is not "remove", and the column counts it.
             assert page.evaluate(
                 "() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)") \
-                == ["alpha", "beta", "gamma"]
+                == ["beta", "alpha", "gamma"]
+            page.wait_for_function(
+                "() => document.getElementById('column-hidden').textContent === '1 hidden'",
+                timeout=8000)
             assert not errors, errors
             browser.close()
     finally:
@@ -382,7 +345,7 @@ def test_minimise_takes_it_off_the_glass_and_maximise_opens_it(fleet_home, tmp_p
         server.shutdown()
         server.server_close()
 
-    assert S.desk_state()["arrangement"]["grid"]["hidden"] == ["beta"]
+    assert S.desk_state()["arrangement"]["hidden"] == ["beta"]
 
 
 @pytest.mark.browser
@@ -400,7 +363,7 @@ def test_a_draw_in_the_middle_of_a_drag_does_not_put_the_gesture_down(fleet_home
     """
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
-    S.arrange("column", order=["alpha", "beta", "gamma", "delta"])
+    S.arrange(order=["alpha", "beta", "gamma", "delta"])
 
     server, token, port = _serve()
     try:
@@ -443,7 +406,7 @@ def test_a_band_in_the_column_drags_the_same_way(fleet_home, tmp_path):
     measured down the page rather than across it, because that is the axis the list runs on."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
-    S.arrange("column", order=["alpha", "beta", "gamma", "delta"])
+    S.arrange(order=["alpha", "beta", "gamma", "delta"])
 
     server, token, port = _serve()
     try:
@@ -481,10 +444,14 @@ def test_a_band_in_the_column_drags_the_same_way(fleet_home, tmp_path):
 def test_no_control_in_the_head_is_clipped_however_narrow_the_tile(fleet_home, tmp_path):
     """The head is a title bar with seven things on it and `overflow: hidden` to stop them lying
     over the neighbouring tile. Clipping is the right answer for a *name*; for a button it is a
-    control the operator can see the edge of and never press."""
+    control the operator can see the edge of and never press.
+
+    Three open tiles across 1140px is the narrowest the glass draws them: two pinned beside the
+    open one, split evenly, which is what the grid's 360px tracks were before it went (#232)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "rdsd-pbi-reporting", "backlog-health", "arl-usage")
-    S.arrange("grid", order=["rdsd-pbi-reporting", "backlog-health", "arl-usage"])
+    S.arrange(order=["rdsd-pbi-reporting", "backlog-health", "arl-usage"],
+              pinned=["rdsd-pbi-reporting", "backlog-health"])
 
     server, token, port = _serve()
     try:
@@ -496,6 +463,12 @@ def test_no_control_in_the_head_is_clipped_however_narrow_the_tile(fleet_home, t
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
             page.wait_for_selector(".tile .head .maxtoggle", timeout=15000)
+            page.wait_for_function(
+                "() => document.querySelectorAll('.tile.is-solo').length === 3", timeout=15000)
+            widest = page.evaluate(
+                "() => Math.max(...[...document.querySelectorAll('.tile')]"
+                ".map(t => t.getBoundingClientRect().width))")
+            assert widest < 420, f"the tiles are not narrow, so this proves nothing: {widest}"
 
             # Both axes. `overflow: hidden` clips sideways when a control does not fit on the
             # line, and downwards when the whole row wraps past the head's height -- and the
