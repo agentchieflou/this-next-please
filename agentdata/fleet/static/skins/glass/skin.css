@@ -43,10 +43,17 @@ body[data-skin="glass"] {
   --glass-shadow: rgba(0, 0, 0, 0.35);
   --glass-ink: #E6EDF3;
   --glass-ink-soft: rgba(230, 237, 243, 0.72);
+  --glass-mesh-1: rgba(88, 166, 255, 0.35);
+  --glass-mesh-2: rgba(63, 185, 80, 0.35);
+  --glass-mesh-3: rgba(210, 153, 34, 0.30);
+  /* The three blobs, at the same three places in every variant. Each is its colour at its peak
+     alpha fading to nothing at 70% of its ray -- `transparent` interpolates to the same colour at
+     zero alpha, because a gradient mixes premultiplied. `ink/skins/glass.js` draws the same mesh
+     with ink on, from these same properties and at these same places (its `MESH`). */
   background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(88, 166, 255, 0.35) 0%, rgba(88, 166, 255, 0) 100%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(63, 185, 80, 0.35) 0%, rgba(63, 185, 80, 0) 100%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(210, 153, 34, 0.30) 0%, rgba(210, 153, 34, 0) 100%),
+    radial-gradient(ellipse 60% 55% at 16% 10%, var(--glass-mesh-1) 0%, transparent 70%),
+    radial-gradient(ellipse 55% 50% at 84% 82%, var(--glass-mesh-2) 0%, transparent 70%),
+    radial-gradient(ellipse 45% 40% at 58% 42%, var(--glass-mesh-3) 0%, transparent 70%),
     var(--bg);
   background-attachment: fixed;
 }
@@ -105,30 +112,29 @@ body[data-skin="glass"] .chip.not-supervised { background: var(--muted); color: 
 
    One frost, four grounds. A variant is its mesh -- three blobs, colour and peak alpha, at the
    same three places -- its fill, and the ink written on it. The `rgba()` numbers here are the ones
-   `skins.py` declares; `tests/test_fleet_skins.py` reads them back. */
+   `skins.py` declares; `tests/test_fleet_skins.py` reads them back. The ground itself is painted
+   once, above, from each variant's `--glass-mesh-N`. */
 
 /* smoke: neutral graphite behind the frost — over dark (#14171A); composites #181D24 … #273D57 */
 body[data-skin-variant="smoke"] {
   --glass-fill: rgba(31, 40, 54, 0.36);
   --glass-card: rgba(31, 40, 54, 0.46);
-  background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(88, 166, 255, 0.35) 0%, rgba(88, 166, 255, 0) 100%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(63, 185, 80, 0.35) 0%, rgba(63, 185, 80, 0) 100%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(210, 153, 34, 0.30) 0%, rgba(210, 153, 34, 0) 100%),
-    var(--bg);
-  background-attachment: fixed;
+  --glass-mesh-1: rgba(88, 166, 255, 0.35);
+  --glass-mesh-2: rgba(63, 185, 80, 0.35);
+  --glass-mesh-3: rgba(210, 153, 34, 0.30);
 }
 
 /* azure: cold blue depth, the darkest of the three — over blues (#0B1B33); composites #11213B … #1D3F56 */
 body[data-skin-variant="azure"] {
+  /* The one variant whose warn colour is too light to read the text through at its lightest
+     point (4.29:1): its highlighter is the accent's blue (4.76:1). Glass's inks are declared in
+     skins.py (`inks`) and checked there. */
+  --ink-highlighter: var(--accent);
   --glass-fill: rgba(26, 42, 72, 0.40);
   --glass-card: rgba(26, 42, 72, 0.50);
-  background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(77, 163, 255, 0.30) 0%, rgba(77, 163, 255, 0) 100%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(94, 225, 230, 0.25) 0%, rgba(94, 225, 230, 0) 100%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(63, 185, 80, 0.30) 0%, rgba(63, 185, 80, 0) 100%),
-    var(--bg);
-  background-attachment: fixed;
+  --glass-mesh-1: rgba(77, 163, 255, 0.30);
+  --glass-mesh-2: rgba(94, 225, 230, 0.25);
+  --glass-mesh-3: rgba(63, 185, 80, 0.30);
 }
 
 /* noir: near-black, for a room with the lights off — over vanta-black (#000000): near-white blobs at
@@ -136,12 +142,9 @@ body[data-skin-variant="azure"] {
 body[data-skin-variant="noir"] {
   --glass-fill: rgba(26, 26, 26, 0.40);
   --glass-card: rgba(26, 26, 26, 0.50);
-  background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(230, 230, 230, 0.16) 0%, rgba(230, 230, 230, 0) 100%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(88, 166, 255, 0.18) 0%, rgba(88, 166, 255, 0) 100%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(154, 154, 154, 0.12) 0%, rgba(154, 154, 154, 0) 100%),
-    var(--bg);
-  background-attachment: fixed;
+  --glass-mesh-1: rgba(230, 230, 230, 0.16);
+  --glass-mesh-2: rgba(88, 166, 255, 0.18);
+  --glass-mesh-3: rgba(154, 154, 154, 0.12);
 }
 
 /* frost: the light one: warm paper under the same frost — over eye-relief-day (#F2ECDC); composites
@@ -158,12 +161,9 @@ body[data-skin-variant="frost"] {
   --glass-shadow: rgba(0, 0, 0, 0.12);
   --glass-ink: #2A2620;
   --glass-ink-soft: rgba(42, 38, 32, 0.75);
-  background:
-    radial-gradient(ellipse 60% 55% at 16% 10%, rgba(138, 109, 31, 0.30) 0%, rgba(138, 109, 31, 0) 100%),
-    radial-gradient(ellipse 55% 50% at 84% 82%, rgba(42, 95, 158, 0.25) 0%, rgba(42, 95, 158, 0) 100%),
-    radial-gradient(ellipse 45% 40% at 58% 42%, rgba(42, 115, 62, 0.25) 0%, rgba(42, 115, 62, 0) 100%),
-    var(--bg);
-  background-attachment: fixed;
+  --glass-mesh-1: rgba(138, 109, 31, 0.30);
+  --glass-mesh-2: rgba(42, 95, 158, 0.25);
+  --glass-mesh-3: rgba(42, 115, 62, 0.25);
 }
 
 /* ------------------------------------------------------------------------- the scrollbar (#181)
@@ -183,3 +183,26 @@ body[data-skin="glass"] *::-webkit-scrollbar-thumb {
 body[data-skin="glass"][data-skin-variant="frost"] *::-webkit-scrollbar-thumb {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.10);
 }
+
+/* ---------------------------------------------------------------- ink on: three.js draws it (#254)
+   Where the ink layer draws (`body` without `.ink-off`), the pane's glass is not CSS any more:
+   `ink/skins/glass.js` draws the ground as a lit mesh and every pane as frost over it, with its
+   edge, glint, shadow and a rim for its state. So the pane here is only its box -- transparent,
+   no backdrop filter, no shadow, its edges clear -- and what three.js drew behind it is what the
+   text is read on (the contrast test reads it back from the frame). The left edge keeps its
+   accent: that is which project, drawn by the page, not decoration. The selection ring comes back,
+   which the glass shadow above had been covering.
+
+   Everything above still holds under `body.ink-off`, where the stylesheet is the whole look, and
+   under `prefers-reduced-transparency`, whose opaque panel wins over these. Header, footer, the
+   sidebar and popovers stay CSS glass: their backdrop filter blurs the canvas like anything else. */
+body[data-skin="glass"]:not(.ink-off) .tile {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-top-color: transparent;
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  box-shadow: none;
+}
+body[data-skin="glass"]:not(.ink-off) .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
