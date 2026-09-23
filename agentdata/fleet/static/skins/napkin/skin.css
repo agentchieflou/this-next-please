@@ -1,0 +1,95 @@
+/* Napkin notes (#252, slice F of the ink epic #246): the desk written on a quilted paper napkin.
+
+   The ink layer draws this skin (`static/ink/skins/napkin.js`): the quilted stock, the marks of the
+   paper state grammar, the felt tip bleeding along the emboss and a coffee ring under a pane idle
+   a long time. This file holds what is not drawing: the colours the module reads (a palette colours
+   the inks, a skin chooses the paper), the typography, the panes made transparent so the napkin
+   shows through them, and the look `body.ink-off` falls back to -- the same quilt and the same ring
+   in plain CSS, and the same marks drawn plain by the layer's own fallback.
+
+   The numbers are not chosen by eye. `--paper`, `--paper-seam` and `--coffee` are the numbers
+   `skins.py` declares for each variant; the darkest panel the text is read on is the coffee's rim
+   over a seam, and `tests/test_fleet_napkin.py` reads this file to prove the two say the same
+   thing. Every ink here is checked against both ends by `theme.check` (`inks` in skins.py).
+
+   The handwriting is a local cursive stack: no font is fetched (plan-ink ground rule 3), and a
+   machine with none of these falls back to its own `cursive`. */
+
+/* ----------------------------------------------------------------------- the variants
+   Diner is the default, and `data-skin-variant="diner"` says the same numbers again, so a bare
+   `napkin` in the config and a `napkin:diner` render alike. */
+body[data-skin="napkin"],
+body[data-skin="napkin"][data-skin-variant="diner"] {
+  --paper: #FBF9F4;
+  --paper-seam: #F1EFEA;
+  --coffee: rgba(138, 90, 46, 0.14);
+  --ink-pencil: #5B5E66;
+  --ink-pen: #1E3A8A;
+  --ink-red: #B42318;
+  --ink-green: #256B45;
+  --ink-marker: #B3261E;
+  --ink-highlighter: #F4DC52;
+}
+
+body[data-skin="napkin"][data-skin-variant="kraft"] {
+  --paper: #F2EADA;
+  --paper-seam: #EBE3D3;
+  --coffee: rgba(122, 78, 42, 0.10);
+  --ink-pencil: #57524A;
+  --ink-pen: #243F86;
+  --ink-red: #A3271C;
+  --ink-green: #2A6A3F;
+  --ink-marker: #9E2A1E;
+  --ink-highlighter: #F5D94A;
+}
+
+body[data-skin="napkin"] {
+  --napkin-hand: "Segoe Print", "Bradley Hand", "Comic Neue", "Chalkboard SE", "Comic Sans MS", cursive;
+  /* The quilting: seams 18.4px apart on both diagonals, which is the paper shader's lattice. It is
+     what the page shows before the layer's first frame, and all of it under `ink-off`. */
+  --napkin-quilt:
+    repeating-linear-gradient(45deg, transparent 0 17px, var(--paper-seam) 17px 18.4px),
+    repeating-linear-gradient(-45deg, transparent 0 17px, var(--paper-seam) 17px 18.4px);
+  background-color: var(--paper);
+  background-image: var(--napkin-quilt);
+}
+
+/* The name, the count and the margin note are handwritten; everything else keeps the page's face,
+   so a transcript still reads as one. */
+body[data-skin="napkin"] .tile .head .repo,
+body[data-skin="napkin"] #counts,
+body[data-skin="napkin"] .tile .oldsession {
+  font-family: var(--napkin-hand);
+}
+
+/* ----------------------------------------------------------------------- with ink: the napkin shows
+   The paper is drawn behind the page, so what lies on it is transparent: the bars, the row and the
+   panes. Cards on a pane (the approval, the questions, menus) keep their own ground. */
+body[data-skin="napkin"]:not(.ink-off) header,
+body[data-skin="napkin"]:not(.ink-off) footer,
+body[data-skin="napkin"]:not(.ink-off) main,
+body[data-skin="napkin"]:not(.ink-off) .tile {
+  background: transparent;
+}
+
+/* ----------------------------------------------------------------------- without ink: the same napkin
+   `body.ink-off` is every shell the gate did not turn on (plan-ink Decision 3). The layer draws the
+   marks plain; the stock and the ring are drawn here. */
+body[data-skin="napkin"].ink-off header,
+body[data-skin="napkin"].ink-off footer {
+  background: var(--paper);
+}
+
+body[data-skin="napkin"].ink-off .tile {
+  background-color: var(--paper);
+  background-image: var(--napkin-quilt);
+}
+
+/* A pane idle a long time (idle, and its chip a day old) has a cup's ring under it, the same
+   colour and the same rim the shader draws. */
+body[data-skin="napkin"].ink-off .tile.state-idle:has(.chip.stale) {
+  background-image:
+    radial-gradient(circle at calc(100% - 34px) calc(100% - 30px),
+                    transparent 0 27px, var(--coffee) 28px 30px, transparent 31px),
+    var(--napkin-quilt);
+}

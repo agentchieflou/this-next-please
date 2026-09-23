@@ -98,6 +98,31 @@ SKINS = {
                       "why": "a wet afternoon indoors"},
         },
     },
+    # #252: drawn by the ink layer (`static/ink/skins/napkin.js`). The text is read on the quilted
+    # stock, which is never darker than its `seam`, and on a coffee ring's rim at the coffee's alpha
+    # over that seam -- so the panel is a pair, `composited_range`-style: the ring over the seam at
+    # the dark end, the paper at the light one. `tests/test_fleet_napkin.py` recomputes the pair and
+    # reads skin.css back, so declared and drawn are one number. `inks` are the ones skin.css sets.
+    "napkin": {
+        "name": "napkin",
+        "title": "Napkin notes",
+        "why": "quilted two-ply napkin, a felt tip that bleeds along the emboss, and a coffee ring",
+        "default": "diner",
+        "variants": {
+            "diner": {"title": "Diner", "base": "eye-relief-day",
+                      "paper": "#FBF9F4", "seam": "#F1EFEA", "coffee": ("#8A5A2E", 0.14),
+                      "composited_panel": {"darkest": "#E3DAD0", "lightest": "#FBF9F4"},
+                      "inks": {"pencil": "#5B5E66", "pen": "#1E3A8A", "red": "#B42318",
+                               "green": "#256B45", "marker": "#B3261E", "highlighter": "#F4DC52"},
+                      "why": "a white napkin from the counter, and a blue ballpoint"},
+            "kraft": {"title": "Kraft", "base": "sand",
+                      "paper": "#F2EADA", "seam": "#EBE3D3", "coffee": ("#7A4E2A", 0.10),
+                      "composited_panel": {"darkest": "#E0D4C2", "lightest": "#F2EADA"},
+                      "inks": {"pencil": "#57524A", "pen": "#243F86", "red": "#A3271C",
+                               "green": "#2A6A3F", "marker": "#9E2A1E", "highlighter": "#F5D94A"},
+                      "why": "an unbleached napkin, for a warmer page"},
+        },
+    },
 }
 
 
