@@ -65,10 +65,10 @@ test can check that every panel the inventory lists carries it.
 
 ## One door for anything that moves things
 
-`transitionLayout(fn)` in `app.js`. Opening a band and going back go through it — one place that
-decides how a layout change looks. (The grid's zoom in and out were two more, and went with the
-grid in #232; hiding, showing and reordering are rearrangements, which are FLIP through
-`transitionMove`, #219.)
+`transitionLayout(fn)` in `app.js`. Opening a pane (the swap with a rail, #233) and going back go
+through it — one place that decides how a layout change looks. (The grid's zoom in and out were two
+more, and went with the grid in #232; hiding, showing and reordering are rearrangements, which are
+FLIP through `transitionMove`, #219.)
 
 1. **Reduced motion** takes neither path. The change is applied and that is the end of it.
 2. **`document.startViewTransition(fn)`** where the engine has it. The browser holds the last frame,
@@ -134,7 +134,7 @@ stylesheet says the same thing for a transition begun from anywhere else.
   nothing at all under `prefers-reduced-motion: reduce`; hiding it leaves the panel painted on the
   next frame rather than gone before it could be seen going;
 * with `startViewTransition` deleted, the same gesture runs FLIP and the page lands identically —
-  same open tile, same bands, and every `view-transition-name` cleared;
+  same open pane, same rails, and every `view-transition-name` cleared;
 * a swap of five tiles at 1080p records **no `longtask`** and hands the main thread back inside
   50 ms.
 
