@@ -24,6 +24,10 @@ var arrivedSinceLastPlace = false;   // a pane was made since the order was last
 var RETIRED_PARAMS = ["layout", "view", "screen"];
 var ignoredParams = RETIRED_PARAMS.filter(function (k) { return PARAMS.has(k); });
 var W_NAME = PARAMS.get("w") || "main";
+/* The anchor this page was OPENED with -- a toast's `#tile=luna` -- read before anything on it can
+   write one of its own: opening an agent marks the address with `replaceState`, which is the same
+   string the page would otherwise take for a toast's (#234). */
+var BOOT_HASH = location.hash || "";
 
 var desk = { projects: {}, offers: {}, unsorted: [], not_offered: [], folders: [],
              desk: { selected: "" } };
@@ -1818,7 +1822,13 @@ refresh().then(function () {
   // The anchor is answered *after* the desk, not beside it: whether a tile is hidden is the
   // server's arrangement, and a `#tile=` that lands before that has loaded reads every tile as on
   // the glass -- so the one thing it was asked to do, reopen a tile that is not, it did not (#173).
-  loadDesk().then(followHash);
+  //
+  // And only the anchor the page was opened with, and only if nothing has moved it since. The desk
+  // read is the slow one -- a catalogue, a Downloads scandir -- and a pane pressed before it answers
+  // marks the address itself: followed then, it opened that agent a second time through
+  // `openAgent`, whose `drawer(false)` shut the sidebar the operator had opened meanwhile and wrote
+  // `section`, `open` and `read` again (#234, three extra writes on the Windows leg).
+  loadDesk().then(function () { if (BOOT_HASH && location.hash === BOOT_HASH) followHash(); });
 });
 
 // The desk half is answered on its own, slower clock: a catalogue read, a Downloads scandir and a
@@ -4323,7 +4333,15 @@ function bindGutter(gutter, el) {
       held.a = a;
       if (!held.frame) held.frame = requestAnimationFrame(paintHeld);
     };
-    var onUp = function () {
+    var onUp = function (ev) {
+      // Where the hand came up, which is not always where the last move said it was: an engine
+      // that coalesces moves to the frame can deliver the release before the move that got there,
+      // and the width then lands one step short of the pointer (Windows CI on #270: 45.8px of a
+      // 50px drag, eleven of its twelve steps). The release carries the position; it is the one
+      // that counts.
+      if (ev && typeof ev.clientX === "number") {
+        held.a = snapPair(held.a0 + (ev.clientX - held.x), held.total);
+      }
       finish();
       if (Math.abs(held.a - held.a0) < 0.5) { place(); return; }   // a press is not a resize
       // The release's `click` lands on whatever the hand ended over once the capture is gone --

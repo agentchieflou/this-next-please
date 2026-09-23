@@ -321,7 +321,9 @@ column's foot that answered it next went with the column (#233), and the row ans
 `#tile=<repo>` — the anchor the Windows toasts and both IDE shells use — **reopens** a hidden tile
 rather than quietly doing nothing, and the footer says it did. An anchor naming a repository with no
 tile now says *no tile for 'x' — is it still registered?*; it used to do nothing at all, which read
-as the dashboard having hung.
+as the dashboard having hung. An anchor a page was opened with is answered once the desk has loaded,
+and only if nothing on the page has moved it meanwhile: opening an agent writes `#tile=` itself, and
+following the page's own mark reopened that agent and shut the sidebar (#234).
 
 ### Sessions the fleet did not start
 
