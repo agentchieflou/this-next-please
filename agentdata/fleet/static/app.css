@@ -294,8 +294,8 @@ body {
 
    The operator's sentence: *each agent is a column, not each agent is stacked in one column --
    skinnier agents.* So every agent is a pane in one row, at full height, in the arrangement's
-   order. The open ones (the window's `open` and every pin) share what the rails leave, each by its
-   weight, and every other one is a rail. Nothing here scrolls sideways in the ordinary case: a desk
+   order. The wide ones share what the rails leave, each by its weight in this window's widths
+   (#234; a window with none yet widens its open pane and its pins), and every other one is a rail. Nothing here scrolls sideways in the ordinary case: a desk
    that scrolls hides the agent that needs you, so when even the rails cannot fit, a project's
    checkouts share one rail (`groupRails` in app.js) before the row is ever allowed to scroll.
 
@@ -317,12 +317,14 @@ main {
    "this needs you" on the next. #150 fixed the roles, and the accent is the hex that project's
    terminal is painted in.
 
-   Every pane is a rail until it is open: 48px, which is a 28pt hit target and its padding. An
-   open pane takes `--cols` shares of the width the rails leave -- the footprint #217 wrote, which
-   is the weight until the gutters replace it (#234) -- and never goes under the compact tier's
-   160px. The width is decided HERE and nowhere else; what the pane draws is decided by the width
+   Every pane is a rail until it has a width: 48px, which is a 28pt hit target and its padding. A
+   wide pane (`is-solo`) takes `--w` shares of the width the rails leave -- its weight in this
+   window's widths (#234), which the gutters, the presets and the swap write -- and never goes under
+   the compact tier's 160px. `flex-basis: 0` and `border-box` make a pane's width exactly its share
+   of the row, which is what lets a gutter move two panes and leave every other one to the pixel.
+   The width is decided HERE and nowhere else; what the pane draws is decided by the width
    (`data-tier`), never the other way round, or a tier that changed the width would change the
-   tier. `position: relative` is what the drop line hangs from. */
+   tier. `position: relative` is what the drop line and the gutter hang from. */
 .tile {
   --rail: 48px;
   flex: 0 0 var(--rail); min-width: 0; min-height: 0;
@@ -331,7 +333,7 @@ main {
   background: var(--panel); border: 1px solid var(--line);
   border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 10px;
 }
-.tile.is-solo { flex: var(--cols, 1) 1 0; min-width: 160px; }
+.tile.is-solo { flex: var(--w, 1) 1 0; min-width: 160px; }
 /* The selection is one, unmistakable, and never in a state colour (HIG *Focus and selection*). */
 .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
 
@@ -779,37 +781,14 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 #refused summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 #refusedrows { margin: 0; padding: 0; list-style: none; font: 11px var(--mono); }
 
-/* ------------------------------------------------------------------ focus mode (#133) */
+/* ------------------------------------------------------------ who needs you (#133, #234)
 
-#focus[aria-pressed="true"] { border-color: var(--human); color: var(--human); font-weight: 600; }
+   The name of an agent that needs a person is in the status red wherever it is written. What used
+   to sit here was focus mode's -- a filter that dimmed every rail whose agent wanted nothing, and
+   `.held` to keep the one just answered from dimming under the reply. The *needs me* preset
+   replaced it (#234): a press that makes whoever needs you wide and the rest rails, and takes
+   nothing back when one of them stops needing you, so there is nothing left to hold. */
 .tile.needs-human .head .repo { color: var(--human); }
-
-/* Focus mode never hides a pane: the open one is the window, and hiding it because it does not
-   happen to need a person would leave an empty monitor. What the mode quiets is the rails: a rail
-   whose agent wants nothing dims, keeping its name, its slot and its click (#233, below), so the
-   red ones are what the eye lands on.
-
-   `.held` is what makes focus mode usable. Answering an agent stops it needing you, so without
-   it the rail just replied to would dim *because of that reply* -- the action's only visible
-   outcome being the disappearance of the thing acted on, which reads as data loss (HIG
-   *Feedback*). An agent the operator acted on is held until they leave or release it. */
-
-/* Held, and saying so. Dimmed rather than hidden: it is no longer a demand on the operator, but it
-   is still theirs to watch. A held tile that has gone back to needing somebody is not dimmed and
-   does not carry the note -- it is on screen on its own merit again, and "held because you replied"
-   over a fresh question would be taking the credit for it. */
-body.needs-only .tile.held:not(.needs-human) { opacity: 0.82; }
-body.needs-only .tile.held:not(.needs-human) .head .repo { color: var(--text); }
-.holdnote {
-  display: none;
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--muted);
-  align-items: center;
-  gap: 8px;
-}
-body.needs-only .tile.held:not(.needs-human) .holdnote { display: flex; }
-.holdnote button { font-size: 11px; padding: 1px 8px; }
 
 /* A session the fleet did not start (#2). An offer, not an alarm: nothing is wrong, the fleet has
    simply noticed something it does not own. Once adopted the same strip stays, saying so, because
@@ -828,9 +807,9 @@ body.needs-only .tile.held:not(.needs-human) .holdnote { display: flex; }
 /* ------------------------------------------------------------ the pane's three widths (#233)
 
    One component, three widths. What a pane draws is decided by how wide it is, and the width by
-   the arrangement (above) -- `data-tier` is the one bridge, written by one `ResizeObserver` with
-   8px of hysteresis so a pane on a boundary does not flicker. The draw functions skip what a tier
-   does not show; the rules below take the rest off the glass.
+   the widths (above) -- `data-tier` is the one bridge, written by one `ResizeObserver` with 8px of
+   hysteresis between compact and full so a pane on that boundary does not flicker. The draw
+   functions skip what a tier does not show; the rules below take the rest off the glass.
 
    rail     48px      the rail's face and nothing else
    compact  160-359   the head (name, state chip with its age, ticket), the three tools, the cards
@@ -842,8 +821,9 @@ body.needs-only .tile.held:not(.needs-human) .holdnote { display: flex; }
 .tile[data-tier="rail"] { padding: 0; }
 /* `!important` for the same reason `[hidden]` has it: a rail shows its face and nothing else, and
    a state rule elsewhere that sets `display` on a part of the pane must not put it back inside a
-   48px strip (the hold note in focus mode is one). */
-.tile[data-tier="rail"] > :not(.pane-rail) { display: none !important; }
+   48px strip (the hold note focus mode had was one). Its face -- and its gutter, which is how a
+   rail is pulled wide by hand (#234). */
+.tile[data-tier="rail"] > :not(.pane-rail):not(.gutter) { display: none !important; }
 .tile[data-tier="rail"] > .pane-rail { display: flex; }
 .pane-rail {
   flex: 1 1 auto; flex-direction: column; align-items: center; justify-content: flex-start;
@@ -905,11 +885,26 @@ body.needs-only .tile.held:not(.needs-human) .holdnote { display: flex; }
    grouped into its project's rail is on the glass as that rail. */
 .tile.is-hidden, .tile.is-grouped { display: none; }
 
-/* *needs me*: a quiet rail dims rather than leaving. It keeps its name, its slot and its click, so
-   the mode narrows what the eye lands on instead of emptying the row -- a pane that vanished would
-   be "where did it go" again. */
-body.needs-only .tile.is-quiet { opacity: .45; }
-body.needs-only .tile.is-quiet:hover, body.needs-only .tile.is-quiet:focus-within { opacity: 1; }
+/* ------------------------------------------------------------------------ the gutters (#234)
+
+   A 1px line between two panes, in the middle of the row's 6px gap, and an 8px strip to take hold
+   of it by: the gap and the two pixels of the pane's own edge beside it, so it costs the row no
+   width. (Not the neighbour's edge: a pane is a stacking context -- `container-type` contains its
+   layout -- so the pane after it paints over anything this one hangs across it, and a strip that
+   reached in would lose that part to it.) It is the pane's own last child -- the pane on its left
+   owns it, which is what `Alt+Shift+←/→` on that pane moves -- and a rail keeps it, because a rail
+   can be pulled wide by it. The line lights under the hand, and while the hand has it the whole
+   page says `col-resize`, because the pointer leaves an 8px strip on the first pixel of travel. */
+.gutter {
+  position: absolute; top: 0; bottom: 0; right: -7px; width: 8px; z-index: 2;
+  cursor: col-resize; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.gutter::before {
+  content: ""; position: absolute; top: 6px; bottom: 6px; left: 4px; width: 1px;
+  background: var(--line); pointer-events: none;
+}
+.gutter:hover::before, .gutter.is-held::before { background: var(--focus, var(--accent)); width: 2px; }
+body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-select: none; }
 
 /* A repository that left the registry: a dashed rail after the row, naming what restores it. */
 .gone {
@@ -922,8 +917,9 @@ body.needs-only .tile.is-quiet:hover, body.needs-only .tile.is-quiet:focus-withi
 }
 .gone-rail .pr-glyph { background: var(--muted); }
 
-/* The footer's count of what is put away, and the one press that brings it all back. */
-.hiddencount {
+/* The footer's count of what is put away, and the one press that brings it all back -- and beside
+   it, the one press that takes the last change of widths back (#234). */
+.hiddencount, .undo {
   min-height: 24px; padding: 1px 8px; font: 11px var(--mono);
   background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 4px;
 }

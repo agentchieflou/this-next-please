@@ -15,6 +15,22 @@
 
   <span class="spacer"></span>
 
+  <!-- #234: the widths, in three presses, where the arrangement picker was. Presses, not modes:
+       each is one write of this window's widths, and the footer's undo puts it back. `needs me`
+       widens every agent that needs a person and makes the rest rails -- it replaces the needs-only
+       filter and hides nothing. -->
+  <div class="toolbar-group group-widths">
+    <span class="glabel">widths</span>
+    <div class="segmented presets" role="group" aria-label="widths">
+      <button type="button" class="segment" id="preset-one" data-preset="one"
+              title="one: the pane the keys are on wide, every other a rail (1)">one <kbd>1</kbd></button>
+      <button type="button" class="segment" id="preset-all" data-preset="all"
+              title="all: every pane on the glass an even share (=)">all <kbd>=</kbd></button>
+      <button type="button" class="segment" id="preset-needs" data-preset="needs"
+              title="needs me: every agent that needs you wide, the rest rails — nothing is hidden (f)">needs me <kbd>f</kbd></button>
+    </div>
+  </div>
+
   <div class="toolbar-group group-view">
     <span class="glabel">see</span>
     <label for="find" class="sr">search every project</label>
@@ -31,8 +47,7 @@
   <span class="spacer"></span>
 
   <div class="toolbar-group group-actions">
-    <span class="glabel">needs me</span>
-    <button id="focus" aria-pressed="false" title="show only the agents that need you"><kbd>f</kbd> focus</button>
+    <span class="glabel">alerts</span>
     <button id="chime" aria-pressed="false" title="sound on a notification">chime off</button>
     <button id="bell" title="notifications"><span id="bellcount">0</span> new</button>
   </div>
@@ -186,7 +201,6 @@
 <p id="empty" hidden>
   No repositories registered. Run <code>ad-fleet repo add --scan &lt;folder&gt;</code>, then reload.
 </p>
-<p id="nonefocus" hidden>Nothing needs you. Press <kbd>f</kbd> for every agent.</p>
 
 <footer>
   <span id="counts"></span>
@@ -195,27 +209,35 @@
        to its own slot. An agent that needs a person is never counted here: it is on the glass. -->
   <button type="button" id="hiddencount" class="hiddencount" hidden title="bring them back — each to the slot it had"></button>
   <span id="notice" class="notice enters" hidden></span>
+  <!-- #234: the last change of widths -- a drag, a preset, an even split -- put back in one press
+       (`u`), for twelve seconds after it. One more write, through the same door. -->
+  <button type="button" id="undo" class="undo enters" hidden title="put the widths back as they were (u)"></button>
   <span class="spacer"></span>
   <!-- #180: the key map behind `?`; `.keys` stays on the container for the skins' `footer .keys`. -->
   <button id="keysbtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="keymap" title="every key (?)"><kbd>?</kbd> keys</button>
   <div id="keymap" class="popover popover-up keys" role="dialog" aria-label="the keys" hidden>
     <div class="keys-group"><strong>the row</strong>
-      <span><kbd>j</kbd> <kbd>k</kbd> along the panes</span>
+      <span><kbd>←</kbd> <kbd>→</kbd> or <kbd>j</kbd> <kbd>k</kbd> along the panes</span>
       <span><kbd>Enter</kbd> open the rail you are on</span>
+      <span><kbd>Shift</kbd>+<kbd>Enter</kbd> open it beside</span>
+      <span><kbd>2</kbd>–<kbd>9</kbd> open that pane</span>
       <span><kbd>Esc</kbd> back to the last one</span>
     </div>
+    <div class="keys-group"><strong>widths</strong>
+      <span><kbd>1</kbd> one wide, the rest rails</span>
+      <span><kbd>=</kbd> all even</span>
+      <span><kbd>f</kbd> needs me wide</span>
+      <span><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> move the gutter on its right</span>
+      <span><kbd>Alt</kbd>+<kbd>Enter</kbd> even it with the next</span>
+      <span><kbd>u</kbd> undo the last</span>
+    </div>
     <div class="keys-group"><strong>panes</strong>
-      <span><kbd>1</kbd>–<kbd>9</kbd> open</span>
-      <span><kbd>f</kbd> only what needs you</span>
       <span><kbd>a</kbd> approve</span>
       <span><kbd>h</kbd> hide</span>
       <span><kbd>r</kbd> re-read it now</span>
       <span><kbd>m</kbd> which model it runs</span>
       <span><kbd>Alt</kbd>+<kbd>←</kbd><kbd>→</kbd> move tile</span>
-      <span><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> narrower / wider</span>
-      <span><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd> shorter / taller</span>
       <span><kbd>Alt</kbd>+<kbd>Home</kbd> pin</span>
-      <span><kbd>Alt</kbd>+<kbd>Enter</kbd> width</span>
     </div>
     <div class="keys-group"><strong>sessions</strong>
       <span><kbd>Alt</kbd>+<kbd>[</kbd><kbd>]</kbd> along the strip</span>
@@ -282,7 +304,7 @@
       <span class="pr-name"></span>
       <span class="pr-badge" hidden></span>
     </button>
-    <div class="head" title="drag to reorder — Alt+←/→ without a mouse; Alt+Shift+arrows to resize">
+    <div class="head" title="drag to reorder — Alt+←/→ without a mouse; Alt+Shift+←/→ moves the gutter on the right">
       <span class="grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span class="n"></span>
       <strong class="repo"></strong>
@@ -313,7 +335,7 @@
       <!-- #217: the head is a title bar, so it carries what a title bar carries and nothing
            more. Minimise is the hide button above -- the same gesture the desk always had, under
            the name everybody already knows -- and maximise takes the width toggle's place, since
-           Alt+Shift+arrows do that job with more than two answers. Adding buttons to a head that
+           the gutters (#234) do that job with more than two answers. Adding buttons to a head that
            was already crowded is the information overload this epic is supposed to be removing. -->
       <button class="maxtoggle" type="button" title="maximise — open this one (Enter)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"></path></svg>
@@ -363,8 +385,6 @@
         </ul>
       </div>
     </div>
-    <!-- Why this tile is still on screen in focus mode after it stopped needing you. -->
-    <p class="holdnote"><span class="holdwhy"></span><button type="button" class="release">let it go</button></p>
     <!-- A session running in this checkout that the fleet did not start (#2). -->
     <p class="outside" hidden><span class="outsidewhy"></span><button type="button" class="adopt"></button></p>
     <p class="why"></p>
@@ -464,6 +484,12 @@
       <button class="stop">Stop</button>
     </div>
     <p class="err" hidden></p>
+    <!-- #234: the gutter on this pane's right, between it and the next pane on the glass: a 1px
+         line with an 8px hit area laid over the edge, so it costs no width. Dragged, it moves width
+         between those two panes and nothing else; twice clicked, it evens them out. `place()` shows
+         it on every pane but the last. Not a tab stop: `Alt+Shift+←/→` on the pane is its key. -->
+    <div class="gutter" role="separator" aria-orientation="vertical" hidden
+         title="drag: share the width between these two — double-click: even them out (Alt+Shift+←/→, Alt+Enter)"></div>
   </section>
 </template>
 
