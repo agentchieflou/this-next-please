@@ -889,6 +889,10 @@ function drawTile(el, row, approvals) {
   // comes from #94's fold rather than from anything this page works out for itself: the chip, the
   // toast and the preset must agree.
   toggle(el, "needs-human", !!row.needs_human);
+  // Finished, in the fold's own word (#253). The chip cannot say it: the fold calls an agent done
+  // only once nothing supervises it, and `shownState` draws every quiet unsupervised agent as
+  // idle. So a paper skin's green check has this to key on, and it is the fold's, not the page's.
+  toggle(el, "is-done", row.state === "done");
   // A rail's one stop for the keyboard is its face; the pane around it is not a second one.
   tabbable(el, shows.wide ? 0 : -1);
   // Every state carries its own age, in the chip, because a verdict with no date is the bug.
