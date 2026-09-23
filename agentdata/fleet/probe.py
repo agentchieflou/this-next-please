@@ -17,6 +17,11 @@ Render Driver all answer `getContext("webgl2")` and draw correctly -- at five to
 A desk drawn at that rate is worse than the plain one, so they count as *falls back*, the same as
 no WebGL at all. The rule for the rest of the epic follows from it: **only a shell whose probe says
 `hardware` gets the ink layer; every other answer gets the plain fallback.**
+
+**The table's other rows ride along (#235).** Each is one yes or no -- does this shell have
+`ResizeObserver`, container queries, pointer capture, and the rest -- which the page asks in the
+same moment it asks for a context, and which used to be pasted out of a dev console by hand. They
+are facts as well: `feature_cell()` turns one into the table's cell when it is read.
 """
 from __future__ import annotations
 import json
@@ -69,6 +74,21 @@ RULE = "hardware WebGL works; a software renderer or no WebGL gets the plain fal
 #: never replaces a measurement that did finish.
 CLASSES = ("hardware", "software", "none", "unknown", "incomplete")
 CONTEXTS = ("webgl2", "webgl1", "none")
+
+#: The rows of `docs/desk-engines.md` that are one yes or no each, as the probe page asks them
+#: (#235), and the cell a shell that answered *no* gets: what the desk does instead, in the table's
+#: own vocabulary. A test holds these to the table's rows and to `tests/test_fleet_engines.py`,
+#: which asks the same questions of CI's Chromium.
+FEATURES = {
+    "@starting-style": "falls back — a panel appears without fading in",
+    "transition-behavior: allow-discrete": "falls back — a panel leaves at once",
+    "startViewTransition": "falls back — FLIP",
+    "linear() easing": "falls back — the cubic-bezier",
+    "pointer capture": "falls back — the drag is heard on the document",
+    "ResizeObserver": "falls back — tiers measured after each layout pass",
+    "container queries": "falls back — the head wraps",
+    "OffscreenCanvas": "n/a — not used",
+}
 
 #: A shell's name is the `w=` a desk window already carries (`pycharm`, `vscode`) or the `shell=`
 #: the CLI put on the URL. It is a key in a file, so it is a short lower-case word and nothing else.
@@ -192,6 +212,14 @@ def shell_name(value) -> str:
     return name
 
 
+def _features(raw) -> dict[str, bool]:
+    """The rows the page answered, yes or no. A name this module does not know, or an answer that
+    is not a boolean, is left out rather than guessed at: a missing row reads *not yet measured*."""
+    if not isinstance(raw, dict):
+        return {}
+    return {name: raw[name] for name in FEATURES if isinstance(raw.get(name), bool)}
+
+
 def normalize(body: dict) -> dict:
     """The record to keep, from what the page posted. Refuses a shape it cannot read.
 
@@ -229,6 +257,7 @@ def normalize(body: dict) -> dict:
         "drawn": body.get("drawn") is True,
         "hidden": body.get("hidden") is True,
         "error": _text(body.get("error")),
+        "features": _features(body.get("features")),
     }
 
 
@@ -288,7 +317,7 @@ def record(body: dict) -> dict:
         textio.write_json(probes_file(), {"schema": SCHEMA, "probes": probes, "attempts": tries})
     out = {"shell": rec["shell"], "record": rec, "class": cls, "verdict": verdict(rec),
            "software": software_name(rec["renderer"]), "file": textio.norm_path(probes_file()),
-           "kept": kept}
+           "kept": kept, "features": {name: feature_cell(rec, name) for name in FEATURES}}
     if kept:
         out["kept_at"] = old.get("at", "")
         out["kept_verdict"] = verdict(old)
@@ -339,3 +368,33 @@ def engine_rows(probes: dict[str, dict] | None = None) -> list[list]:
                      rec.get("renderer", ""), rec.get("p50_ms"), rec.get("p95_ms"),
                      rec.get("first_stroke_ms"), rec.get("at", ""), rec.get("error", "")])
     return rows
+
+
+# ------------------------------------------------------------------------ the feature rows (#235)
+
+
+def feature_cell(record: dict | None, name: str) -> str:
+    """The cell of `docs/desk-engines.md` for one feature row, from one shell's record."""
+    got = (record or {}).get("features") or {}
+    if not isinstance(got, dict) or not isinstance(got.get(name), bool):
+        return "not yet measured"
+    return "works" if got[name] else FEATURES[name]
+
+
+def feature_rows(probes: dict[str, dict] | None = None,
+                 tries: dict[str, dict] | None = None) -> tuple[list[str], list[list]]:
+    """The table's feature rows, laid out as the table is: one line per row, one column per shell --
+    the four it names whether or not they have answered, then any other that has.
+
+    From each shell's newest post, finished or not. Whether a shell has `ResizeObserver` does not
+    depend on whether its WebGL scene finished drawing, so the attempt a hidden window left is as
+    good an answer here as the record it did not replace.
+    """
+    probes = load() if probes is None else probes
+    tries = attempts() if tries is None else tries
+    seen = {**probes, **tries}
+    shells = [s for s in _order(seen) if s in COLUMNS or (seen.get(s) or {}).get("features")]
+    newest = {s: tries.get(s) if (tries.get(s) or {}).get("features") else probes.get(s)
+              for s in shells}
+    rows = [[name] + [feature_cell(newest.get(s), name) for s in shells] for name in FEATURES]
+    return ["feature"] + shells, rows

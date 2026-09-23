@@ -133,7 +133,7 @@ def test_the_record_keeps_facts_in_one_shape():
     rec = PR.normalize(facts())
     assert set(rec) == {"shell", "at", "ua", "webgl", "renderer", "vendor", "caveat", "three",
                         "frames", "p50_ms", "p95_ms", "first_stroke_ms", "load_ms", "drawn",
-                        "hidden", "error"}
+                        "hidden", "error", "features"}
     assert rec["shell"] == "pycharm" and rec["webgl"] == "webgl2" and rec["renderer"] == INTEL
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d", rec["at"]), rec["at"]
     # The intervals are reduced once, here, and not kept: every reader agrees on the arithmetic.
@@ -150,6 +150,26 @@ def test_percentiles_are_nearest_rank_and_ignore_what_is_not_a_frame():
     assert PR.percentile([7.0], 95) == 7.0
     rec = PR.normalize(facts(intervals=[16.7, "x", None, -3, float("inf"), 1e9, 20.0]))
     assert rec["frames"] == 2 and rec["p95_ms"] == 20.0
+
+
+def test_the_feature_rows_are_kept_as_answers_and_nothing_else():
+    """#235: the table's other rows ride along with the scene. What is kept is a yes or no per row
+    the table has; a row nobody asked about, or an answer that is not a boolean, is left out and
+    reads *not yet measured* rather than being guessed at."""
+    rec = PR.normalize(facts(features={"ResizeObserver": True, "pointer capture": False,
+                                       "container queries": "yes", "WebGL": True,
+                                       "document.write": True}))
+    assert rec["features"] == {"ResizeObserver": True, "pointer capture": False}
+    assert PR.feature_cell(rec, "ResizeObserver") == "works"
+    assert PR.feature_cell(rec, "pointer capture") == PR.FEATURES["pointer capture"]
+    assert PR.feature_cell(rec, "container queries") == "not yet measured"
+    assert PR.feature_cell(None, "ResizeObserver") == "not yet measured"
+    # A record from before #235 has no answers at all, and says so.
+    assert PR.normalize(facts())["features"] == {}
+    assert PR.normalize(facts(features="all of them"))["features"] == {}
+    for name in PR.FEATURES:
+        assert PR.feature_cell(rec, name).startswith(("works", "falls back — ", "n/a — not used",
+                                                      "not yet measured")), name
 
 
 def test_a_probe_the_desk_cannot_read_is_refused_by_name():
@@ -370,10 +390,38 @@ def test_ad_fleet_engines_reads_the_file(fleet_home):
     assert rows["browser"]["webgl"] == "falls back — no WebGL"
 
 
+def test_ad_fleet_engines_lays_the_feature_rows_out_as_the_table_does(fleet_home):
+    """One line per row and one column per shell, so the laptop's paste fills the table as it
+    stands (#235). A shell's answers come from its newest post, finished or not: a window hidden
+    while it drew still said which features it has."""
+    every = {name: True for name in PR.FEATURES}
+    PR.record(facts(shell="pycharm", features=dict(every, ResizeObserver=False)))
+    PR.record(facts(shell="edge", features=every))
+    # Edge's next probe is hidden a second in: it does not replace the finished record, and its
+    # answers -- no container queries, this time -- are still the newest Edge gave.
+    PR.record(facts(shell="edge", hidden=True, drawn=False, intervals=[],
+                    features=dict(every, **{"container queries": False})))
+    PR.record(facts(shell="browser", features=every))
+    rc, out = cli("engines")
+    assert rc == 0 and "features_measured: 3" in out, out
+    rows = {r["feature"]: r for r in table(out, "features")}
+    assert list(rows) == list(PR.FEATURES)
+    assert list(rows["ResizeObserver"]) == ["feature", "chromium", "edge", "pycharm", "vscode",
+                                            "browser"]
+    assert rows["ResizeObserver"]["pycharm"] == PR.FEATURES["ResizeObserver"]
+    assert rows["ResizeObserver"]["edge"] == "works"
+    assert rows["container queries"]["edge"] == PR.FEATURES["container queries"]
+    assert rows["pointer capture"]["vscode"] == rows["pointer capture"]["chromium"] == \
+        "not yet measured"
+    assert rows["OffscreenCanvas"]["browser"] == "works"
+
+
 def test_ad_fleet_engines_with_nothing_measured_says_so(fleet_home):
     rc, out = cli("engines")
-    assert rc == 0 and "measured: 0" in out
+    assert rc == 0 and "measured: 0" in out and "features_measured: 0" in out
     assert {r["webgl"] for r in table(out, "engines")} == {"not yet measured"}
+    assert {cell for r in table(out, "features") for k, cell in r.items() if k != "feature"} == \
+        {"not yet measured"}
 
 
 def test_ad_fleet_probe_lists_the_facts_and_the_class(fleet_home):
