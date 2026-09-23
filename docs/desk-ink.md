@@ -319,7 +319,7 @@ class or an attribute the page already sets; the skin decides no state.
 | needs you | `.tile.needs-human .head .repo` → highlighter; the open question's `.ask-q` → highlighter; each `.ask-choice` → pencil loop | `needs-human` (#94's fold), the question card (#165) |
 | answered | the chosen `.ask-choice[aria-pressed="true"]` → pen ellipse. The question's highlight and the choices' loops leave: the highlight is struck in pen along its swipe (the question struck, never the name, whose highlight stays), and the loops are erased | `aria-pressed`, which the page sets when a choice is pressed; the question rows carry `:not(:has(… [aria-pressed="true"]))` |
 | error | `.tile.state-error` → marker loop inside the pane, and a red bang in its margin | `drawTile` |
-| done | `.tile.state-done` → green check in the margin | `drawTile` (see below) |
+| done | `.tile:is(.state-done, .is-done)` → green check in the margin | `drawTile`: `is-done` is the fold's own word (#253) |
 | stale (#240) | `.oldsession:not([hidden])` → pencil `write` (its own words, handwritten), a dashed pencil outline round it, and a pencil arrow to `.runline` | `drawOldSession` |
 | a finding | `.transcript li.denied` or `li.friction` → red ellipse; its `.k` → highlighter; its `.v` → pencil `write` | the transcript's own line classes (`appendTo`) |
 | the header count | `#bellcount` → pen `write`; a change is struck and rewritten by the module (below) | `bell()` |
@@ -336,9 +336,10 @@ Decisions the table carries, each undone by a sentence:
   where the chip is. The DOM keeps every word, so the grammar's *stale — renew?* is the page's
   sentence rather than one the skin makes up. The arrow points at the run line, which says which
   session and run the transcript is.
-* **Done is reachable only when app.js sets it.** On today's desk a pane the fleet does not
-  supervise reads as idle and a supervised one as running, so `state-done` is rare. The row is
-  there for when the page sets the class, and the tests set it the way app.js would.
+* **Done keys on `is-done` as well as `state-done`.** A pane the fleet does not supervise shows
+  its chip as idle and a supervised one as running, so `state-done` is rare; `is-done`, which
+  `drawTile` sets from the fold's own state (#253), is what a finished agent carries. A finished
+  pane is idle *and* done, so it has both marks.
 * **The question card and its choices are transparent in ink** (`skin.css`): the canvas is behind
   the page, so a mark shows only where nothing opaque covers it.
 

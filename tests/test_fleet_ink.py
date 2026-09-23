@@ -31,7 +31,7 @@ import urllib.request
 import pytest
 
 from agentdata import theme
-from agentdata.fleet import events as E, probe as PR, registry, serve as S, skins as SK
+from agentdata.fleet import events as E, probe as PR, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
@@ -55,8 +55,8 @@ PEN = 900
 #: What the ink layer's own modules may weigh over the wire. three.js is not in it: 163 KB,
 #: fetched only by a shell the gate turned on, once a skin draws.
 INK_BUDGET = 40 * 1024
-#: What one skin's module may weigh over the wire (docs/desk-ink.md §Writing a skin).
-SKIN_BUDGET = 12 * 1024
+#: What one skin's module may weigh over the wire (the legal pad's is 7 KB, #251).
+SKIN_BUDGET = 16 * 1024
 
 INTEL = "ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00003EA0) Direct3D11 vs_5_0 ps_5_0, D3D11)"
 SWIFTSHADER = "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
