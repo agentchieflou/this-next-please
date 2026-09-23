@@ -41,6 +41,9 @@ export interface Ping {
   port: number;
   version: string;
   contract: number;
+  /** The server's own answer to "am I the installed code?" (#242). Absent on a desk from before it. */
+  current?: boolean;
+  loaded?: string;
 }
 
 export interface Notification {
@@ -95,13 +98,21 @@ export async function ping(port: number, timeoutMs = 2000): Promise<Ping | undef
   }
 }
 
-/** The record of a dashboard that is actually answering. A stale file is not a running server. */
+/**
+ * The record of a dashboard that is actually answering, and running the installed code. A stale
+ * file is not a running server, and a desk that says it is out of date (#242) is not one to attach
+ * to: starting `ad-fleet serve` replaces it. The judgement is the server's; this only reads it.
+ */
 export async function running(): Promise<ServeRecord | undefined> {
   const record = readServeRecord();
   if (!record) {
     return undefined;
   }
-  return (await ping(record.port)) ? record : undefined;
+  const answer = await ping(record.port);
+  if (!answer || answer.current === false || answer.loaded === undefined) {
+    return undefined;
+  }
+  return record;
 }
 
 /**

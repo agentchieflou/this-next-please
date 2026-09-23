@@ -64,11 +64,13 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | --- | --- | --- | --- | --- | --- | --- |
 | toolbar | brand, live dot, `see` group, settings link, `needs me` group | — (static) | `.toolbar` | — | — | `test_fleet_desk_toolbar.py` |
 | away strip | title, one line per repo, dismiss | `checkAway` | `.away-strip` | — | — | `test_fleet_desk_sessions_b.py` |
+| renew strip | the desk's own line, sentence, preview, then one row per stale agent (repo, verdict, why), renew, cancel | `drawRenewStrip`, `drawRenewPlan` | `.renew-strip`, `.renew-row` | hidden when no session is stale; `verdict-now`, `verdict-at-turn-end`, `verdict-skipped` | `Esc` | `test_fleet_renew.py` |
 | row | the panes in the arrangement's order, then the rails of repositories that left | `place`, `reorderDomTiles`, the tier observer (`onRowResize`) | `#grid`, `.panes` | grouped (a project's checkouts share one rail) only when the rails do not fit | `j`, `k`, `1`–`9`, `Esc` | `test_fleet_panes.py`, `test_fleet_column.py` |
 | pane (rail, compact, full) | the rail's face; head, run line, session pill, cards, cells, transcript, composer | `drawTile`, `drawPaneRail` | `.tile`, `.pane-rail` | `data-tier` (`rail`, `compact`, `full`), `state-*`, `needs-human`, `held`, `is-solo`, `is-selected`, `is-hidden`, `is-grouped`, `is-quiet`, `is-pinned`, `is-dragging`, `size-2` | `Enter` on a rail, `h`, `r`, `m`, `a`, `Alt+←/→`, `Alt+Shift+arrows` | `test_fleet_panes.py`, `test_fleet_column.py`, `test_fleet_window.py`, `test_fleet_desk_regressions.py` |
 | activity trace | sixty bars, one a minute | `drawTrace` | `.trace` | red where a minute needed a person | — | `test_fleet_trace.py` |
 | the ground | three blobs, drifting | `drawGround` | `#ground` | still under reduced motion or reduced transparency | — | `test_fleet_trace.py` |
 | state chip | word, age | `drawTile` | `.chip` | the five status roles, `stale` | — | `test_fleet_desk_regressions.py` |
+| old-session chip | "old skills" or "renew queued", the reason as its title | `drawOldSession` | `.oldsession` | hidden unless the session began on older skills or CLI | — | `test_fleet_renew.py` |
 | session pill | label, menu | `drawSessionPill` | `.spill`, `.smenu` | `is-reading` | `Alt+[`, `Alt+]`, `Alt+N` | `test_fleet_desk_switcher.py` |
 | runs list | one row per run | `drawRuns` | `.live-runs`, `.ss-runs` | — | — | `test_fleet_desk_switcher.py` |
 | cells | spend, ticket, pr, refresh, git | `drawCells` | `.cell` | `grey`, `idle`, `warn`, `over` | git cell opens the branches pane | `test_fleet_spend.py`, `test_fleet_branches.py` |
