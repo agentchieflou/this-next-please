@@ -113,7 +113,7 @@ def cmd_check(a) -> int:
     findings = CK.check_model(model)
     extra = {"pbip": textio.norm_path(pbip), "report": bool(report), "te2": "skipped"}
     if report:
-        findings += CK.check_report(report, model)
+        findings += CK.check_report(report, model, C.project_facts())
     else:
         findings.append(CK.Finding("warning", "report-missing", pbip, "", "no *.Report found; only the model was checked", "pass the folder that holds the .pbip"))
     cfg = C.load()

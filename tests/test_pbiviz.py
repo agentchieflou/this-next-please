@@ -221,7 +221,11 @@ def test_visual_query_custom_visual(tmp_path):
 # ---------------- Check Rules ----------------
 
 def test_check_custom_visual_package_missing(tmp_path):
-    """custom-visual-package-missing triggers when .pbiviz is missing."""
+    """custom-visual-package-missing triggers when report.json says the report ships a .pbiviz and it is gone.
+
+    Only the file is deleted: a `resourcePackages` entry of type `CustomVisual` is the report's own claim
+    that it carries the package. (The old rule fired only once the entry was gone as well, so a package
+    that was never committed passed.)"""
     dest_rep = tmp_path / "Native.Report"
     shutil.copytree(FIXTURE_REPORT, dest_rep)
 
@@ -229,20 +233,15 @@ def test_check_custom_visual_package_missing(tmp_path):
     imp_res = PV.import_custom_visual("sparkline", str(dest_rep), page="Overview", base_dir=str(tmp_path))
     guid = imp_res["guid"]
 
-    # Delete package file and resourcePackages entry
     pkg_file = dest_rep / "StaticResources" / "RegisteredResources" / f"{guid}.pbiviz"
-    if pkg_file.exists():
-        pkg_file.unlink()
-    rj_path = dest_rep / "definition" / "report.json"
-    rj = json.loads(rj_path.read_text(encoding="utf-8"))
-    rj["resourcePackages"] = [rp for rp in rj.get("resourcePackages", []) if rp.get("name") != guid]
-    rj_path.write_text(json.dumps(rj), encoding="utf-8")
+    pkg_file.unlink()
 
     rep = P.load_report(str(dest_rep))
     mod = N.load_model(FIXTURE_MODEL)
     findings = CK.check_report(rep, mod)
     kinds = [f.kind for f in findings]
     assert "custom-visual-package-missing" in kinds
+    assert "custom-visual-guid-unregistered" not in kinds
 
 
 def test_check_custom_visual_guid_unregistered(tmp_path):
@@ -315,6 +314,133 @@ def test_check_custom_visual_role_kind_mismatch(tmp_path):
     findings = CK.check_report(rep, mod)
     kinds = [f.kind for f in findings]
     assert "custom-visual-role-kind-mismatch" in kinds
+
+
+# ---------------- Where a visual comes from, and whether the tenant renders it ----------------
+
+def _imported(tmp_path, name="variance-bars"):
+    """A report carrying one visual imported from a .pbiviz file with `ad-pbiviz import`."""
+    dest_rep = tmp_path / "Native.Report"
+    shutil.copytree(FIXTURE_REPORT, dest_rep)
+    PV.scaffold_visual(name, base_dir=str(tmp_path))
+    PV.package_visual(name, base_dir=str(tmp_path))
+    res = PV.import_custom_visual(name, str(dest_rep), page="Overview", base_dir=str(tmp_path))
+    return dest_rep, res["guid"]
+
+
+def _registered_as(dest_rep, guid, channel, disabled=False):
+    """Re-register the imported visual the way the PBIR report schema records the other two channels."""
+    rj_path = dest_rep / "definition" / "report.json"
+    rj = json.loads(rj_path.read_text(encoding="utf-8"))
+    rj["resourcePackages"] = [rp for rp in rj.get("resourcePackages", []) if rp.get("name") != guid]
+    rj["publicCustomVisuals"] = [g for g in rj.get("publicCustomVisuals", []) if g != guid]
+    if channel == "appsource":
+        rj["publicCustomVisuals"].append(guid)
+    else:
+        rj["organizationCustomVisuals"] = [{"name": guid, "path": f"orgstore/{guid}", "disabled": disabled}]
+    rj_path.write_text(json.dumps(rj), encoding="utf-8")
+    (dest_rep / "StaticResources" / "RegisteredResources" / f"{guid}.pbiviz").unlink()
+
+
+def _cv(dest_rep, facts=None):
+    rep = P.load_report(str(dest_rep))
+    mod = N.load_model(FIXTURE_MODEL)
+    return [f for f in CK.check_report(rep, mod, facts) if f.kind.startswith("custom-visual")]
+
+
+def test_check_a_correctly_imported_visual_is_clean(tmp_path):
+    """Regression: check.py called json.load without importing json, the NameError was swallowed, and
+    report.json was never read -- so every custom visual in every report was 'unregistered'."""
+    dest_rep, _guid = _imported(tmp_path)
+    assert _cv(dest_rep) == []
+
+
+def test_check_an_appsource_visual_needs_no_package(tmp_path):
+    """Power BI fetches AppSource visuals itself; only a private visual travels inside the report."""
+    dest_rep, guid = _imported(tmp_path)
+    _registered_as(dest_rep, guid, "appsource")
+    assert _cv(dest_rep) == []
+
+
+def test_check_an_organizational_store_visual_is_registered_and_needs_no_package(tmp_path):
+    dest_rep, guid = _imported(tmp_path)
+    _registered_as(dest_rep, guid, "org")
+    assert _cv(dest_rep) == []
+
+
+def test_check_a_store_visual_the_admin_switched_off_is_an_error(tmp_path):
+    dest_rep, guid = _imported(tmp_path)
+    _registered_as(dest_rep, guid, "org", disabled=True)
+    assert [f.kind for f in _cv(dest_rep)] == ["custom-visual-store-disabled"]
+
+
+def test_tenant_rules_run_only_when_facts_are_given(tmp_path):
+    """Library callers that pass no facts see exactly the findings they saw before."""
+    dest_rep, _guid = _imported(tmp_path)
+    assert [f.kind for f in _cv(dest_rep, None)] == []
+
+
+def test_org_only_tenant_blocks_a_file_visual_and_an_appsource_visual(tmp_path):
+    dest_rep, guid = _imported(tmp_path)
+    blocked = _cv(dest_rep, {"pbi_custom_visuals": "org-only"})
+    assert [(f.severity, f.kind) for f in blocked] == [("error", "custom-visual-tenant-blocked")]
+    assert "a .pbiviz file" in blocked[0].message and "pbi-custom-visual" in blocked[0].hint
+
+    _registered_as(dest_rep, guid, "appsource")
+    blocked = _cv(dest_rep, {"pbi_custom_visuals": "org-only"})
+    assert [(f.severity, f.kind) for f in blocked] == [("error", "custom-visual-tenant-blocked")]
+    assert "AppSource" in blocked[0].message
+
+
+def test_no_tenant_setting_reaches_an_organizational_store_visual(tmp_path):
+    """Microsoft: visuals on the Organizational visuals page aren't affected by either setting."""
+    dest_rep, guid = _imported(tmp_path)
+    _registered_as(dest_rep, guid, "org")
+    for tenant in ("org-only", "certified-only"):
+        assert _cv(dest_rep, {"pbi_custom_visuals": tenant}) == []
+
+
+def test_certified_only_blocks_our_file_visual_and_notes_an_appsource_one(tmp_path):
+    dest_rep, guid = _imported(tmp_path)
+    assert [(f.severity, f.kind) for f in _cv(dest_rep, {"pbi_custom_visuals": "certified-only"})] == \
+        [("error", "custom-visual-tenant-blocked")]
+    _registered_as(dest_rep, guid, "appsource")
+    assert [(f.severity, f.kind) for f in _cv(dest_rep, {"pbi_custom_visuals": "certified-only"})] == \
+        [("info", "custom-visual-tenant-certified")]
+
+
+def test_allowed_tenant_is_quiet_and_an_unknown_one_is_one_info_row(tmp_path):
+    dest_rep, guid = _imported(tmp_path)
+    assert _cv(dest_rep, {"pbi_custom_visuals": "allowed"}) == []
+    for facts in ({}, {"pbi_custom_visuals": "unknown"}):
+        rows = _cv(dest_rep, facts)
+        assert [(f.severity, f.kind) for f in rows] == [("info", "custom-visual-tenant-unknown")]
+        assert guid in rows[0].message and "pbi_custom_visuals" in rows[0].hint
+
+
+def test_a_misspelt_tenant_fact_is_a_warning_not_a_guess(tmp_path):
+    dest_rep, _guid = _imported(tmp_path)
+    rows = _cv(dest_rep, {"pbi_custom_visuals": "blocked"})
+    assert [(f.severity, f.kind) for f in rows] == [("warning", "custom-visual-tenant-fact-invalid")]
+
+
+def test_cli_check_reads_the_tenant_fact_from_agents_md(tmp_path, monkeypatch, capsys):
+    """`ad-pbip check` runs from the project root, where AGENTS.md holds the fact."""
+    import sys
+    from agentdata import cli_pbip
+    project = tmp_path / "project"
+    shutil.copytree(FIXTURE_DIR, project / "reports")
+    _imported_into = project / "reports" / "Native.Report"
+    shutil.rmtree(_imported_into)
+    dest_rep, _guid = _imported(tmp_path)
+    shutil.copytree(dest_rep, _imported_into)
+    (project / "AGENTS.md").write_text("## Project facts\n- pbi_custom_visuals: org-only\n", encoding="utf-8")
+    monkeypatch.chdir(project)
+    monkeypatch.setattr(sys, "argv", ["ad-pbip", "check", "reports"])
+    with pytest.raises(SystemExit) as ei:
+        cli_pbip.main()
+    out = capsys.readouterr().out
+    assert ei.value.code == 1 and "custom-visual-tenant-blocked" in out
 
 
 # ---------------- CLI Tests ----------------

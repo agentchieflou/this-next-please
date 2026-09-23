@@ -34,6 +34,8 @@ State: `.agent/state.json` (machine-owned; only `state-update` writes it).
 - ws_id: <workspace guid>
 - ds_id: <dataset guid>
 - deploy_roles: false
+- pbi_custom_visuals: <unknown>             # what the tenant renders for this report's VIEWERS: allowed | certified-only | org-only (Fabric tenant settings "Allow visuals created using the Power BI SDK", "Add and use certified visuals only"); read by pbi-custom-visual and ad-pbip check
+- pbi_org_visuals: <Deneb>                  # organizational-store visuals viewers can use, comma-separated (Desktop: Visualizations pane → … → Get more visuals → My organization)
 - dpm_run_root: <\\share\dpm\runs\RUN-id>     # ad-dpm: one DPM run root (orchestrator.db + text_analysis/)
 - dpm_runs_dir: <\\share\dpm\runs>            # ad-dpm --run-id / --latest picks under this folder
 - dpm_artifact_dir: <artifacts/dpm>            # consumer's governed artifact directory, relative to this repo; ad-dpm writes only here
