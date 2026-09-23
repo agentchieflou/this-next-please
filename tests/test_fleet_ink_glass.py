@@ -165,8 +165,14 @@ STUB = """async () => {
   delete window.__fleet.theme;
   window.fetch = function (url, opts) {
     if (String(url).indexOf('/api/fleet') >= 0) {
-      return Promise.resolve(new Response(JSON.stringify(window.__fleet), {
-        status: 200, headers: { 'Content-Type': 'application/json' } }));
+      // Unnumbered (#235): a row carries the order the server read it in, and the page keeps the
+      // row it has over one read before it. This copy was read once, when the stub went in, so a
+      // real answer already on its way would land after it with a later number and every change
+      // the test makes would be ignored from then on -- on the Windows leg, a desk whose states
+      // never arrived. The test's rows are the truth here, not a read.
+      return Promise.resolve(new Response(
+        JSON.stringify(window.__fleet, (k, v) => (k === 'as_of' ? undefined : v)), {
+          status: 200, headers: { 'Content-Type': 'application/json' } }));
     }
     return real(url, opts);
   };
