@@ -56,6 +56,7 @@ SKINS = {
             "azure": {"title": "Azure", "base": "blues",
                       "mesh": [("#4DA3FF", 0.30), ("#5EE1E6", 0.25), ("#3FB950", 0.30)],
                       "fill": ("#1A2A48", 0.40),
+                      "ink_tokens": {"highlighter": "--accent"},
                       "composited_panel": {"darkest": "#11213B", "lightest": "#1D3F56"},
                       "why": "cold blue depth, the darkest of the three"},
             "noir": {"title": "Noir", "base": "vanta-black",
@@ -147,6 +148,25 @@ SKINS = {
         },
     },
 }
+
+
+# Glass's inks (#254): the palette token each tool of its mark table (`static/ink/skins/glass.js`)
+# is drawn in, unless a variant's `ink_tokens` names another -- which its skin.css says again as
+# `--ink-<tool>`. Resolved against the variant's own palette, so `theme.check` holds every mark on
+# both ends of the frost, and the highlighter's tint under the text, like any paper skin's inks.
+GLASS_INKS = {"pen": "--accent", "red": "--human", "green": "--done", "marker": "--human",
+              "highlighter": "--waiting"}
+
+
+def _glass_inks() -> None:
+    from .. import theme as T
+    for spec in SKINS["glass"]["variants"].values():
+        css = T.to_css(T.get(spec["base"]))
+        tokens = dict(GLASS_INKS, **spec.get("ink_tokens", {}))
+        spec["inks"] = {tool: css[token] for tool, token in tokens.items()}
+
+
+_glass_inks()
 
 
 def _over(top: tuple, alpha: float, under: tuple) -> tuple:

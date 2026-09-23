@@ -265,10 +265,11 @@ What each hook is handed:
 
 ### The skins that draw with ink
 
-| Skin | Page |
-| --- | --- |
-| `graph` (graph paper, #253) | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
-| `notebook` (`light`, `dark`) | [skin-notebook.md](skin-notebook.md): the state grammar's reference marks, a ruled paper shader, a margin per pane (#249, #250) |
+| Skin | Module | Its page |
+| --- | --- | --- |
+| glass (#254) | `skins/glass.js` | [skin-glass.md](skin-glass.md): a lit mesh ground, frosted panes that sample it, and a state grammar of marks and lit rims |
+| graph (#253) | `skins/graph.js` | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
+| notebook (`light`, `dark`, #249, #250) | `skins/notebook.js` | [skin-notebook.md](skin-notebook.md): the state grammar's reference marks, a ruled paper shader, a margin per pane |
 
 ## Lanes
 
