@@ -66,7 +66,9 @@ GRAMMAR = {
 ROWS = [row for rows in GRAMMAR.values() for row in rows]
 
 #: The skin module, imported again by the page by its own URL: the same instance the layer runs.
-SKIN = "(await import(q('/static/ink/skins/legalpad.js')))"
+#: `_desk` keeps it on `window.__legalpad`, so a wait can ask it synchronously -- `wait_for_function`
+#: takes a predicate's value as it is, and an async predicate's Promise is always truthy.
+SKIN = "window.__legalpad"
 
 
 # ------------------------------------------------------------------------------------ the fleet
@@ -129,6 +131,7 @@ def _desk(browser, port, token, extra="&ink=on", panes=1, **kw):
     """A desk on the legal pad, waited on until the skin's table is the one in force."""
     page, errors, asked = _open(browser, port, token, extra, panes=panes, **kw)
     page.wait_for_function("() => Ink.inspect().table === 'legalpad:canary'", timeout=15000)
+    page.evaluate("async () => { window.__legalpad = await import(q('/static/ink/skins/legalpad.js')); }")
     return page, errors, asked
 
 
@@ -143,7 +146,7 @@ def _drawn(page, lane=None):
 
 
 def _skin(page):
-    return page.evaluate(f"async () => {SKIN}.inspect()")
+    return page.evaluate(f"() => {SKIN}.inspect()")
 
 
 #: Pixels of the ink canvas at viewport points, read back in the task that drew the frame (the
@@ -434,14 +437,14 @@ def test_the_running_pen_grows_with_the_turn_and_is_struck_when_it_ends(fleet_ho
                                    ".classList.contains('state-running')", timeout=15000)
             _rest(page, "Ink.inspect().layer.marks.some(m => m.selector.includes('state-running')"
                         " && m.state === 'drawn')")
-            page.wait_for_function(f"async () => {SKIN}.inspect().panes.some(p => p.shown)", timeout=10000)
+            page.wait_for_function(f"() => {SKIN}.inspect().panes.some(p => p.shown)", timeout=10000)
             begun = _skin(page)["panes"][0]
             erased = [i for i in idle if i in {m["id"] for m in _marks(page)}]
 
             # The turn writes three lines: the tail grows three steps, and the dot is at its end.
             page.evaluate("""() => { const el = document.querySelector('.tile[data-repo="run"]');
               for (const t of ['one', 'two', 'three']) append(el, { kind: 'assistant_text', data: { text: t } }); }""")
-            page.wait_for_function(f"async () => {SKIN}.inspect().panes[0].lines === 3", timeout=10000)
+            page.wait_for_function(f"() => {SKIN}.inspect().panes[0].lines === 3", timeout=10000)
             grown = _skin(page)["panes"][0]
             geo = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="run"] .head .repo').getBoundingClientRect();
               return [r.right, r.bottom]; }""")
@@ -457,7 +460,7 @@ def test_the_running_pen_grows_with_the_turn_and_is_struck_when_it_ends(fleet_ho
                                    ".classList.contains('state-idle')", timeout=15000)
             _rest(page, "Ink.inspect().layer.marks.some(m => m.strikeOf)"
                         " && Ink.inspect().layer.marks.filter(m => m.tool === 'pencil' && m.state === 'drawn').length >= 2")
-            page.wait_for_function(f"async () => {SKIN}.inspect().panes[0].strike === 1", timeout=10000)
+            page.wait_for_function(f"() => {SKIN}.inspect().panes[0].strike === 1", timeout=10000)
             ended = _skin(page)["panes"][0]
             marks = _marks(page)
             assert not errors, errors
@@ -532,7 +535,7 @@ def test_the_header_count_is_handwritten_and_the_old_number_struck_beside_the_ne
             _rest(page, "Ink.inspect().layer.marks.some(m => m.selector === '#bellcount' && m.state === 'drawn')")
             first = _skin(page)["count"]
             page.evaluate("() => { unread.set('beta', 2); bell(); }")
-            page.wait_for_function(f"async () => {SKIN}.inspect().count.strike === 1", timeout=10000)
+            page.wait_for_function(f"() => {SKIN}.inspect().count.strike === 1", timeout=10000)
             _rest(page)
             struck = _skin(page)["count"]
             r = page.evaluate("() => { const b = document.getElementById('bellcount').getBoundingClientRect();"
