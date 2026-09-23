@@ -264,8 +264,8 @@ What each hook is handed:
 | Skin | Module | Its page |
 | --- | --- | --- |
 | glass (#254) | `skins/glass.js` | [skin-glass.md](skin-glass.md): a lit mesh ground, frosted panes that sample it, and a state grammar of marks and lit rims |
-| `graph` (graph paper, #253) | `skins/graph.js` | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
-| `farmstead` (#255) | `skins/farmstead.js` | [skin-farmstead.md](skin-farmstead.md): the sprite sheet as nearest-neighbour textures, lit wooden frames, and a crop that grows a stage per advance of the phase |
+| graph (#253) | `skins/graph.js` | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
+| farmstead (#255) | `skins/farmstead.js` | [skin-farmstead.md](skin-farmstead.md): the sprite sheet as nearest-neighbour textures, lit wooden frames, and a crop that grows a stage per advance of the phase |
 
 ## Lanes
 
