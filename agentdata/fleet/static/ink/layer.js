@@ -727,30 +727,44 @@ class Layer {
   }
 
   /* The old text as it looked -- its own font and colour -- drawn once into a texture and set just
-     to the left of the element, a little apart, where a hand would have left it. */
+     to the left of the element, a little apart, where a hand would have left it. Drawn by the
+     browser as an SVG `<text>`, never on a 2D canvas: the desk has none (#257). Its width is the
+     element's own text's, per letter, so the strike is laid before the image arrives; the image
+     lands in the texture a frame later. */
   ghostOf(m, text) {
     const T = this.THREE, cs = getComputedStyle(m.el), dpr = this.dpr || 1;
-    const font = [cs.fontStyle, cs.fontWeight, cs.fontSize, cs.fontFamily].join(" ");
-    const cv = document.createElement("canvas"), cx = cv.getContext("2d");
-    cx.font = font;
     const fs = parseFloat(cs.fontSize) || 14;
-    const w = Math.ceil(cx.measureText(text).width) + 4, h = Math.ceil(fs * 1.4);
-    cv.width = Math.max(1, Math.round(w * dpr));
-    cv.height = Math.max(1, Math.round(h * dpr));
-    cx.scale(dpr, dpr);
-    cx.font = font;
-    cx.fillStyle = cs.color;
-    cx.textBaseline = "middle";
-    cx.fillText(text, 2, h / 2);
-    const tex = new T.CanvasTexture(cv);
+    const range = document.createRange();
+    range.selectNodeContents(m.el);
+    const now = (m.el.textContent || "").length, span = range.getBoundingClientRect().width;
+    const per = now && span ? span / now : fs * 0.6;
+    const w = Math.ceil(per * String(text).length) + 4, h = Math.ceil(fs * 1.4);
+    const esc = v => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + Math.round(w * dpr) + '" height="' +
+      Math.round(h * dpr) + '" viewBox="0 0 ' + w + " " + h + '"><text x="2" y="' + h / 2 +
+      '" dominant-baseline="middle" font-style="' + esc(cs.fontStyle) + '" font-weight="' + esc(cs.fontWeight) +
+      '" font-size="' + esc(cs.fontSize) + '" font-family="' + esc(cs.fontFamily) + '" fill="' + esc(cs.color) +
+      '">' + esc(text) + "</text></svg>";
+    const tex = new T.Texture();
     tex.colorSpace = T.SRGBColorSpace;
+    const img = new Image();
+    img.onload = () => {
+      // The ghost may have left the paper (its mesh freed) before its image arrived.
+      if (this.stopped || rec.mesh !== mesh) return;
+      tex.image = img;
+      tex.needsUpdate = true;
+      this.stale = true;
+      this.kick();
+    };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
     const mesh = new T.Mesh(new T.PlaneGeometry(w, h),
                             new T.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
     mesh.renderOrder = 2;
     mesh.frustumCulled = false;
     this.scene.add(mesh);
     const r = m.el.getBoundingClientRect();
-    return { text, mesh, box: { x: -w - Math.max(4, fs * 0.35), y: (r.height - h) / 2, w, h } };
+    const rec = { text, mesh, box: { x: -w - Math.max(4, fs * 0.35), y: (r.height - h) / 2, w, h } };
+    return rec;
   }
 
   syncAll() {
