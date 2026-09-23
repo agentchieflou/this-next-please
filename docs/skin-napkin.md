@@ -69,9 +69,8 @@ An agent in error also carries `needs-human`, because an error needs you. So its
   The row is there for when the page says done.
 
 **The name is erased, never struck.** The grammar strikes the question and never the agent's name: a name struck
-through reads as an agent that has gone. The layer strikes every ink mark that leaves, so a row may now say
-`leaves: "erased"` (desk-ink.md §A skin is a mark table, one general addition in its own commit). The name's
-highlight uses it.
+through reads as an agent that has gone. The layer strikes every ink mark that leaves, so the name's highlight row
+says `leaves: "erased"` (desk-ink.md §A skin is a mark table; the field came with graph paper, #253).
 
 ## The felt tip bleeds along the emboss
 
@@ -150,6 +149,5 @@ a live lock, events three days old), because the desk's redraw owns the state cl
 * an idle napkin is zero DOM writes and zero WebGL frames, and it settles within the frames the pen needs plus the
   soak.
 
-`tests/regressions/test_20260923_any_skin_desk_at_rest_writes.py` is the bug building this found. With any skin
-chosen, every refresh rewrote `data-theme`, `data-skin` and `data-skin-variant`. For a skin with no ground mesh it
-also toggled the stylesheet link's `data-waiting`, so an idle desk was never zero writes.
+An idle napkin desk is zero writes because of the fix graph paper (#253) made for every skin chosen:
+`tests/regressions/test_20260923_any_skin_chosen_idle_desk_writes.py`.
