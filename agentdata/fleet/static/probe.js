@@ -56,15 +56,18 @@ function contextOf(canvas) {
   return out;
 }
 
-/* The unmasked strings. The masked `RENDERER` is "WebKit WebGL" in every Chromium and says
-   nothing about the machine. */
+/* The unmasked strings, or nothing. The masked `RENDERER` is "WebKit WebGL" in every Chromium and
+   "Mozilla" in a Firefox that resists fingerprinting, and says nothing about the machine -- so a
+   browser that will not unmask sends an empty string, which `probe.classify` calls `unknown`
+   rather than reading the mask as a GPU (#261). */
 function named(gl) {
   var ext = null;
   try { ext = gl.getExtension("WEBGL_debug_renderer_info"); } catch (e) { ext = null; }
+  if (!ext) return { renderer: "", vendor: "" };
   var renderer = "", vendor = "";
   try {
-    renderer = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || "");
-    vendor = String(gl.getParameter(ext ? ext.UNMASKED_VENDOR_WEBGL : gl.VENDOR) || "");
+    renderer = String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "");
+    vendor = String(gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) || "");
   } catch (e) {
     renderer = renderer || "";
   }
@@ -109,15 +112,21 @@ function strokes() {
   return new Float32Array(pos);
 }
 
-/* Whether the frame just rendered really holds the scene: the drawing buffer is read back and
-   any pixel that is not paper counts. Called once, straight after the first `render()`, while the
-   buffer is still this frame's. `readPixels` waits for the GPU, so this is also the moment the
-   first stroke is on the canvas rather than merely asked for. */
+/* Whether the frame just rendered really holds the scene: a band of the drawing buffer across the
+   first line of strokes is read back and any pixel that is not paper counts. Called once, straight
+   after the first `render()`, while the buffer is still this frame's. `readPixels` waits for the
+   GPU, so this is also the moment the first stroke is on the canvas rather than merely asked for.
+
+   A band and not the buffer (#261): the whole of a 4K canvas at DPR 2 is 33 MB copied inside the
+   timed window, by an amount that differs per shell, and `first_stroke_ms` would be measuring the
+   copy. The first line sits at y 0.12 +- 0.017 of the page (GL's rows count up from the bottom). */
 function painted(gl) {
   var w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
   if (!w || !h) return false;
-  var px = new Uint8Array(w * h * 4);
-  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  var y0 = Math.max(0, Math.floor(h * 0.09));
+  var rows = Math.max(1, Math.min(h - y0, Math.ceil(h * 0.06)));
+  var px = new Uint8Array(w * rows * 4);
+  gl.readPixels(0, y0, w, rows, gl.RGBA, gl.UNSIGNED_BYTE, px);
   var pr = (PAPER >> 16) & 255, pg = (PAPER >> 8) & 255, pb = PAPER & 255;
   for (var i = 0; i < px.length; i += 4) {
     if (Math.abs(px[i] - pr) + Math.abs(px[i + 1] - pg) + Math.abs(px[i + 2] - pb) > 48) return true;
@@ -125,42 +134,51 @@ function painted(gl) {
   return false;
 }
 
-/* The one way out. Every path -- no context, three.js not loading, a lost context, a hidden
-   window whose frames stopped, or three good seconds -- ends here, and here posts once. */
+/* The one way out. Every path -- no context, three.js not loading, a lost context, a window
+   hidden while it drew, or three good seconds -- ends here, and here posts once. The way back is
+   shown before the post and taken after it whatever it answered (#261): a desk the CLI sent here
+   from inside an IDE has no address bar, and "not saved" with no link is a tool window lost. */
 function finish(facts) {
   if (posted) return;
   posted = true;
+  backLink();
   var body = Object.assign({ shell: SHELL, ua: navigator.userAgent, webgl: "none", renderer: "",
                              vendor: "", caveat: false, three: "", intervals: [],
-                             first_stroke_ms: null, load_ms: null, drawn: false, error: "" },
+                             first_stroke_ms: null, load_ms: null, drawn: false, hidden: false,
+                             error: "" },
                            facts || {});
   show("state", "saving…");
   post("probe", body).then(function (r) {
     if (!r || r.ok === false) {
       show("verdict", "not saved");
       show("state", ((r && r.error) || "the desk refused it") + (r && r.hint ? " — " + r.hint : ""));
-      return;
+      return goBackLater();
     }
     var rec = r.record || {};
     show("verdict", r.verdict + " (" + r["class"] + ")");
     show("frames", ms(rec.p50_ms) + " / " + ms(rec.p95_ms) + " over " + rec.frames + " frames");
     show("stroke", ms(rec.first_stroke_ms));
-    show("state", "saved as “" + r.shell + "” in " + r.file + ". `ad-fleet engines` prints it.");
+    show("state", r.kept
+      ? "saved as “" + r.shell + "”'s latest attempt only: the probe did not finish, so the " +
+        r.kept_at + " measurement stands (" + r.kept_verdict + ")."
+      : "saved as “" + r.shell + "” in " + r.file + ". `ad-fleet engines` prints it.");
     goBackLater();
   }).catch(function (e) {
     show("verdict", "not saved");
     show("state", "the desk did not answer: " + String((e && e.message) || e));
+    goBackLater();
   });
 }
 
 /* When the desk sent this window here (`ad-fleet probe --open pycharm`), it goes back by itself
-   a few seconds after saving: a tool window left on a probe page is a desk the operator has lost.
-   The link is there either way. */
+   a few seconds after posting: a tool window left on a probe page is a desk the operator has lost.
+   The link is there either way. Through `/open`, which needs no token: a desk replaced while this
+   page drew (#242) is on the same port with a new one, and the old token would be refused. */
 function backLink() {
   var link = document.getElementById("back");
-  var dest = new URL("/", location.origin);
+  var dest = new URL("/open", location.origin);
   PARAMS.forEach(function (value, key) {
-    if (key !== "shell" && key !== "back") dest.searchParams.set(key, value);
+    if (key !== "shell" && key !== "back" && key !== "t") dest.searchParams.set(key, value);
   });
   link.href = dest.toString();
   hide(link, false);
@@ -207,21 +225,24 @@ function measure(THREE, canvas, ctx, facts) {
   var lost = false;
   canvas.addEventListener("webglcontextlost", function () { lost = true; });
 
-  var start = 0, last = 0, first = null, drawn = false;
+  var start = 0, last = 0, first = null, drawn = false, settled = false;
   var intervals = [];
 
-  function done(error) {
+  function done(error, hidden) {
     if (posted) return;
     facts.intervals = intervals;
     facts.first_stroke_ms = first;
     facts.drawn = drawn;
+    if (hidden) facts.hidden = true;
     if (error) facts.error = error;
     finish(facts);
   }
 
   /* Every frame draws the whole pencil page and the ink traced over it so far -- the pen reaches
      the end of the page at three seconds. The first frame compiles the shaders and is read back,
-     so it is `first_stroke_ms` and not one of the intervals; p50 and p95 are the frames after it. */
+     so it is `first_stroke_ms` and not one of the intervals -- and neither is the gap after it,
+     which is that same compile and readback seen from the next frame (#261): with twenty frames,
+     a nearest-rank p95 would BE that stall. p50 and p95 are the frames after both. */
   function frame(now) {
     if (posted) return;
     if (lost) return done("the WebGL context was lost while drawing");
@@ -237,8 +258,10 @@ function measure(THREE, canvas, ctx, facts) {
       drawn = painted(ctx.gl);
       first = performance.now();
       if (!drawn) return done("the first frame rendered and holds no stroke");
-    } else {
+    } else if (settled) {
       intervals.push(now - last);
+    } else {
+      settled = true;
     }
     last = now;
     if (now - start >= DURATION_MS) return done("");
@@ -246,11 +269,30 @@ function measure(THREE, canvas, ctx, facts) {
   }
   requestAnimationFrame(frame);
 
-  /* A hidden window gets no animation frames at all, and a probe that never posts is a shell the
-     table will call "not yet measured" forever. So: whatever arrived, after the watchdog. */
+  /* A window hidden while it draws gets no animation frames at all. What it managed is posted
+     marked `hidden`, which the desk classifies `incomplete` and never writes over a measurement
+     that finished (#261); the watchdog is for frames that stop in a window still on screen. */
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) done("the window was hidden while it drew", true);
+  });
   setTimeout(function () {
-    done("frames stopped arriving (was the window hidden?)");
+    done("frames stopped arriving", document.hidden);
   }, WATCHDOG_MS);
+}
+
+/* Not before the window is on screen (#261). A VS Code view kept alive while hidden, or a PyCharm
+   tool window opened and put away, still gets the ask down the stream and comes here -- and a
+   hidden page gets no frames, so measuring it would post "no frames" as the shell's answer. It
+   waits, says so, and measures when it is looked at. */
+function whenVisible(go) {
+  if (!document.hidden) return go();
+  show("state", "waiting for this window to be shown…");
+  var on = function () {
+    if (document.hidden) return;
+    document.removeEventListener("visibilitychange", on);
+    go();
+  };
+  document.addEventListener("visibilitychange", on);
 }
 
 function main() {
@@ -270,17 +312,20 @@ function main() {
   facts.vendor = who.vendor;
   facts.caveat = caveat(ctx.kind);
   show("context", ctx.kind === "webgl2" ? "WebGL2" : "WebGL1");
-  show("renderer", who.renderer || "(not named)");
+  show("renderer", who.renderer || "(not named — this browser will not unmask it)");
 
   import(q("/static/vendor/three/three.module.min.js")).then(function (THREE) {
     facts.three = String(THREE.REVISION || "");
     facts.load_ms = performance.now();
-    try {
-      measure(THREE, canvas, ctx, facts);
-    } catch (e) {
-      facts.error = "three.js could not draw: " + String((e && e.message) || e);
-      finish(facts);
-    }
+    whenVisible(function () {
+      show("state", "drawing for three seconds…");
+      try {
+        measure(THREE, canvas, ctx, facts);
+      } catch (e) {
+        facts.error = "three.js could not draw: " + String((e && e.message) || e);
+        finish(facts);
+      }
+    });
   }).catch(function (e) {
     facts.error = "three.js did not load: " + String((e && e.message) || e);
     finish(facts);

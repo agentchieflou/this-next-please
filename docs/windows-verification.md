@@ -1178,10 +1178,11 @@ the fleet tool window in PyCharm and the Fleet view in VS Code, each on its own 
 | W3 | In VS Code, `Ctrl+Shift+P` → `Simple Browser: Show` → paste `http://127.0.0.1:8765/open?page=probe&w=vscode` (W2 left it on the clipboard), then run `ad-fleet probe` | the probe runs inside Simple Browser, and the `vscode` row has a newer `at` | _not yet measured_ | the view and Simple Browser are the same Electron; if W2 and W3 disagree, that is the finding |
 | W4 | `ad-fleet probe --open edge` | an Edge app window draws, saves, and says *saved*; the terminal prints the row | _not yet measured_ | Edge on the laptop is the fourth monitor's engine |
 | W5 | *(optional)* Unplug the laptop and repeat W1 | the same class; the frame numbers may move | _not yet measured_ | Windows may hand an IDE the integrated GPU on battery. A class that changes is a row for the plan, not a retry |
-| W6 | `ad-fleet engines` | one line per column of desk-engines.md, `measured: 3` or more | _not yet measured_ | **paste the whole TOON block back.** The WebGL row and the probe table of [desk-engines.md](desk-engines.md) are filled from it verbatim |
+| W6 | `ad-fleet engines` | one line per column of desk-engines.md, `measured: 3` or more | _not yet measured_ | **paste the whole TOON block back.** The PyCharm, VS Code and Edge cells of the WebGL row, and their probe-table rows, are filled from it verbatim. The Chromium cell is CI's, measured by `test_fleet_engines.py`, and stays as it is: the laptop never probes `chromium`, so its line here reads *not yet measured* |
 
 The rule the cells are filled by is not a judgement call: `class: hardware` is *works*; `software`,
-`none` and `unknown` are *falls back*. A software renderer (SwiftShader, llvmpipe, Microsoft Basic
+`none` and `unknown` are *falls back*. `incomplete` (hidden while it drew, or it stopped) is no
+answer: run that step again with the window on screen. A software renderer (SwiftShader, llvmpipe, Microsoft Basic
 Render Driver) counts as *falls back* however smooth it looks, and a cell is never upgraded by hand.
 
 ### The open questions these rows answer

@@ -231,12 +231,13 @@ ad-fleet engines
 ```
 
 Nothing above can point PyCharm's tool window or VS Code's view at a URL, and neither shell needs
-to learn how. The CLI marks that window's record on the desk (`POST /api/window {w, probe}`), the
-desk already running inside the IDE reads its own record down the stream, and goes to `/probe` by
-itself. The probe draws for three seconds, posts once, and returns to the desk. A mark older than
-ten minutes is dropped rather than obeyed, so a tool window opened tomorrow shows the desk. This
-is why the shells' `w=` matters twice: it names the window record *and* the row in
-`~/.agentdata/fleet/probes.json`. What the numbers mean, and the rule they are read by, is
+to learn how. The CLI asks the server (`POST /api/measure {w}`). The desk already running inside the
+IDE sees the ask in its desk frame, takes it (`{w, take: true}` answers `go` once), and goes to
+`/probe` by itself. It waits first if a reply box holds unsent text. The probe waits until the window
+is on screen, draws for three seconds, posts once, and returns to the desk, even when the post is
+refused. The ask is held in the server's memory for ten minutes and never written to desk.json, so a
+tool window opened tomorrow shows the desk. This is why the shells' `w=` matters twice: it names the
+window *and* the row in `~/.agentdata/fleet/probes.json`. What the numbers mean, and the rule they are read by, is
 [desk-engines.md](desk-engines.md) §WebGL, probed in each shell; the laptop pass is
 [windows-verification.md](windows-verification.md) §Ink (#247).
 

@@ -1258,16 +1258,18 @@ def _probe_table(rows: list[list]) -> str:
 
 
 def _wait_for_probe(shell: str, before: dict, wait_s: float) -> dict:
-    """The shell's new record once it lands in `probes.json`, or `{}` when `wait_s` runs out.
+    """The shell's new attempt once it lands in `probes.json`, or `{}` when `wait_s` runs out.
 
     Read from the file rather than asked of the server: the file is what `ad-fleet engines` prints,
-    so a record that arrived here is one the table will show.
+    so a record that arrived here is one the table will show. The attempt rather than the record,
+    so a probe that arrived and did not finish is reported as that (#261) -- it does not replace a
+    finished measurement, and waiting for the record would have waited out the clock on it.
     """
     import time
 
     deadline = time.time() + max(0.0, float(wait_s or 0))
     while True:
-        now = PR.load().get(shell) or {}
+        now = PR.attempts().get(shell) or {}
         if now and now != before:
             return now
         if time.time() >= deadline:
@@ -1279,10 +1281,10 @@ def cmd_probe(a) -> int:
     """WebGL, measured in a shell: what each one recorded, or `--open` the probe somewhere now.
 
     Opening it is `ad-fleet open` pointed at `/probe`, except for the two shells nothing outside can
-    point at a URL. For those the desk already inside PyCharm or VS Code is asked, through its own
-    window record, to go there itself -- and comes back when it has posted. Either way the answer is
-    written by the shell to `~/.agentdata/fleet/probes.json`, and this waits for it and prints it,
-    so the operator copies nothing.
+    point at a URL. For those the desk already inside PyCharm or VS Code is asked to go there itself
+    -- and comes back when it has posted. Either way the answer is written by the shell to
+    `~/.agentdata/fleet/probes.json`, and this waits for it and prints it, so the operator copies
+    nothing.
     """
     if not a.open:
         rows = PR.probe_rows()
@@ -1292,22 +1294,27 @@ def cmd_probe(a) -> int:
         print(_probe_table(rows))
         return EXIT_OK
 
-    import time
-
     shell = a.open
-    record = O.running()
-    started = False
-    if not record:
-        try:
-            record = O.start_server(a.port)
-            started = True
-        except O.OpenError as e:
-            return _refuse("ad-fleet probe", e)
-    before = PR.load().get(shell) or {}
+    if shell == "edge" and not O.edge_exe():
+        # Refused rather than handed to `open_in`'s clipboard fallback (#261): that puts
+        # `/open?page=probe&shell=edge` on the clipboard, and pasting it into the browser that IS
+        # open files that browser's renderer under `edge`.
+        return _refuse("ad-fleet probe", O.OpenError(
+            "Edge was not found, so nothing was opened",
+            "`ad-fleet probe --open browser` measures the default browser, under its own name"))
+
+    # The desk the probe is asked of runs the installed code (#242), as `ad-fleet open`'s does: the
+    # first step on the laptop after `ad-update` is this command, and last week's server has no
+    # `/probe` to open and no `measure` to ask a window with.
+    try:
+        record, server = O.current_desk(a.port)
+    except O.OpenError as e:
+        return _refuse("ad-fleet probe", e)
+    before = PR.attempts().get(shell) or {}
 
     if shell in ("pycharm", "vscode"):
         _tokened, stable = O.page_urls(record, "probe", {"w": shell})
-        asked = O.post_action(record, "window", {"w": shell, "probe": int(time.time())})
+        asked = O.post_action(record, "measure", {"w": shell})
         did = {"opened": (f"asked the desk's `{shell}` window to go to the probe" if asked.get("ok")
                           else "nothing"),
                "url": stable, "clipboard": O.clipboard(stable) if stable else False,
@@ -1325,13 +1332,19 @@ def cmd_probe(a) -> int:
         except O.OpenError as e:
             return _refuse("ad-fleet probe", e)
 
-    got = _wait_for_probe(shell, before, a.wait)
-    meta = {"where": shell, "server": "started" if started else "already up",
-            "port": record.get("port"), **did, "arrived": bool(got)}
+    # Nothing was opened and nobody was asked: there is nothing to wait for (#261).
+    opened = not str(did.get("opened") or "nothing").startswith("nothing")
+    got = _wait_for_probe(shell, before, a.wait if opened else 0)
+    meta = {"where": shell, "server": server, "port": record.get("port"), **did,
+            "arrived": bool(got)}
     if got:
         meta.update({"class": PR.classify(got), "webgl": PR.verdict(got),
                      "file": textio.norm_path(PR.probes_file())})
-    else:
+        standing = PR.load().get(shell) or {}
+        if standing and standing != got:
+            meta["kept"] = (f"the probe did not finish, so the {standing.get('at', '')} "
+                            f"measurement stands: {PR.verdict(standing)}")
+    elif opened:
         meta["next"] = ("`ad-fleet engines` shows it once the page has drawn; "
                         "`--wait` gives it longer")
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet probe", **meta}}))

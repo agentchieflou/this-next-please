@@ -54,10 +54,14 @@ ad-fleet probe --open edge
 ad-fleet engines                  # this row, one line per column, read from the file
 ```
 
-Each `--open` waits for the shell's own answer and prints it. PyCharm's JCEF window and VS Code's
-view cannot be pointed at a URL from outside, so the CLI marks that window's record on the desk
-(`probe`, in epoch seconds) and the desk already inside the IDE takes itself to `/probe` — or does
-when it is next opened, within ten minutes. `ad-fleet probe` with no flag lists every record.
+Each `--open` waits for the shell's own answer and prints it, from a desk running the installed code
+(#242, as `ad-fleet open`). PyCharm's JCEF window and VS Code's view cannot be pointed at a URL from
+outside, so the CLI asks the server (`POST /api/measure {w}`) and the desk already inside the IDE,
+which sees the ask in its desk frame, takes it and goes to `/probe`. If the window is not open yet,
+it goes when it is opened within ten minutes. The ask is held in the server's memory, never in
+desk.json. A window takes it once, so two desks under one name never both go. The desk also waits
+while a reply box or brief holds unsent text. The probe itself waits until its window is on screen.
+`ad-fleet probe` with no flag lists every record.
 
 **What a record holds** — facts only; the verdict is computed when it is read, so a pattern added
 to the rule reclassifies every record already on disk:
@@ -67,12 +71,12 @@ to the rule reclassifies every record already on disk:
 | `shell`, `at` | the `shell=` or `w=` the page was opened with, and when the desk received it (UTC) |
 | `ua` | `navigator.userAgent` |
 | `webgl` | `webgl2`, `webgl1` or `none` |
-| `renderer`, `vendor` | the **unmasked** strings (`WEBGL_debug_renderer_info`); the masked one is `WebKit WebGL` everywhere |
+| `renderer`, `vendor` | the **unmasked** strings (`WEBGL_debug_renderer_info`), or empty when the browser will not unmask them: the masked one is `WebKit WebGL` or `Mozilla` everywhere and names no machine |
 | `caveat` | the browser refused a context asked for with `failIfMajorPerformanceCaveat` |
 | `three` | three.js's `REVISION` as loaded: `160` |
-| `frames`, `p50_ms`, `p95_ms` | frame intervals from `requestAnimationFrame` over three seconds, nearest-rank, after the first frame |
-| `first_stroke_ms`, `load_ms` | from the page's navigation start to the first frame whose pixels hold the scene (read back, so the GPU has finished it), and to three.js imported |
-| `drawn`, `error` | whether that first frame held any stroke at all; what went wrong, in the browser's words |
+| `frames`, `p50_ms`, `p95_ms` | frame intervals from `requestAnimationFrame` over three seconds, nearest-rank. The first frame and the gap after it are left out, because both hold the shader compile and the readback |
+| `first_stroke_ms`, `load_ms` | from the page's navigation start to the first frame whose pixels hold the scene (a band across the first line is read back, so the GPU has finished it), and to three.js imported |
+| `drawn`, `hidden`, `error` | whether that first frame held any stroke at all; whether the window was hidden before it finished; what went wrong, in the browser's words |
 
 **The rule** — one function, `agentdata/fleet/probe.py` `classify()`, shared by the server's
 answer to the page, both CLI verbs and the tests:
@@ -82,6 +86,7 @@ answer to the page, both CLI verbs and the tests:
 | `hardware` | a context that drew, with a named renderer that is not software | works |
 | `software` | the unmasked renderer contains `SwiftShader`, `llvmpipe`, `lavapipe`, `softpipe`, `Microsoft Basic Render`, `Apple Software Renderer`, `Mesa OffScreen` or `software rasterizer` (case-insensitive), **or** `caveat` is true | falls back — software (…) |
 | `none` | no context, or a first frame with no stroke in it | falls back — no WebGL |
+| `incomplete` | the window was hidden while it drew, or it drew and then stopped: an `error` after the first frame, or fewer than 5 frames. It says nothing about the shell, so it **never replaces a record that finished**. It is kept as the shell's latest attempt, which `ad-fleet probe --open` reports | not yet measured — the probe did not finish (…) |
 | `unknown` | a context that drew and would not name its renderer — not proven hardware | falls back — renderer unknown |
 
 **A software renderer counts as falls back, not works.** And the rule for the rest of the epic

@@ -1000,7 +1000,56 @@ def desk_state() -> dict:
             "windows": {
                 k: dict(v) if isinstance(v, dict) else v for k, v in wins.items()
             },
+            "measure": _fresh_asks(),
         }
+
+
+# `ad-fleet probe --open pycharm` (#247): which windows the CLI has asked to measure WebGL, and when.
+# Nothing outside PyCharm can point its JCEF tool window at a URL, but the desk already inside it
+# reads the desk frame down the stream -- so it takes itself to `/probe`, and nobody types an address.
+#
+# In memory and nowhere else (#261). It is a one-shot request, not state: it has no business in
+# desk.json, surviving a restart, or being a field every window record carries. A window that
+# opens within `MEASURE_ASK_S` still finds it; one opened tomorrow finds the desk it asked for. And
+# it is *taken*, not read: the window that goes is the one whose `measure {take}` the server
+# answered `go: true`, so two desks under one name, or a reload drawing an old snapshot, never go
+# round twice.
+MEASURE_ASK_S = 600
+_measure_asks: dict[str, float] = {}
+
+
+def _fresh_asks() -> dict[str, int]:
+    """The asks younger than `MEASURE_ASK_S`, by window, in epoch seconds. Drops the rest."""
+    now = time.time()
+    for w, at in list(_measure_asks.items()):
+        if now - at >= MEASURE_ASK_S:
+            _measure_asks.pop(w, None)
+    return {w: int(at) for w, at in _measure_asks.items()}
+
+
+def measure(w: str, take: bool = False) -> dict:
+    """Ask window `w` to go and measure WebGL, or -- with `take` -- let it claim that ask.
+
+    Asking bumps the desk's version, so the frame carrying the ask reaches every window now rather
+    than on the next unrelated change. Taking answers `go` exactly once per ask.
+    """
+    w = str(w or "").strip()[:64]
+    if not w:
+        raise ServeError("which window? `w` is empty", "the `w=` the desk window was opened with")
+    _ensure_desk_loaded()
+    snapshot = None
+    with _desk_lock:
+        _fresh_asks()
+        if take:
+            at = _measure_asks.pop(w, None)
+            return {"w": w, "go": at is not None, "asked": int(at or 0)}
+        _measure_asks[w] = time.time()
+        _selection["version"] += 1
+        _selection["at"] = E.stamp()
+        snapshot = _desk_snapshot()
+        state = desk_state()
+    _write_desk(snapshot)
+    return state
 
 
 def theme_or_none(name: str, seed: str = ""):
@@ -1268,18 +1317,6 @@ def update_window(w: str = "main", **kwargs) -> dict:
         if "seen" in kwargs and win.get("seen") != str(kwargs["seen"] or ""):
             win["seen"] = str(kwargs["seen"] or "")
             changed = True
-        # `ad-fleet probe --open pycharm` (#247): when the CLI asked this window to measure WebGL,
-        # in epoch seconds, and 0 once the window has gone. Nothing outside PyCharm can point its
-        # JCEF tool window at a URL, but the desk already inside it reads this record down the
-        # stream -- so the desk takes itself to `/probe`, and nobody types an address anywhere.
-        if "probe" in kwargs:
-            try:
-                asked = max(0, int(float(kwargs["probe"] or 0)))
-            except (TypeError, ValueError):
-                asked = 0
-            if int(win.get("probe") or 0) != asked:
-                win["probe"] = asked
-                changed = True
         if changed:
             _selection["version"] += 1
             _selection["at"] = E.stamp()
@@ -1827,6 +1864,9 @@ def act(what: str, body: dict) -> dict:
         w = str(body.get("w") or "main")
         kwargs = {k: v for k, v in body.items() if k != "w"}
         return update_window(w, **kwargs)
+    if what == "measure":
+        # `ad-fleet probe --open <ide>` asking a window to measure, or that window taking the ask.
+        return measure(str(body.get("w") or ""), take=body.get("take") is True)
     if what == "probe":
         # What `/probe` measured in this shell (#247). Facts in, one record per shell out to
         # `~/.agentdata/fleet/probes.json`; the answer carries the class `probe.classify` gave it,
@@ -1900,7 +1940,7 @@ def act(what: str, body: dict) -> dict:
         return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
-                     "arrange | attach | dismiss | theme | settings | refresh | probe")
+                     "arrange | attach | dismiss | theme | settings | refresh | probe | measure")
 
 
 def _sweep(url: str) -> list[dict]:

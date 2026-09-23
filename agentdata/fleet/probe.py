@@ -63,14 +63,20 @@ SOFTWARE = (
 RULE = "hardware WebGL works; a software renderer or no WebGL gets the plain fallback"
 
 #: `hardware` is the only class that means *works*. `unknown` is a context that drew but would not
-#: name its renderer: not proven hardware, so it falls back with the other two.
-CLASSES = ("hardware", "software", "none", "unknown")
+#: name its renderer: not proven hardware, so it falls back with the other two. `incomplete` is a
+#: probe that did not finish -- hidden while it drew, its context lost, too few frames to have
+#: measured anything: it says nothing about the shell either way, so it is *not yet measured* and
+#: never replaces a measurement that did finish.
+CLASSES = ("hardware", "software", "none", "unknown", "incomplete")
 CONTEXTS = ("webgl2", "webgl1", "none")
 
 #: A shell's name is the `w=` a desk window already carries (`pycharm`, `vscode`) or the `shell=`
 #: the CLI put on the URL. It is a key in a file, so it is a short lower-case word and nothing else.
 SHELL = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 MAX_INTERVALS = 2000                 # three seconds at 240 Hz is 720; this is a ceiling, not a goal
+#: Fewer frames than this is not a measurement. A software rasteriser manages fifteen-odd in three
+#: seconds; a window hidden after its first frame manages none, and its p50 is `null`.
+MIN_FRAMES = 5
 MAX_FRAME_MS = 60_000.0
 TEXT_CAP = 400
 
@@ -98,9 +104,12 @@ def software_name(renderer: str) -> str:
 
 
 def classify(record: dict) -> str:
-    """`hardware`, `software`, `none` or `unknown`, from the facts the page sent.
+    """`hardware`, `software`, `none`, `unknown` or `incomplete`, from the facts the page sent.
 
     * `none`: no WebGL context, or one that never put the scene on the canvas (`drawn` false).
+    * `incomplete`: the window was hidden while it drew, or it drew and then stopped -- an `error`
+      after the first frame, or fewer than `MIN_FRAMES` frames. Checked before `hardware`, because
+      a GPU string on a probe that lost its context a second in is not evidence of anything (#261).
     * `software`: the renderer string names a software rasteriser, or the browser refused a context
       with `failIfMajorPerformanceCaveat` -- its own way of saying the same thing.
     * `unknown`: a context that drew but would not name its renderer.
@@ -108,10 +117,14 @@ def classify(record: dict) -> str:
     """
     if str(record.get("webgl") or "none") not in ("webgl2", "webgl1"):
         return "none"
+    if record.get("hidden") is True:
+        return "incomplete"
     if record.get("drawn") is False:
         return "none"
     if software_name(record.get("renderer", "")) or record.get("caveat") is True:
         return "software"
+    if str(record.get("error") or "").strip() or int(record.get("frames") or 0) < MIN_FRAMES:
+        return "incomplete"
     if not str(record.get("renderer") or "").strip():
         return "unknown"
     return "hardware"
@@ -129,6 +142,9 @@ def verdict(record: dict | None) -> str:
         return f"falls back — software ({why})"
     if cls == "none":
         return "falls back — no WebGL"
+    if cls == "incomplete":
+        why = str(record.get("error") or "").strip() or f"{record.get('frames') or 0} frames"
+        return f"not yet measured — the probe did not finish ({why})"
     return "falls back — renderer unknown"
 
 
@@ -211,6 +227,7 @@ def normalize(body: dict) -> dict:
         "first_stroke_ms": _ms(body.get("first_stroke_ms")),
         "load_ms": _ms(body.get("load_ms")),
         "drawn": body.get("drawn") is True,
+        "hidden": body.get("hidden") is True,
         "error": _text(body.get("error")),
     }
 
@@ -222,28 +239,60 @@ def probes_file() -> str:
     return os.path.join(fleet_dir(), PROBES_FILE)
 
 
-def load() -> dict[str, dict]:
-    """Every shell's newest record, keyed by shell. A missing or unreadable file is no records:
-    it is a measurement cache, and `ad-fleet probe --open` makes a new one in three seconds."""
+def _read() -> dict:
     try:
         data = json.loads(textio.read_text(probes_file()))
     except (OSError, ValueError):
         return {}
-    probes = data.get("probes") if isinstance(data, dict) else None
-    if not isinstance(probes, dict):
+    return data if isinstance(data, dict) else {}
+
+
+def _records(data: dict, key: str) -> dict[str, dict]:
+    got = data.get(key)
+    if not isinstance(got, dict):
         return {}
-    return {str(k): v for k, v in probes.items() if isinstance(v, dict)}
+    return {str(k): v for k, v in got.items() if isinstance(v, dict)}
+
+
+def load() -> dict[str, dict]:
+    """Every shell's newest record, keyed by shell. A missing or unreadable file is no records:
+    it is a measurement cache, and `ad-fleet probe --open` makes a new one in three seconds."""
+    return _records(_read(), "probes")
+
+
+def attempts() -> dict[str, dict]:
+    """Every shell's newest *post*, finished or not -- what `ad-fleet probe --open` waits for, so a
+    probe that arrived and did not finish is reported as that rather than as silence."""
+    return _records(_read(), "attempts")
 
 
 def record(body: dict) -> dict:
-    """Keep one probe, replacing that shell's last one and leaving every other shell's alone."""
+    """Keep one probe, replacing that shell's last one and leaving every other shell's alone.
+
+    Except that a probe which did not finish never replaces one that did (#261): a tool window
+    hidden a second after the CLI asked it to measure is not news about its GPU, and writing it over
+    last week's *works* would turn the ink layer off for a reason nobody could see. It is kept as
+    the shell's latest attempt, answered -- the page shows what happened -- and `kept` says which
+    record stands.
+    """
     rec = normalize(body)
+    cls = classify(rec)
     with _LOCK:
-        probes = load()
-        probes[rec["shell"]] = rec
-        textio.write_json(probes_file(), {"schema": SCHEMA, "probes": probes})
-    return {"shell": rec["shell"], "record": rec, "class": classify(rec), "verdict": verdict(rec),
-            "software": software_name(rec["renderer"]), "file": textio.norm_path(probes_file())}
+        data = _read()
+        probes, tries = _records(data, "probes"), _records(data, "attempts")
+        old = probes.get(rec["shell"])
+        kept = bool(cls == "incomplete" and old and classify(old) != "incomplete")
+        if not kept:
+            probes[rec["shell"]] = rec
+        tries[rec["shell"]] = rec
+        textio.write_json(probes_file(), {"schema": SCHEMA, "probes": probes, "attempts": tries})
+    out = {"shell": rec["shell"], "record": rec, "class": cls, "verdict": verdict(rec),
+           "software": software_name(rec["renderer"]), "file": textio.norm_path(probes_file()),
+           "kept": kept}
+    if kept:
+        out["kept_at"] = old.get("at", "")
+        out["kept_verdict"] = verdict(old)
+    return out
 
 
 # ---------------------------------------------------------------------------------- the rows
@@ -253,7 +302,7 @@ PROBE_COLUMNS = ["shell", "at", "webgl", "class", "renderer", "p50_ms", "p95_ms"
                  "first_stroke_ms", "frames", "three", "error", "ua"]
 
 ENGINE_COLUMNS = ["shell", "column", "webgl", "context", "renderer", "p50_ms", "p95_ms",
-                  "first_stroke_ms", "at"]
+                  "first_stroke_ms", "at", "error"]
 
 
 def _order(probes: dict[str, dict]) -> list[str]:
@@ -288,5 +337,5 @@ def engine_rows(probes: dict[str, dict] | None = None) -> list[list]:
         rec = rec or {}
         rows.append([shell, COLUMNS.get(shell, ""), verdict(rec or None), rec.get("webgl", ""),
                      rec.get("renderer", ""), rec.get("p50_ms"), rec.get("p95_ms"),
-                     rec.get("first_stroke_ms"), rec.get("at", "")])
+                     rec.get("first_stroke_ms"), rec.get("at", ""), rec.get("error", "")])
     return rows

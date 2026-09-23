@@ -243,10 +243,18 @@ def test_the_webgl_row_is_what_the_probe_measured(fleet_home):
         assert "SwiftShader" in rec["renderer"], rec["renderer"]
     assert "falls back" in shown, shown
 
+    # The cell itself, not only the works/not-works bit it adds up to (#261): a cell pasted back
+    # as *not yet measured* -- which the laptop's `ad-fleet engines` prints for `chromium`, a
+    # shell it never probes -- is a regression the bit alone would have let through.
     column = next(c for c in _rows()["WebGL"] if "Chromium" in c)
     said = re.sub(r"[*_`]", "", _rows()["WebGL"][column]).strip().lower()
     assert said.startswith("works") == PR.works(rec), \
         f"the table says {said!r} and the probe says {PR.verdict(rec)!r}"
+    if sys.platform.startswith("linux"):
+        assert said == PR.verdict(rec).lower(), \
+            f"the table says {said!r} and the probe measured {PR.verdict(rec)!r}"
+    else:
+        assert said.startswith(("falls back", "works")), said
 
 
 # -------------------------------------------------------------------- and without the feature

@@ -101,6 +101,7 @@ function acceptDesk(payload) {
   desk.desk = next;
   var win = next.windows && next.windows[W_NAME];
   if (win && !windowWrites) applyWindow(win);
+  if (next.measure && next.measure[W_NAME]) goProbe();
   return true;
 }
 
@@ -1355,25 +1356,48 @@ function applyWindow(win) {
   if (win.read && typeof win.read === "object") {
     Object.assign(readCursors, win.read);
   }
-  if (win.probe) goProbe(win.probe);
 }
 
 /* `ad-fleet probe --open pycharm` (#247). Nothing outside the IDE can point PyCharm's tool window
-   or VS Code's view at a URL, so the CLI marks this window's record and the desk already inside it
-   goes to `/probe` by itself, carrying its own query string so the probe can bring it back. The
-   mark is cleared first, so a window returning from the probe does not go straight round again;
-   a mark older than ten minutes is cleared without going, because an operator opening the tool
-   window tomorrow asked for the desk and not for a measurement. The desk loads no three.js: the
-   probe page does, and only while it measures. */
-var PROBE_FRESH_S = 600;
-var probing = false;
+   or VS Code's view at a URL, so the CLI asks the server to have this window measure, the ask
+   arrives with the desk, and the desk already inside the IDE goes to `/probe` by itself, carrying
+   its own query string so the probe can bring it back. The desk loads no three.js: the probe page
+   does, and only while it measures.
 
-function goProbe(asked) {
+   The ask is the server's, in memory, and TAKEN rather than read (#261): the window goes only when
+   `measure {take}` answers `go`, so a second desk under the same name, a snapshot drawn on reload
+   or an ask from yesterday (the server drops them after ten minutes) goes nowhere. And not while
+   the operator is typing: half a reply in a tile, or a brief in the dispatch card, would be lost to
+   the navigation, so the desk says what it is waiting for and goes once those boxes are empty. */
+var probing = false;
+var probeWaiting = 0;
+
+function unsentText() {
+  var boxes = document.querySelectorAll(".say, .brief");
+  for (var i = 0; i < boxes.length; i++) {
+    if (String(boxes[i].value || "").trim()) return true;
+  }
+  return false;
+}
+
+function goProbe() {
   if (probing) return;
+  if (unsentText()) {
+    if (!probeWaiting) {
+      say("`ad-fleet probe` asked this window to go to the probe — it goes once what you are "
+          + "typing is sent or cleared", 12);
+      probeWaiting = setInterval(function () {
+        if (unsentText()) return;
+        clearInterval(probeWaiting);
+        probeWaiting = 0;
+        goProbe();
+      }, 1000);
+    }
+    return;
+  }
   probing = true;
-  var fresh = Date.now() / 1000 - Number(asked) < PROBE_FRESH_S;
-  saveWindow({ probe: 0 }).then(function () {
-    if (!fresh) {
+  post("measure", { w: W_NAME, take: true }).then(function (r) {
+    if (!r || !r.ok || !r.go) {
       probing = false;
       return;
     }
@@ -1382,7 +1406,7 @@ function goProbe(asked) {
     dest.searchParams.set("w", W_NAME);
     dest.searchParams.set("back", "1");
     location.assign(dest.toString());
-  });
+  }).catch(function () { probing = false; });
 }
 
 /* The approvals from the last answer, kept so a redraw does not need a fetch to be honest. */
