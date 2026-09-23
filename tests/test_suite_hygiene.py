@@ -60,6 +60,28 @@ def test_the_escape_hatch_gives_back_the_real_home():
     assert os.environ.get("AGENTDATA_CONFIG") is None or "pytest" not in os.environ["AGENTDATA_CONFIG"]
 
 
+def test_no_test_lists_the_machines_processes(monkeypatch):
+    """The desk's adopt offers come from this machine's process table: a PowerShell CIM query on
+    Windows, `/proc` elsewhere. The suite sees an empty one and never asks for the real one."""
+    from agentdata.fleet import adopt as A
+
+    # Recorded rather than raised: the listing swallows every exception by design, so a refusal
+    # raised in here would read as "no processes" and pass without the fixture.
+    asked = []
+    real_listdir = os.listdir
+
+    def listdir(path="."):
+        if str(path) == "/proc":
+            asked.append("/proc")
+        return real_listdir(path)
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: asked.append(a[0] if a else "run"))
+    monkeypatch.setattr(os, "listdir", listdir)
+    assert A.agent_processes(max_age=0) == []
+    assert A.agent_processes(wait=False) == []
+    assert asked == [], f"a test listed the machine's processes: {asked}"
+
+
 def test_colour_is_off_and_output_is_plain():
     from agentdata import color, ui
 

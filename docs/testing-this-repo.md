@@ -201,6 +201,15 @@ where the next `git add -A` would have committed it.
 a machine with a `--user` install. Tests that are about the npm global prefix opt in with the
 `appdata_isolation` fixture.
 
+**No test lists the machine's processes.** The desk's adopt offers come from
+`adopt.agent_processes`, which on Windows is a PowerShell `Get-CimInstance Win32_Process` --
+seconds to start, more than ten on a loaded runner. Every desk a test served started one each time
+the ten-second memo went stale, so the serial Windows browser leg ran a PowerShell and a CIM query
+every ten seconds for its whole length, and `adopt`, `start` and a resume ran one synchronously
+inside the request a test was waiting on. `_no_process_listing_in_tests` gives every test an empty
+process table and a fresh memo; a test about the listing patches `_windows_processes`,
+`_posix_processes`, `_list_now` or `agent_processes` itself, and its patch wins.
+
 Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only way to catch a bare
 `sys.exit`, an import-time crash, or an escape sequence that appears only when stdout is a pipe),
 `state_file`, `pbip`, `fakes_dir`, `isolated_path`.
