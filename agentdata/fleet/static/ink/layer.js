@@ -34,6 +34,9 @@ const DZ = 1600;                 // the hand's camera distance, in CSS px
 const DEG = Math.PI / 180;
 const FOLLOW_MS = 400;           // how long a transition is followed: --motion-slow and a margin
 const REVEAL_BLEED = 14;         // a written line's ascenders and descenders, uncovered too
+/* The palette tokens a skin's hooks are handed, as [r, g, b] (the desk's thirteen, app.css). */
+const TOKENS = ["bg", "panel", "text", "line", "select", "muted", "accent", "focus", "running",
+                "waiting", "human", "done", "idle"];
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
@@ -111,6 +114,15 @@ class Layer {
     this.toolScene.add(sun);
     this.paperMesh = null;
     this.parse = document.createElement("canvas").getContext("2d");
+    // A skin's materials (docs/desk-ink.md §Writing a skin): its ground and paper live in `back`,
+    // drawn first, and -- when the skin asks to sample it -- into a texture its frames can read.
+    this.back = new THREE.Scene();
+    this.skin = null;
+    this.groundRT = null;
+    this.groundSize = new THREE.Vector2(1, 1);
+    this.backStale = true;
+    this.tokens = {};
+    this.api = this.makeApi();
 
     // On the page only while a table is set (`setTable`).
     this.onLost = () => this.host.off("the WebGL context was lost");
@@ -139,7 +151,9 @@ class Layer {
 
   setTable(t) {
     this.clear();
+    this.unskin();
     this.table = t;
+    if (t && t.hooks) this.enskin(t.hooks);
     this.rows = t ? t.marks.map(row => Object.assign({}, row, { live: new Map(), leaving: new Map(), history: new Map() })) : [];
     this.mo.disconnect();
     if (t) {
@@ -183,6 +197,144 @@ class Layer {
     this.clipped.clear();
     this.ro.disconnect();
     this.observed = new WeakSet();
+  }
+
+  // -------------------------------------------------------------- a skin's materials
+
+  /* What a skin's hooks are handed besides three.js, the scene and the camera: the viewport, the
+     page's state, and a way to ask for a frame. Read at call time, never kept stale. */
+  makeApi() {
+    const self = this;
+    return Object.freeze({
+      get viewport() { return { w: self.W || window.innerWidth, h: self.H || window.innerHeight, dpr: self.dpr || 1 }; },
+      get reduced() { return self.instant(); },
+      get dark() { return self.dark; },
+      get renderer() { return self.renderer; },
+      /* The ground and paper as a texture, for a skin that exports `sampleGround = true` -- a
+         frosted pane reads it at `gl_FragCoord.xy / groundSize`. Null otherwise. */
+      get groundTexture() { return self.groundRT ? self.groundRT.texture : null; },
+      get groundSize() { return self.groundSize; },
+      /* Where a skin's pieces go in the draw order: under every mark. */
+      order: Object.freeze({ ground: -30, paper: -20, frame: -10 }),
+      /* The panes, where they are now: `{el, repo, box: {x, y, w, h}}` in viewport CSS px. */
+      panes() {
+        return Array.from(document.querySelectorAll(LANE)).map(el => {
+          const r = el.getBoundingClientRect();
+          return { el, repo: el.dataset.repo, box: { x: r.left, y: r.top, w: r.width, h: r.height } };
+        });
+      },
+      /* Draw another frame: a hook changed something outside a call the layer made. */
+      request() { self.stale = true; self.backStale = true; self.kick(); },
+    });
+  }
+
+  ctx(scene) {
+    return { THREE: this.THREE, scene, camera: this.cam, tokens: this.tokens, api: this.api };
+  }
+
+  /* A skin's hook, called so that its mistake is the skin's: said once, where a skin author
+     looks, and the desk carries on drawing its marks. */
+  hook(name, ...args) {
+    const s = this.skin;
+    if (!s || typeof s.hooks[name] !== "function") return undefined;
+    try {
+      return s.hooks[name](...args);
+    } catch (e) {
+      if (!s.err[name]) console.error("ink: the skin's " + name + "() threw: " + String((e && e.stack) || e));
+      s.err[name] = true;
+      return undefined;
+    }
+  }
+
+  enskin(hooks) {
+    const T = this.THREE;
+    const group = order => { const g = new T.Group(); g.renderOrder = order; return g; };
+    this.skin = { hooks, ground: group(this.api.order.ground), paper: group(this.api.order.paper),
+                  frames: new Map(), framesRoot: group(this.api.order.frame), err: {}, dirty: true };
+    this.back.add(this.skin.ground, this.skin.paper);
+    this.scene.add(this.skin.framesRoot);
+    if (hooks.sampleGround) {
+      this.groundRT = new T.WebGLRenderTarget(1, 1, { depthBuffer: false, stencilBuffer: false });
+      this.dirty.size = true;
+      this.W = 0;                      // so `resize` sizes the texture
+    }
+    this.dirty.colours = true;
+  }
+
+  unskin() {
+    const s = this.skin;
+    if (!s) return;
+    this.hook("dispose", this.ctx(null));
+    this.empty(s.ground);
+    this.empty(s.paper);
+    for (const f of s.frames.values()) this.empty(f.group);
+    this.empty(s.framesRoot);
+    this.back.remove(s.ground, s.paper);
+    this.scene.remove(s.framesRoot);
+    if (this.groundRT) { this.groundRT.dispose(); this.groundRT = null; }
+    this.skin = null;
+    this.stale = this.backStale = true;
+  }
+
+  /* Everything in a group taken out and its GPU memory freed: a hook's call begins empty. */
+  empty(g) {
+    for (const c of g.children.slice()) {
+      c.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) [].concat(o.material).forEach(mt => mt.dispose());
+      });
+      g.remove(c);
+    }
+  }
+
+  /* The panes a skin frames: one group each, at the pane's top-left, made when the pane appears
+     and gone with it. Matched with the table, on the frame after the page changed. */
+  framePanes() {
+    const s = this.skin;
+    if (!s || typeof s.hooks.frame !== "function") return false;
+    let changed = false;
+    const now = new Set(document.querySelectorAll(LANE));
+    for (const el of now) {
+      if (s.frames.has(el)) continue;
+      const group = new this.THREE.Group();
+      s.framesRoot.add(group);
+      s.frames.set(el, { el, group, sig: "" });
+      this.watch(el);
+      changed = true;
+    }
+    for (const [el, f] of Array.from(s.frames)) {
+      if (now.has(el) && el.isConnected) continue;
+      this.empty(f.group);
+      s.framesRoot.remove(f.group);
+      s.frames.delete(el);
+      changed = true;
+    }
+    return changed;
+  }
+
+  /* Each pane's frame where the pane is; built again only when its size changed. */
+  syncFrames() {
+    const s = this.skin;
+    if (!s || !s.frames.size) return false;
+    let changed = false;
+    for (const f of s.frames.values()) {
+      const r = f.el.getBoundingClientRect();
+      const visible = !!(r.width || r.height);
+      if (f.group.visible !== visible) { f.group.visible = visible; changed = true; }
+      if (!visible) continue;
+      if (f.group.position.x !== r.left || f.group.position.y !== -r.top) {
+        f.group.position.set(r.left, -r.top, 0);
+        changed = true;
+      }
+      const sig = r.width.toFixed(1) + "x" + r.height.toFixed(1);
+      if (sig !== f.sig) {
+        f.sig = sig;
+        this.empty(f.group);
+        this.hook("frame", this.ctx(f.group), f.el, { x: 0, y: 0, w: r.width, h: r.height });
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   laneOf(el) {
@@ -253,6 +405,7 @@ class Layer {
     for (const m of Array.from(this.marks)) {
       if (!m.el.isConnected) { this.drop(m); changed = true; }
     }
+    if (this.framePanes()) changed = true;
     return changed;
   }
 
@@ -413,6 +566,7 @@ class Layer {
     let changed = false;
     for (const m of this.marks) if (!m.strikeOf && this.sync(m)) changed = true;
     for (const m of this.marks) if (m.strikeOf && this.sync(m)) changed = true;
+    if (this.syncFrames()) changed = true;
     return changed;
   }
 
@@ -442,18 +596,32 @@ class Layer {
     const paperCss = t && t.paper ? (t.paper.startsWith("--") ? read(t.paper) : t.paper) : "";
     const ground = this.rgb(paperCss || read("--bg") || cs.backgroundColor);
     this.dark = 0.2126 * ground[0] + 0.7152 * ground[1] + 0.0722 * ground[2] < 0.4;
-    this.mode = paperCss ? (this.dark ? 2 : 1) : 0;
-    if (paperCss) {
+    // The palette as a skin's hooks read it: every token as [r, g, b] in 0-1, the inks, and the
+    // raw custom property by name for anything else.
+    const tokens = { inks: this.inks, dark: this.dark, css: name => read(name) };
+    for (const name of TOKENS) tokens[name] = this.rgb(read("--" + name) || "#888");
+    this.tokens = tokens;
+    // Something opaque under the marks -- a paper, the skin's or the table's -- and the
+    // highlighter multiplies into it (screens onto it when dark); over nothing it is a swipe.
+    const papered = !!(paperCss || (this.skin && (this.skin.hooks.paper || this.skin.hooks.ground)));
+    this.mode = papered ? (this.dark ? 2 : 1) : 0;
+    const flat = paperCss && !(this.skin && this.skin.hooks.paper);
+    if (flat) {
       if (!this.paperMesh) {
         this.paperMesh = this.pen.paper(ground, this.dark);
-        this.scene.add(this.paperMesh);
+        this.back.add(this.paperMesh);
       }
       this.paperMesh.material.uniforms.uPaper.value.set(...ground);
       this.paperMesh.material.uniforms.uDark.value = this.dark ? 1 : 0;
     } else if (this.paperMesh) {
-      this.scene.remove(this.paperMesh);
+      this.back.remove(this.paperMesh);
       this.paperMesh.material.dispose();
       this.paperMesh = null;
+    }
+    this.backStale = true;
+    if (this.skin) {
+      this.skin.dirty = true;
+      for (const f of this.skin.frames.values()) f.sig = "";
     }
     for (const m of this.marks) {
       for (const st of m.strokes) st.colour(this.inks[st.tool] || this.inks[m.tool], this.mode);
@@ -479,6 +647,10 @@ class Layer {
       this.pcam.fov = 2 * Math.atan(H / 2 / DZ) / DEG;
       this.pcam.position.set(W / 2, -H / 2, DZ);
       this.pcam.updateProjectionMatrix();
+      this.groundSize.set(Math.round(W * dpr), Math.round(H * dpr));
+      if (this.groundRT) this.groundRT.setSize(this.groundSize.x, this.groundSize.y);
+      this.backStale = true;
+      if (this.skin) this.skin.dirty = true;
     }
   }
 
@@ -777,6 +949,16 @@ class Layer {
   prepare() {
     if (this.dirty.size) { this.dirty.size = false; this.resize(); this.stale = true; }
     if (this.dirty.colours) { this.dirty.colours = false; this.colours(); this.stale = true; }
+    if (this.skin && this.skin.dirty) {
+      // The ground and the paper, made again from nothing: on the skin's arrival, a resize, or a
+      // palette change. Frames are made in `syncFrames`, per pane.
+      this.skin.dirty = false;
+      this.empty(this.skin.ground);
+      this.hook("ground", this.ctx(this.skin.ground));
+      this.empty(this.skin.paper);
+      this.hook("paper", this.ctx(this.skin.paper));
+      this.stale = this.backStale = true;
+    }
     if (this.dirty.geom) { this.dirty.geom = false; if (this.syncAll()) this.stale = true; }
   }
 
@@ -811,9 +993,17 @@ class Layer {
         if (L.hand.vis) lifting = true;
       }
     }
+    // A skin's own animation. It asks for the next frame by answering true; under reduced motion
+    // it is still called on the frames the layer draws, and is never given a loop of its own.
+    let ticking = false;
+    if (this.skin && this.skin.hooks.tick) {
+      const more = this.hook("tick", this.ctx(null), dt, now);
+      this.stale = this.backStale = true;
+      ticking = more === true && !this.instant();
+    }
     if (this.drew || busy) this.stale = true;
     if (this.stale) this.render();
-    if (busy || lifting || following) this.kick();
+    if (busy || lifting || following || ticking) this.kick();
     else this.last = 0;
   }
 
@@ -822,7 +1012,15 @@ class Layer {
     this.prepare();
     this.stale = false;
     const r = this.renderer;
+    if (this.groundRT && this.backStale) {
+      r.setRenderTarget(this.groundRT);
+      r.clear();
+      r.render(this.back, this.cam);
+      r.setRenderTarget(null);
+    }
+    this.backStale = false;
     r.clear();
+    r.render(this.back, this.cam);
     r.render(this.scene, this.cam);
     let hand = false;
     for (const L of this.lanes.values()) if (L.hand && L.hand.vis) hand = true;
@@ -861,7 +1059,14 @@ class Layer {
       });
     }
     marks.sort((a, b) => a.id - b.id);
-    return { lanes, marks, frames: this.frames, renders: this.renders, busy: this.busy(),
+    const s = this.skin;
+    const skin = s ? {
+      hooks: ["ground", "paper", "frame", "tick", "dispose"].filter(k => typeof s.hooks[k] === "function"),
+      ground: s.ground.children.length, paper: s.paper.children.length,
+      frames: Array.from(s.frames.values()).filter(f => f.group.children.length).length,
+      sampleGround: !!this.groundRT, errors: Object.keys(s.err),
+    } : null;
+    return { lanes, marks, skin, frames: this.frames, renders: this.renders, busy: this.busy(),
              hands: this.hands(), reduced: this.instant(), canvas: this.canvas.isConnected,
              webgl2: !!this.renderer.capabilities.isWebGL2, mode: this.mode, dark: this.dark };
   }
@@ -898,6 +1103,7 @@ class Layer {
   stop() {
     if (this.stopped) return;
     this.clear();
+    this.unskin();
     this.stopped = true;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;

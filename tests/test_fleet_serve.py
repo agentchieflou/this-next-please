@@ -312,12 +312,17 @@ def test_the_static_payload_is_small_enough_to_load_over_anything():
 
     The ink layer's own modules (#248) are counted, every one, as a shell the gate turned on
     fetches them. three.js is not: it is 163 KB gzipped of its own, fetched by `/probe` and by an
-    ink layer that is drawing, never by a desk that is not.
+    ink layer that is drawing, never by a desk that is not. Nor is a skin module
+    (`static/ink/skins/`): a desk fetches the one it chose, like a skin's stylesheet.
     """
     import gzip as gz
 
-    files = [n for n in sorted(os.listdir(STATIC)) if os.path.isfile(os.path.join(STATIC, n))]
-    files += [f"ink/{n}" for n in sorted(os.listdir(os.path.join(STATIC, "ink")))]
+    def files_in(rel):
+        where = os.path.join(STATIC, rel)
+        return [os.path.join(rel, n) if rel else n for n in sorted(os.listdir(where))
+                if os.path.isfile(os.path.join(where, n))]
+
+    files = files_in("") + files_in("ink")
     raw = {n: open(os.path.join(STATIC, n), "rb").read() for n in files}
     sent = sum(len(gz.compress(body, 6, mtime=0)) for body in raw.values())
     on_disk = sum(len(body) for body in raw.values())
@@ -369,12 +374,15 @@ def scripts() -> list[str]:
     below are exactly the ones a new file silently escapes, and `settings.js` was added to a
     repository whose every JS guard read `app.js` by name.
 
-    The ink layer's modules (#248) live in `static/ink/` and are listed as `ink/<name>`: a folder
-    of scripts is the first place a listing of `static/` alone would stop looking.
+    The ink layer's modules (#248) live in `static/ink/` and its skins in `static/ink/skins/`, and
+    are listed as paths under `static/`: a folder of scripts is the first place a listing of
+    `static/` alone would stop looking.
     """
     top = [n for n in os.listdir(STATIC) if n.endswith(".js")]
     ink = [f"ink/{n}" for n in os.listdir(os.path.join(STATIC, "ink")) if n.endswith(".js")]
-    return sorted(top + ink)
+    skins = [f"ink/skins/{n}" for n in os.listdir(os.path.join(STATIC, "ink", "skins"))
+             if n.endswith(".js")]
+    return sorted(top + ink + skins)
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="no node on this machine to check the syntax")

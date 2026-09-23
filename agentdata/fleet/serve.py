@@ -113,6 +113,24 @@ def ink_facts(query: dict) -> dict:
 
     return PROBE.ink_gate(first("shell") or first("w") or "browser")
 
+
+SKIN_FAMILY = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+def ink_skins() -> list[str]:
+    """The skins that draw with ink: every `static/ink/skins/<name>.js`, a skin module -- its mark
+    table and its materials (#248, docs/desk-ink.md §Writing a skin). The desk is told the list,
+    so its ink layer fetches a module for those and never asks a CSS-only skin for one it has not
+    got. The name is the skin's name in skins.py, which is how the settings page chooses it."""
+    root = os.path.join(STATIC, "ink", "skins")
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return []
+    return sorted(n[:-3] for n in names
+                  if n.endswith(".js") and SKIN_FAMILY.match(n[:-3])
+                  and os.path.isfile(os.path.join(root, n)))
+
 # The page, compressed once per build of it rather than once per window (#195). Below a kilobyte the
 # gzip header costs more than the compression saves, and a skin's PNG is already compressed, so only
 # the text of the page goes through this. The API's JSON does not: the desk polls it four times a
@@ -2502,9 +2520,10 @@ class Handler(BaseHTTPRequestHandler):
         either page makes goes through its `q()`.
 
         The desk's `<body>` also carries what `/probe` measured in this window's shell (#248):
-        `data-ink-shell` and `data-ink-probe`, the class `probe.classify` gave its record. It is on
-        the page before any script runs, so the ink layer's gate is decided the moment its module
-        does, with no second request and nothing drawn first and taken back.
+        `data-ink-shell` and `data-ink-probe`, the class `probe.classify` gave its record, and
+        `data-ink-skins`, the skins that ship a mark table (`ink_skins`). They are on the page
+        before any script runs, so the ink layer's gate is decided the moment its module does,
+        with no second request and nothing drawn first and taken back.
         """
         html = textio.read_text(os.path.join(STATIC, name))
         for asset in ASSETS:
@@ -2512,11 +2531,13 @@ class Handler(BaseHTTPRequestHandler):
         ink: tuple = ()
         if name == "index.html":
             gate = ink_facts(query or {})
-            ink = (gate["shell"], gate["class"])
-            # Both are words from a closed set (a shell name is `[a-z0-9_-]`, checked before it is
-            # written), so nothing here needs escaping.
+            inked = " ".join(ink_skins())
+            ink = (gate["shell"], gate["class"], inked)
+            # Words from closed sets (a shell name and a skin family are both `[a-z0-9_-]`, checked
+            # before they are written), so nothing here needs escaping.
             html = html.replace("<body>", f'<body data-ink-shell="{gate["shell"]}" '
-                                          f'data-ink-probe="{gate["class"]}">', 1)
+                                          f'data-ink-probe="{gate["class"]}" '
+                                          f'data-ink-skins="{inked}">', 1)
         stamp = os.stat(os.path.join(STATIC, name))
         # `name` leads the cache key rather than the literal it used to be: `gzip_for` requires a
         # key that names everything it was made from, and two pages sharing one entry would serve

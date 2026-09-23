@@ -102,6 +102,13 @@ skin: a degraded mode of the one platform, not a second one.
       off with `hand: false`.
     - **`theme.check(..., inks=)`** is rule 5: each ink needs 3:1 on the paper, and text needs 4.5:1 through the
       highlighter's 38% tint. The pairs come with C–G's skins.
+    - **A skin is one module**, `static/ink/skins/<name>.js`, named as in `skins.py`. It exports its `marks` (a
+      function of the variant, or rows), its `options`, and the material hooks the layer calls: `ground`, `paper`,
+      `frame(el, box)` per pane, `tick(dt)`, `dispose`, and `sampleGround` for a frosted pane. Each hook gets
+      `{THREE, scene, camera, tokens, api}`. The server lists the modules on `<body>`. `ink.js` follows
+      `body[data-skin]`, which `applySkin` writes when the config's skin changes, so the settings page chooses an
+      ink skin the way it chooses glass. No skin patches the layer. `skins/example.js` is the pattern, and only
+      the tests use it.
     - Not in B: the running pen's dot and its underline growing with the turn, the header count struck and
       rewritten, and the notebook's paper. All three are C's, and they need the state grammar.
 - **C #249 — notebook (light).** The prototype on the real desk, with the state grammar below. An answered question

@@ -23,6 +23,7 @@ Everything is in `agentdata/fleet/static/ink/`. There is no build step and nothi
 | `layer.js` | the canvas, the lanes, marks derived from the DOM, the geometry, the frame loop | only when the gate says on **and** a skin sets a table |
 | `shapes.js` | each shape's paths, computed from a box. Pure arithmetic | with `layer.js` |
 | `pen.js` | each tool's physics, the stroke meshes and their shader, the paper, the hand | with `layer.js` |
+| `skins/<name>.js` | a skin's module: its mark table and its materials (§Writing a skin). `skins/example.js` is the pattern, used by the tests | when that skin is chosen, by every shell (the fallback draws its marks too) |
 | `../vendor/three/three.module.min.js` | three.js r160, vendored by #247 and pinned by sha256 | with `layer.js`, and never otherwise |
 
 **Every import carries the token.** A module specifier is resolved against the importing file's URL, which does not
@@ -42,7 +43,7 @@ WebGL (`tests/test_fleet_trace.py`).
 | `Ink.enabled` | whether ink draws on this page: the gate said on and nothing has turned it off since |
 | `Ink.verdict` | `{on, shell, probe, source, why}`. `source` is `probe`, `override` (`?ink=on`), `param` (`?ink=off`) or `runtime` (turned off after load) |
 | `Ink.tools`, `Ink.shapes` | the names a mark table may use |
-| `Ink.setSkin(table \| null)` | the skin's mark table, or none. Resolves to `{drawn: "ink" \| "plain" \| "none"}`. **Throws, naming the row**, on a table it cannot draw |
+| `Ink.setSkin(table \| null, hooks?)` | a mark table, or none, and optionally a skin's material hooks. The desk's own skin sets itself (§Writing a skin), so this is for tests and the console. It replaces the skin's table until the skin changes again. Resolves to `{drawn: "ink" \| "plain" \| "none"}`. **Throws, naming the row**, on a table it cannot draw |
 | `Ink.refresh()` | reads the palette again, matches the table against the page and measures every mark now |
 | `Ink.off(reason)` | the plain fallback for the rest of this page's life |
 | `Ink.inspect()` | what is on the paper: lanes, marks (state, how much is drawn, where), frames. For tests and the console |
@@ -62,7 +63,8 @@ up that shell's record in `~/.agentdata/fleet/probes.json` and writes two words 
 <body data-ink-shell="pycharm" data-ink-probe="hardware">
 ```
 
-`data-ink-probe` is `probe.classify()` of the record, or `unmeasured` when there is none (`probe.ink_gate`). A name
+A third attribute, `data-ink-skins`, lists the skins that ship a module (§Writing a skin). `data-ink-probe` is
+`probe.classify()` of the record, or `unmeasured` when there is none (`probe.ink_gate`). A name
 that is not a shell name is a shell nobody has measured. The words are on the page before any script runs, so the gate
 is decided the moment `ink.js` does. There is no second request, and nothing is drawn first and taken back. The
 compressed page is cached per shell and class.
@@ -175,6 +177,79 @@ shader.
 paint time, on `body`, so a skin can override `--ink-pen` and a palette change repaints them. They are never carried
 in the script ([desk-rendering.md](desk-rendering.md) rule 1).
 
+## Writing a skin
+
+A skin that draws with ink is **one module**, `agentdata/fleet/static/ink/skins/<name>.js`, beside the stylesheet
+every skin already has, `static/skins/<name>/skin.css`, which holds its layout, its typography and its look under
+`body.ink-off`. `<name>` is the skin's name in `skins.py`. That registers the skin, and so the settings page offers it
+and `theme.skin` in the config chooses it, the way `glass` is chosen today. `static/ink/skins/example.js` is the
+working pattern to copy, and the tests draw with it. It is not in `skins.py`, so nobody can choose it.
+
+**How it is chosen.** The server lists every `static/ink/skins/*.js` on the desk's `<body>` (`data-ink-skins`). The
+chosen skin reaches the page as `applySkin("<name>:<variant>")`, which writes `body[data-skin]` and
+`[data-skin-variant]`. `ink.js` follows those two attributes. When they name a listed skin, it fetches the module
+with `import(q(...))` and sets its table. Every shell fetches the module, because the plain fallback draws the marks
+too. Only a shell the gate turned on runs its materials. Choosing another skin, or none, takes the marks and the
+materials off the paper, and the canvas with them.
+
+**The module exports** (every export optional except `marks`):
+
+```js
+export function marks(variant) { return [ /* rows: {selector, tool, shape, pad?, dash?, to?} */ ]; }  // or: export const marks = [...]
+export const options = { paper: "--bg", hand: true, speed: 1 };                                        // or a function of the variant
+export const sampleGround = false;           // true: frames get the ground and paper as a texture
+
+export function ground({ THREE, scene, camera, tokens, api }) {}    // the whole page's background
+export function paper({ THREE, scene, camera, tokens, api }) {}     // the stock behind the panes
+export function frame({ THREE, scene, camera, tokens, api }, el, box) {}   // one pane's frame
+export function tick({ THREE, camera, tokens, api }, dt, now) {}   // per frame; answer true for another
+export function dispose({ THREE, camera, tokens, api }) {}          // the skin is going
+```
+
+| Hook | Called | Its `scene` |
+| --- | --- | --- |
+| `ground` | when the skin arrives, on a resize, on a palette change | the ground group, drawn first (`api.order.ground`, -30), in the back pass |
+| `paper` | the same | the paper group, over the ground (`api.order.paper`, -20), in the back pass. A skin with a `paper` hook replaces the flat `options.paper` |
+| `frame` | for each pane (`.tile[data-repo]`) when it appears and whenever its **size** changes. It is not called for a move: its group is at the pane's top-left and moves with it | that pane's own group; `box` is `{x: 0, y: 0, w, h}`; `el` is the pane, to read and never write. The group is freed when the pane leaves |
+| `tick` | on every frame the layer draws, with the seconds since the last. Answer `true` to be given another. Under reduced motion that answer is not honoured | none |
+| `dispose` | when the skin is replaced or the layer stops | none |
+
+What each hook is handed:
+
+* **`THREE`** is three.js r160, the vendored copy.
+* **`camera`** is the layer's orthographic camera in CSS px. x runs right, and a point `y` px down the page is drawn at
+  `-y`, with z = 0.
+* **`tokens`** is the palette as the page has it now. It holds `bg`, `panel`, `text`, `line`, `select`, `muted`,
+  `accent`, `focus`, `running`, `waiting`, `human`, `done` and `idle`, each as `[r, g, b]` in 0–1 sRGB. It also holds
+  `inks` (tool → `[r, g, b]`), `dark`, and `css(name)` for any other custom property.
+* **`api`** gives `viewport` (`{w, h, dpr}`), `reduced`, `dark` and `renderer`, and `order` (`{ground: -30, paper:
+  -20, frame: -10}`, all under every mark). It also gives `panes()` (`[{el, repo, box}]` where the panes are now) and
+  `request()` (draw another frame). With `sampleGround`, `groundTexture` and `groundSize` let a frosted pane read
+  what is behind it at `gl_FragCoord.xy / groundSize`.
+
+**The rules a skin keeps.**
+
+1. **No static `import`.** A module resolved against the file's URL does not carry the run token. three.js is handed
+   in, and a skin needs nothing else.
+2. **Marks come from classes the page already sets.** A skin never sets a class and never writes the page. Its hooks
+   draw into the scene they are handed, and that is all they do (ground rule 2).
+3. **Colours come from `tokens`, and never from a hex written in the module.** A palette change calls `ground` and
+   `paper` again and rebuilds every frame. Inks come from `--ink-<tool>`, which the skin's `skin.css` may set.
+4. **Every call to `ground`, `paper` or `frame` starts with an empty scene.** The layer frees the geometry and the
+   materials that were in it. Keep module-level references only for `tick`, and free anything else in `dispose`, such
+   as a render target or a texture.
+5. **Put the pieces under the marks**, with `api.order`. A mark is drawn at order 0 and above.
+6. **Drawn, never faded** (ground rule 1). A skin animates its materials, never its marks. Under reduced motion,
+   `tick` gets no loop of its own.
+7. **The fallback is CSS.** The marks draw plain by themselves. What a skin's paper or ground looks like with
+   `body.ink-off` is its `skin.css`'s business. So is making the panes transparent (`body[data-skin="<name>"]:not(.ink-off)
+   .tile { background: transparent }`) where the paper should show through.
+8. **A hook that throws is the skin's problem.** It is said once in the console and shows in
+   `Ink.inspect().layer.skin.errors`, and the desk goes on drawing its marks.
+9. **Test with `?ink=on`**, choosing the skin with `POST /api/theme {skin: "<name>"}` as the settings page does.
+   `Ink.inspect()` shows the marks, and `.layer.skin` shows the hooks, the pieces and the frames.
+   `tests/test_fleet_ink.py` has the pattern.
+
 ## Lanes
 
 There is one queue of drawing per agent's pane (`.tile[data-repo]`), and one for everything outside a pane: the header
@@ -282,6 +357,9 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer is K.
 * **The gate:** hardware turns ink on, and every other class, `?ink=off`, a lost context and a missing context turn it
   off.
 * **Fallback:** it draws the same table as CSS, with no DOM writes.
+* **Skins:** a skin module is fetched with the token when the config chooses it. Its marks are drawn per variant,
+  in ink or plain, and its ground, paper and frames run. A hook that throws is the skin's own problem, and
+  `sampleGround` hands frames the ground as a texture.
 * **At rest:** the desk with no skin using ink is unchanged, and so is an idle desk with ink on it.
 * **Budgets:** catch-up is counted in frames, and a gesture keeps its budget while the ink draws.
 

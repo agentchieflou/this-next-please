@@ -22,7 +22,6 @@ override that exists for exactly this and is never a measurement. What is assert
 """
 from __future__ import annotations
 import gzip
-import json
 import math
 import os
 import re
@@ -37,13 +36,17 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_gutters import _drag_gutter, _gutter_point
+from test_fleet_gutters import _gutter_point
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
 INK = os.path.join(STATIC, "ink")
 THREE_PATH = "/static/vendor/three/three.module.min.js"
 MODULES = ("ink.js", "layer.js", "shapes.js", "pen.js")
+#: Skin modules (docs/desk-ink.md §Writing a skin). Only the example ships in slice B.
+SKINS = tuple(sorted(n for n in os.listdir(os.path.join(INK, "skins")) if n.endswith(".js")))
+#: Every script in `static/ink/`, the skins' included, as paths under it.
+SCRIPTS = MODULES + tuple(f"skins/{n}" for n in SKINS)
 
 #: The page's own budget for a gesture it can answer out of what it already has (#219).
 LOCAL_BUDGET_MS = 50.0
@@ -191,8 +194,8 @@ DRIFT = """() => { const l = Ink.inspect().layer; const out = [];
 
 
 def test_the_ink_modules_write_no_markup():
-    """Ground rule 4: the page's ban on `innerHTML` holds for the new code too."""
-    for name in MODULES:
+    """Ground rule 4: the page's ban on `innerHTML` holds for the new code too -- skins included."""
+    for name in SCRIPTS:
         body = open(os.path.join(INK, name), encoding="utf-8").read()
         for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"):
             assert banned not in body, f"ink/{name} uses {banned}"
@@ -201,8 +204,8 @@ def test_the_ink_modules_write_no_markup():
 def test_the_layer_is_the_one_place_three_is_imported_and_every_import_carries_the_token():
     """A module specifier resolved against a file's URL does not carry the run token, and every
     route here wants it -- so nothing in `static/ink/` imports statically, and three.js is named by
-    `layer.js` alone, through `q()`, from the vendored copy."""
-    for name in MODULES:
+    `layer.js` alone, through `q()`, from the vendored copy. A skin is handed three.js."""
+    for name in SCRIPTS:
         body = open(os.path.join(INK, name), encoding="utf-8").read()
         assert not re.search(r"(?m)^\s*import\s[^(]", body), f"ink/{name} has a static import"
         for spec in re.findall(r"import\(([^)]*\))", body):
@@ -230,7 +233,11 @@ def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
              for n in MODULES}
     print(f"\n  ink modules over the wire: {sum(sizes.values())} bytes gzipped {sizes}")
     assert sum(sizes.values()) < INK_BUDGET, sizes
-    assert sorted(os.listdir(INK)) == sorted(MODULES), "a module the budget does not count"
+    files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
+    assert files == sorted(MODULES), "a module the budget does not count"
+    assert sorted(os.listdir(INK)) == sorted(MODULES + ("skins",))
+    # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost.
+    assert SKINS == ("example.js",), SKINS
 
 
 def test_the_gate_is_the_probe_rule_and_nothing_else(fleet_home):
@@ -265,12 +272,18 @@ def test_the_server_writes_the_probe_class_on_the_desk_and_nowhere_else(fleet_ho
                                         timeout=10) as r:
                 html = r.read().decode("utf-8")
             return re.search(r"<body[^>]*>", html).group(0)
-        assert body_of("?w=pycharm") == '<body data-ink-shell="pycharm" data-ink-probe="hardware">'
-        assert body_of("?w=vscode") == '<body data-ink-shell="vscode" data-ink-probe="software">'
-        assert body_of("?w=left&shell=pycharm") == \
-            '<body data-ink-shell="pycharm" data-ink-probe="hardware">'
-        assert body_of("?x=1") == '<body data-ink-shell="browser" data-ink-probe="unmeasured">'
-        assert body_of('?w="><script>') == '<body data-ink-shell="" data-ink-probe="unmeasured">'
+
+        def gate(query):
+            return re.search(r'data-ink-shell="([^"]*)" data-ink-probe="([^"]*)"',
+                             body_of(query)).groups()
+        assert gate("?w=pycharm") == ("pycharm", "hardware")
+        assert gate("?w=vscode") == ("vscode", "software")
+        assert gate("?w=left&shell=pycharm") == ("pycharm", "hardware")
+        assert gate("?x=1") == ("browser", "unmeasured")
+        assert gate('?w="><script>') == ("", "unmeasured")
+        # And the skins that ship a module: the example alone, which skins.py does not offer.
+        assert 'data-ink-skins="example">' in body_of("?x=1")
+        assert S.ink_skins() == ["example"], "a shipped skin draws with ink: slice B says none does"
         for other in ("settings?x=1", "probe?x=1"):
             assert "data-ink" not in body_of(other), other
         # Compressed once per shell and class, not once for every window: two shells, two pages.
@@ -496,7 +509,8 @@ def test_a_mark_is_drawn_when_its_class_appears_and_erased_or_struck_when_it_goe
             _mark(page, "alpha", "ink-pencil")
             _mark(page, "beta", "ink-hl")
             _rest(page, "Ink.inspect().layer.marks.length === 2")
-            pencil, hl = _marks(page)
+            by = {m["tool"]: m for m in _marks(page)}
+            pencil, hl = by["pencil"], by["highlighter"]
             assert (pencil["tool"], pencil["lane"], pencil["state"], pencil["drawn"]) == \
                 ("pencil", "pane:alpha", "drawn", 1), pencil
             assert (hl["tool"], hl["lane"], hl["state"], hl["drawn"]) == \
@@ -797,6 +811,125 @@ def test_the_gate_turns_ink_on_for_a_hardware_probe_and_nowhere_else(fleet_home,
     assert seen["pycharm&ink=off"]["verdict"]["source"] == "param"
 
 
+def _no_skin_css(page):
+    """What `applySkin` asks for besides the module is the skin's stylesheet. The example has none."""
+    page.route("**/static/skins/example/skin.css*", lambda route: route.fulfill(
+        status=200, content_type="text/css; charset=utf-8", body=""))
+
+
+def _choose(page, skin):
+    """Choose a skin the way the settings page does: `POST /api/theme {skin}`, which writes the
+    config every window reads and reaches this one down the stream as `applySkin`."""
+    page.evaluate("s => post('theme', { skin: s })", skin)
+
+
+@pytest.mark.browser
+def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_path):
+    """How a skin registers (docs/desk-ink.md §Writing a skin): `static/ink/skins/<name>.js`. The
+    server lists the names on <body>; the skin chosen in the config (the settings page, skins.py)
+    reaches the page as `applySkin`, which writes it and its variant on <body>; and the ink layer
+    follows that: the module fetched with the token, its marks per variant drawn in ink where the
+    gate is on and as plain CSS where it is off, its materials run -- a ground, a paper, a frame
+    per pane -- and all of it gone when the skin goes. A skin with no module is asked for nothing."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    seen = {}
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            for extra in ("&ink=on", ""):
+                (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "example"}}',
+                                                            encoding="utf-8")
+                page, errors, asked = _open(browser, port, token, extra)
+                _no_skin_css(page)
+                assert page.evaluate("() => document.body.dataset.inkSkins") == "example"
+                page.wait_for_function("() => Ink.inspect().table === 'example'", timeout=10000)
+                _mark(page, "alpha", "ink-example")
+                if extra:
+                    _rest(page, "Ink.inspect().layer.marks.length === 1"
+                                " && Ink.inspect().layer.skin.frames === 2")
+                    seen["on"] = page.evaluate("""() => { const l = Ink.inspect().layer;
+                      return { tool: l.marks[0].tool, skin: l.skin, mode: l.mode,
+                               corner: Ink.sample({ x: 2, y: innerHeight - 30, w: 20, h: 20 }) }; }""")
+                    _choose(page, "example:red")
+                    _rest(page, "Ink.inspect().table === 'example:red'"
+                                " && Ink.inspect().layer.marks.length === 1")
+                    seen["red"] = _marks(page)[0]["tool"]
+                else:
+                    page.wait_for_function("""() => getComputedStyle(document.querySelector(
+                      '.tile[data-repo="alpha"] .head')).textDecorationLine === 'underline'""",
+                                           timeout=10000)
+                    seen["plain"] = True
+                _choose(page, "none")
+                page.wait_for_function("() => Ink.inspect().table === null", timeout=10000)
+                seen.setdefault("gone", []).append(page.evaluate(
+                    "() => ({ canvas: !!document.getElementById('ink'), layer: Ink.inspect().layer })"))
+                _choose(page, "glass")                          # a skin with no module
+                page.wait_for_function("() => document.body.dataset.skin === 'glass'", timeout=10000)
+                seen.setdefault("asked", []).extend(
+                    u.split(str(port))[1] for u in asked if "/static/ink/skins/" in u)
+                assert not errors, errors
+                page.close()
+            browser.close()
+    finally:
+        _stop(server)
+    on = seen["on"]
+    assert on["tool"] == "pen" and seen["red"] == "red", "each variant has its own table"
+    assert on["skin"]["hooks"] == ["ground", "paper", "frame", "tick", "dispose"], on["skin"]
+    assert on["skin"]["ground"] == 1 and on["skin"]["paper"] == 1 and on["skin"]["frames"] == 2, on
+    assert on["skin"]["errors"] == [] and on["mode"] == 1, "a paper under the marks: multiply"
+    assert on["corner"] == 400, "the skin's ground is under the whole page"
+    assert seen["plain"], "the same marks, drawn plain where the gate is off"
+    assert not seen["gone"][0]["canvas"], "a skin that goes takes the canvas with it"
+    assert seen["asked"] and all(u.startswith(f"/static/ink/skins/example.js?t={token}")
+                                 for u in seen["asked"]), seen["asked"]
+
+
+@pytest.mark.browser
+def test_a_skin_hook_that_throws_is_the_skins_problem_and_the_ground_can_be_sampled(fleet_home, tmp_path):
+    """A skin's mistake is said once, in the console, and the desk goes on drawing its marks. And a
+    skin that asks for `sampleGround` has its ground and paper as a texture while it frames."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors, _ = _open(browser, port, token, "&ink=on")
+            said = []
+            page.on("console", lambda m: said.append(m.text) if m.type == "error" else None)
+            page.evaluate("""async (table) => {
+              window.__sampled = [];
+              await Ink.setSkin(table, {
+                sampleGround: true,
+                ground({ THREE, scene, api }) {
+                  const { w, h } = api.viewport;
+                  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+                                           new THREE.MeshBasicMaterial({ color: 0x336699 }));
+                  m.position.set(w / 2, -h / 2, 0);
+                  scene.add(m);
+                },
+                paper() { throw new Error('a skin bug'); },
+                frame({ api }, el, box) {
+                  window.__sampled.push(!!api.groundTexture && api.groundSize.x > 0 && box.w > 0);
+                },
+              });
+              document.querySelector('.tile[data-repo="alpha"]').classList.add('ink-hl');
+            }""", dict(TABLE, speed=4))
+            _rest(page, "Ink.inspect().layer.marks.length === 1")
+            state = page.evaluate("() => ({ skin: Ink.inspect().layer.skin, sampled: window.__sampled,"
+                                  " drawn: Ink.inspect().layer.marks[0].drawn })")
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    assert state["drawn"] == 1, state
+    assert state["skin"]["errors"] == ["paper"] and state["skin"]["sampleGround"], state
+    assert state["sampled"] and all(state["sampled"]), state
+    assert len([t for t in said if "paper() threw" in t]) == 1, said
+
+
 @pytest.mark.browser
 def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path):
     """Decision 3: no WebGL gets the same page with plain borders and highlights, and no animation.
@@ -811,8 +944,11 @@ def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path):
             browser = launch_chromium(p)
             page, errors, asked = _open(browser, port, token)
             out = page.evaluate("""async (table) => {
+              // What the fallback could write: a stylesheet element, or a style on an element.
+              // (app.js goes on drawing the desk meanwhile, and its writes are its own.)
               let n = 0;
-              const obs = new MutationObserver(rs => { n += rs.filter(r => r.attributeName !== 'class').length; });
+              const obs = new MutationObserver(rs => { n += rs.filter(r => r.attributeName === 'style' ||
+                [...r.addedNodes].some(a => a.nodeName === 'STYLE' || a.nodeName === 'LINK')).length; });
               obs.observe(document.documentElement, { subtree: true, attributes: true, childList: true });
               const drawn = (await Ink.setSkin(table)).drawn;
               const a = document.querySelector('.tile[data-repo="alpha"]');

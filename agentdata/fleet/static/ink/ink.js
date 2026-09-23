@@ -242,14 +242,28 @@ function start() {
   return loading;
 }
 
-function setSkin(next) {
-  table = next ? normalise(next) : null;
+/* The material hooks a skin brings, the ones that are functions -- `sampleGround` is a flag. */
+function materials(hooks) {
+  const out = {};
+  if (!hooks) return null;
+  for (const name of HOOKS) if (typeof hooks[name] === "function") out[name] = hooks[name];
+  out.sampleGround = hooks.sampleGround === true;
+  return Object.keys(out).length > 1 || out.sampleGround ? out : null;
+}
+
+function apply(next, hooks, variant) {
+  const t = next ? normalise(next) : null;
+  if (t) {
+    t.hooks = materials(hooks);
+    t.variant = variant || "";
+  }
+  table = t;
   if (!verdict.on) {
     plain(table);
     return Promise.resolve({ drawn: table && table.marks.length ? "plain" : "none", verdict: Object.assign({}, verdict) });
   }
   plain(null);
-  if (!table || !table.marks.length) {
+  if (!table || (!table.marks.length && !table.hooks)) {
     if (layer) layer.setTable(null);
     return Promise.resolve({ drawn: "none", verdict: Object.assign({}, verdict) });
   }
@@ -258,6 +272,74 @@ function setSkin(next) {
     if (running && verdict.on && table === wanted) running.setTable(wanted);
     return { drawn: running && verdict.on ? "ink" : "plain", verdict: Object.assign({}, verdict) };
   }, () => ({ drawn: "plain", verdict: Object.assign({}, verdict) }));
+}
+
+// ------------------------------------------------------------------------ the page's skin
+
+/* A skin draws with ink by shipping `static/ink/skins/<name>.js`: a module that exports its
+   `marks` (the table's rows, or a function of the variant that answers them), optional `options`
+   (`paper`, `hand`, `speed`), and optional material hooks the layer calls -- `ground`, `paper`,
+   `frame`, `tick`, `dispose` (docs/desk-ink.md §Writing a skin). The server lists those names on
+   <body> (`data-ink-skins`), and `applySkin` in common.js writes the chosen skin as
+   `body[data-skin]` and `[data-skin-variant]`, which is how skins.py and the settings page choose
+   one today. This follows those two attributes, fetches the module through `q()` like every
+   module here, and sets its table. Every shell fetches it, because the plain fallback draws the
+   marks too; only a shell the gate turned on runs its materials. A skin with no module sets
+   none, and asks for none. */
+const INKED = new Set(String((body && body.dataset.inkSkins) || "").split(/\s+/).filter(Boolean));
+const FAMILY = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+const HOOKS = ["ground", "paper", "frame", "tick", "dispose"];
+let fromSkin = false;          // the table in force is the page's skin's, not a caller's
+let skinKey = "";
+
+function valueOf(x, variant) {
+  return typeof x === "function" ? x(variant) : x;
+}
+
+/* The table a skin module describes, with its hooks beside it. */
+function fromModule(m, family, variant) {
+  const o = valueOf(m.options, variant) || {};
+  return {
+    table: { name: family + (variant ? ":" + variant : ""), paper: o.paper, hand: o.hand, speed: o.speed,
+             marks: valueOf(m.marks, variant) || [] },
+    hooks: m,
+  };
+}
+
+function follow() {
+  const family = (body && body.dataset.skin) || "";
+  const variant = (body && body.dataset.skinVariant) || "";
+  const key = family + ":" + variant;
+  if (key === skinKey) return;
+  skinKey = key;
+  if (!INKED.has(family) || !FAMILY.test(family)) {
+    if (fromSkin) {
+      fromSkin = false;
+      apply(null);
+    }
+    return;
+  }
+  import(q("/static/ink/skins/" + family + ".js")).then(m => {
+    if (skinKey !== key) return null;           // the skin changed again while this one loaded
+    const made = fromModule(m, family, variant);
+    fromSkin = true;
+    return apply(made.table, made.hooks, variant);
+  }).catch(e => {
+    // A skin's own mistake: said where a skin author looks, and the page carries on without ink.
+    console.error("ink: the " + family + " skin: " + String((e && e.message) || e));
+  });
+}
+
+if (body) {
+  new MutationObserver(follow).observe(body, { attributes: true, attributeFilter: ["data-skin", "data-skin-variant"] });
+  follow();
+}
+
+/* A caller's table (a test, a console) replaces the skin's until the skin changes again. `hooks`
+   is optional: anything shaped like a skin module's material hooks. */
+function setSkin(next, hooks) {
+  fromSkin = false;
+  return apply(next, hooks);
 }
 
 window.Ink = Object.freeze({
