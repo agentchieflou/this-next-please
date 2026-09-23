@@ -136,7 +136,9 @@ stylesheet's cave and rain tiles were drawn from the daylight ones. The palette'
   sprite in the sheet sits at 0,0, and nothing hid the others, so the glyph was all seven drawn over each other and
   squeezed into 16px. The sheet is a stack now: its root is 16x16, its sprites are hidden, and `:target` shows the
   one a fragment names. With no fragment it shows nothing. The ink loader reads each sprite out on its own, so it
-  is unaffected.
+  is unaffected. Voxel's sheet had the same fault, worse: its last block (idle) covered the rest, so every voxel chip
+  said idle. It is a stack too, and
+  `tests/regressions/test_20260923_any_chip_glyph_drew_the_whole_sheet.py` reads every glyph any stylesheet names.
 * **A clear header needs its own layer.** With the header's background cleared, Chromium composited the canvas with a
   band missing along the foot of the panes. The drawing buffer was whole (read back); the screen was not. The rule
   `will-change: transform` on the header puts it right. The header holds no popover that a stacking context could
