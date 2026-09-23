@@ -546,6 +546,14 @@ body.is-stale #counts::after {
    the gradients the win -- which paints the ground twice, once in CSS and once on the canvas. */
 html body.has-ground { background-image: none; }
 
+/* #248: the ink layer's one canvas, behind the page like the ground and in front of it (it comes
+   later in the document). It is only there while a skin draws with ink: `static/ink/layer.js` puts
+   it in and takes it out, and nothing on the desk uses it yet. */
+#ink {
+  position: fixed; inset: 0; z-index: -1;
+  width: 100%; height: 100%; pointer-events: none;
+}
+
 /* Whatever is under the hand -- an open pane by its head, or a rail by its face. It is lifted out
    of the flow's paint order and given no pointer events, so `elementFromPoint` answers with what
    is *underneath* it rather than with the thing being dragged. Written for any host from the

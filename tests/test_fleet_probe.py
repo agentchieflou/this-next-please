@@ -9,7 +9,8 @@ it in `~/.agentdata/fleet/probes.json`. What is asserted here:
 * the one rule: a software renderer is a fallback, not a pass, and so is no WebGL at all;
 * `ad-fleet engines` and `ad-fleet probe` read the file, and `--open` reaches a desk that is
   already inside an IDE, so nothing is copied by hand;
-* the vendored three.js is r160 byte for byte, ships in the wheel, and the desk does not load it.
+* the vendored three.js is r160 byte for byte, ships in the wheel, and the desk loads it only
+  through the ink layer (#248), once the gate says on and a skin draws.
 
 The measurement of headless Chromium itself -- SwiftShader, classified as software -- lives beside
 the rest of the Chromium column, in `tests/test_fleet_engines.py`.
@@ -541,12 +542,23 @@ def test_the_vendored_three_is_r160_byte_for_byte():
     assert b"The MIT License" in licence and b"three.js authors" in licence
 
 
-def test_the_desk_does_not_load_three_and_the_probe_imports_it_from_the_package():
-    """Slice A changes nothing anyone sees: three.js is the probe's until the ink layer (#248)."""
-    for name in ("index.html", "settings.html", "app.js", "common.js", "settings.js", "app.css"):
+def test_the_desk_loads_three_only_through_the_ink_layer_and_the_probe_imports_it_from_the_package():
+    """Slice A changed nothing anyone sees, and slice B (#248) keeps it so: the desk's own files
+    never name three.js. The ink layer's `layer.js` is the one module of the desk that imports it --
+    from the package, with the token -- and it is fetched only when the gate says on and a skin
+    draws (`tests/test_fleet_ink.py` holds that in a browser). The probe imports it the same way."""
+    for name in ("index.html", "settings.html", "app.js", "common.js", "settings.js", "app.css",
+                 os.path.join("ink", "ink.js"), os.path.join("ink", "shapes.js"),
+                 os.path.join("ink", "pen.js")):
         body = open(os.path.join(STATIC, name), encoding="utf-8").read()
-        for needle in ("vendor/three", "three.module", "THREE."):
+        for needle in ("vendor/three", "three.module"):
             assert needle not in body, f"{name} names {needle}"
+    for name in ("app.js", "common.js", "settings.js"):
+        body = open(os.path.join(STATIC, name), encoding="utf-8").read()
+        assert "THREE." not in body, name
+    layer = open(os.path.join(STATIC, "ink", "layer.js"), encoding="utf-8").read()
+    assert 'const VENDOR = "/static/vendor/three/three.module.min.js";' in layer
+    assert "import(q(VENDOR))" in layer
     js = open(os.path.join(STATIC, "probe.js"), encoding="utf-8").read()
     assert 'import(q("/static/vendor/three/three.module.min.js"))' in js
     assert "innerHTML" not in js and "insertAdjacentHTML" not in js
@@ -627,7 +639,8 @@ def test_an_ide_window_goes_to_the_probe_by_itself_and_comes_back(running, tmp_p
     """The whole slice, end to end, as the operator will run it: a desk open as the `pycharm`
     window, `ad-fleet probe --open pycharm` in a terminal, and nothing else. The window goes to the
     probe, draws, posts once, returns to the desk -- and the terminal prints the shell's answer.
-    The desk page itself never asks for three.js."""
+    The desk page itself never asks for three.js: nothing has measured this shell as hardware, and
+    no skin draws with ink (#248)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     monkeypatch.setattr(O, "clipboard", lambda text: False)
     Registry().add(make_project(tmp_path / "alpha"), name="alpha")

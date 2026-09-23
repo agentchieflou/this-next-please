@@ -71,6 +71,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | gutter | a 1px line in the row's gap, and the 8px strip over it that is taken hold of | `drawGutters` (which show), `bindGutter` (the drag), `paintHeld` (a frame of it) | `.gutter` | `is-held`; hidden on the last pane on the glass | `Alt+Shift+←/→` and `Alt+Enter` on the pane to its left | `test_fleet_gutters.py`, `test_fleet_engines.py` |
 | activity trace | sixty bars, one a minute | `drawTrace` | `.trace` | red where a minute needed a person | — | `test_fleet_trace.py` |
 | the ground | three blobs, drifting | `drawGround` | `#ground` | still under reduced motion or reduced transparency | — | `test_fleet_trace.py` |
+| ink layer | one canvas behind the page; a lane per pane and one for the header; the marks a skin's table derives from the page's classes | `static/ink/` (`Ink.setSkin`), never `app.js`; its only page write is a handwriting reveal's `clip-path`, while it is written | `#ink` | `body.ink-off` (the plain fallback, a constructed stylesheet); drawn at once under reduced motion; no skin uses it yet (#248) | — | `test_fleet_ink.py`, `test_fleet_probe.py` |
 | state chip | word, age | `drawTile` | `.chip` | the five status roles, `stale` | — | `test_fleet_desk_regressions.py` |
 | old-session chip | "old skills" or "renew queued", the reason as its title | `drawOldSession` | `.oldsession` | hidden unless the session began on older skills or CLI | — | `test_fleet_renew.py` |
 | session pill | label, menu | `drawSessionPill` | `.spill`, `.smenu` | `is-reading` | `Alt+[`, `Alt+]`, `Alt+N` | `test_fleet_desk_switcher.py` |
@@ -149,6 +150,10 @@ and the 50ms budget each local gesture is measured against.
 `docs/desk-rendering.md` has the canvas rules and the two canvases that keep them: the activity
 trace — an hour in sixty numbers, on a full pane's title bar — and the glass
 skin's ground, drawn so that it can drift.
+
+`docs/desk-ink.md` has the third, the ink layer (#248): one three.js canvas behind the page that
+draws a skin's marks from the classes the components already set. It reads the DOM and never
+writes a state, so it adds no owner to any property in the inventory. No skin uses it yet.
 
 ## The window gestures
 

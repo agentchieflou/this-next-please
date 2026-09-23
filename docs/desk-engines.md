@@ -107,8 +107,10 @@ The three laptop rows are filled from `ad-fleet engines` by the runbook's §Ink 
 three.js is **vendored**, never fetched: `agentdata/fleet/static/vendor/three/three.module.min.js`
 and its MIT `LICENSE`, from the npm tarball of `three@0.160.0`, pinned by sha256 in
 `tests/test_fleet_probe.py` and kept byte-exact on Windows checkouts by `.gitattributes`. The
-probe page imports it; the desk does not load it until the ink layer (#248) does, and a test
-holds both.
+probe page imports it, and so does the desk's ink layer (#248, [desk-ink.md](desk-ink.md)), but
+only on a shell whose record here says hardware (or a page opened with `?ink=on`, the test
+override), and only once a skin draws with ink. No shipped skin does yet, so no desk fetches it
+today. Tests hold all three.
 
 ## What happens without each one
 
@@ -121,7 +123,7 @@ holds both.
 | `pointer capture` | `setPointerCapture` throws and is caught; the move and up listeners are on the document rather than the handle, so the drag still tracks. Touch and pen lose the guarantee that events keep arriving after the pointer leaves the element. | `test_fleet_window.py` |
 | `container queries` | The head keeps the model's word, the ticket and the chip's age on a narrow tile, and wraps to a second line rather than dropping them. `flex-wrap` is the fallback, and it is why the head has it. | `test_fleet_window.py` |
 | `OffscreenCanvas` | Not used. The trace and the ground are small enough to draw on the main thread — 0.10 ms a repaint for the ground — and a worker would be a second place that has to know the palette. | — |
-| `WebGL` | Not used by the desk yet: three.js loads only on `/probe` (#247) until the ink layer (#248), as [plan-ink.md](plan-ink.md) lays out. When it is used, a shell whose probe says software, no WebGL or an unnamed renderer gets the plain fallback — the same page with plain borders and highlights and no animation — because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py` |
+| `WebGL` | Not drawn on the desk yet. The ink layer (#248, [desk-ink.md](desk-ink.md)) is built and gated, and no shipped skin hands it a mark table until the notebook (#249). A shell whose probe says anything but hardware gets the plain fallback (`body.ink-off`). So do a shell nobody has measured, `?ink=off`, a shell that will not give a context and a lost context: the same mark table as plain borders and highlights, with no animation, because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py`, `test_fleet_ink.py` |
 
 `test_the_desk_arrives_at_the_same_place_with_every_fallback_taken` takes **all** of the fallbacks
 at once — no view transitions, no pointer capture, no `linear()`, no container queries — which is
@@ -144,7 +146,7 @@ those is missing the page does not load, which is a failure nobody can mistake f
 | frame time during a layout swap of five tiles at 1080p | 16.7 ms median, no `longtask` | no long task, main thread back inside 50 ms |
 | the ground's repaint | 0.10 ms median | 4 ms |
 | the worst local gesture | ~6 ms | 50 ms |
-| the static payload | 104.4 KB gzipped (340 KB on disk), the probe page's 5.4 KB included; three.js is not in it — 163 KB gzipped, fetched by `/probe` alone | 200 KB |
+| the static payload | 145 KB gzipped (460 KB on disk), the probe page's 6.3 KB and the ink layer's four modules (33 KB) included; three.js is not in it — 163 KB gzipped, fetched by `/probe` and by an ink layer that is drawing, never by a desk that is not | 200 KB |
 | the WebGL probe, headless Chromium on SwiftShader, 1280×720 | 16.7 ms p50 and 33.4 ms p95 over ~130 frames (headless paces at 60 Hz); first stroke 265–320 ms | not asserted — software, and not what a GPU does |
 
 Every one of those is printed by the test that measures it, so a CI run carries the numbers as

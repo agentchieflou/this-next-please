@@ -408,7 +408,7 @@ reason is the failure mode the gate was built to avoid.
 
 ## Motion, and the rest of how it behaves
 
-The desk's behaviour has six pages of its own, because it is a page with a contract rather than a
+The desk's behaviour has seven pages of its own, because it is a page with a contract rather than a
 screen with some CSS on it:
 
 | Page | Is |
@@ -419,6 +419,7 @@ screen with some CSS on it:
 | [desk-rendering.md](desk-rendering.md) | what a canvas on this page may do; the activity trace; the glass ground that drifts |
 | [desk-instant.md](desk-instant.md) | paint, post, reconcile; the optimistic arrangement and its way back; the 50 ms budget per gesture; why there is no spinner |
 | [desk-engines.md](desk-engines.md) | what each engine does with each platform feature, and what happens on the ones that have not got it |
+| [desk-ink.md](desk-ink.md) | the ink layer (#248): `window.Ink`, a mark table per skin, lanes, the tools, the gate the WebGL probe sets, `?ink=on` for tests, and the plain fallback. No skin uses it yet |
 
 ## Themes
 
@@ -435,10 +436,10 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 
 | Method | Path | What |
 | --- | --- | --- |
-| GET | `/` | the desk |
+| GET | `/` | the desk. Its `<body>` carries `data-ink-shell`, `data-ink-probe` and `data-ink-skins` (the skins that ship an ink module): the window's shell (`shell=`, else `w=`, else `browser`) and the class its `/probe` record has, or `unmeasured` — the ink layer's gate ([desk-ink.md](desk-ink.md)). `?ink=on` forces the layer on for tests; `?ink=off` forces the plain fallback |
 | GET | `/settings` | the settings page: appearance, the model per agent, the Copilot launch settings |
-| GET | `/probe` | the WebGL probe (#247): three seconds of three.js strokes in whatever shell opened it, posted once to `/api/probe`. The only page that loads three.js ([desk-engines.md](desk-engines.md) §WebGL, probed in each shell) |
-| GET | `/static/…` | the pages' assets: `app.css`, `common.js`, `app.js`, `settings.js`, `probe.js`, and the vendored `vendor/three/three.module.min.js` (r160, MIT) |
+| GET | `/probe` | the WebGL probe (#247): three seconds of three.js strokes in whatever shell opened it, posted once to `/api/probe` ([desk-engines.md](desk-engines.md) §WebGL, probed in each shell). The desk loads three.js too, but only through the ink layer, only when this gate says on, and only once a skin draws |
+| GET | `/static/…` | the pages' assets: `app.css`, `common.js`, `app.js`, `settings.js`, `probe.js`, the ink layer's `ink/ink.js` (and, imported by it with the token, `ink/layer.js`, `ink/shapes.js`, `ink/pen.js` and the chosen skin's `ink/skins/<name>.js`), and the vendored `vendor/three/three.module.min.js` (r160, MIT) |
 | POST | `/api/probe` | `{shell, ua, webgl, renderer, vendor, caveat, three, intervals, first_stroke_ms, load_ms, drawn, error}` — facts only; one record per shell in `~/.agentdata/fleet/probes.json`, answered with the class and the WebGL cell `probe.classify` gives it. `409 probe_shell` / `probe_shape` for a record it cannot read. A probe that did not finish (`incomplete`) is kept as the shell's latest attempt and answered `kept: true` when a finished record stands |
 | POST | `/api/window` | `{w, …}` — one window's own record. `{w, widths, version}` sets its widths (#234): repository → weight, `0` a rail; `version` is the desk version the page last heard, and a write older than the widths the record holds is refused `409 widths_stale`. Anything but repository → a number of nought or more is `409 widths_shape` |
 | POST | `/api/measure` | `{w}` asks that desk window to go to `/probe` (`ad-fleet probe --open pycharm`). The ask is held in memory for ten minutes and shows in the desk frame's `measure`. `{w, take: true}` is the window claiming it, answered `go: true` once |

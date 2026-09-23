@@ -309,10 +309,20 @@ def test_the_static_payload_is_small_enough_to_load_over_anything():
     the page quick to load, and the last four changes to the desk each paid for their space by
     shortening a comment. The figure below is the one an operator waits on; the raw size is
     reported beside it so a file that doubles is still visible in the failure.
+
+    The ink layer's own modules (#248) are counted, every one, as a shell the gate turned on
+    fetches them. three.js is not: it is 163 KB gzipped of its own, fetched by `/probe` and by an
+    ink layer that is drawing, never by a desk that is not. Nor is a skin module
+    (`static/ink/skins/`): a desk fetches the one it chose, like a skin's stylesheet.
     """
     import gzip as gz
 
-    files = [n for n in sorted(os.listdir(STATIC)) if os.path.isfile(os.path.join(STATIC, n))]
+    def files_in(rel):
+        where = os.path.join(STATIC, rel)
+        return [os.path.join(rel, n) if rel else n for n in sorted(os.listdir(where))
+                if os.path.isfile(os.path.join(where, n))]
+
+    files = files_in("") + files_in("ink")
     raw = {n: open(os.path.join(STATIC, n), "rb").read() for n in files}
     sent = sum(len(gz.compress(body, 6, mtime=0)) for body in raw.values())
     on_disk = sum(len(body) for body in raw.values())
@@ -331,7 +341,8 @@ def test_the_page_and_its_assets_are_served_compressed():
     port = server.server_address[1]
     try:
         for route in ("/", "/settings", "/static/app.js", "/static/common.js",
-                      "/static/settings.js", "/static/app.css"):
+                      "/static/settings.js", "/static/app.css", "/static/ink/ink.js",
+                      "/static/ink/layer.js"):
             asked = urllib.request.Request(f"http://127.0.0.1:{port}{route}?t={token}",
                                            headers={"Accept-Encoding": "gzip"})
             with urllib.request.urlopen(asked, timeout=10) as answer:
@@ -362,15 +373,31 @@ def scripts() -> list[str]:
     Named by listing rather than by a tuple somebody has to remember to extend: the three checks
     below are exactly the ones a new file silently escapes, and `settings.js` was added to a
     repository whose every JS guard read `app.js` by name.
+
+    The ink layer's modules (#248) live in `static/ink/` and its skins in `static/ink/skins/`, and
+    are listed as paths under `static/`: a folder of scripts is the first place a listing of
+    `static/` alone would stop looking.
     """
-    return sorted(n for n in os.listdir(STATIC) if n.endswith(".js"))
+    top = [n for n in os.listdir(STATIC) if n.endswith(".js")]
+    ink = [f"ink/{n}" for n in os.listdir(os.path.join(STATIC, "ink")) if n.endswith(".js")]
+    skins = [f"ink/skins/{n}" for n in os.listdir(os.path.join(STATIC, "ink", "skins"))
+             if n.endswith(".js")]
+    return sorted(top + ink + skins)
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="no node on this machine to check the syntax")
 @pytest.mark.parametrize("name", scripts())
-def test_the_page_script_parses(name):
-    """The one class of regression that ships silently: a syntax error in a file no test imports."""
-    p = subprocess.run(["node", "--check", os.path.join(STATIC, name)],
+def test_the_page_script_parses(name, tmp_path):
+    """The one class of regression that ships silently: a syntax error in a file no test imports.
+
+    The ink modules `export`, which only a module may: they are checked as `.mjs` copies, so the
+    answer does not depend on whether this machine's node guesses a `.js` file's kind."""
+    path = os.path.join(STATIC, name)
+    if name.startswith("ink/"):
+        copy = tmp_path / (os.path.basename(name)[:-3] + ".mjs")
+        shutil.copyfile(path, copy)
+        path = str(copy)
+    p = subprocess.run(["node", "--check", path],
                        capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
     assert p.returncode == 0, p.stderr
 

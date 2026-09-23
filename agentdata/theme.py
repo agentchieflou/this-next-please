@@ -138,13 +138,24 @@ def css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
     return to_css(t, project_accent=project_accent)
 
 
-def check(t: Theme, composited_panel: str | None = None, skin: str | None = None) -> None:
+#: How much of a highlighter's ink a highlighted line of text is read through -- the plain
+#: fallback's tint (`static/ink/ink.js` PLAIN_TINT), and the check below. A multiplied swipe on
+#: paper is lighter than this at its streaks and never darker, so the check is the worst case.
+INK_TINT = 0.38
+
+
+def check(t: Theme, composited_panel: str | None = None, skin: str | None = None,
+          inks: dict[str, str] | None = None) -> None:
     """The theme invariant, computed, not judged by eye.
-    
+
     1. text on ground >= 4.5:1 and <= 19:1 (pure white on pure black is refused).
     2. Each status colour on ground >= 3:1.
     3. Status pairwise distinction (ok, warn, fail).
     4. For reds and matrix, fail is not within stated hue distance of text.
+    5. Ink on paper (#248): each ink a paper skin draws with (`inks`, tool -> colour) is a mark on
+       the panel, so >= 3:1 against it (WCAG 1.4.11, non-text contrast) -- except the
+       highlighter, which is read THROUGH: the text on its tint must keep 4.5:1. The ink layer
+       brings the mechanism; the pairs arrive with the paper skins (#249-#253).
     """
     if t.name == "none" or t.ground is None or t.text is None:
         return
@@ -192,6 +203,24 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
             raise ThemeError(
                 f"theme '{t.name}': status fail is too close to text in hue ({hd:.1f}°)",
                 hint=f"fail '{t.status['fail']}' vs text '{t.text}'"
+            )
+
+    # Rule 5: ink on paper
+    for tool, ink in sorted((inks or {}).items()):
+        if tool == "highlighter":
+            tint = mix(target_ground, ink, INK_TINT)
+            c_hl = contrast_ratio(t.text, tint)
+            if c_hl < 4.5:
+                raise ThemeError(
+                    f"{skin_ctx}theme '{t.name}': text through the highlighter is {c_hl:.2f}:1, below 4.5:1",
+                    hint=f"{skin_ctx}text '{t.text}' on highlighter '{ink}' over paper '{target_ground}'"
+                )
+            continue
+        c_ink = contrast_ratio(ink, target_ground)
+        if c_ink < 3.0:
+            raise ThemeError(
+                f"{skin_ctx}theme '{t.name}': ink '{tool}' contrast {c_ink:.2f}:1 is below 3:1 floor",
+                hint=f"{skin_ctx}{tool} '{ink}' on paper '{target_ground}'"
             )
 
 

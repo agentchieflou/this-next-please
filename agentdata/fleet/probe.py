@@ -153,6 +153,24 @@ def works(record: dict | None) -> bool:
     return bool(record) and classify(record) == "hardware"
 
 
+#: What the desk page is told when nothing has measured its shell. Not one of `CLASSES`: it is the
+#: absence of a record, which `verdict()` calls *not yet measured* -- and which falls back.
+UNMEASURED = "unmeasured"
+
+
+def ink_gate(shell: str, probes: dict[str, dict] | None = None) -> dict:
+    """What the desk page is told about its own shell's WebGL (#248): the probe's class for it, and
+    whether that `works()`. The server adds nothing to the rule: this is `classify()` of the one
+    record `/probe` wrote for this shell, or `unmeasured` when there is none -- and a name that is
+    not a shell name is simply a shell nobody has measured."""
+    try:
+        name = shell_name(shell)
+    except ProbeError:
+        return {"shell": "", "class": UNMEASURED, "works": False}
+    rec = (load() if probes is None else probes).get(name)
+    return {"shell": name, "class": classify(rec) if rec else UNMEASURED, "works": works(rec)}
+
+
 # ------------------------------------------------------------------------------ the numbers
 
 
