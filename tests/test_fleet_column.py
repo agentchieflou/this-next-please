@@ -442,7 +442,9 @@ def test_an_answer_read_before_a_click_cannot_undo_it(fleet_home, tmp_path):
             _open(page, port, token)
             assert page.evaluate(SOLO) == "alpha"
             # Hold the next `/api/fleet` answer after the server has written it: a stale answer, on
-            # purpose, delivered when the test says so.
+            # purpose, delivered when the test says so. A refresh the stream already had in flight
+            # is not one: `refresh()` answers with that one rather than fetching, and nothing would
+            # ever be held -- so it is let finish first.
             page.evaluate("""() => {
               const real = window.fetch.bind(window);
               window.fetch = function (url, opts) {
@@ -451,7 +453,12 @@ def test_an_answer_read_before_a_click_cannot_undo_it(fleet_home, tmp_path):
                 window.__held = true;
                 return p.then(r => new Promise(done => { window.__release = () => done(r); }));
               };
-              refresh();
+              const ask = () => {
+                if (window.__held) return;
+                if (pendingRefresh) { pendingRefresh.then(ask, ask); return; }
+                refresh();
+              };
+              ask();
             }""")
             page.wait_for_function("() => !!window.__release", timeout=5000)
             before = page.evaluate("desk.desk.version")

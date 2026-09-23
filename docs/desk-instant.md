@@ -109,9 +109,12 @@ path runs it on the frame after the browser has taken its snapshot, and a mark c
 work happened would report nought and mean nothing. The presets' marks are closed the same way.
 
 A gutter drag is the one gesture that runs a frame at a time, so each frame is marked
-(`gutter:frame`) and held to the same budget, with no long task across the drag, by
-`tests/test_fleet_gutters.py` -- what the page decides, not the runner's frame rate, which a
-headless Chromium throttles to whatever it likes; the gaps are printed beside it.
+(`gutter:frame`) and held to the same budget, and so is the one write on release (`widths:drag`),
+by `tests/test_fleet_gutters.py` -- what the page decides, not the runner's frame rate, which a
+headless Chromium throttles to whatever it likes. The frame gaps and the long tasks across the drag
+are printed beside it: laying the row out under the hand is the browser's work, and on a runner
+shared with three other browsers a long task there measures the sharing. On this container a frame
+of the drag is under a millisecond of the page's own work.
 
 On this container the worst local gesture measures about 6 ms.
 

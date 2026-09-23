@@ -28,6 +28,7 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from test_fleet_column import _until
 from test_fleet_desk_browser import launch_chromium
+from test_fleet_gutters import _gutter_point
 
 SKINS = ["none", "glass:smoke"]
 
@@ -128,11 +129,7 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             # 2. The resize: the gutter on the open pane's right, pulled left until the rail beside
             #    it is a pane of its own (#234), and one step back from the keyboard. Once the swap
             #    back has finished moving, or the gutter's box is where it was.
-            page.wait_for_function(
-                """() => !inViewTransition && [...document.querySelectorAll('#grid .tile')]
-                          .every(t => t.getAnimations().length === 0)""", timeout=8000)
-            box = page.locator('.tile[data-repo="rdsd-pbi-reporting"] > .gutter').bounding_box()
-            x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+            x, y = _gutter_point(page, "rdsd-pbi-reporting")
             page.mouse.move(x, y)
             page.mouse.down()
             page.wait_for_function("() => !!gutterHeld", timeout=8000)

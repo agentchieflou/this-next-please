@@ -22,6 +22,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
+from test_fleet_gutters import _gutter_point
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -303,16 +304,12 @@ def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home
                           .map(t => t.dataset.repo).indexOf('gamma') < 2""", timeout=8000)
             # The gutter between the two panes on the glass, pulled so that the rail opens -- once
             # the move above has finished travelling, or its box is where the gutter was.
-            page.wait_for_function(
-                """() => [...document.querySelectorAll('#grid .tile')]
-                          .every(t => t.getAnimations().length === 0)""", timeout=8000)
             pair = page.evaluate("""() => {
               const on = [...document.querySelectorAll('#grid .tile')]
                 .filter(t => !t.classList.contains('is-hidden'));
               return { left: on[0].dataset.repo, wide: on[0].classList.contains('is-solo') };
             }""")
-            box = page.locator(f'.tile[data-repo="{pair["left"]}"] > .gutter').bounding_box()
-            x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+            x, y = _gutter_point(page, pair["left"])
             page.mouse.move(x, y)
             page.mouse.down()
             page.wait_for_function("() => !!gutterHeld", timeout=8000)
