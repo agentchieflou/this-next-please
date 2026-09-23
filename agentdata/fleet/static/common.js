@@ -194,6 +194,9 @@ function applySkin(skinName) {
   }
   var href = q("/static/skins/" + family + "/skin.css");
   if (link.href !== href) link.href = href;   // re-assigning re-fetches and flashes the page
+  // Written only when they change (the render contract's `attr`): every `/api/fleet` answer
+  // carries the theme, and a desk that rewrote the same three attributes on each was an idle desk
+  // making DOM mutations -- and an ink layer, which follows them, repainting for nothing (#254).
   attr(document.body, "data-skin", family);
   attr(document.body, "data-skin-variant", variant || null);
 }

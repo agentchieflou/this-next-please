@@ -261,10 +261,11 @@ What each hook is handed:
 
 ### The skins that draw with ink
 
-| Skin | Page |
-| --- | --- |
-| `graph` (graph paper, #253) | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
-| `legalpad` (legal pad, #251) | §The legal pad, below: canary stock, blue rules, a double red margin, a glued top, and an orange-pink highlighter |
+| Skin | Module | Its page |
+| --- | --- | --- |
+| glass (#254) | `skins/glass.js` | [skin-glass.md](skin-glass.md): a lit mesh ground, frosted panes that sample it, and a state grammar of marks and lit rims |
+| graph (#253) | `skins/graph.js` | [skin-graph.md](skin-graph.md): a 28px grid, a mechanical pencil (`tools`), ruled marks (`snap`), each agent's hour plotted |
+| legalpad (#251) | `skins/legalpad.js` | §The legal pad, below: canary stock, blue rules, a double red margin, a glued top, and an orange-pink highlighter |
 
 ## The legal pad (#251)
 
