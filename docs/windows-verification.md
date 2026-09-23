@@ -1077,6 +1077,41 @@ two embedders, at the width the operator actually works at.
   first instead.
 - **Is two seconds the right floor for refresh?** (K5) Or should it be the tick's own cadence.
 
+> **Superseded by the row (#233).** The column these rows describe no longer ships: every agent is a
+> pane in one row now, and the bands are rails. K4–K6 and K10 carry over word for word with *rail* for
+> *band*; the rest are the P rows below. Left here unmeasured rather than deleted, because the
+> questions they ask of the column are the history of how the row came to be.
+
+
+## The row of panes (#233): what only the laptop can answer
+
+CI measures the fixture desk — 3, 6 and 12 agents at 1280, 1920 and 2560 px — in headless Chromium
+(`tests/test_fleet_panes.py`). What it cannot answer is whether 48 / 160 / 360 px are the right
+boundaries on the real monitors, and whether the two embedders run the one `ResizeObserver` the tiers
+hang on. The numbers themselves are slice F's (#235); these rows are what F measures.
+
+| # | Do this | Expect | Result | Notes |
+| --- | --- | --- | --- | --- |
+| P1 | Open the desk in Edge, PyCharm's JCEF window and VS Code's Simple Browser | one row: the open agent wide, every other one a 48px rail with its name down its length; nothing scrolls sideways | _not yet measured_ | — |
+| P2 | Pin two agents on the laptop panel, then on the centre monitor | three compact panes on the laptop (head, the three tools, cards, last lines, reply box), three full ones on the monitor | _not yet measured_ | — |
+| P3 | Drag the window edge slowly across a tier boundary | the pane changes tier once, not back and forth (8px of slack) | _not yet measured_ | — |
+| P4 | Leave an agent asking a question | its rail is red with `!` on it; hovering it shows the question and its age | _not yet measured_ | — |
+| P5 | Click a rail, then press `Esc` | the two swap widths in their own slots, and `Esc` swaps them back | _not yet measured_ | — |
+| P6 | Tab to a rail and press `h`, `r` and `m` | hide, re-read and the model card, for that rail's agent | _not yet measured_ | — |
+| P7 | Hide one agent | it leaves the row and the footer reads `1 hidden`; pressing that brings it back to its slot | _not yet measured_ | — |
+| P8 | Register about thirty checkouts across a few projects on a 1440px window | each project's checkouts share one rail, red if any needs a person, and nothing scrolls | _not yet measured_ | — |
+| P9 | Read a rail with a screen reader (Narrator) | it reads the name, the state, its age and the last line | _not yet measured_ | — |
+
+### The open questions these rows answer
+
+- **Are 48 / 160 / 360 px right on the real monitors?** (P1, P2) Starting values; F records the
+  laptop's beside CI's.
+- **Does the rail's label carry enough?** (P4, P9) A band showed the last line on the glass; a rail
+  says it only to a pointer and a screen reader. If the operator misses reading it at a glance, the
+  answer is E's *needs me* preset (a red agent compact or wider), not a wider rail.
+- **Group or scroll when even the rails do not fit?** (P8) D ships the default, group; a red count at
+  each edge of a scrolling row is the alternative plan-panes records.
+
 
 ## The meter (#201): what only the laptop and a real tenant can answer
 

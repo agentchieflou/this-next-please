@@ -21,6 +21,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
+from test_fleet_column import _until
 from test_fleet_desk_browser import launch_chromium
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -127,12 +128,17 @@ def test_the_page_reads_the_same_two_numbers_the_server_writes():
 
 
 def test_the_footprint_has_one_owner():
-    """`grid-column` was set by a class and is now set by a custom property. Both at once is the
-    two-owners bug the render contract is named after, so there is exactly one rule."""
+    """`grid-column` was set by a class and then by a custom property. Both at once is the
+    two-owners bug the render contract is named after, so there is exactly one rule -- and since
+    the row (#233) it is an open pane's weight, not a span: `--cols` is how many shares of what the
+    rails leave it takes. There are no tracks to span and no rows to span down, because a pane is
+    always the row's full height; `--rows` is still written, and read by nothing, until the gutters
+    replace both (#234)."""
     css = open(os.path.join(STATIC, "app.css"), encoding="utf-8").read()
-    assert css.count("grid-column: span") == 1
-    assert "grid-column: span var(--cols, 1)" in css
-    assert "grid-row: span var(--rows, 1)" in css
+    assert css.count("grid-column: span") == 0, "a span is back in a row that has no tracks"
+    assert "grid-row: span" not in css, "a pane is always the row's full height"
+    assert css.count("var(--cols, 1)") == 1
+    assert ".tile.is-solo { flex: var(--cols, 1) 1 0; min-width: 160px; }" in css
     assert ".tile.size-2 { grid-column: span 2; }" not in css
     # And the width toggle's button went with it: Alt+Shift+arrows answer that question with more
     # than two answers, and the head was already crowded.
@@ -192,14 +198,16 @@ def _drag(page, handle, target, *, steps=8, cancel=False):
     page.mouse.up()
 
 
-BANDS = """() => [...document.querySelectorAll('#bands .band:not([hidden])')]
-                  .map(b => b.dataset.repo)"""
+RAILS = """() => [...document.querySelectorAll(
+                   '#grid .tile[data-tier="rail"]:not(.is-hidden):not(.is-grouped)')]
+                  .map(t => t.dataset.repo)"""
 
 
 @pytest.mark.browser
-def test_dragging_a_band_onto_another_reorders_and_escape_leaves_it_alone(fleet_home, tmp_path):
+def test_dragging_a_rail_onto_another_reorders_and_escape_leaves_it_alone(fleet_home, tmp_path):
     """Both halves of the acceptance criterion in one gesture each, on the same page. It was a tile
-    in the grid; the grid went (#232), and the bands are where the order is read and changed."""
+    in the grid, then a band in the column; both went (#232, #233), and a rail is dragged by its
+    face -- which is one button, so the press is the rail's -- across the row."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
     S.arrange(order=["alpha", "beta", "gamma", "delta"])
@@ -213,20 +221,26 @@ def test_dragging_a_band_onto_another_reorders_and_escape_leaves_it_alone(fleet_
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
             page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
-            page.wait_for_function(f"() => ({BANDS})().length === 3", timeout=15000)
-            assert page.evaluate(BANDS) == ["beta", "gamma", "delta"]
+            page.wait_for_function(f"() => ({RAILS})().length === 3", timeout=15000)
+            assert page.evaluate(RAILS) == ["beta", "gamma", "delta"]
 
             # Cancelled mid-flight: the order is exactly what it was.
-            _drag(page, '.band[data-repo="delta"] .band-open', '.band[data-repo="beta"]', cancel=True)
+            _drag(page, '.tile[data-repo="delta"] .pane-rail', '.tile[data-repo="beta"]',
+                  cancel=True)
             page.wait_for_timeout(500)
-            assert page.evaluate(BANDS) == ["beta", "gamma", "delta"], "Esc did not cancel the drag"
+            assert page.evaluate(RAILS) == ["beta", "gamma", "delta"], "Esc did not cancel the drag"
             assert page.evaluate("() => document.querySelectorAll('.is-dragging').length") == 0
 
             # And carried through: delta lands before beta, and the server agrees.
-            _drag(page, '.band[data-repo="delta"] .band-open', '.band[data-repo="beta"]')
-            page.wait_for_function(f"() => ({BANDS})()[0] === 'delta'", timeout=15000)
+            _drag(page, '.tile[data-repo="delta"] .pane-rail', '.tile[data-repo="beta"]')
+            page.wait_for_function(f"() => ({RAILS})()[0] === 'delta'", timeout=15000)
             page.wait_for_timeout(400)
-            assert page.evaluate(BANDS) == ["delta", "beta", "gamma"]
+            assert page.evaluate(RAILS) == ["delta", "beta", "gamma"]
+            assert page.evaluate("() => document.querySelector('.tile.is-solo').dataset.repo") \
+                == "alpha", "a drag is not a press: the open pane is still the open pane"
+            # The drop paints before it is written (#219): the record, not the pixels, is waited on.
+            _until(lambda: S.desk_state()["arrangement"]["order"]
+                   == ["alpha", "delta", "beta", "gamma"])
             assert not errors, errors
             browser.close()
     finally:
@@ -287,6 +301,7 @@ def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
                           .map(t => t.dataset.repo)[0] === 'beta'""", timeout=8000)
             assert page.evaluate(
                 "() => document.querySelector('.tile.is-solo').dataset.repo") == "alpha"
+            _until(lambda: S.desk_state()["arrangement"]["order"] == ["beta", "alpha", "gamma"])
             assert not errors, errors
             browser.close()
     finally:
@@ -301,8 +316,9 @@ def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
 def test_minimise_takes_it_off_the_glass_and_maximise_opens_it(fleet_home, tmp_path):
     """Two gestures the desk already had, under the names everybody already knows. Maximise is
     `openAgent`: on a pinned tile beside the open one, it makes that one the open agent and the
-    other goes back to its band. Minimise is hide: off the glass, its place kept, and counted at
-    the foot of the column (the dock that used to hold it went with the grid, #232)."""
+    other goes back to being a rail. Minimise is hide: off the glass, its place kept, and counted
+    in the footer (the dock that held it went with the grid, #232, and the column's foot with the
+    column, #233)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"], pinned=["beta"])
@@ -331,13 +347,14 @@ def test_minimise_takes_it_off_the_glass_and_maximise_opens_it(fleet_home, tmp_p
             page.wait_for_function(
                 """() => document.querySelector('.tile[data-repo="beta"]')
                            .classList.contains('is-hidden')""", timeout=8000)
-            # It keeps its place: minimise is not "remove", and the column counts it.
+            # It keeps its place: minimise is not "remove", and the footer counts it.
             assert page.evaluate(
                 "() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)") \
                 == ["beta", "alpha", "gamma"]
             page.wait_for_function(
-                "() => document.getElementById('column-hidden').textContent === '1 hidden'",
+                "() => document.getElementById('hiddencount').textContent === '1 hidden'",
                 timeout=8000)
+            _until(lambda: S.desk_state()["arrangement"]["hidden"] == ["beta"])
             assert not errors, errors
             browser.close()
     finally:
@@ -353,13 +370,14 @@ def test_a_draw_in_the_middle_of_a_drag_does_not_put_the_gesture_down(fleet_home
     """`place()` runs about two and a half times a second while an agent is talking, and a drag
     takes longer than that.
 
-    `drawBand` owned three classes and rewrote the attribute that also holds `is-dragging` -- and
-    with `is-dragging` goes the `pointer-events: none` that makes `elementFromPoint` answer with
-    what is *underneath* the band being dragged. A draw landing mid-drag therefore left the
-    gesture hit-testing only itself, and no drop target could ever light again. On a fast machine
-    the drag finishes between two draws; it took the slowest runner in CI to show it, and two
-    wrong guesses before it was read as the render contract's own rule being broken one component
-    over.
+    The column's band (#203) owned three classes and rewrote the attribute that also holds
+    `is-dragging` -- and with `is-dragging` goes the `pointer-events: none` that makes
+    `elementFromPoint` answer with what is *underneath* the band being dragged. A draw landing
+    mid-drag therefore left the gesture hit-testing only itself, and no drop target could ever light
+    again. On a fast machine the drag finishes between two draws; it took the slowest runner in CI
+    to show it, and two wrong guesses before it was read as the render contract's own rule being
+    broken one component over. The band is gone (#233); a rail is a pane, drawn by `drawTile` and
+    `drawPaneRail` together, and the same rule is asserted of both.
     """
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
@@ -372,27 +390,24 @@ def test_a_draw_in_the_middle_of_a_drag_does_not_put_the_gesture_down(fleet_home
             page = browser.new_page(viewport={"width": 1400, "height": 1000})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                      wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
             page.wait_for_selector(".tile.is-solo", timeout=15000)
-            page.wait_for_function(
-                "() => document.querySelectorAll('#bands .band:not([hidden])').length >= 3",
-                timeout=15000)
+            page.wait_for_function(f"() => ({RAILS})().length >= 3", timeout=15000)
 
             held = page.evaluate("""() => {
-              const band = document.querySelector('#bands .band:not([hidden])');
-              band.classList.add('is-dragging');
+              const rail = document.querySelector('#grid .tile[data-tier="rail"]');
+              rail.classList.add('is-dragging');
               // Twenty passes of exactly what the stream does while an agent talks.
               for (let i = 0; i < 20; i++) redrawAll();
               return {
-                dragging: band.classList.contains('is-dragging'),
-                events: getComputedStyle(band).pointerEvents,
+                dragging: rail.classList.contains('is-dragging'),
+                events: getComputedStyle(rail).pointerEvents,
               };
             }""")
             assert not errors, errors
             assert held["dragging"], "a draw put the gesture down"
             assert held["events"] == "none", \
-                "the band is hit-testable again, so the drag can only find itself"
+                "the rail is hit-testable again, so the drag can only find itself"
             browser.close()
     finally:
         server.stopping.set()
@@ -401,9 +416,11 @@ def test_a_draw_in_the_middle_of_a_drag_does_not_put_the_gesture_down(fleet_home
 
 
 @pytest.mark.browser
-def test_a_band_in_the_column_drags_the_same_way(fleet_home, tmp_path):
-    """The column is the same arrangement seen from the other side, so it is the same gesture --
-    measured down the page rather than across it, because that is the axis the list runs on."""
+def test_an_open_pane_drags_by_its_head_along_the_same_row(fleet_home, tmp_path):
+    """The column was the same arrangement seen from the other side, so it was the same gesture,
+    measured down the page. The row has one side (#233): an open pane is dragged by its head and a
+    rail by its face, both across, and both write the one `order`. Here the open pane is carried
+    past two rails and lands before the third, still open."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
     S.arrange(order=["alpha", "beta", "gamma", "delta"])
@@ -415,23 +432,17 @@ def test_a_band_in_the_column_drags_the_same_way(fleet_home, tmp_path):
             page = browser.new_page(viewport={"width": 1400, "height": 1000})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
-            page.wait_for_function(
-                "() => document.querySelectorAll('#bands .band:not([hidden])').length >= 3",
-                timeout=15000)
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="full"]', timeout=15000)
+            page.wait_for_function(f"() => ({RAILS})().length >= 3", timeout=15000)
 
-            bands = lambda: page.evaluate(                                    # noqa: E731
-                """() => [...document.querySelectorAll('#bands .band:not([hidden])')]
-                          .map(b => b.dataset.repo)""")
-            was = bands()
-            assert len(was) >= 3, was
-            _drag(page, f'.band[data-repo="{was[2]}"]', f'.band[data-repo="{was[0]}"]')
+            _drag(page, '.tile[data-repo="alpha"] .head .grip', '.tile[data-repo="delta"]')
             page.wait_for_function(
-                """(want) => [...document.querySelectorAll('#bands .band:not([hidden])')]
-                              .map(b => b.dataset.repo)[0] === want""",
-                arg=was[2], timeout=15000)
+                """() => [...document.querySelectorAll('#grid .tile')]
+                          .map(t => t.dataset.repo).join(',') === 'beta,gamma,alpha,delta'""",
+                timeout=15000)
+            assert page.evaluate("() => document.querySelector('.tile.is-solo').dataset.repo") \
+                == "alpha"
             assert not errors, errors
             browser.close()
     finally:

@@ -9,27 +9,29 @@
 >
 > [plan-panes.md](plan-panes.md) (#229) is the plan that followed, and its slice C (#232) is what landed here:
 > **the page has one arrangement**, `LAYOUTS` is gone from all three places that kept it, and the picker in
-> the header went with it. §The sitting below keeps the history of how the choice was made.
+> the header went with it. Slice D (#233) then drew the one arrangement as the operator meant it: every
+> agent a pane in one row. §The sitting below keeps the history of how the choice was made.
 
 ## What the one arrangement is
 
-Today it is the column's drawing (#203): one agent open at full height, pinned agents open beside it, and
-every other checkout a **band** in a column down the side, the bands sharing the column's whole height. Under
-900 px the column lies down into a strip above the open tile. [fleet-dashboard.md](fleet-dashboard.md) §The
-column has the rest.
-
 What the operator called *the grid* is not the grid that shipped — wrapping cards with a zoom and a dock
 under them — and it is not the column either. It is **a row of panes**, one per agent, each at full height
-with a width of its own ([plan-panes.md](plan-panes.md) §Where this plan pushes back, item 2). That row is
-slice D (#233), and resizing it is slice E (#234). Slice C only took the other three arrangements away, so
-that D replaces one drawing rather than four:
+with a width of its own ([plan-panes.md](plan-panes.md) §Where this plan pushes back, item 2), and since
+slice D (#233) that is what the page draws: the open agent and every pinned one share the width, every other
+agent is a 48 px **rail**, and each pane draws itself by its own width — rail, compact or full.
+[fleet-dashboard.md](fleet-dashboard.md) §The row has the rest. Resizing it by hand is slice E (#234).
+
+Before D it was the column's drawing (#203): one agent open at full height, pinned agents open beside it, and
+every other checkout a **band** in a column down the side. The bands, the column and `drawColumn`/`drawBand`
+went with D, and a compact pane carries what a band did. Slice C took the other three arrangements away
+first, so that D replaced one drawing rather than four:
 
 * **the grid's zoom** (`zoomed`, `body.focused`, *back to grid*) went. In the column, opening an agent is
   what zooming was, and a `zoomed` left in the window record is what snapped a click back to the agent
   before it (#230).
-* **the dock** (#173) went. It answered *where did that tile go* for the grid; in the column a hidden agent
-  is counted at the foot of the column, with *show all* beside the count, and one that left the registry is
-  a band saying how to bring it back.
+* **the dock** (#173) went. It answered *where did that tile go* for the grid; in the row a hidden agent
+  leaves the row and the footer counts it (one press brings it back), and one that left the registry is a
+  rail saying how to bring it back.
 * **the resize edges** of #217 went. They snapped a tile to the grid's `auto-fit` tracks, and there is no
   wrap of tracks left to snap to. `Alt+Shift+arrows` and `Alt+Enter` still write `size` until the gutters
   replace it (#234).
@@ -92,9 +94,10 @@ look at.
   left monitor can stay in it while the centre one does not.
 * "Needs a person" is #94's fold — `needs_human`, `waiting_approval`, `blocked`, `error` — not a guess made
   in the page. See [fleet-events.md](fleet-events.md).
-* It narrows the column rather than emptying it: a band whose agent wants nothing folds to a sliver, still
-  named and still counted. It never hides the open agent, which is the window.
-* An agent the operator has just acted on is **held** through the pass, so a reply does not fold the band it
+* It quiets the row rather than emptying it: a rail whose agent wants nothing dims, still named, still
+  counted and one press away (it folded a band to a sliver in the column). It never quiets an open pane,
+  which is the window.
+* An agent the operator has just acted on is **held** through the pass, so a reply does not dim the rail it
   was typed into.
 
 The rest of the keyboard is in [fleet-dashboard.md](fleet-dashboard.md) §Keyboard.
@@ -105,13 +108,14 @@ Focus mode decides for you; **hiding** is you deciding. `hidden` is a list besid
 `pinned` in the one `arrangement`, so it is the server's and every window on this fleet agrees on it — an
 agent put away on the laptop is put away on the wall screen too, and it is still put away tomorrow.
 
-* `h` hides the agent the keyboard is on; the hide button on its tile or its band does the same with a mouse.
+* `h` hides the agent the keyboard is on, a rail as well; the hide button on an open pane's head does the
+  same with a mouse.
   `ad-fleet hide <repo>` and `ad-fleet unhide <repo>` do it from a terminal, and print the list.
 * A hidden agent **keeps its slot in `order`**, so reopening it puts it back between the two it was between
   rather than at the end.
 * **An agent that needs a person is on the glass whatever `hidden` says.** Hiding a demand is how a demand
   gets missed, and it is the one rule the operator's own arrangement does not get to override.
-* The foot of the column says how many are hidden, and *show all* empties the list in one press.
+* A hidden agent leaves the row, and the footer says how many are hidden; a press on that empties the list.
 * `#tile=<repo>` — the anchor the Windows toasts and both IDE shells use — reopens a hidden agent and says so
   in the footer.
 

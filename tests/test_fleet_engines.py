@@ -159,7 +159,7 @@ def test_the_chromium_column_is_what_chromium_actually_does(fleet_home, tmp_path
             page = browser.new_page(viewport={"width": 1400, "height": 900})
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector(".tile", timeout=15000)
+            page.wait_for_selector(".tile.is-solo", timeout=15000)
             version = page.evaluate("() => navigator.userAgent")
             got = {name: bool(page.evaluate(probe)) for name, probe in FEATURES.items()}
             browser.close()
@@ -216,7 +216,7 @@ def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home
             """)
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            # Attached, not visible: only the open agent is on the glass (#232), and gamma is a band.
+            # Attached is enough: gamma is a rail (#233), on the glass, and nothing here reads it.
             page.wait_for_selector('.tile[data-repo="gamma"]', state="attached", timeout=15000)
 
             page.evaluate("() => setHidden('beta', true)")
