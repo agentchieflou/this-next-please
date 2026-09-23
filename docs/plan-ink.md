@@ -73,8 +73,8 @@ skin: a degraded mode of the one platform, not a second one.
       under its own name reads its own record, or names one with `shell=`.
     - **`?ink=on` is the test override** (`Ink.verdict.source` is `override`, and nothing is written), and `?ink=off`
       forces the fallback.
-    - **Lazy in two steps.** Every desk loads `ink/ink.js` (4.5 KB gzipped), which holds the gate, `window.Ink` and
-      the fallback. `layer.js`, `shapes.js`, `pen.js` and three.js are fetched only when the gate is on **and** a
+    - **Lazy in two steps.** Every desk loads `ink/ink.js` (6 KB gzipped), which holds the gate, `window.Ink`, the
+      fallback and the choosing of a skin module. `layer.js`, `shapes.js`, `pen.js` and three.js are fetched only when the gate is on **and** a
       skin sets a table. So until the notebook ships, no desk fetches three.js. The WebGL context is asked for
       before three.js is fetched.
     - **A lost context, no context, or three.js failing** turns ink off for the rest of the page. It is not brought
