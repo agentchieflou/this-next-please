@@ -16,7 +16,7 @@ var source = null;
 /* #232: one arrangement. The page used to be four, chosen by `?layout=` -- `column`, `grid`,
    `roles` and `screens` -- and all four wrote one window record, which is how a `zoomed` the grid
    left behind came to snap the column back to it (#230). The operator retired the choice
-   (`docs/fleet-layouts.md` §The decision), so the column's drawing is the only one. An address
+   (`docs/fleet-layouts.md` §The decision): one row of panes, one per agent (#233). An address
    from a bookmark or an older launcher still carries the parameters; the desk opens anyway,
    says once in the footer that they are ignored, and takes them off the address so a reload
    does not say it again. */
@@ -32,10 +32,11 @@ var readCursors = {};
 var streamDead = false;
 var awayShown = false;
 var appliedInitialWindow = false;
-/* Which agent this window has OPEN in the column (#203), and the one it had before -- `Esc` goes
-   back to that rather than to nothing, because "show me the other one for a second" is the gesture
-   the column is for. Per window: the left monitor reads one agent while the centre reads another,
-   and `selected` stays the one thing every window agrees on. */
+/* Which agent this window has OPEN (#203) -- the pane in the row that has the width (#233) -- and
+   the one it had before: `Esc` goes back to that rather than to nothing, because "show me the
+   other one for a second" is the gesture the swap is for. Per window: the left monitor reads one
+   agent while the centre reads another, and `selected` stays the one thing every window agrees
+   on. */
 var openTile = "";
 var previousOpen = "";
 /* Whether a drop opens the dispatch card (#164) or launches the way #98 did. The server's
@@ -141,7 +142,7 @@ function age(seconds) {
    `age()` below stops at hours, so the same agent read `6d` in its chip and `160h` in its tab --
    two numbers for one fact, on one tile, three centimetres apart. `age()` still dates DURATIONS
    (how long an approval has waited, how old a poll is); `agentAge` dates the agent, and the chip,
-   the band, the strip and the rail all call it. */
+   the rail's label, the strip and the agent rail all read the same formatter. */
 function agentAge(seconds) { return ageChip(seconds).text; }
 
 /* The age that rides inside the state chip. "done" is not information; "done · 2d" is -- and the
@@ -271,6 +272,14 @@ function makeTile(row, index) {
   var head = el.querySelector(".head");
   bindDragToReorder(head, el, row.repo);
 
+  /* #233: the rail's face. A press swaps it with the pane that was open -- the column's gesture,
+     kept because it is the one the operator already has -- and a drag moves it along the row, by
+     the same binder the head uses. The face is one button, so it IS the handle (#217's rule), and
+     the click a real drag ends in is swallowed there. */
+  var face = el.querySelector(".pane-rail");
+  face.addEventListener("click", function () { openPane(railTarget(row.repo)); });
+  bindDragToReorder(face, el, row.repo);
+
   el.addEventListener("dragover", function (e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
@@ -317,7 +326,8 @@ function makeTile(row, index) {
     action(el, "answer", { repo: row.repo, answers: answers });
   });
 
-  // hide, refresh and the model -- the band's three, on the tile, from the one binder (#205).
+  // hide, refresh and the model -- the three the band had, on the head, from the one binder (#205).
+  // A rail has no head to put them on; `h`, `r` and `m` reach it from the keyboard instead.
   bindTools(el, row.repo);
 
   el.querySelector(".scope-close").addEventListener("click", function () {
@@ -809,16 +819,16 @@ function startGround() {
    The classes this function does not own are kept by construction rather than by being
    remembered. */
 var TILE_OWNED = /^(tile|state-[A-Za-z_]+)$/;
-var BAND_OWNED = /^(band|needs-human|departed)$/;
 
 /* Rebuild the classes one draw function owns, keeping every class it does not.
 
-   What made it a rule rather than a habit: `drawBand` owned three classes and rewrote the
-   attribute that also holds `is-dragging`, and `place()` runs about two and a half times a second. A draw landing in the
-   middle of a drag took `is-dragging` off the band -- with it the `pointer-events: none` that
-   makes `elementFromPoint` answer with what is *underneath* the thing being dragged -- so the
-   gesture carried on finding only itself and no drop target ever lit. On a fast machine the drag
-   finishes between two draws and it never happens. */
+   What made it a rule rather than a habit: the column's band (#203, retired by #233) owned three
+   classes and rewrote the attribute that also holds `is-dragging`, and `place()` runs about two
+   and a half times a second. A draw landing in the middle of a drag took `is-dragging` off the
+   band -- with it the `pointer-events: none` that makes `elementFromPoint` answer with what is
+   *underneath* the thing being dragged -- so the gesture carried on finding only itself and no
+   drop target ever lit. On a fast machine the drag finishes between two draws and it never
+   happens. */
 function setOwned(el, owned, wanted) {
   var kept = Array.prototype.filter.call(el.classList, function (name) {
     return !owned.test(name);
@@ -830,17 +840,39 @@ function setTileState(el, state) {
   setOwned(el, TILE_OWNED, ["tile", "state-" + state]);
 }
 
+/* The state a pane shows, which is not always the fold's. The server decides which agents are
+   quiet enough to be called unsupervised (it is the only side that knows whether a process holds
+   the checkout), and it sends the sentence ONLY for those -- so a pane that says "needs you" never
+   also says "nothing is supervised". One function, because the chip and the rail both say it. */
+function shownState(row) {
+  var cold = row.supervised === false && !!row.not_supervised_sentence;
+  return cold ? "idle" : (row.state || "");
+}
+
+/* #233: what this pane's width lets it show. A tier not written yet reads as a rail, because that
+   is what every pane is until `place()` opens it: a pane is made 48px wide, and the observer's
+   first report -- before anything is painted -- writes its real tier and draws it again at that
+   width. A pane that is never laid out (hidden from the start) is never reported, and draws the
+   rest of itself the frame it is shown. */
+function paneShows(el) {
+  var tier = el.dataset.tier || "rail";
+  return { wide: tier !== "rail", full: tier === "full" };
+}
+
 function drawTile(el, row, approvals) {
   /* Three things have to agree here or the tile lies: the chip, the sentence under it, and the
-     age. The server decides which agents are quiet enough to be called unsupervised (it is the
-     only side that knows whether a process holds the checkout), and it sends the sentence ONLY
-     for those -- so a tile that says "needs you" never also says "nothing is supervised". */
+     age -- `shownState` is where the first two are decided. */
   var isSupervised = row.supervised !== false;
   var cold = !isSupervised && !!row.not_supervised_sentence;
-  var displayState = cold ? "idle" : row.state;
+  var displayState = shownState(row);
+  /* The draw skips what this tier does not show (plan-panes §The pane): a rail paints no trace,
+     no cells and no session menu, and a compact pane none of the three either. What every tier
+     needs is drawn whatever the width -- above all `needs-human`, which `isHidden` reads to keep a
+     demand on the glass. A change of tier draws the pane again, so what was skipped arrives. */
+  var shows = paneShows(el);
   setTileState(el, displayState);
   paintAccent(el, row.accent);
-  drawTrace(el.querySelector(".trace"), row);
+  if (shows.full) drawTrace(el.querySelector(".trace"), row);
   // `needs-human` is the class focus mode filters on, and it comes from #94's fold rather than from
   // anything this page works out for itself: the chip, the toast and the filter must agree.
   toggle(el, "needs-human", !!row.needs_human);
@@ -856,7 +888,8 @@ function drawTile(el, row, approvals) {
     text(holdNote.querySelector(".holdwhy"),
          "held here because you " + (held.get(row.repo) || "acted") + " — it no longer needs you");
   }
-  tabbable(el, 0);
+  // A rail's one stop for the keyboard is its face; the pane around it is not a second one.
+  tabbable(el, shows.wide ? 0 : -1);
   // Every state carries its own age, in the chip, because a verdict with no date is the bug.
   var modelBtn = el.querySelector(".modeltoggle .bm-name");
   if (modelBtn) text(modelBtn, shortModel(row.actual || row.model));
@@ -952,20 +985,27 @@ function drawTile(el, row, approvals) {
     }
   }
 
-  drawSessionPill(el, row);
+  if (shows.full) drawSessionPill(el, row);
 
-  var mine = approvals.filter(function (a) { return a.repo === row.repo; })[0];
-  var card = el.querySelector(".approval");
-  hide(card, !mine);
-  if (mine) {
-    setData(el, "approval", mine.id);
-    text(el.querySelector(".kind"), mine.kind + "  ·  " + age(mine.waiting_s));
-    text(el.querySelector(".summary"), mine.summary || "");
-    text(el.querySelector(".payload"), JSON.stringify(mine.payload || {}, null, 2));
+  /* The two cards that ask the operator something are on a compact pane as well as a full one:
+     answering from a narrow pane is the point of it. A rail carries neither -- it is red, and the
+     press that widens it is the way to them. */
+  if (shows.wide) {
+    var mine = approvals.filter(function (a) { return a.repo === row.repo; })[0];
+    var card = el.querySelector(".approval");
+    hide(card, !mine);
+    if (mine) {
+      setData(el, "approval", mine.id);
+      text(el.querySelector(".kind"), mine.kind + "  ·  " + age(mine.waiting_s));
+      text(el.querySelector(".summary"), mine.summary || "");
+      text(el.querySelector(".payload"), JSON.stringify(mine.payload || {}, null, 2));
+    }
+    drawAsks(el, row);
   }
-  drawAsks(el, row);
-  drawScopeReport(el, row);
-  drawCells(el, row.polls || {}, row);
+  if (shows.full) {
+    drawScopeReport(el, row);
+    drawCells(el, row.polls || {}, row);
+  }
 }
 
 /* ------------------------------------------------------------------------- the switcher (#174) */
@@ -1355,6 +1395,7 @@ function patchRow(row, index) {
     var el = makeTile(row, index || tiles.size);
     var grid = document.getElementById("grid");
     if (grid) grid.appendChild(el);
+    watchPane(el);                               // #233: its width decides what it draws
     entry = { el: el, seq: 0 };
     tiles.set(row.repo, entry);
     (row.recent || []).forEach(function (ev) { append(el, ev); entry.seq = ev.seq; });
@@ -1439,10 +1480,11 @@ function refresh() {
     data.repos.forEach(function (row, i) { patchRow(row, i); });
     tiles.forEach(function (entry, name) {
       if (!data.repos.some(function (r) { return r.repo === name; })) {
-        // Removed from the registry. Its tile goes, but not silently: it keeps a band naming the
+        // Removed from the registry. Its pane goes, but not silently: it leaves a rail naming the
         // command that restores it, because a transcript disappearing with no explanation is
         // exactly the "where did it go" #173 exists to answer.
         departed.set(name, { path: (entry.row && entry.row.path) || "<path>" });
+        forgetPane(entry.el);
         entry.el.remove();
         tiles.delete(name);
       }
@@ -1532,10 +1574,8 @@ function connect() {
          every trace is drawn again from the row it already has. */
       forgetTokens();
       startGround();
-      tiles.forEach(function (entry) { drawTrace(entry.el.querySelector(".trace"), entry.row); });
-      document.querySelectorAll("#bands .band").forEach(function (li) {
-        var entry = tiles.get(li.dataset.repo);
-        if (entry) drawTrace(li.querySelector(".b-trace"), entry.row);
+      tiles.forEach(function (entry) {
+        if (paneShows(entry.el).full) drawTrace(entry.el.querySelector(".trace"), entry.row);
       });
     } catch (err) {}
   });
@@ -1573,10 +1613,10 @@ function openAgent(name, skipPost) {
   bell();
   drawer(false);
   markTile(name);
-  /* There is no zoom to enter (#232): everything that is not open is a band already, so "focus
+  /* There is no zoom to enter (#232): every agent is a pane in the row already (#233), so "focus
      this agent" and "open this agent" are the same gesture. Every caller -- a toast's anchor, a
      notification row, the away strip -- therefore lands on the right thing. */
-  openBand(name, skipPost);
+  openPane(name, skipPost);
   if (!skipPost) saveWindow({ read: readCursors });
 }
 
@@ -1602,10 +1642,9 @@ function followHash() {
     setHidden(name, false);
     say(name + " was hidden — reopened");
   }
-  // Only if the mode is what is keeping it off the glass. An anchor almost always names a tile
-  // that needs somebody -- which focus mode is showing already -- and turning the mode off to
-  // reach a tile that was never hidden throws away the pass the operator was in the middle of.
-  if (quieted(name)) focusMode(false);
+  // Focus mode is left alone. It used to be turned off when it was what kept the agent off the
+  // glass; since #233 it never keeps anything off the glass -- a quiet rail is dimmed, and an open
+  // pane is never quiet -- so turning it off would only throw away the pass the operator was in.
   focus(name);
 }
 
@@ -1622,29 +1661,31 @@ document.addEventListener("keydown", function (e) {
     if (card && !card.hidden) { closeDispatch(); e.stopImmediatePropagation(); return; }
     if (typing) document.activeElement.blur();
     // There is no zoom to leave, so `Esc` is "show me the last one again" -- which is the other
-    // half of the glance the column is for.
+    // half of the glance the swap is for.
     else backToPrevious();
     return;
   }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^[1-9]$/.test(e.key)) {
-    // The number printed on a band comes from the arrangement, so the key that opens it must too:
-    // registry order meant the badge said 3 and pressing 3 opened something else. It counts BANDS
-    // and not tiles -- the open agent has no number, because it is already open.
-    var band = document.querySelectorAll("#bands .band:not([hidden])")[Number(e.key) - 1];
-    if (band && band.dataset.repo) openBand(band.dataset.repo);
+    // The number printed on a pane comes from the arrangement, so the key that opens it must too:
+    // registry order meant the badge said 3 and pressing 3 opened something else. It counts the
+    // panes on the glass, in the row's order -- every agent is one now (#233), the open one
+    // included, so the number on a pane never changes because another one was opened.
+    var pane = paneStops()[Number(e.key) - 1];
+    var tile = pane && pane.closest ? pane.closest(".tile") : null;
+    if (tile && tile.dataset.repo) openPane(railTarget(tile.dataset.repo));
     return;
   }
   if (e.key === "j" || e.key === "k") {
-    stepColumn(e.key === "j" ? 1 : -1);
+    stepRow(e.key === "j" ? 1 : -1);
     e.preventDefault();
     return;
   }
   if (e.key === "r" || e.key === "m") {
-    // The band or the tile the keyboard is on -- the same two keys on either, because the three
-    // controls are the same three on either.
+    // The pane the keyboard is on, rail or wide -- the same two keys on either, because a rail has
+    // no head to carry the buttons and the keys are how it keeps them (#205, #233).
     var host = document.activeElement && document.activeElement.closest
-      ? (document.activeElement.closest(".band") || document.activeElement.closest(".tile")) : null;
+      ? document.activeElement.closest(".tile") : null;
     var name = host ? host.dataset.repo : openName();
     if (!name) return;
     if (e.key === "r") doRefresh(name, host ? host.querySelector('[data-tool="refresh"]') : null);
@@ -1738,6 +1779,8 @@ function bell() {
     var n = unread.get(name) || 0;
     hide(badge, n === 0);
     text(badge, n);
+    // The rail carries the same count, and says it in its name (#233).
+    if (entry.row) drawPaneRail(entry.el, entry.row);
   });
   return total;
 }
@@ -2114,10 +2157,13 @@ function scopeDrop(el, repo, files) {
    delegating, gathered by a server-side pre-flight that spends no premium request, and one button.
    `fleet.preflight: false` restores #98's immediate start for anyone who preferred it. */
 
-/* One card, two homes (#183): the tile's slot when the tile is on the glass, else under the rail. */
+/* One card, two homes (#183): the pane's slot when the pane has room for it, else under the agent
+   rail. Every agent is on the glass now (#233), but a rail is 48px of glass and a card is not
+   drawn in one: a compact or full pane takes it, a rail sends it to the board. */
 function onTheGlass(repo) {
   var entry = tiles.get(repo);
-  return !!(entry && entry.el.offsetParent !== null && !entry.el.classList.contains("is-hidden"));
+  return !!(entry && entry.el.offsetParent !== null && !entry.el.classList.contains("is-hidden") &&
+            paneShows(entry.el).wide && entry.el.classList.contains("is-solo"));
 }
 
 function dispatchHome(repo) {
@@ -3035,16 +3081,6 @@ function visibleOrder() {
   return getEffectiveOrder().filter(function (n) { return !isHidden(n); });
 }
 
-/* Focus mode is not part of the arrangement -- it quiets tiles with a class while `hidden` stays
-   where the operator put it -- so this is "a mode is keeping it off the glass right now" and
-   `isHidden` is "the operator put it away". A tile being held is one the operator asked to keep
-   through the pass, so the mode is not quieting that one. */
-function quieted(name) {
-  if (!needsOnly) return false;
-  var entry = tiles.get(name);
-  return !!entry && !entry.el.classList.contains("needs-human") && !held.has(name);
-}
-
 /* #219. Every arrangement change goes the same way: paint it, post it, and put it back with the
    server's own words on the notice line if it refuses. The paint is inside the frame the gesture
    happened in -- a page that waits for a round trip before moving a tile is a page that feels
@@ -3098,7 +3134,8 @@ function reorderDomTiles() {
   var curArr = getArrangement();
   var sizes = curArr.size || {};
   var pinned = curArr.pinned || [];
-  var shown = visibleOrder();
+  // What is on the glass as a pane of its own: not hidden, and not folded into its project's rail.
+  var shown = visibleOrder().filter(function (n) { return !groupedAway(n); });
 
   // #217: not while a tile is under the hand. A draw that reorders the DOM mid-drag is a tile
   // that jumps out from under the cursor, and the stream draws several times a second.
@@ -3121,15 +3158,17 @@ function reorderDomTiles() {
       if (needsMove) grid.appendChild(entry.el);
       // Hidden is a class rather than `el.hidden`, so the tile keeps its slot in `order` and
       // reopening puts it back where it was rather than at the end.
-      var off = shown.indexOf(name) < 0;
-      toggle(entry.el, "is-hidden", off);
-      // The number is the key that focuses it, so it counts what is on the glass.
-      text(entry.el.querySelector(".n"), off ? "" : String(shown.indexOf(name) + 1));
+      toggle(entry.el, "is-hidden", isHidden(name));
+      // The number is the key that opens it, so it counts what is on the glass -- on the head and
+      // on the rail alike, one writer for both.
+      var at = shown.indexOf(name);
+      text(entry.el.querySelector(".n"), at < 0 ? "" : String(at + 1));
+      text(entry.el.querySelector(".pr-n"), at < 0 ? "" : String(at + 1));
       var sz = sizeOf(sizes, name);
-      // One owner for the footprint: two custom properties the stylesheet spans on. `size-2`
-      // stays as a state marker for anything that reads "is this one widened", but it is no
-      // longer what makes the tile wide -- a class and an inline style both setting
-      // `grid-column` is the two-owners bug the contract is named after.
+      // One owner for the footprint: two custom properties. `--cols` is an open pane's weight in
+      // the row (#233: `flex-grow`, until the gutters' widths replace it, #234); `--rows` is still
+      // written and means nothing, because a pane is always the row's full height. `size-2` stays
+      // as a state marker for anything that reads "is this one widened".
       style(entry.el, "--cols", String(sz.cols));
       style(entry.el, "--rows", String(sz.rows));
       toggle(entry.el, "size-2", sz.cols === 2);
@@ -3207,16 +3246,28 @@ var DRAG_SLOP = 4;
    from under the cursor. */
 var dragging = null;
 
-/* Reorder by pointer, on a handle. `host` is what moves and `name` is what it is called; an open
-   tile passes itself and its head, a band itself and its own button. Both write the same `order`,
-   because both are the same arrangement seen from two sides. */
+/* The `click` a pointer press ends in, taken off the page once: after a drag, and after a drag put
+   down with `Esc`. It is dispatched in the same task as the `pointerup` that ends the press, so the
+   listener takes itself off on the next turn whether or not a click came. */
+function swallowNextClick() {
+  var swallow = function (ev) {
+    ev.stopPropagation();
+    ev.preventDefault();
+    document.removeEventListener("click", swallow, true);
+  };
+  document.addEventListener("click", swallow, true);
+  setTimeout(function () { document.removeEventListener("click", swallow, true); }, 0);
+}
+
+/* Reorder by pointer, on a handle. `host` is what moves and `name` is what it is called: a pane
+   passes itself and its head, and itself and its rail's face (#233). Both write the same `order`,
+   because both are the same arrangement seen from two widths. */
 function bindDragToReorder(handle, host, name) {
   handle.addEventListener("pointerdown", function (e) {
     if (e.button !== 0) return;
     /* A press on a control inside the handle belongs to that control -- unless the handle *is*
-       the control, which is what a band is: one button filling the row, with its three tools
-       beside it rather than in it. The tile's handle is a plain head, so every button in it is
-       somebody else's. */
+       the control, which is what a rail's face is: one button filling the rail. The head is a
+       plain `div`, so every button in it is somebody else's. */
     var ctrl = e.target.closest("button, input, select, textarea, a");
     if (ctrl && ctrl !== handle) return;
     var siblings = Array.prototype.filter.call(host.parentNode.children, function (n) {
@@ -3229,8 +3280,7 @@ function bindDragToReorder(handle, host, name) {
     var target = null;                           // { el, before } while one is lit
     /* The axis the list runs along is the axis the halves are measured on, or "before" means the
        wrong side of the wrong edge. Read from the list itself rather than from which kind of host
-       this is: the open tiles run across, the bands run down, and under 900px the bands lie down
-       into a row. */
+       this is: the row runs across (#233), and the column of bands it replaced ran down. */
     var down = getComputedStyle(host.parentNode).flexDirection === "column";
 
     /* The capture is taken when the drag begins, not when the pointer goes down. While an element
@@ -3297,26 +3347,32 @@ function bindDragToReorder(handle, host, name) {
       var moved = started;
       clear();
       if (!moved) return;
-      // A pointer drag still ends in a `click`, and on a tile head that click selects the project
-      // while on a band it opens the agent. Neither is what the hand just asked for, so the one
-      // that follows a real drag is swallowed and the listener takes itself off again.
-      var swallow = function (ev) {
-        ev.stopPropagation();
-        ev.preventDefault();
-        document.removeEventListener("click", swallow, true);
-      };
-      document.addEventListener("click", swallow, true);
-      setTimeout(function () { document.removeEventListener("click", swallow, true); }, 0);
+      // A pointer drag still ends in a `click`, and on a head that click selects the project
+      // while on a rail it opens the agent. Neither is what the hand just asked for, so the one
+      // that follows a real drag is swallowed.
+      swallowNextClick();
       if (landed) dropTileBefore(name, landed.el.dataset.repo, landed.before);
     };
 
     // Esc cancels a drag in flight and leaves the order alone (HIG *Drag and drop*). Captured on
     // the document, because the capture has taken the keyboard's usual route away.
+    //
+    // The button is still down when Esc is pressed, and the release that follows is not a click
+    // on what was being dragged either. It was taken for one: Chromium sends the `click` that ends
+    // a captured press to the handle, and on a rail's face that opened the agent the operator had
+    // just put down (#233). So the click after this press is swallowed as well.
     var onKey = function (ev) {
       if (ev.key !== "Escape") return;
       ev.stopPropagation();
       ev.preventDefault();
       clear();
+      var released = function () {
+        document.removeEventListener("pointerup", released, true);
+        document.removeEventListener("pointercancel", released, true);
+        swallowNextClick();
+      };
+      document.addEventListener("pointerup", released, true);
+      document.addEventListener("pointercancel", released, true);
     };
     var onCancel = function () { clear(); };
 
@@ -3331,11 +3387,25 @@ function bindDragToReorder(handle, host, name) {
   });
 }
 
+/* A reorder never changes which agent is open (#233). Until something opens one, the open agent
+   is only "the first in the order" -- and in the row a rail can be dropped before the open pane,
+   or the open pane carried past a rail, so the reorder itself would change what is first and open
+   a different agent under the hand. The one on the glass is written down before the order moves:
+   here, and in this window's record, so a reload opens it too. */
+function holdOpen() {
+  if (openTile) return;
+  var one = openName();
+  if (!one) return;
+  openTile = one;
+  saveWindow({ open: one });
+}
+
 /* Where a drop lands, in one place, so the pointer and the keyboard agree about what "before"
    means. Optimistic: the order changes under the hand and the server's answer is what the next
    draw reads. */
 function dropTileBefore(name, onto, before) {
   if (!name || !onto || name === onto) return;
+  holdOpen();
   var order = getEffectiveOrder();
   var from = order.indexOf(name);
   if (from >= 0) order.splice(from, 1);
@@ -3373,8 +3443,8 @@ function nameTiles(on) {
   });
 }
 
-/* Every change to where things are goes through here: opening a band, going back, hiding a tile,
-   reordering the grid. `startViewTransition` is the good path -- the browser holds the old frame,
+/* Every change to where things are goes through here: opening a pane, going back, hiding a tile,
+   reordering the row. `startViewTransition` is the good path -- the browser holds the old frame,
    applies the change and morphs between the two, so the layout is never in a half-state -- and
    FLIP is the fallback for engines that do not have it, which is every engine the IDE shells ship
    until they catch up with Chromium. Reduced motion takes neither: the change is applied and that
@@ -3457,6 +3527,7 @@ function moveTile(repo, dir) {
   var target = idx + dir;
   while (target >= 0 && target < block.length && isHidden(block[target])) target += dir;
   if (target < 0 || target >= block.length) return;
+  holdOpen();
   block.splice(idx, 1);
   block.splice(target, 0, repo);
 
@@ -3540,9 +3611,10 @@ function toggleTilePin(repo) {
 
 /* ------------------------------------------------------- hide, refresh and the model (#205)
 
-   The same three, in the same order, with the same keys, on the band and on the tile. The
-   operator's sentence was *active and inactive both*, and a control that exists in one place and
-   not the other is what this slice was asked to stop. */
+   The same three, in the same order, with the same keys, on every pane. The operator's sentence
+   was *active and inactive both*, and a control that exists in one place and not the other is what
+   this slice was asked to stop. A pane with a head carries them as buttons; a rail, which has no
+   room for a head, keeps the keys (#233). */
 
 /* The model name, short enough for a 28px button. Never a closed list -- which names this build
    accepts has never been measured -- so this only shortens what it is given. */
@@ -3552,8 +3624,8 @@ function shortModel(name) {
   return value.replace(/^claude-/, "").replace(/-\d{8}$/, "");
 }
 
-/* What the model button says when you hover it, on the band and on the tile alike: what this agent
-   is actually running, and what it was configured to run. Written once so the two cannot drift. */
+/* What the model button says when you hover it: what this agent is actually running, and what it
+   was configured to run. Written once, and the model card reads the same two facts. */
 function modelTitle(row) {
   row = row || {};
   return "runs " + (row.actual || row.model || "whatever the CLI picks") +
@@ -3629,8 +3701,20 @@ function openModelCard(repo, anchor) {
   hide(card, false);
   if (anchor && anchor.getBoundingClientRect) {
     var box = anchor.getBoundingClientRect();
+    // `m` on a rail (#233): its model button is off the glass, so the card hangs off the rail.
+    if (!box.width && anchor.closest && anchor.closest(".tile")) {
+      box = anchor.closest(".tile").getBoundingClientRect();
+    }
     var width = card.offsetWidth || 280;
-    card.style.top = Math.min(window.innerHeight - 40, box.bottom + 6) + "px";
+    var height = card.offsetHeight || 240;
+    /* Under the button when it fits; otherwise level with the top of what opened it -- a rail is
+       the height of the window, and hanging the card off its foot put the card's save button
+       below the glass. */
+    var top = box.bottom + 6;
+    if (top + height > window.innerHeight - 8) {
+      top = Math.max(8, Math.min(box.top, window.innerHeight - height - 8));
+    }
+    card.style.top = top + "px";
     card.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, box.left)) + "px";
   }
   document.getElementById("mc-model").focus();
@@ -3661,7 +3745,7 @@ function saveModel() {
   });
 }
 
-/* One binder for both surfaces, so the band and the tile cannot drift apart. */
+/* One binder, bound once when the pane is made (#205). */
 function bindTools(root, repo) {
   Array.prototype.forEach.call(root.querySelectorAll("[data-tool]"), function (button) {
     if (button.dataset.bound === "1") return;
@@ -3677,10 +3761,10 @@ function bindTools(root, repo) {
   });
 }
 
-/* -------------------------------------------------------------------------- the column (#203) */
+/* ------------------------------------------------------------------------------ the row (#233) */
 
 /* Which agent is open, decided once. The window's own choice wins; then the selection every window
-   shares, so a fresh window opens on whatever the desk is already looking at; then the first band.
+   shares, so a fresh window opens on whatever the desk is already looking at; then the first pane.
    A hidden or departed name never wins -- an arrangement that opened onto nothing would be the
    blank window this layout exists to stop. */
 function openName() {
@@ -3696,8 +3780,8 @@ function openName() {
   return free[0] || shown[0] || "";
 }
 
-/* Everything filling the glass. A pinned tile is always open, and pins split `main` evenly, so the
-   set is the pins plus the one open agent. */
+/* Every pane with a width. A pinned pane is always open, and the open panes share what the rails
+   leave, so the set is the pins plus the one open agent. Everything else is a rail. */
 function openSet() {
   var out = [];
   var shown = visibleOrder();
@@ -3716,9 +3800,11 @@ function markTile(name) {
   if (name && location.hash !== "#tile=" + name) history.replaceState(null, "", "#tile=" + name);
 }
 
-/* Open one, and remember what was open before it so `Esc` can go back. A pinned tile is already on
-   the glass, so clicking its band is not a swap -- it simply selects it. */
-function openBand(name, skipPost) {
+/* Open one. It takes the width the open pane had, and that pane becomes a rail in its own slot --
+   the column's swap, at the widths the row already has (resizing is #234). Nothing moves along the
+   row: the order is the operator's. What was open is remembered so `Esc` can go back. A pinned pane
+   is already open, so pressing it is not a swap -- it simply selects it. */
+function openPane(name, skipPost) {
   if (!name || !tiles.has(name)) return;
   var was = openName();
   if (was && was !== name) previousOpen = was;
@@ -3727,7 +3813,7 @@ function openBand(name, skipPost) {
   // Marked inside the callback, not around the call: the view-transition path runs it on the
   // frame after the browser has taken its snapshot, and a mark closed before the work happened
   // would report nought and mean nothing (#219).
-  var mark = gesture("open:band");
+  var mark = gesture("open:pane");
   transitionLayout(function () { choose(name); place(); settle(mark); });
   if (!skipPost) saveWindow({ open: name });
 }
@@ -3743,27 +3829,266 @@ function backToPrevious() {
   return true;
 }
 
-/* Repositories that left the registry. Their tile goes, but each keeps a band naming the command
+/* Repositories that left the registry. Their pane goes, but each leaves a rail naming the command
    that restores it (#173), because a transcript disappearing with no explanation is exactly the
-   "where did it go" the column exists to answer. */
+   "where did it go" the row exists to answer. */
 var departed = new Map();
 
 function ageOf(row) {
   return row && typeof row.last_event_age_s === "number" ? row.last_event_age_s : 0;
 }
 
-/* The one function that decides what this window shows. The stylesheet is the layout, and there
-   is one arrangement (#232), so all this writes is which tiles are open, which one is selected and
-   the one mode the page has. */
+/* ------------------------------------------------------------- the pane's three widths (#233)
+
+   One component, three widths (plan-panes §The pane). What a pane draws is decided by how wide it
+   is, and how wide it is by the arrangement: open panes share the row by weight, every other one is
+   a 48px rail. `data-tier` is the one bridge between the two, and it has one writer. */
+
+/* The boundaries, in CSS pixels of the pane's border box. Starting values, which the laptop sets in
+   #235: 360 is the grid's narrowest tile as it was, and 160 the narrowest a head and a reply box
+   can share. The rail's own 48px is `--rail` in app.css; `RAIL_PX` and the two after it mirror the
+   stylesheet for the one sum that decides whether the rails still fit (`groupRails`). */
+var TIER_COMPACT_FROM = 160;
+var TIER_FULL_FROM = 360;
+var TIER_SLACK = 8;
+var RAIL_PX = 48;
+var ROW_GAP_PX = 6;
+var ROW_PAD_PX = 16;
+
+/* Which tier a width is, remembering which one the pane was in. A pane leaves its tier only once
+   it is 8px past the boundary, so a pane sitting on 360 -- a window edge being dragged, a scrollbar
+   coming and going -- does not redraw itself between two tiers on every frame. */
+function paneTier(width, was) {
+  var raw = width >= TIER_FULL_FROM ? "full" : width >= TIER_COMPACT_FROM ? "compact" : "rail";
+  if (!was || raw === was) return raw;
+  var lo = was === "full" ? TIER_FULL_FROM : was === "compact" ? TIER_COMPACT_FROM : 0;
+  var hi = was === "rail" ? TIER_COMPACT_FROM : was === "compact" ? TIER_FULL_FROM : Infinity;
+  return (width >= lo - TIER_SLACK && width < hi + TIER_SLACK) ? was : raw;
+}
+
+/* The one writer of `data-tier`. It answers whether the tier changed, because a change is a
+   redraw: a narrower tier skipped drawing what it does not show. */
+function setTier(el, width) {
+  var was = el.dataset.tier || "";
+  var tier = paneTier(width, was);
+  if (tier === was) return false;
+  attr(el, "data-tier", tier);
+  return true;
+}
+
+var rowObserver = null;
+var rowWidth = 0;
+var rowSoon = 0;
+
+/* The border box, which is what the tiers are measured in and what `flex-basis` sets. */
+function entryWidth(entry) {
+  var box = entry.borderBoxSize;
+  var first = box && (box[0] || box);
+  if (first && typeof first.inlineSize === "number") return first.inlineSize;
+  return entry.target.getBoundingClientRect().width;
+}
+
+/* One observer on the row: the row itself, for whether every rail still fits, and every pane in
+   it, for its tier. A pane whose tier changed is drawn again from the row it already has, in the
+   same frame, so what the narrower tier skipped is there before anything is painted. A pane taken
+   off the glass -- hidden, or folded into its project's rail -- measures nought and keeps the tier
+   it had, rather than being called a rail it is not. */
+function onRowResize(entries) {
+  var redraw = [];
+  entries.forEach(function (entry) {
+    var el = entry.target;
+    var width = entryWidth(entry);
+    if (el.id === "grid") {
+      if (Math.round(width) !== Math.round(rowWidth)) { rowWidth = width; placeSoon(); }
+      return;
+    }
+    if (width > 0 && setTier(el, width)) redraw.push(el);
+  });
+  redraw.forEach(function (el) {
+    var entry = tiles.get(el.dataset.repo);
+    if (entry && entry.el === el && entry.row) drawTile(el, entry.row, lastApprovals);
+  });
+}
+
+function startRowObserver() {
+  if (rowObserver || typeof ResizeObserver !== "function") return;
+  var grid = document.getElementById("grid");
+  if (!grid) return;
+  rowObserver = new ResizeObserver(onRowResize);
+  rowObserver.observe(grid, { box: "border-box" });
+  tiles.forEach(function (entry) { rowObserver.observe(entry.el, { box: "border-box" }); });
+}
+
+function watchPane(el) {
+  startRowObserver();
+  if (rowObserver) rowObserver.observe(el, { box: "border-box" });
+}
+
+function forgetPane(el) {
+  if (rowObserver) rowObserver.unobserve(el);
+}
+
+/* An engine with no `ResizeObserver` -- none of the three the desk runs in, as #235 will record,
+   but a page that cannot tell a pane's width must still draw one -- gets the same writer, fed by a
+   measurement after every layout pass and on every resize of the window. */
+function measureRow() {
+  if (rowObserver || typeof ResizeObserver === "function") return;
+  var grid = document.getElementById("grid");
+  if (!grid) return;
+  rowWidth = grid.getBoundingClientRect().width;
+  tiles.forEach(function (entry) {
+    var width = entry.el.getBoundingClientRect().width;
+    if (width > 0 && setTier(entry.el, width) && entry.row) {
+      drawTile(entry.el, entry.row, lastApprovals);
+    }
+  });
+}
+
+function placeSoon() {
+  if (rowSoon) return;
+  rowSoon = requestAnimationFrame(function () { rowSoon = 0; place(); });
+}
+
+window.addEventListener("resize", function () {
+  if (typeof ResizeObserver !== "function") placeSoon();
+});
+
+/* ------------------------------------------------------- when even the rails do not fit (#233)
+
+   A project's checkouts share one rail -- but only when the row cannot hold every rail it has, at
+   about thirty agents on a 1440px window (plan-panes §Open questions; D's default is to group). It
+   is the answer that keeps every agent on the glass: a row that scrolled sideways would put the one
+   that needs you past its edge, and the dock grouped checkouts the same way (#175). The first
+   checkout of a project, in the row's order, is the head; the others fold into its rail. Past
+   grouping the row scrolls, which is the last resort and not the design. */
+var railGroups = new Map();           // head -> [head, member...], only while grouping
+var groupedInto = new Map();          // member -> head, for every member but the head
+
+function groupRails(shown, open) {
+  railGroups = new Map();
+  groupedInto = new Map();
+  var rails = shown.filter(function (name) { return open.indexOf(name) < 0; });
+  // Measured against every rail, never the grouped count, so grouping cannot talk itself out of
+  // being needed on the next pass and flicker.
+  var need = ROW_PAD_PX + open.length * TIER_COMPACT_FROM + rails.length * RAIL_PX +
+             Math.max(0, shown.length - 1) * ROW_GAP_PX;
+  if (!rowWidth || need <= rowWidth) return;
+  var byProject = new Map();
+  rails.forEach(function (name) {
+    var entry = tiles.get(name);
+    var project = (entry && entry.row && entry.row.project) || name;
+    var head = byProject.get(project);
+    if (!head) {
+      byProject.set(project, name);
+      railGroups.set(name, [name]);
+      return;
+    }
+    railGroups.get(head).push(name);
+    groupedInto.set(name, head);
+  });
+  railGroups.forEach(function (members, head) {
+    if (members.length < 2) railGroups.delete(head);
+  });
+}
+
+function groupedAway(name) {
+  return groupedInto.has(name);
+}
+
+/* Where a press on a rail goes: the agent itself -- or, on a project's shared rail, the first of
+   its checkouts that needs a person, then the first one. The red is why the operator pressed it. */
+function railTarget(name) {
+  var members = railGroups.get(name);
+  if (!members) return name;
+  var red = members.filter(function (member) {
+    var entry = tiles.get(member);
+    return !!entry && entry.el.classList.contains("needs-human");
+  })[0];
+  return red || name;
+}
+
+/* ------------------------------------------------------------------------------ the rail (#233) */
+
+/* The glyph a rail wears for a state. Its shape says what its colour says, so neither is alone: a
+   colour is not a signal on a bad monitor at arm's length, and not at all to somebody who cannot
+   tell the two apart. A project's shared rail wears its count instead. */
+var RAIL_GLYPHS = {
+  running: "▶", waiting_approval: "‖", needs_human: "!", blocked: "■",
+  error: "✕", done: "✓", idle: "○", starting: "◌"
+};
+
+/* One agent, in the words a rail cannot fit: who, in what state, since when, what it has cost,
+   what is unread, and the last thing it said -- or, when it needs a person, what it is asking. */
+function railLine(row) {
+  var ac = ageChip(row.last_event_age_s);
+  var bits = [row.needs_human ? "needs you" : (shownState(row).replace(/_/g, " ") || "no run yet")];
+  if (ac.text) bits.push(ac.text + " ago");
+  var spend = row.spend || {};
+  if (spend.total) bits.push(spend.total + " premium");
+  var n = unread.get(row.repo) || 0;
+  if (n) bits.push(n + " unread");
+  var said = row.needs_human ? String(row.why || "") : String(row.last_said || "").slice(0, 160);
+  return row.repo + ": " + bits.join(" · ") + (said ? " — " + said : "");
+}
+
+/* The rail's face: the name down its length, the state's glyph in the state's colour, the unread
+   count, and the whole of it red when the agent needs a person. The age and the last line are its
+   accessible name and its title. Drawn on every pass whatever the tier -- it is a handful of
+   guarded writes -- so a pane that narrows to a rail is already right. It owns the face's `class`
+   and nothing on the pane around it. */
+function drawPaneRail(el, row) {
+  var face = el.querySelector(".pane-rail");
+  if (!face || !row) return;
+  var members = railGroups.get(row.repo);
+  var rows = members ? members.map(function (name) {
+    var entry = tiles.get(name);
+    return (entry && entry.row) || { repo: name };
+  }) : [row];
+  var asking = rows.filter(function (r) { return !!r.needs_human; });
+  var red = asking.length > 0;
+  var state = members ? "group" : shownState(row);
+  setClass(face, "pane-rail st-" + (red ? "needs_human" : state) + (red ? " needs-human" : ""));
+  text(face.querySelector(".pr-glyph"),
+       red ? "!" : members ? String(members.length) : (RAIL_GLYPHS[state] || "·"));
+  text(face.querySelector(".pr-name"), members ? (row.project || row.repo) : row.repo);
+  var unreadN = rows.reduce(function (n, r) { return n + (unread.get(r.repo) || 0); }, 0);
+  var badge = face.querySelector(".pr-badge");
+  hide(badge, !unreadN);
+  text(badge, unreadN ? String(unreadN) : "");
+  var lines = rows.map(railLine);
+  var needing = asking.length + " " + (asking.length === 1 ? "needs" : "need") + " you";
+  var head = members ? (row.project || row.repo) + ", " + members.length + " checkouts" +
+                       (red ? ", " + needing : "") : "";
+  attr(face, "aria-label", members ? head + ". " + lines.join(". ") : lines[0]);
+  attr(face, "title", members ? head + "\n" + lines.join("\n") : lines[0]);
+}
+
+/* -------------------------------------------------------------------------- the whole window */
+
+/* The one function that decides what this window shows. The stylesheet is the layout, and there is
+   one arrangement (#232), so all this writes is which panes are open -- and so wide -- which one is
+   selected, which rails are quiet or folded into their project's, and the one mode the page has.
+   What each pane draws at its width is the observer's (#233). */
 function place() {
   var one = openName();
   var open = openSet();
+  groupRails(visibleOrder(), open);
   toggle(document.body, "needs-only", needsOnly);
   tiles.forEach(function (entry, name) {
-    toggle(entry.el, "is-solo", open.indexOf(name) >= 0);
+    var isOpen = open.indexOf(name) >= 0;
+    var members = railGroups.get(name) || [name];
+    toggle(entry.el, "is-solo", isOpen);
     toggle(entry.el, "is-selected", name === desk.desk.selected);
+    toggle(entry.el, "is-grouped", groupedAway(name));
+    /* *needs me* quiets a rail; it never removes one (#207). A rail that is red, or one the
+       operator is holding through the pass, is not quiet -- and an open pane never is. */
+    toggle(entry.el, "is-quiet", needsOnly && !isOpen && !members.some(function (member) {
+      var other = tiles.get(member);
+      return held.has(member) || (!!other && other.el.classList.contains("needs-human"));
+    }));
   });
   reorderDomTiles();
+  tiles.forEach(function (entry) { if (entry.row) drawPaneRail(entry.el, entry.row); });
   var need = 0;
   tiles.forEach(function (entry) { if (entry.el.classList.contains("needs-human")) need += 1; });
   // "Nothing needs you" is only true of an EMPTY screen. Held tiles are still on it, so the prompt
@@ -3771,160 +4096,45 @@ function place() {
   hide(document.getElementById("nonefocus"),
        !(needsOnly && !one && need === 0 && held.size === 0 && tiles.size > 0));
   drawNotice();
-  drawColumn();
+  drawHiddenCount();
+  drawGone();
   drawRail();
+  measureRow();
 }
 
-/* The column's bands (#203).
+/* Where a hidden agent went (#233): it left the row, and the footer says how many have. One press
+   brings every one of them back, each to its own slot. An agent that needs a person is never
+   counted, because it is never put away (`isHidden`). */
+function drawHiddenCount() {
+  var n = getEffectiveOrder().filter(function (name) { return isHidden(name); }).length;
+  var button = document.getElementById("hiddencount");
+  text(button, n ? n + " hidden" : "");
+  hide(button, !n);
+}
 
-   Every checkout that is not open, one band each, sharing the column's whole height. It is also
-   the answer to *where did that tile go*: a hidden one is counted at its foot and a departed one
-   is a band of its own, which is why the grid's dock (#173) retired with the grid (#232). */
-function drawColumn() {
-  var box = document.getElementById("column");
-  if (!box) return;
-  var list = document.getElementById("bands");
-  var pattern = list.querySelector(".band");
-  var open = openSet();
-  var shown = visibleOrder();
-  var rows = shown.filter(function (name) { return open.indexOf(name) < 0; });
-
-  // A project's checkouts are one band (#175): two rows for one piece of work is two things to
-  // read for one decision.
-  var groups = [];
-  var byProject = new Map();
-  rows.forEach(function (name) {
-    var entry = tiles.get(name);
-    var project = (entry && entry.row && entry.row.project) || name;
-    var group = byProject.get(project);
-    if (group) { group.members.push(name); return; }
-    group = { project: project, name: name, members: [name] };
-    byProject.set(project, group);
-    groups.push(group);
-  });
-  departed.forEach(function (gone, name) {
-    groups.push({ project: name, name: name, members: [name], gone: gone });
-  });
-
-  /* Patched, never rebuilt. `place()` runs about two and a half times a second while an agent is
-     talking, and a column that tore its rows down and cloned them again on every pass would take
-     the hover off the band under the cursor and the keyboard off the one `j` had just reached --
-     which is the whole of #215's render contract, arriving here first because the column is where
-     it is felt. The node for a repository is created once and kept. */
-  var need = 0;
-  patchList(list, groups, function (item) { return item.name; },
-    function (item) {
+/* The rails of repositories that left the registry, after the row. Patched, never rebuilt, like
+   every list on this page. */
+function drawGone() {
+  var list = document.getElementById("gone");
+  if (!list) return;
+  var pattern = list.querySelector(".gone-rail");
+  var rows = [];
+  departed.forEach(function (gone, name) { rows.push({ name: name, path: gone.path }); });
+  patchList(list, rows, function (item) { return item.name; },
+    function () {
       var li = pattern.cloneNode(true);
       hide(li, false);
-      // #217: the band's own button is its title bar -- it fills the row, and the three tools
-      // sit beside it rather than inside it. Bound once, on create, like every other listener
-      // the contract allows.
-      setData(li, "repo", item.name);
-      bindDragToReorder(li.querySelector(".band-open"), li, item.name);
       return li;
     },
-    function (li, item, index) {
+    function (li, item) {
       setData(li, "repo", item.name);
-      drawBand(li, item, index);
-      /* *needs me* narrows the column; it does not empty it. A quiet band folds to a sliver --
-         still named, still counted, still one click away -- because a mode that removed nine rows
-         of ten would be the "where did it go" the column exists to answer, one level up. */
-      toggle(li, "is-quiet", needsOnly && !li.classList.contains("needs-human") &&
-                             !held.has(item.name));
-      if (li.classList.contains("needs-human")) need += 1;
+      text(li.querySelector(".pr-name"), item.name);
+      var said = item.name + ": removed from the registry — `ad-fleet repo add " + item.path +
+                 "` restores it";
+      attr(li, "aria-label", said);
+      attr(li, "title", said);
     });
-
-  var hiddenNames = getEffectiveOrder().filter(function (name) { return isHidden(name); });
-  text(document.getElementById("column-count"),
-       groups.length ? groups.length + (groups.length === 1 ? " other" : " others") +
-                       (need ? " · " + need + " need you" : "")
-                     : "");
-  var jump = document.getElementById("column-jump");
-  hide(jump, !need);
-  text(jump, "go to the first");
-  text(document.getElementById("column-hidden"),
-       hiddenNames.length ? hiddenNames.length + " hidden" : "");
-  hide(document.getElementById("column-showall"), !hiddenNames.length);
-  hide(box, !(groups.length || hiddenNames.length));
-}
-
-/* One band: who it is, what state it is in, and -- on every band, not only a red one -- what it
-   last said. The dock could fit a state and an age, which is how an agent that asked a question an
-   hour ago and went quiet became unreadable from it: `idle · 3m` and nothing else. */
-function drawBand(li, item, index) {
-  var entry = tiles.get(item.name);
-  var row = (entry && entry.row) || {};
-  var several = item.members.length > 1;
-  var needs = item.members.some(function (name) {
-    var e = tiles.get(name);
-    return !!e && e.el.classList.contains("needs-human");
-  });
-  var own = ["band"];
-  if (needs) own.push("needs-human");
-  if (item.gone) own.push("departed");
-  setOwned(li, BAND_OWNED, own);
-  text(li.querySelector(".b-n"), String(index + 1));
-  text(li.querySelector(".b-name"), several ? item.project : item.name);
-  var ac = ageChip(row.last_event_age_s);
-  var spend = row.spend || {};
-  text(li.querySelector(".b-chip"),
-       item.gone ? "removed from the registry"
-                 : several ? item.members.length + " checkouts"
-                 : (row.state || "") + (ac.text ? " · " + ac.text : "") +
-                   (spend.total ? " · " + spend.total : ""));
-  var badge = li.querySelector(".b-badge");
-  var unreadN = item.members.reduce(function (n, name) { return n + (unread.get(name) || 0); }, 0);
-  hide(badge, !unreadN);
-  text(badge, String(unreadN));
-
-  // The last line. `why` when it wants something -- in full, because an ask the operator cannot
-  // read is an ask they have to open the tile for -- then the last thing it actually said, then
-  // the state. Never blank: a band with nothing on it is a band nobody can triage from.
-  var said = "";
-  if (item.gone) said = "";
-  else if (needs) said = (row.why || "needs you");
-  else if (row.last_said) said = String(row.last_said).slice(0, 80);
-  else said = (row.state || "") + (ac.text ? " · " + ac.text : "");
-  var last = li.querySelector(".b-last");
-  text(last, said);
-  hide(last, !said);
-
-  // The same hour, on the row where nine of them are being scanned at once (#218).
-  drawTrace(li.querySelector(".b-trace"), row);
-
-  /* The tail: what it has been doing, in as many lines as the band has room for. The band shares
-     the column's height, so with three agents it is tall -- and a tall row showing one sentence is
-     the negative space this arrangement was asked to remove, moved inside the row. The events are
-     the ones the row already carries for the transcript, so this costs the page nothing. */
-  var tail = li.querySelector(".b-tail");
-  var recent = item.gone ? [] : (row.recent || []);
-  var shown = recent.filter(function (ev) { return SHOWN[ev.kind] && line(ev); });
-  // The line above already IS the newest assistant line, so the tail starts under it rather than
-  // opening with the same sentence twice.
-  if (said && shown.length && line(shown[shown.length - 1]) === said) shown.pop();
-  // Keyed on the event's own sequence number, so a tail that has not changed is not rewritten --
-  // and one that has gains a row rather than being built again from nothing.
-  patchList(tail, shown.slice(-6), function (ev) { return String(ev.seq || ev.ts || ""); },
-    function () { return document.createElement("li"); },
-    function (node, ev) { text(node, line(ev)); });
-  hide(tail, !tail.children.length);
-
-  var modelName = li.querySelector(".bm-name");
-  if (modelName) text(modelName, shortModel(row.actual || row.model));
-  var modelBtn = li.querySelector('[data-tool="model"]');
-  if (modelBtn) attr(modelBtn, "title", modelTitle(row));
-  var tools = li.querySelector(".band-tools");
-  if (tools) {
-    hide(tools, !!item.gone);          // nothing to hide, refresh or configure about a departed one
-    bindTools(li, item.name);
-  }
-
-  var button = li.querySelector(".band-open");
-  attr(button, "title", item.gone
-    ? "`ad-fleet repo add " + item.gone.path + "` restores it"
-    : several ? "open " + item.project + ": " + item.members.join(", ")
-    : (needs ? (row.why || "needs you") : "open " + item.name));
-  button.onclick = function () { if (!item.gone) openBand(item.name); };
+  hide(list, !rows.length);
 }
 
 /* The footer's one line, and one owner (#173).
@@ -3982,9 +4192,10 @@ function title(need) {
 
 /* ------------------------------------------------------------------------------- focus mode */
 
-/* The fourth thing #133 asks for, and the only one that is not a layout: hide every tile except
+/* The fourth thing #133 asks for, and the only one that is not a layout: quiet every agent except
    the ones #94 says need a person. The alternative to arranging tabs is having fewer to look at.
-   Toggled with `f`, remembered per window, and printed in the footer's key map. */
+   It hid tiles, then folded bands; it dims rails now (#233), and never takes anything off the
+   glass. Toggled with `f`, remembered per window, and printed in the footer's key map. */
 function focusMode(on, skipPost) {
   needsOnly = on === undefined ? !needsOnly : !!on;
   attr(document.getElementById("focus"), "aria-pressed", String(needsOnly));
@@ -4000,15 +4211,28 @@ function focusMode(on, skipPost) {
   place();
 }
 
-/* `j` and `k` walk the bands; the button they land on is a real button, so `Enter` opens it and
-   there is no second model of "which band is selected" to disagree with what is on the glass. */
-function stepColumn(dir) {
-  var buttons = [].slice.call(document.querySelectorAll("#bands .band:not([hidden]) .band-open"));
-  if (!buttons.length) return;
-  var here = buttons.indexOf(document.activeElement);
-  var at = here < 0 ? (dir > 0 ? 0 : buttons.length - 1)
-                    : (here + dir + buttons.length) % buttons.length;
-  buttons[at].focus();
+/* Where the keyboard stops along the row (#233): a rail's face, or an open pane itself. In the
+   row's order, and only what is on the glass, so `j` never lands on something nobody can see and
+   the digits count exactly the panes there are. */
+function paneStops() {
+  return Array.prototype.map.call(
+    document.querySelectorAll("#grid .tile:not(.is-hidden):not(.is-grouped)"),
+    function (el) { return el.dataset.tier === "rail" ? el.querySelector(".pane-rail") : el; });
+}
+
+/* `j` and `k` walk the row. A rail's stop is a real button, so `Enter` opens it, and there is no
+   second model of "which one is selected" to disagree with what is on the glass. */
+function stepRow(dir) {
+  var stops = paneStops();
+  if (!stops.length) return;
+  var active = document.activeElement;
+  var here = -1;
+  stops.forEach(function (stop, i) {
+    if (stop === active || (active && stop.contains(active))) here = i;
+  });
+  var at = here < 0 ? (dir > 0 ? 0 : stops.length - 1)
+                    : (here + dir + stops.length) % stops.length;
+  stops[at].focus();
 }
 
 document.addEventListener("click", function (e) {
@@ -4046,12 +4270,7 @@ function showEverything() {
   });
 }
 
-document.getElementById("column-showall").addEventListener("click", showEverything);
-
-document.getElementById("column-jump").addEventListener("click", function () {
-  var first = document.querySelector("#bands .band.needs-human:not([hidden]) .band-open");
-  if (first) first.focus();
-});
+document.getElementById("hiddencount").addEventListener("click", showEverything);
 
 document.getElementById("focus").addEventListener("click", function () { focusMode(); });
 

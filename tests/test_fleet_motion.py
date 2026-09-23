@@ -165,11 +165,11 @@ def test_the_one_door_for_a_layout_change_has_both_paths_and_takes_neither_under
     door = js[js.index("function transitionLayout(fn)"):]
     door = door[:door.index("\n}\n")]
     assert "reduceMotion()" in door, "reduced motion has to be the first thing it asks"
-    # Every gesture that moves something goes through it: opening a band and going back. The
+    # Every gesture that moves something goes through it: opening a pane and going back. The
     # grid's zoom, its way out and the edge resize were the other three, and went with the grid
     # (#232); a rearrangement is FLIP through `transitionMove` (#219).
     assert js.count("transitionLayout(") >= 3, js.count("transitionLayout(")
-    for gesture in ("function openBand(", "function backToPrevious("):
+    for gesture in ("function openPane(", "function backToPrevious("):
         body = js[js.index(gesture):]
         assert "transitionLayout(" in body[:body.index("\n}\n")], gesture
 
@@ -275,12 +275,12 @@ def test_a_gesture_that_supersedes_another_is_not_an_unhandled_rejection(fleet_h
                       wait_until="domcontentloaded")
             page.wait_for_selector(".tile.is-solo", timeout=15000)
             page.wait_for_function(
-                "() => document.querySelectorAll('#bands .band:not([hidden])').length >= 2",
+                "() => document.querySelectorAll('#grid .tile[data-tier=\"rail\"]').length >= 2",
                 timeout=15000)
 
             # Four opens inside a frame: every one of them supersedes the one before.
             page.evaluate("""() => {
-              openBand('beta'); openBand('gamma'); openBand('delta'); openBand('alpha');
+              openPane('beta'); openPane('gamma'); openPane('delta'); openPane('alpha');
             }""")
             # Waited on by state and not by a clock: a fixed sleep here passes on an idle machine
             # and fails on a loaded one, which is a test measuring the load.
@@ -324,7 +324,7 @@ def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_id
                 assert page.evaluate(
                     "() => typeof document.startViewTransition === 'function'") is not stubbed
 
-                page.evaluate("() => openBand('gamma')")
+                page.evaluate("() => openPane('gamma')")
                 page.wait_for_function(
                     """() => document.querySelector('.tile.is-solo')
                               && document.querySelector('.tile.is-solo').dataset.repo === 'gamma'""",
@@ -332,8 +332,8 @@ def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_id
                 page.wait_for_timeout(450)              # past --motion-base, whichever path ran
                 shapes[stubbed] = page.evaluate("""() => ({
                   open: document.querySelector('.tile.is-solo').dataset.repo,
-                  bands: [...document.querySelectorAll('#bands .band:not([hidden])')]
-                    .map(b => b.dataset.repo),
+                  rails: [...document.querySelectorAll('#grid .tile[data-tier="rail"]')]
+                    .map(t => t.dataset.repo),
                   names: [...document.querySelectorAll('.tile')]
                     .map(t => t.style.viewTransitionName || ''),
                 })""")
@@ -341,7 +341,7 @@ def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_id
                 page.close()
 
             assert shapes[False]["open"] == shapes[True]["open"] == "gamma"
-            assert shapes[False]["bands"] == shapes[True]["bands"], shapes
+            assert shapes[False]["rails"] == shapes[True]["rails"] == ["alpha", "beta"], shapes
             assert shapes[False]["names"] == [""] * len(shapes[False]["names"]), \
                 "the names are for the duration of the transition and are cleared after it"
             browser.close()
@@ -391,7 +391,7 @@ def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp
               const tick = t => { stamps.push(t); if (!stop) requestAnimationFrame(tick); };
               requestAnimationFrame(tick);
               const began = performance.now();
-              openBand('epsilon');
+              openPane('epsilon');
               const handed = performance.now() - began;
               setTimeout(() => {
                 stop = true;

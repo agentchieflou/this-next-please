@@ -112,10 +112,10 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             page.wait_for_timeout(400)
             page.screenshot(path=os.path.join(shots, "ownership-desk.png"))
 
-            # 1. The swap. One agent opened from its band and then the one before it again, each
+            # 1. The swap. One agent opened from its rail and then the one before it again, each
             #    through the one door a layout change has, so the transition is the same one every
             #    gesture uses.
-            page.locator('#bands .band[data-repo="luna"] .band-open').click()
+            page.locator('.tile[data-repo="luna"] .pane-rail').click()
             page.wait_for_selector('.tile[data-repo="luna"].is-solo', timeout=8000)
             page.wait_for_timeout(450)
             page.screenshot(path=os.path.join(shots, "ownership-open.png"))
@@ -135,18 +135,19 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             page.wait_for_timeout(450)
             page.screenshot(path=os.path.join(shots, "ownership-resized.png"))
 
-            # 3. The hide, and back. Painted before the server answers, and the foot of the
-            #    column says where it went.
-            page.locator('#bands .band[data-repo="backlog-health"] [data-tool="hide"]').click()
+            # 3. The hide, and back. Painted before the server answers, and the footer says where
+            #    it went. `h` on the rail, which is where the band's hide button went (#233).
+            page.focus('.tile[data-repo="backlog-health"] .pane-rail')
+            page.keyboard.press("h")
             page.wait_for_function(
                 """() => document.querySelector('.tile[data-repo="backlog-health"]')
                            .classList.contains('is-hidden')""", timeout=8000)
             page.wait_for_function(
-                "() => document.getElementById('column-hidden').textContent === '1 hidden'",
+                "() => document.getElementById('hiddencount').textContent === '1 hidden'",
                 timeout=8000)
             page.wait_for_timeout(350)
             page.screenshot(path=os.path.join(shots, "ownership-hidden.png"))
-            page.locator("#column-showall").click()
+            page.locator("#hiddencount").click()
             page.wait_for_function(
                 """() => !document.querySelector('.tile[data-repo="backlog-health"]')
                             .classList.contains('is-hidden')""", timeout=8000)

@@ -279,10 +279,10 @@ def _page(p, url):
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(url, wait_until="domcontentloaded")
-    # A *painted* tile, not the first one in the DOM. Only the open agent is on the glass (`app.css`
-    # `.tile:not(.is-solo)`), and a bare `.tile` wait resolves to the first match and then waits
-    # for that one to be visible -- which, when the window reopens on another agent, it never will
-    # be.
+    # A *painted* tile, not the first one in the DOM. A bare `.tile` wait resolves to the first match
+    # and then waits for that one to be visible -- which, when it is hidden, it never will be. (In
+    # the column only the open agent was on the glass; every agent is a pane since #233, but a
+    # hidden one still is not.)
     page.wait_for_selector(".tile:visible", timeout=15000)
     page.wait_for_timeout(500)
     return browser, page, errors
@@ -379,10 +379,10 @@ def test_window_reopens_with_same_open_agent_after_restart(fleet_home, tmp_path)
     with sync_playwright() as p:
         b, page, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&w=main")
         assert not errs, errs
-        # Open beta from its band. Waited for rather than slept through: 300ms is the page's budget
+        # Open beta from its rail. Waited for rather than slept through: 300ms is the page's budget
         # on an idle machine, and under `-n auto` on a Windows runner four browsers share the cores
         # -- which is the load talking, not the page. The selectors are the assertions.
-        page.locator('#bands .band[data-repo="beta"] .band-open').click()
+        page.locator('.tile[data-repo="beta"] .pane-rail').click()
         page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
         page.wait_for_function("() => windowWrites === 0", timeout=15000)
         b.close()

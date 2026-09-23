@@ -1,16 +1,18 @@
-"""The column: one agent open, every other one a band that shares the page's height (issue #203).
+"""One agent open, every other one beside it -- the column (issue #203), and the row that replaced it
+(issue #233).
 
-The operator's two sentences, and what each one is asserted by here:
+The column put every agent that was not open into a band, one above another, in a box beside the
+glass. The operator's correction (docs/plan-panes.md §Decisions 3): *each agent is a column, not
+each agent is stacked in one column -- skinnier agents.* So every agent is a pane in one row now, the
+open one wide and every other one a 48px rail, and what the column's tests asserted is asserted of
+the row:
 
-* *non-open sessions show vertically rather than horizontally* -- the bands are one above another in
-  a box beside the glass (and the grid's dock, which answered the same question, is gone: #232);
-* *each slice that isn't being actively looked at should auto size to take up the page so there
-  isn't so much negative space* -- the bands SUM to the column's height, measured at three viewport
-  heights, which is the one thing a `flex-wrap: wrap` row of chips could never do.
+* *so there isn't so much negative space* -- the panes SUM to the row's width, and every one of them
+  is the row's full height, measured at three viewport heights;
+* the swap, `Esc` back, the digits and `j`/`k`, the hidden count, the red that nothing reorders, the
+  three controls and their keys -- each ported from the band to the pane that carries it now.
 
-The failure this replaces is in `docs/plan-column.md` §Why this exists: `.workspace` is a flex row,
-`.dock` had no flex basis, so a chip carrying a long question was laid out beside the grid and took
-a third of the window off the tiles.
+The tiers themselves (rail, compact, full) at three window widths are `tests/test_fleet_panes.py`.
 """
 from __future__ import annotations
 import os
@@ -74,11 +76,21 @@ def _serve():
 
 
 def _open(page, port, token, extra=""):
-    page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column{extra}",
-              wait_until="domcontentloaded")
-    page.wait_for_selector(".tile", timeout=10000)
-    page.wait_for_function(
-        "() => document.querySelectorAll('#bands .band:not([hidden])').length > 0", timeout=10000)
+    page.goto(f"http://127.0.0.1:{port}/?t={token}{extra}", wait_until="domcontentloaded")
+    # What is meant, not the first `.tile` in the DOM: an open pane that has been given its width,
+    # and at least one rail beside it.
+    page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=10000)
+    page.wait_for_selector('.tile[data-tier="rail"]', timeout=10000)
+
+
+# The rails on the glass, in the row's order.
+RAILS = """() => [...document.querySelectorAll(
+                   '#grid .tile[data-tier="rail"]:not(.is-hidden):not(.is-grouped)')]
+                   .map(t => t.dataset.repo)"""
+
+
+def _rail(repo):
+    return f'.tile[data-repo="{repo}"] .pane-rail'
 
 
 # ----------------------------------------------------------------------------------- the server
@@ -117,10 +129,11 @@ def test_a_window_written_before_this_slice_loads_without_an_open_key(fleet_home
 
 @pytest.mark.browser
 @pytest.mark.parametrize("height", [720, 1080, 1440])
-def test_the_bands_fill_the_column_at_every_viewport_height(fleet_home, tmp_path, height):
-    """The acceptance criterion, and the whole reason this arrangement exists: *so there isn't so
-    much negative space.* Five agents, one open, four bands -- and the four bands between them
-    account for the column's height rather than sitting in a clump at the top of it."""
+def test_the_panes_fill_the_row_at_every_viewport_height(fleet_home, tmp_path, height):
+    """The column's acceptance criterion, ported to the row: *so there isn't so much negative
+    space.* Five agents, one open, four rails -- and the five panes between them account for the
+    row's whole width, and every one of them its whole height, rather than sitting in a clump.
+    (It was four bands summing to the column's height; #233.)"""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon")
     S.arrange(order=["alpha", "beta", "gamma", "delta", "epsilon"])
@@ -133,29 +146,36 @@ def test_the_bands_fill_the_column_at_every_viewport_height(fleet_home, tmp_path
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
+            page.wait_for_function(f"() => ({RAILS})().length === 4", timeout=10000)
 
             measured = page.evaluate("""() => {
-              const list = document.getElementById('bands');
-              const bands = [...list.querySelectorAll('.band:not([hidden])')];
-              const box = list.getBoundingClientRect();
-              const tile = document.querySelector('.tile.is-solo').getBoundingClientRect();
-              const gap = parseFloat(getComputedStyle(list).rowGap || '0') * (bands.length - 1);
+              const row = document.getElementById('grid');
+              const panes = [...row.querySelectorAll('.tile:not(.is-hidden)')];
+              const style = getComputedStyle(row);
+              const inner = row.clientWidth - parseFloat(style.paddingLeft) -
+                            parseFloat(style.paddingRight);
+              const tall = row.clientHeight - parseFloat(style.paddingTop) -
+                           parseFloat(style.paddingBottom);
+              const gap = parseFloat(style.columnGap || '0') * (panes.length - 1);
               return {
-                bands: bands.length,
-                sum: bands.reduce((n, b) => n + b.getBoundingClientRect().height, 0) + gap,
-                list: box.height,
-                tileBottom: tile.bottom,
-                page: window.innerHeight,
-                shortest: Math.min(...bands.map(b => b.getBoundingClientRect().height)),
+                panes: panes.length,
+                sum: panes.reduce((n, t) => n + t.getBoundingClientRect().width, 0) + gap,
+                inner: inner,
+                heights: panes.map(t => t.getBoundingClientRect().height),
+                tall: tall,
+                rails: panes.filter(t => t.dataset.tier === 'rail')
+                            .map(t => Math.round(t.getBoundingClientRect().width)),
+                scrolls: row.scrollWidth > row.clientWidth + 1,
               };
             }""")
             assert not errors, errors
-            assert measured["bands"] == 4, "one of five is open; the other four are bands"
-            # Within a pixel: the bands share the column's whole height.
-            assert abs(measured["sum"] - measured["list"]) < 1.5, measured
-            assert measured["shortest"] >= 56, "no band is squeezed under its minimum"
-            # And the open tile reaches the bottom of the page rather than stopping at 60vh.
-            assert measured["tileBottom"] > measured["page"] * 0.75, measured
+            assert measured["panes"] == 5, "every agent is a pane"
+            assert measured["rails"] == [48, 48, 48, 48], "one of five is open; four are rails"
+            # Within a pixel: the panes share the row's whole width, and nothing scrolls.
+            assert abs(measured["sum"] - measured["inner"]) < 1.5, measured
+            assert not measured["scrolls"], measured
+            # And every pane is the row's full height, the rails included.
+            assert all(abs(h - measured["tall"]) < 1.5 for h in measured["heights"]), measured
             browser.close()
     finally:
         server.stopping.set()
@@ -164,9 +184,11 @@ def test_the_bands_fill_the_column_at_every_viewport_height(fleet_home, tmp_path
 
 
 @pytest.mark.browser
-def test_many_agents_make_the_column_scroll_and_the_head_counts_them(fleet_home, tmp_path):
-    """Past the minimums the column scrolls rather than crushing every band to nothing, and the
-    head says how many there are and how many want a person."""
+def test_twelve_agents_fit_the_row_and_the_footer_counts_who_needs_you(fleet_home, tmp_path):
+    """Past its minimums the column scrolled and its head counted the bands. The row does not
+    scroll: twelve agents are one pane and eleven rails, every one on the glass, and the footer
+    says how many want a person. The column's head, and its "go to the first" jump, went with the
+    column (#233): a red rail is never off the glass to be jumped to."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["r%02d" % n for n in range(12)]
     _repos(tmp_path, *names, needs=("r03", "r07"))
@@ -180,27 +202,34 @@ def test_many_agents_make_the_column_scroll_and_the_head_counts_them(fleet_home,
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
-            page.wait_for_function(
-                "() => document.querySelectorAll('#bands .band:not([hidden])').length >= 11",
-                timeout=10000)
+            page.wait_for_function(f"() => ({RAILS})().length === 11", timeout=10000)
 
             out = page.evaluate("""() => {
-              const list = document.getElementById('bands');
-              const bands = [...list.querySelectorAll('.band:not([hidden])')];
+              const row = document.getElementById('grid');
+              const rails = [...row.querySelectorAll('.tile[data-tier="rail"]')];
+              const glass = document.documentElement;
               return {
-                n: bands.length,
-                scrolls: list.scrollHeight > list.clientHeight + 1,
-                shortest: Math.min(...bands.map(b => b.getBoundingClientRect().height)),
-                head: document.getElementById('column-count').textContent,
-                red: document.querySelectorAll('#bands .band.needs-human').length,
-                jump: !document.getElementById('column-jump').hidden,
+                n: rails.length,
+                scrolls: row.scrollWidth > row.clientWidth + 1 ||
+                         glass.scrollWidth > glass.clientWidth + 1,
+                narrowest: Math.min(...rails.map(t => t.getBoundingClientRect().width)),
+                onGlass: rails.every(t => {
+                  const r = t.getBoundingClientRect();
+                  return r.left >= 0 && r.right <= window.innerWidth + 0.5;
+                }),
+                counts: document.getElementById('counts').textContent,
+                red: [...row.querySelectorAll('.pane-rail.needs-human')]
+                       .map(f => f.closest('.tile').dataset.repo),
+                column: !!document.getElementById('column'),
               };
             }""")
             assert not errors, errors
-            assert out["n"] == 11 and out["scrolls"], out
-            assert out["shortest"] >= 56, "a crushed band is not a band"
-            assert "11 others" in out["head"] and "2 need you" in out["head"], out["head"]
-            assert out["red"] == 2 and out["jump"] is True, out
+            assert out["n"] == 11 and not out["scrolls"], out
+            assert out["narrowest"] >= 47.5, "a crushed rail is not a rail"
+            assert out["onGlass"], "a rail past the edge of the window is an agent off the glass"
+            assert "12 agents" in out["counts"] and "2 need you" in out["counts"], out["counts"]
+            assert sorted(out["red"]) == ["r03", "r07"], out
+            assert out["column"] is False, "the column went with #233"
             browser.close()
     finally:
         server.stopping.set()
@@ -209,9 +238,9 @@ def test_many_agents_make_the_column_scroll_and_the_head_counts_them(fleet_home,
 
 
 @pytest.mark.browser
-def test_one_checkout_draws_no_column_and_its_tile_fills_the_page(fleet_home, tmp_path):
-    """A column with nothing in it is a strip of empty panel down the side of the one thing you are
-    reading -- the negative space this arrangement was asked to remove, on the other edge."""
+def test_one_checkout_is_one_pane_and_it_fills_the_row(fleet_home, tmp_path):
+    """A column with nothing in it was a strip of empty panel down the side of the one thing you
+    were reading. One agent is one pane, the whole width of the row, with no rail beside it."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha")
 
@@ -222,21 +251,22 @@ def test_one_checkout_draws_no_column_and_its_tile_fills_the_page(fleet_home, tm
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile", timeout=10000)
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            page.wait_for_selector('.tile[data-tier="full"]', timeout=10000)
 
             out = page.evaluate("""() => {
               const tile = document.querySelector('.tile').getBoundingClientRect();
               return {
-                column: !document.getElementById('column').hidden,
+                column: !!document.getElementById('column'),
                 dock: !!document.getElementById('dock'),
+                rails: document.querySelectorAll('.tile[data-tier="rail"]').length,
                 width: tile.width, page: window.innerWidth,
               };
             }""")
             assert not errors, errors
-            assert out["column"] is False, "no other agent, so no column"
+            assert out["column"] is False, "the column went with #233"
             assert out["dock"] is False, "the dock went with the grid (#232)"
+            assert out["rails"] == 0, out
             assert out["width"] > out["page"] * 0.9, out
             browser.close()
     finally:
@@ -246,9 +276,10 @@ def test_one_checkout_draws_no_column_and_its_tile_fills_the_page(fleet_home, tm
 
 
 @pytest.mark.browser
-def test_clicking_a_band_opens_it_and_the_tile_that_was_open_takes_its_slot(fleet_home, tmp_path):
+def test_clicking_a_rail_swaps_it_with_the_open_pane_in_their_own_slots(fleet_home, tmp_path):
     """The swap, and `Esc` back again -- "show me the other one for a second" is the gesture the
-    column is for, and it has to be two keystrokes rather than a hunt."""
+    column was for, and the row keeps it (#233): the rail takes the open pane's width and the open
+    pane becomes a rail, each where it was in the order. Nothing travels along the row."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
@@ -261,19 +292,21 @@ def test_clicking_a_band_opens_it_and_the_tile_that_was_open_takes_its_slot(flee
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
+            order = "() => [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo)"
+            before = page.evaluate(order)
 
             first = page.evaluate("document.querySelector('.tile.is-solo').dataset.repo")
-            page.click("#bands .band:not([hidden]) .band-open")
+            second = page.evaluate(RAILS)[0]
+            page.click(_rail(second))
             page.wait_for_function(
-                f"() => document.querySelector('.tile.is-solo').dataset.repo !== '{first}'",
+                f"() => document.querySelector('.tile.is-solo').dataset.repo === '{second}'",
                 timeout=5000)
-            second = page.evaluate("document.querySelector('.tile.is-solo').dataset.repo")
+            page.wait_for_selector(f'.tile[data-repo="{second}"][data-tier="full"]', timeout=5000)
             assert second != first
 
-            # The one that was open is a band now, in the column, not gone.
-            assert page.evaluate(
-                f"[...document.querySelectorAll('#bands .band:not([hidden])')]"
-                f".some(b => b.dataset.repo === '{first}')")
+            # The one that was open is a rail now, in its own slot: not gone, and not moved.
+            page.wait_for_selector(f'.tile[data-repo="{first}"][data-tier="rail"]', timeout=5000)
+            assert page.evaluate(order) == before, "a swap moved something along the row"
 
             page.keyboard.press("Escape")
             page.wait_for_function(
@@ -328,7 +361,7 @@ def test_another_window_writing_the_old_zoom_to_the_same_record_does_not_move_th
             for gone in ("zoomed", "layout", "view", "screen"):
                 assert gone not in record, f"the server kept {gone}: {record}"
 
-            page.click('#bands .band[data-repo="beta"] .band-open')
+            page.click(_rail("beta"))
             page.wait_for_function(f"() => {SOLO} === 'beta'", timeout=5000)
             page.wait_for_timeout(1500)
             assert page.evaluate(SOLO) == "beta"
@@ -358,7 +391,7 @@ def test_a_reload_opens_the_agent_that_was_clicked_not_the_one_the_address_named
                       wait_until="domcontentloaded")
             page.wait_for_function(f"() => document.querySelector('.tile.is-solo') && {SOLO} === 'gamma'",
                                    timeout=10000)
-            page.click('#bands .band[data-repo="beta"] .band-open')
+            page.click(_rail("beta"))
             page.wait_for_function(f"() => {SOLO} === 'beta'", timeout=5000)
             assert page.evaluate("location.hash") == "#tile=beta"
 
@@ -408,7 +441,7 @@ def test_an_answer_read_before_a_click_cannot_undo_it(fleet_home, tmp_path):
             page.wait_for_function("() => !!window.__release", timeout=5000)
             before = page.evaluate("desk.desk.version")
 
-            page.click('#bands .band[data-repo="beta"] .band-open')
+            page.click(_rail("beta"))
             # Until the page holds the frame that carries the click itself -- not only the select's
             # answer, which raises `version` and says nothing about this window.
             page.wait_for_function(
@@ -443,7 +476,7 @@ def test_four_opens_in_one_frame_leave_the_record_on_the_last(fleet_home, tmp_pa
             browser = launch_chromium(p)
             page = browser.new_page(viewport={"width": 1400, "height": 900})
             _open(page, port, token)
-            page.evaluate("() => { openBand('beta'); openBand('gamma'); openBand('delta'); openBand('alpha'); }")
+            page.evaluate("() => { openPane('beta'); openPane('gamma'); openPane('delta'); openPane('alpha'); }")
             page.wait_for_function("() => windowWrites === 0", timeout=10000)
             assert S.desk_state()["windows"]["main"]["open"] == "alpha"
             page.wait_for_timeout(800)
@@ -457,8 +490,9 @@ def test_four_opens_in_one_frame_leave_the_record_on_the_last(fleet_home, tmp_pa
 
 @pytest.mark.browser
 def test_a_pinned_agent_is_open_too_and_the_two_split_the_glass(fleet_home, tmp_path):
-    """Pinning already meant *first, always* in the grid. In the column the first thing is the open
-    thing, so a pinned agent is one that is always on the glass -- and two of them share it."""
+    """Pinning already meant *first, always* in the grid. In the column the first thing was the open
+    thing, so a pinned agent is one that is always on the glass -- and in the row (#233) that means
+    it has a width: the two open panes share what the rails leave, evenly, and it is not a rail."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"], pinned=["gamma"])
@@ -472,19 +506,17 @@ def test_a_pinned_agent_is_open_too_and_the_two_split_the_glass(fleet_home, tmp_
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
 
-            out = page.evaluate("""() => {
+            out = page.evaluate(f"""() => {{
               const open = [...document.querySelectorAll('.tile.is-solo')].map(t => t.dataset.repo);
               const widths = [...document.querySelectorAll('.tile.is-solo')]
                 .map(t => Math.round(t.getBoundingClientRect().width));
-              const bands = [...document.querySelectorAll('#bands .band:not([hidden])')]
-                .map(b => b.dataset.repo);
-              return { open, widths, bands };
-            }""")
+              return {{ open, widths, rails: ({RAILS})() }};
+            }}""")
             assert not errors, errors
             assert "gamma" in out["open"], "a pinned agent is always open"
             assert len(out["open"]) == 2, out
-            assert abs(out["widths"][0] - out["widths"][1]) <= 2, "pins split the glass evenly"
-            assert "gamma" not in out["bands"], "and it is not also a band"
+            assert abs(out["widths"][0] - out["widths"][1]) <= 2, "pins split the row evenly"
+            assert "gamma" not in out["rails"], "and it is not also a rail"
             browser.close()
     finally:
         server.stopping.set()
@@ -493,9 +525,11 @@ def test_a_pinned_agent_is_open_too_and_the_two_split_the_glass(fleet_home, tmp_
 
 
 @pytest.mark.browser
-def test_the_digits_and_j_k_reach_every_band_without_a_mouse(fleet_home, tmp_path):
+def test_the_digits_and_j_k_reach_every_pane_without_a_mouse(fleet_home, tmp_path):
     """A desk that can only be arranged with a mouse cannot be arranged by somebody typing, which is
-    the rule every gesture on this page already keeps."""
+    the rule every gesture on this page already keeps. `j`/`k` walk the row (#233): the open pane
+    itself, then each rail's face -- a real button, so `Enter` swaps it in. The digits count the
+    panes on the glass in the row's order, and the number is printed on each one."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
     S.arrange(order=["alpha", "beta", "gamma", "delta"])
@@ -508,25 +542,30 @@ def test_the_digits_and_j_k_reach_every_band_without_a_mouse(fleet_home, tmp_pat
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
+            here = "document.activeElement.closest('.tile').dataset.repo"
 
             page.keyboard.press("j")
-            assert page.evaluate("document.activeElement.classList.contains('band-open')")
+            assert page.evaluate(here) == "alpha", "the first stop is the first pane: the open one"
+            page.keyboard.press("j")
             page.keyboard.press("j")
             page.keyboard.press("k")
-            first_band = page.evaluate(
-                "document.activeElement.closest('.band').dataset.repo")
+            assert page.evaluate("document.activeElement.classList.contains('pane-rail')")
+            assert page.evaluate(here) == "beta"
             page.keyboard.press("Enter")
             page.wait_for_function(
-                f"() => document.querySelector('.tile.is-solo').dataset.repo === '{first_band}'",
+                "() => document.querySelector('.tile.is-solo').dataset.repo === 'beta'",
                 timeout=5000)
 
-            # And a digit opens the Nth band, which is the number printed on it.
-            second = page.evaluate(
-                "document.querySelectorAll('#bands .band:not([hidden])')[1].dataset.repo")
-            page.keyboard.press("2")
+            # And a digit opens the Nth pane, which is the number printed on it -- on the rail's
+            # face and on the open pane's head alike.
+            page.wait_for_selector('.tile[data-repo="gamma"][data-tier="rail"]', timeout=5000)
+            assert page.inner_text('.tile[data-repo="gamma"] .pr-n') == "3"
+            page.keyboard.press("3")
             page.wait_for_function(
-                f"() => document.querySelector('.tile.is-solo').dataset.repo === '{second}'",
+                "() => document.querySelector('.tile.is-solo').dataset.repo === 'gamma'",
                 timeout=5000)
+            page.wait_for_selector('.tile[data-repo="gamma"][data-tier="full"]', timeout=5000)
+            assert page.inner_text('.tile[data-repo="gamma"] .head .n') == "3"
             assert not errors, errors
             browser.close()
     finally:
@@ -535,7 +574,7 @@ def test_the_digits_and_j_k_reach_every_band_without_a_mouse(fleet_home, tmp_pat
         server.server_close()
 
 
-# ------------------------------------------------------------------------ the band (#204)
+# ------------------------------------------------ what the band said, on the rail (#204, #233)
 
 
 def test_one_age_formatter_dates_the_agent_everywhere_it_is_dated():
@@ -547,9 +586,9 @@ def test_one_age_formatter_dates_the_agent_everywhere_it_is_dated():
     assert "age(row.last_event_age_s)" not in js, "the strip is back on the short formatter"
     assert "age(ageOf(row))" not in js, "the rail is back on the short formatter"
     # The surfaces that used to disagree with the chip now call it: the strip's main tab and the
-    # rail chip (the dock chip was the third, and went with the grid in #232). The chip and the
-    # band read `ageChip` straight, because they want the `stale` flag beside the text -- the same
-    # formatter either way, which is the point.
+    # agent rail's chip (the dock chip was the third, and went with the grid in #232). The chip and
+    # the pane's rail (the band's heir, #233) read `ageChip` straight, because they want the
+    # `stale` flag beside the text -- the same formatter either way, which is the point.
     assert js.count("agentAge(") >= 3, js.count("agentAge(")
     assert js.count("ageChip(") >= 3, js.count("ageChip(")
 
@@ -570,9 +609,11 @@ def test_the_fold_says_what_the_agent_last_said(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_every_band_says_what_its_agent_last_said(fleet_home, tmp_path):
+def test_every_rail_says_what_its_agent_last_said(fleet_home, tmp_path):
     """The dock could fit a state and an age, which is how an agent that spoke an hour ago and went
-    quiet became unreadable from it. The band has the room, so it uses it."""
+    quiet became unreadable from it. The band had the room and used it; a rail is 48px, so what it
+    last said is the rail's accessible name and its title (#233) -- read by a screen reader, and by
+    anybody who points at it -- with the state and its age beside it."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta")
     E.append("beta", [E.event("beta", "assistant_text",
@@ -588,8 +629,13 @@ def test_every_band_says_what_its_agent_last_said(fleet_home, tmp_path):
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
-            band = page.inner_text('#bands .band[data-repo="beta"]')
-            assert "rebuilt the semantic model" in band, band
+            face = page.locator(_rail("beta"))
+            label = face.get_attribute("aria-label") or ""
+            assert label.startswith("beta: idle"), label
+            assert " ago" in label, "the rail's label carries the age"
+            assert "rebuilt the semantic model" in label, label
+            assert face.get_attribute("title") == label
+            assert "beta" in face.inner_text(), "and the name is on the rail itself"
             assert not errors, errors
             browser.close()
     finally:
@@ -599,9 +645,9 @@ def test_every_band_says_what_its_agent_last_said(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_a_bands_node_survives_every_tick_so_the_keyboard_and_the_hover_do(fleet_home, tmp_path):
-    """`place()` runs about two and a half times a second while an agent is talking. A column that
-    cloned its rows on every pass would take the keyboard off the band `j` had just reached."""
+def test_a_rails_node_survives_every_tick_so_the_keyboard_and_the_hover_do(fleet_home, tmp_path):
+    """`place()` runs about two and a half times a second while an agent is talking. A row that
+    cloned its panes on every pass would take the keyboard off the rail `j` had just reached."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
@@ -615,22 +661,22 @@ def test_a_bands_node_survives_every_tick_so_the_keyboard_and_the_hover_do(fleet
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
 
-            out = page.evaluate("""() => {
-              const one = document.querySelector('#bands .band[data-repo="beta"]');
+            out = page.evaluate(f"""() => {{
+              const one = document.querySelector('.tile[data-repo="beta"]');
               one.__marker = 'still me';
-              one.querySelector('.band-open').focus();
-              for (let i = 0; i < 20; i++) place();
-              const after = document.querySelector('#bands .band[data-repo="beta"]');
-              return {
+              one.querySelector('.pane-rail').focus();
+              for (let i = 0; i < 20; i++) {{ place(); redrawAll(); }}
+              const after = document.querySelector('.tile[data-repo="beta"]');
+              return {{
                 same: after.__marker === 'still me',
-                keyboard: document.activeElement === after.querySelector('.band-open'),
-                bands: document.querySelectorAll('#bands .band:not([hidden])').length,
-              };
-            }""")
+                keyboard: document.activeElement === after.querySelector('.pane-rail'),
+                rails: ({RAILS})().length,
+              }};
+            }}""")
             assert not errors, errors
-            assert out["same"], "the band was torn down and cloned again"
-            assert out["keyboard"], "twenty draws took the keyboard off the band"
-            assert out["bands"] == 2, out
+            assert out["same"], "the pane was torn down and cloned again"
+            assert out["keyboard"], "twenty draws took the keyboard off the rail"
+            assert out["rails"] == 2, out
             browser.close()
     finally:
         server.stopping.set()
@@ -639,9 +685,10 @@ def test_a_bands_node_survives_every_tick_so_the_keyboard_and_the_hover_do(fleet
 
 
 @pytest.mark.browser
-def test_a_hidden_agent_is_counted_at_the_foot_and_show_all_brings_it_back(fleet_home, tmp_path):
-    """A band never simply disappears: hiding one is the operator's own arrangement, and the foot
-    says how many they have put away. One press brings them all back."""
+def test_a_hidden_agent_is_counted_in_the_footer_and_a_press_brings_it_back(fleet_home, tmp_path):
+    """A pane never simply disappears: hiding one is the operator's own arrangement. It leaves the
+    row, and the footer -- where the column's foot used to say it -- reads `1 hidden`. One press on
+    that brings them all back (#233)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"], hidden=["gamma"])
@@ -655,14 +702,16 @@ def test_a_hidden_agent_is_counted_at_the_foot_and_show_all_brings_it_back(fleet
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
 
-            assert "1 hidden" in page.inner_text("#column-hidden")
-            assert page.evaluate(
-                "() => !document.querySelector('#bands .band[data-repo=\\\"gamma\\\"]')")
-            page.click("#column-showall")
             page.wait_for_function(
-                "() => !!document.querySelector('#bands .band[data-repo=\\\"gamma\\\"]')",
+                "() => document.getElementById('hiddencount').textContent === '1 hidden'",
                 timeout=5000)
-            assert page.inner_text("#column-hidden") == ""
+            assert page.locator("#hiddencount").is_visible()
+            assert not page.locator('.tile[data-repo="gamma"]').is_visible(), "it left the row"
+            assert "gamma" not in page.evaluate(RAILS)
+            page.click("#hiddencount")
+            page.wait_for_function(f"() => ({RAILS})().indexOf('gamma') >= 0", timeout=5000)
+            assert page.inner_text("#hiddencount") == ""
+            assert not page.locator("#hiddencount").is_visible()
             assert not errors, errors
             browser.close()
     finally:
@@ -672,9 +721,10 @@ def test_a_hidden_agent_is_counted_at_the_foot_and_show_all_brings_it_back(fleet
 
 
 @pytest.mark.browser
-def test_an_agent_that_needs_a_person_keeps_its_slot_and_shows_its_ask_in_full(fleet_home, tmp_path):
-    """Nothing reorders itself under the operator's hand, so a band that turns red stays where they
-    put it -- and the head counts it and jumps to it instead. Its question is never clipped."""
+def test_an_agent_that_needs_a_person_keeps_its_slot_and_says_its_ask_in_full(fleet_home, tmp_path):
+    """Nothing reorders itself under the operator's hand, so a rail that turns red stays where they
+    put it, and the footer counts it. Its question is never cut short: a rail cannot show it, so its
+    label says it whole (#233) -- and one press on the red opens the pane where it is answered."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", needs=("gamma",))
     S.arrange(order=["alpha", "beta", "gamma"])
@@ -688,23 +738,25 @@ def test_an_agent_that_needs_a_person_keeps_its_slot_and_shows_its_ask_in_full(f
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
 
-            out = page.evaluate("""() => {
-              const bands = [...document.querySelectorAll('#bands .band:not([hidden])')];
-              const red = document.querySelector('#bands .band.needs-human');
-              const last = red.querySelector('.b-last');
-              return {
-                order: bands.map(b => b.dataset.repo),
-                redIsLast: bands[bands.length - 1] === red,
-                ask: last.textContent,
-                clipped: last.scrollHeight > last.clientHeight + 1,
-                head: document.getElementById('column-count').textContent,
-              };
-            }""")
+            out = page.evaluate(f"""() => {{
+              const rails = ({RAILS})();
+              const red = document.querySelector('#grid .pane-rail.needs-human');
+              return {{
+                redIsLast: rails[rails.length - 1] === red.closest('.tile').dataset.repo,
+                ask: red.getAttribute('aria-label'),
+                counts: document.getElementById('counts').textContent,
+              }};
+            }}""")
             assert not errors, errors
-            assert out["redIsLast"], "the red band moved; nothing reorders itself here"
+            assert out["redIsLast"], "the red rail moved; nothing reorders itself here"
             assert "which window should this land in?" in out["ask"], out["ask"]
-            assert not out["clipped"], "an ask the operator cannot read is one they must open a tile for"
-            assert "1 need you" in out["head"], out["head"]
+            assert "1 need you" in out["counts"], out["counts"]
+
+            page.click(_rail("gamma"))
+            page.wait_for_selector('.tile[data-repo="gamma"][data-tier="full"] .asks:not([hidden])',
+                                   timeout=5000)
+            assert "which window should this land in?" in \
+                page.inner_text('.tile[data-repo="gamma"] .asks')
             browser.close()
     finally:
         server.stopping.set()
@@ -789,43 +841,80 @@ def test_the_cli_and_the_page_refresh_through_one_function(fleet_home, tmp_path,
 
 
 @pytest.mark.browser
-def test_the_same_three_controls_are_on_the_band_and_on_the_tile(fleet_home, tmp_path):
-    """The operator's sentence was *active and inactive both*. One test over both surfaces, because
-    a control that exists on one and not the other is exactly what it was asked to stop."""
+def test_the_same_three_controls_are_on_every_pane_and_their_keys_reach_a_rail(fleet_home, tmp_path):
+    """The operator's sentence was *active and inactive both* (#205). The band carried hide,
+    refresh and the model beside the open tile's; the band is gone (#233), and a compact pane
+    carries the same three buttons a full one does, with the same titles. A rail has no room for a
+    head, so it keeps the same three KEYS: `h`, `r` and `m` on the rail the keyboard is on."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    _repos(tmp_path, "alpha", "beta")
-    S.arrange(order=["alpha", "beta"])
+    _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon")
+    # alpha three shares wide, the two pins one each: one full pane and two compact ones at 1000px.
+    S.arrange(order=["alpha", "beta", "gamma", "delta", "epsilon"], pinned=["beta", "gamma"],
+              size={"alpha": 3})
+    S.update_window("main", open="alpha")
 
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page = browser.new_page(viewport={"width": 1000, "height": 900})
             errors = []
             page.on("pageerror", lambda e: errors.append(str(e)))
             _open(page, port, token)
+            page.wait_for_selector('.tile[data-repo="beta"][data-tier="compact"]', timeout=5000)
 
             out = page.evaluate("""() => {
-              const read = root => [...root.querySelectorAll('[data-tool]')].map(b => ({
+              const read = root => [...root.querySelectorAll('.head [data-tool]')].map(b => ({
                 tool: b.dataset.tool, title: b.title,
                 tall: Math.round(b.getBoundingClientRect().height),
+                wide: Math.round(b.getBoundingClientRect().width),
               }));
               return {
-                band: read(document.querySelector('#bands .band:not([hidden])')),
-                tile: read(document.querySelector('.tile.is-solo .head')),
+                full: read(document.querySelector('.tile[data-repo="alpha"]')),
+                compact: read(document.querySelector('.tile[data-repo="beta"]')),
+                tier: document.querySelector('.tile[data-repo="alpha"]').dataset.tier,
               };
             }""")
             assert not errors, errors
-            assert [b["tool"] for b in out["band"]] == ["hide", "refresh", "model"], out["band"]
-            assert [b["tool"] for b in out["tile"]] == ["hide", "refresh", "model"], out["tile"]
-            for band, tile in zip(out["band"], out["tile"]):
-                assert band["title"] == tile["title"], (band, tile)
-                assert band["tall"] >= 28 and tile["tall"] >= 28, "the HIG desktop hit-target floor"
+            assert out["tier"] == "full", out
+            assert [b["tool"] for b in out["full"]] == ["hide", "refresh", "model"], out["full"]
+            assert [b["tool"] for b in out["compact"]] == ["hide", "refresh", "model"], out
+            for full, compact in zip(out["full"], out["compact"]):
+                assert full["title"] == compact["title"], (full, compact)
+                assert full["tall"] >= 28 and compact["tall"] >= 28, "the HIG desktop hit-target floor"
+                assert compact["wide"] >= 20, "on the glass, not merely in the markup"
+
+            # The rail: the same three, from the keyboard.
+            page.focus(_rail("delta"))
+            page.keyboard.press("m")
+            page.wait_for_selector("#modelcard:not([hidden])", timeout=5000)
+            assert page.inner_text("#mc-repo") == "delta"
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+
+            page.focus(_rail("delta"))
+            page.keyboard.press("r")
+            deadline = 50
+            while "delta" not in S._refreshed_at and deadline:
+                page.wait_for_timeout(100)
+                deadline -= 1
+            assert "delta" in S._refreshed_at, "`r` on a rail re-read nothing"
+
+            page.focus(_rail("delta"))
+            page.keyboard.press("h")
+            page.wait_for_function(
+                """() => document.querySelector('.tile[data-repo="delta"]')
+                           .classList.contains('is-hidden')""", timeout=5000)
+            page.wait_for_function(
+                "() => document.getElementById('hiddencount').textContent === '1 hidden'",
+                timeout=5000)
+            assert not errors, errors
             browser.close()
     finally:
         server.stopping.set()
         server.shutdown()
         server.server_close()
+    assert S.desk_state()["arrangement"]["hidden"] == ["delta"]
 
 
 @pytest.mark.browser
@@ -851,8 +940,11 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 page.on("pageerror", lambda e: errors.append(str(e)))
                 _open(page, port, token)
 
-                page.click('#bands .band[data-repo="rdsd.pbi"] [data-tool="model"]')
+                # From a rail, which is where the band's model button went (#233): `m` on it.
+                page.focus(_rail("rdsd.pbi"))
+                page.keyboard.press("m")
                 page.wait_for_selector("#modelcard:not([hidden])", timeout=5000)
+                assert page.inner_text("#mc-repo") == "rdsd.pbi"
 
                 # A value that would become a second argument is refused, in the settings page's
                 # own words, and nothing is written.
@@ -904,10 +996,11 @@ def test_the_two_focuses_have_names_that_say_which_is_which():
 
 
 @pytest.mark.browser
-def test_needs_me_folds_a_quiet_band_rather_than_emptying_the_column(fleet_home, tmp_path):
-    """Acceptance criterion: two red of five leaves five bands in the DOM, two full and three
-    folded, and the head reads `2 need you`. A mode that removed nine rows of ten would be the
-    *where did it go* this arrangement exists to answer, one level up."""
+def test_needs_me_dims_a_quiet_rail_rather_than_emptying_the_row(fleet_home, tmp_path):
+    """Acceptance criterion, ported from the column's folded band (#207, #233): two red of five
+    leaves four rails in the row, the two red at full strength and the two quiet ones dimmed, each
+    still named and still one press away, and the footer reads `2 need you`. A mode that removed
+    nine panes of ten would be the *where did it go* this arrangement exists to answer."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon", needs=("delta", "epsilon"))
     S.arrange(order=["alpha", "beta", "gamma", "delta", "epsilon"])
@@ -924,22 +1017,27 @@ def test_needs_me_folds_a_quiet_band_rather_than_emptying_the_column(fleet_home,
             page.keyboard.press("f")
             page.wait_for_function(
                 "() => document.body.classList.contains('needs-only')", timeout=5000)
-            out = page.evaluate("""() => {
-              const bands = [...document.querySelectorAll('#bands .band:not([hidden])')];
-              return {
-                n: bands.length,
-                quiet: bands.filter(b => b.classList.contains('is-quiet')).length,
-                slivers: bands.filter(b => b.getBoundingClientRect().height <= 30).length,
-                named: bands.every(b => b.querySelector('.b-name').textContent.length > 0),
-                head: document.getElementById('column-count').textContent,
+            out = page.evaluate(f"""() => {{
+              const rails = ({RAILS})().map(n => document.querySelector(
+                '.tile[data-repo="' + n + '"]'));
+              return {{
+                n: rails.length,
+                quiet: rails.filter(t => t.classList.contains('is-quiet'))
+                            .map(t => t.dataset.repo),
+                dimmed: rails.filter(t => parseFloat(getComputedStyle(t).opacity) < 1)
+                             .map(t => t.dataset.repo),
+                named: rails.every(t => t.querySelector('.pr-name').textContent.length > 0),
+                wide: rails.every(t => Math.round(t.getBoundingClientRect().width) === 48),
+                counts: document.getElementById('counts').textContent,
                 backBtn: !!document.getElementById('unfocus'),
-              };
-            }""")
+              }};
+            }}""")
             assert not errors, errors
             assert out["n"] == 4, "one of five is open; none of the other four leaves"
-            assert out["quiet"] == 2 and out["slivers"] == 2, out
-            assert out["named"], "a folded band still says who it is"
-            assert "2 need you" in out["head"], out["head"]
+            assert sorted(out["quiet"]) == ["beta", "gamma"], out
+            assert sorted(out["dimmed"]) == ["beta", "gamma"], out
+            assert out["named"] and out["wide"], "a quiet rail is still a whole rail, named"
+            assert "2 need you" in out["counts"], out["counts"]
             assert out["backBtn"] is False, "there is no zoom to go back from"
             browser.close()
     finally:

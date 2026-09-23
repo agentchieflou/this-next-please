@@ -695,35 +695,41 @@ def test_no_body_class_names_an_arrangement():
         assert f"body.{name}" not in css, f"app.css still styles body.{name}"
 
 
-def test_the_columns_rules_are_the_pages_rules():
+def test_the_rows_rules_are_the_pages_rules():
     """The column was the one arrangement whose class moved things: the glass one tile tall, the
-    bands beside it. Its rules are unconditional now, or the page renders as a wrap of cards with
-    every agent on it."""
+    bands beside it. Its rules became unconditional when it was the only one (#232), and the row
+    that replaced it (#233) keeps that: `main` is one flex row at full height, every pane is a
+    48px rail until it is open, and an open pane takes its weight of what the rails leave -- never
+    a wrap of cards, and nothing sideways past the edge but as a last resort."""
     css = open(APP_CSS, encoding="utf-8").read()
     main = css.split("\nmain {", 1)[1].split("}", 1)[0]
-    assert "repeat(auto-fit, minmax(320px, 1fr))" in main
-    assert "align-content: stretch" in main
-    assert ".tile:not(.is-solo) { display: none; }" in css
-    assert ".tile.is-solo { max-height: none; min-height: 0; }" in css
+    assert "display: flex; flex-direction: row; align-items: stretch;" in main
+    assert "overflow-x: auto; overflow-y: hidden;" in main
+    assert "repeat(auto-fit" not in main, "the grid's wrap is back"
+    assert ".tile:not(.is-solo) { display: none; }" not in css, "the rails are off the glass"
+    assert "flex: 0 0 var(--rail); min-width: 0; min-height: 0;" in css
+    assert ".tile.is-solo { flex: var(--cols, 1) 1 0; min-width: 160px; }" in css
 
 
-def test_focus_mode_narrows_the_column_to_the_agents_that_need_a_person():
+def test_focus_mode_quiets_the_rails_that_need_nobody():
     """The one thing on #133 that is not a layout. It filters on `needs-human`, which comes from
     #94's fold -- the same flag the chip and the toast use, so the three cannot disagree.
 
-    What it narrows is the column: a quiet band folds to a sliver. The filter has exactly one
-    exception, and it is written here rather than left to be discovered: an agent the operator has
-    just acted on is `held`, because answering an agent is what stops it needing you and the reply
-    would otherwise fold the band it was typed into. What that looks like from the operator's side
-    is covered in `test_fleet_desk_actions.py`, in a browser; this only holds the line that the
-    classes the rule turns on are still the ones the script sets.
+    What it quiets is the rails: a rail whose agent needs nobody dims (#233; in the column a quiet
+    band folded to a sliver). The filter has exactly one exception, and it is written here rather
+    than left to be discovered: an agent the operator has just acted on is `held`, because answering
+    an agent is what stops it needing you and the reply would otherwise dim the rail it was typed
+    into. What that looks like from the operator's side is covered in `test_fleet_desk_actions.py`,
+    in a browser; this only holds the line that the classes the rule turns on are still the ones the
+    script sets.
     """
     js = open(APP_JS, encoding="utf-8").read()
     css = open(APP_CSS, encoding="utf-8").read()
     assert 'toggle(el, "needs-human", !!row.needs_human);' in js
     assert 'toggle(el, "held", held.has(row.repo));' in js
-    assert 'toggle(li, "is-quiet", needsOnly && !li.classList.contains("needs-human") &&' in js
-    assert "body.needs-only .band.is-quiet { flex: 0 0 28px; min-height: 28px; }" in css
+    assert 'toggle(entry.el, "is-quiet", needsOnly && !isOpen && !members.some(' in js
+    assert "return held.has(member) || (!!other && other.el.classList.contains(\"needs-human\"));" in js
+    assert "body.needs-only .tile.is-quiet { opacity: .45; }" in css
     assert 'if (e.key === "f") { focusMode(); return; }' in js
 
 
