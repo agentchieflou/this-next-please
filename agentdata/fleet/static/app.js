@@ -798,8 +798,10 @@ function startGround() {
   /* A skin's stylesheet is fetched *after* `applySkin` sets the link's href, so the first read of
      the mesh can land before there is anything to read -- and a ground that gave up on that first
      read stayed blank for the whole session. One retry, when the sheet is really there, and a
-     timed one behind it for the case where the link was already loaded. */
-  if (!groundMesh && (document.body.dataset.skin || "")) {
+     timed one behind it for the case where the link was already loaded. Only for glass, the one
+     skin whose ground is in its stylesheet: for any other the mesh is never there, and the timed
+     retry went round every 150ms for as long as the page was open, writing `data-waiting` (#249). */
+  if (!groundMesh && (document.body.dataset.skin || "") === "glass") {
     var link = document.head.querySelector("link[data-skin]");
     if (link && !link.dataset.waiting) {
       link.dataset.waiting = "1";
