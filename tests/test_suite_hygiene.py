@@ -82,6 +82,23 @@ def test_no_test_lists_the_machines_processes(monkeypatch):
     assert asked == [], f"a test listed the machine's processes: {asked}"
 
 
+def test_the_desk_catalogue_is_closed_by_the_test_that_opened_it(tmp_path, monkeypatch):
+    """`serve` holds its sqlite catalogue in a module global. Left open, the next test's first desk
+    request closed it -- a WAL checkpoint under the desk lock, on that test's clock. The conftest
+    closes it at teardown instead; this is that close, on a catalogue put where a desk keeps it."""
+    import sqlite3
+
+    from agentdata.fleet import catalogue as CAT, serve as S
+    from conftest import close_the_desk_catalogue
+
+    cat = CAT.Catalogue.open(str(tmp_path / "catalogue.sqlite"))
+    monkeypatch.setattr(S, "_desk", dict(S._desk, catalogue=cat))
+    close_the_desk_catalogue()
+    assert S._desk["catalogue"] is None
+    with pytest.raises(sqlite3.ProgrammingError):
+        cat.conn.execute("SELECT 1")
+
+
 def test_colour_is_off_and_output_is_plain():
     from agentdata import color, ui
 

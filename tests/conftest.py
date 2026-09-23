@@ -285,6 +285,38 @@ def _no_process_listing_in_tests(monkeypatch):
     monkeypatch.setattr(A, "_listing", {"thread": None})
 
 
+@pytest.fixture(autouse=True)
+def _a_test_closes_the_catalogue_it_opened():
+    """The desk's sqlite catalogue is closed by the test that opened it, not inside the next one.
+
+    `serve` keeps its handles in a module global, so a desk fixture that does not swap `_desk` for
+    its own copy (`running_desk`, for one) left its catalogue open when it finished. The next test
+    to touch a desk found handles for another fleet and dropped them in `_fresh()` -- closing the
+    last test's sqlite, which on Windows is a WAL checkpoint, an fsync and two file deletes, under
+    `_desk_lock`, inside whatever that test was waiting on. On the Windows 3.14 leg of e705117 that
+    was `GET /api/fleet` in `test_desk_browser_layouts_and_sync`, still in `catalogue.close` at
+    three seconds of the five it had to draw a tile. Closing here moves the cost to the teardown of
+    the test that paid for the handle; `dir` is left alone, so the next test still forgets the old
+    fleet exactly as it did.
+    """
+    yield
+    close_the_desk_catalogue()
+
+
+def close_the_desk_catalogue() -> None:
+    """Close and forget the catalogue `serve` holds, if it has been imported and holds one."""
+    serve = sys.modules.get("agentdata.fleet.serve")
+    if serve is None:
+        return
+    with serve._desk_lock:
+        cat, serve._desk["catalogue"] = serve._desk.get("catalogue"), None
+    if cat is not None:
+        try:
+            cat.close()
+        except Exception:                    # noqa: BLE001 - a handle already closed is the point
+            pass
+
+
 # What the page and the server were doing when a wait on the desk ran out. A browser test that
 # times out says only "waiting for locator('.tile') to be visible", which is the one fact nobody
 # needed. The Windows browser leg has failed that way on two tests since #237 while passing on the

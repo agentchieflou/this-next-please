@@ -210,6 +210,12 @@ inside the request a test was waiting on. `_no_process_listing_in_tests` gives e
 process table and a fresh memo; a test about the listing patches `_windows_processes`,
 `_posix_processes`, `_list_now` or `agent_processes` itself, and its patch wins.
 
+**A test closes the desk catalogue it opened.** `serve` keeps its sqlite catalogue in a module
+global, and a desk fixture that did not swap `_desk` for its own left it open; the next test's
+first desk request then closed it in `_fresh()` -- a WAL checkpoint under the desk lock, on that
+test's clock, which on the Windows leg was still running three seconds into a five-second wait.
+`_a_test_closes_the_catalogue_it_opened` closes it at teardown instead.
+
 Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only way to catch a bare
 `sys.exit`, an import-time crash, or an escape sequence that appears only when stdout is a pipe),
 `state_file`, `pbip`, `fakes_dir`, `isolated_path`.
