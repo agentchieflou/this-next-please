@@ -377,6 +377,14 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
             page.wait_for_selector('.tile[data-repo="alpha"] .smenu:not([hidden])', timeout=5000)
             page.wait_for_function(
                 """() => document.activeElement.classList.contains('sm-live')""", timeout=5000)
+            # The earlier sessions come by their own fetch, and land between *this session* and
+            # *new*. A walk begun before they arrive steps from *this session* straight to *new*;
+            # the row then appears between the two, and `Alt+[` stops on it rather than going back
+            # -- the Windows 3.14 leg of #258, twice. What is walked is the list, so it is waited for,
+            # with `stepMenu`'s own filter (the row's pattern is in the list too, hidden).
+            page.wait_for_function(
+                """() => [...document.querySelectorAll('.tile[data-repo="alpha"] .sessions .ss-open')]
+                          .some(b => !b.disabled && b.offsetParent !== null)""", timeout=10000)
 
             page.keyboard.press("Alt+]")                     # forward, into the sessions
             assert page.evaluate(
