@@ -552,6 +552,22 @@ body:has(> #ink[data-skin]) .trace > * { visibility: hidden; }
   position: fixed; inset: 0; z-index: -1;
   width: 100%; height: 100%; pointer-events: none;
 }
+/* #257: where a skin draws with ink, the page stands aside for it -- once, here, for every skin.
+   The canvas is behind the page, so the skin's paper, frames and marks show only where nothing
+   opaque is over them: the panes, the header, the footer and the cards on a pane are clear, and
+   the pane keeps only its accent on the left (which project, #150) and the selection ring. Keyed on
+   the canvas being there with a table on it, not on `:not(.ink-off)`: between the gate saying on
+   and the layer arriving, a clear pane would have nothing behind it. Everywhere else -- every shell
+   the gate turned off, and every CSS skin -- is the one plain look above. */
+body:has(> #ink[data-skin]) :is(header, footer, .tile, .approval, .asks, .ask-choice, .dispatch,
+                                .scope, .outside, .readonly) {
+  background: transparent;
+  box-shadow: none;
+}
+body:has(> #ink[data-skin]) .tile {
+  border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent;
+}
+body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
 
 /* Whatever is under the hand -- an open pane by its head, or a rail by its face. It is lifted out
    of the flow's paint order and given no pointer events, so `elementFromPoint` answers with what

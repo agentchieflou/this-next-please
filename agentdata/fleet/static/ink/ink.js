@@ -207,6 +207,12 @@ function plainCss(t) {
                " { background-color: color-mix(in srgb, " + c + " " + PLAIN_TINT + "%, transparent); } }");
     } else {
       out.push(sel + " { " + look.split("%c").join(c) + " }");
+      // A margin bar is an inset shadow, which would take the selection ring's place on a selected
+      // pane: the ring is kept beside it, because a selected pane is still one pane (HIG *Focus*).
+      if (row.shape === "check" || row.shape === "bang") {
+        out.push("body.ink-off :is(" + row.selector + ").is-selected { box-shadow: inset 3px 0 0 " + c +
+                 ", 0 0 0 2px var(--focus, var(--accent)); }");
+      }
     }
   }
   return out.join("\n");
