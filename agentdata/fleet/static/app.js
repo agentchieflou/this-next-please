@@ -4225,9 +4225,13 @@ function forgetRetiredParams() {
 }
 
 /* The tab bar is the friction, so the window's own title says which agent it has open. */
+/* `document` is not an element, so `attr` threw here on every refresh (#262): the tab never said
+   who needs you, and `refresh()` ended in its own catch. The one write that is not an attribute,
+   done directly -- and only when it changes, as `attr` would have. */
 function title(need) {
   var one = openName();
-  attr(document, "title", (need ? "(" + need + ") " : "") + "fleet" + (one ? " · " + one : ""));
+  var want = (need ? "(" + need + ") " : "") + "fleet" + (one ? " · " + one : "");
+  if (document.title !== want) document.title = want;
 }
 
 /* ------------------------------------------------------------------------------- focus mode */
