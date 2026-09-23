@@ -55,6 +55,8 @@ PEN = 900
 #: What the ink layer's own modules may weigh over the wire. three.js is not in it: 163 KB,
 #: fetched only by a shell the gate turned on, once a skin draws.
 INK_BUDGET = 40 * 1024
+#: What one skin's module may weigh over the wire (the legal pad's is 7 KB, #251).
+SKIN_BUDGET = 16 * 1024
 
 INTEL = "ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00003EA0) Direct3D11 vs_5_0 ps_5_0, D3D11)"
 SWIFTSHADER = "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
@@ -240,6 +242,10 @@ def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     # Every one but the example is a skin skins.py offers (#249-#256 ship them).
     from agentdata.fleet import skins as K
     assert "example.js" in SKINS and all(n[:-3] in K.SKINS for n in SKINS if n != "example.js"), SKINS
+    # And each is held to a budget of its own (#251).
+    for name in SKINS:
+        size = len(gzip.compress(open(os.path.join(INK, "skins", name), "rb").read(), 6, mtime=0))
+        assert size < SKIN_BUDGET, (name, size)
 
 
 def test_the_gate_is_the_probe_rule_and_nothing_else(fleet_home):
