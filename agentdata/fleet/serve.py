@@ -664,7 +664,12 @@ def _blank_arrangement() -> dict:
 # record -- the grid `zoomed`, the column `open`, roles `view` and screens `screen` -- and two of
 # them disagreeing inside it is what snapped a click in the column back to the agent before it
 # (#230). There is one arrangement now, so there is one of each: one `order`, one `hidden`, and one
-# `open` per window. `pinned` and `size` stay until the gutters replace them (#234).
+# `open` per window.
+#
+# The widths are the window's, not the arrangement's (#234): two monitors hold different widths over
+# the same agents in the same order, so they live in each window record beside `open`. `size` stays
+# in the arrangement as what an older build wrote, and the page reads it only as the starting widths
+# of a window that has never been given any; `pinned` is the order's "first", and nothing else.
 _selection = {
     "schema": DESK_SCHEMA,
     "selected": "",
@@ -675,9 +680,13 @@ _selection = {
 }
 
 # The fields a window record carries (#172). `open` is the one agent the keys and the composer
-# address; `focus` is the needs-only filter; `read`, `seen` and `held` are what this window has
-# read, when it last looked and what it is holding through a pass; `section` is its sidebar.
-WINDOW_FIELDS = ("open", "focus", "read", "seen", "held", "section")
+# address; `read` and `seen` are what this window has read and when it last looked; `section` is
+# its sidebar. `widths` is each pane's weight in this window -- 0 a rail, a positive number its share
+# of what the rails leave -- and `widths_at` the desk version they were written at, which is what a
+# page's write of them is checked against (#234). `focus` (the needs-only filter) and `held` (what
+# that filter kept on the glass) are still read and kept for a page from before the *needs me*
+# preset replaced them, and no page writes them now.
+WINDOW_FIELDS = ("open", "focus", "read", "seen", "held", "section", "widths", "widths_at")
 
 
 def _desk_file() -> str:
@@ -1050,11 +1059,18 @@ def desk_state() -> dict:
             "at": _selection["at"],
             "arrangement": {k: (list(v) if isinstance(v, list) else dict(v))
                             for k, v in arr.items()},
-            "windows": {
-                k: dict(v) if isinstance(v, dict) else v for k, v in wins.items()
-            },
+            "windows": {k: _window_copy(v) for k, v in wins.items()},
             "measure": _fresh_asks(),
         }
+
+
+def _window_copy(win):
+    """One window record, copied a level down: `widths`, `read` and `held` are containers, and a
+    caller that edited the answer it was handed must not be editing the desk."""
+    if not isinstance(win, dict):
+        return win
+    return {k: (dict(v) if isinstance(v, dict) else list(v) if isinstance(v, list) else v)
+            for k, v in win.items()}
 
 
 # `ad-fleet probe --open pycharm` (#247): which windows the CLI has asked to measure WebGL, and when.
@@ -1200,6 +1216,11 @@ def select(selected=None) -> dict:
 #: How wide and how tall a tile may be asked to become. Four columns was the whole of a 1920px
 #: glass at the grid's 360px minimum track; three rows is the page height in thirds, which is the
 #: coarsest useful answer to "make this one taller" and the finest one anybody can hit by eye.
+#:
+#: Nothing on the page writes `size` since the gutters (#234): a pane's width is a weight in its
+#: window's record. It is still read, clamped and kept, because a desk.json an older build wrote
+#: carries it, and the page takes `cols` as the starting weight of a window with no widths yet --
+#: which is what plan-panes' migration says `size.cols` becomes.
 SIZE_MAX_COLS = 4
 SIZE_MAX_ROWS = 3
 
@@ -1306,18 +1327,66 @@ def _whole_projects(names) -> list[str]:
     return out
 
 
+#: The largest weight a pane may carry. A weight means something only beside its neighbours', so
+#: the number itself is arbitrary; the cap is there so a typo cannot be 1e308.
+WIDTH_MAX = 1000.0
+
+
+def widths_cell(value) -> dict:
+    """One window's widths (#234): repository -> weight, where 0 is a rail and a positive number is
+    that pane's share of what the rails leave.
+
+    Refused rather than repaired when it is not that shape. `size` was read leniently because it was
+    a preference on disk that an older build might have written; this is a write the page is making
+    now, and a width the page did not mean is not one to guess at.
+    """
+    hint = "0 is a rail; any other number is that pane's share of the width the rails leave"
+    if not isinstance(value, dict):
+        raise ServeError("`widths` is an object of repository: weight", hint, code="widths_shape")
+    out = {}
+    for name, weight in value.items():
+        ok = isinstance(weight, (int, float)) and not isinstance(weight, bool)
+        if not ok or weight != weight or weight < 0 or weight == float("inf"):
+            raise ServeError(f"the width of {name!r} is {weight!r}, which is not a weight", hint,
+                             code="widths_shape")
+        out[str(name)] = round(min(float(weight), WIDTH_MAX), 4)
+    return out
+
+
 def update_window(w: str = "main", **kwargs) -> dict:
     """Set per-window state in desk.json and push down the SSE stream.
 
     Only `WINDOW_FIELDS` are written. A page from before #232 still sends `layout`, `view`, `screen`
     and `zoomed`; they are dropped here rather than stored, because a field that nothing reads and
     one window writes is the snap-back waiting for a reader.
+
+    `widths` comes with the desk `version` the page last heard (#234). Two pages can share one
+    window record -- two tabs with no `?w=`, or the same `?w=` opened twice -- and each sends every
+    pane's width, so the one that had not yet heard the other's gesture would put that gesture back
+    without anybody seeing it happen. So a write of widths older than the ones the record holds is
+    refused, the page puts its own back and reads the desk again. A page's own last write is never
+    older than what it has heard: its writes go one at a time, and each answer comes in through the
+    page's one door before the next is posted.
     """
     _ensure_desk_loaded()
     w = str(w or "main")
     snapshot = None
     with _desk_lock:
         wins = _selection.setdefault("windows", {})
+        new_widths = None
+        if "widths" in kwargs:
+            new_widths = widths_cell(kwargs["widths"])
+            heard = kwargs.get("version")
+            try:
+                heard = None if heard is None or isinstance(heard, bool) else int(heard)
+            except (TypeError, ValueError):
+                heard = None
+            held_at = int((wins.get(w) or {}).get("widths_at") or 0)
+            if heard is not None and held_at > heard:
+                raise ServeError(f"window {w!r} was given other widths since this page last heard",
+                                 "another page under the same `?w=` moved them; this one reads the "
+                                 "desk again, so the next gesture starts from those",
+                                 code="widths_stale")
         win = wins.setdefault(w, {
             "focus": False,
             "section": "tickets",
@@ -1352,9 +1421,15 @@ def update_window(w: str = "main", **kwargs) -> dict:
         if "seen" in kwargs and win.get("seen") != str(kwargs["seen"] or ""):
             win["seen"] = str(kwargs["seen"] or "")
             changed = True
+        widths_moved = new_widths is not None and win.get("widths") != new_widths
+        if widths_moved:
+            win["widths"] = new_widths
+            changed = True
         if changed:
             _selection["version"] += 1
             _selection["at"] = E.stamp()
+            if widths_moved:
+                win["widths_at"] = _selection["version"]
             snapshot = _desk_snapshot()
         state = desk_state()
     _write_desk(snapshot)
