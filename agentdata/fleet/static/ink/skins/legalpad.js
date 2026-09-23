@@ -54,8 +54,9 @@ export function marks() {
     // error: a red marker box inside the pane, and a bang in its margin.
     { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },
     { selector: ".tile.state-error", tool: "red", shape: "bang" },
-    // done: a green check in the margin.
-    { selector: ".tile.state-done", tool: "green", shape: "check" },
+    // done: a green check in the margin. `is-done` is the fold's own word (#253): the chip shows a
+    // finished, unsupervised agent as idle, so `state-done` alone is almost never on the page.
+    { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     // stale (#240): the chip's own words as a pencil note, a dashed pencil outline round it, and an
     // arrow to the run line -- the line that says which session and run this transcript is.
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "write" },

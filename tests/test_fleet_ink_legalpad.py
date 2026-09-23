@@ -22,6 +22,7 @@ CI draws in SwiftShader, which the gate turns off, so the tests that need ink op
 `?ink=on` (an override, never a measurement), as `test_fleet_ink.py` does.
 """
 from __future__ import annotations
+import json
 import os
 import re
 
@@ -57,13 +58,19 @@ GRAMMAR = {
                   (f".tile .ask:not([hidden]){OPEN} .ask-choice", "pencil", "loop")],
     "answered": [('.tile .ask:not([hidden]) .ask-choice[aria-pressed="true"]', "pen", "ellipse")],
     "error": [(".tile.state-error", "marker", "loop"), (".tile.state-error", "red", "bang")],
-    "done": [(".tile.state-done", "green", "check")],
+    "done": [(".tile:is(.state-done, .is-done)", "green", "check")],
     "stale": [(STALE, "pencil", "write"), (STALE, "pencil", "outline"), (STALE, "pencil", "arrow")],
     "a finding": [(FOUND, "red", "ellipse"), (FOUND + " .k", "highlighter", "lines"),
                   (FOUND + " .v", "pencil", "write")],
     "the header count": [("#bellcount", "pen", "write")],
 }
 ROWS = [row for rows in GRAMMAR.values() for row in rows]
+DONE = GRAMMAR["done"][0][0]
+
+#: Tests of WHAT is drawn open the desk under reduced motion, which draws every mark at once: the
+#: pen at a hand's speed is seconds of wall time per pane, and the Windows leg runs the suite
+#: serially under a 20-minute cap. The drawing over time keeps its own tests (the catch-up in
+#: frames, the answered strike, the header count's strike) at full motion.
 
 #: The skin module, imported again by the page by its own URL: the same instance the layer runs.
 #: `_desk` keeps it on `window.__legalpad`, so a wait can ask it synchronously -- `wait_for_function`
@@ -95,7 +102,9 @@ def _pad(tmp_path, monkeypatch, panes, live=()):
     monkeypatch.setattr(supervisor, "read_lock",
                         lambda name: {"pid": 777, "external": True} if name in live else real_lock(name))
     for name, events in panes.items():
-        Registry().add(make_project(tmp_path / name, ticket="RDSD-1"), name=name)
+        # A finished agent is finished in its own `state.json` too, which the fold reads.
+        phase = {"phase": "done"} if name == "fin" else {}
+        Registry().add(make_project(tmp_path / name, ticket="RDSD-1", **phase), name=name)
         install = OLD if name == "stale" else NOW
         E.append(name, [_begun(name, install)] + [dict(ev, repo=name) for ev in events])
     names = list(panes)
@@ -272,7 +281,7 @@ def test_the_legal_pad_is_chosen_by_name_and_drawn_on_canary(fleet_home, tmp_pat
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, asked = _open(browser, port, token, "&ink=on", panes=1)
+            page, errors, asked = _open(browser, port, token, "&ink=on", panes=1, reduced=True)
             assert "legalpad" in page.evaluate("() => document.body.dataset.inkSkins").split()
             _choose(page)
             page.wait_for_function("() => Ink.inspect().table === 'legalpad:canary'", timeout=15000)
@@ -321,7 +330,7 @@ def test_the_legal_pad_is_chosen_by_name_and_drawn_on_canary(fleet_home, tmp_pat
 @pytest.mark.browser
 def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_path, monkeypatch):
     """The grammar on a desk the fleet drew from its own records -- idle, running, needs you, error,
-    stale and a finding are all states the fold produces -- and each pane carries exactly its own
+    done, stale and a finding are all states the fold produces -- and each pane carries exactly its own
     state's marks, drawn: the table reads what app.js set and decides nothing."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     panes = {
@@ -332,6 +341,8 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
         "stale": _idle("stale"),
         "found": [_said("found", "cleaning up"), _ev("found", "denied", {"message": "rm -rf is not allowed"}),
                   _ev("found", "turn_ended", {"turn": "0"})],
+        "fin": [_said("fin", "merged"), _ev("fin", "phase_changed", {"from": "review", "to": "done"}),
+                _ev("fin", "turn_ended", {"turn": "0"})],
     }
     _pad(tmp_path, monkeypatch, panes, live={"run"})
     _config(fleet_home)
@@ -340,13 +351,15 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     name = GRAMMAR["needs you"][:1]
     want = {"idle": GRAMMAR["idle"], "run": GRAMMAR["running"], "asks": GRAMMAR["needs you"],
             "broke": name + GRAMMAR["error"], "stale": GRAMMAR["idle"] + GRAMMAR["stale"],
-            "found": name + GRAMMAR["a finding"]}
+            "found": name + GRAMMAR["a finding"],
+            # Done, unsupervised: the chip says idle, and `is-done` says finished.
+            "fin": GRAMMAR["idle"] + GRAMMAR["done"]}
     count = sum(len(rows) for rows in want.values()) + 1 + 1        # the second choice, the count
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, _ = _desk(browser, port, token, panes=len(panes), width=1900, height=1000)
+            page, errors, _ = _desk(browser, port, token, panes=len(panes), width=1900, height=1000, reduced=True)
             classes = page.evaluate("""() => Object.fromEntries([...document.querySelectorAll('.tile')]
               .map(t => [t.dataset.repo, t.className]))""")
             _rest(page, f"Ink.inspect().layer.marks.filter(m => !m.strikeOf).length >= {count}", timeout=60000)
@@ -359,6 +372,7 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     assert "state-running" in classes["run"] and "state-error" in classes["broke"], classes
     assert "needs-human" in classes["asks"] and "needs-human" in classes["found"], classes
     assert "state-idle" in classes["stale"] and "state-idle" in classes["idle"], classes
+    assert "is-done" in classes["fin"], classes
     for repo, rows in want.items():
         # A finding's line is the only one of its kind here; the question has two choices.
         expect = {row: ["drawn"] * (2 if row[2] == "loop" and row[1] == "pencil" else 1) for row in rows}
@@ -425,7 +439,7 @@ def test_the_running_pen_grows_with_the_turn_and_is_struck_when_it_ends(fleet_ho
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, _ = _desk(browser, port, token)
+            page, errors, _ = _desk(browser, port, token, reduced=True)
             _rest(page, "Ink.inspect().layer.marks.filter(m => m.tool === 'pencil').length >= 2")
             idle = [m["id"] for m in _marks(page) if m["tool"] == "pencil"]
 
@@ -482,9 +496,7 @@ def test_the_running_pen_grows_with_the_turn_and_is_struck_when_it_ends(fleet_ho
 def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, monkeypatch):
     """*error* is a red marker box inside the pane and a bang in its margin; *done* a green check in
     the margin. Both are ink, so a state that goes is struck through and the strike stays. (The
-    fold says `error` from the record; nothing on today's desk reaches `done` -- an unsupervised
-    pane reads as idle and a supervised one as running -- so the test sets the class, which is what
-    app.js would set.)"""
+    fleet's records carry the pane from one to the other: an error, then a new run that finishes.)"""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _pad(tmp_path, monkeypatch, {"broke": [_said("broke", "trying"), _ev("broke", "error", {"exit_code": 2})]})
     _config(fleet_home)
@@ -492,13 +504,22 @@ def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, 
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, _ = _desk(browser, port, token)
+            page, errors, _ = _desk(browser, port, token, reduced=True)
             _rest(page, "Ink.inspect().layer.marks.filter(m => m.selector === '.tile.state-error').length === 2")
             error = _drawn(page, "pane:broke")
-            page.evaluate("""() => { const t = document.querySelector('.tile[data-repo="broke"]');
-              t.classList.replace('state-error', 'state-done'); }""")
+            # The agent is run again and finishes: a new run leaves the old one's error behind, and
+            # its own state.json says done. The page hears it as it hears any agent.
+            state = tmp_path / "broke" / ".agent" / "state.json"
+            state.write_text(json.dumps(dict(json.loads(state.read_text(encoding="utf-8")), phase="done")),
+                             encoding="utf-8")
+            E.append("broke", [_begun("broke"), _said("broke", "fixed"),
+                               _ev("broke", "phase_changed", {"from": "querying", "to": "done"}),
+                               _ev("broke", "turn_ended", {"turn": "0"})])
+            page.evaluate("() => refresh()")
+            page.wait_for_function("() => document.querySelector('.tile[data-repo=\"broke\"]')"
+                                   ".classList.contains('is-done')", timeout=15000)
             _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'check' && m.state === 'drawn')"
-                        " && Ink.inspect().layer.marks.filter(m => m.strikeOf).length === 2")
+                        " && Ink.inspect().layer.marks.filter(m => m.strikeOf).length === 3")
             done = _marks(page)
             box = next(m for m in done if m["shape"] == "check")["box"]
             ink = page.evaluate(PIXELS, [[box["x"] + 14 + dx, box["y"] + 14 + dy]
@@ -513,6 +534,8 @@ def test_error_and_done_are_drawn_and_struck_when_they_go(fleet_home, tmp_path, 
     struck = [m for m in done if m["selector"] == ".tile.state-error"]
     assert sorted(m["state"] for m in struck) == ["struck", "struck"], struck
     assert all(any(s["strikeOf"] == m["id"] and s["tool"] == "pen" for s in done) for m in struck)
+    name = [m for m in done if m["selector"] == ".tile.needs-human .head .repo"]
+    assert [m["state"] for m in name] == ["struck"], "done no longer needs you: its highlight is struck"
     assert [m["tool"] for m in done if m["shape"] == "check"] == ["green"]
     assert any(_near(px, props["--done"], 70) for px in ink), "no green check in the margin"
 
@@ -700,9 +723,9 @@ def test_an_idle_legal_pad_writes_nothing_and_its_ink_catches_up_in_frames(fleet
             browser.close()
     finally:
         _stop(server)
-    check = [m for m in rec[-1]["marks"] if m[3] == ".tile.state-done"]
+    check = [m for m in rec[-1]["marks"] if m[3] == DONE]
     assert len(check) == 1 and check[0][2] == 1, rec[-1]
-    first = next(f for f in rec if any(m[3] == ".tile.state-done" for m in f["marks"]))
+    first = next(f for f in rec if any(m[3] == DONE for m in f["marks"]))
     frames = rec[-1]["frames"] - first["frames"] + 1
     bound = catch_up_frames(check)
     print(f"\n  the check caught up in {frames} frames (bound {bound})")
