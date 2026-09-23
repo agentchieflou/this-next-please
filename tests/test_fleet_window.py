@@ -21,6 +21,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
+from test_fleet_column import _until
 from test_fleet_desk_browser import launch_chromium
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -227,6 +228,9 @@ def test_dragging_a_band_onto_another_reorders_and_escape_leaves_it_alone(fleet_
             page.wait_for_function(f"() => ({BANDS})()[0] === 'delta'", timeout=15000)
             page.wait_for_timeout(400)
             assert page.evaluate(BANDS) == ["delta", "beta", "gamma"]
+            # The drop paints before it is written (#219): the record, not the pixels, is waited on.
+            _until(lambda: S.desk_state()["arrangement"]["order"]
+                   == ["alpha", "delta", "beta", "gamma"])
             assert not errors, errors
             browser.close()
     finally:
@@ -287,6 +291,9 @@ def test_every_pointer_gesture_has_a_keyboard_equivalent(fleet_home, tmp_path):
                           .map(t => t.dataset.repo)[0] === 'beta'""", timeout=8000)
             assert page.evaluate(
                 "() => document.querySelector('.tile.is-solo').dataset.repo") == "alpha"
+            # The move paints before it is written, behind the resizes' writes (#219): the record,
+            # not the pixels, is waited on before the window closes.
+            _until(lambda: S.desk_state()["arrangement"]["order"] == ["beta", "alpha", "gamma"])
             assert not errors, errors
             browser.close()
     finally:
@@ -338,6 +345,7 @@ def test_minimise_takes_it_off_the_glass_and_maximise_opens_it(fleet_home, tmp_p
             page.wait_for_function(
                 "() => document.getElementById('column-hidden').textContent === '1 hidden'",
                 timeout=8000)
+            _until(lambda: S.desk_state()["arrangement"]["hidden"] == ["beta"])
             assert not errors, errors
             browser.close()
     finally:
