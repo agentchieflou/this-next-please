@@ -160,6 +160,8 @@ function applyTheme(cssVars, themeName) {
       if (cssVars[k]) root.style.setProperty(k, cssVars[k]);
       else root.style.removeProperty(k);
     });
+    // Written only when it changes (the render contract): every snapshot applies the theme again,
+    // and an attribute set to the value it already has is still a mutation to every observer.
     attr(root, "data-theme", "custom");
   } else {
     tokens.forEach(function (k) { root.style.removeProperty(k); });
@@ -192,9 +194,6 @@ function applySkin(skinName) {
   }
   var href = q("/static/skins/" + family + "/skin.css");
   if (link.href !== href) link.href = href;   // re-assigning re-fetches and flashes the page
-  // Written only when they change (the render contract, `attr`): every refresh applies the skin
-  // again, and an idle desk with a skin chosen wrote these twice a pass -- which the ink layer,
-  // following `data-skin`, answered with a frame each time (#255).
   attr(document.body, "data-skin", family);
   attr(document.body, "data-skin-variant", variant || null);
 }
