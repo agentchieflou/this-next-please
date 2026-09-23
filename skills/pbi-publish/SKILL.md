@@ -21,6 +21,8 @@ Inputs: `pbip_path` fact or report directory, target workspace (`--workspace <na
    If binding verification reports any unresolved entity or column/measure reference:
    - STOP immediately and invoke skill `friction-log`.
    - Never publish a broken visual binding unless explicitly instructed with `--allow-unbound`.
+   If it refuses with `code: custom_visual_blocked`, a visual in the report would show viewers an error:
+   - invoke `pbi-custom-visual` for each row, then publish again. There is no flag around it, and none is wanted.
 
 3. **Publish report**:
    Once `--dry-run` outputs `ok: true`, execute the publish:

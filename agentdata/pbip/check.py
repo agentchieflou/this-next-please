@@ -211,9 +211,12 @@ ORG, FILE, APPSOURCE = "organizational store", "file", "AppSource"
 
 # `pbi_custom_visuals` (AGENTS.md): what the tenant renders for the report's viewers, i.e. the
 # Fabric tenant settings "Allow visuals created using the Power BI SDK" and "Add and use certified
-# visuals only". Neither setting applies to organizational-store visuals.
+# visuals only". Neither setting applies to organizational-store visuals. The gate fails closed:
+# a tenant nobody recorded is treated as one that renders nothing but native and store visuals,
+# because a report that ships a visual its viewers cannot see is the failure this exists to stop.
 TENANT = ("allowed", "certified-only", "org-only")
-ROUTES = "take a route this tenant renders: skill `pbi-custom-visual` (native labels or an SVG measure first, else the organizational store)"
+ROUTES = ("take a route this tenant renders: skill `pbi-custom-visual` (native first, then a Microsoft-certified "
+          "visual; a non-certified visual is never the route)")
 
 
 def _custom_visual_registry(report: P.Report) -> tuple[set[str], dict[str, bool], set[str]]:
@@ -243,56 +246,62 @@ def _private_package_on_disk(report: P.Report, vtype: str) -> bool:
                                           glob.escape(vtype) + "*.pbiviz")))
 
 
-def _check_custom_visuals(out: list[Finding], report: P.Report, model: Model, idx: ModelIndex,
-                          facts: dict | None = None) -> None:
+def _standard_visual_types() -> set[str]:
     from .catalog import load_catalog
-    from ..pbiviz import core as PV
-    standard_types = set(load_catalog().get("visuals", {}).keys()) | {
+    return set(load_catalog().get("visuals", {}).keys()) | {
         "actionButton", "textbox", "image", "shape", "basicShape", "group", "kpi",
         "waterfallChart", "funnel", "filledMap", "shapeMap", "decompositionTreeVisual",
         "keyDriversVisual", "qnaVisual", "smartNarrative", "paginatedReportBearer",
         "rScript", "pythonVisual", "scriptVisual"
     }
+
+
+def custom_visual_delivery(report: P.Report, facts: dict | None = None) -> list[Finding]:
+    """Whether every custom visual in the report reaches its viewers: registered, packaged when it
+    must be, not switched off in the store, and, when `facts` are given, rendered by this tenant.
+
+    `ad-pbip check` and `ad-pbi publish report` both run it; publish refuses on any error row."""
+    out: list[Finding] = []
+    standard = _standard_visual_types()
     public, store, private = _custom_visual_registry(report)
 
     tenant = str(facts.get("pbi_custom_visuals") or "").strip().lower() if facts is not None else ""
+    certified = ({g.strip() for g in str(facts.get("pbi_certified_visuals") or "").split(",") if g.strip()}
+                 if facts is not None else set())
     if tenant and tenant not in TENANT + ("unknown",):
         out.append(Finding(
             "warning", "custom-visual-tenant-fact-invalid", "AGENTS.md", "pbi_custom_visuals",
-            f"pbi_custom_visuals is '{tenant}', which is none of {', '.join(TENANT)}; tenant rules skipped",
+            f"pbi_custom_visuals is '{tenant}', which is none of {', '.join(TENANT)}; treated as unrecorded",
             "record what the tenant renders for this report's viewers: allowed, certified-only or org-only",
         ))
+        tenant = ""
     unchecked: list[str] = []
 
     for v in report.all_visuals():
         vtype = v.type
-        if not vtype or vtype in standard_types:
+        if not vtype or vtype in standard:
             continue
 
         on_disk = _private_package_on_disk(report, vtype)
         channel = (ORG if vtype in store else FILE if vtype in private or on_disk
                    else APPSOURCE if vtype in public else None)
 
-        # 1. custom-visual-guid-unregistered
         if channel is None:
             out.append(Finding(
                 "error", "custom-visual-guid-unregistered", v.file, v.id,
                 f"custom visual type '{vtype}' is in none of report.json publicCustomVisuals, "
                 "organizationCustomVisuals or resourcePackages",
-                "add it in Desktop (AppSource, My organization, or Import a visual from a file), "
-                "or import a visual built here with `ad-pbiviz import`",
+                "add it in Desktop from AppSource or My organization, or replace it: " + ROUTES,
             ))
 
-        # 2. custom-visual-package-missing: only a private visual ships its package
+        # only a private visual ships its package
         if channel == FILE and not on_disk:
             out.append(Finding(
                 "error", "custom-visual-package-missing", v.file, v.id,
                 f"report.json says the report carries '{vtype}' as a private visual, but its package is not on disk",
-                "commit the package (CustomVisuals/ or StaticResources/RegisteredResources/), "
-                "or re-import with `ad-pbiviz import`",
+                "commit the package (CustomVisuals/ or StaticResources/RegisteredResources/), or replace it: " + ROUTES,
             ))
 
-        # 3. custom-visual-store-disabled
         if channel == ORG and store[vtype]:
             out.append(Finding(
                 "error", "custom-visual-store-disabled", v.file, v.id,
@@ -301,30 +310,63 @@ def _check_custom_visuals(out: list[Finding], report: P.Report, model: Model, id
                 "ask the Fabric admin to turn access back on, or " + ROUTES,
             ))
 
-        # 4. custom-visual-tenant-blocked: the tenant settings never reach a store visual
-        if facts is not None and channel in (FILE, APPSOURCE):
-            if tenant == "org-only":
-                out.append(Finding(
-                    "error", "custom-visual-tenant-blocked", v.file, v.id,
-                    f"'{vtype}' comes from {'a .pbiviz file' if channel == FILE else 'AppSource'}, and this tenant "
-                    "renders organizational-store visuals only (pbi_custom_visuals: org-only): viewers get an error in its place",
-                    ROUTES,
-                ))
-            elif tenant == "certified-only" and channel == FILE:
-                out.append(Finding(
-                    "error", "custom-visual-tenant-blocked", v.file, v.id,
-                    f"'{vtype}' comes from a .pbiviz file, and this tenant renders certified visuals only "
-                    "(pbi_custom_visuals: certified-only); a visual built here is not certified",
-                    ROUTES,
-                ))
-            elif tenant == "certified-only":
-                out.append(Finding(
-                    "info", "custom-visual-tenant-certified", v.file, v.id,
-                    f"'{vtype}' renders only if Microsoft-certified (pbi_custom_visuals: certified-only)",
-                    "check the certified badge on its AppSource listing",
-                ))
-            elif tenant in ("", "unknown"):
-                unchecked.append(vtype)
+        # the tenant settings never reach a store visual
+        if facts is None or channel not in (FILE, APPSOURCE):
+            continue
+        origin = "a .pbiviz file" if channel == FILE else "AppSource"
+        if tenant == "org-only":
+            out.append(Finding(
+                "error", "custom-visual-tenant-blocked", v.file, v.id,
+                f"'{vtype}' comes from {origin}, and this tenant renders organizational-store visuals only "
+                "(pbi_custom_visuals: org-only): viewers get an error in its place",
+                ("ask the Fabric admin to add this certified visual to the organizational store "
+                 "(skill `pbi-custom-visual` has the request), or " if channel == APPSOURCE else "") + ROUTES,
+            ))
+        elif tenant == "certified-only" and channel == FILE:
+            out.append(Finding(
+                "error", "custom-visual-tenant-blocked", v.file, v.id,
+                f"'{vtype}' comes from a .pbiviz file, and this tenant renders certified visuals only "
+                "(pbi_custom_visuals: certified-only): a visual loaded from a file is not the certified one",
+                "for a certified visual, add its AppSource edition instead; otherwise " + ROUTES,
+            ))
+        elif tenant == "certified-only" and vtype not in certified:
+            out.append(Finding(
+                "error", "custom-visual-certification-unconfirmed", v.file, v.id,
+                f"'{vtype}' comes from AppSource, and this tenant renders it only if it is Microsoft-certified; "
+                "pbi_certified_visuals does not list it",
+                "check the certified badge on its AppSource listing, then add the GUID to pbi_certified_visuals "
+                "in AGENTS.md; if it is not certified, " + ROUTES,
+            ))
+        elif tenant == "allowed" and channel == FILE:
+            out.append(Finding(
+                "warning", "custom-visual-uncertified", v.file, v.id,
+                f"'{vtype}' is a non-certified visual loaded from a file: it renders while the tenant allows files, "
+                "and stops the day the tenant turns certified-only",
+                ROUTES,
+            ))
+        elif tenant not in TENANT:
+            unchecked.append(vtype)
+
+    if unchecked:
+        out.append(Finding(
+            "error", "custom-visual-tenant-unknown", "AGENTS.md", "pbi_custom_visuals",
+            f"{len(unchecked)} visual(s) from a file or AppSource ({', '.join(sorted(set(unchecked)))}) render only "
+            "if the tenant allows them, and AGENTS.md does not say whether it does",
+            "record `- pbi_custom_visuals: allowed | certified-only | org-only` (skill `pbi-custom-visual`)",
+        ))
+    return out
+
+
+def _check_custom_visuals(out: list[Finding], report: P.Report, model: Model, idx: ModelIndex,
+                          facts: dict | None = None) -> None:
+    from ..pbiviz import core as PV
+    out.extend(custom_visual_delivery(report, facts))
+    standard = _standard_visual_types()
+
+    for v in report.all_visuals():
+        vtype = v.type
+        if not vtype or vtype in standard:
+            continue
 
         # Read capabilities
         caps = PV.read_visual_capabilities(vtype, report.root) if report.root else None
@@ -372,14 +414,6 @@ def _check_custom_visuals(out: list[Finding], report: P.Report, model: Model, id
                                 f"role '{role_name}' expects Measure/aggregation, but projected field '{ref.label()}' is an unaggregated column",
                                 "project a measure or aggregated column into Measure roles",
                             ))
-
-    if unchecked:
-        out.append(Finding(
-            "info", "custom-visual-tenant-unknown", "AGENTS.md", "pbi_custom_visuals",
-            f"{len(unchecked)} visual(s) from a file or AppSource ({', '.join(sorted(set(unchecked)))}) render only if "
-            "the tenant allows them, and AGENTS.md does not say whether it does",
-            "record `- pbi_custom_visuals: allowed | certified-only | org-only` (skill `pbi-custom-visual`)",
-        ))
 
 
 def _has_sourceref_entity(obj: Any) -> bool:

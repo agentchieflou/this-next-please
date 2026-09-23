@@ -400,28 +400,42 @@ def test_no_tenant_setting_reaches_an_organizational_store_visual(tmp_path):
         assert _cv(dest_rep, {"pbi_custom_visuals": tenant}) == []
 
 
-def test_certified_only_blocks_our_file_visual_and_notes_an_appsource_one(tmp_path):
+def test_certified_only_blocks_a_file_visual_and_an_unconfirmed_appsource_one(tmp_path):
+    """A visual loaded from a file is never the certified one; an AppSource visual passes only once
+    somebody has checked its certified badge and recorded the GUID."""
     dest_rep, guid = _imported(tmp_path)
-    assert [(f.severity, f.kind) for f in _cv(dest_rep, {"pbi_custom_visuals": "certified-only"})] == \
-        [("error", "custom-visual-tenant-blocked")]
+    facts = {"pbi_custom_visuals": "certified-only"}
+    assert [(f.severity, f.kind) for f in _cv(dest_rep, facts)] == [("error", "custom-visual-tenant-blocked")]
     _registered_as(dest_rep, guid, "appsource")
-    assert [(f.severity, f.kind) for f in _cv(dest_rep, {"pbi_custom_visuals": "certified-only"})] == \
-        [("info", "custom-visual-tenant-certified")]
+    assert [(f.severity, f.kind) for f in _cv(dest_rep, facts)] == \
+        [("error", "custom-visual-certification-unconfirmed")]
+    assert _cv(dest_rep, {**facts, "pbi_certified_visuals": f"otherVisual1, {guid}"}) == []
 
 
-def test_allowed_tenant_is_quiet_and_an_unknown_one_is_one_info_row(tmp_path):
+def test_allowed_tenant_warns_on_a_file_visual_and_passes_appsource(tmp_path):
+    """Files render where the tenant allows them, so it is a warning, not a refusal: the visual still
+    stops the day the tenant turns certified-only."""
     dest_rep, guid = _imported(tmp_path)
+    rows = _cv(dest_rep, {"pbi_custom_visuals": "allowed"})
+    assert [(f.severity, f.kind) for f in rows] == [("warning", "custom-visual-uncertified")]
+    _registered_as(dest_rep, guid, "appsource")
     assert _cv(dest_rep, {"pbi_custom_visuals": "allowed"}) == []
+
+
+def test_an_unrecorded_tenant_fails_closed(tmp_path):
+    """Nobody wrote down what the tenant renders, so nothing from a file or AppSource passes."""
+    dest_rep, guid = _imported(tmp_path)
     for facts in ({}, {"pbi_custom_visuals": "unknown"}):
         rows = _cv(dest_rep, facts)
-        assert [(f.severity, f.kind) for f in rows] == [("info", "custom-visual-tenant-unknown")]
+        assert [(f.severity, f.kind) for f in rows] == [("error", "custom-visual-tenant-unknown")]
         assert guid in rows[0].message and "pbi_custom_visuals" in rows[0].hint
 
 
-def test_a_misspelt_tenant_fact_is_a_warning_not_a_guess(tmp_path):
+def test_a_misspelt_tenant_fact_warns_and_still_fails_closed(tmp_path):
     dest_rep, _guid = _imported(tmp_path)
     rows = _cv(dest_rep, {"pbi_custom_visuals": "blocked"})
-    assert [(f.severity, f.kind) for f in rows] == [("warning", "custom-visual-tenant-fact-invalid")]
+    assert [(f.severity, f.kind) for f in rows] == [("warning", "custom-visual-tenant-fact-invalid"),
+                                                   ("error", "custom-visual-tenant-unknown")]
 
 
 def test_cli_check_reads_the_tenant_fact_from_agents_md(tmp_path, monkeypatch, capsys):
