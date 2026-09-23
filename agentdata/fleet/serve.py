@@ -647,7 +647,7 @@ def _add_siblings(rows: list[dict]) -> None:
 # is an environment variable, and is what every test does -- drops the handles rather than answering
 # from the previous one's sqlite file.
 _desk = {"dir": "", "poller": None, "inbox": None, "catalogue": None, "last_tick": 0.0,
-         "last_fold": 0.0}
+         "last_fold": 0.0, "last_renew": 0.0}
 _desk_lock = threading.RLock()
 
 DESK_FILE = "desk.json"
@@ -798,7 +798,7 @@ def drop_handles() -> None:
                 pass
         _refreshed_at.clear()
         _desk.update(dir="", poller=None, inbox=None, catalogue=None, last_tick=0.0,
-                     last_fold=0.0)
+                     last_fold=0.0, last_renew=0.0)
 
 
 def forget_desk() -> None:
@@ -930,7 +930,7 @@ def renew_tick(now: float | None = None) -> list[dict]:
     now = time.time() if now is None else float(now)
     with _desk_lock:
         bag = _fresh()
-        if now - bag.get("last_renew", 0.0) < RENEW_EVERY_S:
+        if now - bag["last_renew"] < RENEW_EVERY_S:
             return []
         bag["last_renew"] = now
     from .. import config as C

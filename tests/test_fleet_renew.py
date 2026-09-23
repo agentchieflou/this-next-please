@@ -42,7 +42,8 @@ def _own_desk_globals(monkeypatch):
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
+                                         catalogue=None, last_tick=0.0, last_fold=0.0,
+                                         last_renew=0.0))
     monkeypatch.setattr(S, "_refreshed_at", {})
 
 

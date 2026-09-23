@@ -12,11 +12,12 @@ lock, and the desk's tick carries that out once the turn has ended, re-judging i
 question that opened during the turn cancels it, because renewing would bury the question.
 """
 from __future__ import annotations
+import glob
 import os
 import time
 
 from .. import textio
-from .registry import Registry, agent_dir
+from .registry import Registry, agent_dir, fleet_dir
 
 RENEW_FILE = "renew.json"
 
@@ -151,6 +152,11 @@ def carry_out(*, registry: Registry | None = None, cfg: dict | None = None) -> l
     from . import fingerprint as FP
 
     out = []
+    # The desk calls this on its tick, and almost always nothing is queued. Asking the disk for a
+    # queue file costs one glob; building a `Registry` to ask each repository would re-parse
+    # `registry.json`, and a tick's cost has to stay flat in the number of repositories.
+    if not glob.glob(os.path.join(fleet_dir(), "agents", "*", RENEW_FILE)):
+        return out
     try:
         reg = registry or Registry()
         now = FP.current()
