@@ -363,6 +363,34 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
   Linux job, next to `node --check`. The page, its bytes and its no-build rule do not change. Widening the check to
   the rest of `app.js` is a follow-up that only this slice's own number can justify: how many real defects the
   check found in the typed part.
+- **Built (#236)**, recorded in [desk-types.md](desk-types.md). What building it decided, each undone by a sentence
+  from the operator:
+  - **The program is the whole of both files, and the plan's limit is what is typed.** D and E made no files: the
+    row, the tiers, the widths and the gutters are sections of `app.js`. `checkJs` and `// @ts-check` switch a
+    whole file, and `app.js` needs `common.js` in the same program for its globals to resolve. So `tsc` reads all
+    of both files. JSDoc types go on the records and on the functions A, D and E wrote (about eighty). The rest
+    gets only the kind of element a lookup returns, said at the lookup. `checkJs` is set in `tsconfig.json`,
+    not in per-file pragmas.
+  - **Nothing is silenced.** A test refuses `@ts-ignore`, `@ts-expect-error` and `@ts-nocheck` in the program,
+    because a diagnostic switched off where it stands would make the number mean nothing.
+  - **TypeScript 7.0.2, exactly.** The native compiler reads JSDoc as 5.9.3 does: the same places on the first
+    run, plus two `new Promise` resolves. It runs in under a second. The pin is written in the workflow, the test,
+    the docs and the config, and a test holds the four together. CI runs it as its own step on the 3.12 leg.
+    `tests/test_desk_types.py` runs it too: the `network` marker's first test, skipped by `AGENTDATA_OFFLINE`.
+  - **The records are held to the server.** A test compares `DeskRecord`, `WindowRecord` and `Arrangement` with
+    `desk_state()`, `WINDOW_FIELDS` and the blank arrangement. `WindowWrite`, what the page writes, must stay a
+    strict part of the record, so writing a retired field such as `zoomed` is a type error. `Row` is open:
+    typed in what the typed part reads, and `any` beyond that.
+  - **The number: nought real defects in the typed part.** An exploratory `--strictNullChecks` run, not
+    enforced, raised 85 diagnostics there, and none was real. Reading the rest of both files with nothing typed
+    found **two latent defects**, fixed here:
+    - the `focus` alias, which replaced `window.focus`. In Chromium, `window.focus()` shut the drawer and posted
+      two window writes. The alias went, and the `open` guard in `test_fleet_column.py` covers `focus` too;
+    - `transparent()`'s fallback `(nums[i] || 0).trim()`, which threw whenever it was taken.
+
+    Neither is visible in the three hosts, so neither has a regression file. The other 73 of the first run's 85
+    diagnostics were element kinds, event types and two `Promise` resolves. On that number the typed part does not
+    argue for widening; [desk-types.md](desk-types.md) §Widening it lists what would come next if it is widened.
 
 ## Ground rules
 
