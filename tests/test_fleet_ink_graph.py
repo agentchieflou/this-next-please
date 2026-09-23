@@ -512,7 +512,8 @@ def test_the_mechanical_pencil_is_thin_even_and_ruled(fleet_home, tmp_path):
                   { marks: [{ selector: '.tile', tool: 'pencil', shape: 'outline', snap: 2 }] },
                   { marks: [{ selector: '.tile', tool: 'pen', shape: 'outline', leaves: 'faded' }] },
                   { marks: [], tools: { crayon: { w: 1 } } },
-                  { marks: [], tools: { pencil: { kind: 3 } } }]) {
+                  { marks: [], tools: { pencil: { kind: 3 } } },
+                  { marks: [], tools: { pencil: { lam: 0 } } }]) {
                 try { Ink.setSkin(bad); refused.push(''); } catch (e) { refused.push(String(e.message)); }
               }
               return { plain: [Math.min(...width(plain)), Math.max(...width(plain)), Math.max(...ys(plain).map(Math.abs))],
@@ -527,9 +528,10 @@ def test_the_mechanical_pencil_is_thin_even_and_ruled(fleet_home, tmp_path):
     assert hi <= 1.2 and hi - lo <= 0.12, f"not thin and even: {got['tuned']} (the plain pencil: {got['plain']})"
     assert drift < 0.05, "a mechanical pencil's line does not wander"
     assert got["plain"][1] - got["plain"][0] > 0.3, "the plain pencil tapers; the tuning is what changed"
-    snap_loop, snap_small, leaves, crayon, kind = got["refused"]
+    snap_loop, snap_small, leaves, crayon, kind, lam = got["refused"]
     assert "`snap`" in snap_loop and "mark 0" in snap_loop and "`snap`" in snap_small
     assert "`leaves`" in leaves and "crayon" in crayon and "tools.pencil.kind" in kind
+    assert "tools.pencil.lam" in lam
     assert got["table"].startswith("graph"), "a refused table leaves the one in force alone"
 
 

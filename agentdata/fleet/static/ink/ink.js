@@ -167,8 +167,10 @@ function normalise(table) {
     }
     tools[tool] = {};
     for (const [k, v] of Object.entries(tune)) {
-      if (!TUNABLE.includes(k) || !Number.isFinite(v) || v < 0) {
-        throw new TypeError("ink: tools." + tool + "." + k + ": a tool tunes " + TUNABLE.join(", ") + ", each a number of 0 or more");
+      // `lam` is a wavelength, and divides: it is the one that cannot be 0.
+      if (!TUNABLE.includes(k) || !Number.isFinite(v) || v < 0 || (k === "lam" && v === 0)) {
+        throw new TypeError("ink: tools." + tool + "." + k + ": a tool tunes " + TUNABLE.join(", ") +
+                            ", each a number of 0 or more (`lam` more than 0)");
       }
       tools[tool][k] = v;
     }

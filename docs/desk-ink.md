@@ -136,7 +136,7 @@ Ink.setSkin({
 | `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #253) |
 
 A table may also tune a tool's hand for its own strokes with `tools: {<tool>: {...}}`, each a
-number of 0 or more: `w`, `press`, `pvar`, `wob`, `lam`, `bow`, `wmin`, `tin`, `tout` (§Tools says
+number of 0 or more (`lam`, a wavelength, more than 0): `w`, `press`, `pvar`, `wob`, `lam`, `bow`, `wmin`, `tin`, `tout` (§Tools says
 what each is). The graph paper's mechanical pencil is `tools: {pencil: {w: 1.05, pvar: 0.04, wob:
 0, bow: 0, tin: 0, tout: 0, ...}}`. A tool's `kind`, `pad` and `model` are what it is, and stay
 the layer's. A skin's module gives `tools` in its `options`. A `snap`, a `leaves` or a `tools`
