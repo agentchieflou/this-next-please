@@ -125,6 +125,18 @@ skin: a degraded mode of the one platform, not a second one.
   and shadows. The composited panel `theme.check` measures is read from the rendered frame.
 - **I #255 — farmstead on three.js.** The original `sprites.svg` art as nearest-neighbour textures at integer scale,
   lit wooden frames, and crop glyphs that grow a stage when an agent's phase advances.
+  - **Built (#255)**, in `static/ink/skins/farmstead.js` and [skin-farmstead.md](skin-farmstead.md), tested by
+    `tests/test_fleet_ink_farmstead.py`. What building it decided:
+    - **The sheet is rasterised on its own grid**, one texel per art pixel, and every enlargement is NearestFilter's
+      at a whole number of device pixels (rounded down). The loader is in the skin module, not the layer.
+    - **The phase's DOM signal is the tile's `state-*`** (with `needs-human`). The page has no phase attribute. Seed,
+      sprout and bloom are the growth line, one stage drawn per step, a row of art pixels at a time.
+    - **The pane's paper is the variant's `composited_panel`**, drawn by the frame, so `theme.check` checks what is
+      read. The panes, header, footer and chip are cleared while ink is on. The accent stripe stays.
+    - **Every state is a mark from the table** (needs you, running, error, done, stale, answered, finding). Wilted,
+      sprouting and blooming crops and a scorched frame are the materials' responses.
+    - **An idle desk with any skin wrote to the page** (`applyTheme`, `applySkin`, `startGround`). Now it writes only
+      a change.
 - **J #256 — voxel on three.js.** Real voxel slabs and status stacks, instanced, one draw call per material.
 - **K #257 — one platform.** `drawGround` and `drawTrace` move to the ink layer and nothing calls
   `getContext("2d")`. Skin files keep only layout and typography (a guard refuses decoration in them). The fallback

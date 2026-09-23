@@ -250,6 +250,12 @@ What each hook is handed:
    `Ink.inspect()` shows the marks, and `.layer.skin` shows the hooks, the pieces and the frames.
    `tests/test_fleet_ink.py` has the pattern.
 
+### The skins
+
+| Skin | Its page |
+| --- | --- |
+| farmstead (#255) | [skin-farmstead.md](skin-farmstead.md): the sprite sheet as nearest-neighbour textures, lit wooden frames, and a crop that grows a stage per advance of the phase |
+
 ## Lanes
 
 There is one queue of drawing per agent's pane (`.tile[data-repo]`), and one for everything outside a pane: the header
