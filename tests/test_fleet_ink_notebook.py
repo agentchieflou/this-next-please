@@ -399,7 +399,7 @@ def test_reduced_motion_draws_the_notebook_at_once(fleet_home, tmp_path, alive):
             alive.add("alpha")
             _emit(page, "alpha", ("turn_started", {}))
             _until_class(page, "alpha", "state-running")
-            took = page.evaluate("""() => new Promise(done => {
+            counted = page.evaluate("""() => new Promise(done => {
               let n = 0;
               const step = () => { n += 1; const l = Ink.inspect().layer;
                 const run = l.marks.find(m => m.selector.includes('state-running'));
@@ -408,7 +408,7 @@ def test_reduced_motion_draws_the_notebook_at_once(fleet_home, tmp_path, alive):
                 if (n > 30) return done({ n, hands: l.hands });
                 requestAnimationFrame(step); };
               requestAnimationFrame(step); })""")
-            assert took["n"] <= 3 and took["hands"] is False, took
+            assert counted["n"] <= 3 and counted["hands"] is False, counted
             assert not errors, errors
             browser.close()
     finally:
