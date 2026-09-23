@@ -260,10 +260,6 @@
      differ whenever a tenant pins one. It writes the key `/settings` writes, through the same
      function, with the same refusals in the same words: two ways to set one thing must not become
      two rules about it. One card for the page, moved to whichever button opened it. -->
-<!-- #218: the glass skin's ground, drawn rather than declared, so it can drift. Empty and inert
-     for every other skin; `groundColours()` reads the mesh out of the stylesheet, which stays its
-     only owner. -->
-<canvas id="ground" aria-hidden="true" hidden></canvas>
 <div id="modelcard" class="modelcard enters" role="dialog" aria-label="which model this agent runs" hidden>
   <div class="mc-head">
     <strong class="mc-repo" id="mc-repo"></strong>
@@ -312,9 +308,11 @@
       <span class="chip"><span class="chipword"></span><span class="chipage"></span></span>
       <!-- #240: this session began on skills or a CLI that have since changed. The reason is its title. -->
       <span class="oldsession" hidden></span>
-      <!-- #218: the last hour, sixty bars. `role="img"` with the sentence on it is the text twin
-           -- a picture a screen reader cannot read is a picture that is not there. -->
-      <canvas class="trace" width="120" height="18" role="img" aria-label=""></canvas>
+      <!-- #218: the last hour, a point a minute. `role="img"` with the sentence on it is the text
+           twin -- a picture a screen reader cannot read is a picture that is not there. #257: no
+           canvas. `drawTrace` writes the series on it for the ink layer, and the SVG inside is the
+           plain look a shell without ink shows. -->
+      <svg class="trace" viewBox="0 0 60 18" preserveAspectRatio="none" role="img" aria-label=""><title></title><polyline class="tr-line" points=""></polyline><path class="tr-ticks" d=""></path></svg>
       <span class="ticket"></span>
       <span class="spacer"></span>
       <span class="badge" hidden title="unread notifications for this agent"></span>

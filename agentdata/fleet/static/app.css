@@ -516,16 +516,28 @@ body.is-stale #counts::after {
   color: var(--muted);
 }
 
-/* #218: the last hour, on the pane's title bar. Sized in CSS and resolved in the script -- the
-   canvas's own `width` is a pixel count, not a layout box, and the two are only the same number on
-   a 1x screen. It shrinks before anything else in the head does, and goes altogether on a narrow
-   pane, because an hour nobody can read the shape of is 120 pixels of title bar spent on
-   nothing. */
+/* #218: the last hour, on the pane's title bar. It shrinks before anything else in the head does,
+   and goes altogether on a narrow pane, because an hour nobody can read the shape of is 64 pixels
+   of title bar spent on nothing. */
 .trace {
   flex: 0 1 auto; width: 64px; height: 18px; min-width: 40px;
-  opacity: 0.85; vertical-align: middle;
+  opacity: 0.85; vertical-align: middle; overflow: visible; fill: none;
 }
 .trace:hover { opacity: 1; }
+/* #257: the plain look, and the one every shell that does not draw ink shows -- the same hour the
+   ink layer draws, in the stylesheet's own colours, so a palette that changes repaints it with no
+   script. `preserveAspectRatio="none"` stretches a minute to whatever width the head gives it, and
+   a stroke that must not stretch with it says so. */
+.trace .tr-line {
+  stroke: var(--running); stroke-width: 1.25; stroke-linejoin: round; stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.trace .tr-ticks { stroke: var(--human); stroke-width: 2; vector-effect: non-scaling-stroke; }
+/* Where a skin draws with ink, the ink layer draws the trace itself, from the series on the
+   element, and the SVG steps aside. It keeps its box and its words: only the drawing is the
+   layer's. A CSS skin's pane is opaque and would cover the layer's canvas, so there -- and in every
+   shell without ink -- the SVG is the trace. */
+body:has(> #ink[data-skin]) .trace > * { visibility: hidden; }
 /* The head wraps before it shrinks -- that is what `flex-wrap` means -- so the trace has to be
    gone by the width at which it would have caused the wrap, not by the width at which it stops
    fitting. A compact pane and a rail do not draw it at all (#233). */
@@ -533,22 +545,9 @@ body.is-stale #counts::after {
   .head .trace { display: none; }
 }
 
-/* #218: the drawn ground. Fixed and behind everything, and `hidden` for every skin that does not
-   ask for one -- the stylesheet's own gradients are the ground then, exactly as before. */
-#ground {
-  position: fixed; inset: 0; z-index: -1;
-  width: 100%; height: 100%; pointer-events: none;
-}
-/* Only once the canvas is really painting: the gradients are what `groundColours` reads, so
-   blanking them before it has read them leaves it with nothing to draw. */
-/* `html` in front, for specificity: a skin's stylesheet is appended to the head *after* this
-   file, so `body.has-ground` and `body[data-skin="glass"]` weigh the same and source order gives
-   the gradients the win -- which paints the ground twice, once in CSS and once on the canvas. */
-html body.has-ground { background-image: none; }
-
-/* #248: the ink layer's one canvas, behind the page like the ground and in front of it (it comes
-   later in the document). It is only there while a skin draws with ink: `static/ink/layer.js` puts
-   it in and takes it out, and nothing on the desk uses it yet. */
+/* #248: the ink layer's one canvas, behind the page and in front of the stylesheet's own ground.
+   `static/ink/layer.js` puts it in wherever the gate says this shell draws ink, and from #257 it
+   draws the desk's own ground and traces there, whatever the skin. */
 #ink {
   position: fixed; inset: 0; z-index: -1;
   width: 100%; height: 100%; pointer-events: none;
