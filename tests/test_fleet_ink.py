@@ -55,6 +55,8 @@ PEN = 900
 #: What the ink layer's own modules may weigh over the wire. three.js is not in it: 163 KB,
 #: fetched only by a shell the gate turned on, once a skin draws.
 INK_BUDGET = 40 * 1024
+#: What one skin's module may weigh over the wire (the legal pad's is 7 KB, #251).
+SKIN_BUDGET = 16 * 1024
 
 INTEL = "ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00003EA0) Direct3D11 vs_5_0 ps_5_0, D3D11)"
 SWIFTSHADER = "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
@@ -236,8 +238,14 @@ def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
     assert files == sorted(MODULES), "a module the budget does not count"
     assert sorted(os.listdir(INK)) == sorted(MODULES + ("skins",))
-    # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost.
-    assert SKINS == ("example.js",), SKINS
+    # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost,
+    # but held to a budget of its own. Each is a skin skins.py offers, save the tests' example.
+    from agentdata.fleet import skins as K
+    assert "example.js" in SKINS, SKINS
+    for name in SKINS:
+        size = len(gzip.compress(open(os.path.join(INK, "skins", name), "rb").read(), 6, mtime=0))
+        assert size < SKIN_BUDGET, (name, size)
+        assert name == "example.js" or name[:-3] in K.SKINS, f"{name} is not a skin anyone can choose"
 
 
 def test_the_gate_is_the_probe_rule_and_nothing_else(fleet_home):
@@ -281,9 +289,11 @@ def test_the_server_writes_the_probe_class_on_the_desk_and_nowhere_else(fleet_ho
         assert gate("?w=left&shell=pycharm") == ("pycharm", "hardware")
         assert gate("?x=1") == ("browser", "unmeasured")
         assert gate('?w="><script>') == ("", "unmeasured")
-        # And the skins that ship a module: the example alone, which skins.py does not offer.
-        assert 'data-ink-skins="example">' in body_of("?x=1")
-        assert S.ink_skins() == ["example"], "a shipped skin draws with ink: slice B says none does"
+        # And the skins that ship a module: every one, the example (which skins.py does not offer)
+        # among them.
+        inked = [n[:-3] for n in SKINS]
+        assert f'data-ink-skins="{" ".join(inked)}">' in body_of("?x=1")
+        assert S.ink_skins() == inked and "example" in inked
         for other in ("settings?x=1", "probe?x=1"):
             assert "data-ink" not in body_of(other), other
         # Compressed once per shell and class, not once for every window: two shells, two pages.
@@ -843,7 +853,7 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
                                                             encoding="utf-8")
                 page, errors, asked = _open(browser, port, token, extra)
                 _no_skin_css(page)
-                assert page.evaluate("() => document.body.dataset.inkSkins") == "example"
+                assert page.evaluate("() => document.body.dataset.inkSkins").split() == [n[:-3] for n in SKINS]
                 page.wait_for_function("() => Ink.inspect().table === 'example'", timeout=10000)
                 _mark(page, "alpha", "ink-example")
                 if extra:
