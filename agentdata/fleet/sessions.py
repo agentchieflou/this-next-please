@@ -94,8 +94,12 @@ def session_files(repo_path: str) -> list[dict]:
             mtime = os.path.getmtime(file)
         except OSError:
             mtime = 0.0
+        # A stamp a tick AHEAD of the clock is "just now", not a negative age (#227): Python 3.12's
+        # `time.time()` on Windows ticks every ~15.6 ms while NTFS stamps precisely, and
+        # `adopt.fresh_session_file` refuses an age below nought -- so a console written a moment
+        # ago was not offered.
         out.append({**row, "file": file, "log_mtime": mtime,
-                    "log_age_s": (time.time() - mtime) if mtime else -1.0})
+                    "log_age_s": max(0.0, time.time() - mtime) if mtime else -1.0})
     out.sort(key=lambda r: -r["log_mtime"])
     return out
 
