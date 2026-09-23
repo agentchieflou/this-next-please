@@ -242,6 +242,10 @@ def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     # Every one but the example is a skin skins.py offers (#249-#256 ship them).
     from agentdata.fleet import skins as K
     assert "example.js" in SKINS and all(n[:-3] in K.SKINS for n in SKINS if n != "example.js"), SKINS
+    # And each is held to a budget of its own (#251).
+    for name in SKINS:
+        size = len(gzip.compress(open(os.path.join(INK, "skins", name), "rb").read(), 6, mtime=0))
+        assert size < SKIN_BUDGET, (name, size)
 
 
 def test_the_gate_is_the_probe_rule_and_nothing_else(fleet_home):
