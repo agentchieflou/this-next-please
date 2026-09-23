@@ -198,6 +198,12 @@ module reads, and nothing it paints (§What a skin's stylesheet holds). `<name>`
 and `theme.skin` in the config chooses it, the way `glass` is chosen today. `static/ink/skins/example.js` is the
 working pattern to copy, and the tests draw with it. It is not in `skins.py`, so nobody can choose it.
 
+**The skins that draw with ink**, each with its own page:
+
+| Skin | Module | Page |
+| --- | --- | --- |
+| voxel (#256) | `skins/voxel.js`: voxel ground, lit slabs and a status stack per pane, one draw call per material | [skin-voxel.md](skin-voxel.md) |
+
 **How it is chosen.** The server lists every `static/ink/skins/*.js` on the desk's `<body>` (`data-ink-skins`). The
 chosen skin reaches the page as `applySkin("<name>:<variant>")`, which writes `body[data-skin]` and
 `[data-skin-variant]`. `ink.js` follows those two attributes. When they name a listed skin, it fetches the module

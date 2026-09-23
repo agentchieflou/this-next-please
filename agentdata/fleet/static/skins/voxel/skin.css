@@ -183,3 +183,41 @@ body[data-skin="voxel"] *::-webkit-scrollbar-thumb {
   border-radius: 0; border: 2px solid #111; background-clip: border-box;
   box-shadow: inset 2px 2px 0 rgba(255, 255, 255, 0.25), inset -2px -2px 0 rgba(0, 0, 0, 0.6);
 }
+
+/* --------------------------------------------------------------------- on three.js (#256)
+
+   Where the ink layer draws (the gate said on: no `body.ink-off`), the decoration above is
+   three.js's: `static/ink/skins/voxel.js` lays the ground as voxels, builds every pane's frame as
+   a lit slab -- the panel the text is read on, its drop shadow, the accent strip as a column of
+   cubes -- and sits a status stack in the strip. So here the page stops painting what the slabs
+   paint: the ground's texture, the pane's fill, its borders' colour and its shadow, and the chip's
+   sprite, whose job the stack does. The borders keep their widths, so the layout is the same
+   either way, and everything written on the page stays page text.
+
+   The surfaces are the skin's, not the palette's, so they are named here once per world and the
+   module reads them (`--voxel-*`); no colour is written in the script. `--voxel-panel` is the
+   variant's `composited_panel` in skins.py -- the slab's face is exactly it, and
+   `tests/test_fleet_voxel_ink.py` holds the two together. Under `body.ink-off` none of this
+   applies and the skin is the CSS above, as it was. */
+body[data-skin="voxel"] {
+  --voxel-ground: #5A3D28;
+  --voxel-panel: #1E221E;
+  --voxel-edge: #111111;
+}
+body[data-skin="voxel"][data-skin-variant="nether"] {
+  --voxel-ground: #6B2A22;
+  --voxel-panel: #2A1512;
+  --voxel-edge: #1A0907;
+}
+body[data-skin="voxel"][data-skin-variant="end"] {
+  --voxel-ground: #2A2136;
+  --voxel-panel: #16121C;
+  --voxel-edge: #0B0810;
+}
+body[data-skin="voxel"]:not(.ink-off) { background-image: none; }
+body[data-skin="voxel"]:not(.ink-off) .tile {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+body[data-skin="voxel"]:not(.ink-off) .tile:not(.is-selected) { box-shadow: none; }
+body[data-skin="voxel"]:not(.ink-off) .chip::before { display: none; }
