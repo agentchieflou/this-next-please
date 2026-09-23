@@ -113,8 +113,21 @@ skin: a degraded mode of the one platform, not a second one.
       rewritten, and the notebook's paper. All three are C's, and they need the state grammar.
 - **C #249 — notebook (light).** The prototype on the real desk, with the state grammar below. An answered question
   strikes the *question*, never the agent's name, which fixes the flaw both prototypes had.
+  - **Built (#249, #250)**, with D, in `static/ink/skins/notebook.js` and `static/skins/notebook/skin.css`, in
+    [skin-notebook.md](skin-notebook.md), tested by `tests/test_fleet_ink_notebook.py`. What building it decided:
+    - **Dark is the variant `notebook:dark`**, not a `notebook-dark` family: skins drive palettes, so the variant
+      names the night page's palette, and one module draws both. The layer reads light or dark from `--paper`.
+    - **Every row is a class the page already sets**, and one class was added: `is-answered`, on a question
+      `/api/answer` says it passed on. *Running* grows with the transcript lines that arrive, not with time. The
+      version line is the run line, a finding is a recorded friction, and the header's count is the unread count.
+    - **Three general row fields** in the layer: `grow`/`step` and `tip` for the running line, `rewrite` for the
+      count struck and written again.
+    - **No web font.** The handwriting is a local cursive stack, with Caveat first where it is installed.
+    - **No legend line.**
+    - An idle desk with **any** skin chosen through the config was writing to the page. Fixed, with a regression
+      test.
 - **D #250 — notebook, dark.** Charcoal stock and gel inks. The highlighter screens instead of multiplying. Chosen
-  by the palette's luminance or named `notebook-dark`.
+  by the palette's luminance or named `notebook-dark`. **Built (#250)** with C, as the variant `notebook:dark`.
 - **E #251 — legal pad.** Canary stock, blue rules, a double red margin and a glued top edge. The highlighter shifts
   to orange-pink so it still reads on yellow.
 - **F #252 — napkin notes.** Quilted two-ply with no rules. A felt tip that bleeds along the emboss. A coffee ring

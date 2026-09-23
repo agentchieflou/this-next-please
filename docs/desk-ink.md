@@ -1,8 +1,8 @@
 # The ink layer: marks drawn on the desk by pencil, pen, marker and highlighter
 
-_Slice B (#248) of the ink epic (#246, [plan-ink.md](plan-ink.md)). The layer is built, and **nothing on the desk
-uses it yet**: no shipped skin hands it a mark table, so the desk looks exactly as it did. The notebook (#249) is the
-first skin that will._
+_Slice B (#248) of the ink epic (#246, [plan-ink.md](plan-ink.md)). The layer is built, and the notebook (#249, #250)
+is the first skin that draws with it ([skin-notebook.md](skin-notebook.md)). A desk with any other skin looks exactly
+as it did._
 
 The operator chose three.js as the desk's one renderer (plan-ink Decision 1), and the theme's rule is that a mark is
 **drawn on the fly** by a writing tool. It never fades. A pencil mark that goes is erased, and an ink mark that goes
@@ -254,6 +254,12 @@ What each hook is handed:
    `Ink.inspect()` shows the marks, and `.layer.skin` shows the hooks, the pieces and the frames.
    `tests/test_fleet_ink.py` has the pattern.
 
+### The skins that draw with ink
+
+| Skin | Its page |
+| --- | --- |
+| `notebook` (`light`, `dark`) | [skin-notebook.md](skin-notebook.md): the state grammar's reference marks, a ruled paper shader, a margin per pane (#249, #250) |
+
 ## Lanes
 
 There is one queue of drawing per agent's pane (`.tile[data-repo]`), and one for everything outside a pane: the header
@@ -319,7 +325,7 @@ head instead.
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 141 KB gzipped for the whole desk, the layer's four modules (29 KB) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
+| the static payload | 148 KB gzipped for the whole desk, the layer's four modules (35 KB) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |
