@@ -202,6 +202,29 @@ skin: a degraded mode of the one platform, not a second one.
     - **An idle desk with any skin wrote to the page** (`applyTheme`, `applySkin`, `startGround`). Now it writes only
       a change.
 - **J #256 — voxel on three.js.** Real voxel slabs and status stacks, instanced, one draw call per material.
+  - **Built (#256)**, in `static/ink/skins/voxel.js` and [skin-voxel.md](skin-voxel.md), tested by
+    `tests/test_fleet_voxel_ink.py`. What building it decided:
+    - **Three materials, three draw calls**: the ground, the slabs and the stacks, each one
+      `InstancedMesh` sharing one shader, at one agent or twenty (the renderer's own count is asserted).
+      The skin draws nothing into a pane's own frame group, because that would be a draw call per pane.
+      It builds each pane's voxels in the pane's coordinates, and a uniform per pane (`uPane[slot]`,
+      written in `onBeforeRender` from the group the layer placed) moves them. A gutter drag is a
+      uniform write in the frame that moves the panes.
+    - **The slab's face is the composited panel.** A face square to the one light is drawn in its own
+      colour, passed through as sRGB, so `--voxel-panel` (skin.css) and `composited_panel` (skins.py)
+      are one number and `theme.check`'s pair is the rendered pair. The inks the table uses are
+      declared per variant.
+    - **The stack sits in the accent strip**, the one place on a pane with no text: three sockets at
+      its top. Height is progress (one idle, two in hand, three done), and the top block's response is
+      the state: turned, raised, cracked, set. A stale session adds a pebble, and a finding adds ore.
+    - **A running block turns on a timer, not a loop**: a quarter every 3s, one `api.request()` each,
+      so an idle desk draws nothing.
+    - **The fallback is today's CSS skin, unchanged.** Only where the gate is on does skin.css stop
+      painting the texture, the tile's fill, borders and shadow, and the chip's sprite. The borders
+      keep their widths, so the layout is the same.
+    - **A chosen skin's idle desk writes nothing.** `applyTheme` and `applySkin` wrote the same
+      attributes on every refresh, and `startGround` re-armed a wait for a mesh only glass has. Each
+      was a DOM mutation, and each woke the ink layer. They now write only what changed.
 - **K #257 — one platform.** `drawGround` and `drawTrace` move to the ink layer and nothing calls
   `getContext("2d")`. Skin files keep only layout and typography (a guard refuses decoration in them). The fallback
   is the one CSS look left.
