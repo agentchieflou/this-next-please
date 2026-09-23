@@ -148,8 +148,9 @@ skin: a degraded mode of the one platform, not a second one.
       class was added. The ring is a material in the pane's frame. It is put down, not drawn.
     - **The name is erased, never struck**, with the row's `leaves: "erased"` (the field both F and G needed; G's
       landed first). The question's highlight is what gets struck.
-    - **Not drawn, because the page does not have it**: a finding's markup, the turn's length (the running line
-      is the name's), and the count's old number. The running pen's tip is drawn, as a material.
+    - **Not drawn, because the page does not have it**: the turn's length (the running line is the name's) and
+      the count's old number. The running pen's tip is drawn, as a material. A finding and the header count
+      read the page the way the legal pad does (#251): `li.denied`/`li.friction`, and `#bellcount`.
     - **Handwriting is a local cursive stack.** No font is vendored.
 - **G #253 — graph paper.** A grid on the page's own 28 px baseline, a mechanical pencil, ruled strokes snapped to the
   grid, and traces plotted on it.

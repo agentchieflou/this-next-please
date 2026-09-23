@@ -108,11 +108,13 @@ def test_the_napkin_writes_no_colour_and_draws_only_classes_the_page_sets():
     page = (open(os.path.join(STATIC, "app.js"), encoding="utf-8").read()
             + open(os.path.join(STATIC, "index.html"), encoding="utf-8").read())
     selectors = re.findall(r'selector: "((?:[^"\\]|\\.)*)"', body)
-    selectors += re.findall(r'const (?:IDLE|AGED|ERROR_ROW|RUNNING_ROW) = "([^"]*)"', body)
+    selectors += re.findall(r'const (?:IDLE|AGED|ERROR_ROW|RUNNING_ROW|FOUND) = "([^"]*)"', body)
     assert len(selectors) >= 14, selectors
     for sel in selectors:
         for cls in re.findall(r"\.([a-z][\w-]*)", sel):
-            if cls.startswith("state-"):
+            if cls in ("denied", "friction"):     # a transcript line's class is its event's kind
+                assert f'setClass(li, ev.kind)' in page and f'case "{cls}":' in page, cls
+            elif cls.startswith("state-"):
                 assert '"state-" + ' in page and cls[6:] in ("idle", "running", "error", "done"), cls
             else:
                 assert re.search(r'["\s]%s["\s]' % re.escape(cls), page), f"no page sets .{cls}"
@@ -211,7 +213,8 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     name underlined in pencil; running its name underlined in pen with the pen's tip at the end;
     needs you the name and the question highlighted and each choice looped in pencil; error the
     felt tip's box and a bang; stale (#240) its note written, an arrow to the run's line and a
-    dashed outline; done a green check (the fold's `is-done`); the header count handwritten."""
+    dashed outline; done a green check (the fold's `is-done`); a finding (a refused line) ringed, its
+    kind highlighted and its words written; the header count handwritten."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     q = {"question": "which window should ask land in?", "id": "q1", "blocking": True,
          "choices": ["left", "right"]}
@@ -219,12 +222,14 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
         "idle": {}, "run": {}, "ask": {"more": [("question_opened", q)]},
         "err": {"more": [("error", {"exit_code": 2})]}, "old": {"install": OLD},
         "done": {"more": [("phase_changed", {"from": "querying", "to": "done"})]},
+        "found": {"more": [("denied", {"message": "rm -rf is not allowed"})]},
     }, live=("run",))
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
-            page, errors, _ = _napkin_page(browser, port, token, fleet_home, 6)
+            page, errors, _ = _napkin_page(browser, port, token, fleet_home, 7)
+            page.wait_for_selector(_tile("found") + " .transcript li.denied", timeout=15000)
             page.wait_for_selector(_tile("run") + ".state-running", timeout=15000)
             page.wait_for_selector(_tile("done") + ".is-done", timeout=15000)
             page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
@@ -264,7 +269,14 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     assert bool(arrow["strokes"]) == tip["runline"], (arrow, tip)
     assert (".tile:has(.oldsession:not([hidden]))", "pencil", "outline") in old
     assert not [m for m in marks if "oldsession" in m["selector"] and m["lane"] != "pane:old"]
-    assert [(m["tool"], m["shape"]) for m in marks if m["lane"] == "header"] == [("pen", "write")]
+    assert [(m["selector"], m["tool"], m["shape"]) for m in marks if m["lane"] == "header"] == \
+        [("#bellcount", "pen", "write")]
+    # A finding: the refused line ringed in red, its kind highlighted, its words written in pencil.
+    found = _kinds(_in("found", marks))
+    for row in ((".tile .transcript li:is(.denied, .friction)", "red", "ellipse"),
+                (".tile .transcript li:is(.denied, .friction) .k", "highlighter", "lines"),
+                (".tile .transcript li:is(.denied, .friction) .v", "pencil", "write")):
+        assert row in found, found
     # Done is the fold's word, `is-done`, on a pane whose chip says idle: a check in the margin.
     done = _kinds(_in("done", marks))
     assert (".tile:is(.state-done, .is-done) .head", "green", "check") in done, done

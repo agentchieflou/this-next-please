@@ -9,7 +9,7 @@
 
    The marks are the paper state grammar (plan-ink §The state grammar), and every row is a class
    the page already sets. docs/skin-napkin.md maps each row onto its selector and says what the
-   page does not have yet (a finding's markup, the turn's length, the count's old number).
+   page does not have yet (the turn's length, the count's old number).
 
    What is drawn where:
    * `paper` -- the quilted stock under the whole page. Its colours are `--paper` and
@@ -22,6 +22,9 @@
 
    Colours live in skin.css as custom properties and are read through `tokens.css()`. No hex
    is written here (docs/desk-ink.md §Writing a skin, rule 3). */
+
+/* A finding: a transcript line the page marks `denied` or `friction`. */
+const FOUND = ".tile .transcript li:is(.denied, .friction)";
 
 /* The same rows for both variants: a variant changes the stock and the inks, not the grammar. */
 export function marks() {
@@ -53,8 +56,14 @@ export function marks() {
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "write" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "arrow", to: ".runline" },
     { selector: ".tile:has(.oldsession:not([hidden]))", tool: "pencil", shape: "outline", pad: 6, dash: true },
-    // the header count, handwritten.
-    { selector: "#counts", tool: "pen", shape: "write" },
+    // a finding: a transcript line the agent was refused or stopped on -- the lines the page
+    // already marks as a problem (the legal pad reads them the same way, #251). A red ellipse
+    // round the line, the highlighter on its kind, and its own words as a pencil note.
+    { selector: FOUND, tool: "red", shape: "ellipse", pad: -4 },
+    { selector: FOUND + " .k", tool: "highlighter", shape: "lines" },
+    { selector: FOUND + " .v", tool: "pencil", shape: "write" },
+    // the header count, handwritten: the unread count on the bell.
+    { selector: "#bellcount", tool: "pen", shape: "write" },
   ];
 }
 

@@ -21,7 +21,7 @@ desk's payload budget ([desk-engines.md](desk-engines.md)). It fetches nothing e
 and there is no texture.
 
 **The handwriting is a local cursive stack** (`Segoe Print`, `Bradley Hand`, `Comic Neue`, `Chalkboard SE`,
-`Comic Sans MS`, `cursive`) on the agent's name, the header count and the stale note. No font is vendored or
+`Comic Sans MS`, `cursive`) on the agent's name, the bell's count and the stale note. No font is vendored or
 fetched, so the payload is unchanged. A machine with none of these draws its own `cursive`.
 
 ## The stock
@@ -54,17 +54,18 @@ the skin shows no state the page does not have.
 | error | the felt tip's box round the pane, with its bleed; a bang in the margin | `.tile.state-error` marker loop, `.tile.state-error .head` red bang |
 | done | green check in the margin | `.tile:is(.state-done, .is-done) .head`: a quiet agent's chip says idle, so the fold's own *done* arrives as `is-done` (#253) |
 | stale (#240) | the chip's own words written in pencil as a margin note, an arrow from it to the run's line, a dashed pencil outline | `.oldsession:not([hidden])` write and arrow (`to: ".runline"`), `.tile:has(.oldsession:not([hidden]))` dashed outline |
-| the header count | handwritten, in pen | `#counts` write |
+| a finding | a red ellipse round the line, the highlighter on its kind, its own words written in pencil | `.tile .transcript li:is(.denied, .friction)` ellipse, its `.k` lines, its `.v` write: the lines the page already marks as a problem, read as the legal pad reads them (#251) |
+| the header count | handwritten, in pen | `#bellcount` write (the unread count on the header's bell) |
 
 An agent in error also carries `needs-human`, because an error needs you. So its name is highlighted too.
 
 **What the page does not have yet, and so is not drawn:**
 
-* **A finding.** The desk has no findings markup. `sqlcheck` findings are not on it, and the skin adds no class.
 * **A line that grows with the turn.** The page does not carry the turn's length. The running pen's line is the
   name's length, and the tip sits at its end.
 * **The old count struck and the new one written beside it.** When the count's text changes, the layer keeps its
-  mark, and the old number has left the DOM. Both are the layer's to add, and plan-ink gives them to C (#249).
+  mark, and the old number has left the DOM. The legal pad (#251) draws both marks in its own module. Plan-ink
+  gives them to C, and slice K consolidates, so the napkin does not keep a second copy.
 
 **The name is erased, never struck.** The grammar strikes the question and never the agent's name: a name struck
 through reads as an agent that has gone. The layer strikes every ink mark that leaves, so the name's highlight row
