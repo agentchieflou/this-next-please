@@ -619,8 +619,9 @@ def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path
 def test_where_the_gate_is_off_the_same_grammar_is_drawn_plain_on_a_css_pad(fleet_home, tmp_path, monkeypatch):
     """Decision 3: no WebGL, the same page plain. The skin's table is the constructed stylesheet --
     an outline for idle, a tint for the question, a loop for each choice, a margin bar for an error
-    -- in the skin's own inks, over the pad `skin.css` draws in gradients: rules, the double margin
-    and the glue. The fallback writes nothing to the page to do it."""
+    -- in the skin's own inks. Since #257 there is no CSS pad under it: the plain look is the one
+    every skin shares, the palette's own page with no rules, margin or glue painted on it (those are
+    the module's alone). The fallback writes nothing to the page to do it."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _pad(tmp_path, monkeypatch, {"asks": _asks("asks"), "idle": _idle("idle"),
                                  "broke": [_said("broke", "x"), _ev("broke", "error", {"exit_code": 2})]})
@@ -672,9 +673,9 @@ def test_where_the_gate_is_off_the_same_grammar_is_drawn_plain_on_a_css_pad(flee
     assert look["hl"] == look["question"], "one highlighter"
     assert look["choice"] == "solid", look
     assert look["error"][0] == "solid" and "inset" in look["error"][1], look
-    assert "repeating-linear-gradient" in look["rules"] and _near(_px(look["paper"]), props["--paper"], 2)
-    assert _near(_px(look["glue"]), props["--glue"], 2), look
-    assert "linear-gradient" in look["margin"], look
+    assert look["rules"] == "none" and look["margin"] == "none", f"the plain look paints the pad: {look}"
+    assert not _near(_px(look["paper"]), props["--paper"], 2), "the plain page is the palette's, not canary"
+    assert not _near(_px(look["glue"]), props["--glue"], 2), "the plain header has no glue"
     for row in ROWS:
         assert f"body.ink-off :is({row[0]})" in look["sheet"] or row[2] == "write", row
     assert writes["n"] == 0, "the plain fallback wrote to the page"

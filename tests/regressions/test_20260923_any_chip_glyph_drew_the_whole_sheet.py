@@ -29,8 +29,21 @@ SKINS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path
                          "agentdata", "fleet", "static", "skins")
 
 
+def _named(skin, sheet):
+    """The sprites a skin names: by fragment in its stylesheet, or -- since #257, where the crop is
+    drawn by the skin's ink module and never by CSS -- by id in its module, which reads each one out
+    of the same sheet."""
+    css_path = os.path.join(SKINS_DIR, skin, "skin.css")
+    names = set(re.findall(r'url\("sprites\.svg#([\w-]+)"\)', open(css_path, encoding="utf-8").read()))
+    module = os.path.join(os.path.dirname(SKINS_DIR), "ink", "skins", skin + ".js")
+    if os.path.isfile(module):
+        js = open(module, encoding="utf-8").read()
+        names |= {i for i in re.findall(r'<svg id="([\w-]+)"', sheet) if '"' + i + '"' in js}
+    return sorted(names)
+
+
 def _glyphs():
-    """(skin, sprite, size, the sprite's own colours) for every sprite a stylesheet names by fragment."""
+    """(skin, sprite, size, the sprite's own colours) for every sprite a skin names."""
     out = []
     for skin in sorted(os.listdir(SKINS_DIR)):
         css_path = os.path.join(SKINS_DIR, skin, "skin.css")
@@ -38,8 +51,7 @@ def _glyphs():
         if not (os.path.isfile(css_path) and os.path.isfile(sheet_path)):
             continue
         sheet = open(sheet_path, encoding="utf-8").read()
-        for sprite in sorted(set(re.findall(r'url\("sprites\.svg#([\w-]+)"\)',
-                                            open(css_path, encoding="utf-8").read()))):
+        for sprite in _named(skin, sheet):
             head, body = re.search(r'<svg id="%s"([^>]*)>(.*?)</svg>' % sprite, sheet, re.S).groups()
             size = int(re.search(r'width="(\d+)"', head).group(1))
             colours = sorted({c.upper() for c in re.findall(r'fill="(#[0-9A-Fa-f]{6})"', body)})
@@ -51,7 +63,8 @@ GLYPHS = _glyphs()
 
 
 def test_every_skin_that_names_a_sprite_is_checked():
-    assert {g[0] for g in GLYPHS} >= {"farmstead", "voxel"}, GLYPHS
+    # Voxel's sheet went with its CSS look (#257): its status is the stack its module builds.
+    assert {g[0] for g in GLYPHS} >= {"farmstead"}, GLYPHS
 
 
 @pytest.mark.browser

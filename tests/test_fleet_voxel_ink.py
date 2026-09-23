@@ -1,11 +1,11 @@
 """Voxel on three.js (#256, slice J of the ink epic #246): the voxel skin's decoration drawn by the ink
 layer -- the ground as voxels, every pane's frame as a lit slab, and a status stack per pane -- while
-`skin.css` keeps the layout, the typography and the whole of the look under `body.ink-off`.
+`skin.css` keeps the surfaces the module reads, and under `body.ink-off` voxel is the plain look (#257).
 
 What is asserted (docs/skin-voxel.md is the page):
 
-* every variant is drawn by the layer with `?ink=on`, and drawn plain -- today's CSS skin -- with it
-  off;
+* every variant is drawn by the layer with `?ink=on`, and drawn plain -- the one plain look,
+  #257 -- with it off;
 * slabs and stacks are instanced, one draw call per material, counted by the renderer, at one agent
   and at twenty;
 * each state's voxel response and mark appears with the class `app.js` sets and leaves with it
@@ -313,8 +313,9 @@ def test_the_grammar_is_documented_for_every_state():
 def test_every_voxel_variant_is_drawn_by_the_layer_and_plain_without_it(fleet_home, tmp_path):
     """Every world: with the gate on, the ground, the slabs and the stacks are three instanced
     meshes drawn in three calls, the slab's face is the variant's panel, and the page stops
-    painting what the slabs paint. With it off, `body.ink-off`: the CSS skin exactly as it was --
-    its texture, its opaque panel, its sprite -- and the same mark table drawn plain."""
+    painting what the slabs paint. With it off, `body.ink-off`: the one plain look every skin
+    shares since #257 -- the palette's opaque panel, no texture, no sprite -- and the same mark
+    table drawn plain."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path, ("alpha", "beta"))
     server, token, port = _serve()
@@ -331,7 +332,7 @@ def test_every_voxel_variant_is_drawn_by_the_layer_and_plain_without_it(fleet_ho
                       const cs = getComputedStyle(t), chip = getComputedStyle(t.querySelector('.chip'), '::before');
                       return { off: document.body.classList.contains('ink-off'), tile: cs.backgroundColor,
                                border: cs.borderLeftColor, ground: getComputedStyle(document.body).backgroundImage,
-                               sprite: chip.display === 'none' ? '' : chip.backgroundImage,
+                               sprite: chip.display === 'none' || chip.backgroundImage === 'none' ? '' : chip.backgroundImage,
                                plain: Ink.inspect().plain, layer: !!Ink.inspect().layer }; }""")
                     look["voxel"] = _voxel(page) if extra == "&ink=on" else None
                     seen[(variant, extra)] = look
@@ -352,8 +353,9 @@ def test_every_voxel_variant_is_drawn_by_the_layer_and_plain_without_it(fleet_ho
         assert on["tile"] == "rgba(0, 0, 0, 0)" and on["border"] == "rgba(0, 0, 0, 0)", on
         assert on["ground"] == "none" and on["sprite"] == "", on
         assert off["off"] and off["plain"] and not off["layer"], off
-        assert off["tile"] == "rgb(%d, %d, %d)" % tuple(_hex_rgb(spec["composited_panel"])), (variant, off)
-        assert "svg" in off["ground"] and "sprites.svg" in off["sprite"], off
+        plain = theme.to_css(theme.get(spec["base"]))["--panel"]
+        assert off["tile"] == "rgb(%d, %d, %d)" % tuple(_hex_rgb(plain)), (variant, off, plain)
+        assert off["ground"] == "none" and off["sprite"] == "", off
 
 
 @pytest.mark.browser

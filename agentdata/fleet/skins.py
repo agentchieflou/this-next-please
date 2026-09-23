@@ -1,7 +1,10 @@
 """Skins for the Desk, and the palettes each one is drawn against (#154-#157, #4).
 
-A skin is one more stylesheet over the same DOM: the approved grid with CSS and hand-drawn SVG
-swapped in. A skin that needs a page change is not a skin.
+A skin is drawn over the same DOM and never changes it. Since #257 a skin that draws with ink is its
+module (`static/ink/skins/<name>.js`, three.js) plus a stylesheet that keeps only its layout, its
+typography and the colours the module reads -- nothing it paints, which a test guards -- and under
+`body.ink-off` every skin is the one plain look. A skin with no module yet (voxel) is a stylesheet
+over the page, as every skin once was. A skin that needs a page change is not a skin.
 
 **Skins drive palettes, not the other way round.** Every skin has variants and every variant names
 the palette it is drawn against; no palette has to know that any skin exists. That asymmetry is the
@@ -187,12 +190,10 @@ SKINS = {
         "default": "light",
         "variants": {
             "light": {"title": "Notebook", "base": "eye-relief-day", "composited_panel": "#FBFBF6",
-                      "text": "#23262B", "muted": "#6B7079",
                       "inks": {"pencil": "#50545C", "pen": "#22398F", "red": "#C8352B",
                                "green": "#2E7A4D", "marker": "#C8352B", "highlighter": "#F3DF4B"},
                       "why": "white stock, blue rules, a red margin"},
             "dark": {"title": "Night notebook", "base": "dark", "composited_panel": "#1B1E25",
-                     "text": "#E7E9EE", "muted": "#9AA0AA",
                      "inks": {"pencil": "#B5BAC4", "pen": "#94B4FF", "red": "#FF6A5E",
                               "green": "#6FD39A", "marker": "#FF6A5E", "highlighter": "#E6D548"},
                      "why": "charcoal stock and gel inks, the highlighter screened"},

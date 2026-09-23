@@ -154,7 +154,13 @@ def _open(browser, port, token, extra="", *, panes=2, width=1400, height=900, re
 
 
 def _set(page, table=None):
-    return page.evaluate("t => Ink.setSkin(t)", table or TABLE)
+    """A test table, set and then waited on until the paper is at rest: with a table in force the
+    layer also draws the page's own traces (#257), in the panes' lanes, and a test that times its
+    own marks times them from there -- not from behind a trace still being drawn."""
+    out = page.evaluate("t => Ink.setSkin(t)", table or TABLE)
+    if out and out.get("drawn") == "ink":
+        _rest(page)
+    return out
 
 
 def _mark(page, repo, cls, on=True):
@@ -401,6 +407,16 @@ IDLE_LOOP = """async () => {
   for (let i = 0; i < 400 && (window.__inflight || 0) > 0; i++) await pause(25);
   await refresh(); place(); redrawAll(); bell();
   await frame(); await frame(); await pause(200);
+  // The warm-up refresh above applies a body the server built just now, and a trace that moved on
+  // a minute since the page's last poll is drawn by the layer (#257) -- a frame that can land after
+  // two frames on a slow runner. Settle first: the layer at rest, and no render across a frame. A
+  // ground that moves never settles, so this is bounded.
+  for (let i = 0, was = -1; i < 40; i++) {
+    const l = Ink.inspect().layer;
+    if (!l || (!l.busy && l.renders === was)) break;
+    was = l.renders;
+    await frame(); await pause(50);
+  }
   const before = Ink.inspect().layer;
   let n = 0;
   const seen = [];
@@ -840,7 +856,8 @@ def test_a_skin_is_a_module_the_page_loads_when_it_is_chosen(fleet_home, tmp_pat
     reaches the page as `applySkin`, which writes it and its variant on <body>; and the ink layer
     follows that: the module fetched with the token, its marks per variant drawn in ink where the
     gate is on and as plain CSS where it is off, its materials run -- a ground, a paper, a frame
-    per pane -- and all of it gone when the skin goes. A skin with no module is asked for nothing."""
+    per pane -- and all of it gone when the skin goes, the page's traces it drew beside them (#257)
+    included. A skin with no module is asked for nothing."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata.fleet import skins as K
     # A skin skins.py offers that ships no module yet, if one is left (#249-#256 ship them).

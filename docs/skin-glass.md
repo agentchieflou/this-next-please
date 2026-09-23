@@ -5,24 +5,25 @@ _Slice H (#254) of the ink epic (#246, [plan-ink.md](plan-ink.md)). Built: `stat
 [desk-ink.md](desk-ink.md)._
 
 Glass was a CSS skin: `backdrop-filter` over three radial gradients (#155, #182). With ink on, three.js draws the
-material instead, and the stylesheet keeps the layout, the typography and the whole look under `body.ink-off`.
-Every variant (smoke, azure, noir, frost) is drawn both ways from the same numbers.
+material instead. Since #257 the stylesheet paints none of it: it holds the numbers the module reads (fill, edge,
+glint, shadow, mesh) as custom properties, and under `body.ink-off` glass is the one plain look every skin shares,
+with its marks drawn plain. Every variant (smoke, azure, noir, frost) is drawn from the same numbers.
 
 ## The material
 
-| Piece | With ink on (three.js) | Under `body.ink-off` (CSS) |
+| Piece | With ink on (three.js) | Under `body.ink-off` (the plain look, #257) |
 | --- | --- | --- |
-| the ground | a **mesh**: a plane of a few hundred vertices whose height drifts on slow waves, lit from the top left. On it, the variant's three blobs at their skin.css places, radii and 70% falloff, from `--glass-mesh-1..3` | the same three blobs as one `radial-gradient` background, from the same properties |
-| the pane | **frost**: one mesh per `.tile` reads the ground texture (`sampleGround`) through a gaussian blur in its fragment shader (sigma 18px, a centre tap and rings at one and two sigma), saturated by CSS `saturate(140%)`'s own matrix, with `--glass-fill` over it | `backdrop-filter: blur(18px) saturate(140%)` and `--glass-fill` |
-| the light | the edge hairline (`--glass-edge`); the top glint (`--glass-glint`), brighter towards the light; a faint sheen where the light falls; small specular glints on the mesh's waves | an inset top line and a hairline border |
-| the shadow | drawn outside the pane only, as CSS clips a `box-shadow`: `--glass-shadow`, 12px down, 32px soft | `box-shadow: 0 12px 32px` |
-| the cards on a pane | CSS, one step more opaque (`--glass-card`), over the frost | the same |
-| header, footer, sidebar, popovers | CSS glass: their `backdrop-filter` blurs the canvas like anything else behind them | CSS glass |
+| the ground | a **mesh**: a plane of a few hundred vertices whose height drifts on slow waves, lit from the top left. On it, the variant's three blobs at their skin.css places, radii and a falloff to the end of each ray (#257), from `--glass-mesh-1..3` | the palette's own page: no blobs |
+| the pane | **frost**: one mesh per `.tile` reads the ground texture (`sampleGround`) through a gaussian blur in its fragment shader (sigma 18px, a centre tap and rings at one and two sigma), saturated by CSS `saturate(140%)`'s own matrix, with `--glass-fill` over it | the palette's opaque panel: no frost |
+| the light | the edge hairline (`--glass-edge`); the top glint (`--glass-glint`), brighter towards the light; a faint sheen where the light falls; small specular glints on the mesh's waves | the page's own hairline border |
+| the shadow | drawn outside the pane only, as CSS clips a `box-shadow`: `--glass-shadow`, 12px down, 32px soft | none |
+| the cards on a pane | clear over the frost (app.css, for every skin that draws) | the page's own cards |
+| header, footer | clear over the lit ground, written in `--glass-ink` | the page's own |
+| sidebar, popovers | the page's own opaque panel | the page's own |
 
-With ink on, `.tile` is transparent with no backdrop filter, no shadow and clear edges (skin.css, under
-`body[data-skin="glass"]:not(.ink-off)`), so what three.js drew is exactly what the text is read on. The left edge
-keeps its accent, because that is which project, not decoration. The selection ring comes back, which the CSS glass
-shadow had been covering. `prefers-reduced-transparency` still wins: its opaque panel covers the frost.
+With ink on, `.tile` is transparent with no shadow and clear edges (app.css, for every skin whose canvas is on the
+page), so what three.js drew is exactly what the text is read on. The left edge keeps its accent, because that is
+which project, not decoration, and the selection ring stays.
 
 **Motion.** The ground is a material, so it may move (ground rule 1 is about marks). It drifts only when motion is
 allowed, on its own timer at up to 30 frames a second. A frame that is late stretches the next gap to four times the
@@ -95,8 +96,8 @@ the module's state through its `inspect()` export, on the same instance `ink.js`
   frames under reduced motion.
 * **Each state is marked and leaves struck**, the rims are right, and the running glint runs.
 * **The rim is drawn round and runs back** over frames, and the ink settles within the layer's frame bound.
-* **Under `body.ink-off`, every variant is the CSS glass**, with the same marks drawn plain, and three.js is never
-  fetched.
+* **Under `body.ink-off`, every variant is the plain look** (#257): the palette's opaque panel, no frost, the same
+  marks drawn plain, and three.js is never fetched.
 * **`dispose` frees the ground's render target** when the skin changes.
 * **The module keeps the skin rules**: no import, no colour in the module, no page write, and no class the page does
   not set.

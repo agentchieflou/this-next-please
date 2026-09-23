@@ -7,7 +7,7 @@ layer ([desk-ink.md](desk-ink.md)). Chosen like any skin: `theme.skin` is `graph
 | File | Is |
 | --- | --- |
 | `agentdata/fleet/static/ink/skins/graph.js` | the mark table, the pencil's tuning, the paper (`paper`), each pane's plotted hour (`frame`, `tick`) |
-| `agentdata/fleet/static/skins/graph/skin.css` | every colour as a custom property, the panes made transparent, the grid in CSS for `body.ink-off`, the handwritten words |
+| `agentdata/fleet/static/skins/graph/skin.css` | every colour as a custom property and the handwritten words; nothing it paints (#257) |
 | `agentdata/fleet/skins.py` (`graph`) | the variants, their base palettes, the paper, the heavy grid line and the inks `theme.check` holds |
 | `tests/test_fleet_ink_graph.py` | everything on this page |
 
@@ -23,11 +23,10 @@ A minor line every **28px** and a heavy line every fifth, **140px**, from the vi
   "three squares" and "eight squares" readable without a ruler. Every tenth would leave 280px
   between heavy lines, wider than a compact pane, and so no heavy line inside most panes.
 * With ink on, three.js draws the stock and both sets of lines (`paper`, called on arrival, on a
-  resize and on a palette change). With ink off, `skin.css` draws the same two pitches from the
-  same origin as four `linear-gradient`s on `<body>`, so a pane's plain outline sits where its
-  pencil outline would.
-* The panes, the header and the footer are **transparent**: they are regions ruled on the paper,
-  not cards laid over it. The text is read on the paper (`composited_panel`), and where it crosses
+  resize and on a palette change). With ink off, graph is the one plain look every skin shares
+  (#257): no grid, and the same marks drawn plain.
+* With ink on, the panes, the header and the footer are **transparent** (app.css, for every skin
+  whose canvas is on the page): they are regions ruled on the paper, not cards laid over it. The text is read on the paper (`composited_panel`), and where it crosses
   a heavy line it is read on that (`grid`, checked at 4.5:1 too).
 
 | Variant | Base palette | Paper | Grid, heavy | Why |

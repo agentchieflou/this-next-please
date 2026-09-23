@@ -8,10 +8,12 @@
      and the inks a palette would otherwise choose where they would not read on canary -- above all
      the highlighter, orange-pink rather than the palette's amber (`skins.py` declares the same
      numbers, and `theme.check` holds every one of them to the paper);
-   * the layout both looks share: the pane's text starts right of its margin, and the header sits
+   * the layout the pad needs: the pane's text starts right of its margin, and the header sits
      below the glue;
-   * the plain look (`body.ink-off`, plan-ink Decision 3): the same pad in CSS gradients, under the
-     marks the layer's fallback draws from the same table. */
+   * the typography: a hand for what the page writes by hand.
+   Since #257 it paints nothing: under `body.ink-off` the legal pad is the one plain look every skin
+   shares (app.css and the palette), with its mark table drawn as plain CSS by the layer's fallback
+   in these same inks. */
 
 body[data-skin="legalpad"] {
   --paper: #FCF3A6;
@@ -23,72 +25,20 @@ body[data-skin="legalpad"] {
   --ink-highlighter: #FF8FA3;
   /* A hand, where the page writes one: a local cursive face, never a download. */
   --hand: "Segoe Print", "Bradley Hand", "Chalkboard SE", "Comic Neue", "Comic Sans MS", cursive;
-  background: var(--paper);
   --scroll-thumb: color-mix(in srgb, var(--rule) 70%, var(--text));
 }
 
-/* The header sits under the glue: the band is the header's top border, drawn by the layer (ink)
-   or by this border (plain). */
-body[data-skin="legalpad"] header {
-  border-top: 10px solid transparent;
-  background: transparent;
-}
-body[data-skin="legalpad"] footer { background: transparent; }
+/* The header sits under the glue, which the layer draws across the top 10px. */
+body[data-skin="legalpad"]:not(.ink-off) header { margin-top: 10px; }
 
-/* A pane is a sheet of the pad: no card of its own, the project's accent kept on its left edge
-   (#150), and its text starting right of the double red margin. A rail has no margin. */
-body[data-skin="legalpad"] .tile {
-  background: transparent;
-  border-color: transparent;
-  border-left-color: var(--accent);
-  border-radius: 0;
-}
-body[data-skin="legalpad"] .tile[data-tier]:not([data-tier="rail"]) { padding-left: 34px; }
+/* A pane is a sheet of the pad: its text starts right of the double red margin the layer draws. A
+   rail has no margin. */
+body[data-skin="legalpad"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: 34px; }
 
 /* Handwritten: the stale note and the header count. */
 body[data-skin="legalpad"] .oldsession,
 body[data-skin="legalpad"] #bellcount { font-family: var(--hand); }
-body[data-skin="legalpad"] .oldsession { border-color: transparent; color: var(--ink-pencil); }
-
-/* The canvas is behind the page, so a mark shows only where nothing opaque is over it: the
-   question card and its choices are written on the pad itself, not on a card over it. */
-body[data-skin="legalpad"]:not(.ink-off) .asks,
-body[data-skin="legalpad"]:not(.ink-off) .ask-choice { background: transparent; }
+body[data-skin="legalpad"]:not(.ink-off) .oldsession { border-color: transparent; color: var(--ink-pencil); }
 
 /* Room beside the count for the number it replaces, which the layer keeps there, struck. */
 body[data-skin="legalpad"]:not(.ink-off) #bell { background: transparent; padding-left: 26px; }
-
-/* ------------------------------------------------------------------ the plain look (ink-off) */
-
-body[data-skin="legalpad"].ink-off {
-  background-image: repeating-linear-gradient(to bottom, transparent 0 27px, var(--rule) 27px 28px);
-}
-body[data-skin="legalpad"].ink-off header {
-  border-top-color: var(--glue);
-  background: var(--paper);
-}
-body[data-skin="legalpad"].ink-off footer { background: var(--paper); }
-body[data-skin="legalpad"].ink-off .tile {
-  border-color: color-mix(in srgb, var(--rule) 55%, transparent);
-  border-left-color: var(--accent);
-}
-body[data-skin="legalpad"].ink-off .tile[data-tier]:not([data-tier="rail"]) {
-  background-origin: border-box;
-  background-image: linear-gradient(to right, transparent 25px, var(--margin) 25px 26px,
-                                    transparent 26px 29px, var(--margin) 29px 30px, transparent 30px);
-}
-/* The fallback's margin bar for `check` and `bang` is an inset box-shadow on the pane; the
-   selection ring is kept beside it, because a selected pane is still one pane (HIG *Focus*). */
-body[data-skin="legalpad"].ink-off .tile.is-selected.state-done {
-  box-shadow: inset 3px 0 0 var(--ink-green, var(--done)), 0 0 0 2px var(--focus, var(--accent));
-}
-body[data-skin="legalpad"].ink-off .tile.is-selected.state-error {
-  box-shadow: inset 3px 0 0 var(--ink-red, var(--human)), 0 0 0 2px var(--focus, var(--accent));
-}
-
-/* The plain pane's edge is a translucent rule; where transparency is asked to go, it is solid. The
-   ink layer brings no motion of its own to undo here: under `prefers-reduced-motion` it draws every
-   mark at once (docs/desk-ink.md §Reduced motion). */
-@media (prefers-reduced-transparency: reduce) {
-  body[data-skin="legalpad"].ink-off .tile { border-color: var(--rule); border-left-color: var(--accent); }
-}

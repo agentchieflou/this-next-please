@@ -24,7 +24,15 @@
    moving meshes, and only an anchor that changes size (or whose text wraps differently) rebuilds
    its strokes. A ResizeObserver on every anchor and every lane's pane redraws inside the frame the
    browser laid out, so the marks follow the gutter without the layer adding a DOM write to the
-   drag (plan-panes ground rule 4). */
+   drag (plan-panes ground rule 4).
+
+   THE PAGE'S OWN DRAWING (#257). Every agent's trace is the desk's, not a skin's, and still comes
+   from the page: an element carrying its series (`data-ink-series`, and the minutes that stopped for
+   a person as `data-ink-ticks`), drawn as a mark in its pane's lane by two rows the layer owns,
+   `PAGE_ROWS`, after the skin's. They are drawn whenever a skin draws with ink, because that is when
+   the panes show the paper -- unless the skin plots the hour itself (`series: false`, the graph
+   paper). The canvas says which table it draws (`#ink[data-skin]`), and that is what the
+   stylesheet reads to let the trace's own SVG step aside. */
 
 const PEN = 900;                 // px a second at 1x: the prototype's pen speed
 const LANE = ".tile[data-repo]";
@@ -38,7 +46,33 @@ const REVEAL_BLEED = 14;         // a written line's ascenders and descenders, u
 const TOKENS = ["bg", "panel", "text", "line", "select", "muted", "accent", "focus", "running",
                 "waiting", "human", "done", "idle"];
 
+/* The page's own rows (#257): a series is one line in pen across its element's box, and a minute
+   that stopped for a person a red tick through it. They are the layer's, not a skin's: drawn with
+   whatever table is in force, after its rows, and left on the paper when one table replaces
+   another. A series is not a state, so what goes is erased: its hour emptied, and there is nothing
+   to strike through. */
+const PAGE_ROWS = [
+  { selector: "[data-ink-series]:not([data-ink-series=''])", tool: "pen", shape: "series" },
+  { selector: "[data-ink-series][data-ink-ticks]:not([data-ink-ticks=''])", tool: "red", shape: "ticks" },
+];
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+/* A colour as the page writes one, to [r, g, b, a] in 0-1 sRGB, without a 2D context -- the desk
+   has none anywhere now (#257). A computed style is always `rgb()` or `rgba()`; a custom property
+   (a hex, a name) goes through three.js's own parser. */
+function parseColour(css, THREE) {
+  const s = String(css || "").trim().toLowerCase();
+  const m = /^rgba?\(([^)]*)\)$/.exec(s);
+  if (m) {
+    const v = m[1].split(/[\s,/]+/).filter(Boolean);
+    const a = v.length > 3 ? parseFloat(v[3]) / (v[3].endsWith("%") ? 100 : 1) : 1;
+    return [v[0] / 255, v[1] / 255, v[2] / 255, a].map(x => clamp(Number(x) || 0, 0, 1));
+  }
+  if (!s || s === "transparent" || !THREE) return [0, 0, 0, s === "transparent" ? 0 : 1];
+  const out = { r: 0, g: 0, b: 0 };
+  new THREE.Color().setStyle(s, THREE.SRGBColorSpace).getRGB(out, THREE.SRGBColorSpace);
+  return [out.r, out.g, out.b, 1];
+}
 
 function seedOf(s) {
   let h = 2166136261;
@@ -113,7 +147,6 @@ class Layer {
     sun.position.set(-0.45, 0.55, 0.9);
     this.toolScene.add(sun);
     this.paperMesh = null;
-    this.parse = document.createElement("canvas").getContext("2d");
     // A skin's materials (docs/desk-ink.md §Writing a skin): its ground and paper live in `back`,
     // drawn first, and -- when the skin asks to sample it -- into a texture its frames can read.
     this.back = new THREE.Scene();
@@ -123,6 +156,10 @@ class Layer {
     this.backStale = true;
     this.tokens = {};
     this.api = this.makeApi();
+    // The page's own rows (#257), which a table that draws with ink is followed by.
+    this.pageRows = PAGE_ROWS.map((row, i) => Object.assign({ index: "page" + i, to: "", pad: 0, dash: false,
+                                                               leaves: "erased", page: true }, row,
+                                                             { live: new Map(), leaving: new Map(), history: new Map() }));
 
     // On the page only while a table is set (`setTable`).
     this.onLost = () => this.host.off("the WebGL context was lost");
@@ -150,22 +187,29 @@ class Layer {
   // ------------------------------------------------------------------------ the table
 
   setTable(t) {
-    this.clear();
+    // One table replacing another leaves the page's own marks where they are; no table takes them.
+    this.clear(!t);
     this.unskin();
     this.table = t;
     if (t && t.hooks) this.enskin(t.hooks);
-    this.rows = t ? t.marks.map(row => Object.assign({}, row, { live: new Map(), leaving: new Map(), history: new Map() })) : [];
+    // The skin's rows, then the page's own (#257): the traces, after the skin's marks in each lane.
+    this.rows = t ? t.marks.map(row => Object.assign({}, row, { live: new Map(), leaving: new Map(), history: new Map() }))
+      .concat(t.series ? this.pageRows : []) : [];
+    // The layer's own element says which table it draws: the stylesheet lets a trace's SVG step
+    // aside for the ink only then (app.css). Written once a table, never per frame.
+    if (t) this.canvas.setAttribute("data-skin", t.name);
+    else this.canvas.removeAttribute("data-skin");
     this.mo.disconnect();
-    if (t) {
-      // The attributes the table's selectors can depend on, and the few this layer itself reads
-      // (a skin changing, a pane hidden). Not `style`: the page writes it on every frame of a drag,
-      // and the ResizeObserver already follows what it moves.
-      const attrs = new Set(["class", "id", "hidden", "data-tier", "data-skin", "data-skin-variant", "open"]);
-      for (const row of t.marks) {
-        for (const sel of [row.selector, row.to, row.grow]) {
-          for (const m of String(sel || "").matchAll(/\[\s*([\w-]+)/g)) attrs.add(m[1]);
-        }
+    // The attributes the table's selectors can depend on, and the few this layer itself reads
+    // (a skin changing, a pane hidden). Not `style`: the page writes it on every frame of a drag,
+    // and the ResizeObserver already follows what it moves.
+    const attrs = new Set(["class", "id", "hidden", "data-tier", "data-skin", "data-skin-variant", "open"]);
+    for (const row of this.rows) {
+      for (const sel of [row.selector, row.to, row.grow]) {
+        for (const m of String(sel || "").matchAll(/\[\s*([\w-]+)/g)) attrs.add(m[1]);
       }
+    }
+    if (t) {
       this.mo.observe(document.body, { subtree: true, childList: true, characterData: true,
                                        attributes: true, attributeFilter: Array.from(attrs) });
       if (!this.canvas.isConnected) document.body.appendChild(this.canvas);
@@ -181,12 +225,16 @@ class Layer {
   }
 
   /* Every mark off the paper at once, with no animation: the table changed, or the layer is going.
-     The page is left as it was found -- every clip this layer wrote is taken back. */
-  clear() {
-    for (const m of Array.from(this.marks)) this.drop(m);
+     The page is left as it was found -- every clip this layer wrote is taken back. A table that
+     changes (`all` false) leaves the page's own marks where they are, mid-stroke or not (#257). */
+  clear(all = true) {
+    for (const m of Array.from(this.marks)) if (all || !this.own(m)) this.drop(m);
     for (const L of this.lanes.values()) {
-      L.q = [];
-      L.segs = [];
+      if (all || !L.op || !L.op.m || L.op.m.dropped) {
+        L.segs = [];
+        L.op = null;
+      }
+      if (all) L.q = [];
       if (L.hand) L.hand.hide();
     }
     for (const el of this.clipped) {
@@ -197,6 +245,15 @@ class Layer {
     this.clipped.clear();
     this.ro.disconnect();
     this.observed = new WeakSet();
+    for (const m of this.marks) {
+      this.watch(m.el);
+      if (m.lane.root) this.watch(m.lane.root);
+    }
+  }
+
+  /* A mark of the page's own rows (#257), not the skin's. */
+  own(m) {
+    return !!(m.row && m.row.page);
   }
 
   // -------------------------------------------------------------- a skin's materials
@@ -541,6 +598,14 @@ class Layer {
         shape.to = tr && (tr.width || tr.height) ? { x: tr.left - r.left, y: tr.top - r.top, w: tr.width, h: tr.height } : null;
       }
       let sig = r.width.toFixed(1) + "x" + r.height.toFixed(1);
+      if (m.shape === "series" || m.shape === "ticks") {
+        // A series is read from its element each time it is measured, so the mark follows its
+        // data the way it follows its box: new numbers are a new line, drawn whole where it stands.
+        const series = m.el.getAttribute("data-ink-series") || "", ticks = m.el.getAttribute("data-ink-ticks") || "";
+        shape.values = series.split(/\s+/).filter(Boolean).map(Number).map(v => (Number.isFinite(v) ? clamp(v, 0, 1) : 0));
+        shape.ticks = m.shape === "ticks" ? ticks.split(/\s+/).filter(Boolean).map(Number).filter(Number.isInteger) : [];
+        sig += "|" + series + "|" + (m.shape === "ticks" ? ticks : "");
+      }
       if (shape.lines) sig += "|" + shape.lines.map(l => [l.x, l.y, l.w, l.h].map(v => v.toFixed(1)).join(",")).join(";");
       if (shape.to) sig += "|" + [shape.to.x, shape.to.y, shape.to.w, shape.to.h].map(v => v.toFixed(1)).join(",");
       if (m.strikeOf) sig += "|" + m.strikeOf.sig;
@@ -575,7 +640,7 @@ class Layer {
       if (target.shape === "write") return this.S.SHAPES.strike(shape);
       return this.S.strikeOver(target.strokes.map(s => s.bbox()), target.tool === "highlighter", m.seed);
     }
-    const paths = (this.S.SHAPES[m.shape] || (() => []))(shape);
+    const paths = (this.S.SHAPES[m.shape] || this.S.PAGE_SHAPES[m.shape] || (() => []))(shape);
     return shape.snap ? this.S.snap(paths, m.shape, shape.box, shape.snap.at, shape.snap.g) : paths;
   }
 
@@ -662,30 +727,44 @@ class Layer {
   }
 
   /* The old text as it looked -- its own font and colour -- drawn once into a texture and set just
-     to the left of the element, a little apart, where a hand would have left it. */
+     to the left of the element, a little apart, where a hand would have left it. Drawn by the
+     browser as an SVG `<text>`, never on a 2D canvas: the desk has none (#257). Its width is the
+     element's own text's, per letter, so the strike is laid before the image arrives; the image
+     lands in the texture a frame later. */
   ghostOf(m, text) {
     const T = this.THREE, cs = getComputedStyle(m.el), dpr = this.dpr || 1;
-    const font = [cs.fontStyle, cs.fontWeight, cs.fontSize, cs.fontFamily].join(" ");
-    const cv = document.createElement("canvas"), cx = cv.getContext("2d");
-    cx.font = font;
     const fs = parseFloat(cs.fontSize) || 14;
-    const w = Math.ceil(cx.measureText(text).width) + 4, h = Math.ceil(fs * 1.4);
-    cv.width = Math.max(1, Math.round(w * dpr));
-    cv.height = Math.max(1, Math.round(h * dpr));
-    cx.scale(dpr, dpr);
-    cx.font = font;
-    cx.fillStyle = cs.color;
-    cx.textBaseline = "middle";
-    cx.fillText(text, 2, h / 2);
-    const tex = new T.CanvasTexture(cv);
+    const range = document.createRange();
+    range.selectNodeContents(m.el);
+    const now = (m.el.textContent || "").length, span = range.getBoundingClientRect().width;
+    const per = now && span ? span / now : fs * 0.6;
+    const w = Math.ceil(per * String(text).length) + 4, h = Math.ceil(fs * 1.4);
+    const esc = v => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + Math.round(w * dpr) + '" height="' +
+      Math.round(h * dpr) + '" viewBox="0 0 ' + w + " " + h + '"><text x="2" y="' + h / 2 +
+      '" dominant-baseline="middle" font-style="' + esc(cs.fontStyle) + '" font-weight="' + esc(cs.fontWeight) +
+      '" font-size="' + esc(cs.fontSize) + '" font-family="' + esc(cs.fontFamily) + '" fill="' + esc(cs.color) +
+      '">' + esc(text) + "</text></svg>";
+    const tex = new T.Texture();
     tex.colorSpace = T.SRGBColorSpace;
+    const img = new Image();
+    img.onload = () => {
+      // The ghost may have left the paper (its mesh freed) before its image arrived.
+      if (this.stopped || rec.mesh !== mesh) return;
+      tex.image = img;
+      tex.needsUpdate = true;
+      this.stale = true;
+      this.kick();
+    };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
     const mesh = new T.Mesh(new T.PlaneGeometry(w, h),
                             new T.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
     mesh.renderOrder = 2;
     mesh.frustumCulled = false;
     this.scene.add(mesh);
     const r = m.el.getBoundingClientRect();
-    return { text, mesh, box: { x: -w - Math.max(4, fs * 0.35), y: (r.height - h) / 2, w, h } };
+    const rec = { text, mesh, box: { x: -w - Math.max(4, fs * 0.35), y: (r.height - h) / 2, w, h } };
+    return rec;
   }
 
   syncAll() {
@@ -699,16 +778,7 @@ class Layer {
   // ----------------------------------------------------------------------- the palette
 
   rgb(css) {
-    const cx = this.parse;
-    cx.fillStyle = "#000";
-    cx.fillStyle = String(css || "").trim() || "#000";
-    const s = cx.fillStyle;
-    if (s[0] === "#") {
-      const n = parseInt(s.slice(1, 7), 16);
-      return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255];
-    }
-    const v = (s.match(/[\d.]+/g) || [0, 0, 0]).map(Number);
-    return [v[0] / 255, v[1] / 255, v[2] / 255];
+    return parseColour(css, this.THREE).slice(0, 3);
   }
 
   colours() {
@@ -812,6 +882,7 @@ class Layer {
         if (!L.q.length) return false;
         const op = L.q.shift();
         op.started = true;
+        L.op = op;
         L.segs = this.compile(L, op);
         continue;
       }
@@ -1181,8 +1252,19 @@ class Layer {
     for (const L of this.lanes.values()) {
       lanes[L.key] = { queued: L.q.length, busy: !!(L.segs.length || L.q.length), hand: !!(L.hand && L.hand.vis) };
     }
-    const marks = [];
+    const marks = [], series = [];
     for (const m of this.marks) {
+      if (this.own(m)) {
+        // The page's own marks (#257) are listed apart, so a skin's table reads as itself.
+        const len = m.strokes.reduce((a, s) => a + (s.dead ? 0 : s.len), 0);
+        const head = m.strokes.reduce((a, s) => a + (s.dead ? 0 : Math.min(s.head, s.len)), 0);
+        series.push({ id: m.id, lane: m.lane.key, tool: m.tool, shape: m.shape, state: m.state,
+                      strokes: m.strokes.filter(s => !s.dead).length, len: Math.round(len * 10) / 10,
+                      drawn: len ? Math.round(head / len * 1000) / 1000 : 0, visible: m.visible,
+                      series: m.el.getAttribute("data-ink-series") || "", ticks: m.el.getAttribute("data-ink-ticks") || "",
+                      box: { x: m.x, y: m.y, w: m.w, h: m.h } });
+        continue;
+      }
       const len = m.strokes.reduce((a, s) => a + (s.dead ? 0 : s.len), 0);
       const head = m.strokes.reduce((a, s) => a + (s.dead ? 0 : Math.min(s.head, s.len)), 0);
       const erased = m.strokes.some(s => s.erase !== Infinity);
@@ -1208,7 +1290,7 @@ class Layer {
       frames: Array.from(s.frames.values()).filter(f => f.group.children.length).length,
       sampleGround: !!this.groundRT, errors: Object.keys(s.err),
     } : null;
-    return { lanes, marks, skin, frames: this.frames, renders: this.renders, busy: this.busy(),
+    return { lanes, marks, series, skin, frames: this.frames, renders: this.renders, busy: this.busy(),
              hands: this.hands(), reduced: this.instant(), canvas: this.canvas.isConnected,
              webgl2: !!this.renderer.capabilities.isWebGL2, mode: this.mode, dark: this.dark };
   }

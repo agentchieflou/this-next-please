@@ -28,8 +28,8 @@ onto a dark one.
 | File | Holds |
 | --- | --- |
 | `static/ink/skins/notebook.js` | the mark table (below), the `paper` hook (a shader: the rules, fibre and a faint light falloff) and the `frame` hook (each pane's margin line). No colour and no markup (`tests/test_fleet_ink_notebook.py` holds both) |
-| `static/skins/notebook/skin.css` | the colours as custom properties per variant, the handwritten labels, transparent panes so the paper and the ink show through, and the ruled page the plain fallback draws on |
-| `skins.py` → `SKINS["notebook"]` | each variant's palette, its paper (the composited panel), its inks, and its own `text` and `muted`, which `theme.check` holds |
+| `static/skins/notebook/skin.css` | the colours as custom properties per variant, the handwritten labels, and the pane's margin and clear surfaces where the ink draws; nothing it paints (#257) |
+| `skins.py` → `SKINS["notebook"]` | each variant's palette, its paper (the composited panel) and its inks, which `theme.check` holds |
 
 ### The colours
 
@@ -46,10 +46,10 @@ A palette colours the UI, and the notebook chooses the paper and its inks. Every
 | `--ink-red`, `--ink-marker` | `#C8352B` | `#FF6A5E` | the red pen and the marker |
 | `--ink-green` | `#2E7A4D` | `#6FD39A` | the check |
 | `--ink-highlighter` | `#F3DF4B` | `#E6D548` | multiplied by day, screened by night |
-| `--text`, `--muted` | `#23262B`, `#6B7079` | `#E7E9EE`, `#9AA0AA` | the words written on the page |
 
 `theme.check` gets every pair: each ink 3:1 on its paper, the text 4.5:1 on the paper and through the highlighter,
-for the variant's palette and for the skin's own `text`. `tests/test_fleet_ink_notebook.py` also holds `skins.py` and
+for the variant's palette. The words are the palette's own `--text` and `--muted` (#257: a skin never recolours the
+palette), which read at 11:1 and 4.9:1 on the day paper and 13:1 and 8:1 by night. `tests/test_fleet_ink_notebook.py` also holds `skins.py` and
 `skin.css` to the same numbers, so the declared and the painted colour cannot drift apart.
 
 ### The handwriting
@@ -111,9 +111,9 @@ the marks show through them. The check and the bang are written in the margin, l
 
 A shell the gate turns off (software, nothing measured, `?ink=off`, a lost context) gets `body.ink-off`. The layer's
 plain fallback draws **the same table** as CSS: an outline for an outline or a loop, a tint for the highlighter, a
-line-through for a strike, a bar in the margin for a check or a bang. The notebook's stylesheet supplies the page it
-is drawn on: the same rules on the same pitch as a printed background, and the margin as a 1px line in each pane. No
-canvas is made and three.js is never fetched.
+line-through for a strike, a bar in the margin for a check or a bang. Since #257 it is drawn on the one plain look
+every skin shares, the palette's own page: the rules and the margin are the module's alone, and the stylesheet prints
+none. No canvas is made and three.js is never fetched.
 
 ## Budgets
 
@@ -144,6 +144,6 @@ skin with no ground in its stylesheet. Both are fixed (#249, `tests/regressions/
   session is renewed; the finding's ellipse, highlight and note; the count's old number struck beside the new, one
   kept.
 * **Reduced motion** draws at once with no hand. **Dark** screens its highlighter on charcoal stock.
-* **Without ink**, the same table drawn plain on a ruled page, with no canvas and no layer fetched.
+* **Without ink**, the same table drawn plain on the one plain look, with no canvas and no layer fetched.
 * **At rest:** an idle notebook is zero DOM mutations and zero WebGL frames, after catching up in a bounded number
   of frames.

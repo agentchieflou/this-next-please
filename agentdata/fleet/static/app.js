@@ -757,217 +757,73 @@ function paintAccent(el, accent) {
 
 /* -------------------------------------------------------- #218: the shape of the hour, drawn */
 
-/* Every colour a canvas uses is read from the stylesheet at paint time, never written here. A
-   canvas that carries its own palette is a canvas that stays the old colour when the operator
-   changes theirs -- and the accent stripe (#215) is the whole reason this page has a rule about
-   two owners of one colour. Cached per token per skin, because `getComputedStyle` on every bar of
-   every tile several times a minute is a layout read nobody needs. */
-var tokenCache = {};
-
-function token(name, fallback) {
-  var key = (document.body.dataset.skin || "none") + ":" +
-            (document.body.dataset.skinVariant || "") + ":" + name;
-  if (tokenCache[key] === undefined) {
-    var got = getComputedStyle(document.documentElement).getPropertyValue(name);
-    tokenCache[key] = (got || "").trim() || fallback;
-  }
-  return tokenCache[key];
-}
-
-function forgetTokens() { tokenCache = {}; }
-
-/* The last hour, oldest on the left. One bar a minute, its height the share of the busiest
-   minute; a minute that stopped for a person is drawn in the human colour whatever its height,
-   because "it asked me something" is not a quantity.
+/* The last hour, oldest on the left: one point a minute, its height the share of the busiest
+   minute, and a tick through every minute that stopped for a person -- because "it asked me
+   something" is not a quantity.
 
    Nothing is drawn that the row does not carry and nothing is drawn that the sentence does not
    say: the `aria-label` is the same hour in words, which is what makes this assertable and what
-   makes it reach somebody who cannot see it. */
-function drawTrace(canvas, row) {
-  if (!canvas || !canvas.getContext) return;
-  var tr = row.trace || {};
+   makes it reach somebody who cannot see it.
+
+   #257: there is no canvas. The trace is data on the page, written once here and read twice. The
+   element carries the series (`data-ink-series`, heights 0-1, and `data-ink-ticks`, the minutes
+   that needed somebody), which is what the ink layer draws in the pane's lane when this shell
+   draws ink (docs/desk-ink.md §The page's own drawing). And its own SVG -- a polyline and a path of
+   ticks, coloured by the stylesheet -- is the plain look every other shell shows, so a palette that
+   changes repaints it with no script at all. Every write goes through `attr`, so a row that did not
+   change writes nothing. */
+var TRACE_H = 18;               // the viewBox's height: the trace's own CSS height, in px
+
+function traceHeights(tr) {
   var counts = tr.n || [];
+  var peak = tr.peak || 1;
+  var out = [];
+  for (var i = 0; i < counts.length; i++) {
+    var n = counts[i] || 0;
+    // A minute with something in it is never flat: a pixel above the floor is "it was awake".
+    out.push(n > 0 ? Math.max(1 / (TRACE_H - 2), Math.min(1, n / peak)) : 0);
+  }
+  return out;
+}
+
+function drawTrace(el, row) {
+  if (!el) return;
+  var tr = row.trace || {};
   var needs = tr.needs || [];
-  attr(canvas, "aria-label", tr.says || "nothing in the last hour");
-  attr(canvas, "title", tr.says || "nothing in the last hour");
-  /* The same hour as data, for a skin that plots it rather than painting this canvas (#253, the
-     graph paper): the peak, then a minute's count each, `!` on a minute that stopped for a person.
-     Written only when it changes, like every other attribute here. */
-  setData(canvas, "trace", (tr.peak || 1) + "|" + counts.map(function (n, i) {
-    return n + (needs[i] ? "!" : "");
+  var says = tr.says || "nothing in the last hour";
+  attr(el, "aria-label", says);
+  // An SVG's tooltip is its <title> child, not a `title` attribute as the canvas's was.
+  text(el.querySelector("title"), says);
+
+  var heights = traceHeights(tr);
+  var any = heights.some(function (h) { return h > 0; });
+  var ticks = [];
+  for (var i = 0; i < heights.length; i++) if (needs[i]) ticks.push(i);
+  attr(el, "viewBox", "0 0 " + Math.max(1, heights.length) + " " + TRACE_H);
+  attr(el, "data-ink-series", any ? heights.map(function (h) {
+    return h ? String(Math.round(h * 1000) / 1000) : "0";
+  }).join(" ") : "");
+  attr(el, "data-ink-ticks", any ? ticks.join(" ") : "");
+  /* The same hour as counts, for a skin that plots it on its own paper (#253, the graph paper): the
+     peak, then a minute's count each, `!` on a minute that stopped for a person. */
+  setData(el, "trace", (tr.peak || 1) + "|" + (tr.n || []).map(function (n, j) {
+    return n + (needs[j] ? "!" : "");
   }).join(" "));
 
-  /* A canvas has two sizes: the box the page lays out and the grid of pixels it owns. On a 2x
-     screen they are not the same number, and a canvas that ignores the difference draws a blurred
-     copy of itself. */
-  var dpr = window.devicePixelRatio || 1;
-  var box = canvas.getBoundingClientRect();
-  var w = Math.max(1, Math.round((box.width || canvas.width) * dpr));
-  var h = Math.max(1, Math.round((box.height || canvas.height) * dpr));
-  if (canvas.width !== w) canvas.width = w;
-  if (canvas.height !== h) canvas.height = h;
-
-  var ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, w, h);
-  if (!counts.length) return;
-
-  var peak = tr.peak || 1;
-  var slot = w / counts.length;
-  var bar = Math.max(1, Math.floor(slot) - (slot > 2 ? 1 : 0));
-  var quiet = token("--idle", "#7c8794");
-  var busy = token("--running", "#2f7fd4");
-  var human = token("--human", "#cc3344");
-  for (var i = 0; i < counts.length; i++) {
-    var n = counts[i];
-    var red = !!needs[i];
-    if (!n && !red) continue;
-    // A minute with something in it is never invisible: one pixel is "it was awake", which is the
-    // difference between a quiet hour and no hour at all.
-    var tall = red ? h : Math.max(1, Math.round((n / peak) * h));
-    ctx.fillStyle = red ? human : (n > peak / 2 ? busy : quiet);
-    ctx.fillRect(Math.round(i * slot), h - tall, bar, tall);
-  }
+  // The plain look: the same numbers, in the SVG's own units (a minute wide, a pixel tall).
+  var line = el.querySelector(".tr-line");
+  var marks = el.querySelector(".tr-ticks");
+  attr(line, "points", any ? heights.map(function (h, j) {
+    var y = (TRACE_H - 1.5) - (h ? Math.max(1, h * (TRACE_H - 3)) : 0);
+    return (j + 0.5) + "," + (Math.round(y * 100) / 100);
+  }).join(" ") : "");
+  attr(marks, "d", any ? ticks.map(function (j) { return "M" + (j + 0.5) + " " + TRACE_H + "V0"; }).join("") : "");
 }
 
-/* ------------------------------------------------------------- #218: the ground, and its drift */
-
-/* The mesh the glass skin declares: three blobs, read out of the computed stylesheet rather than
-   written here a second time. `skins.py` and `skin.css` already keep one copy of those numbers
-   between them and a test reads them back; a third copy in this file is the two-owners bug with
-   a longer fuse. What comes back is Chromium's normalised form of each `radial-gradient`, which
-   is where the ellipse's size, its place and its colour all are. */
-var groundMesh = null;
-var groundKey = "";
-
-function groundColours() {
-  // The mesh is the skin's and its variant's, and nothing else changes it. So it is read once per
-  // choice: every `/api/fleet` answer restarts the ground, and re-reading it each time was two
-  // class writes on <body> on an idle desk (#254).
-  var key = (document.body.dataset.skin || "") + ":" + (document.body.dataset.skinVariant || "");
-  if (groundMesh && key === groundKey) return groundMesh;
-  groundMesh = null;
-  groundKey = key;
-  if ((document.body.dataset.skin || "") !== "glass") return null;
-  // Read before the class that blanks it: the gradients are the source, and a source that has
-  // been turned off reads as `none`.
-  var was = document.body.classList.contains("has-ground");
-  if (was) toggle(document.body, "has-ground", false);
-  var image = getComputedStyle(document.body).backgroundImage || "";
-  if (was) toggle(document.body, "has-ground", true);
-
-  var blobs = [];
-  var re = /radial-gradient\(([^()]*?)(?:ellipse\s*)?([\d.]+)%\s+([\d.]+)%\s+at\s+([\d.]+)%\s+([\d.]+)%,\s*(rgba?\([^)]*\))/g;
-  var m;
-  while ((m = re.exec(image)) !== null) {
-    blobs.push({ rx: parseFloat(m[2]) / 100, ry: parseFloat(m[3]) / 100,
-                 x: parseFloat(m[4]) / 100, y: parseFloat(m[5]) / 100, colour: m[6] });
-  }
-  groundMesh = blobs.length ? blobs : null;
-  return groundMesh;
-}
-
-/* A pixel a second, which is why this repaints once a second and not sixty times. Drift that
-   nobody can point at is the difference between a still image and a room with a window in it;
-   drift anybody can point at is a page that will not sit still to be read. */
-var GROUND_DRIFT_PX = 1;
-var GROUND_CYCLE_S = 120;
-var groundAt = 0;
-var groundTimer = 0;
-
-function groundStill() {
-  return reduceMotion() ||
-         !!(window.matchMedia && window.matchMedia("(prefers-reduced-transparency: reduce)").matches);
-}
-
-function drawGround() {
-  var canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("ground"));
-  if (!canvas || !canvas.getContext) return;
-  var mesh = groundMesh || groundColours();
-  if (!mesh) {
-    hide(canvas, true);
-    toggle(document.body, "has-ground", false);
-    return;
-  }
-  toggle(document.body, "has-ground", true);
-  hide(canvas, false);
-
-  /* Half resolution on purpose. The ground is three soft blobs with no edge in them, so the
-     pixels nobody can distinguish are pixels nobody should pay for -- and this is the one canvas
-     that covers the whole window. */
-  var scale = 0.5;
-  var w = Math.max(1, Math.round(window.innerWidth * scale));
-  var h = Math.max(1, Math.round(window.innerHeight * scale));
-  if (canvas.width !== w) canvas.width = w;
-  if (canvas.height !== h) canvas.height = h;
-
-  var ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, w, h);
-  /* A slow circle rather than a line: a blob that drifts in one direction leaves the window and
-     the ground goes flat. The radius is whatever makes the path a pixel a second over the cycle,
-     and it starts at zero offset -- the first frame is exactly where the stylesheet put the
-     blobs, which is what the glass skin's contrast range was solved against. */
-  var t = (groundAt % GROUND_CYCLE_S) / GROUND_CYCLE_S;
-  var radius = (GROUND_DRIFT_PX * GROUND_CYCLE_S) / (Math.PI * 2);
-  var driftX = Math.sin(t * Math.PI * 2) * radius * scale;
-  var driftY = (1 - Math.cos(t * Math.PI * 2)) * radius * 0.66 * scale;
-  mesh.forEach(function (blob, i) {
-    var cx = blob.x * w + driftX * (i % 2 ? -1 : 1);
-    var cy = blob.y * h + driftY * (i === 1 ? -1 : 1);
-    var r = Math.max(blob.rx * w, blob.ry * h);
-    var grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    grad.addColorStop(0, blob.colour);
-    grad.addColorStop(1, transparent(blob.colour));
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, h);
-  });
-}
-
-/* The same colour at zero alpha. `rgba(r, g, b, 0)` is what the stylesheet's own outer stop is,
-   and a gradient that ends at a different hue has a visible ring in it. */
-function transparent(colour) {
-  var nums = String(colour).replace(/^rgba?\(|\)$/g, "").split(",");
-  return "rgba(" + (nums[0] || "0").trim() + ", " + (nums[1] || "0").trim() + ", " +
-         (nums[2] || "0").trim() + ", 0)";
-}
-
-function startGround() {
-  if (groundTimer) { clearInterval(groundTimer); groundTimer = 0; }
-  groundColours();
-  drawGround();
-
-  /* A skin's stylesheet is fetched *after* `applySkin` sets the link's href, so the first read of
-     the mesh can land before there is anything to read -- and a ground that gave up on that first
-     read stayed blank for the whole session. One retry, when the sheet is really there, and a
-     timed one behind it for the case where the link was already loaded. Only for glass, the one
-     skin with a mesh to read: for any other the mesh is never there, and the retry re-armed itself
-     every 150ms for as long as the page was open, writing to the link each time (#253). */
-  /* Once per stylesheet, and remembered here rather than on the link (#252): a flag written on the
-     link was two DOM writes on every refresh of a desk at rest. */
-  if (!groundMesh && (document.body.dataset.skin || "") === "glass") {
-    /** @type {HTMLLinkElement} */
-    var link = document.head.querySelector("link[data-skin]");
-    if (link && !link.dataset.waiting) {
-      link.dataset.waiting = "1";
-      link.addEventListener("load", function () {
-        delete link.dataset.waiting;
-        startGround();
-      }, { once: true });
-      setTimeout(function () {
-        if (!groundMesh && link.dataset.waiting) {
-          delete link.dataset.waiting;
-          startGround();
-        }
-      }, 150);
-    }
-    return;
-  }
-  // Still under reduced motion, and still when the viewer has asked for less transparency -- the
-  // second is the one people forget, and it is the setting somebody turns on *because* a moving
-  // translucent ground is what they cannot read over.
-  if (groundMesh && !groundStill()) {
-    groundTimer = setInterval(function () { groundAt += 1; drawGround(); }, 1000);
-  }
-}
+/* #218's ground -- the glass skin's three blobs, drifting a pixel a second -- is the ink layer's now
+   (#257): it reads the stylesheet's gradients and draws them in its `ground` slot where this shell
+   draws ink, and every other shell shows the stylesheet's own gradients, still. Nothing here draws
+   it, and nothing here needs to know which skin has one. */
 
 /* The two classes `drawTile` owns on a tile, and nothing else (#215, found by #220's demo).
 
@@ -1767,7 +1623,6 @@ function refresh() {
       applyTheme(data.theme.css, data.theme.theme);
       applySkin(data.theme.skin);
       applyTiers(data.theme.tiers);               // #235: the operator's tier boundaries
-      startGround();                              // #218: the ground follows the skin
     }
     if (typeof data.preflight === "boolean") PREFLIGHT = data.preflight;
     toggle(document.body, "is-stale", false);
@@ -1826,14 +1681,9 @@ function connect() {
           if (tiles.has(repo)) paintAccent(tiles.get(repo).el, d.accents[repo]);
         });
       }
-      /* #218: a canvas holds pixels, not rules, so a palette that changed under it leaves it the
-         old colour until something repaints. The cache of token values goes with the palette and
-         every trace is drawn again from the row it already has. */
-      forgetTokens();
-      startGround();
-      tiles.forEach(function (entry) {
-        if (paneShows(entry.el).full) drawTrace(entry.el.querySelector(".trace"), entry.row);
-      });
+      /* #218 repainted every trace here, because a canvas held pixels rather than rules. The trace
+         is the stylesheet's colours now (#257) and the ink layer reads the palette at paint time,
+         so a palette that changes needs nothing drawn again. */
     } catch (err) {}
   });
   source.addEventListener("tick", function () {
@@ -5434,18 +5284,6 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "/") { e.preventDefault(); document.getElementById("find").focus(); }
 });
 
-/* #218: the ground is the size of the window, so it is redrawn when the window is a different
-   size. Debounced by a frame, because a drag of the window edge is a hundred resize events and
-   three blobs repainted a hundred times is the one canvas on this page that could cost anything. */
-var groundResize = 0;
-window.addEventListener("resize", function () {
-  if (groundResize) return;
-  groundResize = requestAnimationFrame(function () {
-    groundResize = 0;
-    drawGround();
-  });
-});
-startGround();
 
 /* #219: the desk that was, while the desk that is loads. At the very bottom of the file and not
    beside the `refresh()` that starts the fetch, because drawing a row touches module state --

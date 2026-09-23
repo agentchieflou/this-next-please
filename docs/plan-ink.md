@@ -243,6 +243,59 @@ skin: a degraded mode of the one platform, not a second one.
 - **K #257 — one platform.** `drawGround` and `drawTrace` move to the ink layer and nothing calls
   `getContext("2d")`. Skin files keep only layout and typography (a guard refuses decoration in them). The fallback
   is the one CSS look left.
+  - **Phase 1 built (#257): the 2D canvases moved to the ink layer**, in `static/ink/layer.js` and
+    [desk-ink.md](desk-ink.md) §The page's own drawing, tested by `tests/test_fleet_trace.py`. Phase 2 (the skins
+    as material sets, the decoration guard, every skin × palette through `theme.check`) waits for C–J to merge.
+    What phase 1 decided:
+    - **The trace is data on the page.** `drawTrace` writes the hour on its element as `data-ink-series` (heights,
+      0–1) and `data-ink-ticks` (the minutes that needed somebody), and `app.js` still hands the layer nothing
+      else. The layer owns two rows for any element carrying a series, after the skin's in each lane: a pen line
+      through every slot, and a red tick through each tick. It is the smallest general addition: any element can
+      carry a series, and a skin's table cannot name the two shapes.
+    - **A series is erased, not struck,** when its hour empties. It is data rather than a state, so there is
+      nothing to strike through. New numbers redraw the line whole where it stands, the way a resize does.
+    - **The trace is ink only while a skin draws with ink.** The canvas is behind the page, and a CSS skin's
+      pane is opaque, so a trace drawn there would be drawn where nobody can see it. The layer names the table it
+      draws on its own element (`#ink[data-skin]`), and `app.css` lets the SVG step aside only then. Phase 2's
+      transparent panes make that every skin.
+    - **The plain trace is an SVG polyline** with a path of ticks, in the template and written with `attr`. It is
+      the same shape the pen draws, it is two elements rather than sixty bars, it is coloured by the stylesheet
+      (so a palette change needs no redraw), and `vector-effect: non-scaling-stroke` keeps it a hairline at any
+      width.
+    - **The ground is a skin's.** Where ink draws, glass's own `ground` hook (H, #254) is the ground in the
+      layer's `ground` slot, drifting and still under reduced motion. With ink off, the stylesheet's gradients
+      are the ground, standing still. So `app.js` no longer knows which skin has a ground. (A page ground in the
+      layer, read from `body`'s gradients, was built here and then dropped once glass's arrived: no other skin
+      paints one.)
+    - **A skin that plots the hour itself** says `series: false`, and the layer's trace rows stay off. The graph
+      paper (G, #253) does: it plots `data-trace`, the counts `drawTrace` still writes beside the series.
+    - **Colours are parsed without a 2D context**: `rgb()`/`rgba()` by hand, anything else by three.js's
+      `Color`. The one 2D context left on the page is three.js's own 1×1 `OffscreenCanvas` probe in
+      `WebGLRenderer`. The vendored file is pinned, so a run-time test names that probe instead of patching it
+      out, and the file scan skips `vendor/`.
+  - **Phase 2 built (#257): a skin's stylesheet paints nothing**, on glass, graph paper, the legal pad,
+    farmstead, the notebook, voxel and napkin notes: every skin with a module. [desk-ink.md](desk-ink.md) §What a
+    skin's stylesheet holds is the rule, and `tests/test_fleet_skin_guard.py` refuses a decorative property in
+    any skin that ships a module. What it decided:
+    - **The guard is a rule about scope and value, not a list of banned properties.** A custom property is
+      allowed (the palette's thirteen excepted); layout and typography are allowed; anything else only where the
+      ink is on the page, and only `transparent`, `none`, `0` or a token. So a skin can stand aside for its
+      canvas and name its inks, and cannot paint.
+    - **The page stands aside once, for every skin** (`app.css`, keyed on `body:has(> #ink[data-skin])`): the
+      panes, the header, the footer and the cards clear, the accent and the selection ring kept.
+    - **The plain look is `app.css` and the palette**, with the mark table drawn plain in the skin's inks, and
+      the fallback keeps a pane's selection ring beside a margin bar for every skin.
+    - **Every skin × palette passes `theme.check` both ways**: at the variant's composited paper, and at the
+      palette's own panel, which is what the plain look reads on.
+    - **Farmstead's sprites are read from their rects**, into `DataTexture`s: the module had rasterised them on
+      a 2D canvas, and the desk has none.
+    - **The notebook no longer recolours the palette's `--text` and `--muted`**: the palette's own words read
+      at 11:1 and 13:1 on its two papers, and its `skins.py` variants no longer declare them.
+    - **Voxel joined when its module merged (#256)**: its CSS dirt, bevels and 12px sprites went, and its
+      sprite sheet with them; the stylesheet keeps the `--voxel-*` surfaces, the strip's room and the
+      band's ink.
+    - **Napkin joined when it merged (#252)**: its CSS quilt, coffee ring and opaque reduced-transparency panes
+      went; the stylesheet keeps its paper, seam, coffee and inks, and its hand.
 
 Build order: A and B first, in either order, because neither changes what anyone sees. Then C, whose marks are the
 reference every later skin is measured against. D through G follow in any order, then H through J, and K last. A

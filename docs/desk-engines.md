@@ -122,8 +122,8 @@ and its MIT `LICENSE`, from the npm tarball of `three@0.160.0`, pinned by sha256
 `tests/test_fleet_probe.py` and kept byte-exact on Windows checkouts by `.gitattributes`. The
 probe page imports it, and so does the desk's ink layer (#248, [desk-ink.md](desk-ink.md)), but
 only on a shell whose record here says hardware (or a page opened with `?ink=on`, the test
-override), and only once a skin draws with ink. No shipped skin does yet, so no desk fetches it
-today. Tests hold all three.
+override), and only once a skin draws with ink. There, since #257, it also draws every agent's trace,
+which was one of the desk's two 2D canvases. Tests hold all three.
 
 ## What happens without each one
 
@@ -136,8 +136,8 @@ today. Tests hold all three.
 | `pointer capture` | `setPointerCapture` throws and is caught, in both drags that take it: the reorder drag on a pane's head or a rail's face (#217, captured on lift), and the gutter (#234, captured on the press). Both hear their move and release on the document rather than the handle, so both still track and a gutter still resizes. What is lost is the guarantee that events keep arriving after the pointer leaves the element: a touch or pen off the gutter's 8px strip, or a release outside an embedded window. And with no capture to take it, the release's click lands on the pane under the hand, which is why a gutter swallows the one click after a resize. | `test_fleet_window.py`, `test_fleet_gutters.py`, `test_fleet_engines.py` |
 | `ResizeObserver` | The tiers (#233). No observer is made, and the same writer of `data-tier` is fed by a measurement of every pane after each layout pass, and a resize of the window asks for a pass. A pane still draws the tier its width says, a frame later than an observer would have said it. During a gutter drag the tier follows when the hand comes up rather than under it, because a layout pass waits for the hand. | `test_fleet_engines.py` |
 | `container queries` | Not used for the tiers: `data-tier` is an attribute, which tests and the draw code can read and a container query is not (plan-panes §The pane). So a shell without them draws every tier the same. Inside a pane, the head keeps the model's word, the ticket and the chip's age under 500px, and the trace under 560px, and wraps to a second line rather than dropping them. `flex-wrap` is the fallback, and it is why the head has it. | `test_fleet_window.py` |
-| `OffscreenCanvas` | Not used. The trace and the ground are small enough to draw on the main thread — 0.10 ms a repaint for the ground — and a worker would be a second place that has to know the palette. | — |
-| `WebGL` | Drawn on the desk only by the notebook skin (#249, [skin-notebook.md](skin-notebook.md)), through the ink layer (#248, [desk-ink.md](desk-ink.md)), which is gated. A shell whose probe says anything but hardware gets the plain fallback (`body.ink-off`). So do a shell nobody has measured, `?ink=off`, a shell that will not give a context and a lost context: the same mark table as plain borders and highlights, with no animation, because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py`, `test_fleet_ink.py` |
+| `OffscreenCanvas` | Nothing of the desk's own is lost: the desk has no 2D canvas at all since #257, on or off the page. three.js asks a 1×1 one for a 2D context once, as its renderer starts, to learn whether it could resize a texture off the page. Without it three.js would use a page canvas for that, and the layer never hands it an image to resize. | `test_fleet_trace.py` |
+| `WebGL` | Drawn by the ink layer (#248, [desk-ink.md](desk-ink.md)), and only on a shell whose probe says hardware (the table above). There it draws a skin's marks and materials (glass's ground among them), and every agent's trace beside them (#257). Every other shell gets the plain fallback (`body.ink-off`), and so do a shell nobody has measured, `?ink=off`, a shell that will not give a context, and a lost context. The trace is its own SVG, the ground is the palette's page (#257: a skin's stylesheet paints nothing), and a skin's mark table is drawn as plain borders and highlights. None of it animates, because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py`, `test_fleet_ink.py`, `test_fleet_trace.py` |
 
 `test_the_desk_arrives_at_the_same_place_with_every_fallback_taken` takes **all** of the fallbacks
 at once — no view transitions, no pointer capture, no `linear()`, no container queries, no
@@ -159,9 +159,9 @@ those is missing the page does not load, which is a failure nobody can mistake f
 | Measurement | Here | Asserted at |
 | --- | --- | --- |
 | frame time during a layout swap of five tiles at 1080p | 16.7 ms median, no `longtask` | no long task, main thread back inside 50 ms |
-| the ground's repaint | 0.10 ms median | 4 ms |
+| the ground's drift, drawn by glass on the ink layer (#254, #257) | frames while it drifts, and none under reduced motion | frames counted, not milliseconds |
 | the worst local gesture | ~6 ms | 50 ms |
-| the static payload | 154 KB gzipped (487 KB on disk), the probe page's 6.3 KB and the ink layer's four modules (37 KB) included; three.js is not in it — 163 KB gzipped, fetched by `/probe` and by an ink layer that is drawing, never by a desk that is not. Nor is a skin's module or stylesheet, fetched only by the desk that chose it (the notebook's: 3.5 KB and 2.2 KB) | 200 KB |
+| the static payload | 154 KB gzipped (489 KB on disk), the probe page's 6.3 KB and the ink layer's four modules (39 KB) included; three.js is not in it — 163 KB gzipped, fetched by `/probe` and by an ink layer that is drawing, never by a desk that is not | 200 KB |
 | the WebGL probe, headless Chromium on SwiftShader, 1280×720 | 16.7 ms p50 and 33.4 ms p95 over ~130 frames (headless paces at 60 Hz); first stroke 265–320 ms | not asserted — software, and not what a GPU does |
 
 Every one of those is printed by the test that measures it, so a CI run carries the numbers as

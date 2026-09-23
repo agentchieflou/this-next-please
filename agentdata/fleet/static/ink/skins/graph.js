@@ -99,6 +99,8 @@ export function options() {
     hand: true,
     speed: 1,
     tools: { pencil: { w: 1.05, press: 0.9, pvar: 0.04, wob: 0, bow: 0, wmin: 0.94, tin: 0, tout: 0 } },
+    // The hour is plotted on the grid by `frame` below, so the layer's own trace rows (#257) are off.
+    series: false,
   };
 }
 

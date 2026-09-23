@@ -11,7 +11,10 @@
 
    The shapes are the prototype's (the operator-approved `notebook-three.html`), with the desk's
    one special case written down rather than assumed: a box narrower than 90px is a pane's 48px
-   rail, and a margin mark goes down its middle rather than into a margin it has not got. */
+   rail, and a margin mark goes down its middle rather than into a margin it has not got.
+
+   `PAGE_SHAPES` are the page's own (#257): a series drawn from its element's data rather than its
+   box alone, for the layer's own rows. A skin's table cannot name them. */
 
 const RAIL_BELOW = 90;
 
@@ -159,6 +162,32 @@ export const SHAPES = {
 };
 
 export const SHAPE_NAMES = Object.keys(SHAPES);
+
+/* The page's own shapes (#257), drawn by the layer's own rows and never named in a skin's table: a
+   series read from its element's data. `m.values` are its heights, oldest first, each a fraction of
+   the box (0 nothing, 1 the whole height); `m.ticks` are the slots a tick goes through. */
+export const PAGE_SHAPES = {
+  /* The hour as one line, left to right through every slot. A slot with anything in it is never
+     flat: a pixel above the floor is "it was awake", which is the difference between a quiet hour
+     and no hour at all (#218). No bow and little wobble, because this line is data. */
+  series(m) {
+    const v = m.values || [];
+    if (v.length < 2 || !v.some(x => x > 0)) return [];
+    const r = box(m.box), slot = r.w / v.length, floor = r.b - 1.5, span = Math.max(1, r.h - 3);
+    const pts = v.map((x, i) => [r.x + (i + 0.5) * slot, floor - (x > 0 ? Math.max(1, x * span) : 0)]);
+    return [{ pts, nobow: true, wob: 0.15, w: 1.2 }];
+  },
+  /* A stroke top to bottom through each slot that stopped for a person. */
+  ticks(m) {
+    const n = (m.values || []).length;
+    if (!n) return [];
+    const r = box(m.box), slot = r.w / n;
+    return (m.ticks || []).filter(i => i >= 0 && i < n).map(i => {
+      const x = r.x + (i + 0.5) * slot;
+      return { pts: [[x, r.b], [x, r.y]], nobow: true, wob: 0.2 };
+    });
+  },
+};
 
 /* Ruled strokes on a grid (#253, the graph paper): a row with `snap` has its straight strokes put
    on the grid's lines, which are every `g` px of the viewport, where the skin's paper draws them.

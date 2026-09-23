@@ -1,290 +1,102 @@
-/* Farmstead skin: Warm paper, wooden frames, and crop-stage status glyphs (Issue #157).
-   Inspired by pixel farming games with 100% original hand-drawn <rect> SVG pixel art.
-   Effective composited panel: #E8DDC3.
-*/
+/* Farmstead skin: warm paper, wooden frames, and crop-stage status glyphs (#157, on three.js #255).
 
-body {
-  background-color: #5C381E;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%238C5C38'/%3E%3Crect x='0' y='2' width='4' height='2' fill='%23754826'/%3E%3Crect x='8' y='1' width='3' height='2' fill='%239E6B43'/%3E%3Crect x='5' y='6' width='4' height='2' fill='%23754826'/%3E%3Crect x='12' y='7' width='3' height='2' fill='%23A8744B'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23693F1F'/%3E%3Crect x='9' y='12' width='4' height='2' fill='%23754826'/%3E%3Crect x='14' y='13' width='2' height='2' fill='%239E6B43'/%3E%3C/svg%3E");
-  background-size: 32px 32px;
-  image-rendering: pixelated;
-}
+   Since #257 this file paints nothing. Where the gate turns ink on, `static/ink/skins/farmstead.js`
+   draws the farm: the soil, the planks behind the header and the footer, a lit wooden frame and its
+   paper round every pane, and the crop in the chip -- all from `sprites.svg`, at whole device
+   pixels. Under `body.ink-off` farmstead is the one plain look every skin shares (app.css and the
+   palette), with its mark table drawn as plain CSS by the layer's fallback.
 
-header, footer {
-  background-color: #7A4B24;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 8' width='16' height='8' shape-rendering='crispEdges'%3E%3Crect width='16' height='8' fill='%23966138'/%3E%3Crect x='0' y='0' width='16' height='1' fill='%23AD7445'/%3E%3Crect x='0' y='7' width='16' height='1' fill='%23693F1F'/%3E%3Crect x='7' y='1' width='1' height='6' fill='%23693F1F'/%3E%3Crect x='2' y='3' width='3' height='1' fill='%237A4B24'/%3E%3Crect x='11' y='4' width='3' height='1' fill='%237A4B24'/%3E%3C/svg%3E");
-  background-size: 32px 16px;
-  image-rendering: pixelated;
-  border-bottom: 4px solid #3D2411 !important;
-  color: #FFFDF5 !important;
-}
-
-/* Controls: Wooden with hard bottom shadow press */
-button, select, input, .segment, .segmented, kbd, .keys kbd {
-  background: #C89D6A !important;
-  color: #2D1A0C !important;
-  border: 2px solid #4A2E16 !important;
-  border-radius: 4px !important;
-  box-shadow: 0 3px 0 #4A2E16 !important;
-  font-weight: 600;
-}
-
-button:active, .segment.active {
-  box-shadow: 0 1px 0 #4A2E16 !important;
-  transform: translateY(2px);
-  background: #B38654 !important;
-}
-
-/* Tiles: Cream paper with 4px wood frame */
-.tile {
-  background: #FBF3E0 !important;
-  color: #2D1A0C !important;
-  border: 4px solid #6E4A28 !important;
-  border-left: 4px solid var(--accent) !important;
-  border-radius: 6px !important;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
-}
-
-.tile .head .n, .ticket, .age {
-  color: #5C381E !important;
-}
-
-
-/* Status chips: Cream tags, text in role colour, crop-stage sprite */
-.chip {
-  background: #FFFDF5 !important;
-  border: 2px solid #6E4A28 !important;
-  border-radius: 4px !important;
-  display: inline-flex;
-  align-items: center;
-  font-weight: 700;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
-.chip.running { color: var(--running) !important; }
-.chip.waiting_approval { color: var(--waiting) !important; }
-.chip.needs_human, .chip.blocked, .chip.error { color: var(--human) !important; }
-.chip.done { color: var(--done) !important; }
-.chip.starting, .chip.idle { color: var(--idle) !important; }
-.chip.not-supervised { color: var(--muted) !important; }
-
-.chip::before {
-  content: "";
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  margin-right: 4px;
-  background-size: 16px 16px;
-  image-rendering: pixelated;
-}
-
-/* Crop stage sprites */
-.chip.starting::before, .chip.idle::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='6' y='9' width='4' height='3' fill='%2369401F'/%3E%3Crect x='7' y='8' width='2' height='1' fill='%238A562B'/%3E%3Crect x='7' y='10' width='2' height='1' fill='%23A86E3C'/%3E%3C/svg%3E");
-}
-
-.chip.running::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='7' y='7' width='2' height='6' fill='%234B8227'/%3E%3Crect x='5' y='5' width='2' height='2' fill='%236CB839'/%3E%3Crect x='9' y='6' width='2' height='2' fill='%237ECE42'/%3E%3Crect x='7' y='4' width='2' height='2' fill='%236CB839'/%3E%3C/svg%3E");
-}
-
-.chip.waiting_approval::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='5' y='5' width='6' height='6' fill='%23F5A623'/%3E%3Crect x='6' y='6' width='4' height='4' fill='%23FFD043'/%3E%3Crect x='7' y='2' width='2' height='2' fill='%23E08B16'/%3E%3Crect x='7' y='12' width='2' height='2' fill='%23E08B16'/%3E%3Crect x='2' y='7' width='2' height='2' fill='%23E08B16'/%3E%3Crect x='12' y='7' width='2' height='2' fill='%23E08B16'/%3E%3C/svg%3E");
-}
-
-.chip.done::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='7' y='7' width='2' height='6' fill='%234B8227'/%3E%3Crect x='6' y='4' width='4' height='4' fill='%23E83E8C'/%3E%3Crect x='5' y='5' width='6' height='2' fill='%23FF69B4'/%3E%3Crect x='7' y='5' width='2' height='2' fill='%23FFE066'/%3E%3C/svg%3E");
-}
-
-.chip.needs_human::before, .chip.blocked::before, .chip.error::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='6' y='9' width='3' height='4' fill='%23695333'/%3E%3Crect x='9' y='8' width='3' height='2' fill='%238A6E44'/%3E%3Crect x='10' y='10' width='3' height='3' fill='%23A88B58'/%3E%3Crect x='11' y='11' width='1' height='1' fill='%2340321F'/%3E%3C/svg%3E");
-}
-
-/* Inspector: Journal page style */
-#side, #side > aside {
-  background: #FFFDF5 !important;
-  color: #2D1A0C !important;
-  border-left: 4px solid #6E4A28 !important;
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.2);
-}
-
-/* HIG Accessibility: Reduced motion stops animations and fresh page has no animations */
-* {
-  animation: none !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
-  }
-}
-
-/* The toolbar and the footer are repainted above, so everything written ON them is repainted here
-   too. Leaving these to the palette put the group labels, the brand, the live dot and the whole
-   key map in a colour chosen for the panel and rendered on a texture, where they disappeared. */
-header, footer { color: #FFFDF5 !important; }
-header h1, header .glabel, header .dot,
-footer, footer #counts, footer .keys { color: #F0DCC0 !important; }
-header h1 { color: #FFFDF5 !important; }
-#notice { color: var(--waiting) !important; }
-
-/* The state as a crop stage, beside the chip's glyph and colour and never instead of them (#157).
-   The art is `sprites.svg` in this directory -- one file, referenced by fragment, so the pixels the
-   repo reviews are the pixels the page draws. Before this the sprites were on disk and unreferenced
-   and the chips were plain text: the one thing this skin was for was not built. */
-.chip::before {
-  content: "";
-  width: 16px; height: 16px; flex: 0 0 16px;
-  background-size: 16px 16px; background-repeat: no-repeat;
-  image-rendering: pixelated;
-}
-.chip { display: inline-flex; align-items: center; gap: 6px; }
-.chip.running::before          { background-image: url("sprites.svg#crop-sprout"); }
-.chip.waiting_approval::before { background-image: url("sprites.svg#crop-sun"); }
-.chip.needs_human::before,
-.chip.blocked::before,
-.chip.error::before            { background-image: url("sprites.svg#crop-wilted"); }
-.chip.done::before             { background-image: url("sprites.svg#crop-bloom"); }
-.chip.idle::before,
-.chip.starting::before         { background-image: url("sprites.svg#crop-seed"); }
-
-/* --------------------------------------------------------------- the three weathers (#4)
-
-   The same farm at a different hour. Only the surfaces change: the crop stages below stay exactly
-   as they are, because a `done` that were a bloom in daylight and something else in the cave would
-   be a state the operator has to translate before they can read it.
-
-   `daytime` is the stylesheet above -- the default variant carries no attribute block, so there is
-   one copy of it. The panel colour in each block here is the `composited_panel` its variant
-   declares in `skins.py`, which is what the contrast test measures the text against. */
-
-/* cave: lamplight underground */
-body[data-skin-variant="cave"] {
-  background-color: #38352F;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%2346423A'/%3E%3Crect x='0' y='2' width='4' height='2' fill='%2338352F'/%3E%3Crect x='8' y='1' width='3' height='2' fill='%23555045'/%3E%3Crect x='5' y='6' width='4' height='2' fill='%2338352F'/%3E%3Crect x='12' y='7' width='3' height='2' fill='%235C564A'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%232E2B26'/%3E%3Crect x='9' y='12' width='4' height='2' fill='%2338352F'/%3E%3Crect x='14' y='13' width='2' height='2' fill='%23555045'/%3E%3C/svg%3E");
-}
-body[data-skin-variant="cave"] header, body[data-skin-variant="cave"] footer {
-  background-color: #3D3830;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 8' width='16' height='8' shape-rendering='crispEdges'%3E%3Crect width='16' height='8' fill='%234A4438'/%3E%3Crect x='0' y='0' width='16' height='1' fill='%235C5545'/%3E%3Crect x='0' y='7' width='16' height='1' fill='%232E2B24'/%3E%3Crect x='7' y='1' width='1' height='6' fill='%232E2B24'/%3E%3Crect x='2' y='3' width='3' height='1' fill='%233D3830'/%3E%3Crect x='11' y='4' width='3' height='1' fill='%233D3830'/%3E%3C/svg%3E");
-  border-bottom-color: #211F1A !important;
-  color: #F0E9D8 !important;
-}
-body[data-skin-variant="cave"] button, body[data-skin-variant="cave"] select, body[data-skin-variant="cave"] input, body[data-skin-variant="cave"] .segment, body[data-skin-variant="cave"] .segmented,
-body[data-skin-variant="cave"] kbd, body[data-skin-variant="cave"] .keys kbd {
-  background: #5C564A !important;
-  color: #F0E9D8 !important;
-  border-color: #211F1A !important;
-  box-shadow: 0 3px 0 #211F1A !important;
-}
-body[data-skin-variant="cave"] button:active, body[data-skin-variant="cave"] .segment.active { box-shadow: 0 1px 0 #211F1A !important; }
-body[data-skin-variant="cave"] .tile {
-  background: #33302A !important;
-  color: #D6CDB8 !important;
-  border-color: #211F1A !important;
-}
-body[data-skin-variant="cave"] header h1 { color: #F0E9D8 !important; }
-body[data-skin-variant="cave"] header .glabel, body[data-skin-variant="cave"] header .dot,
-body[data-skin-variant="cave"] footer, body[data-skin-variant="cave"] footer #counts, body[data-skin-variant="cave"] footer .keys { color: #CFC6AE !important; }
-
-/* rainy: a wet afternoon indoors */
-body[data-skin-variant="rainy"] {
-  background-color: #1D2A40;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%2327364F'/%3E%3Crect x='0' y='2' width='4' height='2' fill='%231D2A40'/%3E%3Crect x='8' y='1' width='3' height='2' fill='%2332435E'/%3E%3Crect x='5' y='6' width='4' height='2' fill='%231D2A40'/%3E%3Crect x='12' y='7' width='3' height='2' fill='%233A4C69'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23162236'/%3E%3Crect x='9' y='12' width='4' height='2' fill='%231D2A40'/%3E%3Crect x='14' y='13' width='2' height='2' fill='%2332435E'/%3E%3C/svg%3E");
-}
-body[data-skin-variant="rainy"] header, body[data-skin-variant="rainy"] footer {
-  background-color: #1B2740;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 8' width='16' height='8' shape-rendering='crispEdges'%3E%3Crect width='16' height='8' fill='%23243349'/%3E%3Crect x='0' y='0' width='16' height='1' fill='%232F415C'/%3E%3Crect x='0' y='7' width='16' height='1' fill='%23141F31'/%3E%3Crect x='7' y='1' width='1' height='6' fill='%23141F31'/%3E%3Crect x='2' y='3' width='3' height='1' fill='%231B2740'/%3E%3Crect x='11' y='4' width='3' height='1' fill='%231B2740'/%3E%3C/svg%3E");
-  border-bottom-color: #0C1524 !important;
-  color: #E4EDFA !important;
-}
-body[data-skin-variant="rainy"] button, body[data-skin-variant="rainy"] select, body[data-skin-variant="rainy"] input, body[data-skin-variant="rainy"] .segment, body[data-skin-variant="rainy"] .segmented,
-body[data-skin-variant="rainy"] kbd, body[data-skin-variant="rainy"] .keys kbd {
-  background: #33455F !important;
-  color: #E4EDFA !important;
-  border-color: #0C1524 !important;
-  box-shadow: 0 3px 0 #0C1524 !important;
-}
-body[data-skin-variant="rainy"] button:active, body[data-skin-variant="rainy"] .segment.active { box-shadow: 0 1px 0 #0C1524 !important; }
-body[data-skin-variant="rainy"] .tile {
-  background: #16243D !important;
-  color: #D6E4F7 !important;
-  border-color: #0C1524 !important;
-}
-body[data-skin-variant="rainy"] header h1 { color: #E4EDFA !important; }
-body[data-skin-variant="rainy"] header .glabel, body[data-skin-variant="rainy"] header .dot,
-body[data-skin-variant="rainy"] footer, body[data-skin-variant="rainy"] footer #counts, body[data-skin-variant="rainy"] footer .keys { color: #B9CBE4 !important; }
-
-/* ------------------------------------------------------------------------- the scrollbar (#181)
-   Wood, trimmed the way the buttons are. Only the thumb: the paper shows through the track. */
-body[data-skin="farmstead"] {
-  --scroll-thumb: #C89D6A;
-  --scroll-thumb-hover: #B38654;
-}
-body[data-skin="farmstead"] *::-webkit-scrollbar-thumb {
-  border-radius: 4px; border: 2px solid #4A2E16; background-clip: border-box;
-}
-
-/* ------------------------------------------------------------------ on three.js (#255)
-
-   Where the gate turns ink on, `static/ink/skins/farmstead.js` draws what the rules above paint:
-   the soil, the planks behind the header and the footer, a lit wooden frame and its paper round
-   every pane, and the crop in the chip -- all from `sprites.svg`, at whole device pixels. These are
-   its inputs, read at paint time; the module carries no colour of its own. `--farm-paper` is what
-   the pane's text is read on, so it is the variant's `composited_panel` in skins.py (a test holds
-   the two together). `--farm-soil` and `--farm-wood` recolour the art for a weather, as the tiles
-   above were recoloured by hand; daylight leaves them unset and draws the art as it is.
+   What is left: the module's inputs, read at paint time, and the room the page leaves for what it
+   draws. `--farm-paper` is what the pane's text is read on, so it is the variant's
+   `composited_panel` in skins.py (a test holds the two together). `--farm-soil` and `--farm-wood`
+   recolour the art for a weather; daylight leaves them unset and draws the art as it is.
    `--farm-band-light` is low enough that the header's and footer's text keeps 4.5:1 on the
-   lightest plank (test_fleet_ink_farmstead). Under `body.ink-off` none of this applies: the rules above
-   are the plain farmstead. */
+   lightest plank (test_fleet_ink_farmstead), and `--farm-band-ink` is that text. The guard in
+   `tests/test_fleet_skin_guard.py` holds the file to layout, typography and tokens. */
+
 body[data-skin="farmstead"] {
   --farm-paper: #E8DDC3;
   --farm-sun: #FFF4E0;
   --farm-band-light: 0.55;
   --farm-ambient: 0.45;
   --farm-diffuse: 0.62;
+  --farm-band-ink: #FFFDF5;
+  --farm-band-ink-soft: #F0DCC0;
   /* The palette's pencil is too faint on this paper for a mark (3:1); a graphite with some soil in
      it is not. The other inks are the palette's own. */
   --ink-pencil: #74695A;
 }
+
+/* ------------------------------------------------------------------ the three weathers (#4)
+
+   The same farm at a different hour: only the surfaces change, and the crop stages stay exactly as
+   they are, because a `done` that were a bloom in daylight and something else in the cave would be
+   a state the operator has to translate before they can read it. `daytime` is the block above. */
+
+/* cave: lamplight underground */
 body[data-skin="farmstead"][data-skin-variant="cave"] {
   --farm-paper: #33302A;
   --farm-soil: #46423A;
   --farm-wood: #4A4438;
   --farm-sun: #FFD9A8;
   --farm-band-light: 0.9;
+  --farm-band-ink: #F0E9D8;
+  --farm-band-ink-soft: #CFC6AE;
   /* Lamplight: a paler pencil to be seen by, and a highlighter dark enough that the text read
      through it keeps 4.5:1 (theme.check, test_fleet_ink_farmstead). */
   --ink-pencil: #968F82;
   --ink-highlighter: #A8861F;
 }
+
+/* rainy: a wet afternoon indoors */
 body[data-skin="farmstead"][data-skin-variant="rainy"] {
   --farm-paper: #16243D;
   --farm-soil: #27364F;
   --farm-wood: #243349;
   --farm-sun: #D2DEF2;
   --farm-band-light: 0.9;
+  --farm-band-ink: #E4EDFA;
+  --farm-band-ink-soft: #B9CBE4;
   /* A slate pencil: the palette's is lost on the night-blue paper (3:1). */
   --ink-pencil: #8A97AB;
 }
 
-/* The page stands aside for the canvas behind it: the header, the footer and the panes are clear
-   where the ink draws their planks, frames and paper, and the chip's glyph box stays (so the crop
-   has its place) with nothing painted in it. The accent stripe on the pane's left is the pane's
-   own, and stays. */
+/* ------------------------------------------------------------------ where the ink draws (#255)
+
+   The page stands aside for the canvas (app.css clears the panes, the header and the footer). What
+   is written on the planks is written in the band's own ink. */
 body[data-skin="farmstead"]:not(.ink-off) header,
-body[data-skin="farmstead"]:not(.ink-off) footer {
-  background: transparent !important;
-}
+body[data-skin="farmstead"]:not(.ink-off) header h1,
+body[data-skin="farmstead"]:not(.ink-off) footer { color: var(--farm-band-ink); }
+body[data-skin="farmstead"]:not(.ink-off) header .glabel,
+body[data-skin="farmstead"]:not(.ink-off) header .dot,
+body[data-skin="farmstead"]:not(.ink-off) footer #counts,
+body[data-skin="farmstead"]:not(.ink-off) footer .keys { color: var(--farm-band-ink-soft); }
 /* A clear header left Chromium compositing the canvas behind the page with a band missing along
    the foot of the panes -- the drawing buffer was whole (read back), the screen was not. Its own
    layer puts it right; the header holds no popover a stacking context could trap. */
 body[data-skin="farmstead"]:not(.ink-off) header { will-change: transform; }
-body[data-skin="farmstead"]:not(.ink-off) .tile {
-  background: transparent !important;
-  border-top-color: transparent !important;
-  border-right-color: transparent !important;
-  border-bottom-color: transparent !important;
-  box-shadow: none;
+
+/* The state as a crop stage, beside the chip's word and colour and never instead of them (#157):
+   the chip keeps a 16px box before its word, and the module draws the crop in it. The chip itself
+   is clear, so the crop shows, and its word is in the state's own colour. */
+body[data-skin="farmstead"]:not(.ink-off) .chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; box-shadow: none;
 }
-body[data-skin="farmstead"]:not(.ink-off) .chip { background: transparent !important; box-shadow: none; }
-body[data-skin="farmstead"]:not(.ink-off) .chip::before { background-image: none !important; }
+body[data-skin="farmstead"]:not(.ink-off) .chip::before {
+  content: ""; width: 16px; height: 16px; flex: 0 0 16px;
+}
+body[data-skin="farmstead"]:not(.ink-off) .chip.running { color: var(--running); }
+body[data-skin="farmstead"]:not(.ink-off) .chip.waiting_approval { color: var(--waiting); }
+body[data-skin="farmstead"]:not(.ink-off) :is(.chip.needs_human, .chip.blocked, .chip.error) { color: var(--human); }
+body[data-skin="farmstead"]:not(.ink-off) .chip.done { color: var(--done); }
+body[data-skin="farmstead"]:not(.ink-off) :is(.chip.starting, .chip.idle) { color: var(--idle); }
+body[data-skin="farmstead"]:not(.ink-off) .chip.not-supervised { color: var(--muted); }
+
+/* ------------------------------------------------------------------------- the scrollbar (#181)
+   Wood, as the tokens app.css draws every thumb with. */
+body[data-skin="farmstead"] {
+  --scroll-thumb: #C89D6A;
+  --scroll-thumb-hover: #B38654;
+}

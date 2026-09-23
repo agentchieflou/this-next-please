@@ -578,8 +578,9 @@ def test_reduced_motion_draws_the_paper_at_once(fleet_home, tmp_path):
 @pytest.mark.browser
 def test_the_plain_fallback_is_the_same_table_on_a_css_grid(fleet_home, tmp_path):
     """Where the gate is off (here: nothing measured this browser), the same table is drawn plain by
-    the layer's CSS fallback, and the grid is the skin's CSS, from the same origin and pitches. The
-    2D trace is the trace again. Nothing of the layer is fetched."""
+    the layer's CSS fallback, and the trace is the page's own again. Nothing of the layer is
+    fetched. Since #257 the grid is not drawn in CSS: the plain look is the one every skin shares,
+    the palette's own page with nothing painted on it, and the grid is the module's alone."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, fleet_home, {"alpha": "idle", "beta": "needs"})
     server, token, port = _serve()
@@ -611,7 +612,7 @@ def test_the_plain_fallback_is_the_same_table_on_a_css_grid(fleet_home, tmp_path
             browser.close()
     finally:
         _stop(server)
-    assert got["body"].count("linear-gradient") == 4 and "140px 140px" in got["size"] and "28px 28px" in got["size"], got
+    assert got["body"] == "none", f"the plain look paints a grid: {got}"
     assert got["outline"] == "solid" and got["underline"] == "underline", got
     assert got["highlight"] not in ("rgba(0, 0, 0, 0)", "transparent"), got
     assert got["trace"] != "0" and not got["canvas"], got

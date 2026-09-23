@@ -8,17 +8,18 @@ status blocks in CSS and SVG, and faked their depth with inset shadows. On three
 
 | | Where the gate is on (`?ink=on`, or a shell the probe measured as hardware) | `body.ink-off` |
 | --- | --- | --- |
-| the ground | voxels, 32px each, in `--voxel-ground` with a shade per voxel | the CSS dirt texture, as before |
-| a pane's frame | a lit slab: the panel block, its drop shadow, the accent strip as a column of cubes, three sockets at its top | the CSS fill, borders and shadow, as before |
-| a pane's state | its status stack, in the sockets (§The grammar) | the chip's 12px sprite, as before |
+| the ground | voxels, 32px each, in `--voxel-ground` with a shade per voxel | the palette's ground (the plain look, #257) |
+| a pane's frame | a lit slab: the panel block, its drop shadow, the accent strip as a column of cubes, three sockets at its top | the palette's panel and the page's accent border |
+| a pane's state | its status stack, in the sockets (§The grammar) | the chip's word and colour |
 | the marks | drawn by the layer, from the table in `voxel.js` | the same table, drawn plain by the layer's CSS fallback |
 | words, controls, layout, typography | the page, always | the page, always |
 
 The module is `agentdata/fleet/static/ink/skins/voxel.js`. The stylesheet,
-`static/skins/voxel/skin.css`, keeps the layout, the typography and the whole of the look under
-`body.ink-off`, so **the fallback is today's CSS skin, unchanged**. Where the gate is on, its last block
-stops painting what the slabs paint: the ground's texture, the pane's fill, its border colours, its
-shadow and the chip's sprite. The borders keep their widths, so a pane is laid out the same either way.
+`static/skins/voxel/skin.css`, paints nothing since #257 ([desk-ink.md](desk-ink.md) §What a skin's
+stylesheet holds): it names the surfaces per world (`--voxel-*`), which the module reads, and where the
+ink draws it clears the pane's accent border for the strip and keeps the strip's room, and writes the
+header and the footer in the band's ink over the ground. Under `body.ink-off` voxel is the one plain
+look every skin shares, and the CSS dirt, bevels and sprite sheet are gone.
 
 Every variant draws: Overworld, Nether and The End. A variant changes the surfaces and nothing else, so
 a state means the same thing in every world (#4).
@@ -105,8 +106,8 @@ must reach 3:1 on the panel.
 what each agent is, so the page draws them the way it would draw a real agent, and no test sets a class
 `app.js` owns.
 
-* Every variant is drawn by the layer with `?ink=on`, and drawn plain with it off: today's texture,
-  panel and sprite, and the same table as CSS.
+* Every variant is drawn by the layer with `?ink=on`, and drawn plain with it off: the palette's
+  panel, no texture and no sprite, and the same table as CSS.
 * There is one draw call per material, counted by the renderer, at one agent and at twenty.
 * Each state's response and mark appears and leaves as the grammar says.
 * The slabs follow a gutter drag in the frame that moves the panes, with no DOM write.

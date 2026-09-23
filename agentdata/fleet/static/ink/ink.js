@@ -206,6 +206,8 @@ function normalise(table) {
     hand: table.hand !== false,
     speed,
     tools,
+    // The page's own trace rows (#257) follow the table, unless the skin plots the hour itself.
+    series: table.series !== false,
     marks,
   };
 }
@@ -229,6 +231,12 @@ function plainCss(t) {
                " { background-color: color-mix(in srgb, " + c + " " + PLAIN_TINT + "%, transparent); } }");
     } else {
       out.push(sel + " { " + look.split("%c").join(c) + " }");
+      // A margin bar is an inset shadow, which would take the selection ring's place on a selected
+      // pane: the ring is kept beside it, because a selected pane is still one pane (HIG *Focus*).
+      if (row.shape === "check" || row.shape === "bang") {
+        out.push("body.ink-off :is(" + row.selector + ").is-selected { box-shadow: inset 3px 0 0 " + c +
+                 ", 0 0 0 2px var(--focus, var(--accent)); }");
+      }
     }
   }
   return out.join("\n");
@@ -360,7 +368,7 @@ function fromModule(m, family, variant) {
   const o = valueOf(m.options, variant) || {};
   return {
     table: { name: family + (variant ? ":" + variant : ""), paper: o.paper, hand: o.hand, speed: o.speed,
-             tools: o.tools, marks: valueOf(m.marks, variant) || [] },
+             tools: o.tools, series: o.series, marks: valueOf(m.marks, variant) || [] },
     hooks: m,
   };
 }

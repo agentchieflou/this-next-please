@@ -22,7 +22,6 @@ asserted:
   settles in a bounded number of frames.
 """
 from __future__ import annotations
-import dataclasses
 import os
 import re
 
@@ -83,15 +82,15 @@ def test_the_notebook_is_a_skin_with_a_light_and_a_dark_variant():
 
 
 def test_the_stylesheet_paints_the_numbers_skins_py_declares():
-    """The paper, every ink, the text and the muted words: declared once in skins.py (where
-    `theme.check` reads them) and painted by skin.css (where the page and the module read them),
-    held to one number by this test rather than by somebody updating both."""
+    """The paper and every ink: declared once in skins.py (where `theme.check` reads them) and named
+    by skin.css (where the page and the module read them), held to one number by this test rather
+    than by somebody updating both. The words are the palette's own text and muted colour: since
+    #257 a skin never recolours the palette, so skin.css sets neither."""
     css = open(CSS, encoding="utf-8").read()
     for variant, spec in skins.SKINS["notebook"]["variants"].items():
         props = _css_block(css, variant)
         assert props["paper"].upper() == spec["composited_panel"].upper(), variant
-        assert props["text"].upper() == spec["text"].upper(), variant
-        assert props["muted"].upper() == spec["muted"].upper(), variant
+        assert "text" not in props and "muted" not in props, (variant, "the palette's own words, recoloured")
         for tool in TOOLS:
             assert props[f"ink-{tool}"].upper() == spec["inks"][tool].upper(), (variant, tool)
         assert "rule" in props and "margin" in props, variant
@@ -99,15 +98,13 @@ def test_the_stylesheet_paints_the_numbers_skins_py_declares():
 
 def test_theme_check_holds_every_ink_on_the_notebooks_paper():
     """Rule 5 of `theme.check` with the pairs the notebook brings: each ink 3:1 on its paper, the
-    text 4.5:1 through the highlighter -- for the palette the variant names, and for the words the
-    skin writes itself (`text`, `muted`), which sit on the same paper."""
+    text 4.5:1 through the highlighter -- for the palette the variant names, whose own text and
+    muted words are what is written on the paper (#257: the skin no longer recolours them)."""
     for variant, spec in skins.SKINS["notebook"]["variants"].items():
         base = theme.get(spec["base"])
         paper = spec["composited_panel"]
         theme.check(base, composited_panel=paper, skin=f"notebook:{variant}", inks=spec["inks"])
-        theme.check(dataclasses.replace(base, text=spec["text"]), composited_panel=paper,
-                    skin=f"notebook:{variant}", inks=spec["inks"])
-        assert theme.contrast_ratio(spec["muted"], paper) >= 4.5, variant
+        assert theme.contrast_ratio(theme.css(base)["--muted"], paper) >= 4.5, variant
 
 
 def test_the_module_carries_no_colour_and_no_markup():
@@ -472,8 +469,9 @@ def test_the_night_notebook_screens_its_highlighter_onto_charcoal(fleet_home, tm
 @pytest.mark.browser
 def test_without_ink_the_notebook_is_the_same_table_drawn_plain_on_a_ruled_page(fleet_home, tmp_path, alive):
     """The gate off (nothing measured, as in CI without the override): `body.ink-off`, no canvas and
-    no three.js, the rules as a printed background and the marks as the layer's plain CSS -- the
-    same table: an idle pane outlined, a running name underlined, needing you tinted."""
+    no three.js, and the marks as the layer's plain CSS -- the same table: an idle pane outlined, a
+    running name underlined, needing you tinted. Since #257 no rules or margin are printed in CSS:
+    the plain look is the one every skin shares, and the ruled paper is the module's alone."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk(tmp_path, fleet_home)
     server, token, port = _serve()
@@ -499,8 +497,8 @@ def test_without_ink_the_notebook_is_the_same_table_drawn_plain_on_a_ruled_page(
                        question: cs(b.querySelector('.ask:not([hidden]) .ask-q')).backgroundColor,
                        loop: cs(b.querySelector('.ask:not([hidden]) .ask-choice')).outlineStyle }; }""")
             assert look["off"] and not look["canvas"], look
-            assert "repeating-linear-gradient" in look["rules"], look
-            assert look["margin"] not in ("", "rgba(0, 0, 0, 0)"), look
+            assert look["rules"] == "none" and look["margin"] in ("", "rgba(0, 0, 0, 0)"), \
+                f"the plain look paints the notebook's paper: {look}"
             assert look["running"] == "underline", look
             assert look["needs"] not in ("", "rgba(0, 0, 0, 0)") and look["question"] == look["needs"], look
             assert look["loop"] == "solid", look
