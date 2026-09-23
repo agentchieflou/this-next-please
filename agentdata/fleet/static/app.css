@@ -1330,6 +1330,23 @@ body.needs-only .band.is-quiet .b-last, body.needs-only .band.is-quiet .band-too
 /* A ticket row takes the keyboard: `1`-`9` picks a rail chip, `Enter` its one candidate. */
 #tickets li:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
+/* ------------------------------------------------------------ fresh sessions (#240, #241) */
+.oldsession {
+  font-size: 11px; padding: 1px 6px; border-radius: 9px;
+  border: 1px dashed var(--muted); color: var(--muted); white-space: nowrap;
+}
+.renew-strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  padding: 8px 16px; border-bottom: 1px solid var(--line);
+  background: var(--panel); font: 12px/1.4 var(--ui);
+}
+.renew-strip .renew-sum { margin: 0; flex: 1 1 100%; }
+.renew-rows { list-style: none; margin: 0; padding: 0; flex: 1 1 100%; display: grid; gap: 2px; }
+.renew-row { display: grid; grid-template-columns: minmax(8em, max-content) 7em 1fr; gap: 12px; font-size: 12px; }
+.renew-row .renew-why { color: var(--muted); overflow-wrap: anywhere; }
+.renew-row.verdict-now .renew-verdict, .renew-row.verdict-at-turn-end .renew-verdict { font-weight: 600; }
+.renew-actions { display: flex; gap: 8px; }
+
 /* ------------------------------------------------------------------- the settings page (/settings) */
 
 /* One stylesheet for both pages, so a palette and a skin reach the settings page for free -- the
