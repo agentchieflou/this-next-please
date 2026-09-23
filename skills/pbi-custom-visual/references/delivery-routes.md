@@ -161,8 +161,8 @@ From Deneb's PBIR guide [17] and its source [18]:
 The verb writes exactly that, so no one hand-writes visual JSON:
 `ad-pbip visual deneb <pbip> --page Overview --spec visuals/deneb/average-recent.vl.json --fields 'Dates'[Category] [Average] [Recent] --cross-filter`
 adds one; `--visual <id>` with `--spec` replaces a visual's specification and keeps what Deneb manages. It refuses a
-specification that is not JSON, that never names `dataset`, or that contains an apostrophe (the guide does not say
-how PBIR escapes one: write Vega expression strings with `\"`, and `’` in text). It refuses to add an AppSource
+specification that is not JSON or that never names `dataset`. An apostrophe is fine: the verb doubles it, which is
+how Power BI escapes one in every PBIR text literal (`Men's` is stored as `Men''s`). It refuses to add an AppSource
 Deneb on an `org-only` tenant: add it from *My organization* in Desktop once, then set its specification.
 
 Writing a specification: start from `references/deneb-average-recent.vl.json`. Render it before it goes near a

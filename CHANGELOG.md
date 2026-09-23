@@ -20,9 +20,9 @@ been written into the routing. Now:
   nine routes. `ad-pbiviz candidates` lists them. The skill may not say "can't" without that file.
 - **Certified visuals, customized mechanically.** `ad-pbip visual deneb` adds a Deneb visual, or replaces one's
   specification, exactly as Deneb's PBIR guide describes: the certified AppSource GUID, the `dataset` role, and the
-  spec in `objects.vega`. It refuses the uncertified Standalone edition, a spec that never names `dataset`, and an
-  apostrophe the guide does not say how to escape. A worked spec for the Average/Recent chart ships in the skill's
-  references, rendered with the Vega and Vega-Lite versions Deneb bundles.
+  spec in `objects.vega`. It refuses the uncertified Standalone edition and a spec that never names `dataset`. An
+  apostrophe in the spec is doubled, which is how Power BI escapes one. A worked spec for the Average/Recent chart
+  ships in the skill's references, rendered with the Vega and Vega-Lite versions Deneb bundles.
 - **The gate fails closed, and publish runs it.** `ad-pbi publish report` refuses (`custom_visual_blocked`) before
   it calls the service, with no flag to force it. It refuses when the tenant blocks a visual, or when nobody
   recorded what the tenant renders. `ad-pbip check` runs the same rules:
@@ -39,6 +39,11 @@ been written into the routing. Now:
   committed.
 - **`pbi-router`** sends "custom visual", "the tenant blocks it" and "native can't do" to the skill. The row now
   sits above the generic *visual* rows it used to lose to.
+- **Text with an apostrophe is written the way Power BI reads it.** `ad-pbip visual add --title`, `visual set
+  title.text` and `filter set --values` wrote `'Men's'`, a literal Power BI cannot parse. Every text literal is now
+  `'Men''s'`, as Desktop saves one. `visual set` had also left an axis title, an enum such as `title.alignment`, and
+  a color unquoted; they are text literals now too. The loader, `ad-pbip trace report`, `screenshot` and the DAX
+  built for a visual read them back as `Men's`. A value written before this still holds the broken literal.
 
 **On update:** the two standard commands, and start a new Copilot chat so the changed skills are read. Then add
 three facts to each project's AGENTS.md by hand (an existing AGENTS.md is never overwritten), or let the skill ask:

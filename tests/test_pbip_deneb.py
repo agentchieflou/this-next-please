@@ -52,7 +52,7 @@ def test_add_writes_the_visual_denebs_guide_describes(report):
     props = v["objects"]["vega"][0]["properties"]
     spec_literal = _literal(props["jsonSpec"])
     assert spec_literal.startswith("'") and spec_literal.endswith("'")
-    assert json.loads(spec_literal[1:-1]) == json.load(open(SPEC, encoding="utf-8"))
+    assert json.loads(P.literal_text(spec_literal)) == json.load(open(SPEC, encoding="utf-8"))
     assert _literal(props["jsonConfig"]) == "'{}'" and _literal(props["provider"]) == "'vegaLite'"
     assert "enableSelection" not in props and v["drillFilterOtherVisuals"] is True
     rj = json.loads((report / "definition" / "report.json").read_text(encoding="utf-8"))
@@ -85,13 +85,26 @@ def test_update_replaces_the_specification_and_keeps_what_deneb_manages(report, 
     simple.write_text(json.dumps({"data": {"name": "dataset"}, "mark": "bar"}), encoding="utf-8")
     DN.update(str(report), res["visual_id"], str(simple))
     v = _visual(report, res["visual_id"])[1]["visual"]
-    assert json.loads(_literal(v["objects"]["vega"][0]["properties"]["jsonSpec"])[1:-1]) == {
+    assert json.loads(P.literal_text(_literal(v["objects"]["vega"][0]["properties"]["jsonSpec"]))) == {
         "data": {"name": "dataset"}, "mark": "bar"}
     assert "stateManagement" in v["objects"]
 
 
+def test_a_specification_with_apostrophes_round_trips_through_the_loader(report, tmp_path):
+    spec = {"data": {"name": "dataset"}, "mark": {"type": "text"},
+            "transform": [{"calculate": "datum['Total Sales'] > 0 ? 'up' : 'down'", "as": "trend"}],
+            "encoding": {"text": {"value": "Men's"}}}
+    path = tmp_path / "spec.json"
+    path.write_text(json.dumps(spec), encoding="utf-8")
+    res = DN.add(str(report), "Overview", str(path), FIELDS, title="Men's view")
+    visual = next(v for v in P.load_report(str(report)).all_visuals() if v.id == res["visual_id"])
+    stored = _literal(visual.raw["visual"]["objects"]["vega"][0]["properties"]["jsonSpec"])
+    assert "datum[''Total Sales''] > 0 ? ''up'' : ''down''" in stored and "Men''s" in stored
+    assert json.loads(P.literal_text(stored)) == spec
+    assert visual.title == "Men's view"
+
+
 @pytest.mark.parametrize("text,needle", [
-    ('{"data": {"name": "dataset"}, "mark": {"type": "text"}, "encoding": {"text": {"value": "Recent\'s"}}}', "apostrophe"),
     ('{"data": {"values": []}, "mark": "bar"}', "dataset"),
     ('{"data": {"name": "dataset"}, // a comment\n "mark": "bar"}', "not JSON"),
 ])
@@ -134,6 +147,6 @@ def test_cli_adds_one_and_prints_the_refusal_hint(report, monkeypatch, capsys, t
                      "--fields", *FIELDS, "--cross-filter"])
     assert code == 0 and "deneb_add" in out and DN.GUID in out
     bad = tmp_path / "bad.json"
-    bad.write_text('{"data": {"name": "dataset"}, "mark": {"type": "text", "text": "it\'s"}}', encoding="utf-8")
+    bad.write_text('{"data": {"values": []}, "mark": {"type": "text", "text": "it\'s"}}', encoding="utf-8")
     code, out = run(["visual", "deneb", str(report), "--page", "Overview", "--spec", str(bad), "--fields", *FIELDS])
-    assert code == 2 and "apostrophe" in out and "Vega expression" in out
+    assert code == 2 and "dataset" in out and "Deneb passes" in out and "apostrophe" not in out
