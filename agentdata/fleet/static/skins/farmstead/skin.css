@@ -223,3 +223,68 @@ body[data-skin="farmstead"] {
 body[data-skin="farmstead"] *::-webkit-scrollbar-thumb {
   border-radius: 4px; border: 2px solid #4A2E16; background-clip: border-box;
 }
+
+/* ------------------------------------------------------------------ on three.js (#255)
+
+   Where the gate turns ink on, `static/ink/skins/farmstead.js` draws what the rules above paint:
+   the soil, the planks behind the header and the footer, a lit wooden frame and its paper round
+   every pane, and the crop in the chip -- all from `sprites.svg`, at whole device pixels. These are
+   its inputs, read at paint time; the module carries no colour of its own. `--farm-paper` is what
+   the pane's text is read on, so it is the variant's `composited_panel` in skins.py (a test holds
+   the two together). `--farm-soil` and `--farm-wood` recolour the art for a weather, as the tiles
+   above were recoloured by hand; daylight leaves them unset and draws the art as it is.
+   `--farm-band-light` is low enough that the header's and footer's text keeps 4.5:1 on the
+   lightest plank (test_fleet_ink_farmstead). Under `body.ink-off` none of this applies: the rules above
+   are the plain farmstead. */
+body[data-skin="farmstead"] {
+  --farm-paper: #E8DDC3;
+  --farm-sun: #FFF4E0;
+  --farm-band-light: 0.55;
+  --farm-ambient: 0.45;
+  --farm-diffuse: 0.62;
+  /* The palette's pencil is too faint on this paper for a mark (3:1); a graphite with some soil in
+     it is not. The other inks are the palette's own. */
+  --ink-pencil: #74695A;
+}
+body[data-skin="farmstead"][data-skin-variant="cave"] {
+  --farm-paper: #33302A;
+  --farm-soil: #46423A;
+  --farm-wood: #4A4438;
+  --farm-sun: #FFD9A8;
+  --farm-band-light: 0.9;
+  /* Lamplight: a paler pencil to be seen by, and a highlighter dark enough that the text read
+     through it keeps 4.5:1 (theme.check, test_fleet_ink_farmstead). */
+  --ink-pencil: #968F82;
+  --ink-highlighter: #A8861F;
+}
+body[data-skin="farmstead"][data-skin-variant="rainy"] {
+  --farm-paper: #16243D;
+  --farm-soil: #27364F;
+  --farm-wood: #243349;
+  --farm-sun: #D2DEF2;
+  --farm-band-light: 0.9;
+  /* A slate pencil: the palette's is lost on the night-blue paper (3:1). */
+  --ink-pencil: #8A97AB;
+}
+
+/* The page stands aside for the canvas behind it: the header, the footer and the panes are clear
+   where the ink draws their planks, frames and paper, and the chip's glyph box stays (so the crop
+   has its place) with nothing painted in it. The accent stripe on the pane's left is the pane's
+   own, and stays. */
+body[data-skin="farmstead"]:not(.ink-off) header,
+body[data-skin="farmstead"]:not(.ink-off) footer {
+  background: transparent !important;
+}
+/* A clear header left Chromium compositing the canvas behind the page with a band missing along
+   the foot of the panes -- the drawing buffer was whole (read back), the screen was not. Its own
+   layer puts it right; the header holds no popover a stacking context could trap. */
+body[data-skin="farmstead"]:not(.ink-off) header { will-change: transform; }
+body[data-skin="farmstead"]:not(.ink-off) .tile {
+  background: transparent !important;
+  border-top-color: transparent !important;
+  border-right-color: transparent !important;
+  border-bottom-color: transparent !important;
+  box-shadow: none;
+}
+body[data-skin="farmstead"]:not(.ink-off) .chip { background: transparent !important; box-shadow: none; }
+body[data-skin="farmstead"]:not(.ink-off) .chip::before { background-image: none !important; }
