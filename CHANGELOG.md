@@ -4,6 +4,25 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.14.1
+
+**Starting the fleet always ends on a current desk (#242).** `ad-fleet serve` is long-running, and
+after `ad-update` it went on serving the code it had loaded at start. `/api/ping` could not tell
+anyone, because its `version` read the installed metadata from disk and so already named the new
+version.
+- The desk now records what it was started on. `ping` answers `loaded` and `current`, which is the
+  desk's own answer to whether that is still what is installed.
+- `ad-fleet open` and `ad-fleet serve` replace a desk that answers `current: false`, or that is too
+  old to answer at all. They stop it through a new token-guarded `POST /api/shutdown`, falling back
+  to the pid in `serve.json` for a desk from before this version. `open` says so: `server: replaced
+  (was 0.14.0)`.
+- The PyCharm and VS Code shells treat such a desk as no desk, and the `ad-fleet serve` they start
+  replaces it.
+- The page repeats the desk's own sentence in the stale strip.
+
+**Nothing to do on update.** The next `ad-fleet open`, or the next time an IDE opens its fleet
+view, replaces the running desk.
+
 ## 0.14.0
 
 **Every session says what it began on, and the stale ones are renewed in one step (#238).** Skills

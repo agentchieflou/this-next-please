@@ -1473,7 +1473,7 @@ function refresh() {
       }
     });
     var need = data.repos.filter(function (r) { return r.needs_human; }).length;
-    drawRenewStrip(data.repos);
+    drawRenewStrip(data.repos, data.server);
     var fleetSpend = data.spend || {};
     var counts = document.getElementById("counts");
     text(counts,
@@ -4293,11 +4293,19 @@ var renewOpen = false;
 
 /* One line for as long as anything is stale; the preview only when asked for. Collapsed, the
    sentence is the count; open, it is the plan's own summary, which the next frame must not undo. */
-function drawRenewStrip(rows) {
+function drawRenewStrip(rows, server) {
   var strip = renewStrip();
   if (!strip) return;
   var n = (rows || []).filter(function (r) { return r.stale && r.stale.stale; }).length;
-  hide(strip, n === 0 && !renewOpen);
+  // The desk itself can be the stale thing (#242): a server started before `ad-update` goes on
+  // serving the code it loaded. The server judges it; this only repeats the sentence.
+  var oldDesk = !!(server && server.current === false);
+  var deskLine = strip.querySelector(".renew-desk");
+  hide(deskLine, !oldDesk);
+  text(deskLine, oldDesk ? server.reason : "");
+  hide(strip, n === 0 && !oldDesk && !renewOpen);
+  hide(strip.querySelector(".renew-sum"), n === 0 && !renewOpen);
+  hide(document.getElementById("renew"), n === 0 || renewOpen);
   if (renewOpen) return;
   text(strip.querySelector(".renew-sum"), n === 1
     ? "1 session began on skills or a CLI that have since changed"
@@ -4312,6 +4320,7 @@ function openRenew() {
   text(sum, "checking which sessions are stale…");
   document.getElementById("renewgo").disabled = true;
   hide(strip, false);
+  hide(sum, false);
   hide(document.getElementById("renew"), true);
   hide(strip.querySelector(".renew-rows"), false);
   hide(strip.querySelector(".renew-actions"), false);

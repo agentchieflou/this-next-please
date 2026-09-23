@@ -57,6 +57,8 @@
      One line until `renew` asks for the preview (`POST /api/renew {dry_run: true}`); nothing runs
      until `renewgo`. -->
 <div id="renew-strip" class="renew-strip enters" role="region" aria-label="stale sessions" hidden>
+  <!-- #242: the desk itself is older than what is installed. The server says so; the page repeats it. -->
+  <p class="renew-desk" hidden></p>
   <p class="renew-sum"></p>
   <button type="button" id="renew" title="see which agents would get a fresh session, and why — nothing runs yet">preview renew</button>
   <ul class="renew-rows" hidden>

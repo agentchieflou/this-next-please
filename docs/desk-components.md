@@ -64,7 +64,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | --- | --- | --- | --- | --- | --- | --- |
 | toolbar | brand, live dot, `window` segments, `see` group, settings link, `needs me` group | — (static) | `.toolbar`, `.segmented` | — | — | `test_fleet_desk_toolbar.py` |
 | away strip | title, one line per repo, dismiss | `checkAway` | `.away-strip` | — | — | `test_fleet_desk_sessions_b.py` |
-| renew strip | sentence, preview, then one row per stale agent (repo, verdict, why), renew, cancel | `drawRenewStrip`, `drawRenewPlan` | `.renew-strip`, `.renew-row` | hidden when no session is stale; `verdict-now`, `verdict-at-turn-end`, `verdict-skipped` | `Esc` | `test_fleet_renew.py` |
+| renew strip | the desk's own line, sentence, preview, then one row per stale agent (repo, verdict, why), renew, cancel | `drawRenewStrip`, `drawRenewPlan` | `.renew-strip`, `.renew-row` | hidden when no session is stale; `verdict-now`, `verdict-at-turn-end`, `verdict-skipped` | `Esc` | `test_fleet_renew.py` |
 | tile | head, run line, session pill, cards, cells, transcript, composer, two resize edges | `drawTile` | `.tile`, `.rsz` | `state-*`, `needs-human`, `held`, `is-solo`, `is-selected`, `is-hidden`, `is-pinned`, `is-dragging`, `size-2` | `1`–`9`, `h`, `r`, `m`, `a`, `Alt+←/→`, `Alt+Shift+arrows` | `test_fleet_desk_regressions.py`, `test_fleet_window.py` |
 | resize ghost | outline, the two numbers | `showResizeGhost` | `#rszghost` | — | — | `test_fleet_window.py` |
 | activity trace | sixty bars, one a minute | `drawTrace` | `.trace`, `.b-trace` | red where a minute needed a person | — | `test_fleet_trace.py` |

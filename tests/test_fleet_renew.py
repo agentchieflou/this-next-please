@@ -344,3 +344,109 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+# --------------------------------------------------------------------------- a current desk (#242)
+
+
+def test_the_desk_knows_whether_it_is_the_installed_code(fleet_home, monkeypatch):
+    monkeypatch.setattr(FP, "current", lambda: dict(NOW))
+    monkeypatch.setattr(S, "LOADED", None)
+    assert S.desk_currency()["current"] is True, "not a server: nothing to be out of date"
+    monkeypatch.setattr(S, "LOADED", dict(NOW))
+    assert S.desk_currency() == {"loaded": NOW, "installed": NOW, "current": True, "reason": ""}
+    monkeypatch.setattr(S, "LOADED", dict(OLD))
+    got = S.desk_currency()
+    assert got["current"] is False
+    assert got["reason"].startswith("the desk is running 0.13.1 (aaaaaaa) · installed 0.13.2 (bbbbbbb)")
+    # Skills are the agents' concern, not the desk's: a skills-only change is still a current desk.
+    monkeypatch.setattr(S, "LOADED", dict(NOW, skills="999999999999"))
+    assert S.desk_currency()["current"] is True
+
+
+def test_a_launcher_reads_the_desks_own_answer(fleet_home):
+    from agentdata.fleet import opener as O
+
+    assert O.out_of_date({}) is False, "nothing answered: nothing to replace"
+    assert O.out_of_date({"service": "ad-fleet", "loaded": "0.13.2", "current": True}) is False
+    assert O.out_of_date({"service": "ad-fleet", "loaded": "0.13.1", "current": False}) is True
+    assert O.out_of_date({"service": "ad-fleet", "version": "0.13.2"}) is True, \
+        "a desk from before #242 cannot say what it loaded, and is older by definition"
+
+
+def test_open_replaces_an_old_desk_and_keeps_a_current_one(fleet_home, monkeypatch):
+    from agentdata.fleet import opener as O
+
+    record = {"port": 8765, "token": "t", "pid": 0, "url": "http://127.0.0.1:8765/?t=t"}
+    fresh = dict(record, token="t2")
+    stopped, started_on = [], []
+    monkeypatch.setattr(O, "running", lambda: dict(record))
+    monkeypatch.setattr(O, "stop_server", lambda r, timeout=10.0: stopped.append(r["port"]) or True)
+    monkeypatch.setattr(O, "start_server", lambda port=8765: started_on.append(port) or dict(fresh))
+
+    monkeypatch.setattr(O, "ping_info", lambda port, timeout=2.0: {"service": "ad-fleet", "loaded": "0.13.2",
+                                                                    "current": True})
+    assert O.current_desk() == (record, "already up") and not stopped
+
+    monkeypatch.setattr(O, "ping_info", lambda port, timeout=2.0: {"service": "ad-fleet", "loaded": "0.13.1",
+                                                                    "current": False})
+    assert O.current_desk() == (fresh, "replaced (was 0.13.1)")
+    assert stopped == [8765] and started_on == [8765]
+
+
+def test_a_desk_stops_when_asked_by_its_own_token_and_says_so_on_ping(fleet_home, monkeypatch):
+    import urllib.request
+    from agentdata.fleet import opener as O
+
+    monkeypatch.setattr(FP, "current", lambda: dict(NOW))
+    server, token = S.build(0)
+    monkeypatch.setattr(S, "LOADED", dict(OLD))
+    port = server.server_address[1]
+    S.record(server, token)
+    thread = threading.Thread(target=S.run, args=(server,), daemon=True)
+    thread.start()
+    try:
+        info = O.ping_info(port)
+        assert info["loaded"] == "0.13.1" and info["current"] is False
+        assert O.stop_server({"port": port, "token": token, "pid": 0}, timeout=5.0) is True
+        thread.join(timeout=5)
+        assert not thread.is_alive() and O.ping_info(port) == {}
+        assert O.serve_record() == {}, "a stopped desk forgets serve.json"
+    finally:
+        if thread.is_alive():
+            server.shutdown()
+    with pytest.raises(Exception):
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=1)
+
+
+def test_both_shells_treat_an_out_of_date_desk_as_missing():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ts = open(os.path.join(root, "ide", "vscode", "src", "fleet.ts"), encoding="utf-8").read()
+    kt = open(os.path.join(root, "ide", "jetbrains", "src", "main", "kotlin", "com", "agentdata", "fleet",
+                           "Fleet.kt"), encoding="utf-8").read()
+    assert "answer.current === false" in ts and "answer.loaded === undefined" in ts
+    assert 'json.has("loaded")' in kt and "answer.current" in kt
+
+
+@pytest.mark.browser
+def test_the_page_says_when_the_desk_itself_is_out_of_date(fleet_home, tmp_path, monkeypatch):
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    from test_fleet_desk_browser import launch_chromium
+
+    monkeypatch.setattr(FP, "current", lambda: dict(NOW))
+    _repo(tmp_path, "fresh", events=[started(NOW), turn_ended()])
+    server, token, port = _serve()
+    monkeypatch.setattr(S, "LOADED", dict(OLD))
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+            page.wait_for_selector("#renew-strip .renew-desk:not([hidden])", timeout=15000)
+            assert "the desk is running 0.13.1" in page.inner_text("#renew-strip .renew-desk")
+            assert page.locator("#renew").is_hidden(), "no stale session: nothing to preview"
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()

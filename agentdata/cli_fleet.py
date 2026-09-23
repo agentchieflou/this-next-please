@@ -273,7 +273,6 @@ def cmd_restart(a) -> int:
 
 def cmd_renew(a) -> int:
     """Fresh sessions for the stale agents, when they are idle (#241). `--dry-run` only shows."""
-    from .fleet import opener as O
     from .fleet import renew as RENEW
 
     names = list(a.repo or [])
@@ -1228,20 +1227,18 @@ def cmd_open(a) -> int:
     Every branch prints what it actually did, including the ones that could only put the URL on the
     clipboard -- an embedding story that quietly does nothing is worse than one that says so.
     """
-    record = O.running()
-    started = False
-    if not record:
-        try:
-            record = O.start_server(a.port)
-            started = True
-        except O.OpenError as e:
-            return _refuse("ad-fleet open", e)
+    # A desk running older code than is installed is replaced, not reused (#242): after `ad-update`
+    # the long-running server is the one piece that would otherwise go on serving last week's page.
+    try:
+        record, server = O.current_desk(a.port)
+    except O.OpenError as e:
+        return _refuse("ad-fleet open", e)
 
     try:
         if getattr(a, "all", False):
             wins = _remembered_windows()
             dids = [O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w) for w in wins]
-            return _emit("ad-fleet open", {"where": a.where, "server": "started" if started else "already up",
+            return _emit("ad-fleet open", {"where": a.where, "server": server,
                                            "port": record.get("port"), "windows": wins,
                                            "opened": [d.get("opened") for d in dids]})
         w = getattr(a, "window", "") or ""
@@ -1249,7 +1246,7 @@ def cmd_open(a) -> int:
     except O.OpenError as e:
         return _refuse("ad-fleet open", e)
 
-    return _emit("ad-fleet open", {"where": a.where, "server": "started" if started else "already up",
+    return _emit("ad-fleet open", {"where": a.where, "server": server,
                                    "port": record.get("port"), **did})
 
 
@@ -1385,6 +1382,16 @@ def _serve_url() -> str:
 
 def cmd_serve(a) -> int:
     """The multi-viewer. Blocks until Ctrl-C; everything it shows comes from #94's stream."""
+    # An older desk on the port is replaced, not collided with (#242). This is where the IDE shells
+    # land too: they treat `current: false` as "no desk" and start one, and this is what starts.
+    if a.port:
+        info = O.ping_info(a.port)
+        if O.out_of_date(info):
+            record = O.serve_record()
+            if int(record.get("port") or 0) == a.port and not O.stop_server(record):
+                return _refuse("ad-fleet serve", S.ServeError(
+                    f"the desk on port {a.port} is running {info.get('loaded') or 'an older version'} "
+                    "and would not stop", "stop it by hand (Ctrl-C in its window), then start again"))
     try:
         server, token = S.build(a.port)
     except S.ServeError as e:

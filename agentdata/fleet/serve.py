@@ -597,6 +597,7 @@ def fleet_snapshot() -> dict:
                       "all_time": round(sum((r.get("spend") or {}).get("total", 0.0) for r in rows), 2),
                       "budget_invalid": lifecycle.settings(cfg).get("budget_invalid", "")},
             "desk": desk_state(), "theme": theme_state(),
+            "server": desk_currency(),
             "preflight": C.get(C.load(), "fleet.preflight") is not False,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
 
@@ -1712,6 +1713,16 @@ def act(what: str, body: dict) -> dict:
         # reaches it. A click, a copy into `.agent/in/<KEY>/`, an `inbox.attached` event -- the
         # Downloads tray's rules, with `source: "drop"`.
         return _attach_bytes(body)
+    if what == "shutdown":
+        # How `ad-fleet open` replaces an out-of-date desk (#242). Token and loopback, like every
+        # other action: this is a local server being asked to stop by the one tool that starts it.
+        # The answer goes out first; the stop happens on its own thread, because `shutdown()` waits
+        # for the serving loop and the serving loop is waiting for this handler to return.
+        server = _SERVING.get("server")
+        if server is None:
+            raise ServeError("this desk is not serving", "nothing to stop")
+        threading.Thread(target=server.shutdown, daemon=True).start()
+        return {"stopping": True, "pid": os.getpid()}
     if what == "renew":
         # Stale only, when idle, previewed first (#241). The page asks with `dry_run` and shows the
         # rows before it asks again without; the CLI verb calls the same two functions.
@@ -2098,10 +2109,16 @@ class Handler(BaseHTTPRequestHandler):
                 # mismatch. It rides on `ping` rather than a route of its own because a shell that
                 # is already asking "are you there" should not need a second round trip to find out
                 # "and are we the same age".
+                currency = desk_currency()
                 return self._json({"ok": True, "service": "ad-fleet",
                                    "port": self.server.server_address[1],
                                    "version": version_string().split()[1],
-                                   "contract": CONTRACT})
+                                   "contract": CONTRACT,
+                                   # What this process is running, and whether that is still
+                                   # what is installed (#242). A launcher replaces a desk that
+                                   # says `current: false`; it compares nothing itself.
+                                   "loaded": (currency["loaded"] or {}).get("version", ""),
+                                   "current": currency["current"]})
             forward = [(k, v[0] if isinstance(v, list) and len(v) == 1 else v)
                        for k, vs in query.items() if k != "t"
                        for v in (vs if isinstance(vs, list) else [vs])]
@@ -2507,8 +2524,45 @@ def serve_file() -> str:
     return os.path.join(fleet_dir(), SERVE_FILE)
 
 
+# What this process was started on (#242). `ad-fleet serve` is long-running: after `ad-update` it
+# keeps serving the code it imported, while `/api/ping`'s `version` -- read from the installed
+# metadata on every call -- already names the new one. So the running desk could not tell that it
+# was older than the thing it reported. Captured when a server is built, not at import, because a
+# test or a CLI verb that imports this module is not a desk.
+LOADED: dict | None = None
+
+
+def desk_currency() -> dict:
+    """`{loaded, installed, current, reason}`: is the running desk the installed one?
+
+    The CLI half only -- version and commit. Skills are the agents' concern (#240); the desk does not
+    read them. Judged here, by the server, so a shell only ever reads the answer (#100's rule).
+    """
+    from . import fingerprint as FP
+
+    try:
+        installed = FP.current()
+    except Exception:                        # noqa: BLE001 - an unreadable install is not a dead desk
+        installed = None
+    if LOADED is None or installed is None:
+        return {"loaded": LOADED, "installed": installed, "current": True, "reason": ""}
+    same = LOADED.get("version") == installed.get("version") and (
+        not LOADED.get("commit") or not installed.get("commit")
+        or LOADED.get("commit") == installed.get("commit"))
+    reason = "" if same else (f"the desk is running {FP._label(LOADED)} · installed "
+                              f"{FP._label(installed)} — `ad-fleet open` replaces it")
+    return {"loaded": LOADED, "installed": installed, "current": same, "reason": reason}
+
+
 def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPServer, str]:
     """Bind and return the server, without serving. `port=0` picks a free one."""
+    global LOADED
+    from . import fingerprint as FP
+
+    try:
+        LOADED = FP.current()
+    except Exception:                        # noqa: BLE001 - see `desk_currency`
+        LOADED = None
     handler = type("BoundHandler", (Handler,), {"token": token or secrets.token_urlsafe(24)})
 
     class Server(ThreadingHTTPServer):
@@ -2576,12 +2630,17 @@ def forget() -> None:
         pass
 
 
+_SERVING: dict = {"server": None}
+
+
 def run(server: ThreadingHTTPServer) -> None:
+    _SERVING["server"] = server
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass
     finally:
+        _SERVING["server"] = None
         server.stopping.set()
         server.shutdown()
         server.server_close()
