@@ -83,17 +83,35 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # refuses -- and only in a real browser, because a test fetches an asset with the token already in
 # hand. That is the bug `_page`'s docstring is about, and adding a page means adding its script
 # here in the same edit.
-ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js")
+#
+# `ink/ink.js` (#248) is the ink layer's front door, a module beside `app.js`. The rest of the layer
+# -- `ink/layer.js`, `ink/shapes.js`, `ink/pen.js` and the vendored three.js -- is never named in a
+# page: the layer imports it through `q()`, token and all, and only once the gate says on.
+ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
 # (an EventSource, a 15-second `loadDesk`, a `place()` that rewrites `document.body` several times
 # a second) that has no business running under somebody editing a dropdown.
 #
-# `/probe` (#247) is the third, and the only one that loads three.js: it measures WebGL in whatever
-# shell it is opened in and posts the facts to `/api/probe`. The desk itself does not load three.js
-# until the ink layer (#248) does, and a test holds it to that.
+# `/probe` (#247) is the third: it measures WebGL in whatever shell it is opened in and posts the
+# facts to `/api/probe`. The desk loads three.js only through the ink layer (#248), only when that
+# shell's probe said hardware (or the page was opened with `?ink=on`), and only once a skin draws
+# with ink -- and a test holds it to that.
 PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html"}
+
+
+def ink_facts(query: dict) -> dict:
+    """Which shell a desk page is, by the name the probe filed it under, and what was measured there.
+
+    The same name `probe.js` uses -- `shell=`, else `w=`, else `browser` -- so the window
+    `ad-fleet probe --open pycharm` measured is the window that reads the answer. The class is
+    `probe.classify`'s; the page turns ink on for `hardware` alone, which is `probe.works`.
+    """
+    def first(key: str) -> str:
+        return ((query.get(key) or [""])[0] or "").strip().lower()
+
+    return PROBE.ink_gate(first("shell") or first("w") or "browser")
 
 # The page, compressed once per build of it rather than once per window (#195). Below a kilobyte the
 # gzip header costs more than the compression saves, and a skin's PNG is already compressed, so only
@@ -2318,7 +2336,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse(403, "not authorized",
                                 "open the URL `ad-fleet serve` printed, token and all")
         if route in PAGES:
-            return self._page(PAGES[route])
+            return self._page(PAGES[route], query)
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
         if route == "/api/themes":
@@ -2469,7 +2487,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._static(route[len("/static/"):])
         return self._refuse(404, f"no route {route}")
 
-    def _page(self, name: str) -> None:
+    def _page(self, name: str, query: dict | None = None) -> None:
         """One HTML page, with its own asset URLs carrying this run's token.
 
         Everything but `/api/ping` and `/open` requires the token, and a relative `href` does not
@@ -2482,16 +2500,29 @@ class Handler(BaseHTTPRequestHandler):
         The token is put on here rather than written into the file because it is generated per run.
         The scripts need no help: `common.js` reads `t` out of `location.search` and every fetch
         either page makes goes through its `q()`.
+
+        The desk's `<body>` also carries what `/probe` measured in this window's shell (#248):
+        `data-ink-shell` and `data-ink-probe`, the class `probe.classify` gave its record. It is on
+        the page before any script runs, so the ink layer's gate is decided the moment its module
+        does, with no second request and nothing drawn first and taken back.
         """
         html = textio.read_text(os.path.join(STATIC, name))
         for asset in ASSETS:
             html = html.replace(f'"/static/{asset}"', f'"/static/{asset}?t={self.token}"')
+        ink: tuple = ()
+        if name == "index.html":
+            gate = ink_facts(query or {})
+            ink = (gate["shell"], gate["class"])
+            # Both are words from a closed set (a shell name is `[a-z0-9_-]`, checked before it is
+            # written), so nothing here needs escaping.
+            html = html.replace("<body>", f'<body data-ink-shell="{gate["shell"]}" '
+                                          f'data-ink-probe="{gate["class"]}">', 1)
         stamp = os.stat(os.path.join(STATIC, name))
         # `name` leads the cache key rather than the literal it used to be: `gzip_for` requires a
         # key that names everything it was made from, and two pages sharing one entry would serve
-        # whichever was compressed first to both.
+        # whichever was compressed first to both. The desk's shell and its class are in it too.
         self._send(200, html.encode("utf-8"), "text/html; charset=utf-8",
-                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token))
+                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) + ink)
 
     def _static(self, name: str) -> None:
         """One file out of the package's `static/` directory, and nothing above or beside it.
