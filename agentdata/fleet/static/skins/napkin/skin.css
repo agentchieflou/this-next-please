@@ -86,10 +86,22 @@ body[data-skin="napkin"].ink-off .tile {
 }
 
 /* A pane idle a long time (idle, and its chip a day old) has a cup's ring under it, the same
-   colour and the same rim the shader draws. */
+   colour and the same rim the shader draws, where the shader puts it: on the open paper past the
+   transcript's first lines, clear of the reply row. */
 body[data-skin="napkin"].ink-off .tile.state-idle:has(.chip.stale) {
   background-image:
-    radial-gradient(circle at calc(100% - 34px) calc(100% - 30px),
+    radial-gradient(circle at calc(100% - 64px) 58%,
                     transparent 0 27px, var(--coffee) 28px 30px, transparent 31px),
     var(--napkin-quilt);
+}
+
+/* ----------------------------------------------------------------------- reduced transparency
+   Somebody who has asked to see less through things reads each pane on plain paper: the quilt and
+   the coffee ring stay on the napkin between the panes, and nothing shows behind the words. */
+@media (prefers-reduced-transparency: reduce) {
+  body[data-skin="napkin"]:not(.ink-off) .tile,
+  body[data-skin="napkin"].ink-off .tile,
+  body[data-skin="napkin"].ink-off .tile.state-idle:has(.chip.stale) {
+    background: var(--paper);
+  }
 }

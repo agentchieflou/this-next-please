@@ -131,6 +131,9 @@ Every shell whose probe did not say `hardware` gets `body.ink-off` (plan-ink Dec
 
 No layer and no three.js is fetched.
 
+**Reduced transparency** (`prefers-reduced-transparency: reduce`, in either mode) puts each pane on plain paper.
+The quilt and the coffee ring stay on the napkin between the panes, and nothing shows behind the words.
+
 ## Tests
 
 `tests/test_fleet_napkin.py` covers each of these. States come from agents' own streams (an error, an open question,
