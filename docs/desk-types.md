@@ -68,6 +68,7 @@ nothing if a diagnostic could be switched off where it stands.
 | `Pane` | an entry in `tiles`: its `.tile` element, the last event `seq`, the `row` it was drawn from | #233 |
 | `Row` | an agent's row, typed in the fields the typed part reads and **open** for the rest | `/api/fleet` |
 | `Tier` | `"rail"`, `"compact"` or `"full"` | `setTier`, the one writer |
+| `Tiers` | the widths the tiers change at: `rail`, `compact`, `full`, `slack`, and `invalid` when the file's four were not drawn | `settings.tiers()`, on the theme payload (#235) |
 | `Pixels`, `WidthsBefore`, `GutterHold` | a measured row, what a change of widths puts back, a gutter under the hand | #234 |
 
 The functions that carry them are:
@@ -75,7 +76,8 @@ The functions that carry them are:
 * **The door and the writes (#230):** `saveWindow`, `acceptDesk`, `applyWindow`, `mergeDesk`,
   `choose`, `deskAsShown`, `patchRow`, `arrangeNow` and what reads the arrangement back.
 * **The row (#233):** `makeTile`, `openName`, `openPane`, `backToPrevious`, the tiers (`paneTier`,
-  `setTier`, the observer), grouping, the rail's face, and the keyboard's stops.
+  `setTier`, the observer, and `applyTiers`, which takes the operator's widths, #235), grouping, the
+  rail's face, and the keyboard's stops.
 * **The widths (#234):** every function from `ownWidths` to `drawUndo`, the presets, and the gutters
   with their pointer and key handlers.
 
@@ -90,7 +92,8 @@ the server sends. `tests/test_desk_types.py` compares:
 * `DeskRecord` with the keys of `desk_state()`;
 * `WindowRecord` with `WINDOW_FIELDS`;
 * `Arrangement` with the blank arrangement;
-* `WindowWrite` with the record, of which it must stay a strict part.
+* `WindowWrite` with the record, of which it must stay a strict part;
+* `Tiers` with the keys of `settings.tiers()` (#235).
 
 A field added to serve.py fails there until the page says what it is.
 

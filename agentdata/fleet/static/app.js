@@ -96,6 +96,17 @@
  * @typedef {"rail" | "compact" | "full"} Tier
  */
 
+/** The widths the tiers change at, in CSS pixels (#235): `fleet.tiers.*` as `settings.tiers()` reads
+ *  them, on the theme payload. CI's numbers when the file sets none -- or sets four that do not go
+ *  together, when `invalid` says why.
+ * @typedef {Object} Tiers
+ * @property {number} rail                the rail's width
+ * @property {number} compact             compact from
+ * @property {number} full                full from
+ * @property {number} slack               how far past compact/full a pane goes before it changes
+ * @property {string} invalid             why the file's four were not drawn, or ""
+ */
+
 /** A pane: one agent in the row, and its entry in `tiles` (#233). `el` is its `.tile`, made once by
  *  `makeTile` and patched after (#215), carrying `data-repo` and `data-tier`; `seq` is the last event
  *  drawn into its transcript, and `row` what it was last drawn from.
@@ -4726,10 +4737,12 @@ var ROW_PAD_PX = 16;
    defaults carries nothing for them. A boundary that moved under a pane that did not is a change
    the observer never hears of, so every pane already measured has its tier taken again at the
    width it has. */
+/** @type {{rail: number, compact: number, full: number, slack: number}} */
 var TIER_DEFAULTS = { rail: RAIL_PX, compact: TIER_COMPACT_FROM, full: TIER_FULL_FROM,
                       slack: TIER_SLACK };
 var tiersSaid = "";
 
+/** @param {Tiers | null | undefined} t */
 function applyTiers(t) {
   if (!t) return;
   var rail = Number(t.rail), compact = Number(t.compact), full = Number(t.full);

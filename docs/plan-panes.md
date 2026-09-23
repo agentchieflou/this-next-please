@@ -396,6 +396,8 @@ Ships alone, first, before any layout work. It is the defect the operator hits e
   - **The laptop's numbers** are recorded in [desk-window.md](desk-window.md) §The tiers beside CI's, and read
     *not yet measured* until runbook P15–P16. P10–P16 carry on from D's P1–P9, so every P step in the runbook
     has one meaning.
+  - **Typed, as G types the tiers.** G landed while F was being built. `applyTiers` sits in the typed part,
+    so the payload it reads is a `Tiers` typedef, held to `settings.tiers()` by `tests/test_desk_types.py`.
 
 ### G #236 — types without a build
 
