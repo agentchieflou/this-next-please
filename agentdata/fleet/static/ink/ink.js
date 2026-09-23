@@ -143,6 +143,21 @@ function normalise(table) {
         throw new SyntaxError(where + ": `to` is not a selector the page can match");
       }
     }
+    // #249: an underline that grows with what arrives in its pane, a pen-tip dot at its end, and a
+    // written word that is struck and written again when it changes. Each belongs to one shape.
+    if ((row.grow !== undefined || row.tip) && row.shape !== "underline") {
+      throw new TypeError(where + ": `grow` and `tip` are an underline's");
+    }
+    if (row.grow !== undefined) {
+      try {
+        document.querySelector(row.grow);
+      } catch (e) {
+        throw new SyntaxError(where + ": `grow` is not a selector the page can match");
+      }
+    }
+    if (row.rewrite && row.shape !== "write") {
+      throw new TypeError(where + ": `rewrite` is a written mark's");
+    }
     if (row.snap != null && !(Number.isFinite(row.snap) && row.snap >= 4 && SNAPS.has(row.shape))) {
       throw new TypeError(where + ": `snap` is a grid pitch of 4px or more, for " + Array.from(SNAPS).join(", "));
     }
@@ -158,6 +173,10 @@ function normalise(table) {
       to: typeof row.to === "string" ? row.to : "",
       pad: Number.isFinite(row.pad) ? row.pad : 0,
       dash: !!row.dash,
+      grow: typeof row.grow === "string" ? row.grow : "",
+      step: Number.isFinite(row.step) && row.step > 0 ? row.step : 10,
+      tip: !!row.tip,
+      rewrite: !!row.rewrite,
       snap: Number.isFinite(row.snap) ? row.snap : 0,
       // How the mark goes: pencil is erased and ink struck, unless the row says otherwise -- the
       // paper grammar strikes the question and never the agent's name, so the name's highlight
