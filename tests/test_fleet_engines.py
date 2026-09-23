@@ -56,9 +56,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -267,7 +266,7 @@ def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home
     tile, still reorders, still draws its traces, and still lands where it would have."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
-    S.arrange("grid", order=["alpha", "beta", "gamma"])
+    S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
@@ -289,7 +288,8 @@ def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home
             """)
             page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
                       wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="gamma"]', timeout=15000)
+            # Attached, not visible: only the open agent is on the glass (#232), and gamma is a band.
+            page.wait_for_selector('.tile[data-repo="gamma"]', state="attached", timeout=15000)
 
             page.evaluate("() => setHidden('beta', true)")
             page.wait_for_function(
@@ -307,7 +307,7 @@ def test_the_desk_arrives_at_the_same_place_with_every_fallback_taken(fleet_home
               traces: [...document.querySelectorAll('.tile .trace')]
                         .filter(c => c.getAttribute('aria-label')).length,
               order: [...document.querySelectorAll('#grid .tile')].map(t => t.dataset.repo),
-              hidden: (getLayoutArrangement().hidden || []),
+              hidden: (getArrangement().hidden || []),
             })""")
             assert not errors, errors
             assert out["hidden"] == ["beta"], out

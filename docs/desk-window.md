@@ -16,7 +16,7 @@ were wrong with that, and none of them is a matter of taste.
 `size` in the arrangement is `{cols, rows}`.
 
 ```json
-"grid": { "size": { "rdsd-pbi-reporting": { "cols": 2, "rows": 1 } } }
+"arrangement": { "size": { "rdsd-pbi-reporting": { "cols": 2, "rows": 1 } } }
 ```
 
 `size: 2` — which is what every `desk.json` written before this holds — reads as
@@ -49,8 +49,8 @@ Pointer events, with capture. `bindDragToReorder(handle, host, name)`:
 
 | | handle | host |
 | --- | --- | --- |
-| grid | `.head` — the title bar, with its grip | the tile |
-| column | `.band-open` — the button that fills the row | the band |
+| an open tile | `.head` — the title bar, with its grip | the tile |
+| the column | `.band-open` — the button that fills the row | the band |
 
 The rule for what a press means: **a press on a control inside the handle belongs to that
 control, unless the handle *is* the control.** A tile's head is a plain `div`, so every button in
@@ -59,15 +59,17 @@ than inside it, so a press anywhere in it is the band's.
 
 Four pixels of travel before anything moves — a click on the head still selects the project — and
 then the host is translated under the cursor and whatever is under the pointer is lit `drop-before`
-or `drop-after`. `Esc` cancels and the arrangement is untouched. The drop is optimistic: the order
-changes under the hand and the server's answer is what the next draw reads.
+or `drop-after`, measured along the axis the list runs on: across for the open tiles, down for the
+bands, and across again when a narrow window lays the bands in a row. `Esc` cancels and the
+arrangement is untouched. The drop is optimistic: the order changes under the hand and the server's
+answer is what the next draw reads.
 
 Five details are each a bug that happened:
 
 1. **The capture is taken on lift, not on `pointerdown`.** While an element holds the pointer
    capture the browser retargets the compatibility mouse events to it as well, so capturing early
    sent the `click` that ends an ordinary press to the head rather than to the repository name
-   inside it — and clicking the name, which is how a tile is zoomed, silently stopped working.
+   inside it — and clicking the name, which is how a tile is opened, silently stopped working.
 2. **The move and up listeners are on the document.** A head is twenty pixels tall and the pointer
    is off it before it has travelled far enough to count as a drag, so a handle that listened to
    itself heard the first move and none of the others.
@@ -85,32 +87,23 @@ and on a band it would open the agent — neither of which is what the hand just
 
 ## Resizing
 
-Two edges: `.rsz-x` on the right for columns, `.rsz-y` on the bottom for rows. They start below the
-head, because the head's own controls reach the right edge and a resize strip over them is a
-maximise button that cannot be clicked — a window is resized from its body edge and moved by its
-title bar, and that is the distinction.
-
-Columns snap to the grid's own tracks, measured from `getComputedStyle(grid).gridTemplateColumns`
-rather than assumed: `auto-fit` means the number of columns is whatever the window is wide enough
-for. Rows snap to thirds of the page height.
-
-`#rszghost` shows what will happen before the hand comes up (HIG *Drag and drop*): one outline for
-the whole page, sized to the projected footprint and labelled with the two numbers. One element,
-because there is only ever one gesture in flight and a ghost per tile is a ghost that gets left
-behind. `Esc` abandons the resize with nothing written.
+From the keyboard: `Alt+Shift+arrows` step the two numbers and `Alt+Enter` toggles one column or
+two. The two edges a tile could be pulled by, and the outline that showed where it would land, went
+with the grid (#232): they snapped to the grid's `auto-fit` tracks, and the one arrangement has no
+wrap of tracks to snap to. Resizing by hand comes back as the gutters between panes
+([plan-panes.md](plan-panes.md) §Resizing, #234), which replace `size` too.
 
 ## Minimise and maximise
 
 Both are gestures the desk already had, under names only this page used.
 
 * **Minimise** is the hide button — `setHidden(repo, true)`. The tile keeps its place in `order`,
-  so reopening puts it back where it was, and the dock or the column is one click away.
+  so reopening puts it back where it was, and the column's *show all* is one click away.
 * **Maximise** is `openAgent(repo)`, and it takes the width toggle's place in the head.
 
-The width toggle went because the edge handles and `Alt+Shift+arrows` answer that question with
-more than two answers, and because adding two buttons to a head that was already crowded is the
-information overload this epic exists to remove. `Alt+Enter` still toggles the width for anyone who
-learned it.
+The width toggle went because `Alt+Shift+arrows` answer that question with more than two answers,
+and because adding two buttons to a head that was already crowded is the information overload this
+epic exists to remove. `Alt+Enter` still toggles the width for anyone who learned it.
 
 ## Keys
 
@@ -135,5 +128,6 @@ under `prefers-reduced-motion: reduce`, and the drop applies the new order direc
 
 ## What is deliberately not here
 
-No overlap, no z-order, no free placement, and no drag inertia. The desk is a grid and a column,
-and a window that can be put anywhere is a window that can be put somewhere nobody can find it.
+No overlap, no z-order, no free placement, and no drag inertia. The desk is the open tiles and a
+column, and a window that can be put anywhere is a window that can be put somewhere nobody can find
+it.

@@ -8,23 +8,10 @@
 </head>
 <body>
 <header class="toolbar">
-  <!-- HIG *Toolbars*: three groups, each labelled, grouped by meaning, never a settings panel. -->
+  <!-- HIG *Toolbars*: labelled groups, grouped by meaning, never a settings panel. The `window`
+       group that chose an arrangement went with the choice (#232): there is one. -->
   <h1>fleet</h1>
   <span id="link" class="dot" title="event stream">connecting</span>
-
-  <div class="toolbar-group group-window">
-    <span class="glabel">window</span>
-    <div class="segmented" id="layoutgroup" role="radiogroup" aria-label="layout">
-      <button type="button" role="radio" class="segment active" data-layout="column" aria-checked="true" title="one agent open, the rest as bands down the side">column</button>
-      <button type="button" role="radio" class="segment" data-layout="grid" aria-checked="false" title="every tile on one screen">grid</button>
-      <button type="button" role="radio" class="segment" data-layout="roles" aria-checked="false" title="three windows that agree on one project">roles</button>
-      <button type="button" role="radio" class="segment" data-layout="screens" aria-checked="false" title="one project per monitor">screens</button>
-    </div>
-    <!-- The second segment: which of the set THIS window is. Only roles and screens have one. -->
-    <div class="segmented" id="viewgroup" role="radiogroup" aria-label="this window" hidden></div>
-    <label for="swap" class="sr">project on this screen</label>
-    <select id="swap" hidden title="put another project on this screen"></select>
-  </div>
 
   <span class="spacer"></span>
 
@@ -46,7 +33,6 @@
   <div class="toolbar-group group-actions">
     <span class="glabel">needs me</span>
     <button id="focus" aria-pressed="false" title="show only the agents that need you"><kbd>f</kbd> focus</button>
-    <button id="unfocus" hidden>back to grid <kbd>Esc</kbd></button>
     <button id="chime" aria-pressed="false" title="sound on a notification">chime off</button>
     <button id="bell" title="notifications"><span id="bellcount">0</span> new</button>
   </div>
@@ -79,11 +65,8 @@
 </div>
 
 <div class="workspace">
-<!-- The glass: the tiles, and the strip under them that says what is not on it. `.workspace` is a
-     flex ROW, so a `#dock` parked directly in it was laid out BESIDE the grid with a basis of its
-     own content — a chip carrying a long question took a third of the window off the tiles, which
-     is the desk in the photograph #200 was written from. The dock's own comment has always said it
-     sits under the grid; this is the box that makes that true. -->
+<!-- The glass: the open tiles, top to bottom. `.workspace` is a flex ROW, and the column of bands
+     is the glass's sibling in it. -->
 <div class="glass">
 <main id="grid" aria-live="polite"></main>
 
@@ -102,27 +85,13 @@
     <span class="dispatch-note"></span>
   </div>
 </div>
-
-<!-- #173: everything that is not on the glass, so a hidden tile is never a lost one. Zoomed,
-     hidden, or gone from the registry -- one chip each, one click back. -->
-<div id="dock" class="dock enters" hidden aria-label="tiles that are not on the glass">
-  <span class="dock-label"></span>
-  <ul class="dock-chips">
-    <li class="dock-chip" hidden>
-      <button type="button" class="dock-open">
-        <span class="dc-name"></span><span class="dc-chip"></span><span class="dc-badge" hidden></span>
-      </button>
-    </li>
-  </ul>
-  <button type="button" id="showall" class="dock-showall">show all</button>
-</div>
 </div>
 
 <!-- #203: the column. One agent is open and fills the glass; every other checkout is a BAND here,
-     and the bands share the column's whole height so none of the page is empty. It is the dock's
-     data on a vertical axis — the same rows, the same grouping of a project's checkouts, the same
-     rule that a tile needing a person is never off the glass — which is why the dock is not drawn
-     in this arrangement: one thing, not two. -->
+     and the bands share the column's whole height so none of the page is empty. It is also where
+     a tile went: a project's checkouts are one band, a hidden one is counted at the foot, one that
+     left the registry is a band saying how to bring it back, and a tile needing a person is never
+     off the glass. The grid's dock answered the same question and retired with the grid (#232). -->
 <div id="column" class="column" hidden aria-label="the other agents">
   <div class="column-head">
     <span id="column-count" class="column-count"></span>
@@ -149,7 +118,7 @@
            that exists on the open agent and not on the others is the thing this slice was asked to
            stop doing. -->
       <div class="band-tools">
-        <button type="button" class="band-hide toolbtn" data-tool="hide" title="minimise — off the glass (h), keeping its place; the column or the dock brings it back">
+        <button type="button" class="band-hide toolbtn" data-tool="hide" title="minimise — off the glass (h), keeping its place; the column's show all brings it back">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg><span class="sr">hide</span>
         </button>
         <button type="button" class="band-refresh toolbtn" data-tool="refresh" title="re-read it now (r) — spends no premium request">
@@ -257,7 +226,7 @@
 <p id="empty" hidden>
   No repositories registered. Run <code>ad-fleet repo add --scan &lt;folder&gt;</code>, then reload.
 </p>
-<p id="nonefocus" hidden>Nothing needs you. Press <kbd>f</kbd> for the whole grid.</p>
+<p id="nonefocus" hidden>Nothing needs you. Press <kbd>f</kbd> for every agent.</p>
 
 <footer>
   <span id="counts"></span>
@@ -296,7 +265,7 @@
     </div>
     <div class="keys-group"><strong>this page</strong>
       <span><kbd>?</kbd> these keys</span>
-      <span><kbd>Esc</kbd> grid, or close what is open</span>
+      <span><kbd>Esc</kbd> the last one, or close what is open</span>
     </div>
   </div>
 </footer>
@@ -309,7 +278,6 @@
      for every other skin; `groundColours()` reads the mesh out of the stylesheet, which stays its
      only owner. -->
 <canvas id="ground" aria-hidden="true" hidden></canvas>
-<div id="rszghost" hidden aria-hidden="true"><span class="rsz-says"></span></div>
 <div id="modelcard" class="modelcard enters" role="dialog" aria-label="which model this agent runs" hidden>
   <div class="mc-head">
     <strong class="mc-repo" id="mc-repo"></strong>
@@ -356,7 +324,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"></path><path d="M12 15v6"></path></svg>
         <span class="sr">pin</span>
       </button>
-      <button class="hidetoggle" type="button" data-tool="hide" title="minimise — off the glass (h), keeping its place; the column or the dock brings it back">
+      <button class="hidetoggle" type="button" data-tool="hide" title="minimise — off the glass (h), keeping its place; the column's show all brings it back">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.6-6 9-6 9 6 9 6-3.6 6-9 6-9-6-9-6z"></path><path d="M4 4l16 16"></path></svg>
         <span class="sr">hide</span>
       </button>
@@ -369,18 +337,13 @@
       <!-- #217: the head is a title bar, so it carries what a title bar carries and nothing
            more. Minimise is the hide button above -- the same gesture the desk always had, under
            the name everybody already knows -- and maximise takes the width toggle's place, since
-           the edge handles and Alt+Shift+arrows do that job with more than two answers. Adding
-           buttons to a head that was already crowded is the information overload this epic is
-           supposed to be removing. -->
+           Alt+Shift+arrows do that job with more than two answers. Adding buttons to a head that
+           was already crowded is the information overload this epic is supposed to be removing. -->
       <button class="maxtoggle" type="button" title="maximise — open this one (Enter)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"></path></svg>
         <span class="sr">maximise</span>
       </button>
     </div>
-    <!-- #217: the two edges the tile can be pulled by. Empty spans: the stylesheet draws the
-         grip and the script binds the pointer. -->
-    <span class="rsz rsz-x" data-edge="x" aria-hidden="true"></span>
-    <span class="rsz rsz-y" data-edge="y" aria-hidden="true"></span>
     <!-- Which run this transcript belongs to. #147: a transcript with no era read as live. -->
     <p class="runline"></p>
     <!-- #206: one session control. The strip here was four buttons of three different kinds -- a

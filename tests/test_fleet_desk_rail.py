@@ -8,7 +8,9 @@ handing tickets over was the one place the hand-over skipped its pre-flight.
 
 The rail is one chip per registered checkout at the top of the board, each a drop target; a drop
 calls exactly what a drop on the tile calls; the card is one element the page owns, drawn under the
-rail when the tile is not on the glass. Same rules as `tests/test_fleet_handoff_pickup.py`: the
+rail when the tile is not on the glass. The board window went with `roles` (#232); what these tests
+drive now is the board open beside the agent the operator is reading, with the two checkouts a
+ticket can go to off the glass as bands -- the same situation, one window instead of three. Same rules as `tests/test_fleet_handoff_pickup.py`: the
 drop is built in page context, and the assertions are on the rendered page and on the consequence
 (the `started` events on the checkout), never on the source text.
 """
@@ -37,10 +39,8 @@ def fleet_home(tmp_path, monkeypatch):
 def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_desk_loaded", False)
     monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
+        "schema": 2, "selected": "", "version": 0, "at": "",
+        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
         "windows": {},
     })
     monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
@@ -74,9 +74,13 @@ def spawns(monkeypatch):
 def _fleet(tmp_path):
     """Two checkouts of two projects, and a board with one RDSD ticket on it: `luna` is the one
     candidate for it, `mars` is not. Jira is never reached -- the board cache and the pre-flight
-    cache are the seams, primed the way a second read inside the TTL would find them."""
+    cache are the seams, primed the way a second read inside the TTL would find them. A third,
+    `sol`, is the agent the operator has open, so neither checkout the ticket can go to is on the
+    glass."""
     Registry().add(make_project(tmp_path / "luna", project="RDSD"), name="luna")
     Registry().add(make_project(tmp_path / "mars", project="DATAENG"), name="mars")
+    Registry().add(make_project(tmp_path / "sol", project="OPS"), name="sol")
+    S.update_window("main", open="sol")
     B.write_cache({"jql": B.DEFAULT_JQL, "fetched_at": time.time(), "rows": [
         {"key": "RDSD-118", "summary": "UAT refresh is slow", "status": "To Do", "category": "new"}]})
     PF.write_cache({"issues": {"RDSD-118": {"description": "UAT refresh is slow.", "issuetype": "",
@@ -92,17 +96,20 @@ def _serve():
 
 
 def _board_window(p, port, token):
-    """The right-hand window of the roles layout: the board, and no tiles on the glass."""
+    """The board, open beside `sol`: the checkouts a ticket can go to are bands, not on the glass.
+    The address is the roles layout's board window, as a bookmark from before #232 still has it."""
     browser = launch_chromium(p)
     page = browser.new_page(viewport={"width": 1280, "height": 900})
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=roles&view=board", wait_until="domcontentloaded")
+    page.wait_for_selector('.tile[data-repo="sol"].is-solo', timeout=15000)
+    page.evaluate("() => boardPanel(true)")
     page.wait_for_selector("#tickets li[data-key='RDSD-118']", timeout=15000)
     page.wait_for_selector("#agentrail .rail-chip[data-repo='luna']:not([hidden])", timeout=15000)
-    assert page.evaluate("() => document.body.classList.contains('panels')"), "not the board window"
-    assert page.evaluate("() => Array.from(document.querySelectorAll('.tile')).every(t => t.offsetParent === null)"), \
-        "the board window has a tile on the glass"
+    assert page.evaluate("""() => ['luna', 'mars'].every(name =>
+        document.querySelector('.tile[data-repo="' + name + '"]').offsetParent === null)"""), \
+        "a checkout the ticket can go to is on the glass"
     return browser, page, errors
 
 
@@ -143,9 +150,9 @@ def _eventually(cond, timeout=5.0):
 @pytest.mark.browser
 def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start_starts_it_once(
         fleet_home, tmp_path, spawns):
-    """Acceptance criterion. In `?layout=roles&view=board`, a ticket row dragged onto a rail chip
-    opens the pre-flight card under the rail with its verdict; *Start* counts exactly one `started`
-    event on that checkout."""
+    """Acceptance criterion. With the board open and the checkout off the glass, a ticket row
+    dragged onto a rail chip opens the pre-flight card under the rail with its verdict; *Start*
+    counts exactly one `started` event on that checkout."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _fleet(tmp_path)
 
@@ -234,7 +241,8 @@ def test_a_drop_on_a_non_candidate_reads_cross_project_and_declining_the_overrid
             lit = page.evaluate("""() => Array.from(document.querySelectorAll('#agentrail .rail-chip:not([hidden])')).map(li =>
                 [li.dataset.repo, li.classList.contains('is-candidate'), li.classList.contains('is-dim'),
                  li.querySelector('.rail-open').getAttribute('aria-selected')])""")
-            assert lit == [["luna", True, False, "true"], ["mars", False, True, "false"]], lit
+            assert lit == [["luna", True, False, "true"], ["mars", False, True, "false"],
+                           ["sol", False, True, "false"]], lit
 
             asked: list[str] = []
             page.on("dialog", lambda d: (asked.append(d.message), d.dismiss()))
@@ -309,12 +317,14 @@ def test_the_whole_gesture_from_the_keyboard(fleet_home, tmp_path, spawns):
 
 
 @pytest.mark.browser
-def test_a_refusal_in_the_grid_lands_on_the_tile_and_the_rail_note_stays_empty(fleet_home, tmp_path, spawns):
-    """The card is one element with two homes. In the grid it draws in the tile that took the
-    drop, exactly where #164's tests find it, and a refusal is written on that card -- never under a
-    rail the operator is not looking at."""
+def test_a_refusal_on_an_open_tile_lands_on_the_tile_and_the_rail_note_stays_empty(fleet_home, tmp_path, spawns):
+    """The card is one element with two homes. On a tile that is on the glass -- the grid's every
+    tile once, the open one now (#232) -- it draws in the tile that took the drop, exactly where
+    #164's tests find it, and a refusal is written on that card -- never under a rail the operator
+    is not looking at."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _fleet(tmp_path)
+    S.update_window("main", open="luna")
 
     server, token, port = _serve()
     try:

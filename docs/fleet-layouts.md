@@ -1,161 +1,164 @@
-# Four screens, N projects: the layouts
+# One arrangement: the layouts, and how there came to be one
 
-> **Decided on the laptop, not here.** #133 is a spike: three arrangements were built so one could
-> be chosen against the real monitors on a real afternoon, and the choice is the operator's. **The
-> default that shipped is `grid`, pending that sitting.** The two others stay reachable by URL for a
-> month afterwards, then go if nobody used them. Fill in §The sitting below and the decision becomes
-> a line of code (`LAYOUTS[0]`) rather than an opinion.
+> **Decided, 2026-09-22: one arrangement.** #133 built three arrangements so one could be chosen against the
+> real monitors, and #200 added a fourth, `column`, which the operator chose that morning. Later the same day
+> the operator retired the choice itself, in these words:
 >
-> **Decided, 2026-09-22.** The operator chose a fourth arrangement, `column`, from a photograph of the
-> desk in use and said so in as many words; §The sitting's decision block below is filled in from that and
-> from nothing else, and [plan-column.md](plan-column.md) (#200) is the plan that moves `LAYOUTS[0]`.
+> *"I don't really know what purpose 'roles' and 'screens' are serving anymore. It almost feels like we only
+> really need the 'grid' option, and just that its design features need to be hardened."*
 >
-> **Planned, 2026-09-22, later the same day.** The operator retired `roles` and `screens` and asked for one
-> arrangement where every agent is its own column, with each one resizable. [plan-panes.md](plan-panes.md) is that plan.
-> Until its slice C lands, the four arrangements below still ship.
->
-> **What the Windows sitting found first** is written up in [plan-desk-refactor.md](plan-desk-refactor.md):
-> the tiles show the last supervised run as if it were now, they cannot be moved, and the picker reloads the
-> page. Those are fixed by that plan's slices, and the layout decision still belongs here.
+> [plan-panes.md](plan-panes.md) (#229) is the plan that followed, and its slice C (#232) is what landed here:
+> **the page has one arrangement**, `LAYOUTS` is gone from all three places that kept it, and the picker in
+> the header went with it. §The sitting below keeps the history of how the choice was made.
 
-The friction is not the number of monitors. It is **one tab per system per project**: eight
-bookmarks on the centre screen, a ticket on the right, a terminal on the left, Downloads on the
-laptop — times N projects. Every arrangement below is the same page, the same DOM and the same
-stylesheet, chosen by the query string, because a second HTML file is a second thing to keep in step
-and the thing being fixed is having too many things.
+## What the one arrangement is
 
-```bash
-ad-fleet serve --layout grid
-ad-fleet serve --layout roles
-ad-fleet serve --layout screens
+Today it is the column's drawing (#203): one agent open at full height, pinned agents open beside it, and
+every other checkout a **band** in a column down the side, the bands sharing the column's whole height. Under
+900 px the column lies down into a strip above the open tile. [fleet-dashboard.md](fleet-dashboard.md) §The
+column has the rest.
+
+What the operator called *the grid* is not the grid that shipped — wrapping cards with a zoom and a dock
+under them — and it is not the column either. It is **a row of panes**, one per agent, each at full height
+with a width of its own ([plan-panes.md](plan-panes.md) §Where this plan pushes back, item 2). That row is
+slice D (#233), and resizing it is slice E (#234). Slice C only took the other three arrangements away, so
+that D replaces one drawing rather than four:
+
+* **the grid's zoom** (`zoomed`, `body.focused`, *back to grid*) went. In the column, opening an agent is
+  what zooming was, and a `zoomed` left in the window record is what snapped a click back to the agent
+  before it (#230).
+* **the dock** (#173) went. It answered *where did that tile go* for the grid; in the column a hidden agent
+  is counted at the foot of the column, with *show all* beside the count, and one that left the registry is
+  a band saying how to bring it back.
+* **the resize edges** of #217 went. They snapped a tile to the grid's `auto-fit` tracks, and there is no
+  wrap of tracks left to snap to. `Alt+Shift+arrows` and `Alt+Enter` still write `size` until the gutters
+  replace it (#234).
+* **roles** and **screens** went, with the `window` segments in the header, the second segment that named
+  which window of a set this was, and the swap select.
+
+The needs-only filter (`f`) stays: it is not an arrangement.
+
+## An address or a flag from before
+
+Nothing that used to work lands on a blank page.
+
+* `?layout=`, `&view=` or `&screen=` in an address — a bookmark, an older launcher, an IDE shell built before
+  this — opens the desk as it always opens. The footer says once that the parameter is ignored, and the
+  page takes it off the address, so a reload does not say it again and the address the operator copies says
+  only true things.
+* `ad-fleet serve --layout …`, `ad-fleet quickstart … --layout …` and `ad-fleet hide|unhide --layout …` are
+  still accepted, for one release, and change nothing. The `note` in their `meta` says so. The release after
+  removes the flag.
+* `ad-fleet open --in edge` opens the window named `edge` unless `--window` names another, so an Edge window
+  on a fourth monitor has a record of its own instead of following every click in the browser tab (#230).
+
+## `desk.json`, schema 2
+
+```
+~/.agentdata/fleet/desk.json            "schema": 2
+  version                               the only-ever-rising counter every write bumps
+  selected                              the project the inspector follows, shared by every window
+  arrangement:  { order, hidden, pinned, size }       ONE record, shared by every window
+  windows:
+    <w>:  { open, focus, read, seen, held, section }  one per window (#172)
 ```
 
-`--layout` only appends `&layout=…` to the URL it prints; the page reads its own query string. So a
-window can also be re-pointed from the **layout picker in the header** without restarting the
-server, and every window on one server is the same server.
+Schema 1 had one arrangement per layout under `arrangement.column`, `.grid`, `.roles` and `.screens`, a
+`screens` list for the per-monitor pinning, and `layout`, `view`, `screen` and `zoomed` in every window record.
+Those are the fields four arrangements wrote into one record, and two of them disagreeing is the snap-back.
 
-## A — grid (`?layout=grid`)
+**The migration** runs by itself, once, the first time the server reads a `desk.json` with no `"schema": 2`
+in it:
 
-**The URL:** `http://127.0.0.1:8765/?t=…&layout=grid` — the default, and what `ad-fleet open` opens.
+1. The file is copied, byte for byte, to `desk.v1.json` beside it, in the fleet directory. If that copy
+   cannot be written, `desk.json` is not rewritten by the migration.
+2. The arrangement comes from `arrangement.column` if the old file has one, else from `arrangement.grid`,
+   because `ad-fleet hide` wrote to `grid` whatever the page showed. `order`, `hidden`, `pinned` and `size`
+   come across as they were, `size: 2` read as `{cols: 2, rows: 1}` the way it always has been.
+3. Each window keeps `open`, `focus`, `read`, `seen`, `held` and `section`. `zoomed`, `layout`, `view` and
+   `screen` are dropped. `zoomed` is **not** turned into `open`: it is the stale field the snap-back came
+   from.
+4. `screens` is dropped. `selected` stays, because the inspector reads it.
+5. `version` rises by one and `desk.json` is written as schema 2.
 
-**What it is for:** one window that is the whole desk. Every registered repository is a tile, and
-the tile carries everything the project has: the agent's state chip and transcript, the link rail,
-the polled cells, the files Downloads is offering it, and *what is this project* from the catalogue.
-Click a repo name (or press `1`–`9`) and one tile fills the window; `Esc` comes back.
-
-**Which screen it was meant for:** the fourth one — the laptop, or whichever monitor is not already
-holding a terminal, a report and a ticket. It asks for one screen and leaves the other three doing
-what the operator was already doing on them, which is why it is the shipped default: it is the only
-one of the three that costs nothing if the sitting concludes the whole idea was wrong.
-
-## B — roles (`?layout=roles&view=…`)
-
-**The URLs**, one browser window each:
-
-| URL | Shows | Screen |
-| --- | --- | --- |
-| `?layout=roles&view=agents` | the tiles, wide — transcripts, approvals, replies | **left**, where the terminal is |
-| `?layout=roles&view=verify` | the selected project alone: link rail, verify pane, its inbox | **centre**, where the report is |
-| `?layout=roles&view=board` | the Jira board and the unsorted tray, no tiles — and the agent rail, so a ticket is handed over from here too (#183) | **right**, where the ticket is |
-
-**What it is for:** giving each screen the job it already has, instead of asking one window to be
-all three. **The three windows agree on one project.** Clicking a tile on the left changes the
-centre and the right, because the selection is server state pushed down the same SSE stream every
-window is already reading — not a URL fragment each window would have to be told about. Open the
-three URLs once, drag them to their monitors, and the browser remembers the windows.
-
-**Which screen it was meant for:** all four at once. It is the layout that most directly answers the
-photograph, and the one with most to prove in the sitting: three windows that look alike are the tab
-problem again, one level up, which is why the header names the view and the window title carries it.
-
-## C — screens (`?layout=screens&screen=N`)
-
-**The URLs:** `?layout=screens&screen=1`, `…&screen=2`, `…&screen=3` — one project filling one
-monitor — plus `?layout=screens` with no `screen`, which is the board and the unsorted tray and no
-tiles: the laptop.
-
-**What it is for:** three projects being worked at once, each with a whole monitor: that project's
-agent, links, polled state, verify pane and offered files, nothing else on the glass. The **swap**
-select in the header moves a project onto this screen and takes it off whichever screen was holding
-it — the pinning is server state, so two monitors cannot end up showing the same project. A screen
-with nothing pinned falls back to the Nth registered repository, so `&screen=2` on a fresh fleet
-shows something rather than an empty monitor.
-
-**Which screen it was meant for:** the three landscape monitors, with the laptop as the board and
-the tray. It is the layout that scales worst and reads best: it is bounded at N ≤ 3 by the hardware,
-and above that the operator is back to choosing which projects are on screen.
-
-## D — `column` (`?layout=column`) — planned, #200
-
-One tile open at full height; every other checkout a **band** in a column beside it, the bands sharing the
-column's whole height so none of the page is empty; each band with the agent's name, state, age, its last line
-and the same hide, refresh and model buttons its tile has; a band that needs a person red and full-height in
-its own slot. The dock is not drawn in this arrangement — the column is the dock, laid the way the operator
-asked. Under 900 px the column lies down into a strip above the tile. Which tile is open is the window's
-(#172's record), so two monitors can read two agents; `selected` stays shared. The design, the sizing rule
-and the keys are in [plan-column.md](plan-column.md); slice A of that plan adds `column` to `LAYOUTS` in the
-three places the test keeps in step and makes it `LAYOUTS[0]`.
+To go back to a build from before #232, stop the server and put `desk.v1.json` back as `desk.json`.
 
 ## Focus mode — not a layout (`f`)
 
-The fourth thing to test, and the only one that is not an arrangement: **hide every tile except the
-ones that need a person.** The alternative to organising tabs is having fewer things to look at.
+**Show only the agents that need a person.** The alternative to organising tabs is having fewer things to
+look at.
 
-* `f` toggles it in any window; the button in the header shows the state.
-* "Needs a person" is #94's fold — `needs_human`, `waiting_approval`, `blocked`, `error` — not a
-  guess made in the page. See [fleet-events.md](fleet-events.md).
-* When nothing needs anyone the page says so (*Nothing needs you. Press `f` for the whole grid.*)
-  rather than showing an empty window that looks broken.
-* It is **not** applied in the solo views (`view=verify`, any pinned `screen`): hiding the one tile
-  that window exists to show would leave a blank monitor.
-* Remembered per window in `localStorage`, so the left monitor can stay in focus mode while the
-  centre one does not.
+* `f` toggles it; the button in the header shows the state. It is remembered in the window's record, so the
+  left monitor can stay in it while the centre one does not.
+* "Needs a person" is #94's fold — `needs_human`, `waiting_approval`, `blocked`, `error` — not a guess made
+  in the page. See [fleet-events.md](fleet-events.md).
+* It narrows the column rather than emptying it: a band whose agent wants nothing folds to a sliver, still
+  named and still counted. It never hides the open agent, which is the window.
+* An agent the operator has just acted on is **held** through the pass, so a reply does not fold the band it
+  was typed into.
 
 The rest of the keyboard is in [fleet-dashboard.md](fleet-dashboard.md) §Keyboard.
 
 ## Hidden tiles — the operator's own arrangement (`h`) (#173)
 
-Focus mode decides for you; **hiding** is you deciding. `hidden` is a list beside `order`, `size`
-and `pinned` in `arrangement[layout]`, so it is the server's and every window on this fleet agrees
-on it — a tile put away on the laptop is put away on the wall screen too, and it is still put away
-tomorrow.
+Focus mode decides for you; **hiding** is you deciding. `hidden` is a list beside `order`, `size` and
+`pinned` in the one `arrangement`, so it is the server's and every window on this fleet agrees on it — an
+agent put away on the laptop is put away on the wall screen too, and it is still put away tomorrow.
 
-* `h` hides the tile the keyboard is on; the `−` on its header does the same with a mouse.
+* `h` hides the agent the keyboard is on; the hide button on its tile or its band does the same with a mouse.
   `ad-fleet hide <repo>` and `ad-fleet unhide <repo>` do it from a terminal, and print the list.
-* A hidden tile **keeps its slot in `order`**, so reopening it puts it back between the two tiles it
-  was between rather than at the end.
-* **A tile that needs a person is on the glass whatever `hidden` says.** Hiding a demand is how a
-  demand gets missed, and it is the one rule the operator's own arrangement does not get to
-  override. The fold decides "needs a person", not the page.
-* `1`–`9` count what is on the glass, so a digit can no longer zoom a tile no mode is showing —
-  which used to leave a blank window, because zoom hides every other tile and a mode was already
-  hiding that one. Pressing the number printed on a tile focus mode is quieting leaves focus mode
-  rather than going dark.
-* `hidden` is additive: an arrangement written before this slice has no such key, and loads.
+* A hidden agent **keeps its slot in `order`**, so reopening it puts it back between the two it was between
+  rather than at the end.
+* **An agent that needs a person is on the glass whatever `hidden` says.** Hiding a demand is how a demand
+  gets missed, and it is the one rule the operator's own arrangement does not get to override.
+* The foot of the column says how many are hidden, and *show all* empties the list in one press.
+* `#tile=<repo>` — the anchor the Windows toasts and both IDE shells use — reopens a hidden agent and says so
+  in the footer.
 
-`hidden` and `pinned` are per **project**: two `git worktree` checkouts of one repository are one
-piece of work, and putting half of it away — or pinning half of it first — is an arrangement nobody
-asked for. Expanded on the server, so `ad-fleet hide` and every open window agree by construction,
-and a name the registry no longer knows keeps its place rather than being dropped from the desk.
-
-Nothing is taken away silently. Everything off the glass — hidden, quieted by focus mode, zoomed
-past, or a repository that has left the registry — is a **chip in the dock** along the bottom, and a
-chip is one click from being back. See [fleet-dashboard.md](fleet-dashboard.md) §The dock.
+`hidden` and `pinned` are per **project**: two `git worktree` checkouts of one repository are one piece of
+work, and putting half of it away — or pinning half of it first — is an arrangement nobody asked for.
+Expanded on the server, so `ad-fleet hide` and every open window agree by construction, and a name the
+registry no longer knows keeps its place rather than being dropped from the desk.
 
 ## What is shared between windows, and what is not
 
 | Thing | Where it lives | Why |
 | --- | --- | --- |
-| the selected project | the server, pushed on the stream | layout B is three windows that must agree |
-| the per-screen pinning | the server | a swap has to move a project *off* the other monitor |
-| the layout, view and screen | that window's URL | it is which screen this window is |
-| focus mode, theme, chime | that window's `localStorage` | one operator, one habit, per monitor |
+| the selected project | the server, pushed on the stream | the inspector on every screen follows it |
+| the arrangement: order, hidden, pinned, size | the server | one desk: the same agents in the same order on every screen |
+| which agent is open, focus mode, what was read | the window's record on the server (`?w=`) | the left monitor reads one agent while the centre reads another |
+| theme, chime | that browser's `localStorage` | one operator, one habit |
+
+A window is named by `?w=`. A plain browser tab is `main`; the PyCharm tool window asks for `pycharm`, the VS
+Code view for `vscode`, and `ad-fleet open --in edge` for `edge`, so the shells do not follow each other's
+clicks (#230).
 
 One process, one poller. Four windows on four screens are four SSE connections to the same
 `ad-fleet serve`, and the poller, the inbox watcher and the catalogue handle are held once for the
 process — otherwise the Jira poll would multiply by the number of monitors somebody happens to own.
 
+## What there was before: four arrangements (#133, #200)
+
+The friction #133 set out to fix is not the number of monitors. It is **one tab per system per project**:
+eight bookmarks on the centre screen, a ticket on the right, a terminal on the left, Downloads on the laptop —
+times N projects. Every arrangement was the same page, the same DOM and the same stylesheet, chosen by
+`?layout=`, and `ad-fleet serve --layout grid` put the parameter on the URL it printed.
+
+* **A — grid** (`?layout=grid`): every registered repository a tile, wrapping; a repo name or `1`–`9`
+  zoomed one to fill the window and `Esc` came back; a dock of chips under the tiles for whatever was off
+  the glass. It shipped as the default pending the sitting.
+* **B — roles** (`?layout=roles&view=agents|verify|board`): three windows, one per monitor, agreeing on one
+  selected project through the stream — the tiles on the left, the selected project's links and verify pane
+  in the centre, the Jira board and the tray on the right.
+* **C — screens** (`?layout=screens&screen=N`): one project filling each monitor, with a swap select that
+  moved a project off whichever screen held it; `screens` with no number was the laptop's board and tray.
+* **D — column** (`?layout=column`, #200): one tile open at full height and every other checkout a band in
+  a column beside it. The operator chose it on 2026-09-22, and it is the drawing the one arrangement kept.
+
 ## The sitting
+
+Kept as it was written, as the record of how the first choice was made. The commands in it predate the
+one arrangement: they still run, and `--layout` in them is now ignored with a note.
 
 Bounded on purpose: one real remediation afternoon, four repositories registered by
 `ad-fleet repo add --scan`, real tickets, fixture agents if the org policy still blocks real ones
@@ -243,22 +246,16 @@ should rise to the top or keep its slot, which ships as *keep its slot*.
 > is made on the real screens, by the operator, and recorded here and in #133 **before** any
 > layout-specific code. An agent may build the arrangements; it may not conclude which one won.
 
-An unknown `?layout=` falls back to the default with a notice in the footer rather than a blank
-page — that much is a behaviour, and it does not depend on the sitting.
+The second decision of that day — that there is no choice to make, and one arrangement — is at the top of
+this page, in the operator's words, and it is what #232 built. There is no `LAYOUTS[0]` to move any more:
+the three lists a test used to keep in step are gone, and so is the default they named.
 
-Then the default moves in three places that a test already keeps in step: `LAYOUTS` in
-`agentdata/cli_fleet.py` (the `--layout` default is `LAYOUTS[0]`), `LAYOUTS` in
-`agentdata/fleet/serve.py`, and the fallback a window with no `?layout=` takes in
-`agentdata/fleet/static/app.js`. Update the default named in this page and in
-[fleet-dashboard.md](fleet-dashboard.md), then open the follow-up issue that removes the unused two
-a month later.
-
-## Constraints every arrangement keeps
+## Constraints the arrangement keeps
 
 No new dependency, no build step, no CSS framework — the page still has to load in PyCharm's JCEF
 tool window and VS Code's Simple Browser behind the corporate proxy, where anything fetched from the
-internet simply does not arrive ([fleet-ide.md](fleet-ide.md)). Every arrangement is body classes
-over one stylesheet, so a tile cannot mean one thing on one screen and something else on another.
+internet simply does not arrive ([fleet-ide.md](fleet-ide.md)). There is one arrangement and one
+stylesheet, so a tile cannot mean one thing on one screen and something else on another.
 
 Window *placement* is the OS's and the browser's job. The dashboard offers views; it does not know
 which monitor it is on and does not try to find out.
