@@ -156,15 +156,21 @@ function applyTheme(cssVars, themeName) {
   var tokens = ["--bg", "--text", "--panel", "--line", "--select", "--muted", "--accent",
                 "--focus", "--running", "--waiting", "--human", "--done", "--idle"];
   if (cssVars && themeName && themeName !== "none") {
+    // Written only where it differs: every refresh applies the theme again, and an idle desk is
+    // zero DOM mutations (the render contract) -- a write of the same value is still a mutation,
+    // and it wakes everything that observes the root, the ink layer among them (#256).
     tokens.forEach(function (k) {
-      if (cssVars[k]) root.style.setProperty(k, cssVars[k]);
-      else root.style.removeProperty(k);
+      if (cssVars[k]) {
+        if (root.style.getPropertyValue(k) !== cssVars[k]) root.style.setProperty(k, cssVars[k]);
+      } else if (root.style.getPropertyValue(k)) {
+        root.style.removeProperty(k);
+      }
     });
     // Written only when it changes (the render contract): every snapshot applies the theme again,
     // and an attribute set to the value it already has is still a mutation to every observer.
     attr(root, "data-theme", "custom");
   } else {
-    tokens.forEach(function (k) { root.style.removeProperty(k); });
+    tokens.forEach(function (k) { if (root.style.getPropertyValue(k)) root.style.removeProperty(k); });
     attr(root, "data-theme", null);
   }
 }
