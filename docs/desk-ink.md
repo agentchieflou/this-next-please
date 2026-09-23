@@ -375,7 +375,7 @@ head instead.
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 152 KB gzipped for the whole desk, the layer's four modules (38 KB) included, against 200 KB. three.js (163 KB) is outside it: only a shell the gate turned on fetches it | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
+| the static payload | 156 KB gzipped for the whole desk, the layer's four modules (38 KB) included, against 200 KB. three.js (163 KB) is outside it: only a shell the gate turned on fetches it. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper; a drifting ground draws one frame a second | `test_fleet_ink.py`, `test_fleet_trace.py` |
