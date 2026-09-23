@@ -336,6 +336,12 @@ highlighter is read *through*, so the text needs **4.5:1** on its tint (`theme.I
 `tests/test_fleet_skins.py` passes each variant's `inks`. No variant declares any in B, so this is the hook the paper
 skins (#249–#253) fill in, with the composited-pane pairs of the three.js skins after them.
 
+## The skins that draw with it
+
+| Skin | Slice | Page |
+| --- | --- | --- |
+| `napkin` (`diner`, `kraft`) | F #252 | [skin-napkin.md](skin-napkin.md): quilted two-ply, a felt tip that bleeds along the emboss, a coffee ring under a pane idle a long time |
+
 ## What B does not do
 
 These come later in the epic. The notebook's paper, its rules and margin, and the state grammar (plan-ink §The state
