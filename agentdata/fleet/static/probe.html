@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fleet · WebGL probe</title>
+<link rel="icon" href="data:,">
+<!-- #247. The one page that loads three.js until the ink layer (#248) does: it measures WebGL in
+     whatever shell it is opened in and posts the facts to /api/probe. Nothing here decides whether
+     the answer is good -- agentdata/fleet/probe.py does, and the verdict below is the server's. -->
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; height: 100%; background: #faf8f2; color: #1d1d1b;
+               font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  main { position: relative; max-width: 44rem; margin: 2.5rem auto; padding: 1rem 1.25rem;
+         background: rgba(250, 248, 242, 0.92); border: 1px solid #d8d3c4; border-radius: 6px; }
+  h1 { font-size: 1.1rem; margin: 0 0 0.25rem; }
+  .why { margin: 0 0 0.75rem; color: #57544b; }
+  dl { display: grid; grid-template-columns: 9.5rem 1fr; gap: 0.2rem 0.75rem; margin: 0.5rem 0; }
+  dt { color: #57544b; }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  #verdict { font-weight: 600; }
+  #state { margin: 0.5rem 0 0; }
+  #back[hidden] { display: none; }
+</style>
+</head>
+<body>
+<canvas id="stage" aria-hidden="true"></canvas>
+<main>
+  <h1>WebGL probe</h1>
+  <p class="why">Three seconds of three.js strokes, measured in this window and kept by the desk in
+    <code>~/.agentdata/fleet/probes.json</code>. <code>ad-fleet engines</code> prints what every
+    shell reported, so nothing here needs copying.</p>
+  <dl>
+    <dt>shell</dt><dd id="shell">—</dd>
+    <dt>context</dt><dd id="context">—</dd>
+    <dt>renderer</dt><dd id="renderer">—</dd>
+    <dt>frames p50 / p95</dt><dd id="frames">—</dd>
+    <dt>first stroke</dt><dd id="stroke">—</dd>
+    <dt>verdict</dt><dd id="verdict">measuring…</dd>
+  </dl>
+  <p id="state" role="status">drawing for three seconds…</p>
+  <p><a id="back" hidden>back to the desk</a></p>
+</main>
+<script src="/static/common.js"></script>
+<script type="module" src="/static/probe.js"></script>
+</body>
+</html>

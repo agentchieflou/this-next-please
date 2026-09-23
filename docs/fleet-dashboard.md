@@ -418,7 +418,11 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | --- | --- | --- |
 | GET | `/` | the desk |
 | GET | `/settings` | the settings page: appearance, the model per agent, the Copilot launch settings |
-| GET | `/static/…` | the pages' assets: `app.css`, `common.js`, `app.js`, `settings.js` |
+| GET | `/probe` | the WebGL probe (#247): three seconds of three.js strokes in whatever shell opened it, posted once to `/api/probe`. The only page that loads three.js ([desk-engines.md](desk-engines.md) §WebGL, probed in each shell) |
+| GET | `/static/…` | the pages' assets: `app.css`, `common.js`, `app.js`, `settings.js`, `probe.js`, and the vendored `vendor/three/three.module.min.js` (r160, MIT) |
+| POST | `/api/probe` | `{shell, ua, webgl, renderer, vendor, caveat, three, intervals, first_stroke_ms, load_ms, drawn, error}` — facts only; one record per shell in `~/.agentdata/fleet/probes.json`, answered with the class and the WebGL cell `probe.classify` gives it. `409 probe_shell` / `probe_shape` for a record it cannot read. A probe that did not finish (`incomplete`) is kept as the shell's latest attempt and answered `kept: true` when a finished record stands |
+| POST | `/api/window` | `{w, …}` — one window's own record |
+| POST | `/api/measure` | `{w}` asks that desk window to go to `/probe` (`ad-fleet probe --open pycharm`). The ask is held in memory for ten minutes and shows in the desk frame's `measure`. `{w, take: true}` is the window claiming it, answered `go: true` once |
 | GET | `/api/fleet` | every repo's state, its model and the one its last turn ran on, the recent events, and the pending approvals |
 | POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
 | GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent |

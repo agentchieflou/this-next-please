@@ -30,7 +30,7 @@ from .console import prompt as ask_line, utf8_stdout
 from .fleet import (agentstate, approval, board as B, catalogue as CAT,
                     console as fleet_console, events as E, handoff,
                     inbox as IN, launch, lifecycle as L, links as LK, notify as N, opener as O,
-                    poll as P, preflight as PF, scan as SC, serve as S, supervisor)
+                    poll as P, preflight as PF, probe as PR, scan as SC, serve as S, supervisor)
 from .fleet.registry import Registry, RegistryError, agent_dir, fleet_dir
 from .version import add_version, version_string
 
@@ -1254,6 +1254,126 @@ def cmd_open(a) -> int:
                                    "port": record.get("port"), **did})
 
 
+# ------------------------------------------------------------------------------ the probe (#247)
+
+
+def _probe_table(rows: list[list]) -> str:
+    return toon.table("probes", PR.PROBE_COLUMNS, rows)
+
+
+def _wait_for_probe(shell: str, before: dict, wait_s: float) -> dict:
+    """The shell's new attempt once it lands in `probes.json`, or `{}` when `wait_s` runs out.
+
+    Read from the file rather than asked of the server: the file is what `ad-fleet engines` prints,
+    so a record that arrived here is one the table will show. The attempt rather than the record,
+    so a probe that arrived and did not finish is reported as that (#261) -- it does not replace a
+    finished measurement, and waiting for the record would have waited out the clock on it.
+    """
+    import time
+
+    deadline = time.time() + max(0.0, float(wait_s or 0))
+    while True:
+        now = PR.attempts().get(shell) or {}
+        if now and now != before:
+            return now
+        if time.time() >= deadline:
+            return {}
+        time.sleep(0.25)
+
+
+def cmd_probe(a) -> int:
+    """WebGL, measured in a shell: what each one recorded, or `--open` the probe somewhere now.
+
+    Opening it is `ad-fleet open` pointed at `/probe`, except for the two shells nothing outside can
+    point at a URL. For those the desk already inside PyCharm or VS Code is asked to go there itself
+    -- and comes back when it has posted. Either way the answer is written by the shell to
+    `~/.agentdata/fleet/probes.json`, and this waits for it and prints it, so the operator copies
+    nothing.
+    """
+    if not a.open:
+        rows = PR.probe_rows()
+        print(toon.encode({"meta": {"ok": True, "source": "ad-fleet probe", "shells": len(rows),
+                                    "file": textio.norm_path(PR.probes_file()), "rule": PR.RULE,
+                                    "next": "ad-fleet probe --open pycharm | vscode | edge | browser"}}))
+        print(_probe_table(rows))
+        return EXIT_OK
+
+    shell = a.open
+    if shell == "edge" and not O.edge_exe():
+        # Refused rather than handed to `open_in`'s clipboard fallback (#261): that puts
+        # `/open?page=probe&shell=edge` on the clipboard, and pasting it into the browser that IS
+        # open files that browser's renderer under `edge`.
+        return _refuse("ad-fleet probe", O.OpenError(
+            "Edge was not found, so nothing was opened",
+            "`ad-fleet probe --open browser` measures the default browser, under its own name"))
+
+    # The desk the probe is asked of runs the installed code (#242), as `ad-fleet open`'s does: the
+    # first step on the laptop after `ad-update` is this command, and last week's server has no
+    # `/probe` to open and no `measure` to ask a window with.
+    try:
+        record, server = O.current_desk(a.port)
+    except O.OpenError as e:
+        return _refuse("ad-fleet probe", e)
+    before = PR.attempts().get(shell) or {}
+
+    if shell in ("pycharm", "vscode"):
+        _tokened, stable = O.page_urls(record, "probe", {"w": shell})
+        asked = O.post_action(record, "measure", {"w": shell})
+        did = {"opened": (f"asked the desk's `{shell}` window to go to the probe" if asked.get("ok")
+                          else "nothing"),
+               "url": stable, "clipboard": O.clipboard(stable) if stable else False,
+               "hint": ("PyCharm: the fleet tool window goes there by itself if it is open, or "
+                        "when it is opened in the next ten minutes, and comes back when done"
+                        if shell == "pycharm" else
+                        "VS Code: the Fleet view goes there by itself if it is open. For Simple "
+                        "Browser, Ctrl+Shift+P → `Simple Browser: Show` → paste the URL")}
+        if not asked.get("ok"):
+            did["why"] = str(asked.get("error") or "the desk refused")
+    else:
+        urls = O.page_urls(record, "probe", {"shell": shell})
+        try:
+            did = O.open_in(shell, record, urls=urls)
+        except O.OpenError as e:
+            return _refuse("ad-fleet probe", e)
+
+    # Nothing was opened and nobody was asked: there is nothing to wait for (#261).
+    opened = not str(did.get("opened") or "nothing").startswith("nothing")
+    got = _wait_for_probe(shell, before, a.wait if opened else 0)
+    meta = {"where": shell, "server": server, "port": record.get("port"), **did,
+            "arrived": bool(got)}
+    if got:
+        meta.update({"class": PR.classify(got), "webgl": PR.verdict(got),
+                     "file": textio.norm_path(PR.probes_file())})
+        standing = PR.load().get(shell) or {}
+        if standing and standing != got:
+            meta["kept"] = (f"the probe did not finish, so the {standing.get('at', '')} "
+                            f"measurement stands: {PR.verdict(standing)}")
+    elif opened:
+        meta["next"] = ("`ad-fleet engines` shows it once the page has drawn; "
+                        "`--wait` gives it longer")
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet probe", **meta}}))
+    print(_probe_table(PR.probe_rows({shell: got}) if got else []))
+    return EXIT_OK
+
+
+def cmd_engines(a) -> int:
+    """The WebGL row of `docs/desk-engines.md`, read from what every shell's probe recorded.
+
+    One line per column of that table -- the four shells it names, *not yet measured* until they
+    have been -- then any other shell that has posted. The cell is `probe.verdict`, in the doc's
+    own vocabulary, so what is printed here is what goes in the doc.
+    """
+    rows = PR.engine_rows()
+    measured = sum(1 for r in rows if r[2] != "not yet measured")
+    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet engines", "shells": len(rows),
+                                "measured": measured,
+                                "file": textio.norm_path(PR.probes_file()), "rule": PR.RULE,
+                                "doc": "docs/desk-engines.md",
+                                "next": "ad-fleet probe --open pycharm | vscode | edge | browser"}}))
+    print(toon.table("engines", PR.ENGINE_COLUMNS, rows))
+    return EXIT_OK
+
+
 def cmd_board(a) -> int:
     """The operator's own tickets, and where each one probably belongs.
 
@@ -1682,6 +1802,18 @@ def build_parser() -> argparse.ArgumentParser:
                           "--in edge, else main)")
     opn.add_argument("--all", action="store_true", help="open every window the desk remembers")
     opn.set_defaults(fn=cmd_open)
+
+    prb = sub.add_parser("probe", help="WebGL, measured in a shell: what each one recorded, "
+                                       "or --open the probe there now")
+    prb.add_argument("--open", dest="open", choices=list(O.WHERE),
+                     help="open /probe in this shell, wait for its answer and print it")
+    prb.add_argument("--wait", type=float, default=60.0,
+                     help="seconds to wait for the shell's answer (default 60; 0 does not wait)")
+    prb.add_argument("--port", type=int, default=8765, help="port to start a server on if none is up")
+    prb.set_defaults(fn=cmd_probe)
+
+    eng = sub.add_parser("engines", help="the WebGL row of docs/desk-engines.md, from every shell's probe")
+    eng.set_defaults(fn=cmd_engines)
 
     brd = sub.add_parser("board", help="your Jira tickets, and which repo each one belongs to")
     brd.add_argument("--refresh", action="store_true", help="ask Jira now instead of using the cache")

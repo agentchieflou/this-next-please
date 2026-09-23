@@ -40,6 +40,10 @@ version this desk is running) and `current` (the desk's own answer to whether th
 installed). A launcher treats `current: false`, or a desk too old to say either, as no desk at all.
 `ad-fleet open` and `ad-fleet serve` then replace it instead of reusing last week's page.
 
+`/open?page=probe` lands on the WebGL probe (#247) rather than the desk, with the rest of the query
+string carried over — `http://127.0.0.1:8765/open?page=probe&w=vscode` is the address to paste into
+Simple Browser to measure it. Only a page the server serves; any other `page=` is the desk.
+
 ## VS Code
 
 **Measured, and it changes the plan: `code --command <id>` does not exist.** VS Code 1.129.1's CLI
@@ -217,6 +221,28 @@ means the same thing everywhere.
 Both install **from disk**; there is no marketplace publishing and no signing budget assumed.
 **Unverified:** whether corporate policy permits installing an unsigned plugin zip. If it does not,
 that is a hard blocker for the JetBrains half and #99's External Tool remains the answer.
+
+## Measuring WebGL inside the shells (#247)
+
+The ink epic (#246) draws the desk with three.js, and only in a shell whose GPU actually does the
+drawing. Which shells those are is measured by the shells themselves:
+
+```bash
+ad-fleet probe --open pycharm
+ad-fleet probe --open vscode
+ad-fleet engines
+```
+
+Nothing above can point PyCharm's tool window or VS Code's view at a URL, and neither shell needs
+to learn how. The CLI asks the server (`POST /api/measure {w}`). The desk already running inside the
+IDE sees the ask in its desk frame, takes it (`{w, take: true}` answers `go` once), and goes to
+`/probe` by itself. It waits first if a reply box holds unsent text. The probe waits until the window
+is on screen, draws for three seconds, posts once, and returns to the desk, even when the post is
+refused. The ask is held in the server's memory for ten minutes and never written to desk.json, so a
+tool window opened tomorrow shows the desk. This is why the shells' `w=` matters twice: it names the
+window *and* the row in `~/.agentdata/fleet/probes.json`. What the numbers mean, and the rule they are read by, is
+[desk-engines.md](desk-engines.md) §WebGL, probed in each shell; the laptop pass is
+[windows-verification.md](windows-verification.md) §Ink (#247).
 
 ## What is not done here
 

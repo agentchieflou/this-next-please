@@ -1216,3 +1216,45 @@ Run the desk in each shell and paste the console line back. The probes are the s
   more pixels — a tile's title bar is not going to get wider.
 - **Is the stale desk reassuring or alarming?** (O8) The alternative is an empty grid, which is
   what it replaced; the question is whether saying so is enough.
+
+
+## Ink (#247): WebGL, probed in all four shells
+
+The operator chose three.js as the desk's one renderer (epic #246), and every skin after this one
+ships switched on only for a shell whose WebGL cell in [desk-engines.md](desk-engines.md) says
+*works*. CI can only answer for headless Chromium, which draws on SwiftShader and so says *falls
+back*. These rows answer for the three shells the operator actually uses.
+
+Nothing here is pasted out of a dev console. Each `--open` sends the shell to `/probe` on the desk,
+which draws three seconds of three.js strokes, posts what it saw to
+`~/.agentdata/fleet/probes.json`, and the command waits for that answer and prints it. PyCharm's
+tool window and VS Code's view cannot be pointed at a URL from outside, so for those two the CLI
+asks the desk already open inside the IDE to go to the probe itself; it comes back to the desk
+about eight seconds after it has saved.
+
+Before starting: `ad-fleet open --in edge` (any shell will do) so a dashboard is running, then open
+the fleet tool window in PyCharm and the Fleet view in VS Code, each on its own desk.
+
+| # | Do this | Expect | Result | Notes |
+| --- | --- | --- | --- | --- |
+| W1 | With PyCharm's fleet tool window open, run `ad-fleet probe --open pycharm` | the tool window leaves the desk for the probe, draws for three seconds, and returns; the terminal prints `arrived: true`, the `class` and one `probes` row | _not yet measured_ | if the window does not move, the command still prints the stable URL; the tool window's desk must be the one the plugin opened (`w=pycharm`) |
+| W2 | With VS Code's Fleet view open, run `ad-fleet probe --open vscode` | the same, inside the view | _not yet measured_ | — |
+| W3 | In VS Code, `Ctrl+Shift+P` → `Simple Browser: Show` → paste `http://127.0.0.1:8765/open?page=probe&w=vscode` (W2 left it on the clipboard), then run `ad-fleet probe` | the probe runs inside Simple Browser, and the `vscode` row has a newer `at` | _not yet measured_ | the view and Simple Browser are the same Electron; if W2 and W3 disagree, that is the finding |
+| W4 | `ad-fleet probe --open edge` | an Edge app window draws, saves, and says *saved*; the terminal prints the row | _not yet measured_ | Edge on the laptop is the fourth monitor's engine |
+| W5 | *(optional)* Unplug the laptop and repeat W1 | the same class; the frame numbers may move | _not yet measured_ | Windows may hand an IDE the integrated GPU on battery. A class that changes is a row for the plan, not a retry |
+| W6 | `ad-fleet engines` | one line per column of desk-engines.md, `measured: 3` or more | _not yet measured_ | **paste the whole TOON block back.** The PyCharm, VS Code and Edge cells of the WebGL row, and their probe-table rows, are filled from it verbatim. The Chromium cell is CI's, measured by `test_fleet_engines.py`, and stays as it is: the laptop never probes `chromium`, so its line here reads *not yet measured* |
+
+The rule the cells are filled by is not a judgement call: `class: hardware` is *works*; `software`,
+`none` and `unknown` are *falls back*. `incomplete` (hidden while it drew, or it stopped) is no
+answer: run that step again with the window on screen. A software renderer (SwiftShader, llvmpipe, Microsoft Basic
+Render Driver) counts as *falls back* however smooth it looks, and a cell is never upgraded by hand.
+
+### The open questions these rows answer
+
+- **Does JCEF give PyCharm a GPU?** (W1) JetBrains ships JCEF with GPU compositing configurable,
+  and an IDE on a remote desktop falls back to software. If it says `software`, every paper skin
+  is the plain fallback inside PyCharm, and the plan has to say so before slice C ships.
+- **Is the VS Code webview the same answer as Simple Browser?** (W2, W3) Both are the editor's own
+  Chromium; a difference would mean the embedding, not the engine, decides.
+- **What does a real GPU make of the scene?** (W1–W4) The prototypes were measured under
+  SwiftShader at 117–150 ms a frame; these are the first numbers from hardware.

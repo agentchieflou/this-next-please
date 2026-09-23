@@ -170,18 +170,90 @@ def test_the_chromium_column_is_what_chromium_actually_does(fleet_home, tmp_path
 
     print("\n" + version)
     for name, ok in sorted(got.items()):
+        if name == "WebGL":
+            # A context, not a verdict: the row is the probe's (#247), printed by the test below.
+            print(f"  {name:38s} {'a context' if ok else 'absent'}; the row is the probe's")
+            continue
         print(f"  {name:38s} {'works' if ok else 'absent'}")
 
     rows = _rows()
     column = next(c for c in next(iter(rows.values())) if "Chromium" in c)
     wrong = []
     for name, ok in got.items():
+        if name == "WebGL":
+            # A context is not a verdict (#247): SwiftShader grants one and draws at software
+            # speed. The row is the probe's, and `test_the_webgl_row_is_what_the_probe_measured`
+            # below holds it to what `/probe` recorded in this same engine.
+            continue
         said = re.sub(r"[*_`]", "", rows[name][column]).strip().lower()
         if ok and not said.startswith(("works", "n/a")):
             wrong.append(f"{name}: Chromium has it, the table says {said!r}")
         if not ok and said.startswith("works"):
             wrong.append(f"{name}: the table says works, Chromium has not got it")
     assert wrong == [], wrong
+
+
+@pytest.mark.browser
+def test_the_webgl_row_is_what_the_probe_measured(fleet_home):
+    """The WebGL row, measured the way every other shell will be (#247): `/probe` in this engine,
+    posted to the desk, classified by `probe.classify`.
+
+    Headless Chromium draws WebGL2 on SwiftShader -- correctly, and in software. So CI's own cell
+    says *falls back*, and a table that said *works* because a context exists would be the claim
+    the operator's three.js decision rests on, made by the one engine that proves nothing about a
+    GPU. The numbers are printed for the run's summary and not asserted: they are SwiftShader's.
+    """
+    import sys
+
+    from agentdata.fleet import probe as PR
+
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    server, token, port = _serve()
+    posts = []
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1280, "height": 720})
+            page.on("request", lambda r: posts.append(r.url) if r.method == "POST" else None)
+            page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=chromium",
+                      wait_until="domcontentloaded")
+            page.wait_for_function(
+                "() => /saved|not saved/.test(document.getElementById('state').textContent)",
+                timeout=30000)
+            shown = page.text_content("#verdict")
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+
+    rec = PR.load()["chromium"]
+    print(f"\n  webgl probe      {rec['webgl']} on {rec['renderer']} -> {PR.classify(rec)}")
+    print(f"  webgl frames     p50 {rec['p50_ms']} ms, p95 {rec['p95_ms']} ms over "
+          f"{rec['frames']} frames; first stroke {rec['first_stroke_ms']} ms")
+
+    assert len(posts) == 1 and "/api/probe" in posts[0], posts
+    assert rec["webgl"] in ("webgl2", "webgl1") and rec["drawn"] is True, rec
+    assert rec["three"] == "160" and rec["error"] == "", rec
+    assert rec["frames"] > 0 and rec["p95_ms"] >= rec["p50_ms"] > 0, rec
+    assert rec["first_stroke_ms"] > 0, rec
+    assert PR.classify(rec) == "software", rec["renderer"]
+    if sys.platform.startswith("linux"):
+        assert "SwiftShader" in rec["renderer"], rec["renderer"]
+    assert "falls back" in shown, shown
+
+    # The cell itself, not only the works/not-works bit it adds up to (#261): a cell pasted back
+    # as *not yet measured* -- which the laptop's `ad-fleet engines` prints for `chromium`, a
+    # shell it never probes -- is a regression the bit alone would have let through.
+    column = next(c for c in _rows()["WebGL"] if "Chromium" in c)
+    said = re.sub(r"[*_`]", "", _rows()["WebGL"][column]).strip().lower()
+    assert said.startswith("works") == PR.works(rec), \
+        f"the table says {said!r} and the probe says {PR.verdict(rec)!r}"
+    if sys.platform.startswith("linux"):
+        assert said == PR.verdict(rec).lower(), \
+            f"the table says {said!r} and the probe measured {PR.verdict(rec)!r}"
+    else:
+        assert said.startswith(("falls back", "works")), said
 
 
 # -------------------------------------------------------------------- and without the feature

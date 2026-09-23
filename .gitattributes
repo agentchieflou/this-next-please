@@ -10,3 +10,7 @@ tests/fixtures/** -text
 *.ps1 text eol=lf
 *.cmd text eol=crlf
 *.bat text eol=crlf
+
+# Vendored third-party files are pinned by sha256 (tests/test_fleet_probe.py). A Windows checkout
+# with core.autocrlf=true would rewrite their line endings and ship a three.js that is not r160.
+agentdata/fleet/static/vendor/** -text

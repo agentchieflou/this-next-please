@@ -215,6 +215,7 @@ normally produce zero notifications; see [fleet-notifications.md](fleet-notifica
 | [fleet-intake.md](fleet-intake.md) | the Jira board and the start guard rails |
 | [fleet-layouts.md](fleet-layouts.md) | the one arrangement and how four became one, `desk.json` schema 2 and its migration, focus mode, hiding |
 | [fleet-ide.md](fleet-ide.md) | the dashboard inside PyCharm and VS Code |
+| [desk-engines.md](desk-engines.md) | what each shell's engine does, and WebGL measured in each one: `ad-fleet probe --open pycharm`, then `ad-fleet engines` (#247) |
 | [fleet-lifecycle.md](fleet-lifecycle.md) | crashes, restarts, budgets, logs, the doctor rows |
 
 ## When something is wrong
