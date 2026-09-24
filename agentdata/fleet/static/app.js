@@ -236,10 +236,12 @@ function acceptDesk(payload) {
 }
 
 function rehome() {
-  var p = new URLSearchParams({ w: W_NAME });
-  if (PARAMS.get("shell")) p.set("shell", PARAMS.get("shell"));
-  if (PARAMS.get("ink")) p.set("ink", PARAMS.get("ink"));
-  window.location.href = "/open?" + p.toString();
+  /* `/open` forwards every param but `t`, so the host's shell and ink ride along from here once. */
+  var more = new URLSearchParams();
+  if (PARAMS.get("shell")) more.set("shell", PARAMS.get("shell"));
+  if (PARAMS.get("ink")) more.set("ink", PARAMS.get("ink"));
+  var rest = more.toString();
+  window.location.href = "/open?w=" + encodeURIComponent(W_NAME) + (rest ? "&" + rest : "");
 }
 
 /* There used to be a `held` map here: the agents the operator had acted on, kept on the glass by
