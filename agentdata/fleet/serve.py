@@ -725,6 +725,8 @@ def _add_siblings(rows: list[dict]) -> None:
 _desk = {"dir": "", "poller": None, "inbox": None, "catalogue": None, "last_tick": 0.0,
          "last_fold": 0.0, "last_renew": 0.0}
 _desk_lock = threading.RLock()
+# Held only while the catalogue's sqlite file is opened, never with `_desk_lock` waiting on it (#439).
+_catalogue_lock = threading.Lock()
 
 DESK_FILE = "desk.json"
 # What `desk.json` was before schema 2, kept beside it by the migration that read it. The migration
@@ -1031,17 +1033,41 @@ def catalogue():
     A half-written catalogue is a real laptop failure -- OneDrive syncing `~/.agentdata` mid-write is
     enough -- and the page must degrade to "search is unavailable, run `ad-fleet index`" rather than
     500 on every tile.
+
+    Opened outside `_desk_lock` (#439). The first open creates the file, turns on WAL and runs the
+    schema -- seconds on a Windows machine whose scanner reads every new file -- and every window
+    write, arrangement and the stream's poller wait on `_desk_lock`, none of them for the catalogue.
+    `_catalogue_lock` only makes a second opener wait for the first rather than open twice.
     """
     import sqlite3
 
     with _desk_lock:
         bag = _fresh()
-        if bag["catalogue"] is None:
-            try:
-                bag["catalogue"] = CAT.Catalogue.open()
-            except (sqlite3.Error, CAT.CatalogueError, OSError):
-                return None
-        return bag["catalogue"]
+        if bag["catalogue"] is not None:
+            return bag["catalogue"]
+    with _catalogue_lock:
+        with _desk_lock:
+            bag = _fresh()
+            if bag["catalogue"] is not None:
+                return bag["catalogue"]
+            here = bag["dir"]
+        try:
+            opened = CAT.Catalogue.open()
+        except (sqlite3.Error, CAT.CatalogueError, OSError):
+            return None
+        with _desk_lock:
+            bag = _fresh()
+            if bag["dir"] == here and bag["catalogue"] is None:
+                bag["catalogue"] = opened
+                return opened
+        # The fleet moved while this one was opening (a test, or a changed AGENTDATA_FLEET_DIR): the
+        # handle is for a directory nobody reads any more.
+        try:
+            opened.close()
+        except Exception:                    # noqa: BLE001 - a closed handle is the point
+            pass
+        with _desk_lock:
+            return _fresh()["catalogue"]
 
 
 def poll_tick(now: float | None = None) -> list[dict]:
