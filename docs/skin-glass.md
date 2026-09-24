@@ -47,7 +47,7 @@ Every row is a class or attribute `app.js` already sets. Glass adds no state cla
 | running | `.tile.state-running` | pen `underline` under the `.chip` | the top glint travels along the top edge in `--running`, a lap every 4.5s. Held still under reduced motion, it tints the glint |
 | error, blocked | `.tile.state-error`, `.tile.state-blocked` | marker `bang` in the pane's margin (#330) | rim in `--human` |
 | done | `.tile:is(.state-done, .is-done)`: the chip's word, or the fold's for a finished agent nothing supervises, whose chip says idle (#253, #333) | green `check` in the pane's margin (#330) | rim in `--done` |
-| stale (#240) | `.tile .oldsession:not([hidden])` | pen `outline`, dashed | — |
+| stale (#240) | `.tile .oldsession:not([hidden])` | none: the note's own words. A dashed outline round it ran over the chip's age in a compact pane even at pad 0 (#332) | — |
 | a finding | `.tile .scopereport.outside:not([hidden])`: edits outside the scope it was given (#168) | red `ellipse` round the report | — |
 
 Where two rims apply, *needs you* and *error* come before *done*. A mark leaves by the layer's rules: ink is struck,

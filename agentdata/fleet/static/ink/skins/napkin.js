@@ -29,8 +29,10 @@ const FOUND = ".tile .transcript li:is(.denied, .friction)";
 /* The same rows for both variants: a variant changes the stock and the inks, not the grammar. */
 export function marks() {
   return [
+    // A mark round the pane keeps inside it (#332): a pad of 0 or less, so the stroke and half its
+    // width are on the napkin, not over the pane's border and cut away by the layer's clip.
     // idle: a pencil outline, and the name underlined in pencil.
-    { selector: ".tile.state-idle", tool: "pencil", shape: "outline", pad: 2 },
+    { selector: ".tile.state-idle", tool: "pencil", shape: "outline", pad: -5 },
     { selector: ".tile.state-idle .head .repo", tool: "pencil", shape: "underline" },
     // running: the name underlined in pen. The pen's tip rests at the end of it (`frame`).
     { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },
@@ -46,7 +48,7 @@ export function marks() {
     // how the layer takes back any ink. The question is struck, never the agent's name.
     { selector: ".tile .ask:not([hidden]) .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "ellipse" },
     // error: the felt tip's box round the pane, and a bang in the margin.
-    { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: 2 },
+    { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },
     { selector: ".tile.state-error", tool: "red", shape: "bang" },
     // done: a green check in the margin. A quiet agent's chip says idle, so the fold's own word
     // arrives as `is-done` (#253); `state-done` is the chip's, while one is supervised.
@@ -55,7 +57,7 @@ export function marks() {
     // the run's line, and a dashed pencil outline round the pane.
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "write" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "arrow", to: ".runline" },
-    { selector: ".tile:has(.oldsession:not([hidden]))", tool: "pencil", shape: "outline", pad: 6, dash: true },
+    { selector: ".tile:has(.oldsession:not([hidden]))", tool: "pencil", shape: "outline", pad: -8, dash: true },
     // a finding: a transcript line the agent was refused or stopped on -- the lines the page
     // already marks as a problem (the legal pad reads them the same way, #251). A red ellipse
     // round the line, the highlighter on its kind, and its own words as a pencil note.
@@ -314,8 +316,8 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   }, true), api.order.frame);
   ring.name = "coffee";
 
-  // The error row's loop: pad 2, so shapes.js draws it 5px out with a 7px corner.
-  const o = 3 + 2, loop = loopLength(box.w, box.h, o, 7);
+  // The error row's loop: pad -7, so shapes.js draws it 4px in with a 7px corner (#332).
+  const o = 3 - 7, loop = loopLength(box.w, box.h, o, 7);
   const ink = tokens.inks.marker || tokens.human;
   const reach = o + 18;
   const bleed = quad(THREE, -reach, -reach, box.w + reach, box.h + reach, shader(THREE, BLEED_FS, {
