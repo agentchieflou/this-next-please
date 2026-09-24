@@ -32,6 +32,9 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_events import fleet_home                        # noqa: F401 - fixture
+# The desk module's globals are process-wide; without this the saved-desk test's pins and arrangement
+# survived into the next test that ran after it (a shuffled-order failure on main).
+from test_fleet_ink import _own_desk_globals                   # noqa: F401 - autouse fixture
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
