@@ -443,6 +443,25 @@ decoration out of the CSS skins, every pane shows the paper.
 `Ink.inspect().layer.series` holds each trace mark, with its lane, tool, shape, state, how much is drawn, and the data
 it was drawn from, apart from the skin's `marks`.
 
+**The header's layer and the strips (#337).** Every skin that draws does two more things for the page, each in its
+own sheet, keyed `body[data-skin="<skin>"]:not(.ink-off)`:
+
+```css
+body[data-skin="<skin>"]:not(.ink-off) header { will-change: transform; }
+body[data-skin="<skin>"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
+```
+
+- **The header gets its own compositor layer.** Without it, while the renew strip showed, Chromium composited the
+  canvas with a band missing across the foot of the panes: the strip's rectangle mirrored, at about y 787-858 at
+  1400x900. The drawing buffer read back whole. Farmstead had this fix first, for itself.
+- **The renew and away strips stand aside for the canvas**, like the panes. Opaque, they sat as panels over the
+  drawing. Each keeps its `border-bottom`, so it is still a strip.
+
+These rules are in the skins' sheets, not in `app.css` on `body:has(> #ink[data-skin])`. Chromium 153 did not
+re-apply a rule keyed that way to the page when it started matching late (#441, §Shapes). A skin that adds a mark
+table adds both rules. `tests/test_fleet_ink_band.py` compares the foot of the panes with the canvas alone. It uses
+a full-viewport screenshot, because a clipped screenshot was composited whole even while the screen showed the band.
+
 **The one 2D context left is three.js's own.** `WebGLRenderer` asks a 1×1 `OffscreenCanvas` for one as it starts, to
 learn whether it could resize a texture off the page. It never draws with it, and the vendored file is pinned by its
 sha256. `tests/test_fleet_trace.py` holds the page to exactly that, at run time, and scans `static/` (minus

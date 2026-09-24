@@ -79,6 +79,9 @@ body[data-skin="farmstead"]:not(.ink-off) :is(header, footer) :is(button, input,
    the foot of the panes -- the drawing buffer was whole (read back), the screen was not. Its own
    layer puts it right; the header holds no popover a stacking context could trap. */
 body[data-skin="farmstead"]:not(.ink-off) header { will-change: transform; }
+/* The renew and away strips stand aside for the canvas like the panes (#337): opaque, they sat as
+   panels over the drawing. Keyed here, as every drawing skin keys it, not on `:has()` (#441). */
+body[data-skin="farmstead"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
 
 /* The state as a crop stage, beside the chip's word and colour and never instead of them (#157):
    the chip keeps a 24px box before its word, and the module draws the crop in it at twice the
