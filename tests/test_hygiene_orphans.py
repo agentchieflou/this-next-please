@@ -25,16 +25,24 @@ sys.path.insert(0, {HERE!r})
 pytest_plugins = ["orphans"]
 """
 
+#: The sleeper says `ready` once it runs its own code, and `start_a_sleeper` reads that line before
+#: it returns. `Popen` returns while the child can still be inside `execve`: the kernel releases a
+#: vfork parent before it swaps the child's memory, and sets the new argv after the swap. So a read of
+#: the child's command line straight after `Popen` sees its parent's (under xdist, execnet's bootstrap
+#: `python -u -c import sys;exec(eval(sys.stdin.readline()))`) or nothing. This inner test ends at
+#: once, so the guard read it in that window on a loaded runner (ubuntu 3.14 on #455), and named the
+#: right pid with the worker's command line.
 TEST = """\
 import subprocess
 import sys
 
 
 def start_a_sleeper():
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"],
-                             stdin=subprocess.DEVNULL)
+    child = subprocess.Popen([sys.executable, "-c", "import time; print('ready', flush=True); time.sleep(300)"],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
     with open({pidfile!r}, "w") as f:
         f.write(str(child.pid))
+    assert child.stdout.readline().strip() == "ready"
     return child
 
 
@@ -107,13 +115,17 @@ def test_the_guard_lists_a_live_child_and_not_a_reaped_one():
 
     import orphans
 
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"],
-                             stdin=subprocess.DEVNULL)
+    # `ready` first, as in TEST: read straight after `Popen`, the child can still be inside `execve`
+    # and show its parent's command line (ubuntu 3.14 on main, e93cbf2; #459)
+    child = subprocess.Popen([sys.executable, "-c", "import time; print('ready', flush=True); time.sleep(300)"],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True)
     try:
+        assert child.stdout.readline().strip() == "ready"
         rows = {r["pid"]: r for r in orphans.orphans()}
         assert child.pid in rows, orphans.children()
         assert "time.sleep(300)" in rows[child.pid]["cmdline"]
     finally:
         child.kill()
         child.wait(timeout=30)
+        child.stdout.close()
     assert child.pid not in {r["pid"] for r in orphans.children()}

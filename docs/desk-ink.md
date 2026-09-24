@@ -548,6 +548,13 @@ a layer that stops, takes back every clip it wrote.
 
 ## Following the page
 
+**The page arrives skinned and `ink-off` (#345).** The server writes the chosen skin on `<body>` (`data-skin`,
+`data-skin-variant`) and, on a skinned page, `class="ink-off"`: the plain, legible look, because a skin's band text is
+keyed on `:not(.ink-off)` and would be read against nothing until the canvas draws. ink.js keeps it where the gate is
+off, and where the gate is on it removes it in the same task in which the layer first sets `#ink[data-skin]` (the key
+app.css clears the panes on); `turnOff()` puts it back. The palette is on the first frame and the ink ground follows
+when the layer draws.
+
 The canvas is `position: fixed`, the size of the viewport, `z-index: -1` (behind the page, in front of the
 stylesheet's own ground), with `pointer-events: none` and `aria-hidden`. It is the only canvas on the desk, and it is
 on the page for as long as the layer runs.

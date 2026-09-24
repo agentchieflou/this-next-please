@@ -93,6 +93,8 @@ def install(tmp_path, tools: list[str], *, case: str | None = None, npm: bool = 
     env = dict(os.environ)
     env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
     env["AGENTDATA_FAKE_DIR"] = HERE
+    # every call a fake answers is appended here, so a test can assert on the argv it was sent
+    env["AGENTDATA_FAKE_LOG"] = os.path.join(bin_dir, "calls.jsonl")
     if case:
         env["AGENTDATA_FAKE_CASE"] = case
     # `proc.py` looks for npm's global prefix under APPDATA; point it at the same place so the
@@ -105,7 +107,28 @@ def install(tmp_path, tools: list[str], *, case: str | None = None, npm: bool = 
 def apply(monkeypatch, tmp_path, tools: list[str], *, case: str | None = None, npm: bool = True) -> str:
     """`install`, but pushed into `os.environ` for in-process code. Returns the bin directory."""
     env = install(tmp_path, tools, case=case, npm=npm)
-    for key in ("PATH", "AGENTDATA_FAKE_DIR", "AGENTDATA_FAKE_CASE", "APPDATA"):
+    for key in ("PATH", "AGENTDATA_FAKE_DIR", "AGENTDATA_FAKE_CASE", "AGENTDATA_FAKE_LOG", "APPDATA"):
         if key in env:
             monkeypatch.setenv(key, env[key])
     return env["PATH"].split(os.pathsep)[0]
+
+
+def calls(env: dict[str, str], tool: str | None = None) -> list[list[str]]:
+    """The argv of every call the fakes installed by `install` answered, oldest first.
+
+    Empty when no fake was reached -- which, for a test that expected one, means the real tool (or
+    nothing) answered instead.
+    """
+    path = env.get("AGENTDATA_FAKE_LOG", "")
+    if not path or not os.path.isfile(path):
+        return []
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            if tool is None or entry.get("tool") == tool:
+                out.append(list(entry.get("argv") or []))
+    return out

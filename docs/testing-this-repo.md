@@ -294,7 +294,9 @@ only children are the workers; the failure is a teardown error on that worker's 
 up first, it is torn down last, so a session-scoped fixture that starts a browser or a driver must
 leave nothing either. A child that is meant to outlive a test is not a thing this suite has: kill
 it and wait on it. `tests/test_hygiene_orphans.py` provokes an orphan in an inner session, serially
-and with `-n 2`.
+and with `-n 2`. Its sleeper says `ready` before the test goes on. `Popen` can return while the child
+is still inside `execve`, and until that finishes `/proc/<pid>/cmdline` shows the parent's command
+line, or nothing. On a loaded runner the guard read it in that window (#459).
 
 Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only way to catch a bare
 `sys.exit`, an import-time crash, or an escape sequence that appears only when stdout is a pipe),

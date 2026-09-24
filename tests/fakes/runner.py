@@ -249,12 +249,29 @@ def _write_usage(argv: list[str], usage: dict) -> None:
         pass
 
 
+def record(tool: str, argv: list[str]) -> None:
+    """Append this call to `AGENTDATA_FAKE_LOG`, one JSON line per call, before anything is replayed.
+
+    A test then proves *what the code sent* from the fake's own record (#447), and a run that never
+    reached the fake -- the real tool answered instead -- shows up as a missing line, not a pass.
+    """
+    path = os.environ.get("AGENTDATA_FAKE_LOG")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps({"tool": tool, "argv": argv}) + "\n")
+    except OSError:
+        pass
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         sys.stderr.write("fake runner: no tool name\n")
         return 99
     tool, argv = sys.argv[1], sys.argv[2:]
     case = os.environ.get("AGENTDATA_FAKE_CASE")
+    record(tool, argv)
 
     for entry in load(tool, None):
         if entry.get("always") and matches(entry, argv):

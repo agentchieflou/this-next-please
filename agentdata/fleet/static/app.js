@@ -1543,10 +1543,22 @@ function cacheSnapshot(data) {
       approvals: data.approvals || [],
       desk: deskAsShown(data.desk || null),
       spend: data.spend || {},
-      theme: data.theme || null,
     }));
   } catch (e) { /* a private window, or no room: the desk simply loads the slow way */ }
 }
+
+/* The tiers the server wrote on <html> (#345), `rail compact full slack`, or null on the defaults. */
+/** @returns {Tiers | null} */
+function servedTiers() {
+  var said = document.documentElement.dataset.tiers;
+  if (!said) return null;
+  var n = said.split(" ").map(Number);
+  return { rail: n[0], compact: n[1], full: n[2], slack: n[3], invalid: "" };
+}
+
+/* Back into a page the browser kept whole (bfcache): what it shows is from before it was left, and
+   a theme chosen meanwhile reaches it only by asking again. */
+window.addEventListener("pageshow", function (e) { if (e.persisted) refresh(); });
 
 /* Taken again as the window goes -- a reload, a navigation, a closed tab -- so the next load draws
    what was on the screen, not what the last fleet answer said a click or two before. */
@@ -1562,11 +1574,8 @@ function restoreCached() {
   // Five minutes. Past that the shape of the fleet has probably changed, and a wrong desk held
   // for a second is worse than an empty one -- the fetch is in flight either way.
   if (Date.now() - (data.at || 0) > SNAP_GOOD_FOR_MS) return false;
-  if (data.theme) {
-    applyTheme(data.theme.css, data.theme.theme);
-    applySkin(data.theme.skin);
-    applyTiers(data.theme.tiers);                 // #235: before a pane is drawn
-  }
+  // No theme and no tiers (#345): the served page already wears the chosen ones, and a snapshot's
+  // were taken before the change that sent the operator here -- the skin just replaced.
   if (data.desk) {
     // Shown, not believed. Its version is the snapshot's, so it is dropped: the first real answer
     // has to win whatever number it carries, or a desk.json that started again from nought would
@@ -5308,6 +5317,8 @@ document.addEventListener("keydown", function (e) {
    `departed`, the tiles map -- that is declared further down and is `undefined` until the script
    has finished evaluating. The fetch is already in flight either way; this only decides what is
    on the screen while it is. */
+var st = servedTiers();          // #345: the widths the server wrote, before a pane is drawn
+if (st) applyTiers(st);
 restoreCached();
 // Last for the same reason: `say` writes the footer's state, which is only set up once the script
 // has run past it.
