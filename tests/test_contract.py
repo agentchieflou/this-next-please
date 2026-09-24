@@ -102,7 +102,9 @@ def fake_gh_env(tmp_path, case):
     timed out. Fails loudly, before anything is spawned, if `gh` would resolve anywhere else.
     """
     env = fakes.install(tmp_path, ["gh"], case=case, npm=False)
-    bin_dir = env["PATH"].split(os.pathsep)[0]
+    # where `install` wrote the fake, taken from its own record path rather than from PATH's head,
+    # so a PATH that puts anything ahead of the fake is caught here and not taken as the fake
+    bin_dir = os.path.dirname(env["AGENTDATA_FAKE_LOG"])
     found = proc.which("gh", path=env["PATH"])
     if not found or os.path.normcase(os.path.dirname(os.path.abspath(found))) != os.path.normcase(bin_dir):
         pytest.fail(f"`gh` resolves to {found!r}, not the fake in {bin_dir}: this test would reach the real gh "
