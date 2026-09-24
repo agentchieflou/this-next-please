@@ -332,6 +332,11 @@ def test_the_server_writes_the_probe_class_on_the_desk_and_nowhere_else(fleet_ho
         assert S.ink_skins() == sorted(n[:-3] for n in SKINS), S.ink_skins()
         for other in ("settings?x=1", "probe?x=1"):
             assert "data-ink" not in body_of(other), other
+        # The map (#405) is told the same facts, for its scene (#409), and keeps `ink-off`.
+        mapped = body_of("map?w=pycharm")
+        assert 'data-ink-shell="pycharm" data-ink-probe="hardware"' in mapped, mapped
+        assert f'data-ink-skins="{" ".join(S.ink_skins())}"' in mapped, mapped
+        assert mapped.startswith('<body class="ink-off"'), mapped
         # Compressed once per shell and class, not once for every window: two shells, two pages.
         asked = [urllib.request.Request(f"http://127.0.0.1:{port}/?w={w}&t={token}",
                                         headers={"Accept-Encoding": "gzip"})

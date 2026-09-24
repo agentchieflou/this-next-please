@@ -88,7 +88,11 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # `ink/ink.js` (#248) is the ink layer's front door, a module beside `app.js`. The rest of the layer
 # -- `ink/layer.js`, `ink/shapes.js`, `ink/pen.js` and the vendored three.js -- is never named in a
 # page: the layer imports it through `q()`, token and all, and only once the gate says on.
-ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.js")
+#
+# `/map` (#405) brings its stylesheet and its one script, `map/map.js`; a scene it draws later
+# (#409) is imported through `q()` like the ink layer's modules, never named here.
+ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
+          "map.css", "map/map.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -99,7 +103,15 @@ ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.
 # facts to `/api/probe`. The desk loads three.js only through the ink layer (#248), only when that
 # shell's probe said hardware (or the page was opened with `?ink=on`), and only once a skin draws
 # with ink -- and a test holds it to that.
-PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html"}
+#
+# `/map` (#405) is the fourth: the fleet's structure as an accessible tree (docs/fleet-map.md
+# §The page), read-only, and a page rather than a desk view for the reason settings is one.
+PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
+         "/map": "map.html"}
+
+#: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
+#: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
+INKED_PAGES = ("index.html", "map.html")
 
 
 def ink_facts(query: dict) -> dict:
@@ -2717,7 +2729,7 @@ class Handler(BaseHTTPRequestHandler):
         ink: tuple = ()
         desk = name == "index.html"
         facts, gate_on = "", False
-        if desk:
+        if name in INKED_PAGES:
             gate = ink_facts(query or {})
             inked = " ".join(ink_skins())
             ink = (gate["shell"], gate["class"], inked)
@@ -2725,7 +2737,8 @@ class Handler(BaseHTTPRequestHandler):
             # before they are written), so nothing here needs escaping.
             facts = (f' data-ink-shell="{gate["shell"]}" data-ink-probe="{gate["class"]}" '
                      f'data-ink-skins="{inked}"')
-            gate_on = ink_gate_on(query or {}, gate["class"])
+            # The map (#405) is told the facts and never turns ink on: it keeps `ink-off`.
+            gate_on = desk and ink_gate_on(query or {}, gate["class"])
         themed: tuple = ()
         # The chosen theme, in the markup (#345): every page but the probe, which measures a shell
         # and has no business wearing a skin.
@@ -2740,7 +2753,10 @@ class Handler(BaseHTTPRequestHandler):
             html = html.replace("</head>", preload + worn["link"] + "</head>", 1)
 
             def dress(m):
-                classes = " ".join(c for c in (m.group(1) or "", worn["body_class"]) if c)
+                own = m.group(1) or ""
+                # A page that already wears `ink-off` (/map, #405) is not given it twice.
+                extra = "" if worn["body_class"] in own.split() else worn["body_class"]
+                classes = " ".join(c for c in (own, extra) if c)
                 return ("<body" + (f' class="{classes}"' if classes else "") + worn["body"] + facts + ">")
             html = re.sub(r'<body(?: class="([^"]*)")?>', dress, html, count=1)
         stamp = os.stat(os.path.join(STATIC, name))

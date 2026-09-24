@@ -329,6 +329,28 @@ def test_the_static_payload_is_small_enough_to_load_over_anything():
     assert sent < 200 * 1024, f"{sent} bytes over the wire ({on_disk} on disk): {sorted(raw)}"
 
 
+#: The map's own scripts (#405): `static/map/**/*.js` outside `map/skins/`, gzipped. Outside the
+#: desk's 200 KiB, which only the desk's files count: a desk never fetches them.
+MAP_BUDGET = 32 * 1024
+
+
+def test_the_map_page_fits_inside_the_desk_budget_and_its_scripts_inside_their_own():
+    """`map.html` and `map.css` sit in `static/` beside the desk's files, so the 200 KiB above counts
+    them; they are held to 4 KiB of it together. The map's scripts have a budget of their own."""
+    import gzip as gz
+
+    def wire(rel):
+        return len(gz.compress(open(os.path.join(STATIC, rel), "rb").read(), 6, mtime=0))
+
+    page = wire("map.html") + wire("map.css")
+    assert page < 4 * 1024, page
+    scripts_ = [n for n in map_scripts() if not n.startswith("map/skins/")]
+    assert "map/map.js" in scripts_, scripts_
+    sent = sum(wire(n) for n in scripts_)
+    print(f"\n  map page {page} bytes gzipped; map scripts {sent} bytes gzipped {scripts_}")
+    assert sent < MAP_BUDGET, (sent, scripts_)
+
+
 def test_the_page_and_its_assets_are_served_compressed():
     """What the budget above measures has to be what the server actually sends, or the number is a
     claim about a file rather than about a page load."""
@@ -340,7 +362,7 @@ def test_the_page_and_its_assets_are_served_compressed():
     thread.start()
     port = server.server_address[1]
     try:
-        for route in ("/", "/settings", "/static/app.js", "/static/common.js",
+        for route in ("/", "/settings", "/map", "/static/app.js", "/static/common.js",
                       "/static/settings.js", "/static/app.css", "/static/ink/ink.js",
                       "/static/ink/layer.js"):
             asked = urllib.request.Request(f"http://127.0.0.1:{port}{route}?t={token}",
@@ -382,7 +404,19 @@ def scripts() -> list[str]:
     ink = [f"ink/{n}" for n in os.listdir(os.path.join(STATIC, "ink")) if n.endswith(".js")]
     skins = [f"ink/skins/{n}" for n in os.listdir(os.path.join(STATIC, "ink", "skins"))
              if n.endswith(".js")]
-    return sorted(top + ink + skins)
+    # The map's scripts (#405), walked all the way down: its scene and skins (#409, #414) will
+    # live in folders under `static/map/`.
+    return sorted(top + ink + skins + map_scripts())
+
+
+def map_scripts() -> list[str]:
+    """Every `.js` under `static/map/`, as a path under `static/`."""
+    found = []
+    for root, _, files in os.walk(os.path.join(STATIC, "map")):
+        for n in files:
+            if n.endswith(".js"):
+                found.append(os.path.relpath(os.path.join(root, n), STATIC).replace(os.sep, "/"))
+    return sorted(found)
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="no node on this machine to check the syntax")
@@ -393,7 +427,8 @@ def test_the_page_script_parses(name, tmp_path):
     The ink modules `export`, which only a module may: they are checked as `.mjs` copies, so the
     answer does not depend on whether this machine's node guesses a `.js` file's kind."""
     path = os.path.join(STATIC, name)
-    if name.startswith("ink/"):
+    # `map/map.js` is a classic script like `settings.js`; the rest of `map/` will be modules.
+    if name.startswith("ink/") or (name.startswith("map/") and name != "map/map.js"):
         copy = tmp_path / (os.path.basename(name)[:-3] + ".mjs")
         shutil.copyfile(path, copy)
         path = str(copy)
@@ -418,7 +453,8 @@ def test_the_script_writes_text_rather_than_markup():
 # both and holds what neither owns, so its hooks are checked against whichever page uses them.
 PAGE_SCRIPTS = [("index.html", ["app.js", "common.js"]),
                 ("settings.html", ["settings.js", "common.js"]),
-                ("probe.html", ["probe.js", "common.js"])]
+                ("probe.html", ["probe.js", "common.js"]),
+                ("map.html", ["map/map.js", "common.js"])]
 
 
 @pytest.mark.parametrize("page,names", PAGE_SCRIPTS, ids=[p for p, _ in PAGE_SCRIPTS])
