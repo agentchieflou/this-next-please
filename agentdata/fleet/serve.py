@@ -48,8 +48,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
-               inbox as IN, launch as LAUNCH, lifecycle, links as LK, notify as N, poll as P,
-               probe as PROBE, supervisor, trace as TRACE)
+               inbox as IN, launch as LAUNCH, lifecycle, links as LK, loads as LOADS, notify as N,
+               poll as P, probe as PROBE, supervisor, trace as TRACE)
 from .registry import Registry, RegistryError, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
@@ -2060,6 +2060,13 @@ def act(what: str, body: dict) -> dict:
         # `~/.agentdata/fleet/probes.json`; the answer carries the class `probe.classify` gave it,
         # so the page shows the verdict without holding a rule of its own.
         return PROBE.record(body)
+    if what == "load":
+        # What a page load measured about itself (#350), kept only while the operator has set
+        # `fleet.loads.enabled` in the config file, read now rather than at start. Off is not a
+        # refusal: a page served before the switch went off may still post once.
+        if not LOADS.enabled():
+            return {"kept": 0, "enabled": False}
+        return LOADS.record(body)
     if what == "attach":
         # The single exception in the epic's "nothing is written outside ~/.agentdata/fleet without
         # a click": this is the click. `Inbox.attach` does the copy and holds the rule that it lands
@@ -2131,7 +2138,8 @@ def act(what: str, body: dict) -> dict:
         return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
-                     "arrange | attach | dismiss | theme | settings | refresh | probe | measure")
+                     "arrange | attach | dismiss | theme | settings | refresh | probe | measure | "
+                     "load")
 
 
 def _sweep(url: str) -> list[dict]:
@@ -2679,7 +2687,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "action": what, **out})
         except (ServeError, RegistryError, supervisor.SupervisorError,
                 approval.ApprovalError, IN.InboxError, CAT.CatalogueError,
-                HO.HandoffError, SCOPE_ERROR, PROBE.ProbeError) as e:
+                HO.HandoffError, SCOPE_ERROR, PROBE.ProbeError, LOADS.LoadError) as e:
             # The same refusal the CLI gives, with the same hint. One vocabulary.
             ref_code = getattr(e, "code", "") or "refused"
             return self._refuse(409, e.msg, getattr(e, "hint", ""), refusal_code=ref_code)

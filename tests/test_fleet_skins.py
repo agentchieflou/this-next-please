@@ -265,3 +265,42 @@ def test_every_skin_writes_the_accessibility_fallbacks_it_promised():
     glass = open(os.path.join(SKINS_DIR, "glass", "skin.css"), encoding="utf-8").read()
     assert "backdrop-filter" not in glass and "#side" not in glass, \
         "glass frosts the sidebar in CSS again, and owes its reduced-transparency fallback"
+
+
+def test_muted_contrast_on_every_variant_composited_panel():
+    """Secondary text (--muted) holds >= 4.5:1 contrast on every composited panel of every
+    skin variant (#325)."""
+    for skin_name, variant, spec in skins.every_variant():
+        base_palette = theme.get(spec["base"])
+        muted = theme.to_css(base_palette)["--muted"]
+        panels = skins.composited_panels(spec)
+        assert panels, f"{skin_name}:{variant} declares no composited panel"
+        for panel in panels:
+            cr = theme.contrast_ratio(muted, panel)
+            assert cr >= 4.5, (
+                f"{skin_name}:{variant} muted {muted} on panel {panel} contrast {cr:.2f}:1 "
+                f"below 4.5:1 floor"
+            )
+
+
+def test_farmstead_skin_css_inks_equal_skins_py_inks():
+    """Farmstead skin.css --ink-<tool> literals equal skins.py inks (#325)."""
+    css = open(os.path.join(SKINS_DIR, "farmstead", "skin.css"), encoding="utf-8").read()
+
+    daytime_block = re.search(r'body\[data-skin="farmstead"\]\s*\{(.*?)\}', css, re.S).group(1)
+    daytime_inks = dict(re.findall(r"--ink-(\w+):\s*(#[0-9A-Fa-f]{6})", daytime_block))
+    assert {k: v.upper() for k, v in daytime_inks.items()} == {
+        k: v.upper() for k, v in skins.SKINS["farmstead"]["variants"]["daytime"]["inks"].items()
+    }
+
+    cave_block = re.search(r'body\[data-skin="farmstead"\]\[data-skin-variant="cave"\]\s*\{(.*?)\}', css, re.S).group(1)
+    cave_inks = dict(re.findall(r"--ink-(\w+):\s*(#[0-9A-Fa-f]{6})", cave_block))
+    assert {k: v.upper() for k, v in cave_inks.items()} == {
+        k: v.upper() for k, v in skins.SKINS["farmstead"]["variants"]["cave"]["inks"].items()
+    }
+
+    rainy_block = re.search(r'body\[data-skin="farmstead"\]\[data-skin-variant="rainy"\]\s*\{(.*?)\}', css, re.S).group(1)
+    rainy_inks = dict(re.findall(r"--ink-(\w+):\s*(#[0-9A-Fa-f]{6})", rainy_block))
+    assert {k: v.upper() for k, v in rainy_inks.items()} == {
+        k: v.upper() for k, v in skins.SKINS["farmstead"]["variants"]["rainy"]["inks"].items()
+    }

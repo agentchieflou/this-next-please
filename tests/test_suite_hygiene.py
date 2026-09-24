@@ -235,6 +235,55 @@ CLOCK = re.compile(r"\belapsed\b|\btook\b|\bduration\b|perf_counter|\blatency\b|
                    r"|\bseconds?\b|median_ms")
 #: `< 50`, `<= 0.05`, and `< LOCAL_BUDGET_MS` -- a ceiling that was given a name is still a ceiling.
 UPPER_BOUND = re.compile(r"<=?\s*(?:[0-9]|[A-Z][A-Z0-9_]{2,}\b)")
+#: The other shape a duration takes: a verdict on real timings. `row["verdict"] == "faster"` has no
+#: clock and no ceiling on its line, but when the row came out of `bench_node(` it is a judgement on
+#: two measured runs, and on a busy runner it judges the contention (#314: 8.3 ms against 1.2 ms
+#: judged `same`). The same assertion on rows `compare_bench` read from fixture TSVs, or from TSVs
+#: the test wrote itself, measures nothing -- so it counts only in a function that calls `bench_node(`.
+VERDICT = re.compile(r"""\[\s*['"]verdict['"]\s*\]\s*[!=]=\s*['"](?:faster|slower|same)['"]"""
+                     r"""|['"](?:faster|slower|same)['"]\s*[!=]=\s*\w+\s*\[\s*['"]verdict['"]\s*\]""")
+
+
+def _calls_bench_node(node) -> bool:
+    return any(isinstance(c, ast.Call) and (getattr(c.func, "id", None) == "bench_node"
+                                           or getattr(c.func, "attr", None) == "bench_node")
+               for c in ast.walk(node))
+
+
+def _unmarked_durations(rel: str, source: str) -> list[str]:
+    """Every function in `source` that asserts a duration and neither carries `measured` nor is
+    listed in `NOT_A_BUDGET`, one line each."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:                                  # pragma: no cover - a broken test file
+        return []
+    missing = []
+    # Top level, plus one level into a class: a function nested *inside* another is already
+    # part of its parent's text, and reporting both would name the same assertion twice.
+    top = list(tree.body) + [n for c in tree.body if isinstance(c, ast.ClassDef) for n in c.body]
+    for node in top:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        measures = _calls_bench_node(node)
+        timed = []
+        for stmt in ast.walk(node):
+            if not isinstance(stmt, ast.Assert):
+                continue
+            text = ast.unparse(stmt)
+            if (CLOCK.search(text) and UPPER_BOUND.search(text)) or (measures and VERDICT.search(text)):
+                timed.append(text)
+        if not timed:
+            continue
+        if (rel, node.name) in NOT_A_BUDGET:
+            continue
+        has = "measured" in {m.id if isinstance(m, ast.Name) else getattr(m, "attr", "")
+                             for d in node.decorator_list for m in ast.walk(d)}
+        if has and node.name.startswith("test_"):
+            continue
+        how = ("carries `measured`" if node.name.startswith("test_")
+               else "is listed in NOT_A_BUDGET -- a helper cannot carry a marker")
+        missing.append(f"{rel}::{node.name} ({how}) -> {timed[0][:70]}")
+    return missing
 
 
 def test_every_test_that_asserts_a_duration_carries_the_measured_marker():
@@ -244,8 +293,9 @@ def test_every_test_that_asserts_a_duration_carries_the_measured_marker():
     workers, which is the load talking.
 
     So the marker cannot be a thing somebody remembers. Every assertion that compares a clock to a
-    number either carries it or is listed in `NOT_A_BUDGET` with a reason -- for the common
-    shape, which is the one that gets forgotten. See the note on `CLOCK` for what it cannot see.
+    number, or a verdict on real timings, either carries it or is listed in `NOT_A_BUDGET` with a
+    reason -- for the common shapes, which are the ones that get forgotten. See the note on
+    `CLOCK` for what it cannot see.
     """
     missing = []
     for name in sorted(os.listdir(os.path.join(REPO_ROOT, "tests"))):
@@ -253,37 +303,51 @@ def test_every_test_that_asserts_a_duration_carries_the_measured_marker():
             continue
         rel = f"tests/{name}"
         source = open(os.path.join(REPO_ROOT, "tests", name), encoding="utf-8").read()
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:                              # pragma: no cover - a broken test file
-            continue
-        # Top level, plus one level into a class: a function nested *inside* another is already
-        # part of its parent's text, and reporting both would name the same assertion twice.
-        top = list(tree.body) + [n for c in tree.body if isinstance(c, ast.ClassDef) for n in c.body]
-        for node in top:
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            timed = []
-            for stmt in ast.walk(node):
-                if not isinstance(stmt, ast.Assert):
-                    continue
-                text = ast.unparse(stmt)
-                if CLOCK.search(text) and UPPER_BOUND.search(text):
-                    timed.append(text)
-            if not timed:
-                continue
-            if (rel, node.name) in NOT_A_BUDGET:
-                continue
-            has = "measured" in {m.id if isinstance(m, ast.Name) else getattr(m, "attr", "")
-                                 for d in node.decorator_list for m in ast.walk(d)}
-            if has and node.name.startswith("test_"):
-                continue
-            how = ("carries `measured`" if node.name.startswith("test_")
-                   else "is listed in NOT_A_BUDGET -- a helper cannot carry a marker")
-            missing.append(f"{rel}::{node.name} ({how}) -> {timed[0][:70]}")
+        missing += _unmarked_durations(rel, source)
     assert missing == [], (
         "these assert a duration and nothing says they may: each one either "
         f"carries `measured` or is listed in NOT_A_BUDGET with a reason: {missing}")
+
+
+def _function_source(rel: str, name: str, *, drop_markers: bool) -> str:
+    """One function out of a real test file, as source -- optionally with its decorators gone, so
+    the scan is tested on the assertion the suite actually carries rather than on a paraphrase."""
+    tree = ast.parse(open(os.path.join(REPO_ROOT, *rel.split("/")), encoding="utf-8").read())
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+    if drop_markers:
+        fn.decorator_list = []
+    return ast.unparse(fn)
+
+
+def test_the_scan_sees_a_verdict_on_real_timings_without_the_marker():
+    """An unmarked copy of the perf loop's assertion is flagged; the marked original is not."""
+    rel, name = "tests/test_perf_loop.py", "test_the_full_loop_on_a_covered_node"
+    unmarked = _function_source(rel, name, drop_markers=True)
+    assert 'cmp_row["verdict"] == "faster"' in unmarked.replace("'", '"'), "the assertion #314 is about"
+    flagged = _unmarked_durations(rel, unmarked)
+    assert len(flagged) == 1 and flagged[0].startswith(f"{rel}::{name} (carries `measured`)"), flagged
+    assert _unmarked_durations(rel, _function_source(rel, name, drop_markers=False)) == []
+
+    # the smallest shape, each way round and with `!=`, in a helper as well as a test
+    for body in ('assert row["verdict"] == "same"', "assert 'slower' == row['verdict']",
+                 'assert row["verdict"] != "faster"'):
+        src = ("def test_x(root):\n    row = bench_node(root, node='n')['row']\n    " + body + "\n"
+               "def _helper(root):\n    row = testing.bench_node(root, node='n')['row']\n    " + body + "\n")
+        assert [f.split(" ")[0] for f in _unmarked_durations("tests/test_synthetic.py", src)] == [
+            "tests/test_synthetic.py::test_x", "tests/test_synthetic.py::_helper"], body
+
+
+def test_the_scan_leaves_verdicts_on_files_alone():
+    """`compare_bench` on fixture TSVs, or on TSVs a test wrote itself, judges no clock: those
+    verdict tests stay in the parallel tier, and the scan must not ask them to move."""
+    rel = "tests/test_testing_bench.py"
+    for name in ("test_a_real_speedup_is_faster", "test_an_unstable_baseline_has_to_clear_a_higher_bar"):
+        src = _function_source(rel, name, drop_markers=True)
+        assert re.search(r"\[['\"]verdict['\"]\] == ['\"](faster|same)['\"]", src), name
+        assert _unmarked_durations(rel, src) == [], name
+    src = ("def test_y(tmp_path):\n    row = compare_bench(_fx('before.tsv'), _fx('after_faster.tsv'))['row']\n"
+           "    assert row['verdict'] == 'faster'\n")
+    assert _unmarked_durations("tests/test_synthetic.py", src) == []
 
 
 @pytest.mark.scale

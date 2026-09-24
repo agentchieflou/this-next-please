@@ -395,7 +395,7 @@ def test_one_draw_call_per_material_at_one_agent_and_at_twenty(fleet_home, tmp_p
 MARK = {
     "needs": ".tile.needs-human .head .repo",
     "error": ".tile.state-error .head",
-    "done": ".tile.state-done .head",
+    "done": ".tile:is(.state-done, .is-done) .head",
     "stale": ".tile .oldsession:not([hidden])",
     "answered": '.tile .ask-choice[aria-pressed="true"]',
     "finding": ".tile .transcript li.friction .v, .tile .transcript li.denied .v",
@@ -488,6 +488,80 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     assert not [m for m in left["stale"] if m[1] == "drawn" and not m[3]], f"pencil is erased: {left['stale']}"
     states = [m[1] for m in left["answered"] if m[0] == "pane:alpha"]
     assert "struck" in states and "drawn" in states, f"the first answer struck, the second looped: {left['answered']}"
+
+
+@pytest.fixture()
+def alive(monkeypatch):
+    """The agents a process is holding; every other agent is one nothing supervises (#147)."""
+    names: set = set()
+    real = S.supervisor.live
+    monkeypatch.setattr(S.supervisor, "live",
+                        lambda name: {"pid": 777, "repo": name} if name in names else real(name))
+    return names
+
+
+#: `R`'s green check, as the layer has it: in `R`'s lane, not a strike, and in what state.
+CHECKS = """(r) => Ink.inspect().layer.marks.filter(m => m.lane === 'pane:' + r && m.tool === 'green'
+  && m.shape === 'check' && !m.strikeOf).map(m => m.state)"""
+
+
+@pytest.mark.browser
+def test_a_finished_agent_nothing_supervises_is_ticked_and_stacked_full_on_every_variant(fleet_home, tmp_path,
+                                                                                       alive):
+    """#333: the fold calls an agent done only once nothing supervises it, and the chip draws every
+    quiet unsupervised agent as idle -- so the pane is `state-idle is-done` (#253). Voxel keys done
+    on both classes, as the paper skins do: a green check in the margin and the stack set full, in
+    every world, from the fold's own events. Reduced motion, so the stack is set at once. When the
+    agent starts again the check is struck and the stack leaves done."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    names = ("alpha", "beta")
+    finished = [E.event("beta", "phase_changed", {"from": "build", "to": "done"}, ticket="RDSD-1")]
+    for name in names:
+        Registry().add(make_project(tmp_path / name, phase="done" if name == "beta" else "idle",
+                                    ticket="RDSD-1"), name=name)
+        E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-1"),
+                        E.event(name, "assistant_text", {"text": "working on " + name}, ticket="RDSD-1"),
+                        E.event(name, "turn_ended", {"turn": "0"}, ticket="RDSD-1")]
+                 + (finished if name == "beta" else []))
+    S.arrange(order=list(names))
+    S.update_window("main", open=names[0], widths={n: 1 for n in names})
+    server, token, port = _serve()
+    seen = {}
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            for variant in VARIANTS:
+                _skin(fleet_home, f"voxel:{variant}")
+                page, errors = _open(browser, port, token, panes=2, reduced=True)
+                _rest(page, f"""Ink.inspect().table === 'voxel:{variant}' && ({CHECKS})('beta').includes('drawn')
+                                && ({VOXEL})().panes.find(p => p.repo === 'beta').stack.state === 'done'""")
+                seen[variant] = {"cls": page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className"""),
+                                 "checks": page.evaluate(CHECKS, "beta"),
+                                 "beta": _stack(page, "beta"), "alpha": _stack(page, "alpha")}
+                assert not errors, errors
+                if variant != VARIANTS[-1]:
+                    page.close()
+            alive.add("beta")
+            E.append("beta", [E.event("beta", "turn_started", {"turn": "1"}, ticket="RDSD-1")])
+            page.wait_for_function(
+                """() => { if (document.querySelector('.tile[data-repo="beta"].state-running:not(.is-done)'))
+                             return true; refresh(); return false; }""", timeout=20000, polling=250)
+            _rest(page, f"""!({CHECKS})('beta').includes('drawn')
+                            && ({VOXEL})().panes.find(p => p.repo === 'beta').stack.state !== 'done'""")
+            again = {"checks": page.evaluate(CHECKS, "beta"), "beta": _stack(page, "beta")}
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    for variant, got in seen.items():
+        cls = got["cls"].split()
+        assert "state-idle" in cls and "is-done" in cls, (variant, got["cls"])
+        assert got["checks"] == ["drawn"], (variant, got["checks"])
+        assert got["beta"]["state"] == "done" and got["beta"]["level"] == 3 and got["beta"]["lift"] == 0, \
+            (variant, got["beta"])
+        assert got["alpha"]["state"] == "idle" and got["alpha"]["level"] == 1, (variant, got["alpha"])
+    assert again["checks"] == ["struck"], again
+    assert again["beta"]["state"] == "running" and again["beta"]["level"] == 2, again
 
 
 #: Where each pane is on the page now, against where the voxel skin has put its slab.

@@ -255,8 +255,12 @@ def test_theme_css_passes_contrast_and_matches_terminal_hex():
         c = theme.to_css(t)
         panel = c["--panel"]
         bg = c["--bg"]
+        select = c["--select"]
         assert theme.contrast_ratio(c["--text"], bg) >= 4.5
         assert theme.contrast_ratio(c["--text"], panel) >= 4.5
+        assert theme.contrast_ratio(c["--muted"], bg) >= 4.5, f"{t.name} muted on bg"
+        assert theme.contrast_ratio(c["--muted"], panel) >= 4.5, f"{t.name} muted on panel"
+        assert theme.contrast_ratio(c["--muted"], select) >= 4.5, f"{t.name} muted on select"
         for role in ("--human", "--waiting", "--done", "--running", "--idle"):
             assert theme.contrast_ratio(c[role], panel) >= 3.0, f"{t.name} {role} contrast < 3.0"
         assert c["--human"] == t.status["fail"]
@@ -266,9 +270,53 @@ def test_theme_css_passes_contrast_and_matches_terminal_hex():
         t = theme.random_theme(i * 1013 + 7)
         c = theme.to_css(t)
         panel = c["--panel"]
+        bg = c["--bg"]
+        select = c["--select"]
         assert theme.contrast_ratio(c["--text"], panel) >= 4.5
+        assert theme.contrast_ratio(c["--muted"], bg) >= 4.5
+        assert theme.contrast_ratio(c["--muted"], panel) >= 4.5
+        assert theme.contrast_ratio(c["--muted"], select) >= 4.5
         for role in ("--human", "--waiting", "--done", "--running", "--idle"):
             assert theme.contrast_ratio(c[role], panel) >= 3.0
         assert c["--human"] == t.status["fail"]
 
 
+def test_theme_check_rule_6_muted_contrast():
+    """Rule 6 of theme.check: to_css(t)['--muted'] >= 4.5:1 on target_ground for built-ins and random rolls,
+    and a broken case (muted='#6E7681' on dark ground) is refused with a hint."""
+    import dataclasses
+
+    for t in theme.list_themes():
+        if t.name == "none":
+            continue
+        theme.check(t)
+
+    for i in range(200):
+        t = theme.random_theme(i * 1013 + 7)
+        theme.check(t)
+
+    broken = dataclasses.replace(theme.DARK, muted="#6E7681")
+    with pytest.raises(theme.ThemeError) as exc:
+        theme.check(broken)
+    err = str(exc.value)
+    assert "muted contrast" in err and "below 4.5:1 floor" in err
+    assert "muted '#6E7681' on ground '#14171A'" in exc.value.hint
+
+
+def test_theme_escapes_are_byte_identical_to_golden():
+    """theme.escapes(t) for every built-in is byte-identical to golden captured at 8557b2b."""
+    golden = {
+        'blues': '\x1b]4;0;#0B1B33\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#D6E4F7\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#D6E4F7\x1b\\\x1b]11;#0B1B33\x1b\\\x1b]12;#4DA3FF\x1b\\',
+        'dark': '\x1b]4;0;#14171A\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#E3E7EA\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#E3E7EA\x1b\\\x1b]11;#14171A\x1b\\\x1b]12;#58A6FF\x1b\\',
+        'eye-relief': '\x1b]4;0;#2B2A27\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#D6CDB8\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#D6CDB8\x1b\\\x1b]11;#2B2A27\x1b\\\x1b]12;#C9A227\x1b\\',
+        'eye-relief-day': '\x1b]4;0;#F2ECDC\x1b\\\x1b]4;1;#B3261E\x1b\\\x1b]4;2;#2E7D4F\x1b\\\x1b]4;3;#A8651B\x1b\\\x1b]4;4;#2B6CB0\x1b\\\x1b]4;5;#7B2CBF\x1b\\\x1b]4;6;#0E8A8A\x1b\\\x1b]4;7;#3B3A34\x1b\\\x1b]4;8;#8C867A\x1b\\\x1b]4;9;#D32F2F\x1b\\\x1b]4;10;#388E3C\x1b\\\x1b]4;11;#F57C00\x1b\\\x1b]4;12;#1976D2\x1b\\\x1b]4;13;#8E24AA\x1b\\\x1b]4;14;#0097A7\x1b\\\x1b]4;15;#1A1A1A\x1b\\\x1b]10;#3B3A34\x1b\\\x1b]11;#F2ECDC\x1b\\\x1b]12;#8A6D1F\x1b\\',
+        'greens': '\x1b]4;0;#0B1F14\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#CDE6D2\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#CDE6D2\x1b\\\x1b]11;#0B1F14\x1b\\\x1b]12;#3FB950\x1b\\',
+        'matrix': '\x1b]4;0;#020A03\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#3DF07A\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#3DF07A\x1b\\\x1b]11;#020A03\x1b\\\x1b]12;#00FF41\x1b\\',
+        'nfl-browns': '\x1b]4;0;#311D00\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#F2E8D9\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#F2E8D9\x1b\\\x1b]11;#311D00\x1b\\\x1b]12;#FF3C00\x1b\\',
+        'none': '',
+        'reds': '\x1b]4;0;#400000\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#F2D9D9\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#F2D9D9\x1b\\\x1b]11;#400000\x1b\\\x1b]12;#FF5C5C\x1b\\',
+        'sand': '\x1b]4;0;#EFE6D2\x1b\\\x1b]4;1;#B3261E\x1b\\\x1b]4;2;#2E7D4F\x1b\\\x1b]4;3;#A8651B\x1b\\\x1b]4;4;#2B6CB0\x1b\\\x1b]4;5;#7B2CBF\x1b\\\x1b]4;6;#0E8A8A\x1b\\\x1b]4;7;#3A3126\x1b\\\x1b]4;8;#8C867A\x1b\\\x1b]4;9;#D32F2F\x1b\\\x1b]4;10;#388E3C\x1b\\\x1b]4;11;#F57C00\x1b\\\x1b]4;12;#1976D2\x1b\\\x1b]4;13;#8E24AA\x1b\\\x1b]4;14;#0097A7\x1b\\\x1b]4;15;#1A1A1A\x1b\\\x1b]10;#3A3126\x1b\\\x1b]11;#EFE6D2\x1b\\\x1b]12;#B9631E\x1b\\',
+        'vanta-black': '\x1b]4;0;#000000\x1b\\\x1b]4;1;#F85149\x1b\\\x1b]4;2;#3FB950\x1b\\\x1b]4;3;#D29922\x1b\\\x1b]4;4;#58A6FF\x1b\\\x1b]4;5;#BC8CFF\x1b\\\x1b]4;6;#39C5CF\x1b\\\x1b]4;7;#C8C8C8\x1b\\\x1b]4;8;#6E7681\x1b\\\x1b]4;9;#FF7B72\x1b\\\x1b]4;10;#56D364\x1b\\\x1b]4;11;#E3B341\x1b\\\x1b]4;12;#79C0FF\x1b\\\x1b]4;13;#D2A8FF\x1b\\\x1b]4;14;#56D4DD\x1b\\\x1b]4;15;#FFFFFF\x1b\\\x1b]10;#C8C8C8\x1b\\\x1b]11;#000000\x1b\\\x1b]12;#E6E6E6\x1b\\',
+    }
+    for t in theme.list_themes():
+        assert theme.escapes(t) == golden[t.name]
