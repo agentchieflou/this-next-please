@@ -539,6 +539,8 @@ reads it on every frame, so changing it takes effect without a reload.
 `theme.check(t, composited_panel, skin, inks={tool: colour})` holds ink on paper to the same standard as text on a
 panel. Every ink is a mark on the paper, so it needs **3:1** against it (WCAG 1.4.11, non-text contrast). The
 highlighter is read *through*, so the text needs **4.5:1** on its tint (`theme.INK_TINT`, the plain fallback's 38%).
+Rule 6 (#325) holds secondary text (`--muted`) to **4.5:1** on the target ground or composited panel, with a hint
+naming the skin and both colours if refused.
 `tests/test_fleet_skins.py` passes each variant's `inks`. No variant declares any in B, so this is the hook the paper
 skins (#249–#253) fill in, with the composited-pane pairs of the three.js skins after them.
 
