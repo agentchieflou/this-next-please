@@ -21,6 +21,7 @@ from agentdata.graph import approval, explain
 from agentdata.graph.builder import build_graph
 from agentdata.graph.query import NodeNotFoundError, find_node, load_graph
 from agentdata.textio import read_text, write_text
+from subproc import agentdata_env
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "graph")
@@ -181,6 +182,7 @@ def test_approve_refuses_without_a_terminal_and_writes_nothing(repo, stdin_mode)
         [sys.executable, "-m", "agentdata.cli_graph", "approve", root, "--graph-dir", out_dir],
         capture_output=True,
         cwd=REPO_ROOT,
+        env=agentdata_env(),
         **kwargs,
     )
     assert p.returncode == 3, p.stdout.decode(errors="replace")

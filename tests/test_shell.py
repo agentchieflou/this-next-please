@@ -14,6 +14,7 @@ import pytest
 
 from agentdata import shell, toon
 from agentdata.setup.wizard import run_doctor
+from subproc import agentdata_env
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(REPO_ROOT, ".github", "scripts")
@@ -114,18 +115,20 @@ def test_the_validator_has_a_module_entry_point(tmp_path):
     """`python -m agentdata.toon --validate -` is what the smoke scripts call."""
     good = toon.encode({"meta": {"ok": True}})
     p = subprocess.run([sys.executable, "-m", "agentdata.toon", "--validate", "-"],
-                       input=good, capture_output=True, text=True, cwd=REPO_ROOT)
+                       input=good, capture_output=True, text=True, cwd=REPO_ROOT,
+                       env=agentdata_env())
     assert p.returncode == 0, p.stderr
 
     p = subprocess.run([sys.executable, "-m", "agentdata.toon", "--validate", "-"],
-                       input="Traceback (most recent call last):\n", capture_output=True, text=True, cwd=REPO_ROOT)
+                       input="Traceback (most recent call last):\n", capture_output=True, text=True, cwd=REPO_ROOT,
+                       env=agentdata_env())
     assert p.returncode == 1
     assert "not TOON" in p.stderr
 
     f = tmp_path / "x.toon"
     f.write_text(good, encoding="utf-8")
     p = subprocess.run([sys.executable, "-m", "agentdata.toon", "--validate", str(f)],
-                       capture_output=True, text=True, cwd=REPO_ROOT)
+                       capture_output=True, text=True, cwd=REPO_ROOT, env=agentdata_env())
     assert p.returncode == 0, p.stderr
 
 
@@ -168,7 +171,7 @@ def test_every_module_imports_without_doing_anything():
 
 def test_the_ad_test_module_form_actually_prints():
     p = subprocess.run([sys.executable, "-m", "agentdata.cli_test", "detect", REPO_ROOT],
-                       capture_output=True, text=True, cwd=REPO_ROOT)
+                       capture_output=True, text=True, cwd=REPO_ROOT, env=agentdata_env())
     assert p.returncode == 0, p.stderr
     assert p.stdout.strip(), "the module form printed nothing"
     assert not toon.validate(p.stdout), toon.validate(p.stdout)

@@ -168,6 +168,19 @@ Copilot, OpenAI, Anthropic, Google, Other. `ad-fleet models [--refresh]` prints 
 TOON (`models` with `id,group,label,via,offered`, and `efforts`); a page request never starts the
 CLI.
 
+**From the terminal** (#363). `ad-fleet model <repo>` prints the repository's model, effort, the
+source it resolved from and the model its last turn actually ran on, then the catalogue as a
+`models` table (`id,group,label,offered,pressed`) with `*` on the configured id, or on the CLI
+default when it inherits. It reads the cache and never starts copilot; `ad-fleet models --refresh`
+asks the CLI. `ad-fleet model <repo> <name> [--effort <level>]` sets it, `--inherit` removes the
+entry, and `ad-fleet model --fleet [<name>] [--effort <level>]` shows or sets the fleet default --
+through the settings page's writer, with its refusals (`bad_model`, exit 2, nothing written) and an
+unregistered repository refused. **The effort pin:** a per-repo entry is read as a whole, so an
+effort alone would pass no `--model` and the fleet default would stop applying. `--effort` alone on
+a repository with no model of its own therefore pins the model it resolves today (`meta.pinned_model`),
+or, with nothing to pin, writes the effort and says so in `meta.warning`. A name the catalogue does
+not list is saved with a warning, never refused.
+
 **A console the fleet opens** (`ad-fleet console <repo> [KEY]`, #189) is the operator's own
 `cmd.exe` running Copilot in that checkout with a session id the fleet chose; the tile reads the
 same session from Copilot's own file for it (#188), and the lock is taken with the window's pid.
@@ -225,6 +238,7 @@ normally produce zero notifications; see [fleet-notifications.md](fleet-notifica
 | [fleet-events.md](fleet-events.md) | the event contract every other slice reads |
 | [fleet-approvals.md](fleet-approvals.md) | what is gated, and the two layers behind it |
 | [fleet-dashboard.md](fleet-dashboard.md) | the page, its endpoints, the token model |
+| [fleet-map.md](fleet-map.md) | the fleet map: `GET /api/map`, the graph of projects, checkouts and agents, and the page that draws it |
 | [fleet-notifications.md](fleet-notifications.md) | when you are interrupted, and when you are not |
 | [fleet-intake.md](fleet-intake.md) | the Jira board and the start guard rails |
 | [fleet-layouts.md](fleet-layouts.md) | the one arrangement and how four became one, `desk.json` schema 2 and its migration, a window's widths, hiding |

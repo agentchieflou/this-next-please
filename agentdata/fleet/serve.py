@@ -311,7 +311,7 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
 
     if not stream:
         return ({"n": 0, "started": "", "resumed": False, "session": "",
-                 "session_title": "", "ticket": "", "live": live, "events": []}, [])
+                 "session_title": "", "ticket": "", "live": live, "origin": "", "events": []}, [])
 
     started_indices = [i for i, ev in enumerate(stream) if R.is_run_start(ev)]
     repo_name = stream[0].get("repo", "") if stream else ""
@@ -319,7 +319,7 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         d = agentstate.derive(stream, live=live)
         return ({"n": 1, "started": stream[0].get("ts", ""), "resumed": False,
                  "session": d.get("session", ""), "session_title": "",
-                 "ticket": d.get("ticket", ""), "live": live, "events": stream}, [])
+                 "ticket": d.get("ticket", ""), "live": live, "origin": "", "events": stream}, [])
 
     earlier = []
     for idx, start_i in enumerate(started_indices[:-1]):
@@ -368,9 +368,21 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         "session_title": curr_title,
         "ticket": curr_derived.get("ticket") or start_ev.get("ticket", ""),
         "live": live,
+        # Who started this run, from its `started` event (#401): the map's `kind` reads it, because
+        # a headless `copilot -p` agent exits at every turn's end and liveness alone cannot tell.
+        "origin": run_origin(start_data),
         "events": curr_events,
     }
     return curr_run, earlier
+
+
+def run_origin(start_data: dict) -> str:
+    """Who began a run, from its `started` event's data: console, adopted or fleet (#401)."""
+    if start_data.get("console"):
+        return "console"
+    if start_data.get("adopted") or start_data.get("external"):
+        return "adopted"
+    return "fleet"
 
 
 # How often one repository may be refreshed by hand. It re-reads what the tick reads, so pressing
@@ -713,6 +725,8 @@ def _add_siblings(rows: list[dict]) -> None:
 _desk = {"dir": "", "poller": None, "inbox": None, "catalogue": None, "last_tick": 0.0,
          "last_fold": 0.0, "last_renew": 0.0}
 _desk_lock = threading.RLock()
+# Held only while the catalogue's sqlite file is opened, never with `_desk_lock` waiting on it (#439).
+_catalogue_lock = threading.Lock()
 
 DESK_FILE = "desk.json"
 # What `desk.json` was before schema 2, kept beside it by the migration that read it. The migration
@@ -1019,17 +1033,41 @@ def catalogue():
     A half-written catalogue is a real laptop failure -- OneDrive syncing `~/.agentdata` mid-write is
     enough -- and the page must degrade to "search is unavailable, run `ad-fleet index`" rather than
     500 on every tile.
+
+    Opened outside `_desk_lock` (#439). The first open creates the file, turns on WAL and runs the
+    schema -- seconds on a Windows machine whose scanner reads every new file -- and every window
+    write, arrangement and the stream's poller wait on `_desk_lock`, none of them for the catalogue.
+    `_catalogue_lock` only makes a second opener wait for the first rather than open twice.
     """
     import sqlite3
 
     with _desk_lock:
         bag = _fresh()
-        if bag["catalogue"] is None:
-            try:
-                bag["catalogue"] = CAT.Catalogue.open()
-            except (sqlite3.Error, CAT.CatalogueError, OSError):
-                return None
-        return bag["catalogue"]
+        if bag["catalogue"] is not None:
+            return bag["catalogue"]
+    with _catalogue_lock:
+        with _desk_lock:
+            bag = _fresh()
+            if bag["catalogue"] is not None:
+                return bag["catalogue"]
+            here = bag["dir"]
+        try:
+            opened = CAT.Catalogue.open()
+        except (sqlite3.Error, CAT.CatalogueError, OSError):
+            return None
+        with _desk_lock:
+            bag = _fresh()
+            if bag["dir"] == here and bag["catalogue"] is None:
+                bag["catalogue"] = opened
+                return opened
+        # The fleet moved while this one was opening (a test, or a changed AGENTDATA_FLEET_DIR): the
+        # handle is for a directory nobody reads any more.
+        try:
+            opened.close()
+        except Exception:                    # noqa: BLE001 - a closed handle is the point
+            pass
+        with _desk_lock:
+            return _fresh()["catalogue"]
 
 
 def poll_tick(now: float | None = None) -> list[dict]:
@@ -2406,6 +2444,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._page(PAGES[route], query)
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
+        if route == "/api/map":
+            from . import fleetmap
+
+            # The fleet's structure as one graph (#401): how checkouts and agents relate, read-only.
+            snap = fleet_snapshot()
+            return self._json({"ok": True, **fleetmap.graph(snap), "theme": snap["theme"]})
         if route == "/api/themes":
             from .. import config as C
             from . import skins

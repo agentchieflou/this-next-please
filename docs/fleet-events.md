@@ -158,6 +158,21 @@ Both carry the files the run modified, which is what a diff-before-you-trust vie
 {"schema": 1, "seq": 13, "ts": "2026-01-04T09:44:02", "repo": "luna", "ticket": "RDSD-118", "kind": "error", "data": {"exit_code": 1, "files_modified": []}}
 ```
 
+**`subagent_started`** / **`subagent_ended`** (#402) — a sub-agent (a custom agent) the session
+started, and its end. *From the SDK docs, not measured*: the shapes are the Copilot SDK's
+(`github/docs` custom-agents.md: `subagent.started`, `subagent.completed`, `subagent.failed`), and
+whether `copilot -p`'s JSONL carries them is the laptop's to say ([fleet-spike.md](fleet-spike.md)).
+`id` is the `toolCallId` that pairs the two; `subagent_ended` is `ok: true` with `ms` and `tools`
+(`durationMs`, `totalToolCalls`), or `ok: false` with the first 200 characters of `error`.
+`subagent.selected`, `subagent.deselected` and any other `subagent.*` stay `raw`. The fold counts
+the started-and-not-ended ones as the row's `subagents` (0 when no process runs); no state and no
+notification reads them.
+
+```json
+{"schema": 1, "seq": 5, "ts": "2026-01-04T09:30:40", "repo": "luna", "ticket": "RDSD-118", "kind": "subagent_started", "data": {"id": "call-review", "agent": "reviewer", "name": "Reviewer", "model": null}}
+{"schema": 1, "seq": 7, "ts": "2026-01-04T09:30:44", "repo": "luna", "ticket": "RDSD-118", "kind": "subagent_ended", "data": {"id": "call-review", "agent": "reviewer", "ok": true, "ms": 4200, "tools": 3}}
+```
+
 **`raw`** — an event kind this build of the fleet has not been taught. Kept whole, so a reader can
 see what arrived and the mapping can be extended without losing the history in between.
 

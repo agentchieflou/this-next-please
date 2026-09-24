@@ -33,7 +33,7 @@ class Fold:
 
     __slots__ = ("phase", "ticket", "session", "premium", "turns", "last_text", "denied",
                  "frictions", "questions", "approvals", "errors", "turn_open", "seen", "last_ts",
-                 "asked", "files", "from_state")
+                 "asked", "files", "from_state", "subagents")
 
     def __init__(self) -> None:
         self.phase = self.ticket = self.session = self.last_text = ""
@@ -52,6 +52,9 @@ class Fold:
         self.errors: list[dict] = []
         self.turn_open = False
         self.last_ts = ""
+        # The sub-agents started and not yet ended, id -> agent name (#402). From the SDK docs, not
+        # measured; a count only, which no state and no notification reads.
+        self.subagents: dict[str, str] = {}
 
     def add(self, ev: dict) -> "Fold":
         kind, data = ev.get("kind"), ev.get("data") or {}
@@ -71,6 +74,9 @@ class Fold:
             # `classify`. Reporting a corpse as working is the exact failure the reaper exists to
             # prevent, and the fold was quietly undoing it.
             self.turn_open = False
+        if kind in ("started", "exited", "error"):
+            # A new run, or a process that ended: no sub-agent of it is still running (#402).
+            self.subagents = {}
         if kind == "turn_started":
             self.turn_open = True
             # A new turn supersedes what the last one was refused, but not what it asked: a
@@ -137,6 +143,10 @@ class Fold:
             self.approvals = []
         elif kind == "error":
             self.errors.append(ev)
+        elif kind == "subagent_started":
+            self.subagents[str(data.get("id") or "")] = str(data.get("agent") or "")
+        elif kind == "subagent_ended":
+            self.subagents.pop(str(data.get("id") or ""), None)
         return self
 
     def reconcile(self, open_questions: list) -> "Fold":
@@ -234,7 +244,9 @@ def classify(f: Fold, *, live: bool = False) -> dict:
             "asked": [dict(q) for q in f.asked],
             "files_modified": list(f.files),
             "assumed": [dict(q) for q in f.asked if not q.get("blocking", True)],
-            "frictions": len(f.frictions), "at": f.last_ts}
+            "frictions": len(f.frictions), "at": f.last_ts,
+            # Live sub-agents (#402): none when no process runs, whatever the stream left open.
+            "subagents": len(f.subagents) if live else 0}
 
 
 def derive(events: list[dict], *, live: bool = False, open_questions: list | None = None) -> dict:
