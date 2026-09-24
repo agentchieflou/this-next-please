@@ -19,6 +19,7 @@ the source text.
 from __future__ import annotations
 import json
 import os
+import re
 import threading
 
 import pytest
@@ -398,6 +399,30 @@ def test_the_settings_rules_cannot_restyle_the_desk():
                 continue
             leaked.append(selector)
     assert leaked == [], f"these reach the desk too: {leaked}"
+
+
+def test_the_desk_layout_cannot_reach_the_settings_page():
+    """The desk and the settings page share app.css. Bare element selectors in the desk portion
+    must not set layout properties that clamp or clip pages that also use those elements (like main)."""
+    css = open(os.path.join(STATIC, "app.css"), encoding="utf-8").read()
+    marker = "the settings page (/settings)"
+    assert marker in css
+    desk_css = css[:css.index(marker)]
+    desk_clean = re.sub(r"/\*.*?\*/", "", desk_css, flags=re.DOTALL)
+    matches = re.findall(r"([^{}]+)\{([^{}]+)\}", desk_clean)
+    forbidden_tags = {"main", "section", "table", "h2"}
+    layout_props = {"overflow", "overflow-x", "overflow-y", "height", "min-height", "flex", "display"}
+
+    leaked = []
+    for sel_group, body in matches:
+        props = {item.split(":")[0].strip() for item in body.split(";") if ":" in item}
+        if props & layout_props:
+            for sel in sel_group.split(","):
+                sel = sel.strip()
+                m = re.match(r"^([a-zA-Z0-9_-]+)(?::[a-zA-Z0-9_-]+)?$", sel)
+                if m and m.group(1) in forbidden_tags:
+                    leaked.append((sel, sorted(props & layout_props)))
+    assert leaked == [], f"these bare tags set layout and reach /settings: {leaked}"
 
 
 def test_the_desk_keeps_its_own_why_and_scope():
