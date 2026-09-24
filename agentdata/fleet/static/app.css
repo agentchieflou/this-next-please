@@ -575,6 +575,13 @@ body:has(> #ink[data-skin]) .tile {
   border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent;
 }
 body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
+/* #330: an open pane's left padding is the ink's margin, where a skin writes the done check and the
+   error bang (`shapes.js` `margin()`, anchored on the pane). 26px keeps the green check (to x+25.3)
+   left of the content, so it never lands on the pane number or the name. `:where()` keeps this
+   rule's weight low, so a skin that pads its pane further (the legal pad's 34px, the notebook's
+   gutter) still wins; rails keep the mid-rail mark. Ink off keeps the 10px above: the rule is keyed
+   on the canvas carrying a table, which an ink-off shell lacks. */
+:where(body:has(> #ink[data-skin])) .tile:not([data-tier="rail"]) { padding-left: var(--ink-margin, 26px); }
 
 /* Whatever is under the hand -- an open pane by its head, or a rail by its face. It is lifted out
    of the flow's paint order and given no pointer events, so `elementFromPoint` answers with what

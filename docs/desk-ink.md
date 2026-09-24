@@ -118,7 +118,7 @@ Ink.setSkin({
   marks: [
     { selector: ".tile.needs-human .repo", tool: "highlighter", shape: "lines" },
     { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: 3 },
-    { selector: ".tile.state-done .head", tool: "green", shape: "check" },
+    { selector: ".tile.state-done", tool: "green", shape: "check" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "arrow", to: ".chip" },
   ],
 });
@@ -155,6 +155,12 @@ force alone.
 Shapes are computed from `getBoundingClientRect` in the element's own coordinates. A pane that moves, whether in a
 gutter drag, a scroll or a reorder, moves its marks. Only a pane that changes size, or whose text wraps differently,
 rebuilds them. A box under 90px wide is a pane's 48px rail, so a margin mark goes down its middle.
+
+The margin is the pane's left padding (#330). A `check` or a `bang` row anchors on the pane (`.tile.state-error`,
+never `.tile.state-error .head`), and `margin()` writes it 14px in from the pane's border box. Under ink, app.css gives
+an open pane a 26px left padding (`--ink-margin`, in the #257 block, at `:where()` weight so a skin that pads further,
+like the legal pad's 34px or the notebook's gutter, wins), so the green check (to x+25.3) stays left of the pane number
+and the name. Ink off keeps the 10px padding, and the fallback's bar is drawn inside the pane's 3px border.
 
 | Shape | Drawn | Plain fallback |
 | --- | --- | --- |

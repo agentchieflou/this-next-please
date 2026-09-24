@@ -50,9 +50,11 @@ body[data-skin="voxel"][data-skin-variant="end"] {
    The page stands aside for the canvas (app.css clears the panes, the header and the footer). The
    pane's left edge is the slab's strip, ten pixels of cubes: the page's own accent border is
    cleared so it does not draw over them (over the page's inline accent, #215, hence the
-   `!important`), and the content keeps the room the strip takes. What is
-   written on the header and the footer is written in the band's ink. */
-body[data-skin="voxel"]:not(.ink-off) .tile { border-left-color: transparent !important; padding-left: 17px; }
+   `!important`). An open pane's content keeps the room the strip takes through app.css's ink
+   margin (26px, #330), where the check and the bang are written clear of the number and the name;
+   a rail keeps its 17px. What is written on the header and the footer is written in the band's ink. */
+body[data-skin="voxel"]:not(.ink-off) .tile { border-left-color: transparent !important; }
+body[data-skin="voxel"]:not(.ink-off) .tile[data-tier="rail"] { padding-left: 17px; }
 body[data-skin="voxel"]:not(.ink-off) header,
 body[data-skin="voxel"]:not(.ink-off) header h1,
 body[data-skin="voxel"]:not(.ink-off) footer { color: var(--voxel-band-ink); }

@@ -45,8 +45,8 @@ Every row is a class or attribute `app.js` already sets. Glass adds no state cla
 | needs you | `.tile.needs-human` | highlighter `lines` on `.repo`, and on each open question (`.asks:not([hidden]) .ask:not([hidden]) .ask-q`) | rim in `--human` |
 | answered | `.ask-choice[aria-pressed="true"]` | pen `loop` round the chosen answer. Choosing another strikes it and circles the new one | — |
 | running | `.tile.state-running` | pen `underline` under the `.chip` | the top glint travels along the top edge in `--running`, a lap every 4.5s. Held still under reduced motion, it tints the glint |
-| error, blocked | `.tile.state-error`, `.tile.state-blocked` | marker `bang` in the margin of `.head` | rim in `--human` |
-| done | `.tile:is(.state-done, .is-done)`: the chip's word, or the fold's for a finished agent nothing supervises, whose chip says idle (#253, #333) | green `check` in the margin of `.head` | rim in `--done` |
+| error, blocked | `.tile.state-error`, `.tile.state-blocked` | marker `bang` in the pane's margin (#330) | rim in `--human` |
+| done | `.tile:is(.state-done, .is-done)`: the chip's word, or the fold's for a finished agent nothing supervises, whose chip says idle (#253, #333) | green `check` in the pane's margin (#330) | rim in `--done` |
 | stale (#240) | `.tile .oldsession:not([hidden])` | pen `outline`, dashed | — |
 | a finding | `.tile .scopereport.outside:not([hidden])`: edits outside the scope it was given (#168) | red `ellipse` round the report | — |
 

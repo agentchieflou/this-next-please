@@ -45,7 +45,7 @@ SKIN_CSS = os.path.join(STATIC, "skins", "farmstead", "skin.css")
 SPRITES = os.path.join(STATIC, "skins", "farmstead", "sprites.svg")
 VARIANTS = tuple(skins.SKINS["farmstead"]["variants"])
 #: The done row: the chip's own `done`, or the fold's (`is-done`, #253).
-DONE = ".tile:is(.state-done, .is-done) .head"
+DONE = ".tile:is(.state-done, .is-done)"
 #: The palette colour each tool is drawn in unless the skin names its own (`ink.js` TOOLS).
 TOOL_TOKENS = {"pencil": "--muted", "pen": "--accent", "red": "--human", "green": "--done",
                "marker": "--human", "highlighter": "--waiting"}
@@ -789,7 +789,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
             # Done: the fold says so for a supervised agent.
             forced["state"]["gamma"] = "done"
             _state(page, "gamma", "state-done")
-            _settle(page, "Ink.inspect().layer.marks.some(m => m.selector === '.tile:is(.state-done, .is-done) .head' && m.drawn === 1)")
+            _settle(page, "Ink.inspect().layer.marks.some(m => m.selector === '.tile:is(.state-done, .is-done)' && m.drawn === 1)")
             done = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
             # A new run for every one of them: nothing outstanding.
             forced["live"].clear()
@@ -819,7 +819,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
     assert panes["alpha"]["shown"] == "crop-wilted" and panes["alpha"]["scorched"], panes["alpha"]
     assert panes["beta"]["shown"] == "crop-wilted" and not panes["beta"]["scorched"], panes["beta"]
     assert panes["gamma"]["shown"] == "crop-sprout" and panes["gamma"]["grows"] == 1, panes["gamma"]
-    assert live(done, "gamma", ".tile:is(.state-done, .is-done) .head")[0]["tool"] == "green"
+    assert live(done, "gamma", DONE)[0]["tool"] == "green"
     assert done["farm"]["panes"]["gamma"]["shown"] == "crop-bloom", done["farm"]["panes"]["gamma"]
     # Gone: ink is struck (a strike is a mark of its own), and nothing is simply removed. The
     # friction line is history and stays in the transcript, so its ring stays with it.

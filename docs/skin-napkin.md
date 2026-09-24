@@ -52,8 +52,8 @@ the skin shows no state the page does not have.
 | running | the name underlined in pen, and **the pen's tip** resting at the end of the line | `.tile.state-running .head .repo` underline. The tip is a material (`frame`/`tick`), shown when the line is drawn and kept when it is struck |
 | needs you | highlighter on the name and on the question; pencil loops round the choices | `.tile.needs-human .head .repo` (`leaves: "erased"`), `.asks:not([hidden]) .ask:not([hidden]) .ask-q`, `… .ask-choice:not([aria-pressed="true"])` |
 | answered | the chosen answer circled in pen, with its pencil loop erased. When the question goes, its highlight is struck in pen. **The name is erased, never struck** | `.ask:not([hidden]) .ask-choice[aria-pressed="true"]` ellipse. The strike is how the layer takes back any ink |
-| error | the felt tip's box round the pane, with its bleed; a bang in the margin | `.tile.state-error` marker loop, `.tile.state-error .head` red bang |
-| done | green check in the margin | `.tile:is(.state-done, .is-done) .head`: a quiet agent's chip says idle, so the fold's own *done* arrives as `is-done` (#253) |
+| error | the felt tip's box round the pane, with its bleed; a bang in the margin | `.tile.state-error` marker loop and red bang (in the pane's margin, #330) |
+| done | green check in the margin | `.tile:is(.state-done, .is-done)`, in the pane's margin (#330): a quiet agent's chip says idle, so the fold's own *done* arrives as `is-done` (#253) |
 | stale (#240) | the chip's own words written in pencil as a margin note, an arrow from it to the run's line, a dashed pencil outline | `.oldsession:not([hidden])` write and arrow (`to: ".runline"`), `.tile:has(.oldsession:not([hidden]))` dashed outline |
 | a finding | a red ellipse round the line, the highlighter on its kind, its own words written in pencil | `.tile .transcript li:is(.denied, .friction)` ellipse, its `.k` lines, its `.v` write: the lines the page already marks as a problem, read as the legal pad reads them (#251) |
 | the header count | handwritten, in pen | `#bellcount` write (the unread count on the header's bell) |
