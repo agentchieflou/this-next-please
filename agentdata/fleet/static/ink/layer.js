@@ -589,6 +589,8 @@ class Layer {
       if (m.row && (m.row.grow || m.row.tip || m.row.cap)) {
         const pr = m.lane.root ? m.lane.root.getBoundingClientRect() : null;
         shape.limit = (pr ? pr.right : window.innerWidth) - r.left - 14;
+        // The pen's tip sits at the end while the mark is on the paper; a mark that is leaving has
+        // had its pen lifted, and is struck or erased without it.
         shape.tip = m.row.tip && m.state !== "leaving" && m.state !== "struck";
         shape.cap = m.row.cap || "";
       }
@@ -1269,7 +1271,7 @@ class Layer {
       const erased = m.strokes.some(s => s.erase !== Infinity);
       marks.push({
         id: m.id, lane: m.lane.key, selector: m.row ? m.row.selector : "", tool: m.tool,
-        ink: m.row ? m.row.ink : m.tool, cap: m.row ? (m.row.cap || "") : "", shape: m.shape,
+        ink: (m.row && m.row.ink) || m.tool, cap: m.row ? (m.row.cap || "") : "", shape: m.shape,
         state: m.state, strikeOf: m.strikeOf ? m.strikeOf.id : null, strokes: m.strokes.length,
         len: Math.round(len * 10) / 10,
         drawn: m.shape === "write" ? m.reveal : m.ghost ? 1 : (len ? Math.round(head / len * 1000) / 1000 : 0),

@@ -90,7 +90,7 @@ export const SHAPES = {
   },
   /* A line under the text, a hair past both ends of it. `m.grow` px more on the right when the row
      grows (#249: the running agent's line lengthens with its turn), never past `m.limit`, and with
-     `m.tip` a pen-tip dot sitting at its end. */
+     `m.tip` a pen-tip dot sitting at its end, or with `m.cap` an arrowhead or a bar (#385). */
   underline(m) {
     const r = box(m.box), y = r.b + 1 + (m.pad || 0);
     let x1 = r.r + 8 + (m.grow || 0);

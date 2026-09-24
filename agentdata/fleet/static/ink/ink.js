@@ -131,7 +131,7 @@ function normalise(table) {
       throw new TypeError(where + ": no tool " + JSON.stringify(row.tool) + " (" + Object.keys(TOOLS).join(", ") + ")");
     }
     if (row.ink !== undefined && !Object.prototype.hasOwnProperty.call(TOOLS, row.ink)) {
-      throw new TypeError(where + ": no tool " + JSON.stringify(row.ink) + " (" + Object.keys(TOOLS).join(", ") + ")");
+      throw new TypeError(where + ": `ink` " + JSON.stringify(row.ink) + " is no tool (" + Object.keys(TOOLS).join(", ") + ")");
     }
     if (!Object.prototype.hasOwnProperty.call(PLAIN, row.shape)) {
       throw new TypeError(where + ": no shape " + JSON.stringify(row.shape) + " (" + Object.keys(PLAIN).join(", ") + ")");
@@ -146,6 +146,8 @@ function normalise(table) {
         throw new SyntaxError(where + ": `to` is not a selector the page can match");
       }
     }
+    // #249: an underline that grows with what arrives in its pane, a pen-tip dot at its end, and a
+    // written word that is struck and written again when it changes. Each belongs to one shape.
     if ((row.grow !== undefined || row.tip) && row.shape !== "underline") {
       throw new TypeError(where + ": `grow` and `tip` are an underline's");
     }
