@@ -599,9 +599,15 @@ def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path
               document.querySelector('.tile[data-repo="asks"] .ask-choice').click();
               document.querySelector('.tile[data-repo="idle"]').classList.replace('state-idle', 'state-done');
               unread.set('idle', 1); bell();
-              await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
+              // Read once the check is on the paper (#470), not after a fixed two of the test's
+              // frames: on a loaded runner the layer's frame for these changes can come after the
+              // test's second. "At once" is the layer's own frame count, still held to 2 below.
+              let waited = 0;
+              const ticked = () => Ink.inspect().layer.marks.some(m => m.shape === 'check' && !m.strikeOf);
+              do {{ await new Promise(d => requestAnimationFrame(d)); waited += 1; }} while (!ticked() && waited < 120);
               const l = Ink.inspect().layer;
-              return {{ frames: l.frames - l0, busy: l.busy, hands: l.hands, reduced: l.reduced,
+              return {{ frames: l.frames - l0, busy: l.busy, hands: l.hands, reduced: l.reduced, waited,
+                       idle: document.querySelector('.tile[data-repo="idle"]').className,
                        marks: l.marks.map(m => [m.selector, m.shape, m.state, m.drawn, m.strikeOf]),
                        count: {SKIN}.inspect().count }};
             }}""")
@@ -614,7 +620,7 @@ def test_reduced_motion_draws_the_pad_and_its_marks_at_once(fleet_home, tmp_path
     live = [m for m in went["marks"] if not m[4]]
     assert all(m[3] == 1 for m in live), live
     assert not [m for m in live if m[1] == "loop"], "the pencil loops erased at once"
-    assert [m[2] for m in live if m[1] == "ellipse"] == ["drawn"] and [m for m in live if m[1] == "check"]
+    assert [m[2] for m in live if m[1] == "ellipse"] == ["drawn"] and [m for m in live if m[1] == "check"], went
     assert any(m[2] == "struck" for m in went["marks"]), went["marks"]
     assert went["count"]["strike"] == 1, went["count"]
 
