@@ -493,8 +493,8 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     marks, rims = steps["set"]
     hl, q = ".tile.needs-human .repo", ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q"
     assert _drawn(marks, hl, "pane:alpha") and _drawn(marks, q, "pane:alpha"), marks
-    assert _drawn(marks, ".tile.state-error .head", "pane:beta"), marks
-    assert _drawn(marks, ".tile:is(.state-done, .is-done) .head", "pane:gamma"), marks
+    assert _drawn(marks, ".tile.state-error", "pane:beta"), marks
+    assert _drawn(marks, ".tile:is(.state-done, .is-done)", "pane:gamma"), marks
     assert _drawn(marks, ".tile .oldsession:not([hidden])", "pane:gamma"), marks
     assert rims == {"alpha": ("human", 1), "beta": ("human", 1), "gamma": ("done", 1)}, rims
 
@@ -506,8 +506,8 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
 
     marks, rims = steps["moved on"]
     assert _struck(marks, hl, "pane:alpha") and _struck(marks, q, "pane:alpha"), marks
-    assert _struck(marks, ".tile.state-error .head", "pane:beta"), marks
-    assert _struck(marks, ".tile:is(.state-done, .is-done) .head", "pane:gamma"), marks
+    assert _struck(marks, ".tile.state-error", "pane:beta"), marks
+    assert _struck(marks, ".tile:is(.state-done, .is-done)", "pane:gamma"), marks
     assert _struck(marks, ".tile .oldsession:not([hidden])", "pane:alpha"), marks
     assert _drawn(marks, ".tile .scopereport.outside:not([hidden])", "pane:beta"), marks
     assert _drawn(marks, ".tile.state-running .chip", "pane:gamma"), marks
@@ -685,7 +685,7 @@ def test_under_ink_off_every_variant_is_the_css_glass_with_the_same_marks_plain(
                            layer: Ink.inspect().layer, tile: g('#grid .tile').backgroundColor, panel,
                            blur: g('#grid .tile').backdropFilter,
                            hl: g('.tile[data-repo="alpha"] .repo').backgroundColor,
-                           done: g('.tile[data-repo="gamma"] .head').boxShadow }; }""")
+                           done: g('.tile[data-repo="gamma"]').boxShadow }; }""")
             assert not errors, errors
             three = [u for u in asked if "/vendor/three/" in u or "/static/ink/layer.js" in u]
             browser.close()

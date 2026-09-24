@@ -52,6 +52,15 @@ is missing before a tile does: which checkouts moved, whether the catalogue is f
 lack the `AGENTS.md` keys their links need, whether Downloads can be listed, and what the polling is
 costing your Jira token.
 
+Its `models` row (#365), right after `copilot` and `login`, says where the model list came from and
+how old it is: `ok` is "26 models from copilot 1.0.88, checked 3h ago" (read from the installed CLI,
+reusing the `--version` the `copilot` row just ran, and asked again only when the cache is stale or
+from another build). `warn` means the CLI could not be asked and the list shipped with this version
+is shown (fix: `ad-fleet models --refresh` once `copilot --version` works), or, one row each, that a
+configured `fleet.model` or `fleet.models.<repo>` is an id this CLI no longer offers, which fails an
+agent's next start (fix: `ad-fleet model <repo> --inherit`, or pick another model on `/settings`).
+Aliases such as `opus` are never flagged, and the doctor rewrites nothing and never starts server mode.
+
 ## Steps (`--only <key>` runs one)
 | key | what it does | writes |
 |---|---|---|
@@ -131,6 +140,7 @@ when a change takes effect, because the answers differ:
 |---|---|---|
 | `fleet.model`, `fleet.effort` | the model every agent is launched with; blank passes no flag and the CLI chooses | from the agent's next turn |
 | `fleet.models.<repo>` | `{"model": …, "effort": …}` for one repository, over the fleet-wide default | from the agent's next turn |
+| `fleet.model_list.max_age_h` | hours the model list read from the Copilot CLI is kept before it is asked again (default 24; a new CLI version is asked at once). `ad-fleet models --refresh` asks now | at the next read of the list |
 | `fleet.approval_timeout` | seconds a gated write waits for your click | now |
 | `fleet.max_restarts`, `fleet.log_mb`, `fleet.log_keep` | how often an agent is resumed after a crash, and how its logs rotate | now |
 | `fleet.board_ttl`, `fleet.branches.warn`, `fleet.attach.max_mb` | the Jira board cache, the branch-clutter warning, the attachment cap | now |

@@ -28,7 +28,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
 
 
-def launch_chromium(p):
+def launch_chromium(p, args=()):
     """Chromium, from wherever this machine keeps it.
 
     Playwright pins a browser build to its own version and refuses to start when the two disagree,
@@ -39,9 +39,12 @@ def launch_chromium(p):
 
     Chromium is the engine under all three hosts the dashboard has to render in -- Edge, PyCharm's
     JCEF tool window and VS Code's Simple Browser -- so one engine covers the matrix.
+
+    `args` are extra command-line switches for this one launch (#384 passes a Blink feature flag
+    to measure an API no shell ships yet); every other caller passes none.
     """
     try:
-        return p.chromium.launch(headless=True)
+        return p.chromium.launch(headless=True, args=list(args))
     except Exception as first:                                  # noqa: BLE001 - any launch failure
         candidates = [os.environ.get("AGENTDATA_CHROMIUM", "")]
         for root in ("/opt/pw-browsers",):
@@ -50,8 +53,10 @@ def launch_chromium(p):
                     candidates.append(os.path.join(root, entry, "chrome-linux", "chrome"))
         for path in candidates:
             if path and os.path.isfile(path):
-                return p.chromium.launch(headless=True, executable_path=path)
-        pytest.skip(f"no chromium to drive the page with: {first}")
+                return p.chromium.launch(headless=True, executable_path=path, args=list(args))
+        pytest.skip(f"no chromium to drive the page with: {first} "
+                    f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')} "
+                    f"HOME={os.environ.get('HOME', '')}")
 
 
 @pytest.fixture()

@@ -33,6 +33,19 @@ which stays as it was in the terminal):
 `theme.check` rule 6 refuses a palette whose `--muted` falls under 4.5:1 on the ground or skin paper it is checked
 against, and names the skin and both colours.
 
+### The word on a state colour (`--on-*`)
+
+A chip, a badge, a ticket's status and a rail's glyph write their word on a state colour (`--running`,
+`--waiting`, `--human`, `--done`, `--idle`). The state colours are shared with the terminal and never change, so the
+word's colour is chosen instead (#327): `theme.to_css` adds `--on-running`, `--on-waiting`, `--on-human`, `--on-done`
+and `--on-idle`, each the first of `--text`, `--bg`, `#FFFFFF` and `#111111` that reads at 4.5:1 on its state colour,
+or, if none does, the one that reads best. The `none` palette's values are written in `app.css :root` by the same
+rule; white on its `--done` is 3.57:1, so none of them is white. A chip's age is lighter by weight, never faded.
+The group glyph sits on `--muted` and writes in `--panel`, as the unsupervised chip does (rule 6 holds that pair).
+
+`theme.check` rule 7 refuses a palette whose `--on-<role>` falls under 4.5:1 on its state colour, and names both.
+A skin reads the five tokens and never sets them (`tests/test_fleet_skin_guard.py`).
+
 ## The Host Matrix
 
 Every mechanism is gated by `color.enabled()`, so a pipe gets zero escape bytes and reports `mechanism: none`.
@@ -103,6 +116,8 @@ While `agentdata` provides native Oh My Posh integration for high-fidelity promp
 ## Skins (Desk on Windows)
 
 A **skin** is one more stylesheet over the same DOM: the approved grid with CSS and hand-drawn SVG swapped in. A skin that needs a page change is not a skin.
+
+**Served, not fetched (#345).** Every page but `/probe` is served wearing the chosen palette and skin: the palette's tokens as `<html data-theme="custom" style>`, the skin's stylesheet as a `<link data-skin>` in the head and `<body data-skin data-skin-variant>`, so the first frame is never the system palette or the skin just replaced. A skinned page is also served `body.ink-off`, the legible plain look, until the ink layer draws (desk-ink.md §Following the page); every skin's band text is keyed on `:not(.ink-off)`, which would read 1.30:1 on farmstead:daytime before the canvas is there.
 
 ### The Skin Contract
 - **DOM Stability**: A skin may only alter CSS custom properties, backgrounds, borders, and decorative sprites. It must never require HTML markup changes or alter interactive element IDs.

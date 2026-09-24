@@ -64,8 +64,8 @@ attribute `app.js` already sets. The skin adds no state class and never writes t
 | --- | --- | --- | --- |
 | needs you | `.tile.needs-human` | the top block rises 5px out of its socket | `.tile.needs-human .head .repo`: marker, underline |
 | running | `.tile.state-running` | two blocks; the top one turns a quarter every 3s | none: the turning block is the running pen |
-| error | `.tile.state-error` | the top block cracks into two halves, knocked off square | `.tile.state-error .head`: red, bang |
-| done | `:is(.state-done, .is-done)`: the chip's word, or the fold's for a finished agent nothing supervises, whose chip says idle (#253, #333) | the stack is set full, three blocks, flush | `.tile:is(.state-done, .is-done) .head`: green, check |
+| error | `.tile.state-error` | the top block cracks into two halves, knocked off square | `.tile.state-error`: red, bang in the pane's margin (#330) |
+| done | `:is(.state-done, .is-done)`: the chip's word, or the fold's for a finished agent nothing supervises, whose chip says idle (#253, #333) | the stack is set full, three blocks, flush | `.tile:is(.state-done, .is-done)`: green, check in the pane's margin (#330) |
 | stale (#240) | `.oldsession` not `hidden` | a pebble on top of the stack | `.tile .oldsession:not([hidden])`: pencil, dashed outline |
 | answered | the choice's `aria-pressed="true"` in the question card | the risen block settles as `needs-human` goes | `.tile .ask-choice[aria-pressed="true"]`: green, loop |
 | finding | a transcript line `li.friction` or `li.denied` | an ore fleck in the bottom block | `.tile .transcript li.friction .v, .tile .transcript li.denied .v`: red, underline |

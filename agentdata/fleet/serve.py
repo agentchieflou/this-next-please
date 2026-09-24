@@ -43,6 +43,7 @@ import re
 import secrets
 import threading
 import time
+from html import escape as _escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -311,7 +312,7 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
 
     if not stream:
         return ({"n": 0, "started": "", "resumed": False, "session": "",
-                 "session_title": "", "ticket": "", "live": live, "events": []}, [])
+                 "session_title": "", "ticket": "", "live": live, "origin": "", "events": []}, [])
 
     started_indices = [i for i, ev in enumerate(stream) if R.is_run_start(ev)]
     repo_name = stream[0].get("repo", "") if stream else ""
@@ -319,7 +320,7 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         d = agentstate.derive(stream, live=live)
         return ({"n": 1, "started": stream[0].get("ts", ""), "resumed": False,
                  "session": d.get("session", ""), "session_title": "",
-                 "ticket": d.get("ticket", ""), "live": live, "events": stream}, [])
+                 "ticket": d.get("ticket", ""), "live": live, "origin": "", "events": stream}, [])
 
     earlier = []
     for idx, start_i in enumerate(started_indices[:-1]):
@@ -368,9 +369,21 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         "session_title": curr_title,
         "ticket": curr_derived.get("ticket") or start_ev.get("ticket", ""),
         "live": live,
+        # Who started this run, from its `started` event (#401): the map's `kind` reads it, because
+        # a headless `copilot -p` agent exits at every turn's end and liveness alone cannot tell.
+        "origin": run_origin(start_data),
         "events": curr_events,
     }
     return curr_run, earlier
+
+
+def run_origin(start_data: dict) -> str:
+    """Who began a run, from its `started` event's data: console, adopted or fleet (#401)."""
+    if start_data.get("console"):
+        return "console"
+    if start_data.get("adopted") or start_data.get("external"):
+        return "adopted"
+    return "fleet"
 
 
 # How often one repository may be refreshed by hand. It re-reads what the tick reads, so pressing
@@ -713,6 +726,8 @@ def _add_siblings(rows: list[dict]) -> None:
 _desk = {"dir": "", "poller": None, "inbox": None, "catalogue": None, "last_tick": 0.0,
          "last_fold": 0.0, "last_renew": 0.0}
 _desk_lock = threading.RLock()
+# Held only while the catalogue's sqlite file is opened, never with `_desk_lock` waiting on it (#439).
+_catalogue_lock = threading.Lock()
 
 DESK_FILE = "desk.json"
 # What `desk.json` was before schema 2, kept beside it by the migration that read it. The migration
@@ -979,6 +994,13 @@ def poller():
         return bag["poller"]
 
 
+def current_poller():
+    """The `Poller` if one exists, else None. Never constructs one: a reader that only wants what
+    the poll already read (the map, #403) must not be the thing that starts polling."""
+    with _desk_lock:
+        return _fresh()["poller"]
+
+
 def inbox_folders(cfg: dict | None = None) -> list[str] | None:
     """`fleet.inbox.folders` from the config, or None for the inbox's own default.
 
@@ -1019,17 +1041,41 @@ def catalogue():
     A half-written catalogue is a real laptop failure -- OneDrive syncing `~/.agentdata` mid-write is
     enough -- and the page must degrade to "search is unavailable, run `ad-fleet index`" rather than
     500 on every tile.
+
+    Opened outside `_desk_lock` (#439). The first open creates the file, turns on WAL and runs the
+    schema -- seconds on a Windows machine whose scanner reads every new file -- and every window
+    write, arrangement and the stream's poller wait on `_desk_lock`, none of them for the catalogue.
+    `_catalogue_lock` only makes a second opener wait for the first rather than open twice.
     """
     import sqlite3
 
     with _desk_lock:
         bag = _fresh()
-        if bag["catalogue"] is None:
-            try:
-                bag["catalogue"] = CAT.Catalogue.open()
-            except (sqlite3.Error, CAT.CatalogueError, OSError):
-                return None
-        return bag["catalogue"]
+        if bag["catalogue"] is not None:
+            return bag["catalogue"]
+    with _catalogue_lock:
+        with _desk_lock:
+            bag = _fresh()
+            if bag["catalogue"] is not None:
+                return bag["catalogue"]
+            here = bag["dir"]
+        try:
+            opened = CAT.Catalogue.open()
+        except (sqlite3.Error, CAT.CatalogueError, OSError):
+            return None
+        with _desk_lock:
+            bag = _fresh()
+            if bag["dir"] == here and bag["catalogue"] is None:
+                bag["catalogue"] = opened
+                return opened
+        # The fleet moved while this one was opening (a test, or a changed AGENTDATA_FLEET_DIR): the
+        # handle is for a directory nobody reads any more.
+        try:
+            opened.close()
+        except Exception:                    # noqa: BLE001 - a closed handle is the point
+            pass
+        with _desk_lock:
+            return _fresh()["catalogue"]
 
 
 def poll_tick(now: float | None = None) -> list[dict]:
@@ -1262,10 +1308,74 @@ def theme_state() -> dict:
         "accents": accents,
         # The widths a pane changes tier at (#235). Here because this is the payload the config
         # file already reaches every window by -- `/api/fleet`, the stream's `theme` frame when the
-        # file changes, and the snapshot a reload draws first -- so the settings page's "in effect
-        # now" is true of them as it is of the palette.
+        # file changes, and the served page itself (`page_theme`, #345) -- so the settings page's
+        # "in effect now" is true of them as it is of the palette.
         "tiers": SET.tiers(cfg),
     }
+
+
+# What `page_theme` lets through from `theme_state()["css"]`: a custom property's name and a hex
+# colour, nothing else, so a hand-edited config cannot put a `;` or a `url()` into the page.
+CSS_TOKEN = re.compile(r"^--[a-z][a-z0-9-]*$")
+CSS_HEX = re.compile(r"^#[0-9A-Fa-f]{3,8}$")
+#: The epic's progressive decision (#291): `ink-off` is served on every skinned page, the desk too,
+#: and ink.js lifts it in the task in which its layer first draws. False serves it on the desk only
+#: where the ink gate is off.
+INK_OFF_UNTIL_DRAWN = True
+
+
+def _px(n) -> str:
+    """A width as `applyTiers` writes it: `rail + "px"`, so 220 is `220px`, never `220.0px`."""
+    return f"{int(n)}px" if float(n) == int(n) else f"{n}px"
+
+
+def ink_gate_on(query: dict, probe_class: str | None = None) -> bool:
+    """ink.js's gate, decided on the server: `?ink=off` is off, `?ink=on` is on, else the shell's
+    probe class is `hardware` (ink.js, "the gate"). `probe_class` is `ink_facts(query)["class"]`
+    when the caller has it already."""
+    asked = ((query.get("ink") or [""])[0] or "").strip().lower()
+    if asked in ("off", "on"):
+        return asked == "on"
+    return (probe_class if probe_class is not None else ink_facts(query)["class"]) == "hardware"
+
+
+def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
+    """The chosen palette, skin and tiers as the served page's own markup (#345), so its first
+    painted frame is the one the operator chose -- not the system palette, and not the snapshot of
+    the skin just replaced. Written exactly as `applyTheme`, `applySkin` and `applyTiers` write
+    them, so the first `/api/fleet` answer finds every value already in place and writes nothing.
+
+    Answers `html` (attributes for `<html lang="en">`), `link` (for `</head>`), `body_class` (a
+    class to append) and `body` (attributes after the class): all empty for no skin, no palette
+    and the default tiers, so that page is byte-identical to the file."""
+    from . import settings as SET
+    decl, attrs = [], ""
+    css = ts.get("css") or {}
+    if css and ts.get("theme") != "none":
+        decl = [f"{k}:{v}" for k, v in css.items() if CSS_TOKEN.match(str(k)) and CSS_HEX.match(str(v))]
+        attrs = ' data-theme="custom"'
+    if desk:
+        tiers = ts.get("tiers") or {}
+        four = {k: tiers.get(k) for k in ("rail", "compact", "full", "slack")}
+        if four != SET.TIER_DEFAULTS:
+            attrs += ' data-tiers="{}"'.format(_escape(" ".join(str(four[k]) for k in four)))
+            if four["rail"] != SET.TIER_DEFAULTS["rail"]:
+                decl.append(f"--rail:{_px(four['rail'])}")
+            if four["compact"] != SET.TIER_DEFAULTS["compact"]:
+                decl.append(f"--compact-from:{_px(four['compact'])}")
+    if decl:
+        attrs += ' style="{}"'.format(_escape(";".join(decl)))
+    # Split as `applySkin` splits it, not by skins.py: a skin it does not know (`example`) is still
+    # the one the page wears.
+    family, _, variant = str(ts.get("skin") or "").partition(":")
+    if family in ("", "none") or not SKIN_FAMILY.match(family):
+        return {"html": attrs, "link": "", "body_class": "", "body": ""}
+    variant = variant if SKIN_FAMILY.match(variant) else ""
+    link = (f'<link rel="stylesheet" data-skin="true" '
+            f'href="/static/skins/{family}/skin.css?t={_escape(token)}">')
+    body = f' data-skin="{family}"' + (f' data-skin-variant="{variant}"' if variant else "")
+    off = not desk or INK_OFF_UNTIL_DRAWN or not gate_on
+    return {"html": attrs, "link": link, "body_class": "ink-off" if off else "", "body": body}
 
 
 def select(selected=None) -> dict:
@@ -2406,6 +2516,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._page(PAGES[route], query)
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
+        if route == "/api/map":
+            from . import fleetmap
+
+            # The fleet's structure as one graph (#401): how checkouts and agents relate, read-only.
+            snap = fleet_snapshot()
+            # Branch lanes (#403) from the git poll's side cache: no git call of the map's own.
+            rows = p.branch_rows if (p := current_poller()) else None
+            return self._json({"ok": True, **fleetmap.graph(snap, branch_rows=rows),
+                               "theme": snap["theme"]})
         if route == "/api/themes":
             from .. import config as C
             from . import skins
@@ -2578,21 +2697,37 @@ class Handler(BaseHTTPRequestHandler):
         for asset in ASSETS:
             html = html.replace(f'"/static/{asset}"', f'"/static/{asset}?t={self.token}"')
         ink: tuple = ()
-        if name == "index.html":
+        desk = name == "index.html"
+        facts, gate_on = "", False
+        if desk:
             gate = ink_facts(query or {})
             inked = " ".join(ink_skins())
             ink = (gate["shell"], gate["class"], inked)
             # Words from closed sets (a shell name and a skin family are both `[a-z0-9_-]`, checked
             # before they are written), so nothing here needs escaping.
-            html = html.replace("<body>", f'<body data-ink-shell="{gate["shell"]}" '
-                                          f'data-ink-probe="{gate["class"]}" '
-                                          f'data-ink-skins="{inked}">', 1)
+            facts = (f' data-ink-shell="{gate["shell"]}" data-ink-probe="{gate["class"]}" '
+                     f'data-ink-skins="{inked}"')
+            gate_on = ink_gate_on(query or {}, gate["class"])
+        themed: tuple = ()
+        # The chosen theme, in the markup (#345): every page but the probe, which measures a shell
+        # and has no business wearing a skin.
+        if name != "probe.html":
+            worn = page_theme(theme_state(), self.token, desk=desk, gate_on=gate_on)
+            themed = (worn["html"], worn["link"], worn["body_class"], worn["body"])
+            html = html.replace('<html lang="en">', '<html lang="en"' + worn["html"] + ">", 1)
+            html = html.replace("</head>", worn["link"] + "</head>", 1)
+
+            def dress(m):
+                classes = " ".join(c for c in (m.group(1) or "", worn["body_class"]) if c)
+                return ("<body" + (f' class="{classes}"' if classes else "") + worn["body"] + facts + ">")
+            html = re.sub(r'<body(?: class="([^"]*)")?>', dress, html, count=1)
         stamp = os.stat(os.path.join(STATIC, name))
         # `name` leads the cache key rather than the literal it used to be: `gzip_for` requires a
         # key that names everything it was made from, and two pages sharing one entry would serve
-        # whichever was compressed first to both. The desk's shell and its class are in it too.
+        # whichever was compressed first to both. The desk's shell and its class are in it too, and
+        # the theme every page but the probe now wears.
         self._send(200, html.encode("utf-8"), "text/html; charset=utf-8",
-                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) + ink)
+                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) + ink + themed)
 
     def _static(self, name: str) -> None:
         """One file out of the package's `static/` directory, and nothing above or beside it.

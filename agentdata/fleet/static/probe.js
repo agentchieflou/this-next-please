@@ -21,6 +21,7 @@ var INK = 0x1f3a93;
 var SHELL = PARAMS.get("shell") || PARAMS.get("w") || "browser";
 var posted = false;
 var FEATURES = {};                    // the table's other rows, asked first thing (#235)
+var HIC_API = "";                     // the HTML-in-canvas upload found, as "name/arity" (#384)
 
 function show(id, value) {
   text(document.getElementById(id), value);
@@ -121,7 +122,25 @@ function features() {
   ask("ResizeObserver", function () { return typeof ResizeObserver === "function"; });
   ask("container queries", containerQueries);
   ask("OffscreenCanvas", function () { return typeof OffscreenCanvas !== "undefined"; });
+  ask("HTML-in-canvas", htmlInCanvas);
   return out;
+}
+
+/* HTML-in-canvas (#384): whether WebGL can upload an element as a texture. The proposal has had
+   three generations of names, so any of them counts, and the one found is kept with its arity
+   (`texElement2D/6`) for docs/desk-engines.md §Pixel-level HTML. The prototype is read and nothing
+   more: no context is created here, and never a 2D one. */
+var HIC_NAMES = ["texElementImage2D", "texElementSubImage2D", "texElement2D"];
+function htmlInCanvas() {
+  if (typeof WebGL2RenderingContext === "undefined") return false;
+  var proto = WebGL2RenderingContext.prototype;
+  for (var i = 0; i < HIC_NAMES.length; i++) {
+    if (typeof proto[HIC_NAMES[i]] === "function") {
+      HIC_API = HIC_NAMES[i] + "/" + proto[HIC_NAMES[i]].length;
+      return true;
+    }
+  }
+  return false;
 }
 
 /* Not only "does it parse": a rule inside `@container` has to reach an element. The desk's head
@@ -195,7 +214,7 @@ function finish(facts) {
   var body = Object.assign({ shell: SHELL, ua: navigator.userAgent, webgl: "none", renderer: "",
                              vendor: "", caveat: false, three: "", intervals: [],
                              first_stroke_ms: null, load_ms: null, drawn: false, hidden: false,
-                             error: "", features: FEATURES },
+                             error: "", features: FEATURES, hic_api: HIC_API },
                            facts || {});
   show("state", "saving…");
   post("probe", body).then(function (r) {

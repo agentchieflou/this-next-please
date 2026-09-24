@@ -93,7 +93,7 @@ function rgbOf(tokens, name, fallback) {
 }
 
 const PAPER_FS = `
-uniform vec3 uPaper; uniform vec3 uRule; uniform float uDark; uniform float uDpr; uniform vec2 uView;
+uniform vec3 uPaper; uniform vec3 uRule; uniform float uDark; uniform float uDpr; uniform vec2 uView; uniform float uRuled;
 float h21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), u.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), u.x), u.y); }
@@ -107,37 +107,51 @@ void main(){
   float d = abs(mod(p.y - ${PITCH - 1}.0, ${PITCH}.0));
   d = min(d, ${PITCH}.0 - d);
   float ink = (1.0 - smoothstep(0.35, 0.95, d)) * (0.82 + 0.18 * vn(vec2(p.x * 0.02, floor(p.y / ${PITCH}.0))));
-  c = mix(c, uRule, ink);
+  c = mix(c, uRule, ink * uRuled);
   // The light: brightest at the top left, falling off very slightly toward the far corner.
   vec2 q = p / max(uView, vec2(1.0));
   float fall = 1.0 - 0.045 * k * smoothstep(0.2, 1.4, length(q - vec2(0.15, 0.1)));
   gl_FragColor = vec4(c * fall, 1.0);
 }`;
 
-/* The stock behind the panes: the paper's colour, its rules, its fibre and its light. */
-export function paper({ THREE, scene, tokens, api }) {
-  const { w, h, dpr } = api.viewport;
-  const stock = rgbOf(tokens, "--paper", tokens.bg);
+/* The stock: the paper's colour, its fibre and its light, ruled or not, `w` x `h` px. It is shaded
+   in viewport pixels, so a plain patch laid over the ruled sheet is the same sheet without rules. */
+function stock(THREE, tokens, api, ruled, w, h) {
+  const { w: vw, h: vh, dpr } = api.viewport;
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.ShaderMaterial({
     vertexShader: "void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
     fragmentShader: PAPER_FS, depthTest: false, depthWrite: false,
     uniforms: {
-      uPaper: { value: new THREE.Vector3(...stock) },
+      uPaper: { value: new THREE.Vector3(...rgbOf(tokens, "--paper", tokens.bg)) },
       uRule: { value: new THREE.Vector3(...rgbOf(tokens, "--rule", tokens.line)) },
       uDark: { value: tokens.dark ? 1 : 0 },
       uDpr: { value: dpr },
-      uView: { value: new THREE.Vector2(w, h) },
+      uView: { value: new THREE.Vector2(vw, vh) },
+      uRuled: { value: ruled ? 1 : 0 },
     },
   }));
-  mesh.position.set(w / 2, -h / 2, 0);
   mesh.frustumCulled = false;
+  return mesh;
+}
+
+/* The stock behind the panes: the paper's colour, its rules, its fibre and its light. */
+export function paper({ THREE, scene, tokens, api }) {
+  const { w, h } = api.viewport;
+  const mesh = stock(THREE, tokens, api, true, w, h);
+  mesh.position.set(w / 2, -h / 2, 0);
   mesh.renderOrder = api.order.paper;
   scene.add(mesh);
 }
 
+/* How many times a pane's frame has been built, for `inspect`. */
+let builds = 0;
+
 /* One pane's margin: a red line down it, a little in from its left edge. A rail has no margin to
-   draw; its marks go down its middle. */
+   draw; its marks go down its middle. Under the transcript the rules are the transcript's own
+   (#338): the sheet's rules are covered with plain stock, and a rule is drawn every PITCH up from
+   the transcript's bottom edge, where its rows end, so each line of text sits on one. */
 export function frame({ THREE, scene, tokens, api }, el, box) {
+  builds += 1;
   if (box.w < RAIL_BELOW) return;
   const [r, g, b] = rgbOf(tokens, "--margin", tokens.human);
   const line = new THREE.Mesh(new THREE.PlaneGeometry(1.25, Math.max(1, box.h - 4)),
@@ -146,4 +160,26 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   line.position.set(MARGIN, -box.h / 2, 0);
   line.renderOrder = api.order.frame;
   scene.add(line);
+  const list = el.querySelector(".transcript"), t = list && list.getBoundingClientRect();
+  if (!t || !t.width || !t.height) return;
+  const p = el.getBoundingClientRect();
+  const x = t.left - p.left, top = t.top - p.top + list.clientTop, bottom = t.bottom - p.top;
+  if (bottom - top < 1) return;
+  const cover = stock(THREE, tokens, api, false, t.width, bottom - top);
+  cover.position.set(x + t.width / 2, -(top + bottom) / 2, 0);
+  cover.renderOrder = api.order.frame - 2;
+  scene.add(cover);
+  const ink = new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false,
+                                            color: new THREE.Color().setRGB(...rgbOf(tokens, "--rule", tokens.line), THREE.SRGBColorSpace) });
+  for (let y = bottom - 1; y >= top; y -= PITCH) {
+    const rule = new THREE.Mesh(new THREE.PlaneGeometry(t.width, 1), ink);
+    rule.position.set(x + t.width / 2, -(y + 0.5), 0);
+    rule.renderOrder = api.order.frame - 1;
+    scene.add(rule);
+  }
+}
+
+/* What this skin draws of its own, for tests and a curious console: how many frames it has built. */
+export function inspect() {
+  return { builds };
 }

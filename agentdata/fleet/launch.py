@@ -131,10 +131,12 @@ class _Blanks(dict):
 
 
 # `--model` and `--effort` are on the measured list of flags this build really has
-# (docs/fleet-spike.md, "Flags, as this build actually names them"). What is NOT measured is which
-# model NAMES it accepts: the spike recorded one auto-selected model and ran no listing command. So
-# nothing here validates a name against a table -- the CLI is the validator, at the next turn -- and
-# the only refusal is the one that keeps a value from becoming a second flag.
+# (docs/fleet-spike.md, "Flags, as this build actually names them"). Which model NAMES it accepts
+# is read from the installed CLI (`copilot help config`) into a cached list, `fleet/models.py`
+# (#360), but that list is a suggestion for the pickers, never a gate: family aliases it omits are
+# accepted, and builds differ. So nothing here validates a name against a table -- the CLI is the
+# validator, at the next turn -- and the only refusal is the one that keeps a value from becoming a
+# second flag.
 MODEL_KEYS = ("model", "effort")
 
 

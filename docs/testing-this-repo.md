@@ -23,6 +23,21 @@ Agent tools' scratch trees (`.gemini/`, the product's own `.agent/`) are neither
 
 ## Running it
 
+One install command, and nothing runs without it:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+**A missing declared dependency stops the session in one line** (#297). `tests/conftest.py`'s
+`pytest_configure` imports each name in `DECLARED_DEPENDENCIES` (`rich`, `yaml`: the ones whose
+absence failed tests rather than skipping them by name) and, if any is missing, exits with code 4:
+`the suite runs against its declared dependencies; missing: rich. Run: python -m pip install -e ".[dev]"`.
+It imports rather than `find_spec`s, because a shadow package is found without being run. Before
+this, a sandbox without `rich` got fourteen assertion failures in `test_ui.py` and `test_progress.py`
+that read as "terminal-dependent" and were not. That the *product* works without `rich` is its own
+test, `test_ui.py::test_every_command_still_works_without_rich`.
+
 ### The inner loop
 
 ```bash
@@ -165,6 +180,24 @@ start). CI installs chromium on the Linux legs and on the Windows 3.14 leg, so t
 rather than skipping — a browser test that skips everywhere is the harness that let the defects
 through in the first place.
 
+That last sentence was false for days (#296). The isolated home (*Isolation* below) moves `HOME`,
+and on Linux and macOS Playwright looks for its browsers under the home (`~/.cache/ms-playwright`,
+or `$XDG_CACHE_HOME/ms-playwright`; `~/Library/Caches/ms-playwright`), so every browser test on
+both ubuntu legs skipped with `no chromium to drive the page with` and only Windows, whose browsers
+live under the untouched `%LOCALAPPDATA%`, ran them. `tests/conftest.py` now resolves the real
+browsers directory once, before any test moves `~` (`playwright_browsers_dir`, kept only if it
+exists), and `isolated_home` hands it to every test as `PLAYWRIGHT_BROWSERS_PATH` unless that is
+already set. A laptop with no Chromium still skips with the reason named, and the reason now says
+which `PLAYWRIGHT_BROWSERS_PATH` and `HOME` it looked under.
+
+**In a job that installed a browser, a browser test may fail but never skip.** Such a job sets
+`AGENTDATA_REQUIRE_BROWSER=1`, and a `browser`-marked test that skips under it — `launch_chromium`'s
+skip, or a `pytest.importorskip("playwright.sync_api")` — is reported as a failure:
+`a browser test may not skip in a job that installed a browser: <the skip reason>`
+(`browser_skip_is_a_failure`, pinned by
+`tests/regressions/test_20260923_any_linux_ci_skipped_every_browser_test.py`). Without the variable
+nothing changes.
+
 #### The guards that measure rather than read (#202)
 
 Five of the browser tests assert a *number* rather than a fact, which is how a page stays quick
@@ -213,6 +246,12 @@ where the next `git add -A` would have committed it.
 a machine with a `--user` install. Tests that are about the npm global prefix opt in with the
 `appdata_isolation` fixture.
 
+**The home moves; Playwright's browsers do not** (#296). On Linux and macOS Playwright finds its
+browsers relative to `HOME`, so a temporary home hid them and every browser test skipped. The real
+directory is resolved at import, before any test runs, and `isolated_home` sets
+`PLAYWRIGHT_BROWSERS_PATH` to it when the machine has one and the variable is not already set.
+`HOME` itself stays redirected, and `real_home` tests are untouched.
+
 **No test lists the machine's processes.** The desk's adopt offers come from
 `adopt.agent_processes`, which on Windows is a PowerShell `Get-CimInstance Win32_Process` --
 seconds to start, more than ten on a loaded runner. Every desk a test served started one each time
@@ -228,6 +267,37 @@ first desk request then closed it in `_fresh()` -- a WAL checkpoint under the de
 test's clock, which on the Windows leg was still running three seconds into a five-second wait.
 `_a_test_closes_the_catalogue_it_opened` closes it at teardown instead.
 
+**Subprocesses import the checkout** (#297). A test that spawns `python -m agentdata...` with
+`cwd=tmp_path` imports `agentdata` only if it is installed or on `PYTHONPATH`: an uninstalled
+checkout failed 73 tests with `No module named agentdata`, and an older non-editable install in
+site-packages was quietly tested instead of the checkout. Every such spawn passes
+`env=agentdata_env(...)` or calls `run_agentdata` (`tests/subproc.py`), which put the checkout first
+on the child's `PYTHONPATH`. `tests/test_hygiene_checkout.py` scans `tests/` for an
+`sys.executable, "-m", "agentdata..."` argv outside a function that uses one of them; the fake-tool
+runner (a standalone script with its own prepend), `test_lifecycle.py` (real venvs) and `tests/laptop/`
+are allow-listed with their reasons.
+
+**No test process leaves a child behind** (#317). Every failing Windows job sampled, and a failing
+ubuntu one, ended with the runner's cleanup terminating an orphaned `python`. It was a fleet agent:
+the fleet tests start the fake `copilot` (`tests/fakes/runner.py`) through the real
+`supervisor._spawn`, a passing test waits for it to exit, and a failing one stopped at its assert
+with the agent still running. `_a_test_ends_the_agents_it_started` (in `tests/orphans.py`) now
+records every agent `_spawn` starts during a test and, at teardown, ends its group with
+`proc.kill_tree` and waits on it, bounded; a test that patches `_spawn` itself starts nothing and
+replaces the recording. Behind that, `_no_orphans_at_session_end`, a session-scoped autouse fixture
+in the same plugin (listed in `pytest_plugins` in `tests/conftest.py`), lists the direct children of
+the process that ran the tests when its session ends (`/proc/<pid>/task/*/children`, else a `/proc`
+scan, `ps` on macOS, `CreateToolhelp32Snapshot` on Windows, CIM as its fallback) and fails naming the
+pid, name and command line of any live `python`, `node`, `chrome` or `headless_shell`. Under xdist
+it runs in each worker, because a process a test leaks is the worker's child and the controller's
+only children are the workers; the failure is a teardown error on that worker's last test. Being set
+up first, it is torn down last, so a session-scoped fixture that starts a browser or a driver must
+leave nothing either. A child that is meant to outlive a test is not a thing this suite has: kill
+it and wait on it. `tests/test_hygiene_orphans.py` provokes an orphan in an inner session, serially
+and with `-n 2`. Its sleeper says `ready` before the test goes on. `Popen` can return while the child
+is still inside `execve`, and until that finishes `/proc/<pid>/cmdline` shows the parent's command
+line, or nothing. On a loaded runner the guard read it in that window (#459).
+
 Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only way to catch a bare
 `sys.exit`, an import-time crash, or an escape sequence that appears only when stdout is a pipe),
 `state_file`, `pbip`, `fakes_dir`, `isolated_path`.
@@ -237,7 +307,8 @@ Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only w
 `tests/test_contract.py` spawns every `ad-*` command as a **real subprocess**, parametrised over
 `[project.scripts]`. In-process `main()` calls cannot catch what actually goes wrong in the field:
 an import-time crash, a bare `sys.exit`, a traceback on stderr, or an escape sequence that only
-appears when stdout is a pipe.
+appears when stdout is a pipe. Its `run` spawns through `agentdata_env`, so it tests the checkout it
+sits in whether or not that checkout is installed (#297).
 
 Per command: `--help` exits 0, `--version` prints something, an unknown flag is a usage error and
 not a crash, no arguments is help or usage and not a crash, and one **canned safe invocation** keeps
@@ -612,3 +683,4 @@ A red job is handled as *When CI is red* says: a flake issue and a reproduction 
 | `suite · shuffled` | two seeded shuffles, to catch fixture leakage. Serial on purpose: under `-n` the order a test runs in is the scheduler's, not the seed's, and the job would stop proving anything |
 | `windows · 3.14` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
 | every job | `HYPOTHESIS_PROFILE=ci`, so the property tests search 200 examples rather than 50 |
+| every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): both ubuntu legs and the Windows 3.14 leg (a `require_browser` matrix field; the 3.12 leg installs no browser and leaves it empty). A skipped `browser` test fails there, and every other skip prints its reason |

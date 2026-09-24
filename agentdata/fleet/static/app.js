@@ -110,11 +110,13 @@
 
 /** A pane: one agent in the row, and its entry in `tiles` (#233). `el` is its `.tile`, made once by
  *  `makeTile` and patched after (#215), carrying `data-repo` and `data-tier`; `seq` is the last event
- *  drawn into its transcript, and `row` what it was last drawn from.
+ *  drawn into its transcript, and `row` what it was last drawn from. `restored` marks a pane drawn
+ *  from the window's snapshot, whose transcript its first real row brings (#347).
  * @typedef {Object} Pane
  * @property {HTMLElement} el
  * @property {number} seq
  * @property {Row} [row]
+ * @property {boolean} [restored]
  */
 
 /** @type {Map<string, Pane>} */
@@ -236,7 +238,12 @@ function acceptDesk(payload) {
 }
 
 function rehome() {
-  window.location.href = "/open?w=" + encodeURIComponent(W_NAME);
+  /* `/open` forwards every param but `t`, so the host's shell and ink ride along from here once. */
+  var more = new URLSearchParams();
+  if (PARAMS.get("shell")) more.set("shell", PARAMS.get("shell"));
+  if (PARAMS.get("ink")) more.set("ink", PARAMS.get("ink"));
+  var rest = more.toString();
+  window.location.href = "/open?w=" + encodeURIComponent(W_NAME) + (rest ? "&" + rest : "");
 }
 
 /* There used to be a `held` map here: the agents the operator had acted on, kept on the glass by
@@ -307,6 +314,11 @@ function line(ev) {
     case "pr_open": return d.url || "";
     case "artifact": return (d.artifact && d.artifact.path) || "";
     case "session_id": return "";
+    /* #402: from the Copilot SDK docs, not yet measured from the CLI. */
+    case "subagent_started": return "sub-agent " + (d.name || d.agent || "") + " started";
+    case "subagent_ended": return "sub-agent " + (d.agent || "") + (d.ok
+      ? " finished" + (d.tools == null ? "" : " (" + d.tools + " tools)")
+      : " failed: " + (d.error || ""));
     default: return JSON.stringify(d).slice(0, 160);
   }
 }
@@ -316,7 +328,7 @@ var SHOWN = {
   phase_changed: 1, question_opened: 1, needs_approval: 1, approval_resolved: 1,
   exited: 1, error: 1, pr_open: 1, artifact: 1, said: 1,
   "project.ticket_changed": 1, "project.refresh_finished": 1, "project.pr_merged": 1,
-  "inbox.attached": 1
+  "inbox.attached": 1, subagent_started: 1, subagent_ended: 1
 };
 
 function append(el, ev) {
@@ -1456,6 +1468,19 @@ function readBefore(shown, row) {
 /* One row onto its tile, making the tile if this is the first sight of it. Both an action's
    answer (#219) and a whole snapshot come through here, so a tile cannot be drawn one way by one
    path and another way by the other -- nor by the older of the two because it arrived second. */
+/* A tile's transcript from a row's `recent` (its last forty), the cursor taken from each, then the
+   scroll this window left it at. */
+/** @param {Pane} entry  @param {Row} row */
+function fillTranscript(entry, row) {
+  (row.recent || []).forEach(function (ev) { append(entry.el, ev); entry.seq = ev.seq; });
+  try {
+    var savedScroll = sessionStorage.getItem("fleet.scroll." + row.repo);
+    if (savedScroll !== null) {
+      entry.el.querySelector(".transcript").scrollTop = Number(savedScroll);
+    }
+  } catch (e) {}
+}
+
 /** @param {Row} row  @param {number} [index]  @returns {Pane | null} */
 function patchRow(row, index) {
   if (!row || !row.repo) return null;
@@ -1469,13 +1494,12 @@ function patchRow(row, index) {
     arrivedSinceLastPlace = true;                // and where it first lands is not a move
     entry = { el: el, seq: 0 };
     tiles.set(row.repo, entry);
-    (row.recent || []).forEach(function (ev) { append(el, ev); entry.seq = ev.seq; });
-    try {
-      var savedScroll = sessionStorage.getItem("fleet.scroll." + row.repo);
-      if (savedScroll !== null) {
-        entry.el.querySelector(".transcript").scrollTop = Number(savedScroll);
-      }
-    } catch (e) {}
+    fillTranscript(entry, row);
+  } else if (entry.restored) {
+    // #347: drawn from the snapshot, which keeps no transcript. Its first real row fills it and
+    // sets the cursor, so the stream resumes after that row instead of replaying from 0.
+    entry.restored = false;
+    fillTranscript(entry, row);
   }
   entry.row = row;
   departed.delete(row.repo);
@@ -1492,11 +1516,16 @@ function patchRow(row, index) {
 
    So the last snapshot this window saw is kept and drawn first, marked as what it is, and the
    fetch that is already in flight replaces it. Without the transcripts: they are the big part of
-   the payload, they are the part that goes stale fastest, and the stream brings them back within
-   the second anyway. */
+   the payload, they are the part that goes stale fastest, and the first answer brings the last
+   forty, and the stream resumes after them (#347). */
 var SNAP_KEY = "fleet.snapshot." + W_NAME;
 var SNAP_GOOD_FOR_MS = 5 * 60 * 1000;
 var lastFleet = null;
+/* How many `theme` events the stream has delivered (#437). A fleet answer's theme is the one saved
+   when the server answered, so an answer asked before a theme change lands after the stream's
+   event and would put the old skin back. `refresh` applies the answer's theme only when no theme
+   event arrived while it was in flight. */
+var themeEvents = 0;
 
 /* The desk as this window last showed it: the newest desk it holds, with the agent it has open.
    The fleet's own answer is older than both the moment a click lands, and a snapshot kept from it
@@ -1528,10 +1557,22 @@ function cacheSnapshot(data) {
       approvals: data.approvals || [],
       desk: deskAsShown(data.desk || null),
       spend: data.spend || {},
-      theme: data.theme || null,
     }));
   } catch (e) { /* a private window, or no room: the desk simply loads the slow way */ }
 }
+
+/* The tiers the server wrote on <html> (#345), `rail compact full slack`, or null on the defaults. */
+/** @returns {Tiers | null} */
+function servedTiers() {
+  var said = document.documentElement.dataset.tiers;
+  if (!said) return null;
+  var n = said.split(" ").map(Number);
+  return { rail: n[0], compact: n[1], full: n[2], slack: n[3], invalid: "" };
+}
+
+/* Back into a page the browser kept whole (bfcache): what it shows is from before it was left, and
+   a theme chosen meanwhile reaches it only by asking again. */
+window.addEventListener("pageshow", function (e) { if (e.persisted) refresh(); });
 
 /* Taken again as the window goes -- a reload, a navigation, a closed tab -- so the next load draws
    what was on the screen, not what the last fleet answer said a click or two before. */
@@ -1547,11 +1588,8 @@ function restoreCached() {
   // Five minutes. Past that the shape of the fleet has probably changed, and a wrong desk held
   // for a second is worse than an empty one -- the fetch is in flight either way.
   if (Date.now() - (data.at || 0) > SNAP_GOOD_FOR_MS) return false;
-  if (data.theme) {
-    applyTheme(data.theme.css, data.theme.theme);
-    applySkin(data.theme.skin);
-    applyTiers(data.theme.tiers);                 // #235: before a pane is drawn
-  }
+  // No theme and no tiers (#345): the served page already wears the chosen ones, and a snapshot's
+  // were taken before the change that sent the operator here -- the skin just replaced.
   if (data.desk) {
     // Shown, not believed. Its version is the snapshot's, so it is dropped: the first real answer
     // has to win whatever number it carries, or a desk.json that started again from nought would
@@ -1564,7 +1602,10 @@ function restoreCached() {
     if (mine) myWidths = ownWidths(mine.widths);
   }
   lastApprovals = data.approvals || [];
-  data.repos.forEach(function (row, i) { patchRow(row, i); });
+  data.repos.forEach(function (row, i) {
+    var e = patchRow(row, i);
+    if (e) e.restored = true;                     // #347: its first real row brings the transcript
+  });
   hide(document.getElementById("empty"), true);
   // Said, not hidden: the desk on the screen is the last one this window saw, and the operator is
   // told so rather than left to find out.
@@ -1575,6 +1616,7 @@ function restoreCached() {
 
 function refresh() {
   if (pendingRefresh) return pendingRefresh;
+  var themesAsked = themeEvents;
   pendingRefresh = fetch(q("/api/fleet")).then(function (r) {
     if (r.status === 403 && streamDead) {
       rehome();
@@ -1619,6 +1661,7 @@ function refresh() {
           ", which is not a number — the cap is off until it is one", 20);
     }
     if (data.desk) acceptDesk(data.desk);
+    if (themeEvents !== themesAsked) delete data.theme;   // older than the stream's: not drawn, not cached
     if (data.theme) {
       applyTheme(data.theme.css, data.theme.theme);
       applySkin(data.theme.skin);
@@ -1671,6 +1714,7 @@ function connect() {
     place();
   });
   source.addEventListener("theme", function (m) {
+    themeEvents++;
     try {
       var d = JSON.parse(m.data);
       applyTheme(d.css, d.theme);
@@ -1847,7 +1891,7 @@ document.addEventListener("keydown", function (e) {
    link cannot be a static href in the markup -- it would 403 and read as a dead button, which is
    exactly what the operator reported. */
 var setLink = /** @type {HTMLAnchorElement} */ (document.getElementById("setbtn"));
-if (setLink) setLink.href = q("/settings");
+if (setLink) setLink.href = pageUrl("/settings");
 
 refresh().then(function () {
   connect();
@@ -3821,7 +3865,7 @@ function openModelCard(repo, anchor) {
   /** @type {HTMLInputElement} */ (document.getElementById("mc-effort")).value = row.effort || "";
   text(document.getElementById("mc-note"), "takes effect on the agent's next turn");
   var all = /** @type {HTMLAnchorElement} */ (document.getElementById("mc-all"));
-  all.href = q("/settings") + "#model-" + encodeURIComponent(repo);
+  all.href = pageUrl("/settings") + "#model-" + encodeURIComponent(repo);
 
   loadModelChoices().then(function (choices) {
     fillDatalist("mc-models", choices.seen);
@@ -5290,6 +5334,8 @@ document.addEventListener("keydown", function (e) {
    `departed`, the tiles map -- that is declared further down and is `undefined` until the script
    has finished evaluating. The fetch is already in flight either way; this only decides what is
    on the screen while it is. */
+var st = servedTiers();          // #345: the widths the server wrote, before a pane is drawn
+if (st) applyTiers(st);
 restoreCached();
 // Last for the same reason: `say` writes the footer's state, which is only set up once the script
 // has run past it.

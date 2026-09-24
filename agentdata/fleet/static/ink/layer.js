@@ -369,7 +369,7 @@ class Layer {
     return changed;
   }
 
-  /* Each pane's frame where the pane is; built again only when its size changed. */
+  /* Each pane's frame where the pane is; built again only when its size, or its transcript's box, changed. */
   syncFrames() {
     const s = this.skin;
     if (!s || !s.frames.size) return false;
@@ -383,7 +383,9 @@ class Layer {
         f.group.position.set(r.left, -r.top, 0);
         changed = true;
       }
-      const sig = r.width.toFixed(1) + "x" + r.height.toFixed(1);
+      // and where its transcript is: a card shown above it moves it in an unchanged pane (#338)
+      const t = f.el.querySelector(".transcript"), q = t && t.getBoundingClientRect();
+      const sig = r.width.toFixed(1) + "x" + r.height.toFixed(1) + (q ? "@" + (q.top - r.top).toFixed(1) + "+" + q.height.toFixed(1) : "");
       if (sig !== f.sig) {
         f.sig = sig;
         this.empty(f.group);
@@ -524,7 +526,8 @@ class Layer {
 
   // --------------------------------------------------------------------- the geometry
 
-  /* The rectangle an anchor can be seen in: the viewport, cut down by every ancestor that scrolls.
+  /* The rectangle an anchor can be seen in: the viewport, cut down by every ancestor that scrolls
+     and, in a pane's lane, by the pane's border box inset 1px, so no mark leaves its pane (#331).
      The ancestors are found once per mark; their boxes are read every time. */
   clipOf(m) {
     if (!m.scrollers) {
@@ -538,6 +541,10 @@ class Layer {
     for (const a of m.scrollers) {
       const r = a.getBoundingClientRect();
       x0 = Math.max(x0, r.left); y0 = Math.max(y0, r.top); x1 = Math.min(x1, r.right); y1 = Math.min(y1, r.bottom);
+    }
+    if (m.lane.root) {
+      const r = m.lane.root.getBoundingClientRect();
+      x0 = Math.max(x0, r.left + 1); y0 = Math.max(y0, r.top + 1); x1 = Math.min(x1, r.right - 1); y1 = Math.min(y1, r.bottom - 1);
     }
     return [x0, y0, x1, y1];
   }
@@ -585,13 +592,15 @@ class Layer {
       m.x = r.left; m.y = r.top; m.w = r.width; m.h = r.height;
       const shape = { box: { x: 0, y: 0, w: r.width, h: r.height }, pad: m.row ? m.row.pad : 0, seed: m.seed };
       if (m.shape === "lines") shape.lines = this.linesOf(m.el, r);
+      if (m.shape === "underline") this.under(m, r, shape);
       if (m.row && m.row.grow) shape.grow = this.growth(m) * m.row.step;
-      if (m.row && (m.row.grow || m.row.tip)) {
+      if (m.row && (m.row.grow || m.row.tip || m.row.cap)) {
         const pr = m.lane.root ? m.lane.root.getBoundingClientRect() : null;
         shape.limit = (pr ? pr.right : window.innerWidth) - r.left - 14;
         // The pen's tip sits at the end while the mark is on the paper; a mark that is leaving has
         // had its pen lifted, and is struck or erased without it.
         shape.tip = m.row.tip && m.state !== "leaving" && m.state !== "struck";
+        shape.cap = m.row.cap || "";
       }
       if (m.shape === "arrow") {
         const t = this.targetOf(m), tr = t && t.getBoundingClientRect();
@@ -609,12 +618,18 @@ class Layer {
       if (shape.lines) sig += "|" + shape.lines.map(l => [l.x, l.y, l.w, l.h].map(v => v.toFixed(1)).join(",")).join(";");
       if (shape.to) sig += "|" + [shape.to.x, shape.to.y, shape.to.w, shape.to.h].map(v => v.toFixed(1)).join(",");
       if (m.strikeOf) sig += "|" + m.strikeOf.sig;
-      if (shape.limit !== undefined) sig += "|" + Math.round(shape.grow || 0) + "," + Math.round(shape.limit) + (shape.tip ? "t" : "");
+      if (shape.base !== undefined) sig += "|" + Math.round(shape.base) + "," + Math.round(shape.floor);
+      if (shape.limit !== undefined) sig += "|" + Math.round(shape.grow || 0) + "," + Math.round(shape.limit) + (shape.tip ? "t" : "") + (shape.cap ? "c" + shape.cap : "");
       // A ruled mark sits on the viewport's grid, so where the anchor is against the grid is part
       // of its shape: a move by a whole square moves the mesh, anything else rules it again.
       const g = m.row && !m.strikeOf ? m.row.snap : 0;
       if (g) {
         shape.snap = { g, at: { x: r.left, y: r.top } };
+        if (m.shape === "outline") {
+          const cs = getComputedStyle(m.el);
+          shape.band = ["Left", "Top", "Right", "Bottom"].map(k => parseFloat(cs["border" + k + "Width"]) + parseFloat(cs["padding" + k]));
+          sig += "|" + shape.band.join(",");
+        }
         sig += "|" + (((r.left % g) + g) % g).toFixed(1) + "," + (((r.top % g) + g) % g).toFixed(1);
       }
       if (sig !== m.sig) {
@@ -641,7 +656,33 @@ class Layer {
       return this.S.strikeOver(target.strokes.map(s => s.bbox()), target.tool === "highlighter", m.seed);
     }
     const paths = (this.S.SHAPES[m.shape] || this.S.PAGE_SHAPES[m.shape] || (() => []))(shape);
-    return shape.snap ? this.S.snap(paths, m.shape, shape.box, shape.snap.at, shape.snap.g) : paths;
+    return shape.snap ? this.S.snap(paths, m.shape, shape.box, shape.snap.at, shape.snap.g, shape) : paths;
+  }
+
+  /* Where an underline may go (#331), in the anchor's coordinates: `base` is the foot of the tallest
+     of its siblings on its line, and `floor` the top of the next row in its pane (none in the
+     header): the highest of the elements after it that start below it, and of their words, whose
+     line box can stand above their element's box. Not the first in the markup: a wrapped header
+     puts the chip first but the taller `.oldsession` higher. Read only, where `sync` already measures. */
+  under(m, r, s) {
+    let b = r.bottom;
+    for (const k of m.el.parentElement ? m.el.parentElement.children : []) {
+      const q = k.getBoundingClientRect();
+      if (q.height && q.top < r.bottom && q.bottom > r.top) b = Math.max(b, q.bottom);
+    }
+    s.base = b - r.top;
+    const range = document.createRange();
+    for (let a = m.el; m.lane.root && a && a !== m.lane.root; a = a.parentElement) {
+      let f = Infinity;
+      for (let n = a.nextElementSibling; n; n = n.nextElementSibling) {
+        const q = n.getBoundingClientRect();
+        if (!q.height || q.top <= r.bottom) continue;
+        f = Math.min(f, q.top);
+        range.selectNodeContents(n);
+        for (const w of range.getClientRects()) if (w.height) f = Math.min(f, w.top);
+      }
+      if (f < Infinity) return void (s.floor = f - r.top);
+    }
   }
 
   build(m, paths) {
@@ -659,7 +700,7 @@ class Layer {
         st = m.strokes[i] = new this.pen.Stroke(m.tool, (m.seed * 31 + i * 7919) % 100003, m.row && m.row.dash, tune);
         if (m.state !== "queued" && m.state !== "drawing") st.done = true;
       }
-      st.build(p, this.scene, this.inks[m.tool] || [0.3, 0.3, 0.3], this.mode);
+      st.build(p, this.scene, this.inks[(m.row && m.row.ink) || m.tool] || [0.3, 0.3, 0.3], this.mode);
       // A mark already on the paper is redrawn whole at its new size; one not yet begun stays
       // blank until its turn.
       if (m.state === "queued") st.setHead(0);
@@ -820,7 +861,7 @@ class Layer {
       for (const f of this.skin.frames.values()) f.sig = "";
     }
     for (const m of this.marks) {
-      for (const st of m.strokes) st.colour(this.inks[st.tool] || this.inks[m.tool], this.mode);
+      for (const st of m.strokes) st.colour(this.inks[(m.row && m.row.ink) || st.tool], this.mode);
       if (m.scuff) m.scuff.colour(this.inks.eraser, this.mode);
     }
     for (const L of this.lanes.values()) {
@@ -1269,16 +1310,19 @@ class Layer {
       const head = m.strokes.reduce((a, s) => a + (s.dead ? 0 : Math.min(s.head, s.len)), 0);
       const erased = m.strokes.some(s => s.erase !== Infinity);
       marks.push({
-        id: m.id, lane: m.lane.key, selector: m.row ? m.row.selector : "", tool: m.tool, shape: m.shape,
+        id: m.id, lane: m.lane.key, selector: m.row ? m.row.selector : "", tool: m.tool,
+        ink: (m.row && m.row.ink) || m.tool, cap: m.row ? (m.row.cap || "") : "", shape: m.shape,
         state: m.state, strikeOf: m.strikeOf ? m.strikeOf.id : null, strokes: m.strokes.length,
         len: Math.round(len * 10) / 10,
         drawn: m.shape === "write" ? m.reveal : m.ghost ? 1 : (len ? Math.round(head / len * 1000) / 1000 : 0),
         was: m.ghost ? m.ghost.text : undefined,
         erased, visible: m.visible,
         box: { x: m.x, y: m.y, w: m.w, h: m.h },
-        // Each stroke's extent on the viewport, so a test can see where the ink is (#253).
+        // Each stroke's extent on the viewport, so a test can see where the ink is (#253), as it is
+        // drawn: cut to the mark's clip (#331). A stroke cut away whole has none.
         bounds: m.strokes.filter(st => !st.dead).map(st => st.bbox()).filter(Boolean).map(b =>
-          ({ x: m.x + b.x, y: m.y + b.y, r: m.x + b.r, b: m.y + b.b })),
+          ({ x: Math.max(m.x + b.x, m.clip[0]), y: Math.max(m.y + b.y, m.clip[1]),
+             r: Math.min(m.x + b.r, m.clip[2]), b: Math.min(m.y + b.b, m.clip[3]) })).filter(b => b.r >= b.x && b.b >= b.y),
         clip: m.shape === "write" ? m.el.style.getPropertyValue("clip-path") : "",
       });
     }

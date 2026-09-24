@@ -67,7 +67,7 @@ draw them. Each slice names the sections it applies.
 | **Feedback / Loading** | show content progressively; never present stale content as current; say what is loading and how old what is shown is | the run header on every tile, the age on every state, the "no run since" line |
 | **Focus and selection** | the selected item is unmistakable and there is exactly one selection | `is-selected` gets a visible treatment that is not the state colour |
 | **Color** | semantic colours; support light and dark; never rely on colour alone; text contrast ≥ 4.5:1 and UI contrast ≥ 3:1 | the token model in §One palette; every chip keeps its glyph; `theme.check()` becomes the CSS check too |
-| **Typography** | the system font at readable sizes; a minimum of 11 points; monospaced only for what is monospaced | `Segoe UI` on Windows is already first in the stack after `-apple-system`; the 10-point chips grow |
+| **Typography** | the system font at readable sizes; a minimum of 11 points; monospaced only for what is monospaced | `Segoe UI` on Windows is already first in the stack after `-apple-system`; the 10-point chips grow. Built (#326): app.css font sizes, nothing under 11px in app.css or any skin.css, held by `tests/test_fleet_type_size.py` |
 | **Accessibility** | full keyboard operation; hit targets of at least 28 points on desktop; visible focus rings; `prefers-reduced-motion` honoured | the key map stays; buttons grow; reorder has a keyboard path; no animation that cannot be turned off |
 | **Notifications** | already #97's — quiet hours, dedupe, one toast per state change | unchanged |
 
@@ -128,6 +128,11 @@ the tile's header switches one column and two; a pin keeps a tile first. Nothing
 | `--human` | `status.fail` | `color.STATUS["fail"]` |
 | `--done` | `status.ok` | `color.STATUS["ok"]` |
 | `--idle` | `status.skip` | `color.STATUS["skip"]` |
+| `--on-running` | the first of `text`, `ground`, white, `#111111` at 4.5:1 on `status.info` (#327) | — |
+| `--on-waiting` | the same, on `status.warn` | — |
+| `--on-human` | the same, on `status.fail` | — |
+| `--on-done` | the same, on `status.ok` | — |
+| `--on-idle` | the same, on `status.skip` | — |
 
 **The status rule is restated, not broken.** `app.css` says "status colours never change", and it meant
 *never change meaning*: a chip that says "needs you" is `status.fail` in every theme, and `state → role` is

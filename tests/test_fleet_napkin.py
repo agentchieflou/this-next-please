@@ -261,7 +261,7 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
     # An agent in error needs you (the page sets `needs-human` on it too), so its name is lit.
     assert _kinds(_in("err", marks)) == [(".tile.needs-human .head .repo", "highlighter", "lines"),
                                          (".tile.state-error", "marker", "loop"),
-                                         (".tile.state-error .head", "red", "bang")]
+                                         (".tile.state-error", "red", "bang")]
     old = _kinds(_in("old", marks))
     assert (".tile .oldsession:not([hidden])", "pencil", "write") in old
     assert (".tile .oldsession:not([hidden])", "pencil", "arrow") in old
@@ -279,7 +279,7 @@ def test_each_state_draws_its_mark_from_the_class_the_page_sets(fleet_home, tmp_
         assert row in found, found
     # Done is the fold's word, `is-done`, on a pane whose chip says idle: a check in the margin.
     done = _kinds(_in("done", marks))
-    assert (".tile:is(.state-done, .is-done) .head", "green", "check") in done, done
+    assert (".tile:is(.state-done, .is-done)", "green", "check") in done, done
     assert not [m for m in marks if m["shape"] == "check" and m["lane"] != "pane:done"], "only one pane is done"
     # The pen's tip rests at the end of the running line: 8px past the name, just under it.
     assert napkin["run"]["pentip"] and not any(v["pentip"] for k, v in napkin.items() if k != "run")
@@ -358,8 +358,8 @@ def test_a_state_that_goes_is_erased_or_struck_and_the_name_is_never_struck(flee
     assert not [m for m in after if m["lane"] == "pane:idle" and m["tool"] == "pencil"], after
     assert [m["selector"] for m in _in("idle", after)] == [".tile.state-running .head .repo"]
     # Ink is struck, and what the felt tip soaked stays with its struck box.
-    err = {m["selector"]: m for m in after if m["lane"] == "pane:err" and not m["strikeOf"]}
-    assert err[".tile.state-error"]["state"] == "struck" and err[".tile.state-error .head"]["state"] == "struck"
+    err = {(m["selector"], m["shape"]): m for m in after if m["lane"] == "pane:err" and not m["strikeOf"]}
+    assert err[(".tile.state-error", "loop")]["state"] == "struck" and err[(".tile.state-error", "bang")]["state"] == "struck"
     assert napkin["err"]["bleed"] and napkin["err"]["tail"] == 1, napkin["err"]
 
 

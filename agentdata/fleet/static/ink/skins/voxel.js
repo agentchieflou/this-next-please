@@ -39,11 +39,11 @@
 const MARKS = [
   // needs you: the name underlined in marker. The stack's block rises too.
   { selector: ".tile.needs-human .head .repo", tool: "marker", shape: "underline" },
-  // error: a bang in the head's margin. The stack's block cracks.
-  { selector: ".tile.state-error .head", tool: "red", shape: "bang" },
-  // done: a green check in the head's margin. The stack is set full. `is-done` is the fold's word
+  // error: a bang in the pane's margin (#330). The stack's block cracks.
+  { selector: ".tile.state-error", tool: "red", shape: "bang" },
+  // done: a green check in the pane's margin (#330). The stack is set full. `is-done` is the fold's word
   // for a finished agent nothing supervises, whose chip says idle (#253, #333).
-  { selector: ".tile:is(.state-done, .is-done) .head", tool: "green", shape: "check" },
+  { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
   // stale (#240): the old-session chip outlined in dashed pencil. A pebble on the stack.
   { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", dash: true, pad: 2 },
   // answered: the choice pressed in the question card, looped in green.

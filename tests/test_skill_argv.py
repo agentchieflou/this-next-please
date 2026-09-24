@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 import pytest
+from subproc import agentdata_env
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -250,7 +251,7 @@ def test_parse_only_reads_nothing(tmp_path):
     before = os.path.getmtime(real) if os.path.exists(real) else None
     p = subprocess.run([sys.executable, "-m", "agentdata", "doctor", "--quiet"],
                        capture_output=True, text=True, cwd=str(tmp_path),
-                       env={**os.environ, "AGENTDATA_PARSE_ONLY": "1"})
+                       env=agentdata_env({"AGENTDATA_PARSE_ONLY": "1"}))
     assert p.returncode == 0
     assert "parse_only: true" in p.stdout
     after = os.path.getmtime(real) if os.path.exists(real) else None

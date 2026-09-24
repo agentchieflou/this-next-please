@@ -34,9 +34,13 @@ const GROWS = ["crop-seed", "crop-sprout", "crop-bloom"];
    sixteen frames at most, whatever the frame rate (desk-ink.md: counted in frames). */
 const ROWS_PER_S = 60;
 /* How many CSS px one art pixel spans, before it is rounded down to whole device pixels. The
-   soil and the bands keep the stylesheet's 2x (a 16px tile drawn at 32px); the frames and the
-   crops are the art's own size. */
-const SCALE = { soil: 2, band: 2, board: 1, crop: 1 };
+   soil and the bands keep the stylesheet's 2x (a 16px tile drawn at 32px), and so does the crop,
+   large enough to be read as the state's second carrier (#336); the frames are the art's own size. */
+const SCALE = { soil: 2, band: 2, board: 1, crop: 2 };
+/* The crop is the sprite's central 12x12 art pixels, 2 to 14 each way: every crop's art lies
+   inside it (a static test holds that), and at twice the art that is the chip's 24px glyph box. */
+const CROP_ART = [2, 14];
+const CROP_BOX = 24;
 /* The frame's boards are one plank thick (8 art px), half over the pane's transparent border and
    half into the gutter, and throw a shadow this many art px down and right. */
 const SHADOW = 3;
@@ -57,7 +61,7 @@ export function marks() {
     // done: a green tick in the margin, beside the bloom -- the chip's `done` (a supervised
     // agent) or the fold's own (`is-done`, #253: the chip draws a finished, unsupervised agent
     // as idle, and this is how the page still says it finished).
-    { selector: ".tile:is(.state-done, .is-done) .head", tool: "green", shape: "check" },
+    { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     // stale (#240): the session's "old skills" tag ringed in dashed pencil.
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", pad: 2, dash: true },
     // answered: the choice the operator picked is circled in pen, while the question is open.
@@ -460,8 +464,9 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
     uniforms: { uOld: { value: s.textures[rec.shown] }, uNew: { value: s.textures[rec.shown] }, uRows: { value: 16 } },
     vertexShader: VERT, fragmentShader: CROP_FRAG, transparent: true, depthTest: false, depthWrite: false,
   });
-  rec.crop = mesh(THREE, quadsGeometry(THREE, [[0, 0, 16 * cu, 16 * cu, 0, 0, 16, 16, 0]]), crop, ORDER.crop);
-  rec.cropSize = 16 * cu;
+  const [a0, a1] = CROP_ART, span = (a1 - a0) * cu;
+  rec.crop = mesh(THREE, quadsGeometry(THREE, [[0, 0, span, span, a0, a0, a1, a1, 0]]), crop, ORDER.crop);
+  rec.cropSize = span;
   rec.boards = boards;
   rec.box = { w: box.w, h: box.h };
   rec.frame = { x: x0, y: y0, w: x1 - x0, h: y1 - y0, thick: T };
@@ -504,7 +509,7 @@ function place(rec, api) {
   const left = r.left + px(cs.borderLeftWidth) + px(cs.paddingLeft);
   const top = r.top + px(cs.borderTopWidth) + px(cs.paddingTop);
   const inner = r.height - px(cs.borderTopWidth) - px(cs.borderBottomWidth) - px(cs.paddingTop) - px(cs.paddingBottom);
-  const x = snap(left + (16 - rec.cropSize) / 2), y = snap(top + (inner - rec.cropSize) / 2);
+  const x = snap(left + (CROP_BOX - rec.cropSize) / 2), y = snap(top + (inner - rec.cropSize) / 2);
   m.position.set(x - p.left, -(y - p.top), 0);
   rec.cropAt = { x, y, size: rec.cropSize };
   return true;

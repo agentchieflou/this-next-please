@@ -118,7 +118,7 @@ Ink.setSkin({
   marks: [
     { selector: ".tile.needs-human .repo", tool: "highlighter", shape: "lines" },
     { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: 3 },
-    { selector: ".tile.state-done .head", tool: "green", shape: "check" },
+    { selector: ".tile.state-done", tool: "green", shape: "check" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "arrow", to: ".chip" },
   ],
 });
@@ -128,15 +128,17 @@ Ink.setSkin({
 | --- | --- |
 | `selector` | any selector the page can match (checked when the table is set). Each element it matches gets one mark |
 | `tool` | `pencil`, `pen`, `red`, `green`, `marker` or `highlighter`. The eraser is not a mark: it is how pencil leaves |
+| `ink` | another tool whose ink the row draws in, with its own tool's hand and way of leaving: `{tool: 'pencil', ink: 'pen'}` is the pencil's grain in the pen's colour, and is erased. A tool's name, never a colour, so `theme.check`'s per-tool inks cover it; plain, it is the underline's colour too (optional, #385) |
 | `shape` | one of the shapes below |
 | `pad` | px the shape stands off its element (optional) |
-| `dash` | a dashed stroke, for the stale pencil outline (optional) |
+| `dash` | a dashed stroke, for the stale pencil outline (optional; a dashed underline stays dashed plain) |
 | `to` | an arrow's target: a selector, looked up in the arrow's own pane first, then the page |
 | `grow` | an `underline` that lengthens: `step` px (default 10) for each element matching this selector that arrives in its pane after the mark was made, never past the pane's right edge. The pen draws on from where it stopped (#249: the running agent's line grows with its turn) |
 | `step` | px an underline grows by, per arrival (optional) |
 | `tip` | a pen-tip dot at the end of an `underline` while its mark is on the paper. It is lifted before the mark is struck or erased (#249) |
+| `cap` | `'arrow'` (a route's head, two barbs) or `'bar'` (a block across it) at the end of an `underline`, which stays at the end while it grows. Never with `tip`. Plain, a capped underline is a plain underline (optional, #385) |
 | `rewrite` | a `write` mark whose element's text changes after it was written keeps what it said beside it (to the left, in the element's own font and colour), strikes that through in pen, and writes the new text. One struck word is kept per row and element (#249: the header's count) |
-| `snap` | a grid pitch in px (4 or more): the row's straight strokes are ruled onto a grid of that pitch from the viewport's top-left. An outline's corners meet on the grid, an underline goes down to the first line under its text, a divider to the nearest. Only `outline`, `divider` and `underline` may snap (optional, #253) |
+| `snap` | a grid pitch in px (4 or more): the row's straight strokes are ruled onto a grid of that pitch from the viewport's top-left. An outline's edges go onto a grid line inside its box's padding band (between the border box and the content box), or down the band's middle where the band is narrower than the pitch, and its ends stop at the border box (#331); an underline goes to the first line in [its text's foot + 2, the next row's top - 2] and stays unruled when there is none (#331); a divider goes to the nearest. Only `outline`, `divider` and `underline` may snap (optional, #253) |
 | `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #252, #253) |
 
 A table may also tune a tool's hand for its own strokes with `tools: {<tool>: {...}}`, each a
@@ -156,11 +158,20 @@ Shapes are computed from `getBoundingClientRect` in the element's own coordinate
 gutter drag, a scroll or a reorder, moves its marks. Only a pane that changes size, or whose text wraps differently,
 rebuilds them. A box under 90px wide is a pane's 48px rail, so a margin mark goes down its middle.
 
+The margin is the pane's left padding (#330). A `check` or a `bang` row anchors on the pane (`.tile.state-error`,
+never `.tile.state-error .head`), and `margin()` writes it 14px in from the pane's border box. Under ink, each skin that
+draws gives an open pane a 26px left padding in its own sheet (`var(--ink-margin, 26px)`, keyed
+`body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"])`, the way the legal pad keys
+its 34px; the notebook pads with its gutter), so the green check (to x+25.3) stays left of the pane number and the
+name. A skin that adds a mark table adds that rule too. It is not keyed on the ink canvas: Chromium 153 left a
+`.tile` rule keyed on `body:has(> #ink[data-skin])` unapplied after the layer set `data-skin` (a pane restyled
+from scratch got 26px; one restyled in place kept 10px). Ink off keeps the 10px padding, and the fallback's bar is drawn inside the pane's 3px border.
+
 | Shape | Drawn | Plain fallback |
 | --- | --- | --- |
 | `outline` | four lines round the box, each overshooting its corner | `outline: 1px solid` |
 | `divider` | a rule across the foot of the box | an inset bottom line |
-| `underline` | a line under the text, a little past both ends | `text-decoration: underline` |
+| `underline` | a line under the text, a little past both ends: 2px under the tallest box on its text's line (the anchor's siblings whose height overlaps it, so a line past its end passes under a chip beside a name), and never lower than 2px over the next row's top: the highest of the elements after it in its pane that start below it, and of their words (#331) | `text-decoration: underline`, dashed when the row is (#385) |
 | `lines` | a highlighter pass along every line the text wraps to, as wide as the line is tall | a tinted background (38% of the ink) |
 | `loop` | one rounded stroke round the box, closed past its start | `outline: 2px solid` |
 | `ellipse` | a loose ellipse, a little more than once round | `outline: 2px solid`, further out |
@@ -291,6 +302,13 @@ each pane a hairline where its edge is and the double red margin, 25px and 29px 
 edge; a rail has no margin. The pane's own background, border and radius go, so the pad shows
 through, and its text starts right of the margin (`padding-left: 34px`). The project's accent stays
 on the left edge (#150).
+
+**The rules under a transcript (#338)** are the transcript's, as on the notebook
+([skin-notebook.md](skin-notebook.md) §The paper): a transcript row is 28px, the pad's pitch, with
+no divider and its text 2px low, the rows end at the transcript's bottom and scroll in whole rows,
+and the `frame` hook covers the transcript's box with plain canary and rules it every 28px up from
+that bottom edge, so no rule runs through a line of text. The module's `inspect()` carries
+`builds`, the number of `frame` calls so far.
 
 **Its colours are custom properties on `<body>`, in `skin.css`,** read by the module through
 `tokens.css(name)` at paint time and never written in the module:
@@ -425,6 +443,25 @@ decoration out of the CSS skins, every pane shows the paper.
 `Ink.inspect().layer.series` holds each trace mark, with its lane, tool, shape, state, how much is drawn, and the data
 it was drawn from, apart from the skin's `marks`.
 
+**The header's layer and the strips (#337).** Every skin that draws does two more things for the page, each in its
+own sheet, keyed `body[data-skin="<skin>"]:not(.ink-off)`:
+
+```css
+body[data-skin="<skin>"]:not(.ink-off) header { will-change: transform; }
+body[data-skin="<skin>"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
+```
+
+- **The header gets its own compositor layer.** Without it, while the renew strip showed, Chromium composited the
+  canvas with a band missing across the foot of the panes: the strip's rectangle mirrored, at about y 787-858 at
+  1400x900. The drawing buffer read back whole. Farmstead had this fix first, for itself.
+- **The renew and away strips stand aside for the canvas**, like the panes. Opaque, they sat as panels over the
+  drawing. Each keeps its `border-bottom`, so it is still a strip.
+
+These rules are in the skins' sheets, not in `app.css` on `body:has(> #ink[data-skin])`. Chromium 153 did not
+re-apply a rule keyed that way to the page when it started matching late (#441, §Shapes). A skin that adds a mark
+table adds both rules. `tests/test_fleet_ink_band.py` compares the foot of the panes with the canvas alone. It uses
+a full-viewport screenshot, because a clipped screenshot was composited whole even while the screen showed the band.
+
 **The one 2D context left is three.js's own.** `WebGLRenderer` asks a 1×1 `OffscreenCanvas` for one as it starts, to
 learn whether it could resize a texture off the page. It never draws with it, and the vendored file is pinned by its
 sha256. `tests/test_fleet_trace.py` holds the page to exactly that, at run time, and scans `static/` (minus
@@ -438,7 +475,7 @@ stylesheet of every skin that ships a module and refuses the rest:
 
 | A declaration | Allowed |
 | --- | --- |
-| a custom property (`--paper`, `--ink-pen`, `--glass-mesh-1`…): the colours and numbers the module reads | anywhere, **except** the palette's own thirteen tokens (`--bg`, `--panel`, `--text`…): a skin never recolours the palette, which it shares with the terminal |
+| a custom property (`--paper`, `--ink-pen`, `--glass-mesh-1`…): the colours and numbers the module reads | anywhere, **except** the palette's own eighteen tokens (`--bg`, `--panel`, `--text`…): a skin never recolours the palette, which it shares with the terminal |
 | layout (`display`, `padding`, `margin`, `gap`, `width`, `flex`…) and typography (`font-*`, `line-height`, `letter-spacing`, `text-*`…) | anywhere |
 | anything else: a background, a border, a shadow, a radius, a filter, an opacity, a colour | only where the skin's ink is on the page (a selector with `:not(.ink-off)`), and only to clear the page for the canvas or to name a token: `transparent`, `none`, `0` or `var(--…)`. Never a literal colour, never a `url()` |
 
@@ -487,15 +524,24 @@ a layer that stops, takes back every clip it wrote.
 
 ## Following the page
 
+**The page arrives skinned and `ink-off` (#345).** The server writes the chosen skin on `<body>` (`data-skin`,
+`data-skin-variant`) and, on a skinned page, `class="ink-off"`: the plain, legible look, because a skin's band text is
+keyed on `:not(.ink-off)` and would be read against nothing until the canvas draws. ink.js keeps it where the gate is
+off, and where the gate is on it removes it in the same task in which the layer first sets `#ink[data-skin]` (the key
+app.css clears the panes on); `turnOff()` puts it back. The palette is on the first frame and the ink ground follows
+when the layer draws.
+
 The canvas is `position: fixed`, the size of the viewport, `z-index: -1` (behind the page, in front of the
 stylesheet's own ground), with `pointer-events: none` and `aria-hidden`. It is the only canvas on the desk, and it is
 on the page for as long as the layer runs.
 
 | What moves | How the marks follow |
 | --- | --- |
+| a transcript's box inside its pane (a card shown above it) | a skin's `frame` hook is called again only when the frame's signature changes: the pane's width and height, and its `.transcript`'s top in the pane and height, each to 0.1px (#338), so a card shown or hidden above a transcript rebuilds the frame that rules it. A scroll moves no box and builds nothing |
 | a gutter drag, a tier change, a pane appearing | a `ResizeObserver` on every anchor and every lane's pane. It re-measures and redraws **inside the frame the browser laid out**, so the marks are where the panes are on the frame that shows the panes. The layer adds no DOM write to the drag (plan-panes ground rule 4) |
 | a window resize | the `resize` event resizes the canvas and re-measures |
 | a scroll, a pane's transcript included | a capturing `scroll` listener re-measures. A mark is clipped to every scrolling ancestor, so a line scrolled out of a transcript takes its ellipse with it |
+| any of these, in a pane | a mark in a pane's lane is also clipped to the pane's border box, inset 1px, where the other clips are taken: no mark is drawn past its pane, whatever its shape or `pad` says. The header's lane keeps the viewport. It is a safety net; the shapes keep their own geometry inside (#331) |
 | a reorder (FLIP) or any transition | `transitionrun`/`animationstart` follows every frame for 400ms (`--motion-slow` and a margin) |
 | fonts arriving | re-measures, because the text wrapped |
 | the palette or the colour scheme | reads the inks again and repaints |
@@ -522,7 +568,8 @@ head instead.
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (39 KB) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
+| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (41,958 bytes gzipped, LF, #385) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
+| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385. Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |

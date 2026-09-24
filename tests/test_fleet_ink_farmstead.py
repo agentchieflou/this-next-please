@@ -12,8 +12,11 @@ What is asserted:
 * every variant is drawn by the ink layer with `?ink=on`, and drawn plain -- the stylesheet's own
   farm, and the same mark table as CSS -- under `body.ink-off`;
 * the sprites are NearestFilter textures rasterised on the art's own grid, drawn at a whole number
-  of device pixels: at a device pixel ratio of 2 every art pixel is a 2x2 (crop) or 4x4 (soil) block
-  of one of the art's own colours, and nothing between two;
+  of device pixels: at a device pixel ratio of 2 every art pixel is a 4x4 block (the crop and the
+  soil, both at twice the art) of one of the art's own colours, and nothing between two;
+* the crop is large enough to read (19 CSS px or more at a device pixel ratio of 1 and 1.25) and
+  stays in the chip's glyph box, and every crop's art lies inside the 12x12 the chip draws;
+* every header and footer control reads at 4.5:1 on its own background, in every weather;
 * each pane's frame follows a gutter drag, and its paper is the variant's composited panel;
 * a crop grows exactly one stage when the phase advances, drawn up from the soil, never faded;
 * the state grammar's marks and materials come and go with the classes `app.js` sets;
@@ -42,7 +45,7 @@ SKIN_CSS = os.path.join(STATIC, "skins", "farmstead", "skin.css")
 SPRITES = os.path.join(STATIC, "skins", "farmstead", "sprites.svg")
 VARIANTS = tuple(skins.SKINS["farmstead"]["variants"])
 #: The done row: the chip's own `done`, or the fold's (`is-done`, #253).
-DONE = ".tile:is(.state-done, .is-done) .head"
+DONE = ".tile:is(.state-done, .is-done)"
 #: The palette colour each tool is drawn in unless the skin names its own (`ink.js` TOOLS).
 TOOL_TOKENS = {"pencil": "--muted", "pen": "--accent", "red": "--human", "green": "--done",
                "marker": "--human", "highlighter": "--waiting"}
@@ -168,6 +171,25 @@ def test_the_header_and_footer_text_reads_on_every_lit_plank():
                 lit = _band(variant, texel)
                 ratio = theme.contrast_ratio(text, lit)
                 assert ratio >= 4.5, f"farmstead:{variant}: {text} on plank {texel} lit to {lit} is {ratio:.2f}:1"
+
+
+def test_every_crop_lies_within_the_art_the_chip_draws():
+    """The chip draws a crop sprite's central 12x12 art pixels, 2 to 14 on each axis, at twice the
+    art's size (#336): the art is 6 to 12 px across, and the 2 px margin round it is empty. So
+    every `crop-*` rect lies inside that window, and the crop never loses a leaf to the clip."""
+    sheet = _read(SPRITES)
+    ids = re.findall(r'<svg id="(crop-[\w-]+)"', sheet)
+    assert sorted(ids) == sorted(re.findall(r'"(crop-[\w-]+)"', _read(MODULE).split("const CROPS", 1)[1]
+                                           .split(";", 1)[0])), ids
+    for crop in ids:
+        body = re.search(r'<svg id="%s"[^>]*>(.*?)</svg>' % crop, sheet, re.S).group(1)
+        rects = re.findall(r"<rect\b([^>]*)/?>", body)
+        assert rects, crop
+        for attrs in rects:
+            a = {k: int(v) for k, v in re.findall(r'\b(x|y|width|height)="(\d+)"', attrs)}
+            x, y = a.get("x", 0), a.get("y", 0)
+            assert 2 <= x and x + a["width"] <= 14 and 2 <= y and y + a["height"] <= 14, \
+                f"{crop}: a rect at ({x}, {y}) {a['width']}x{a['height']} leaves the art 2..14 the chip draws"
 
 
 # ================================================================================ in a browser
@@ -335,6 +357,72 @@ def _rgb_255(hexs):
     return tuple(int(hexs.strip()[i:i + 2], 16) for i in (1, 3, 5))
 
 
+#: Every visible control in the header and the footer: its computed colour, and the background it is
+#: read on -- its own, or the first opaque one walking up (a translucent one on the way is laid over
+#: it, as the browser composites). Reaching the header or the footer with nothing opaque means the
+#: control is written straight on the planks, which the band test measures: `ground` is null then.
+CONTROLS = """() => {
+  const rgba = s => { const m = s.match(/rgba?\\(([^)]+)\\)/); if (!m) return null;
+    const v = m[1].split(/[ ,\\/]+/).filter(Boolean).map(Number); return [v[0], v[1], v[2], v.length > 3 ? v[3] : 1]; };
+  const out = [];
+  for (const el of document.querySelectorAll(':is(header, footer) :is(button, input, select, kbd)')) {
+    const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    if (!r.width || !r.height || cs.visibility === 'hidden' || el.closest('[hidden]')) continue;
+    const layers = [];
+    let ground = null;
+    for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+      const b = rgba(getComputedStyle(n).backgroundColor);
+      if (b && b[3] > 0) layers.push(b);
+      if (b && b[3] >= 1) { ground = b; break; }
+      if (n.matches('header, footer')) break;
+    }
+    if (ground) {
+      let c = ground.slice(0, 3);
+      for (const l of layers.slice(0, -1).reverse()) c = c.map((v, i) => l[i] * l[3] + v * (1 - l[3]));
+      ground = c.map(Math.round);
+    }
+    out.push({ what: el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + ' "' +
+                     (el.textContent || el.placeholder || '').trim().slice(0, 20) + '"',
+               color: rgba(cs.color).slice(0, 3), ground });
+  }
+  return out;
+}"""
+
+
+def _ratio(a, b):
+    return theme.contrast_ratio(_hex(a), _hex(b))
+
+
+@pytest.mark.browser
+def test_every_header_and_footer_control_reads_at_4_5_in_every_weather(fleet_home, tmp_path):
+    """The band ink is for the words written on the planks. A control keeps its own background, so
+    it keeps the palette's text too (#336): at 8557b2b daytime's "sidebar", "chime off", "0 new" and
+    "keys" read at 1.30:1 and the "?" key at 1.22:1, the band's near-white on the palette's light
+    buttons. Every visible button, input, select and key in the header and the footer, in every
+    weather with ink on, reads at 4.5:1 against the background it sits on."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _farm_desk(fleet_home, tmp_path)
+    server, token, port = _serve()
+    seen = {}
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors = _page(browser, port, token)
+            for variant in VARIANTS:
+                _choose(page, f"farmstead:{variant}")
+                _inked(page, f"farmstead:{variant}")
+                seen[variant] = page.evaluate(CONTROLS)
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    for variant, controls in seen.items():
+        assert len(controls) >= 6, (variant, controls)
+        low = [(c["what"], c["color"], c["ground"], c["ground"] and round(_ratio(c["color"], c["ground"]), 2))
+               for c in controls if not c["ground"] or _ratio(c["color"], c["ground"]) < 4.5]
+        assert not low, f"farmstead:{variant}: controls below 4.5:1 (or on no background of their own): {low}"
+
+
 @pytest.mark.browser
 def test_the_chip_glyph_is_one_sprite_of_the_sheet_and_not_all_of_them(fleet_home, tmp_path):
     """Every sprite in the sheet sits at 0,0, so a fragment that did not hide the others drew all
@@ -388,7 +476,7 @@ def test_the_chip_glyph_is_one_sprite_of_the_sheet_and_not_all_of_them(fleet_hom
 def test_the_sprites_are_nearest_neighbour_textures_at_a_whole_number_of_device_pixels(fleet_home, tmp_path):
     """The art is rasterised on its own grid -- one texel per art pixel -- and every enlargement is
     NearestFilter's at a whole number of DEVICE pixels. At a device pixel ratio of 2 an art pixel of
-    the crop is a 2x2 block and one of the soil a 4x4 block, each block one colour, and every colour
+    the crop is a 4x4 block (twice the art, #336) and one of the soil a 4x4 block, each block one colour, and every colour
     one the sheet has (or the paper round the crop): crisp, never a blend of two texels."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _farm_desk(fleet_home, tmp_path)
@@ -414,15 +502,15 @@ def test_the_sprites_are_nearest_neighbour_textures_at_a_whole_number_of_device_
     assert farm["nearest"] and farm["raster"] == 1, farm
     assert farm["sizes"]["plank"] == [16, 8] and all(farm["sizes"][c] == [16, 16] for c in
                                                      ("soil", "crop-seed", "crop-bloom")), farm["sizes"]
-    assert farm["units"] == {"soil": 2, "board": 1, "crop": 1, "dpr": 2}, farm["units"]
-    assert crop["size"] == 16 and len(crop_px) == 32 and len(crop_px[0]) == 32, crop
+    assert farm["units"] == {"soil": 2, "board": 1, "crop": 2, "dpr": 2}, farm["units"]
+    assert crop["size"] == 24 and len(crop_px) == 48 and len(crop_px[0]) == 48, crop
 
     def blocks(px, n):
         for j in range(0, len(px) - n + 1, n):
             for i in range(0, len(px[0]) - n + 1, n):
                 cell = {tuple(px[j + b][i + a]) for b in range(n) for a in range(n)}
                 assert len(cell) == 1, f"a {n}x{n} art pixel at ({i}, {j}) is blended: {cell}"
-    blocks(crop_px, 2)
+    blocks(crop_px, 4)
     allowed = {_rgb_255(c) for c in _sprite("crop-seed")} | {_rgb_255(paper)}
     got = {tuple(c) for row in crop_px for c in row}
     assert all(any(_near(c, a, 1) for a in allowed) for c in got), (got, allowed)
@@ -431,6 +519,50 @@ def test_the_sprites_are_nearest_neighbour_textures_at_a_whole_number_of_device_
     # the sun -- so a handful of colours, each a whole block.
     blocks(soil_px, 4)
     assert 2 <= len({tuple(c) for row in soil_px for c in row}) <= len(set(_sprite("soil")))
+
+
+#: Each pane's chip, and the glyph box before its word: the chip's own rect, cut off where the word
+#: begins (a Range over the chip's text), as the operator sees it.
+GLYPH_BOXES = """() => Object.fromEntries([...document.querySelectorAll('#grid .tile[data-repo]')].map(t => {
+  const chip = t.querySelector('.head .chip'), c = chip.getBoundingClientRect();
+  const range = document.createRange();
+  range.selectNodeContents(chip);
+  const words = [...range.getClientRects()].filter(r => r.width > 0);
+  const word = words.length ? Math.min(...words.map(r => r.left)) : c.right;
+  return [t.dataset.repo, { left: c.left, top: c.top, right: word, bottom: c.bottom }];
+}))"""
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("dpr", [1, 1.25], ids=["dpr-1", "dpr-1.25"])
+def test_the_crop_is_large_enough_to_read_and_stays_in_its_glyph_box(fleet_home, tmp_path, dpr):
+    """The crop is the state's second carrier beside the chip's word (HIG *Color*: never colour
+    alone), and at the art's own size it was 6 to 12 px of a 16px box (#336). It is the sprite's
+    central 12x12 art pixels at twice the art now: 24 CSS px at a device pixel ratio of 1, and 19.2
+    at 1.25 (two whole device pixels an art pixel, through `unitOf`). It stays inside the chip's
+    glyph box -- the chip's rect up to where its word begins -- give or take the half device pixel
+    its position is snapped by."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _farm_desk(fleet_home, tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors = _page(browser, port, token, dpr=dpr)
+            farm = _inked(page, "farmstead:daytime")
+            boxes = page.evaluate(GLYPH_BOXES)
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    assert farm["units"]["crop"] == pytest.approx(2 if dpr == 1 else 1.6), farm["units"]
+    snap = 0.5 / dpr + 1e-3
+    for repo in ("alpha", "beta"):
+        crop, box = farm["panes"][repo]["crop"], boxes[repo]
+        assert farm["panes"][repo]["visible"], repo
+        assert crop["size"] >= 19 and crop["size"] == pytest.approx(24 if dpr == 1 else 19.2), (repo, crop)
+        assert crop["x"] >= box["left"] - snap and crop["x"] + crop["size"] <= box["right"] + snap, (repo, crop, box)
+        assert crop["y"] >= box["top"] - snap and crop["y"] + crop["size"] <= box["bottom"] + snap, (repo, crop, box)
 
 
 @pytest.mark.browser
@@ -657,7 +789,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
             # Done: the fold says so for a supervised agent.
             forced["state"]["gamma"] = "done"
             _state(page, "gamma", "state-done")
-            _settle(page, "Ink.inspect().layer.marks.some(m => m.selector === '.tile:is(.state-done, .is-done) .head' && m.drawn === 1)")
+            _settle(page, "Ink.inspect().layer.marks.some(m => m.selector === '.tile:is(.state-done, .is-done)' && m.drawn === 1)")
             done = {"marks": page.evaluate("() => Ink.inspect().layer.marks"), "farm": page.evaluate(FARM)}
             # A new run for every one of them: nothing outstanding.
             forced["live"].clear()
@@ -687,7 +819,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
     assert panes["alpha"]["shown"] == "crop-wilted" and panes["alpha"]["scorched"], panes["alpha"]
     assert panes["beta"]["shown"] == "crop-wilted" and not panes["beta"]["scorched"], panes["beta"]
     assert panes["gamma"]["shown"] == "crop-sprout" and panes["gamma"]["grows"] == 1, panes["gamma"]
-    assert live(done, "gamma", ".tile:is(.state-done, .is-done) .head")[0]["tool"] == "green"
+    assert live(done, "gamma", DONE)[0]["tool"] == "green"
     assert done["farm"]["panes"]["gamma"]["shown"] == "crop-bloom", done["farm"]["panes"]["gamma"]
     # Gone: ink is struck (a strike is a mark of its own), and nothing is simply removed. The
     # friction line is history and stays in the transcript, so its ring stays with it.

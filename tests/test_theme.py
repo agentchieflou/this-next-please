@@ -303,6 +303,36 @@ def test_theme_check_rule_6_muted_contrast():
     assert "muted '#6E7681' on ground '#14171A'" in exc.value.hint
 
 
+def test_theme_check_rule_7_the_word_on_a_state_colour():
+    """Rule 7 of theme.check (#327): each to_css(t)['--on-<role>'] reads >= 4.5:1 on its role colour for
+    every built-in and 200 random rolls; the chosen colour is the first of text, ground, white and
+    #111111 that does; and a palette whose word cannot reach 4.5:1 is refused with a hint."""
+    import dataclasses
+
+    roles = ("--running", "--waiting", "--human", "--done", "--idle")
+    palettes = [t for t in theme.list_themes() if t.name != "none"]
+    palettes += [theme.random_theme(i * 1013 + 7) for i in range(200)]
+    for t in palettes:
+        c = theme.to_css(t)
+        for role in roles:
+            on = c["--on-" + role[2:]]
+            assert theme.contrast_ratio(on, c[role]) >= 4.5, f"{t.name} {on} on {role} {c[role]}"
+            first = next(x for x in (t.text, t.ground, "#FFFFFF", "#111111")
+                         if theme.contrast_ratio(x, c[role]) >= 4.5)
+            assert on == first, f"{t.name} {role}: {on}, the rule's first is {first}"
+        theme.check(t)
+
+    # A mid grey no candidate reaches 4.5:1 on: the best of them is written, and check refuses it.
+    grey = dataclasses.replace(theme.DARK, status=dict(theme.DARK.status, info="#787878"))
+    c = theme.to_css(grey)
+    assert c["--on-running"] == max((grey.text, grey.ground, "#FFFFFF", "#111111"),
+                                    key=lambda x: theme.contrast_ratio(x, "#787878"))
+    with pytest.raises(theme.ThemeError) as exc:
+        theme.check(grey)
+    assert "the word on --running" in str(exc.value) and "below 4.5:1 floor" in str(exc.value)
+    assert f"--on-running '{c['--on-running']}' on --running '#787878'" in exc.value.hint
+
+
 def test_theme_escapes_are_byte_identical_to_golden():
     """theme.escapes(t) for every built-in is byte-identical to golden captured at 8557b2b."""
     golden = {

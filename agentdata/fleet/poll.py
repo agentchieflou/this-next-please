@@ -72,6 +72,10 @@ from .registry import fleet_dir
 DEFAULT_INTERVALS = {"jira": 60, "pr": 120, "powerbi": 300, "git": 30}
 SOURCES = tuple(DEFAULT_INTERVALS)
 
+# How many of a checkout's branch rows the git tick keeps for the map (#403): unmerged first, newest
+# first, so the forty kept are the forty the operator would look at.
+MAP_BRANCH_ROWS = 40
+
 # Source -> the tile cell it fills. Two names because the source is *where the answer comes from*
 # and the cell is *what the operator is looking at*: "powerbi" is a system, "refresh" is the
 # question, and `state_for` is read by a renderer that cares about the question.
@@ -207,6 +211,10 @@ class Poller:
         self.branch_reader: Callable[..., dict] = read_branches     # the cheap read, per tick (#184)
 
         self.polls: dict[str, dict[str, Poll]] = {}
+        # The git tick's branch rows, per checkout, for the map (#403). Beside the cells rather than
+        # in the git cell, because `polls` rides on every `/api/fleet` row and forty rows a tile is
+        # weight the desk never reads. Each entry is replaced whole, never mutated in place.
+        self._branch_rows: dict[str, dict] = {}
         self._seen: dict[str, dict[str, str]] = {}
         self._counts: dict[str, dict[str, int]] = {"requests": {}, "errors": {}, "stood_down": {}}
         self._day = ""
@@ -244,6 +252,15 @@ class Poller:
                 "errors": {s: self._counts["errors"].get(s, 0) for s in SOURCES},
                 "stood_down": {s: self._counts["stood_down"].get(s, 0) for s in SOURCES},
                 "total": sum(self._counts["requests"].values())}
+
+    def branch_rows(self, name: str) -> dict | None:
+        """What the last git tick read of this checkout's local branches, or None before it read.
+
+        `{default, current, ticket, carrying, rows: [{name, current, unmerged, ticket, at}], more,
+        at}`: the cheap read's rows in its order, capped at `MAP_BRANCH_ROWS`, with no `ahead` (the
+        `rev-list` per branch stays on the click). A dict read, never a git call: the map asks on
+        every request, and only the poll spends git."""
+        return self._branch_rows.get(name)
 
     # ---- the tick -----------------------------------------------------------------------------
 
@@ -403,7 +420,12 @@ class Poller:
             self._fail(repo.name, "git", now, _why(e))
             return []
         try:
-            answer = {**answer, **(self.branch_reader(repo, full=False) or {})}
+            read = self.branch_reader(repo, full=False) or {}
+            answer = {**answer, **read}
+            if isinstance(read.get("branches"), list):
+                # A new dict per checkout, assigned whole: a map request on another thread sees the
+                # last answer or this one, never half of each.
+                self._branch_rows[repo.name] = _map_rows(read, now)
         except Exception:                         # noqa: BLE001 - the branch stays; the count is absent
             pass
         self._ok(repo.name, "git", now, _git_value(answer, warn=warn_at(self.cfg)))
@@ -937,6 +959,18 @@ def _git_value(answer: dict, warn: int = BRANCH_WARN_DEFAULT) -> dict:
                       "line2": branch_line(count, unmerged, default), "warn": count >= warn,
                       "warn_at": warn, "carrying": list(answer.get("carrying") or [])})
     return value
+
+
+def _map_rows(read: dict, now: float) -> dict:
+    """The map's side-cache entry for one checkout (#403), from `read_branches(full=False)`."""
+    rows = [r for r in read.get("branches") or [] if isinstance(r, dict) and r.get("name")]
+    return {"default": str(read.get("default") or ""), "current": str(read.get("current") or ""),
+            "ticket": str(read.get("ticket") or ""), "carrying": list(read.get("carrying") or []),
+            "rows": [{"name": str(r["name"]), "current": bool(r.get("current")),
+                      "unmerged": bool(r.get("unmerged")), "ticket": str(r.get("ticket") or ""),
+                      "at": float(r.get("at") or 0.0)} for r in rows[:MAP_BRANCH_ROWS]],
+            "more": len(rows) > MAP_BRANCH_ROWS,
+            "at": float(read.get("at") or now)}
 
 
 def _repo_slug(url: str) -> str:

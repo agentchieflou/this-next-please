@@ -108,3 +108,18 @@ body[data-skin="glass"][data-skin-variant="frost"] {
   --scroll-thumb: rgba(0, 0, 0, 0.18);
   --scroll-thumb-hover: rgba(0, 0, 0, 0.30);
 }
+
+/* The ink's margin (#330): an open pane's left padding, where the done check and the error bang are
+   written (`shapes.js` `margin()`, anchored on the pane). 26px keeps the green check (to x+25.3)
+   off the pane number and the name. Keyed on the body's skin and not ink-off, as the legal pad keys
+   its 34px: a rule keyed on the ink canvas (`body:has(> #ink[data-skin])`) was left unapplied to the
+   panes by Chromium 153 after the layer set `data-skin`. Ink off keeps app.css's 10px. */
+body[data-skin="glass"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: var(--ink-margin, 26px); }
+
+/* The page's own drawing (#337, docs/desk-ink.md): the clear header gets its own compositor layer
+   -- without it Chromium showed the canvas with a band missing along the foot of the panes, the
+   renew strip's rectangle mirrored -- and the renew and away strips stand aside for the canvas
+   like the panes. Keyed here, not on `body:has(> #ink[data-skin])`, which Chromium 153 does not
+   re-apply when it starts matching late (#441). */
+body[data-skin="glass"]:not(.ink-off) header { will-change: transform; }
+body[data-skin="glass"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }

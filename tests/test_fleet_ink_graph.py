@@ -210,6 +210,39 @@ def _ruled(mark):
     return out
 
 
+#: A pane's padding band, per side: its border and its padding, px (#331).
+BAND = """r => { const cs = getComputedStyle(document.querySelector(`.tile[data-repo="${r}"]`));
+  return ['Left', 'Top', 'Right', 'Bottom'].map(k => parseFloat(cs['border' + k + 'Width']) + parseFloat(cs['padding' + k])); }"""
+
+
+def _banded(mark, band):
+    """#331: each of a ruled outline's edges lies in its box's padding band (between the border
+    box and the content box): on a grid line inside it, or down its middle where the band is
+    narrower than a square -- so it crosses neither the pane's edge nor its words."""
+    bx = mark["box"]
+    L, T, R, B = bx["x"], bx["y"], bx["x"] + bx["w"], bx["y"] + bx["h"]
+    out = []
+    for b in mark["bounds"]:
+        flat = (b["r"] - b["x"]) >= (b["b"] - b["y"])
+        v = b["y"] if flat else b["x"]
+        ok = (b["b"] - b["y"] <= 0.01) if flat else (b["r"] - b["x"] <= 0.01)
+        near, far, w0, w1 = (T, B, band[1], band[3]) if flat else (L, R, band[0], band[2])
+        edge, w = (near, w0) if abs(v - near) <= abs(v - far) else (far, -w1)
+        lo, hi = sorted((edge, edge + w))
+        ok = ok and lo - 0.01 <= v <= hi + 0.01
+        ok = ok and (abs(v - (edge + w / 2)) <= 0.01 if abs(w) < GRID else _on_grid(v))
+        out.append(ok)
+    return out
+
+
+def _under(mark):
+    """#331: an underline sits under its text's row -- on the first grid line in its window when
+    there is one, and otherwise 2px under the tallest box on the name's line, unruled."""
+    [line, *_] = mark["bounds"]
+    foot = mark["box"]["y"] + mark["box"]["h"]
+    return all(_ruled(mark)) or (line["y"] >= foot + 1.5 and not _on_grid(line["y"]))
+
+
 # ========================================================================== without a browser
 
 
@@ -296,6 +329,7 @@ def test_idle_running_error_and_done_draw_their_marks_and_leave_by_erase_or_stri
             _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.shape === 'outline'"
                         " && m.state === 'drawn') && Ink.inspect().layer.marks.some(m => m.shape === 'check')")
             seen["idle"] = _marks(page)
+            seen["band"] = page.evaluate(BAND, "alpha")
             _run("alpha")
             _tile_has(page, "alpha", "state-running")
             _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.tool === 'pen'"
@@ -319,8 +353,8 @@ def test_idle_running_error_and_done_draw_their_marks_and_leave_by_erase_or_stri
     [under] = _of(idle, "alpha", ".tile.state-idle .head .repo")
     assert outline["tool"] == "pencil" and outline["shape"] == "outline" and outline["strokes"] == 4
     assert under["tool"] == "pencil" and under["shape"] == "underline"
-    assert all(_ruled(outline)) and all(_ruled(under)), (outline["bounds"], under["bounds"])
-    # The underline is on the first grid line under the name, never through it.
+    assert all(_banded(outline, seen["band"])) and _under(under), (outline["bounds"], under["bounds"])
+    # The underline is under the name, never through it: ruled when a grid line fits under the row (#331).
     assert under["bounds"][0]["y"] >= under["box"]["y"] + under["box"]["h"] - 0.75, under
     [check] = _of(idle, "beta", ".tile.is-done")
     assert check["tool"] == "green" and check["shape"] == "check"
@@ -331,7 +365,7 @@ def test_idle_running_error_and_done_draw_their_marks_and_leave_by_erase_or_stri
     assert not [m for m in running if m["lane"] == "pane:alpha" and m["tool"] == "pencil"
                 and m["shape"] in ("outline", "underline")], running
     [pen] = _of(running, "alpha", ".tile.state-running .head .repo")
-    assert pen["tool"] == "pen" and all(_ruled(pen))
+    assert pen["tool"] == "pen" and _under(pen)
 
     error = seen["error"]
     # Ink leaves by a strike: the running underline is still there, struck through in pen.
@@ -340,7 +374,7 @@ def test_idle_running_error_and_done_draw_their_marks_and_leave_by_erase_or_stri
     [box] = _of(error, "alpha", ".tile.state-error")[:1]
     boxes = [m for m in _of(error, "alpha", ".tile.state-error") if m["shape"] == "outline"]
     bangs = [m for m in _of(error, "alpha", ".tile.state-error") if m["shape"] == "bang"]
-    assert boxes and boxes[0]["tool"] == "marker" and all(_ruled(boxes[0])), box
+    assert boxes and boxes[0]["tool"] == "marker" and all(_banded(boxes[0], seen["band"])), box
     assert bangs and bangs[0]["tool"] == "red"
 
 
@@ -421,6 +455,7 @@ def test_stale_a_finding_and_the_count_are_written_and_the_hour_is_plotted_on_th
             _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.shape === 'arrow'"
                         " && m.state === 'drawn') && Ink.inspect().layer.skin.frames === 2")
             seen["marks"] = _marks(page)
+            seen["band"] = page.evaluate(BAND, "alpha")
             plot = """async () => (await import(q('/static/ink/skins/graph.js'))).plotted()"""
             seen["plot"] = page.evaluate(plot)
             seen["canvas"] = page.evaluate("""() => [...document.querySelectorAll('.tile .head .trace')].map(c => ({
@@ -449,7 +484,7 @@ def test_stale_a_finding_and_the_count_are_written_and_the_hour_is_plotted_on_th
     dashed = _of(marks, "alpha", ".tile:has(")
     assert note and note[0]["tool"] == "pencil" and note[0]["drawn"] == 1
     assert arrow and arrow[0]["tool"] == "pencil" and arrow[0]["strokes"] == 3
-    assert dashed and dashed[0]["tool"] == "pencil" and all(_ruled(dashed[0])), dashed
+    assert dashed and dashed[0]["tool"] == "pencil" and all(_banded(dashed[0], seen["band"])), dashed
     assert not _of(marks, "alpha", ".tile.state-idle:not"), "a stale pane's outline is the dashed one"
     ellipse = [m for m in _of(marks, "beta", "li.friction") if m["shape"] == "ellipse"]
     token_ = _of(marks, "beta", "li.friction .k")
@@ -595,8 +630,8 @@ def test_the_plain_fallback_is_the_same_table_on_a_css_grid(fleet_home, tmp_path
             page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
             page.wait_for_function("""() => document.body.classList.contains('ink-off')
                 && (Ink.inspect().table || '').startsWith('graph') && Ink.inspect().plain
-                && document.querySelector('.tile[data-repo="beta"]').classList.contains('needs-human')
-                && document.querySelector('.tile[data-repo="alpha"]').classList.contains('state-idle')""",
+                && document.querySelector('.tile[data-repo="beta"]')?.classList.contains('needs-human')
+                && document.querySelector('.tile[data-repo="alpha"]')?.classList.contains('state-idle')""",
                                    timeout=20000)
             got = page.evaluate("""() => {
               const cs = s => getComputedStyle(document.querySelector(s));

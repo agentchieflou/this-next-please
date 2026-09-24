@@ -11,6 +11,7 @@ Everything here runs against a temporary home unless it asks not to.
 there rather than three months later as "works on my machine".
 """
 from __future__ import annotations
+import importlib
 import os
 import random
 import shutil
@@ -18,6 +19,11 @@ import subprocess
 import sys
 
 import pytest
+
+# Plugins of the suite's own: tests/orphans.py fails a test process that leaves a child behind (#317).
+pytest_plugins = ["orphans"]
+
+from subproc import agentdata_env  # noqa: E402 - after pytest_plugins, which #317 puts right after pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
@@ -32,6 +38,33 @@ FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 HOME_VARS = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")
 
 
+def playwright_browsers_dir(environ, platform, home):
+    """Where Playwright looks for its browsers on this machine, before any test moves `~` (#296).
+
+    Playwright finds its browsers relative to the *home* on Linux and macOS, and `isolated_home`
+    points `HOME` at an empty temp dir -- so without this every browser test skipped on Linux CI
+    ("no chromium to drive the page with"), and only the Windows leg, whose browsers live under
+    `%LOCALAPPDATA%`, ran the browser tier at all. `PLAYWRIGHT_BROWSERS_PATH` wins when it is set.
+    """
+    preset = environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if preset:
+        return preset
+    if platform.startswith("win"):
+        local = environ.get("LOCALAPPDATA")
+        return os.path.join(local, "ms-playwright") if local else None
+    if platform == "darwin":
+        return os.path.join(home, "Library", "Caches", "ms-playwright")
+    cache = environ.get("XDG_CACHE_HOME") or os.path.join(home, ".cache")
+    return os.path.join(cache, "ms-playwright")
+
+
+# The real machine's browsers, resolved once at import, before `isolated_home` moves `~`. None when
+# that directory does not exist, so a laptop with no Chromium still skips with a named reason.
+REAL_PLAYWRIGHT_BROWSERS = playwright_browsers_dir(os.environ, sys.platform, os.path.expanduser("~"))
+if REAL_PLAYWRIGHT_BROWSERS and not os.path.isdir(REAL_PLAYWRIGHT_BROWSERS):
+    REAL_PLAYWRIGHT_BROWSERS = None
+
+
 def pytest_addoption(parser):  # pragma: no cover - CLI plumbing
     parser.addoption("--shuffle-seed", action="store", default=None,
                      help="shuffle test order with this seed, to catch order dependence")
@@ -42,6 +75,30 @@ def pytest_collection_modifyitems(config, items):  # pragma: no cover - collecti
     if seed is None:
         return
     random.Random(int(seed)).shuffle(items)
+
+
+# The declared dependencies whose absence fails tests rather than skipping them by name (#297; the
+# operator's answer on #288). Imported, not `find_spec`-ed: a shadow package is found without being
+# run, so a dependency that cannot actually import would pass a spec check.
+DECLARED_DEPENDENCIES = ("rich", "yaml")
+
+
+def missing_dependencies(names=DECLARED_DEPENDENCIES):
+    missing = []
+    for name in names:
+        try:
+            importlib.import_module(name)
+        except ImportError:
+            missing.append(name)
+    return missing
+
+
+def pytest_configure(config):  # pragma: no cover - session hook
+    """A sandbox without a declared dependency gets one line, not fourteen wrong failures."""
+    missing = missing_dependencies()
+    if missing:
+        pytest.exit("the suite runs against its declared dependencies; missing: "
+                    f"{', '.join(missing)}. Run: python -m pip install -e \".[dev]\"", returncode=4)
 
 
 @pytest.fixture(autouse=True)
@@ -70,6 +127,10 @@ def isolated_home(tmp_path, monkeypatch, request):
 
     home = tmp_path / "home"
     home.mkdir()
+    # #296: HOME moves, the browsers stay where they are. Set only when the machine has them and
+    # nobody named a path already.
+    if REAL_PLAYWRIGHT_BROWSERS and not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", REAL_PLAYWRIGHT_BROWSERS)
     for var in HOME_VARS:
         monkeypatch.setenv(var, str(home))
     monkeypatch.setenv("AGENTDATA_CONFIG", str(home / ".agentdata" / "config.json"))
@@ -95,6 +156,26 @@ def isolated_home(tmp_path, monkeypatch, request):
     yield home
     color.reset_cache()
     ui.reset_cache()
+
+
+def browser_skip_is_a_failure(has_browser_marker, skipped, environ):
+    """A browser test may not skip in a job that installed a browser (#296).
+
+    `AGENTDATA_REQUIRE_BROWSER=1` is that job's promise that Chromium is there; a skip under it is a
+    browser that went missing, which is exactly what hid the whole tier on Linux for days.
+    """
+    return bool(has_browser_marker and skipped and environ.get("AGENTDATA_REQUIRE_BROWSER") == "1")
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):  # pragma: no cover - report hook
+    outcome = yield
+    report = outcome.get_result()
+    skipped = report.skipped and not hasattr(report, "wasxfail")
+    if browser_skip_is_a_failure(item.get_closest_marker("browser") is not None, skipped, os.environ):
+        reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
+        report.outcome = "failed"
+        report.longrepr = f"a browser test may not skip in a job that installed a browser: {reason}"
 
 
 @pytest.fixture()
@@ -167,8 +248,7 @@ def run_cmd(tmp_path):
     sequence that only appears when stdout is a pipe.
     """
     def _run(args: list[str], *, cwd: str | None = None, timeout: int = 120, env: dict | None = None):
-        environment = dict(os.environ)
-        environment.update(env or {})
+        environment = agentdata_env(env)
         p = subprocess.run([sys.executable, "-m", "agentdata", *args],
                            capture_output=True, text=True, timeout=timeout,
                            cwd=cwd or str(tmp_path), encoding="utf-8", errors="replace",
@@ -338,6 +418,80 @@ _PAGE_STATE = """() => {
   };
 }"""
 
+# Twice on the Windows 3.14 leg a desk page never finished booting: `app.js` ran, but nothing from
+# `common.js` had (#435). The page state cannot say whether a script failed to load, was answered
+# with an error, or threw. So every page a browser test opens keeps its failed requests, its
+# uncaught errors and the answer to each `/static/*` request, and a wait that runs out prints them.
+#: How many failed requests and page errors a timeout prints, the latest ones.
+PAGE_EVENTS_SHOWN = 40
+
+
+def _record_what_the_page_loads(page) -> None:
+    """Listen on `page` for `requestfailed`, `pageerror` and each `/static/*` request's answer, and
+    keep them on the page for `_explain_the_page`. A listener never raises into the test."""
+    from urllib.parse import urlsplit
+
+    events: list[str] = []
+    statics: dict[str, str] = {}
+
+    def is_static(url: str) -> bool:
+        return urlsplit(url).path.startswith("/static/")
+
+    def quietly(listen):
+        def listener(arg):
+            try:
+                listen(arg)
+            except Exception:                            # noqa: BLE001 - diagnostics never break a test
+                pass
+        return listener
+
+    unanswered = "sent, no answer"
+
+    def request(r):
+        if is_static(r.url):
+            statics[r.url] = unanswered
+
+    def response(r):
+        if is_static(r.url):
+            statics[r.url] = str(r.status)
+
+    def failed(r):
+        events.append(f"requestfailed {r.method} {r.url}: {r.failure}")
+        if is_static(r.url):
+            # Chromium aborts a script answered 404 after its response: keep the status too.
+            answered = statics.get(r.url, unanswered)
+            statics[r.url] = (f"failed: {r.failure}" if answered == unanswered
+                              else f"{answered}, then failed: {r.failure}")
+
+    def error(e):
+        stack = (getattr(e, "stack", None) or str(e)).strip().splitlines()
+        events.append("pageerror " + "\n    ".join(stack[:6]))
+
+    try:
+        page.on("request", quietly(request))
+        page.on("response", quietly(response))
+        page.on("requestfailed", quietly(failed))
+        page.on("pageerror", quietly(error))
+        page._explain_record = (events, statics)
+    except Exception:                                    # noqa: BLE001 - diagnostics never break a test
+        pass
+
+
+def _explain_what_the_page_loaded(page) -> None:
+    record = getattr(page, "_explain_record", None)
+    if record is None:
+        print("(this page's requests were not recorded: it was not opened with browser.new_page or "
+              "context.new_page)", file=sys.stderr)
+        return
+    events, statics = record
+    print(f"--- failed requests and page errors ({len(events)}; the last {PAGE_EVENTS_SHOWN} shown) ---",
+          file=sys.stderr)
+    for line in events[-PAGE_EVENTS_SHOWN:] or ["(none)"]:
+        print(line, file=sys.stderr)
+    print("--- /static/* answers ---", file=sys.stderr)
+    for url, status in list(statics.items()) or [("", "(no /static/ request was made)")]:
+        print(f"{status}  {url}", file=sys.stderr)
+
 
 def _explain_the_page(page, selector: str) -> None:
     import faulthandler
@@ -348,6 +502,10 @@ def _explain_the_page(page, selector: str) -> None:
         print(json.dumps(page.evaluate(_PAGE_STATE), indent=1, default=str), file=sys.stderr)
     except Exception as e:                                   # noqa: BLE001 - diagnostics never mask the failure
         print(f"(the page could not be read: {e})", file=sys.stderr)
+    try:
+        _explain_what_the_page_loaded(page)
+    except Exception as e:                                   # noqa: BLE001 - diagnostics never mask the failure
+        print(f"(the page's requests could not be listed: {e})", file=sys.stderr)
     print("--- every thread in this process: the desk server's handlers are among them ---",
           file=sys.stderr, flush=True)
     faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
@@ -395,7 +553,8 @@ def _watch_the_desk_for_slow_answers(monkeypatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _explain_a_desk_wait_that_ran_out(request, monkeypatch):
-    """On a `browser` test, a `wait_for_selector` that times out prints the page's own state and a
+    """On a `browser` test, a `wait_for_selector` or `wait_for_function` that times out prints the
+    page's own state, its failed requests, its uncaught errors and its `/static/*` answers, and a
     stack for every thread first, then raises exactly as it would have. And a desk request that
     has not been answered after `SLOW_REQUEST_S` prints every thread's stack while it is still
     stuck. Both print to stderr, which pytest shows only for a test that failed. Nothing else
@@ -405,18 +564,36 @@ def _explain_a_desk_wait_that_ran_out(request, monkeypatch):
         return
     _watch_the_desk_for_slow_answers(monkeypatch)
     try:
-        from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+        from playwright.sync_api import Browser, BrowserContext, Page, TimeoutError as PlaywrightTimeout
     except ImportError:
         yield
         return
-    real = Page.wait_for_selector
+    real_selector, real_function = Page.wait_for_selector, Page.wait_for_function
 
     def wait_for_selector(self, selector, *args, **kwargs):
         try:
-            return real(self, selector, *args, **kwargs)
+            return real_selector(self, selector, *args, **kwargs)
         except PlaywrightTimeout:
             _explain_the_page(self, selector)
             raise
 
+    def wait_for_function(self, expression, *args, **kwargs):
+        try:
+            return real_function(self, expression, *args, **kwargs)
+        except PlaywrightTimeout:
+            _explain_the_page(self, f"wait_for_function({expression})")
+            raise
+
+    def recorded(real):
+        # `Browser.new_page` makes its context below the sync API, so both doors are watched.
+        def new_page(self, *args, **kwargs):
+            page = real(self, *args, **kwargs)
+            _record_what_the_page_loads(page)
+            return page
+        return new_page
+
     monkeypatch.setattr(Page, "wait_for_selector", wait_for_selector)
+    monkeypatch.setattr(Page, "wait_for_function", wait_for_function)
+    monkeypatch.setattr(Browser, "new_page", recorded(Browser.new_page))
+    monkeypatch.setattr(BrowserContext, "new_page", recorded(BrowserContext.new_page))
     yield

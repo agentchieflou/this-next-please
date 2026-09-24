@@ -284,3 +284,38 @@ def test_ad_pbip_lint_pretty_vs_plain(monkeypatch, capsys, tmp_path):
     pretty = color.strip(capsys.readouterr().out)
     assert "╭" in pretty and "ad-pbip lint" in pretty and "meta:" not in pretty
 
+
+
+def test_every_command_still_works_without_rich(monkeypatch, capsys, tmp_path):
+    """pyproject.toml calls rich optional at run time: without it a command prints plain TOON (#297).
+
+    `isolated_home` sets NO_COLOR and AGENTDATA_UI=plain, which switch the pretty path off whether rich
+    is there or not; the control assertion below is what makes this test prove something.
+    """
+    import sys
+
+    from agentdata import cli_state, toon
+    from agentdata import state as S
+
+    st_file = tmp_path / "state.json"
+    S.save({"project": "PROJ", "phase": "idle", "active_ticket": "RDSD-101", "artifacts": []}, str(st_file))
+    monkeypatch.setenv("AGENTDATA_UI", "rich")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    ui.reset_cache()
+    color.reset_cache()
+    assert ui.on() is True, "control: with rich importable and AGENTDATA_UI=rich the pretty path is on"
+
+    monkeypatch.setitem(sys.modules, "rich", None)
+    ui.reset_cache()
+    color.reset_cache()
+    try:
+        assert ui.on() is False
+        rc = cli_state.main(["--file", str(st_file), "show", "--pretty"])
+        out = capsys.readouterr().out
+        assert rc == 0, out
+        assert out.startswith("meta:") and "phase: idle" in out and "╭" not in out, out
+        assert toon.validate(out) == [], out
+        assert "\x1b[" not in out, "no escape sequences without rich"
+    finally:
+        ui.reset_cache()
+        color.reset_cache()

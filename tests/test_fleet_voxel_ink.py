@@ -394,8 +394,8 @@ def test_one_draw_call_per_material_at_one_agent_and_at_twenty(fleet_home, tmp_p
 #: Each state and what the grammar (docs/skin-voxel.md) says the voxel and the ink do.
 MARK = {
     "needs": ".tile.needs-human .head .repo",
-    "error": ".tile.state-error .head",
-    "done": ".tile:is(.state-done, .is-done) .head",
+    "error": ".tile.state-error",
+    "done": ".tile:is(.state-done, .is-done)",
     "stale": ".tile .oldsession:not([hidden])",
     "answered": '.tile .ask-choice[aria-pressed="true"]',
     "finding": ".tile .transcript li.friction .v, .tile .transcript li.denied .v",
@@ -445,8 +445,10 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
               return s.alpha.lift === 5 && s.alpha.stale && s.beta.state === 'error' && s.gamma.level === 3
                      && Ink.inspect().layer.marks.filter(m => m.state === 'drawn').length >= 6; }})()""")
             on = {n: _stack(page, n) for n in names}
-            timer = _voxel(page)["timer"]
-            marks_on = {k: {n: len(_live(page, sel, "pane:" + n)) for n in names} for k, sel in MARK.items()}
+            # The next quarter is one timer, re-armed on the frame after it fires; a separate read
+            # could land in that one-frame gap on a slow runner (#296). Wait for it to be armed.
+            timer = page.wait_for_function(f"() => ({VOXEL})().timer", timeout=10000).json_value()
+            marks_on ={k: {n: len(_live(page, sel, "pane:" + n)) for n in names} for k, sel in MARK.items()}
             # A running block turns: the next quarter comes from a timer, and is drawn.
             page.wait_for_function(f"""() => ({VOXEL})().panes
                 .find(p => p.repo === 'delta').stack.turning > 0""", timeout=10000)

@@ -16,6 +16,7 @@ import pytest
 
 from agentdata import complete, completion, textio
 from agentdata.setup import wizard
+from subproc import agentdata_env
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -91,7 +92,7 @@ def test_a_hidden_verb_is_never_offered():
 def test_the_complete_verb_prints_one_candidate_per_line():
     out = subprocess.run([sys.executable, "-m", "agentdata", "_complete",
                           "--line", "ad-pbip ch", "--cursor", "10"],
-                         capture_output=True, text=True, cwd=REPO_ROOT)
+                         capture_output=True, text=True, cwd=REPO_ROOT, env=agentdata_env())
     assert out.returncode == 0, out.stderr
     assert out.stdout.splitlines() == ["check"]
     assert not out.stderr.strip(), "a keypress must never print to stderr"
@@ -107,13 +108,13 @@ def test_a_candidate_is_lf_terminated_with_no_carriage_return():
     """
     out = subprocess.run([sys.executable, "-m", "agentdata", "_complete",
                           "--line", "ad-pbip ch", "--cursor", "10"],
-                         capture_output=True, cwd=REPO_ROOT)
+                         capture_output=True, cwd=REPO_ROOT, env=agentdata_env())
     assert out.stdout == b"check\n", out.stdout
 
 
 def test_the_complete_verb_reads_the_bash_protocol():
     """`complete -F` exports COMP_LINE and COMP_POINT and reads stdout."""
-    env = {**os.environ, "COMP_LINE": "ad-pbip ch", "COMP_POINT": "10"}
+    env = agentdata_env({"COMP_LINE": "ad-pbip ch", "COMP_POINT": "10"})
     out = subprocess.run([sys.executable, "-m", "agentdata", "_complete"],
                          capture_output=True, text=True, cwd=REPO_ROOT, env=env)
     assert out.returncode == 0, out.stderr
