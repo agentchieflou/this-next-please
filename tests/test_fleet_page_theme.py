@@ -10,6 +10,7 @@ import os
 import re
 import urllib.request
 
+from agentdata import textio
 from agentdata import theme as T
 from agentdata.fleet import serve as S
 from agentdata.fleet import settings as SET
@@ -156,7 +157,7 @@ def test_with_nothing_chosen_the_pages_are_the_files_as_they_were(fleet_home):
     try:
         for route, name in S.PAGES.items():
             html = _get(port, route, token).decode("utf-8")
-            raw = open(os.path.join(S.STATIC, name), encoding="utf-8").read()
+            raw = textio.read_text(os.path.join(S.STATIC, name))   # as `_page` reads it: CRLF kept
             for asset in S.ASSETS:
                 raw = raw.replace(f'"/static/{asset}"', f'"/static/{asset}?t={token}"')
             if name == "index.html":
