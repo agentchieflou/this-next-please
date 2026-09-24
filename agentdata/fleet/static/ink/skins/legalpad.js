@@ -206,8 +206,13 @@ function waitForSheet() {
 
 const panes = new Map();         // pane -> its group and its running pen, for `tick`
 
-/* One pane's sheet: a hairline where its edge is, and the double red margin down its left. */
+let builds = 0;                  // frames built so far, for `inspect`
+
+/* One pane's sheet: a hairline where its edge is, and the double red margin down its left. Under
+   the transcript the rules are the transcript's own (#338): the page's rules are covered with plain
+   stock, and a rule is drawn every BASE up from the transcript's bottom edge, where its rows end. */
 export function frame({ THREE, scene, tokens, api }, el, box) {
+  builds += 1;
   const p = panes.get(el) || { run: null };
   p.group = scene;
   p.meshes = null;
@@ -221,6 +226,18 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   if (box.w < RAIL) return;
   const red = flat(THREE, colour(THREE, tokens, "--margin", tokens.human));
   for (const x of MARGIN) add(THREE, scene, rect(THREE, x, 0, 1, box.h), red, api.order.frame + 1);
+  const list = el.querySelector(".transcript"), t = list && list.getBoundingClientRect();
+  if (!t || !t.width || !t.height) return;
+  const pr = el.getBoundingClientRect();
+  const x = t.left - pr.left, top = t.top - pr.top + list.clientTop, bottom = t.bottom - pr.top;
+  if (bottom - top < 1) return;
+  const c = srgb(THREE, tokens, "--paper", tokens.bg);
+  add(THREE, scene, rect(THREE, x, top, t.width, bottom - top), new THREE.ShaderMaterial({
+    vertexShader: STOCK_VS, fragmentShader: STOCK_FS, depthTest: false, depthWrite: false,
+    uniforms: { uPaper: { value: new THREE.Vector3(c.r, c.g, c.b) } },
+  }), api.order.frame - 2);
+  const rule = flat(THREE, colour(THREE, tokens, "--rule", tokens.running));
+  for (let y = bottom; y - 1 >= top; y -= BASE) add(THREE, scene, rect(THREE, x, y - 1, t.width, 1), rule, api.order.frame - 1);
 }
 
 // ------------------------------------------------------------------------- the running pen
@@ -387,6 +404,7 @@ export function inspect() {
     })),
     count: { now: count.last, old: count.old, strike: count.strike,
              pieces: count.mesh ? count.mesh.filter(m => m.parent).length : 0 },
+    builds,
   };
 }
 

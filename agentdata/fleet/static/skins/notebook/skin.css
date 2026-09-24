@@ -58,6 +58,20 @@ body[data-skin="notebook"]:not(.ink-off) .tile :is(.head, .asks, .approval, .tra
   background: transparent;
 }
 body[data-skin="notebook"]:not(.ink-off) .tile .smenu { background: var(--paper); }
+/* The transcript is written on the rules (#338): a row is the pitch, its rows end at its bottom,
+   where the module measures its rules from, and it scrolls in whole rows. The rules are its
+   dividers, so a row draws none. */
+body[data-skin="notebook"]:not(.ink-off) .tile .transcript {
+  display: flex; flex-direction: column; flex-basis: 0; scroll-snap-type: y mandatory;
+}
+body[data-skin="notebook"]:not(.ink-off) .tile .transcript > li {
+  flex: none; padding-top: 0; padding-bottom: 0; line-height: var(--pitch); border-bottom: 0; scroll-snap-align: end;
+  overflow-y: clip;
+}
+body[data-skin="notebook"]:not(.ink-off) .tile .transcript > li:first-child { margin-top: auto; }
+/* Centred in its 28px, a 12px line would end 6px above the rule; 2px lower it sits on it. The row
+   clips what is moved, so the list scrolls no further than its last row's end. */
+body[data-skin="notebook"]:not(.ink-off) .tile .transcript > li > * { position: relative; top: 2px; }
 body[data-skin="notebook"]:not(.ink-off) :is(button, input, select, .segment) { background: transparent; }
 body[data-skin="notebook"]:not(.ink-off) :is(.asks, .approval) { border-color: var(--rule); }
 

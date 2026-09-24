@@ -35,6 +35,21 @@ body[data-skin="legalpad"]:not(.ink-off) header { margin-top: 10px; }
    rail has no margin. */
 body[data-skin="legalpad"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: 34px; }
 
+/* The transcript is written on the rules (#338): a row is the pad's 28px, its rows end at its
+   bottom, where the module measures its rules from, and it scrolls in whole rows. The rules are
+   its dividers, so a row draws none. */
+body[data-skin="legalpad"]:not(.ink-off) .tile .transcript {
+  display: flex; flex-direction: column; flex-basis: 0; scroll-snap-type: y mandatory;
+}
+body[data-skin="legalpad"]:not(.ink-off) .tile .transcript > li {
+  flex: none; padding-top: 0; padding-bottom: 0; line-height: 28px; border-bottom: 0; scroll-snap-align: end;
+  overflow-y: clip;
+}
+body[data-skin="legalpad"]:not(.ink-off) .tile .transcript > li:first-child { margin-top: auto; }
+/* Centred in its 28px, a 12px line would end 6px above the rule; 2px lower it sits on it. The row
+   clips what is moved, so the list scrolls no further than its last row's end. */
+body[data-skin="legalpad"]:not(.ink-off) .tile .transcript > li > * { position: relative; top: 2px; }
+
 /* Handwritten: the stale note and the header count. */
 body[data-skin="legalpad"] .oldsession,
 body[data-skin="legalpad"] #bellcount { font-family: var(--hand); }

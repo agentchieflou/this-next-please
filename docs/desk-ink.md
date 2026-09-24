@@ -294,6 +294,13 @@ edge; a rail has no margin. The pane's own background, border and radius go, so 
 through, and its text starts right of the margin (`padding-left: 34px`). The project's accent stays
 on the left edge (#150).
 
+**The rules under a transcript (#338)** are the transcript's, as on the notebook
+([skin-notebook.md](skin-notebook.md) §The paper): a transcript row is 28px, the pad's pitch, with
+no divider and its text 2px low, the rows end at the transcript's bottom and scroll in whole rows,
+and the `frame` hook covers the transcript's box with plain canary and rules it every 28px up from
+that bottom edge, so no rule runs through a line of text. The module's `inspect()` carries
+`builds`, the number of `frame` calls so far.
+
 **Its colours are custom properties on `<body>`, in `skin.css`,** read by the module through
 `tokens.css(name)` at paint time and never written in the module:
 
@@ -495,6 +502,7 @@ on the page for as long as the layer runs.
 
 | What moves | How the marks follow |
 | --- | --- |
+| a transcript's box inside its pane (a card shown above it) | a skin's `frame` hook is called again only when the frame's signature changes: the pane's width and height, and its `.transcript`'s top in the pane and height, each to 0.1px (#338), so a card shown or hidden above a transcript rebuilds the frame that rules it. A scroll moves no box and builds nothing |
 | a gutter drag, a tier change, a pane appearing | a `ResizeObserver` on every anchor and every lane's pane. It re-measures and redraws **inside the frame the browser laid out**, so the marks are where the panes are on the frame that shows the panes. The layer adds no DOM write to the drag (plan-panes ground rule 4) |
 | a window resize | the `resize` event resizes the canvas and re-measures |
 | a scroll, a pane's transcript included | a capturing `scroll` listener re-measures. A mark is clipped to every scrolling ancestor, so a line scrolled out of a transcript takes its ellipse with it |
