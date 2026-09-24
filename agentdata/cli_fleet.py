@@ -1440,6 +1440,125 @@ def cmd_models(a) -> int:
     return EXIT_FAILED if failed else EXIT_OK
 
 
+class _ModelRefusal(Exception):
+    """A refusal `_refuse` can print: `msg`, `hint` and the `code` the page's refusal would carry."""
+
+    def __init__(self, msg: str, hint: str = "", code: str = ""):
+        super().__init__(msg)
+        self.msg, self.hint, self.code = msg, hint, code
+
+
+def cmd_model(a) -> int:
+    """Show or set one repository's model, or the fleet's (#363), from the terminal.
+
+    The page's writer, the page's inherit rule and the page's refusals: `C.load()`, then
+    `settings.set_model` / `set_fleet_model`, then `C.save()`. A name the catalogue does not list is
+    saved with a warning (the operator decision's default), never refused. It never spawns copilot:
+    the table comes from `catalogue(cfg, spawn=False)`, and refreshing it is `ad-fleet models
+    --refresh`'s job -- otherwise the output would depend on whichever copilot is on the PATH.
+    """
+    from .fleet import models as M, settings as SET
+
+    source = "ad-fleet model"
+    fleet_wide = bool(getattr(a, "fleet", False))
+    inherit = bool(getattr(a, "inherit", False))
+    effort = getattr(a, "effort", None)
+    if fleet_wide:
+        repo, name = "", a.repo if a.name is None else None
+        if a.name is not None:
+            return _refuse(source, _ModelRefusal(
+                f"--fleet takes one model name, got {a.repo!r} and {a.name!r}",
+                "`ad-fleet model --fleet <name>` sets the fleet default; "
+                "`ad-fleet model <repo> <name>` sets one repository's", code="usage"))
+    else:
+        repo, name = a.repo, a.name
+        if not repo:
+            return _refuse(source, _ModelRefusal(
+                "name the repository whose model to show or set",
+                "`ad-fleet model <repo> [<name>] [--effort <level>]`, or `ad-fleet model --fleet` "
+                "for the fleet default", code="no_repo"))
+        try:
+            Registry().get(repo)
+        except RegistryError as e:
+            return _refuse(source, e)
+    if inherit and (name is not None or effort is not None):
+        return _refuse(source, _ModelRefusal(
+            "--inherit clears the setting, so it takes no model and no --effort",
+            "pass either --inherit or a model and/or --effort", code="usage"))
+
+    try:
+        cfg = C.load()
+    except C.ConfigError as e:
+        return _refuse(source, _ModelRefusal(str(e), e.hint, code="config"))
+
+    writing = inherit or name is not None or effort is not None
+    meta: dict = {}
+    warnings: list[str] = []
+    if writing:
+        try:
+            if fleet_wide:
+                if inherit:
+                    SET.set_fleet_model(cfg, model="", effort="")
+                else:
+                    SET.set_fleet_model(cfg, model=name, effort=effort)
+            elif inherit:
+                SET.set_model(cfg, repo, model="", effort="")
+            elif name is not None:
+                SET.set_model(cfg, repo, model=name, effort=effort)
+            else:
+                # `--effort` alone. `model_for` reads a per-repo entry as a whole, so an entry that
+                # holds only an effort passes no `--model` and the fleet default stops applying to
+                # this repo. Pin the model it resolves today, or say plainly that it now has none.
+                entry = C.get_leaf(cfg, "fleet.models", repo, {}) or {}
+                own = str(entry.get("model") or "").strip() if isinstance(entry, dict) else ""
+                resolved, _eff, _src = launch.model_for(repo, cfg)
+                if own or not resolved:
+                    SET.set_model(cfg, repo, effort=effort)
+                    if not own and effort:
+                        warnings.append(f"{repo} now passes no --model; fleet.model no longer applies "
+                                        "to it — pass a model too to keep one")
+                else:
+                    SET.set_model(cfg, repo, model=resolved, effort=effort)
+                    meta["pinned_model"] = resolved
+        except SET.SettingsError as e:
+            return _refuse(source, e)
+        except launch.LaunchError as e:
+            # A value that would become a second flag: the page's refusal, by the page's code
+            # (serve.py's settings action), so both surfaces answer it the same way.
+            return _refuse(source, _ModelRefusal(e.msg, e.hint, code="bad_model"))
+        try:
+            C.save(cfg)
+        except C.ConfigError as e:
+            return _refuse(source, _ModelRefusal(str(e), e.hint, code="config"))
+
+    cat = M.catalogue(cfg, spawn=False)
+    if fleet_wide:
+        model = str(C.get(cfg, "fleet.model") or "").strip()
+        meta.update({"repo": "", "model": model, "effort": str(C.get(cfg, "fleet.effort") or "").strip(),
+                     "source": "fleet.model" if model or C.get(cfg, "fleet.effort") else "cli-auto"})
+        pressed = model
+    else:
+        model, eff, src = launch.model_for(repo, cfg)
+        entry = C.get_leaf(cfg, "fleet.models", repo, {}) or {}
+        pressed = str(entry.get("model") or "").strip() if isinstance(entry, dict) else ""
+        meta.update({"repo": repo, "model": model, "effort": eff, "source": src,
+                     "actual": S.served_model(repo)})
+    if writing and name:
+        row = next((m for m in cat["models"] if m["id"] == name), None)
+        if row is not None and not row["offered"]:
+            warnings.append(f"not offered by copilot {cat['meta'].get('cli_version') or '?'} — "
+                            "the turn may fail at start")
+    if warnings:
+        meta["warning"] = "; ".join(warnings)
+    meta.update({"written": writing, "list_source": cat["meta"]["source"],
+                 "cli_version": cat["meta"].get("cli_version", ""), "stale": cat["meta"]["stale"]})
+    _emit(source, meta)
+    print(toon.table("models", ["id", "group", "label", "offered", "pressed"],
+                     [[m["id"], m["group"], m["label"], m["offered"], "*" if m["id"] == pressed else ""]
+                      for m in cat["models"]]))
+    return EXIT_OK
+
+
 def cmd_board(a) -> int:
     """The operator's own tickets, and where each one probably belongs.
 
@@ -1886,6 +2005,16 @@ def build_parser() -> argparse.ArgumentParser:
                                         "(cached; no login, no premium request)")
     mdl.add_argument("--refresh", action="store_true", help="ask the CLI now instead of using the cache")
     mdl.set_defaults(fn=cmd_models)
+
+    mdo = sub.add_parser("model", help="show or set a repository's model and effort (or the fleet's) "
+                                       "from the catalogue; never starts copilot")
+    mdo.add_argument("repo", nargs="?", help="a registered repository (with --fleet: the model name)")
+    mdo.add_argument("name", nargs="?", help="the model id to set, e.g. one `ad-fleet models` lists")
+    mdo.add_argument("--effort", help="the reasoning effort to set")
+    mdo.add_argument("--inherit", action="store_true",
+                     help="remove the setting, so the fleet default (or the CLI) chooses")
+    mdo.add_argument("--fleet", action="store_true", help="the fleet-wide default instead of one repository")
+    mdo.set_defaults(fn=cmd_model)
 
     brd = sub.add_parser("board", help="your Jira tickets, and which repo each one belongs to")
     brd.add_argument("--refresh", action="store_true", help="ask Jira now instead of using the cache")
