@@ -72,20 +72,24 @@ body[data-skin="farmstead"]:not(.ink-off) header .glabel,
 body[data-skin="farmstead"]:not(.ink-off) header .dot,
 body[data-skin="farmstead"]:not(.ink-off) footer #counts,
 body[data-skin="farmstead"]:not(.ink-off) footer .keys { color: var(--farm-band-ink-soft); }
+/* A control is not written on the planks: it keeps the palette's own background, so it keeps the
+   palette's text as well. The band's near-white on a light button was 1.30:1 in daylight (#336). */
+body[data-skin="farmstead"]:not(.ink-off) :is(header, footer) :is(button, input, select, kbd) { color: var(--text); }
 /* A clear header left Chromium compositing the canvas behind the page with a band missing along
    the foot of the panes -- the drawing buffer was whole (read back), the screen was not. Its own
    layer puts it right; the header holds no popover a stacking context could trap. */
 body[data-skin="farmstead"]:not(.ink-off) header { will-change: transform; }
 
 /* The state as a crop stage, beside the chip's word and colour and never instead of them (#157):
-   the chip keeps a 16px box before its word, and the module draws the crop in it. The chip itself
-   is clear, so the crop shows, and its word is in the state's own colour. */
+   the chip keeps a 24px box before its word, and the module draws the crop in it at twice the
+   art (#336), large enough to be read. The chip itself is clear, so the crop shows, and its word is
+   in the state's own colour. */
 body[data-skin="farmstead"]:not(.ink-off) .chip {
   display: inline-flex; align-items: center; gap: 6px;
   background: transparent; box-shadow: none;
 }
 body[data-skin="farmstead"]:not(.ink-off) .chip::before {
-  content: ""; width: 16px; height: 16px; flex: 0 0 16px;
+  content: ""; width: 24px; height: 24px; flex: 0 0 24px;
 }
 body[data-skin="farmstead"]:not(.ink-off) .chip.running { color: var(--running); }
 body[data-skin="farmstead"]:not(.ink-off) .chip.waiting_approval { color: var(--waiting); }

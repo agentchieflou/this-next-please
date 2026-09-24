@@ -180,6 +180,24 @@ start). CI installs chromium on the Linux legs and on the Windows 3.14 leg, so t
 rather than skipping — a browser test that skips everywhere is the harness that let the defects
 through in the first place.
 
+That last sentence was false for days (#296). The isolated home (*Isolation* below) moves `HOME`,
+and on Linux and macOS Playwright looks for its browsers under the home (`~/.cache/ms-playwright`,
+or `$XDG_CACHE_HOME/ms-playwright`; `~/Library/Caches/ms-playwright`), so every browser test on
+both ubuntu legs skipped with `no chromium to drive the page with` and only Windows, whose browsers
+live under the untouched `%LOCALAPPDATA%`, ran them. `tests/conftest.py` now resolves the real
+browsers directory once, before any test moves `~` (`playwright_browsers_dir`, kept only if it
+exists), and `isolated_home` hands it to every test as `PLAYWRIGHT_BROWSERS_PATH` unless that is
+already set. A laptop with no Chromium still skips with the reason named, and the reason now says
+which `PLAYWRIGHT_BROWSERS_PATH` and `HOME` it looked under.
+
+**In a job that installed a browser, a browser test may fail but never skip.** Such a job sets
+`AGENTDATA_REQUIRE_BROWSER=1`, and a `browser`-marked test that skips under it — `launch_chromium`'s
+skip, or a `pytest.importorskip("playwright.sync_api")` — is reported as a failure:
+`a browser test may not skip in a job that installed a browser: <the skip reason>`
+(`browser_skip_is_a_failure`, pinned by
+`tests/regressions/test_20260923_any_linux_ci_skipped_every_browser_test.py`). Without the variable
+nothing changes.
+
 #### The guards that measure rather than read (#202)
 
 Five of the browser tests assert a *number* rather than a fact, which is how a page stays quick
@@ -227,6 +245,12 @@ where the next `git add -A` would have committed it.
 *installed packages*, so redirecting them makes every subprocess answer `No module named pytest` on
 a machine with a `--user` install. Tests that are about the npm global prefix opt in with the
 `appdata_isolation` fixture.
+
+**The home moves; Playwright's browsers do not** (#296). On Linux and macOS Playwright finds its
+browsers relative to `HOME`, so a temporary home hid them and every browser test skipped. The real
+directory is resolved at import, before any test runs, and `isolated_home` sets
+`PLAYWRIGHT_BROWSERS_PATH` to it when the machine has one and the variable is not already set.
+`HOME` itself stays redirected, and `real_home` tests are untouched.
 
 **No test lists the machine's processes.** The desk's adopt offers come from
 `adopt.agent_processes`, which on Windows is a PowerShell `Get-CimInstance Win32_Process` --
@@ -608,3 +632,4 @@ A red job is handled as *When CI is red* says: a flake issue and a reproduction 
 | `suite · shuffled` | two seeded shuffles, to catch fixture leakage. Serial on purpose: under `-n` the order a test runs in is the scheduler's, not the seed's, and the job would stop proving anything |
 | `windows · 3.14` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
 | every job | `HYPOTHESIS_PROFILE=ci`, so the property tests search 200 examples rather than 50 |
+| every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): both ubuntu legs and the Windows 3.14 leg (a `require_browser` matrix field; the 3.12 leg installs no browser and leaves it empty). A skipped `browser` test fails there, and every other skip prints its reason |

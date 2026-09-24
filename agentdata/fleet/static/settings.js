@@ -20,7 +20,7 @@
 /* Every link out of here has to carry the run token: `_authorized` reads it from the query string
    alone, so a static href in the markup is a 403 that looks like a dead button. */
 var backLink = document.getElementById("backbtn");
-if (backLink) backLink.href = q("/");
+if (backLink) backLink.href = pageUrl("/");
 
 var savedTag = document.getElementById("saved");
 var savedTimer = null;

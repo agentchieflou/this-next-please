@@ -236,7 +236,12 @@ function acceptDesk(payload) {
 }
 
 function rehome() {
-  window.location.href = "/open?w=" + encodeURIComponent(W_NAME);
+  /* `/open` forwards every param but `t`, so the host's shell and ink ride along from here once. */
+  var more = new URLSearchParams();
+  if (PARAMS.get("shell")) more.set("shell", PARAMS.get("shell"));
+  if (PARAMS.get("ink")) more.set("ink", PARAMS.get("ink"));
+  var rest = more.toString();
+  window.location.href = "/open?w=" + encodeURIComponent(W_NAME) + (rest ? "&" + rest : "");
 }
 
 /* There used to be a `held` map here: the agents the operator had acted on, kept on the glass by
@@ -1497,6 +1502,11 @@ function patchRow(row, index) {
 var SNAP_KEY = "fleet.snapshot." + W_NAME;
 var SNAP_GOOD_FOR_MS = 5 * 60 * 1000;
 var lastFleet = null;
+/* How many `theme` events the stream has delivered (#437). A fleet answer's theme is the one saved
+   when the server answered, so an answer asked before a theme change lands after the stream's
+   event and would put the old skin back. `refresh` applies the answer's theme only when no theme
+   event arrived while it was in flight. */
+var themeEvents = 0;
 
 /* The desk as this window last showed it: the newest desk it holds, with the agent it has open.
    The fleet's own answer is older than both the moment a click lands, and a snapshot kept from it
@@ -1575,6 +1585,7 @@ function restoreCached() {
 
 function refresh() {
   if (pendingRefresh) return pendingRefresh;
+  var themesAsked = themeEvents;
   pendingRefresh = fetch(q("/api/fleet")).then(function (r) {
     if (r.status === 403 && streamDead) {
       rehome();
@@ -1619,6 +1630,7 @@ function refresh() {
           ", which is not a number — the cap is off until it is one", 20);
     }
     if (data.desk) acceptDesk(data.desk);
+    if (themeEvents !== themesAsked) delete data.theme;   // older than the stream's: not drawn, not cached
     if (data.theme) {
       applyTheme(data.theme.css, data.theme.theme);
       applySkin(data.theme.skin);
@@ -1671,6 +1683,7 @@ function connect() {
     place();
   });
   source.addEventListener("theme", function (m) {
+    themeEvents++;
     try {
       var d = JSON.parse(m.data);
       applyTheme(d.css, d.theme);
@@ -1847,7 +1860,7 @@ document.addEventListener("keydown", function (e) {
    link cannot be a static href in the markup -- it would 403 and read as a dead button, which is
    exactly what the operator reported. */
 var setLink = /** @type {HTMLAnchorElement} */ (document.getElementById("setbtn"));
-if (setLink) setLink.href = q("/settings");
+if (setLink) setLink.href = pageUrl("/settings");
 
 refresh().then(function () {
   connect();
@@ -3821,7 +3834,7 @@ function openModelCard(repo, anchor) {
   /** @type {HTMLInputElement} */ (document.getElementById("mc-effort")).value = row.effort || "";
   text(document.getElementById("mc-note"), "takes effect on the agent's next turn");
   var all = /** @type {HTMLAnchorElement} */ (document.getElementById("mc-all"));
-  all.href = q("/settings") + "#model-" + encodeURIComponent(repo);
+  all.href = pageUrl("/settings") + "#model-" + encodeURIComponent(repo);
 
   loadModelChoices().then(function (choices) {
     fillDatalist("mc-models", choices.seen);

@@ -51,7 +51,9 @@ def launch_chromium(p):
         for path in candidates:
             if path and os.path.isfile(path):
                 return p.chromium.launch(headless=True, executable_path=path)
-        pytest.skip(f"no chromium to drive the page with: {first}")
+        pytest.skip(f"no chromium to drive the page with: {first} "
+                    f"PLAYWRIGHT_BROWSERS_PATH={os.environ.get('PLAYWRIGHT_BROWSERS_PATH', '')} "
+                    f"HOME={os.environ.get('HOME', '')}")
 
 
 @pytest.fixture()

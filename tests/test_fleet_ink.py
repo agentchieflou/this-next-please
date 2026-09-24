@@ -53,8 +53,13 @@ LOCAL_BUDGET_MS = 50.0
 #: The pen's speed in the layer (`layer.js` PEN), in CSS px a second at 1x.
 PEN = 900
 #: What the ink layer's own modules may weigh over the wire. three.js is not in it: 163 KB,
-#: fetched only by a shell the gate turned on, once a skin draws.
-INK_BUDGET = 40 * 1024
+#: fetched only by a shell the gate turned on, once a skin draws. Raised once, from 40 KiB, by #331
+#: on the operator's answer in the decisions register (#318, default yes): every later card that
+#: grows `ink.js`, `layer.js`, `shapes.js` or `pen.js` fits under it, and one-shot effect code goes
+#: to the lazily fetched `ink/fx.js` (#370). It is a figure for the modules as git stores them, LF:
+#: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF
+#: first (operator decision, #331), so CRLF bytes alone never fail it (`_wire`).
+INK_BUDGET = 44 * 1024
 #: What one skin's module may weigh over the wire (the legal pad's is 7 KB, #251).
 SKIN_BUDGET = 16 * 1024
 
@@ -233,12 +238,29 @@ def test_the_layer_is_the_one_place_three_is_imported_and_every_import_carries_t
         assert needle not in app.lower(), f"app.js names {needle}: the layer is `window.Ink` to it"
 
 
+def _wire(body: bytes) -> int:
+    """A module's gzipped size as `INK_BUDGET` counts it: line endings normalised to LF (what git
+    stores) before gzip level 6 with `mtime=0`, so a CRLF checkout measures what an LF one does
+    (operator decision, #331)."""
+    return len(gzip.compress(body.replace(b"\r\n", b"\n"), 6, mtime=0))
+
+
+def test_a_crlf_checkout_of_the_ink_modules_measures_what_an_lf_one_does():
+    """A Windows checkout with `core.autocrlf=true` holds the modules with CRLF endings, about 190
+    bytes more gzipped than LF. The budget measures what git stores, so the two are one figure
+    (operator decision, #331), where a gzip of the raw CRLF bytes is not."""
+    for n in MODULES:
+        lf = open(os.path.join(INK, n), "rb").read().replace(b"\r\n", b"\n")
+        crlf = lf.replace(b"\n", b"\r\n")
+        assert b"\r\n" in crlf and _wire(crlf) == _wire(lf), n
+        assert len(gzip.compress(crlf, 6, mtime=0)) > len(gzip.compress(lf, 6, mtime=0)), n
+
+
 def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     """What the layer's own modules cost over the wire, every one of them, as a shell the gate
     turned on fetches them. three.js is 163 KB of its own and is outside the desk's budget, because
     no desk fetches it unless it draws."""
-    sizes = {n: len(gzip.compress(open(os.path.join(INK, n), "rb").read(), 6, mtime=0))
-             for n in MODULES}
+    sizes = {n: _wire(open(os.path.join(INK, n), "rb").read()) for n in MODULES}
     print(f"\n  ink modules over the wire: {sum(sizes.values())} bytes gzipped {sizes}")
     assert sum(sizes.values()) < INK_BUDGET, sizes
     files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
@@ -491,7 +513,10 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
                                  {selector: '.tile[', tool: 'pen', shape: 'loop'},
                                  {selector: '.tile', tool: 'eraser', shape: 'loop'},
                                  {selector: '.tile', tool: 'pen', shape: 'arrow'},
-                                 {tool: 'pen', shape: 'loop'}]) {
+                                 {tool: 'pen', shape: 'loop'},
+                                 {selector: '.tile', tool: 'pencil', ink: 'crayon', shape: 'loop'},
+                                 {selector: '.tile', tool: 'pencil', shape: 'loop', cap: 'arrow'},
+                                 {selector: '.tile', tool: 'pencil', shape: 'underline', cap: 'arrow', tip: true}]) {
                 try { Ink.setSkin({ name: 'bad', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}, row] }); bad.push('accepted'); }
                 catch (e) { bad.push(e.message); }
               }
@@ -515,7 +540,101 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
     assert all(m.startswith("ink: mark 1") for m in api["bad"]), api["bad"]
     assert "crayon" in api["bad"][0] and "star" in api["bad"][1] and "selector" in api["bad"][2]
     assert "eraser" in api["bad"][3] and "`to`" in api["bad"][4] and "no selector" in api["bad"][5]
+    assert "crayon" in api["bad"][6] and "`ink`" in api["bad"][6] and "`cap`" in api["bad"][7] and "`cap`" in api["bad"][8]
     assert api["table"] is None, "a refused table replaced the one in force"
+
+
+#: A row whose outline stands 20px off its pane, which only the pane's clip keeps inside it (#331).
+CLIPPED = {"name": "clip", "marks": [
+    {"selector": ".tile.ink-loop", "tool": "red", "shape": "outline", "pad": 20}]}
+
+
+@pytest.mark.browser
+def test_a_mark_is_clipped_to_its_pane(fleet_home, tmp_path):
+    """#331: a mark in a pane's lane is cut to the pane's border box, inset 1px, as well as to the
+    viewport and its scrolling ancestors -- a safety net under the shapes, which keep their own
+    geometry inside. An outline padded 20px off the pane is drawn, and none of it outside."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors, _ = _open(browser, port, token, "&ink=on")
+            _set(page, CLIPPED)
+            _mark(page, "alpha", "ink-loop")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'outline' && m.drawn === 1)")
+            [mark] = _marks(page)
+            pane = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="alpha"]')
+              .getBoundingClientRect(); return { x: r.left, y: r.top, r: r.right, b: r.bottom }; }""")
+            # The right-hand stroke stands 20px past the pane's right edge: where it would be drawn.
+            outside = page.evaluate("b => Ink.sample(b)", {"x": pane["r"] + 2, "y": pane["y"] + 4,
+                                                           "w": 28, "h": pane["b"] - pane["y"] - 8})
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    # Drawn whole -- four strokes, their full length -- and every one of them is outside the pane,
+    # so what is drawn of them, `bounds`, is nothing past its border box.
+    assert (mark["lane"], mark["strokes"], mark["drawn"]) == ("pane:alpha", 4, 1) and mark["len"] > 0, mark
+    for b in mark["bounds"]:
+        assert pane["x"] - 1 <= b["x"] and b["r"] <= pane["r"] + 1, (b, pane)
+        assert pane["y"] - 1 <= b["y"] and b["b"] <= pane["b"] + 1, (b, pane)
+    assert outside == 0, "ink drawn past the pane's right edge"
+
+
+@pytest.mark.browser
+def test_snap_keeps_an_outline_in_the_padding_band_and_leaves_an_underline_with_no_line_alone(fleet_home, tmp_path):
+    """#331, `shapes.snap` in the page: an outline's edges go onto a grid line inside the box's
+    padding band, or down its middle where the band is narrower than a square -- never outside the
+    border box, never over the content. An underline takes the first grid line in [its text's foot
+    + 2, the next row's top - 2], and is left as it was when there is none."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors, _ = _open(browser, port, token, "&ink=on")
+            got = page.evaluate("""async () => {
+              const S = await import(q('/static/ink/shapes.js'));
+              const box = { x: 0, y: 0, w: 300, h: 200 }, at = { x: 13, y: 17 };
+              const outline = band => S.snap(S.SHAPES.outline({ box, pad: 0, seed: 7 }), 'outline', box, at, 28,
+                                             { band: [band, band, band, band] }).map(p => p.pts);
+              const ubox = { x: 0, y: 0, w: 100, h: 16 };
+              const under = S.SHAPES.underline({ box: ubox, base: 16, floor: 30 });
+              return { narrow: outline(10), wide: outline(40), under,
+                       none: S.snap(under, 'underline', ubox, { x: 0, y: 15 }, 28, { base: 16, floor: 30 }),
+                       some: S.snap(under, 'underline', ubox, { x: 0, y: 0 }, 28, { base: 16, floor: 40 }) };
+            }""")
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    L, T, R, B = 13, 17, 313, 217
+
+    def edges(strokes, band):
+        out = []
+        for pts in strokes:
+            vp = [(x + L, y + T) for x, y in pts]
+            assert all(L <= x <= R and T <= y <= B for x, y in vp), ("outside the border box", vp)
+            flat = abs(vp[-1][0] - vp[0][0]) >= abs(vp[-1][1] - vp[0][1])
+            vals = {round(y if flat else x, 3) for x, y in vp}
+            assert len(vals) == 1, ("not ruled straight", vp)
+            v = vals.pop()
+            lo, hi = (T, B) if flat else (L, R)
+            assert lo <= v <= lo + band or hi - band <= v <= hi, ("outside the padding band", v, band)
+            out.append(v)
+        return out
+
+    # A 10px band, a 28px pitch: every edge down its band's middle.
+    assert sorted(edges(got["narrow"], 10)) == [18, 22, 212, 308], got["narrow"]
+    # A 40px band holds a grid line: every edge on one.
+    assert all(v % 28 == 0 for v in edges(got["wide"], 40)), got["wide"]
+    # No grid line in [15 + 18, 15 + 28] = [33, 43]: the underline is left where it was.
+    assert got["none"] == got["under"]
+    # [18, 38] holds 28: the underline is ruled on it.
+    assert all(q[1] == 28 for path in got["some"] for q in path["pts"]), got["some"]
 
 
 @pytest.mark.browser
@@ -1197,3 +1316,137 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path):
     worst = max(m["ms"] for m in measures)
     print(f"\n  gestures while the ink draws: {len(measures)} marked, worst {worst:.1f}ms")
     assert [m for m in measures if m["ms"] > LOCAL_BUDGET_MS] == [], measures
+
+
+#: The pixels three.js drew at points in viewport boxes, read back from a frame drawn for the
+#: purpose (`READ` in test_fleet_ink_glass.py, which imports this module).
+READ = """(boxes) => {
+  Ink.sample({ x: 0, y: 0, w: 1, h: 1 });
+  const c = document.getElementById('ink');
+  const gl = c.getContext('webgl2') || c.getContext('webgl');
+  const k = c.width / innerWidth, px = new Uint8Array(4);
+  return boxes.map(b => b.at.map(([fx, fy]) => {
+    const x = Math.floor((b.x + b.w * fx) * k), y = c.height - 1 - Math.floor((b.y + b.h * fy) * k);
+    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return [px[0], px[1], px[2], px[3]];
+  }));
+}"""
+
+#: Some pixel READ finds in the first box is `want`'s channel alone (0 red, 1 green, 2 blue).
+PURE = """([boxes, want]) => (%s)(boxes)[0].some(p =>
+  p[want] > 120 && [0, 1, 2].every(k => k === want || p[k] < 60))""" % READ
+
+
+@pytest.mark.browser
+def test_a_row_borrows_an_ink_and_an_underline_ends_in_a_cap(fleet_home, tmp_path):
+    """#385. A row draws with one tool's hand in another tool's ink: `{tool: 'pencil', ink: 'pen'}`
+    is drawn in the pen's colour, recoloured with it, and erased (pencil's way of leaving), not
+    struck. An underline ends in an arrowhead or a bar, one stroke more, which stays at the growing
+    end. Plain, the borrowed ink is the underline's colour and a dashed underline stays dashed.
+    Reduced motion draws the cap at once, and an idle desk is still idle."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    # Pure inks on <html>, which the layer observes. The pencil's is not the pen's, so a mark drawn
+    # in its own tool's ink reads as the wrong colour.
+    inks = """([pen, pencil]) => { const s = document.documentElement.style;
+      s.setProperty('--ink-pen', pen); s.setProperty('--ink-pencil', pencil);
+      s.setProperty('--ink-green', '#00ff00'); }"""
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+
+            # Plain (the gate is off): the look is CSS in the borrowed ink.
+            page, errors, _ = _open(browser, port, token)
+            page.evaluate(inks, ["#ff0000", "#0000ff"])
+            plain = page.evaluate("""async (t) => {
+                await Ink.setSkin(t);
+                const look = r => { const s = getComputedStyle(document.querySelector(
+                  `.tile[data-repo="${r}"] .repo`));
+                  return [s.textDecorationLine, s.textDecorationStyle, s.textDecorationColor]; };
+                return { off: document.body.classList.contains('ink-off'),
+                         alpha: look('alpha'), beta: look('beta') };
+            }""", {"name": "plain", "marks": [
+                {"selector": ".tile[data-repo=\"alpha\"] .repo", "tool": "pencil", "ink": "pen",
+                 "shape": "underline", "dash": True},
+                {"selector": ".tile[data-repo=\"beta\"] .repo", "tool": "pencil", "ink": "green",
+                 "shape": "underline"}]})
+            assert plain["off"], plain
+            assert plain["alpha"] == ["underline", "dashed", "rgb(255, 0, 0)"], plain
+            assert plain["beta"] == ["underline", "solid", "rgb(0, 255, 0)"], plain
+            assert not errors, errors
+            page.close()
+
+            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+            page.evaluate(inks, ["#ff0000", "#0000ff"])
+            table = {"name": "caps", "speed": 4, "marks": [
+                {"selector": ".tile.borrowed .repo", "tool": "pencil", "ink": "pen", "shape": "underline"},
+                {"selector": ".tile.arrow-cap .repo", "tool": "pen", "shape": "underline",
+                 "grow": ".transcript > li", "cap": "arrow"},
+                {"selector": ".tile.bar-cap .repo", "tool": "pen", "shape": "underline", "cap": "bar"}]}
+            _set(page, table)
+
+            # The pencil's hand in the pen's ink, read where the line is.
+            _mark(page, "alpha", "borrowed")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.state === 'drawn')")
+            line = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
+            assert (line["tool"], line["ink"], line["cap"], line["strokes"]) == ("pencil", "pen", "", 1), line
+            b = line["bounds"][0]
+            at = [{"x": b["x"], "y": b["y"], "w": b["r"] - b["x"], "h": b["b"] - b["y"],
+                   "at": [(fx, fy) for fx in (0.2, 0.35, 0.5, 0.65, 0.8) for fy in (0.4, 0.5, 0.6)]}]
+            page.wait_for_function(PURE, arg=[at, 0], timeout=10000)
+            assert not page.evaluate(PURE, [at, 2]), page.evaluate(READ, at)
+
+            # A second pure colour, set the same way, recolours it.
+            page.evaluate(inks, ["#0000ff", "#00ff00"])
+            page.wait_for_function(PURE, arg=[at, 2], timeout=10000)
+            assert not page.evaluate(PURE, [at, 1]), page.evaluate(READ, at)
+
+            # It leaves the pencil's way: erased, never struck.
+            _mark(page, "alpha", "borrowed", False)
+            _rest(page, "!Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha')")
+            assert not any(m["strikeOf"] for m in _marks(page)), _marks(page)
+
+            # A bar is one stroke more, standing across the line's end.
+            _mark(page, "beta", "bar-cap")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:beta' && m.state === 'drawn')")
+            bar = next(m for m in _marks(page) if m["lane"] == "pane:beta")
+            assert (bar["cap"], bar["ink"], bar["strokes"], bar["drawn"]) == ("bar", "pen", 2, 1), bar
+            assert abs(bar["bounds"][1]["r"] - bar["bounds"][0]["r"]) <= 2, bar["bounds"]
+            assert bar["bounds"][1]["b"] - bar["bounds"][1]["y"] >= 9, bar["bounds"]
+
+            # An arrowhead at the end of a growing line: after two arrivals it is at the new end.
+            _mark(page, "alpha", "arrow-cap")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.state === 'drawn')")
+            arrow = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
+            assert (arrow["cap"], arrow["strokes"], arrow["drawn"]) == ("arrow", 2, 1), arrow
+            line0, head0 = arrow["bounds"]
+            assert abs(head0["r"] - line0["r"]) <= 2, arrow["bounds"]
+            page.evaluate("""() => { const tr = document.querySelector('.tile[data-repo="alpha"] .transcript');
+              for (const t of ['one', 'two']) { const li = document.createElement('li');
+                                                li.textContent = t; tr.appendChild(li); } }""")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.drawn === 1"
+                        f" && m.bounds[0].r > {line0['r']} + 15)")
+            arrow = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
+            line1, head1 = arrow["bounds"]
+            assert line1["r"] > line0["r"] + 15 and abs(head1["r"] - line1["r"]) <= 2, arrow["bounds"]
+            assert head1["x"] > head0["x"] + 15, "the arrowhead stayed where the line was"
+
+            count = page.evaluate(IDLE_LOOP)
+            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+            assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
+            assert not errors, errors
+            page.close()
+
+            # Reduced motion: the line and its cap are on the paper at once, and no pen travels.
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+            _set(page, table)
+            came = page.evaluate(RECORD, [[["alpha", "arrow-cap"]]])
+            whole = [f for f in came if any(m[1] == "pane:alpha" and m[2] == 1 and m[5] == 2
+                                            for m in f["marks"])]
+            assert whole and came.index(whole[0]) <= 1, f"not drawn at once: {[f['marks'] for f in came[:4]]}"
+            assert not any(f["hands"] for f in came), "a pen travelled under reduced motion"
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
