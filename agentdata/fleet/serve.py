@@ -1378,6 +1378,24 @@ def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
     return {"html": attrs, "link": link, "body_class": "ink-off" if off else "", "body": body}
 
 
+#: What `layer.js` imports once the gate is on (layer.js `start`, `VENDOR`), after ink.js imports it.
+INK_LAYER_MODULES = ("ink/layer.js", "ink/shapes.js", "ink/pen.js", "vendor/three/three.module.min.js")
+
+
+def ink_preload(ts: dict, token: str, *, gate_on: bool) -> str:
+    """The desk's `<link rel="modulepreload">`s for what its served skin will import (#349), so the
+    modules are fetched in parallel with the page instead of as a waterfall that starts once ink.js
+    has run: the skin module for an ink skin on every shell (the plain fallback draws its table
+    too), and the layer, its two helpers and three.js only where `gate_on`. Each href is the URL
+    `q()` builds, so the module map dedupes and each module is fetched once. Empty for no skin or
+    a skin that does not draw with ink."""
+    family = str(ts.get("skin") or "").partition(":")[0]
+    if not SKIN_FAMILY.match(family) or family not in ink_skins():
+        return ""
+    paths = [f"ink/skins/{family}.js"] + (list(INK_LAYER_MODULES) if gate_on else [])
+    return "".join(f'<link rel="modulepreload" href="/static/{p}?t={_escape(token)}">' for p in paths)
+
+
 def select(selected=None) -> dict:
     """Set the shared selection, bumping the version the stream watches.
 
@@ -2713,10 +2731,14 @@ class Handler(BaseHTTPRequestHandler):
         # The chosen theme, in the markup (#345): every page but the probe, which measures a shell
         # and has no business wearing a skin.
         if name != "probe.html":
-            worn = page_theme(theme_state(), self.token, desk=desk, gate_on=gate_on)
-            themed = (worn["html"], worn["link"], worn["body_class"], worn["body"])
+            ts = theme_state()
+            worn = page_theme(ts, self.token, desk=desk, gate_on=gate_on)
+            # The desk alone preloads what its skin will import (#349), ahead of the skin's
+            # stylesheet, which stays the last thing in <head>.
+            preload = ink_preload(ts, self.token, gate_on=gate_on) if desk else ""
+            themed = (worn["html"], worn["link"], worn["body_class"], worn["body"], preload)
             html = html.replace('<html lang="en">', '<html lang="en"' + worn["html"] + ">", 1)
-            html = html.replace("</head>", worn["link"] + "</head>", 1)
+            html = html.replace("</head>", preload + worn["link"] + "</head>", 1)
 
             def dress(m):
                 classes = " ".join(c for c in (m.group(1) or "", worn["body_class"]) if c)
