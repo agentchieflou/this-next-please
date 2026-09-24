@@ -621,8 +621,13 @@ def default_jira_client(budget: RequestBudget):
     if kind and auth and api:
         return J.Jira(creds, J.Flavor(str(kind), str(auth), str(api)), budget=budget)
     client, _me = J.detect_flavor(creds, cfg, budget=budget)
-    J.remember_flavor(cfg, client)
-    C.save(cfg)
+    # Under the config lock, on a fresh read (#348): the detection above is a Jira request, and a
+    # palette chosen on the desk while it ran would be written back over by the `cfg` read before
+    # it. The request itself stays outside the lock. Streams hear this write by mtime.
+    with C.LOCK:
+        fresh = C.load()
+        J.remember_flavor(fresh, client)
+        C.save(fresh)
     return client
 
 
