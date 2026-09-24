@@ -586,12 +586,11 @@ class Layer {
       const shape = { box: { x: 0, y: 0, w: r.width, h: r.height }, pad: m.row ? m.row.pad : 0, seed: m.seed };
       if (m.shape === "lines") shape.lines = this.linesOf(m.el, r);
       if (m.row && m.row.grow) shape.grow = this.growth(m) * m.row.step;
-      if (m.row && (m.row.grow || m.row.tip)) {
+      if (m.row && (m.row.grow || m.row.tip || m.row.cap)) {
         const pr = m.lane.root ? m.lane.root.getBoundingClientRect() : null;
         shape.limit = (pr ? pr.right : window.innerWidth) - r.left - 14;
-        // The pen's tip sits at the end while the mark is on the paper; a mark that is leaving has
-        // had its pen lifted, and is struck or erased without it.
         shape.tip = m.row.tip && m.state !== "leaving" && m.state !== "struck";
+        shape.cap = m.row.cap || "";
       }
       if (m.shape === "arrow") {
         const t = this.targetOf(m), tr = t && t.getBoundingClientRect();
@@ -609,7 +608,7 @@ class Layer {
       if (shape.lines) sig += "|" + shape.lines.map(l => [l.x, l.y, l.w, l.h].map(v => v.toFixed(1)).join(",")).join(";");
       if (shape.to) sig += "|" + [shape.to.x, shape.to.y, shape.to.w, shape.to.h].map(v => v.toFixed(1)).join(",");
       if (m.strikeOf) sig += "|" + m.strikeOf.sig;
-      if (shape.limit !== undefined) sig += "|" + Math.round(shape.grow || 0) + "," + Math.round(shape.limit) + (shape.tip ? "t" : "");
+      if (shape.limit !== undefined) sig += "|" + Math.round(shape.grow || 0) + "," + Math.round(shape.limit) + (shape.tip ? "t" : "") + (shape.cap ? "c" + shape.cap : "");
       // A ruled mark sits on the viewport's grid, so where the anchor is against the grid is part
       // of its shape: a move by a whole square moves the mesh, anything else rules it again.
       const g = m.row && !m.strikeOf ? m.row.snap : 0;
@@ -659,7 +658,7 @@ class Layer {
         st = m.strokes[i] = new this.pen.Stroke(m.tool, (m.seed * 31 + i * 7919) % 100003, m.row && m.row.dash, tune);
         if (m.state !== "queued" && m.state !== "drawing") st.done = true;
       }
-      st.build(p, this.scene, this.inks[m.tool] || [0.3, 0.3, 0.3], this.mode);
+      st.build(p, this.scene, this.inks[(m.row && m.row.ink) || m.tool] || [0.3, 0.3, 0.3], this.mode);
       // A mark already on the paper is redrawn whole at its new size; one not yet begun stays
       // blank until its turn.
       if (m.state === "queued") st.setHead(0);
@@ -820,7 +819,7 @@ class Layer {
       for (const f of this.skin.frames.values()) f.sig = "";
     }
     for (const m of this.marks) {
-      for (const st of m.strokes) st.colour(this.inks[st.tool] || this.inks[m.tool], this.mode);
+      for (const st of m.strokes) st.colour(this.inks[(m.row && m.row.ink) || st.tool], this.mode);
       if (m.scuff) m.scuff.colour(this.inks.eraser, this.mode);
     }
     for (const L of this.lanes.values()) {
@@ -1269,7 +1268,8 @@ class Layer {
       const head = m.strokes.reduce((a, s) => a + (s.dead ? 0 : Math.min(s.head, s.len)), 0);
       const erased = m.strokes.some(s => s.erase !== Infinity);
       marks.push({
-        id: m.id, lane: m.lane.key, selector: m.row ? m.row.selector : "", tool: m.tool, shape: m.shape,
+        id: m.id, lane: m.lane.key, selector: m.row ? m.row.selector : "", tool: m.tool,
+        ink: m.row ? m.row.ink : m.tool, cap: m.row ? (m.row.cap || "") : "", shape: m.shape,
         state: m.state, strikeOf: m.strikeOf ? m.strikeOf.id : null, strokes: m.strokes.length,
         len: Math.round(len * 10) / 10,
         drawn: m.shape === "write" ? m.reveal : m.ghost ? 1 : (len ? Math.round(head / len * 1000) / 1000 : 0),

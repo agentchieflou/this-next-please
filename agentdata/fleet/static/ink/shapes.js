@@ -97,6 +97,8 @@ export const SHAPES = {
     if (Number.isFinite(m.limit)) x1 = Math.max(r.r + 8, Math.min(x1, m.limit));
     const out = [{ pts: [[r.x - 3, y], [x1, y + 1.2]], nobow: true }];
     if (m.tip) out.push({ pts: [[x1 + 2.2, y + 0.8], [x1 + 3.4, y + 1.4]], w: 4.4, nobow: true, wob: 0 });
+    if (m.cap === "arrow") out.push({ pts: [[x1 - 7, y - 4.8], [x1, y + 1.2], [x1 - 7, y + 6.4]], nobow: true });
+    if (m.cap === "bar") out.push({ pts: [[x1, y - 5], [x1 + 0.4, y + 6]], nobow: true });
     return out;
   },
   /* A highlighter pass along every line the text wraps to, as wide as the line is tall. */

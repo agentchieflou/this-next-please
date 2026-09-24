@@ -491,7 +491,10 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
                                  {selector: '.tile[', tool: 'pen', shape: 'loop'},
                                  {selector: '.tile', tool: 'eraser', shape: 'loop'},
                                  {selector: '.tile', tool: 'pen', shape: 'arrow'},
-                                 {tool: 'pen', shape: 'loop'}]) {
+                                 {tool: 'pen', shape: 'loop'},
+                                 {selector: '.tile', tool: 'pencil', ink: 'crayon', shape: 'loop'},
+                                 {selector: '.tile', tool: 'pencil', shape: 'loop', cap: 'arrow'},
+                                 {selector: '.tile', tool: 'pencil', shape: 'underline', cap: 'arrow', tip: true}]) {
                 try { Ink.setSkin({ name: 'bad', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}, row] }); bad.push('accepted'); }
                 catch (e) { bad.push(e.message); }
               }
@@ -515,6 +518,7 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
     assert all(m.startswith("ink: mark 1") for m in api["bad"]), api["bad"]
     assert "crayon" in api["bad"][0] and "star" in api["bad"][1] and "selector" in api["bad"][2]
     assert "eraser" in api["bad"][3] and "`to`" in api["bad"][4] and "no selector" in api["bad"][5]
+    assert "crayon" in api["bad"][6] and "`cap`" in api["bad"][7] and "`cap`" in api["bad"][8]
     assert api["table"] is None, "a refused table replaced the one in force"
 
 
@@ -1197,3 +1201,189 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path):
     worst = max(m["ms"] for m in measures)
     print(f"\n  gestures while the ink draws: {len(measures)} marked, worst {worst:.1f}ms")
     assert [m for m in measures if m["ms"] > LOCAL_BUDGET_MS] == [], measures
+
+
+@pytest.mark.browser
+def test_a_row_borrows_an_ink_and_an_underline_ends_in_a_cap(fleet_home, tmp_path):
+    """feat(ink) #385:
+    - a row can borrow another tool's ink ({tool: 'pencil', ink: 'pen'}), recolour when --ink-pen changes,
+      and leaves by being erased (pencil's way of leaving).
+    - a grow underline with cap: 'arrow' keeps its arrowhead at the growing right end;
+    - cap: 'bar' adds exactly one stroke;
+    - in plain fallback (?ink=off), borrowed ink is text-decoration-color, and dash: true on underline is dashed;
+    - reduced motion draws the cap at once;
+    - idle desk stays at 0 DOM writes and 0 WebGL frames.
+    """
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+
+            # 1. Plain fallback under ?ink=off
+            page, errors, _ = _open(browser, port, token)
+            plain_table = {
+                "name": "plain-test",
+                "marks": [
+                    {"selector": ".tile[data-repo=\"alpha\"] .repo", "tool": "pencil", "ink": "pen",
+                     "shape": "underline", "dash": True},
+                    {"selector": ".tile[data-repo=\"beta\"] .repo", "tool": "pencil", "ink": "green",
+                     "shape": "underline"},
+                ],
+            }
+            res = page.evaluate("""async (t) => {
+                await Ink.setSkin(t);
+                const a = document.querySelector('.tile[data-repo="alpha"] .repo');
+                const b = document.querySelector('.tile[data-repo="beta"] .repo');
+                const sa = getComputedStyle(a);
+                const sb = getComputedStyle(b);
+                return {
+                    a_style: sa.textDecorationStyle,
+                    a_color: sa.textDecorationColor,
+                    b_style: sb.textDecorationStyle,
+                    b_color: sb.textDecorationColor,
+                    rules: document.adoptedStyleSheets.flatMap(s => [...s.cssRules].map(r => r.cssText)).join('\\n'),
+                };
+            }""", plain_table)
+            assert res["a_style"] == "dashed", res
+            assert res["b_style"] == "solid", res
+            assert "text-decoration-color: var(--ink-pen" in res["rules"]
+            assert "text-decoration-color: var(--ink-green" in res["rules"]
+            assert not errors, errors
+            page.close()
+
+            # 2. Ink on: borrowed ink, recolour, erase on leave, caps, grow cap position
+            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+
+            cap_table = {
+                "name": "caps-test",
+                "speed": 4,
+                "marks": [
+                    # borrowed ink: pencil hand in pen ink
+                    {"selector": ".tile.borrowed .repo", "tool": "pencil", "ink": "pen", "shape": "underline"},
+                    # growing underline with arrow cap
+                    {"selector": ".tile.arrow-cap .repo", "tool": "pen", "shape": "underline",
+                     "grow": ".transcript > li", "cap": "arrow"},
+                    # underline with bar cap
+                    {"selector": ".tile.bar-cap .repo", "tool": "pen", "shape": "underline", "cap": "bar"},
+                ],
+            }
+            _set(page, cap_table)
+
+            # Set pure red for --ink-pen to test drawing and recolouring via READ pattern
+            page.evaluate("""() => {
+                document.documentElement.style.setProperty('--ink-pen', '#ff0000');
+            }""")
+
+            _mark(page, "alpha", "borrowed")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.state === 'drawn')")
+
+            # Check mark in inspect()
+            m_alpha = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
+            assert m_alpha["tool"] == "pencil"
+            assert m_alpha["ink"] == "pen"
+            assert m_alpha["shape"] == "underline"
+
+            # Check pixel read for #ff0000
+            read_rgb = page.evaluate("""() => {
+                Ink.sample({ x: 0, y: 0, w: 1, h: 1 });
+                const c = document.getElementById('ink');
+                const gl = c.getContext('webgl2') || c.getContext('webgl');
+                const m = Ink.inspect().layer.marks.find(m => m.lane === 'pane:alpha');
+                const b = m.box;
+                const k = c.width / innerWidth;
+                const px = new Uint8Array(4);
+                // Sample near the underline
+                const x = Math.floor((b.x + b.w * 0.5) * k);
+                const y = c.height - 1 - Math.floor((b.y + b.h + 2) * k);
+                gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+                return [px[0], px[1], px[2], px[3]];
+            }""")
+            # Red channel should be dominant in #ff0000 ink
+            assert read_rgb[0] > 100, f"expected red ink, got {read_rgb}"
+
+            # Recolour to pure blue
+            page.evaluate("""() => {
+                document.documentElement.style.setProperty('--ink-pen', '#0000ff');
+            }""")
+            # Observe recolour
+            _rest(page, "true")
+            read_blue = page.evaluate("""() => {
+                Ink.sample({ x: 0, y: 0, w: 1, h: 1 });
+                const c = document.getElementById('ink');
+                const gl = c.getContext('webgl2') || c.getContext('webgl');
+                const m = Ink.inspect().layer.marks.find(m => m.lane === 'pane:alpha');
+                const b = m.box;
+                const k = c.width / innerWidth;
+                const px = new Uint8Array(4);
+                const x = Math.floor((b.x + b.w * 0.5) * k);
+                const y = c.height - 1 - Math.floor((b.y + b.h + 2) * k);
+                gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+                return [px[0], px[1], px[2], px[3]];
+            }""")
+            assert read_blue[2] > 100, f"expected blue ink, got {read_blue}"
+
+            # Erased, not struck, when class goes (because tool is pencil)
+            _mark(page, "alpha", "borrowed", False)
+            _rest(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:alpha').length === 0")
+            assert not any(m["lane"] == "pane:alpha" for m in _marks(page))
+
+            # Test bar cap: adds exactly one stroke
+            _mark(page, "beta", "bar-cap")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:beta' && m.cap === 'bar' && m.state === 'drawn')")
+            m_bar = next(m for m in _marks(page) if m["lane"] == "pane:beta" and m["cap"] == "bar")
+            assert m_bar["strokes"] == 2  # underline line + bar cap stroke
+            assert m_bar["cap"] == "bar"
+
+            # Test arrow cap and growth
+            _mark(page, "alpha", "arrow-cap")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.cap === 'arrow' && m.state === 'drawn')")
+            m_arrow = next(m for m in _marks(page) if m["lane"] == "pane:alpha" and m["cap"] == "arrow")
+            assert m_arrow["strokes"] == 2  # underline line + arrow cap stroke
+            assert m_arrow["cap"] == "arrow"
+
+            b_line0 = m_arrow["bounds"][0]
+            b_cap0 = m_arrow["bounds"][1]
+            # Cap stroke should be at line's right end (within 2px)
+            assert abs(b_cap0["r"] - b_line0["r"]) <= 2.0, (b_cap0, b_line0)
+
+            # Grow underline: add two items to transcript
+            page.evaluate("""() => {
+                const tr = document.querySelector('.tile[data-repo="alpha"] .transcript');
+                const li1 = document.createElement('li'); li1.textContent = 'msg1';
+                const li2 = document.createElement('li'); li2.textContent = 'msg2';
+                tr.appendChild(li1);
+                tr.appendChild(li2);
+            }""")
+            _rest(page, f"Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.cap === 'arrow' && m.bounds[0].r > {b_line0['r']} + 15)")
+            m_arrow_grown = next(m for m in _marks(page) if m["lane"] == "pane:alpha" and m["cap"] == "arrow")
+            b_line1 = m_arrow_grown["bounds"][0]
+            b_cap1 = m_arrow_grown["bounds"][1]
+            assert abs(b_cap1["r"] - b_line1["r"]) <= 2.0, (b_cap1, b_line1)
+            assert b_line1["r"] > b_line0["r"] + 15
+
+            # Idle check: 0 DOM mutations and 0 WebGL frames
+            count = page.evaluate(IDLE_LOOP)
+            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+            assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
+
+            assert not errors, errors
+            page.close()
+
+            # 3. Reduced motion draws cap at once
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+            _set(page, cap_table)
+            page.evaluate("() => document.querySelector('.tile[data-repo=\"alpha\"]').classList.add('arrow-cap')")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.cap === 'arrow')")
+            l = page.evaluate("() => Ink.inspect().layer")
+            m_rm = next(m for m in l["marks"] if m["lane"] == "pane:alpha" and m["cap"] == "arrow")
+            assert m_rm["drawn"] == 1
+            assert m_rm["state"] == "drawn"
+            assert len(m_rm["bounds"]) == 2
+
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+

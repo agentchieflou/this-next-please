@@ -130,6 +130,9 @@ function normalise(table) {
     if (!Object.prototype.hasOwnProperty.call(TOOLS, row.tool)) {
       throw new TypeError(where + ": no tool " + JSON.stringify(row.tool) + " (" + Object.keys(TOOLS).join(", ") + ")");
     }
+    if (row.ink !== undefined && !Object.prototype.hasOwnProperty.call(TOOLS, row.ink)) {
+      throw new TypeError(where + ": no tool " + JSON.stringify(row.ink) + " (" + Object.keys(TOOLS).join(", ") + ")");
+    }
     if (!Object.prototype.hasOwnProperty.call(PLAIN, row.shape)) {
       throw new TypeError(where + ": no shape " + JSON.stringify(row.shape) + " (" + Object.keys(PLAIN).join(", ") + ")");
     }
@@ -143,10 +146,11 @@ function normalise(table) {
         throw new SyntaxError(where + ": `to` is not a selector the page can match");
       }
     }
-    // #249: an underline that grows with what arrives in its pane, a pen-tip dot at its end, and a
-    // written word that is struck and written again when it changes. Each belongs to one shape.
     if ((row.grow !== undefined || row.tip) && row.shape !== "underline") {
       throw new TypeError(where + ": `grow` and `tip` are an underline's");
+    }
+    if (row.cap !== undefined && (row.shape !== "underline" || row.tip || (row.cap !== "arrow" && row.cap !== "bar"))) {
+      throw new TypeError(where + ": `cap` is an underline's ('arrow' or 'bar') and never with `tip`");
     }
     if (row.grow !== undefined) {
       try {
@@ -169,6 +173,7 @@ function normalise(table) {
       index: i,
       selector: row.selector.trim(),
       tool: row.tool,
+      ink: row.ink || row.tool,
       shape: row.shape,
       to: typeof row.to === "string" ? row.to : "",
       pad: Number.isFinite(row.pad) ? row.pad : 0,
@@ -176,6 +181,7 @@ function normalise(table) {
       grow: typeof row.grow === "string" ? row.grow : "",
       step: Number.isFinite(row.step) && row.step > 0 ? row.step : 10,
       tip: !!row.tip,
+      cap: row.cap || "",
       rewrite: !!row.rewrite,
       snap: Number.isFinite(row.snap) ? row.snap : 0,
       // How the mark goes: pencil is erased and ink struck, unless the row says otherwise -- the
@@ -224,13 +230,15 @@ function plainCss(t) {
     const sel = "body.ink-off :is(" + row.selector + ")";
     const look = PLAIN[row.shape];
     if (!look) continue;
-    const c = colour(row.tool);
+    const c = colour(row.ink);
     if (look === "@tint") {
       out.push(sel + " { box-decoration-break: clone; -webkit-box-decoration-break: clone; }");
       out.push("@supports (color: color-mix(in srgb, red 50%, transparent)) { " + sel +
                " { background-color: color-mix(in srgb, " + c + " " + PLAIN_TINT + "%, transparent); } }");
     } else {
-      out.push(sel + " { " + look.split("%c").join(c) + " }");
+      let rule = look.split("%c").join(c);
+      if (row.shape === "underline" && row.dash) rule += " text-decoration-style: dashed;";
+      out.push(sel + " { " + rule + " }");
       // A margin bar is an inset shadow, which would take the selection ring's place on a selected
       // pane: the ring is kept beside it, because a selected pane is still one pane (HIG *Focus*).
       if (row.shape === "check" || row.shape === "bang") {
