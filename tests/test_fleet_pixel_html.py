@@ -13,8 +13,9 @@ than taking a blog post's word for it:
 3. **DOM-synced geometry**: the line boxes and glyph boxes a `Range` reports. What the effects
    actually use (#375).
 
-Either outcome of (1) passes -- found and uploaded, or not found and the row falls back -- and the
-test prints which it saw and every timing. Nothing here asks for a 2D context, and the desk's own
+Every measured outcome of (1) passes -- found and uploaded, found and the renderer crashed in the
+upload's own page (the operator's ruling on #446: the crash is the verdict), or not found and the
+row falls back -- and the test prints which it saw and every timing. Nothing here asks for a 2D context, and the desk's own
 DOM is left as it was found: the one canvas the test adds is its own, and it takes it away again.
 """
 from __future__ import annotations
@@ -232,15 +233,73 @@ def _ms(value) -> str:
     return "n/a" if value is None else f"{value:.1f} ms"
 
 
+#: The HTML-in-canvas method this engine has, found the way probe.js finds it: the same names in the
+#: same order, read off the prototype, `name/arity` or "".
+HIC_OF_ENGINE = """() => {
+  if (typeof WebGL2RenderingContext === 'undefined') return '';
+  const proto = WebGL2RenderingContext.prototype;
+  for (const n of ['texElementImage2D', 'texElementSubImage2D', 'texElement2D']) {
+    if (typeof proto[n] === 'function') return n + '/' + proto[n].length;
+  }
+  return '';
+}"""
+
+#: A desk page is ready: three panes, each with its tier, the ink module run, nothing in flight.
+DESK_READY = """() => document.querySelectorAll('#grid .tile.is-solo').length === 3
+     && [...document.querySelectorAll('#grid .tile')].every(t => !!t.dataset.tier)
+     && !!window.Ink && windowWrites === 0
+     && !document.body.classList.contains('is-stale')"""
+
+
+def _desk_page(browser, port, token):
+    """A desk page in a context of its own, every getContext call watched from before its scripts
+    run, and its page errors collected."""
+    context = browser.new_context(viewport={"width": 1400, "height": 900})
+    context.add_init_script(WATCH_CONTEXTS)
+    page = context.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+    page.wait_for_function(DESK_READY, timeout=15000)
+    return context, page, errors
+
+
+def _isolated_upload(browser, port, token, hic):
+    """(a) in a context and page of its own, opened last, so that a renderer crash inside the
+    flagged upload is that page's alone. The operator's ruling on #446: a crash there is the
+    verdict, recorded and printed, not a red suite. Anything else this page raises still fails."""
+    from playwright.sync_api import Error as PlaywrightError
+
+    context, page, errors = _desk_page(browser, port, token)
+    crashed = []
+    page.on("crash", lambda _page: crashed.append(True))
+    name, arity = hic.split("/")
+    try:
+        upload = page.evaluate(UPLOAD, [name, int(arity)])
+    except PlaywrightError as e:
+        if not crashed and "target crashed" not in str(e).lower():
+            raise
+        context.close()
+        return {"name": name, "arity": int(arity), "crashed": True,
+                "detail": str(e).splitlines()[0]}
+    upload["crashed"] = False
+    upload["asked"] = page.evaluate("() => window.__contexts")
+    upload["left"] = page.evaluate("() => document.querySelectorAll('canvas').length")
+    upload["errors"] = errors
+    context.close()
+    return upload
+
+
 @pytest.mark.browser
 def test_html_in_canvas_is_what_the_probe_recorded_and_the_other_routes_are_measured(fleet_home,
                                                                                     tmp_path):
-    """The probe's `hic_api` and an actual upload agree, in a Chromium launched with the Blink flag.
+    """The probe's `hic_api` is what the engine has, in a Chromium launched with the Blink flag.
 
-    Found: the recorded method uploads a cloned pane from a `<canvas layoutsubtree>` and reads back
-    lit pixels with no `SecurityError`. Not found: `hic_api` is empty and the row falls back. Both
-    pass, and both print. The SVG snapshot and the Range geometry are measured beside it, so
-    §Pixel-level HTML's costs are this engine's own."""
+    Found: the recorded method uploads a cloned pane from a `<canvas layoutsubtree>` in a page of its
+    own. Either it reads back lit pixels with no `SecurityError`, or the renderer crashes, which the
+    operator ruled is the measured verdict (#446): recorded and printed, and the page is the upload's
+    alone. Not found: `hic_api` is empty and the row falls back. The SVG snapshot and the Range
+    geometry are measured on the desk page beside it, and hold whatever the upload did."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path, ("alpha", "beta", "gamma"))
 
@@ -260,40 +319,31 @@ def test_html_in_canvas_is_what_the_probe_recorded_and_the_other_routes_are_meas
             shown = probe.text_content("#features")
             probe.close()
 
-            # The desk, three panes, every getContext call watched from before its scripts run.
-            context = browser.new_context(viewport={"width": 1400, "height": 900})
-            context.add_init_script(WATCH_CONTEXTS)
-            page = context.new_page()
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_function(
-                """() => document.querySelectorAll('#grid .tile.is-solo').length === 3
-                     && [...document.querySelectorAll('#grid .tile')].every(t => !!t.dataset.tier)
-                     && !!window.Ink && windowWrites === 0
-                     && !document.body.classList.contains('is-stale')""", timeout=15000)
-
-            rec = PR.attempts()["chromium"]
-            hic = rec.get("hic_api", "")
-            upload = None
-            if hic:
-                name, arity = hic.split("/")
-                upload = page.evaluate(UPLOAD, [name, int(arity)])
+            # (b) and (c) on the desk page, first, and closed before the upload's page opens.
+            context, page, errors = _desk_page(browser, port, token)
+            engine = page.evaluate(HIC_OF_ENGINE)
             snapshot = page.evaluate(SNAPSHOT)
             geometry = page.evaluate(GEOMETRY)
             left = page.evaluate("() => document.querySelectorAll('canvas').length")
             asked = page.evaluate("() => window.__contexts")
             context.close()
+
+            rec = PR.attempts()["chromium"]
+            hic = rec.get("hic_api", "")
+            upload = _isolated_upload(browser, port, token, hic) if hic else None
             browser.close()
     finally:
         _stop(server)
 
     print(f"\n  Chromium {version}, launched with {HIC_FLAG}")
     print(f"  probe row     HTML-in-canvas: {PR.feature_cell(rec, 'HTML-in-canvas')}"
-          f" (hic_api {hic!r})")
+          f" (hic_api {hic!r}, the engine has {engine!r})")
     if upload is None:
         print("  (a) upload    none found: the row falls back, effects follow element rects "
               "and line boxes")
+    elif upload["crashed"]:
+        print(f"  (a) upload    {upload['name']}/{upload['arity']}: crashed (Chromium {version}, "
+              f"SwiftShader): {upload['detail']}")
     else:
         print(f"  (a) upload    {upload['name']}/{upload['arity']} of a {upload['w']}x{upload['h']} "
               f"pane: {upload['lit']} lit pixels in {_ms(upload['ms'])} (after {upload['via']})"
@@ -307,12 +357,17 @@ def test_html_in_canvas_is_what_the_probe_recorded_and_the_other_routes_are_meas
           f"{geometry['glyphs']} glyph boxes in {_ms(geometry['glyphs_ms'])}")
 
     assert errors == [], errors
-    # The probe asked the prototype and recorded what it found; the page agrees.
+    # The probe asked the prototype and recorded what it found; the engine agrees.
+    assert hic == engine, (hic, engine)
     assert rec["features"]["HTML-in-canvas"] is bool(hic), (rec["features"], hic)
     if hic:
-        assert upload["error"] == "", upload
-        assert upload["lit"] > 0, f"{hic} uploaded nothing: {upload}"
         assert "HTML-in-canvas" not in shown, shown
+        if not upload["crashed"]:
+            assert upload["errors"] == [], upload["errors"]
+            assert upload["error"] == "", upload
+            assert upload["lit"] > 0, f"{hic} uploaded nothing: {upload}"
+            assert {a["kind"] for a in upload["asked"]} <= {"webgl2"}, upload["asked"]
+            assert upload["left"] == 0, f"{upload['left']} canvas left on a desk that had none"
     else:
         assert PR.feature_cell(rec, "HTML-in-canvas") == PR.FEATURES["HTML-in-canvas"]
         assert f"HTML-in-canvas: {PR.FEATURES['HTML-in-canvas']}" in shown, shown
@@ -320,7 +375,7 @@ def test_html_in_canvas_is_what_the_probe_recorded_and_the_other_routes_are_meas
     assert snapshot["error"] == "", snapshot
     assert snapshot["lit"] > 0, snapshot
     assert geometry["lines"] > 0 and geometry["glyphs"] > 0, geometry
-    # No 2D context was asked for, by the desk or by any of the three routes; and the one canvas
-    # the upload added was taken away again.
+    # No 2D context was asked for, by the desk or by the snapshot; the snapshot's canvas was never
+    # on the page.
     assert {a["kind"] for a in asked} <= {"webgl2"}, asked
     assert left == 0, f"{left} canvas left on a desk that had none"

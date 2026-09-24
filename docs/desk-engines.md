@@ -206,9 +206,15 @@ Until then the verdict is **not yet**, and effects use DOM-synced geometry (#375
 moves its panes into a canvas without a plan of its own. No origin-trial token is committed, and
 no shell is launched with a Chromium flag.
 
-**Today's verdict: not yet.** No shell has it unflagged. CI's Chromium 141 has it only with the flag
-(`texElement2D/6`, lit pixels read back, no `SecurityError`); the Chromium 153 on CI's ubuntu legs
-has `texElementImage2D/3` behind the same flag, and `test_fleet_pixel_html.py` prints its upload. The laptop's shells are read by #383.
+**Today's verdict: not yet: the flagged upload crashes Chromium 153's renderer under SwiftShader.**
+No shell has HTML-in-Canvas unflagged. Behind the flag, the Chromium 153 on CI's ubuntu legs has
+`texElementImage2D/3`, and uploading a cloned pane with it (`TEXTURE_2D, RGBA8, element`) crashes
+the page's renderer (`Page.evaluate: Target crashed`). The operator ruled on #446 that the crash is
+the verdict. So `test_fleet_pixel_html.py` runs the upload in a page of its own, records a crash as
+`upload: crashed (Chromium <version>, SwiftShader)` and prints it beside the timings. A crash
+anywhere else still fails the test. A local Chromium 141 with the same flag (`texElement2D/6`)
+uploads and reads back lit pixels with no `SecurityError`. SwiftShader is software, so the upload on
+a real GPU is checked at the #383 laptop sitting, together with the shells' `HTML-in-canvas` cells.
 
 ## What is *not* guarded by a fallback
 
