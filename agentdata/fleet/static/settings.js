@@ -455,7 +455,8 @@ function load() {
    the palette it was opened with while the desk beside it wore another. */
 function connectTheme() {
   try {
-    var stream = new EventSource(q("/api/events"));
+    // `frames=theme` (#348): this page listens for one frame, so it is sent no agent history.
+    var stream = new EventSource(q("/api/events", { frames: "theme" }));
     stream.addEventListener("theme", function (m) {
       try {
         var d = JSON.parse(m.data);

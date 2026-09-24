@@ -2218,51 +2218,18 @@ def act(what: str, body: dict) -> dict:
         from .. import config as C
         from . import settings as SET
 
-        cfg = C.load()
-        try:
-            for item in body.get("set") or []:
-                SET.apply(cfg, str(item.get("key") or ""), item.get("value"))
-            # What only holds between keys, once the whole batch is in: two tier boundaries that
-            # only go together can be written together (#235).
-            SET.check(cfg, [str(item.get("key") or "") for item in body.get("set") or []])
-            for item in body.get("models") or []:
-                SET.set_model(cfg, str(item.get("repo") or ""),
-                              model=item.get("model"), effort=item.get("effort"))
-            if "model" in body or "effort" in body:
-                SET.set_fleet_model(cfg, model=body.get("model"), effort=body.get("effort"))
-        except SET.SettingsError as e:
-            raise ServeError(e.msg, e.hint, code=e.code) from None
-        except LAUNCH.LaunchError as e:
-            # A model value that would become a second flag. The launch-time check would catch it
-            # too, but hours later and as a failed start rather than a refused keystroke.
-            raise ServeError(e.msg, e.hint, code="bad_model") from None
-        try:
-            C.save(cfg)
-        except C.ConfigError as e:
-            # ConfigError carries `hint` but no `msg`, so it must be translated rather than left to
-            # the generic handler, which would report a refusal as a 500.
-            raise ServeError(str(e), e.hint, code="config_refused") from None
+        # Under the config lock (#348): the theme write and the poller's flavour write are the
+        # other in-process writers, and two read-modify-writes at once lose one of them.
+        with C.LOCK:
+            _write_settings(C, SET, body)
+        _config_changed()
         return settings_snapshot()
     if what == "theme":
         from .. import config as C
-        cfg = C.load()
-        cfg.setdefault("theme", {})
-        if "theme" in body:
-            theme_val = str(body["theme"]).strip()
-            cfg["theme"]["default"] = theme_val if theme_val else "none"
-        if "skin" in body:
-            from . import skins
 
-            skin_val = str(body["skin"]).strip()
-            cfg["theme"]["skin"] = skin_val if skin_val else "none"
-            # Choosing a skin chooses its ground with it, and writes that palette to the config the
-            # terminal reads -- so the prompt beside the dashboard moves to Nether too. This is what
-            # "skins drive themes" means in the one file both of them read.
-            chosen = skins.get_skin(cfg["theme"]["skin"]) if skin_val and skin_val != "none" else None
-            if chosen:
-                cfg["theme"]["skin"] = chosen["full"]
-                cfg["theme"]["default"] = chosen["base"]
-        C.save(cfg)
+        with C.LOCK:
+            _write_theme(C, body)
+        _config_changed()
         # The stream's own `theme` payload, css and all (#346): the page that posted reconciles
         # from this answer instead of waiting a tick for the frame to say what it has just chosen.
         return theme_state()
@@ -2270,6 +2237,56 @@ def act(what: str, body: dict) -> dict:
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
                      "arrange | attach | dismiss | theme | settings | refresh | probe | measure | "
                      "load")
+
+
+def _write_settings(C, SET, body: dict) -> None:
+    """`act("settings")`'s read-modify-write of config.json; the caller holds `C.LOCK`."""
+    cfg = C.load()
+    try:
+        for item in body.get("set") or []:
+            SET.apply(cfg, str(item.get("key") or ""), item.get("value"))
+        # What only holds between keys, once the whole batch is in: two tier boundaries that
+        # only go together can be written together (#235).
+        SET.check(cfg, [str(item.get("key") or "") for item in body.get("set") or []])
+        for item in body.get("models") or []:
+            SET.set_model(cfg, str(item.get("repo") or ""),
+                          model=item.get("model"), effort=item.get("effort"))
+        if "model" in body or "effort" in body:
+            SET.set_fleet_model(cfg, model=body.get("model"), effort=body.get("effort"))
+    except SET.SettingsError as e:
+        raise ServeError(e.msg, e.hint, code=e.code) from None
+    except LAUNCH.LaunchError as e:
+        # A model value that would become a second flag. The launch-time check would catch it
+        # too, but hours later and as a failed start rather than a refused keystroke.
+        raise ServeError(e.msg, e.hint, code="bad_model") from None
+    try:
+        C.save(cfg)
+    except C.ConfigError as e:
+        # ConfigError carries `hint` but no `msg`, so it must be translated rather than left to
+        # the generic handler, which would report a refusal as a 500.
+        raise ServeError(str(e), e.hint, code="config_refused") from None
+
+
+def _write_theme(C, body: dict) -> None:
+    """`act("theme")`'s read-modify-write of config.json; the caller holds `C.LOCK`."""
+    cfg = C.load()
+    cfg.setdefault("theme", {})
+    if "theme" in body:
+        theme_val = str(body["theme"]).strip()
+        cfg["theme"]["default"] = theme_val if theme_val else "none"
+    if "skin" in body:
+        from . import skins
+
+        skin_val = str(body["skin"]).strip()
+        cfg["theme"]["skin"] = skin_val if skin_val else "none"
+        # Choosing a skin chooses its ground with it, and writes that palette to the config the
+        # terminal reads -- so the prompt beside the dashboard moves to Nether too. This is what
+        # "skins drive themes" means in the one file both of them read.
+        chosen = skins.get_skin(cfg["theme"]["skin"]) if skin_val and skin_val != "none" else None
+        if chosen:
+            cfg["theme"]["skin"] = chosen["full"]
+            cfg["theme"]["default"] = chosen["base"]
+    C.save(cfg)
 
 
 def _sweep(url: str) -> list[dict]:
@@ -2312,9 +2329,27 @@ def _poll_digests() -> dict[str, str]:
         return {}
 
 
+# A config write this server made wakes every open stream (#348). `_config_gen` counts the writes;
+# a stream remembers the one its last `theme_state()` saw and waits on `_WAKE` for it to move. Writes
+# made elsewhere (`ad-theme set` in a terminal, the poller's flavour write) still arrive by mtime.
+_WAKE = threading.Condition()
+_config_gen = 0
+#: How often a waiting stream looks at `stop`: a server shutting down is not kept a whole tick.
+WAKE_SLICE_S = 0.05
+
+
+def _config_changed() -> None:
+    """Called after every successful `C.save` of `act()`: tell every waiting stream."""
+    global _config_gen
+    with _WAKE:
+        _config_gen += 1
+        _WAKE.notify_all()
+
+
 def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float = HEARTBEAT_S,
                   tick: float = TICK_S, once: bool = False, url: str = "",
-                  notify_every: float = NOTIFY_EVERY_S, polls: bool = True) -> None:
+                  notify_every: float = NOTIFY_EVERY_S, polls: bool = True,
+                  agents: bool = True) -> None:
     """Multiplex every agent's new events onto one SSE connection until the client goes away.
 
     `write` raises when the socket closes, which is how this ends -- a browser tab being shut is
@@ -2339,17 +2374,45 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     connection starts at -1 so every new window is told the current selection immediately -- a
     monitor that joined late and shows a different project than the one beside it is the exact
     failure this frame exists to prevent.
+
+    **A config write wakes it** (#348). Between passes the stream waits on `_WAKE` in slices, not on
+    `stop` for a whole tick; a write through `act()` ends the wait, and the `theme` frame is written
+    at the top of the next pass, before the polls, the fold and the agents' reads. The generation is
+    read before `theme_state()`, so a write landing while the frame is computed is not lost.
+
+    `agents=False` (`?frames=theme`, the settings page) skips only the per-agent reads and their
+    frames: a page that listens for one frame does not download every agent's history.
     """
     last_beat = 0.0
     last_sweep = 0.0
     seen_selection = -1
     last_config_mtime = -1.0
     seen_theme_state = None
+    seen_gen = -1
+    woke = False
     from .. import config as C
     cfg_file = C.path()
 
+    def config_mtime() -> float:
+        try:
+            return os.path.getmtime(cfg_file) if os.path.isfile(cfg_file) else 0.0
+        except OSError:
+            return 0.0
+
     seen_polls: dict[str, str] | None = None
     while not stop.is_set():
+        early = False
+        if woke:
+            # This server wrote the config: the frame goes first, before the pass's other work.
+            woke = False
+            last_config_mtime = config_mtime()
+            gen = _config_gen
+            tstate = theme_state()
+            seen_gen = gen
+            if tstate != seen_theme_state:
+                seen_theme_state = tstate
+                write(f"event: theme\ndata: {json.dumps(tstate, ensure_ascii=False)}\n\n")
+                early = True
         if polls:
             # A cell that changed without an event -- the git cell is the one that never has one
             # (#184) -- would otherwise sit on the tile until some agent said something. One
@@ -2374,7 +2437,7 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
         except RegistryError:
             repos = []
         fold = fold_due()
-        sent = False
+        sent = early
         for repo in repos:
             name = repo.name
             if fold:
@@ -2382,6 +2445,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
                     E.refresh(name, repo.path, repo_state=repo.state())
                 except (RegistryError, OSError):
                     pass
+            if not agents:
+                continue
             for ev in E.read(name, since=cursors.get(name, 0)):
                 cursors[name] = ev["seq"]
                 write(f"id: {name}:{ev['seq']}\nevent: agent\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n")
@@ -2401,13 +2466,12 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             write(f"event: desk\ndata: {json.dumps(state, ensure_ascii=False)}\n\n")
             sent = True
 
-        try:
-            mtime = os.path.getmtime(cfg_file) if os.path.isfile(cfg_file) else 0.0
-        except OSError:
-            mtime = 0.0
+        mtime = config_mtime()
         if seen_theme_state is None or mtime != last_config_mtime:
             last_config_mtime = mtime
+            gen = _config_gen                 # before the read, so a write after it wakes the wait
             tstate = theme_state()
+            seen_gen = gen
             if seen_theme_state is None or tstate != seen_theme_state:
                 seen_theme_state = tstate
                 write(f"event: theme\ndata: {json.dumps(tstate, ensure_ascii=False)}\n\n")
@@ -2419,7 +2483,12 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             last_beat = time.time()
         if once:
             return
-        stop.wait(tick)
+        deadline = time.monotonic() + tick
+        with _WAKE:
+            while (not stop.is_set() and _config_gen == seen_gen
+                   and (left := deadline - time.monotonic()) > 0):
+                _WAKE.wait(min(left, WAKE_SLICE_S))
+            woke = _config_gen != seen_gen
 
 
 # ------------------------------------------------------------------------------------ the server
@@ -2798,8 +2867,10 @@ class Handler(BaseHTTPRequestHandler):
 
         url = f"http://127.0.0.1:{self.server.server_address[1]}/?t={self.token}"
         try:
+            # `?frames=theme` (#348): the settings page listens for one frame, not the agents' history.
+            frames = (query.get("frames") or [""])[0].split(",")
             stream_events(cursors, getattr(self.server, "stopping", threading.Event()), write,
-                          url=url)
+                          url=url, agents="theme" not in frames)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass                              # the tab was closed. Not an error.
         self.close_connection = True
