@@ -118,7 +118,7 @@ Ink.setSkin({
   marks: [
     { selector: ".tile.needs-human .repo", tool: "highlighter", shape: "lines" },
     { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: 3 },
-    { selector: ".tile.state-done .head", tool: "green", shape: "check" },
+    { selector: ".tile.state-done", tool: "green", shape: "check" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "arrow", to: ".chip" },
   ],
 });
@@ -157,6 +157,15 @@ force alone.
 Shapes are computed from `getBoundingClientRect` in the element's own coordinates. A pane that moves, whether in a
 gutter drag, a scroll or a reorder, moves its marks. Only a pane that changes size, or whose text wraps differently,
 rebuilds them. A box under 90px wide is a pane's 48px rail, so a margin mark goes down its middle.
+
+The margin is the pane's left padding (#330). A `check` or a `bang` row anchors on the pane (`.tile.state-error`,
+never `.tile.state-error .head`), and `margin()` writes it 14px in from the pane's border box. Under ink, each skin that
+draws gives an open pane a 26px left padding in its own sheet (`var(--ink-margin, 26px)`, keyed
+`body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"])`, the way the legal pad keys
+its 34px; the notebook pads with its gutter), so the green check (to x+25.3) stays left of the pane number and the
+name. A skin that adds a mark table adds that rule too. It is not keyed on the ink canvas: Chromium 153 left a
+`.tile` rule keyed on `body:has(> #ink[data-skin])` unapplied after the layer set `data-skin` (a pane restyled
+from scratch got 26px; one restyled in place kept 10px). Ink off keeps the 10px padding, and the fallback's bar is drawn inside the pane's 3px border.
 
 | Shape | Drawn | Plain fallback |
 | --- | --- | --- |

@@ -79,11 +79,11 @@ export function marks() {
     // running: the chip underlined in pen
     { selector: ".tile.state-running .chip", tool: "pen", shape: "underline" },
     // error (and blocked, which the page colours alike): a bang in the margin in marker
-    { selector: ".tile.state-error .head", tool: "marker", shape: "bang" },
-    { selector: ".tile.state-blocked .head", tool: "marker", shape: "bang" },
+    { selector: ".tile.state-error", tool: "marker", shape: "bang" },
+    { selector: ".tile.state-blocked", tool: "marker", shape: "bang" },
     // done: a green tick in the margin. `is-done` is the fold's word for a finished agent nothing
     // supervises, whose chip says idle (#253, #333); the paper skins key on both.
-    { selector: ".tile:is(.state-done, .is-done) .head", tool: "green", shape: "check" },
+    { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     // stale (#240): the note that the session is old, outlined in dashed pen
     { selector: ".tile .oldsession:not([hidden])", tool: "pen", shape: "outline", dash: true, pad: 2 },
     // a finding: edits outside the scope it was given (#168), ringed in red

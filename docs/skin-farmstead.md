@@ -102,7 +102,7 @@ plain CSS under `body.ink-off`. The material is the skin's own response.
 | needs you | `.tile.needs-human` | highlighter, `lines` on the name (`.head .repo`) | the crop wilts | a tinted name, and the stylesheet's wilted chip glyph |
 | running | `.tile.state-running` | pen, `underline` under the name | a sprout grows | an underlined name, the sprout glyph |
 | error | `.tile.state-error` | marker, `loop` round the head | the crop wilts, and the frame is scorched (its boards darkened, with an ember of `--human`) | a 2px outline round the head |
-| done | `.tile:is(.state-done, .is-done)` | green, `check` in the margin of the head | the crop grows into a bloom | a bar in the head's margin (the chip's own glyph says what the chip says) |
+| done | `.tile:is(.state-done, .is-done)` | green, `check` in the pane's margin (#330) | the crop grows into a bloom | a bar in the pane's margin (the chip's own glyph says what the chip says) |
 | stale (#240) | `.tile .oldsession:not([hidden])` | pencil, dashed `outline` round the *old skills* tag | — | a 1px outline |
 | answered | `.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]` | pen, `loop` round the chosen answer | — | a 2px outline |
 | finding | `.tile .transcript li.friction` | red, `ellipse` round the friction line | — | a 2px outline |

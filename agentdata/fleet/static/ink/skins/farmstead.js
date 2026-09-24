@@ -61,7 +61,7 @@ export function marks() {
     // done: a green tick in the margin, beside the bloom -- the chip's `done` (a supervised
     // agent) or the fold's own (`is-done`, #253: the chip draws a finished, unsupervised agent
     // as idle, and this is how the page still says it finished).
-    { selector: ".tile:is(.state-done, .is-done) .head", tool: "green", shape: "check" },
+    { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     // stale (#240): the session's "old skills" tag ringed in dashed pencil.
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", pad: 2, dash: true },
     // answered: the choice the operator picked is circled in pen, while the question is open.

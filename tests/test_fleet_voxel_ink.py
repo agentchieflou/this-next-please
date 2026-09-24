@@ -394,8 +394,8 @@ def test_one_draw_call_per_material_at_one_agent_and_at_twenty(fleet_home, tmp_p
 #: Each state and what the grammar (docs/skin-voxel.md) says the voxel and the ink do.
 MARK = {
     "needs": ".tile.needs-human .head .repo",
-    "error": ".tile.state-error .head",
-    "done": ".tile:is(.state-done, .is-done) .head",
+    "error": ".tile.state-error",
+    "done": ".tile:is(.state-done, .is-done)",
     "stale": ".tile .oldsession:not([hidden])",
     "answered": '.tile .ask-choice[aria-pressed="true"]',
     "finding": ".tile .transcript li.friction .v, .tile .transcript li.denied .v",
