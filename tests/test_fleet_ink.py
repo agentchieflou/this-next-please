@@ -542,8 +542,8 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
                                                     "setSkin", "refresh", "off", "inspect", "sample"])
     assert api["ready"]["on"] is True and api["ready"]["source"] == "override" and api["enabled"]
     assert sorted(api["shapes"]) == sorted(api["layerShapes"]) == sorted(
-        ["outline", "divider", "underline", "lines", "loop", "ellipse", "strike", "check", "bang",
-         "arrow", "write"])
+        ["outline", "divider", "underline", "lines", "loop", "ellipse", "ring", "strike", "check", "bang",
+         "cross", "arrow", "write"])
     assert sorted(api["tools"]) == sorted(["pencil", "pen", "red", "green", "marker", "highlighter"])
     assert set(api["penTools"]) == set(api["tools"]) | {"eraser"}
     assert all(m.startswith("ink: mark 1") for m in api["bad"]), api["bad"]
@@ -1120,20 +1120,22 @@ def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path):
                 return { outline: head.outlineStyle + ' ' + head.outlineWidth,
                          highlight: name.backgroundColor,
                          underline: under.textDecorationLine,
-                         margin: getComputedStyle(b.querySelector('.head')).boxShadow };
+                         margin: getComputedStyle(b.querySelector('.head')).boxShadow,
+                         ring: getComputedStyle(a.querySelector('.head .n')).boxShadow,
+                         cross: getComputedStyle(b).boxShadow };
               };
               const bare = look();
-              a.classList.add('ink-loop', 'ink-pencil');
-              b.classList.add('ink-hl', 'ink-done');
+              a.classList.add('ink-loop', 'ink-pencil', 'ink-o');
+              b.classList.add('ink-hl', 'ink-done', 'ink-x');
               const marked = look();
-              a.classList.remove('ink-loop', 'ink-pencil');
-              b.classList.remove('ink-hl', 'ink-done');
+              a.classList.remove('ink-loop', 'ink-pencil', 'ink-o');
+              b.classList.remove('ink-hl', 'ink-done', 'ink-x');
               const gone = look();
               await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
               obs.disconnect();
               return { drawn, bare, marked, gone, writes: n, rules: document.adoptedStyleSheets
                          .flatMap(s => [...s.cssRules].map(r => r.cssText)).join('\\n') };
-            }""", TABLE)
+            }""", dict(TABLE, marks=TABLE["marks"] + OX["marks"]))
             assert not errors, errors
             browser.close()
     finally:
@@ -1144,6 +1146,9 @@ def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path):
     assert out["marked"]["highlight"] != out["bare"]["highlight"], out
     assert out["marked"]["underline"] == "underline", out["marked"]
     assert "inset" in out["marked"]["margin"] or "3px 0px 0px" in out["marked"]["margin"], out
+    # #386: the O is a rounded 2px ring round the number, the X a bar in the pane's margin.
+    assert out["marked"]["ring"].endswith("0px 0px 0px 2px") and out["bare"]["ring"] == "none", out
+    assert "3px 0px 0px 0px inset" in out["marked"]["cross"], out
     assert out["writes"] == 0, "the fallback wrote to the page"
     assert "body.ink-off :is(.tile.ink-loop .head)" in out["rules"], out["rules"]
     assert not [u for u in asked if "/static/ink/layer.js" in u or "vendor/three" in u]
@@ -1455,6 +1460,155 @@ def test_a_row_borrows_an_ink_and_an_underline_ends_in_a_cap(fleet_home, tmp_pat
                                             for m in f["marks"])]
             assert whole and came.index(whole[0]) <= 1, f"not drawn at once: {[f['marks'] for f in came[:4]]}"
             assert not any(f["hands"] for f in came), "a pen travelled under reduced motion"
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+
+
+#: #386: a tight O round a pane's number, and an X in a pane's margin.
+OX = {"name": "ox", "speed": 4, "marks": [
+    {"selector": ".tile.ink-o .head .n", "tool": "pencil", "shape": "ring"},
+    {"selector": ".tile.ink-x", "tool": "red", "shape": "cross"}]}
+
+#: The ring's mark on alpha with its strokes' bounds, `.n`'s box and `.repo`'s text rects, read at once.
+RING = """() => {
+  const a = document.querySelector('.tile[data-repo="alpha"]');
+  const n = a.querySelector('.head .n').getBoundingClientRect();
+  const rg = document.createRange(); rg.selectNodeContents(a.querySelector('.head .repo'));
+  const text = [...rg.getClientRects()].filter(r => r.width > 0)
+    .map(r => ({ x: r.left, y: r.top, r: r.right, b: r.bottom }));
+  const m = Ink.inspect().layer.marks.find(k => k.shape === 'ring' && k.lane === 'pane:alpha');
+  return { n: { x: n.left, y: n.top, r: n.right, b: n.bottom, w: n.width },
+           digits: a.querySelector('.head .n').textContent, text, mark: m || null };
+}"""
+
+
+def _union(bounds):
+    return {"x": min(b["x"] for b in bounds), "y": min(b["y"] for b in bounds),
+            "r": max(b["r"] for b in bounds), "b": max(b["b"] for b in bounds)}
+
+
+def _hugs(got):
+    """The ring's strokes enclose `.n`'s box and cross none of `.repo`'s words."""
+    m = got["mark"]
+    assert m and m["state"] == "drawn" and m["drawn"] == 1 and m["bounds"], got
+    u, n = _union(m["bounds"]), got["n"]
+    assert u["x"] <= n["x"] and u["r"] >= n["r"] and u["y"] <= n["y"] and u["b"] >= n["b"], (u, n)
+    assert got["text"], got
+    for t in got["text"]:
+        for b in m["bounds"]:
+            apart = b["r"] <= t["x"] or t["r"] <= b["x"] or b["b"] <= t["y"] or t["b"] <= b["y"]
+            assert apart, ("the O crosses the name", b, t, n)
+
+
+@pytest.mark.browser
+def test_the_o_and_the_x(fleet_home, tmp_path):
+    """#386. `ring` is a tight O round a small box (a pane's number), close enough that it never
+    crosses the name 8px away, for a one-digit and a two-digit number; `cross` is an X in the pane's
+    margin, down the middle of a rail. Each is drawn when its class comes and leaves by its tool's
+    rule: the pencil's O is erased, the red X struck. Plain, the O is a rounded 2px shadow in its
+    ink and the X a margin bar beside a selected pane's focus ring. Reduced motion draws both at
+    once, and an idle desk writes nothing and draws nothing."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+
+            # Plain: the same two rows as CSS, in their own inks.
+            page, errors, _ = _open(browser, port, token)
+            page.evaluate("""() => { const s = document.documentElement.style;
+              s.setProperty('--ink-pencil', '#0000ff'); s.setProperty('--ink-red', '#ff0000'); }""")
+            plain = page.evaluate("""async (t) => {
+              const drawn = (await Ink.setSkin(t)).drawn;
+              const a = document.querySelector('.tile[data-repo="alpha"]');
+              const b = document.querySelector('.tile[data-repo="beta"]');
+              const n = a.querySelector('.head .n');
+              const bare = [getComputedStyle(n).boxShadow, getComputedStyle(b).boxShadow];
+              a.classList.add('ink-o'); b.classList.add('ink-x');
+              const ns = getComputedStyle(n), o = { shadow: ns.boxShadow, radius: ns.borderTopLeftRadius };
+              const x = getComputedStyle(b).boxShadow;
+              const was = b.classList.contains('is-selected');
+              b.classList.add('is-selected');
+              const sel = getComputedStyle(b).boxShadow;
+              b.classList.toggle('is-selected', was);
+              a.classList.remove('ink-o'); b.classList.remove('ink-x');
+              return { drawn, bare, o, x, sel, shapes: Ink.shapes,
+                       gone: [getComputedStyle(n).boxShadow, getComputedStyle(b).boxShadow] };
+            }""", OX)
+            assert not errors, errors
+            page.close()
+            assert plain["drawn"] == "plain" and {"ring", "cross"} <= set(plain["shapes"]), plain
+            assert plain["o"]["shadow"] == "rgb(0, 0, 255) 0px 0px 0px 2px", plain
+            assert plain["o"]["radius"] == "999px", plain
+            assert plain["x"].startswith("rgb(255, 0, 0) 3px 0px 0px 0px inset"), plain
+            assert "rgb(255, 0, 0) 3px 0px 0px 0px inset" in plain["sel"], plain
+            assert "0px 0px 0px 2px" in plain["sel"], ("the selected pane lost its focus ring", plain)
+            assert plain["gone"] == plain["bare"], plain
+
+            # Drawn: the layer starts with both shapes, and each leaves by its tool's rule.
+            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+            assert {"ring", "cross"} <= set(page.evaluate("() => Ink.shapes"))
+            assert _set(page, OX)["drawn"] == "ink"
+            _mark(page, "alpha", "ink-o")
+            _mark(page, "alpha", "ink-x")
+            _rest(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:alpha'"
+                        " && m.drawn === 1).length === 2")
+            by = {m["shape"]: m for m in _marks(page)}
+            assert (by["ring"]["tool"], by["ring"]["strokes"]) == ("pencil", 1), by
+            assert (by["cross"]["tool"], by["cross"]["strokes"]) == ("red", 2), by
+            _hugs(page.evaluate(RING))
+
+            count = page.evaluate(IDLE_LOOP)
+            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+            assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
+
+            # A two-digit number: the O widens with it and still stays off the name.
+            page.evaluate("""() => {
+              document.querySelector('.tile[data-repo="alpha"] .head .n').textContent = '12';
+              Ink.refresh(); }""")
+            page.wait_for_function(f"""() => {{ const g = ({RING})(); return ({AT_REST})()
+              && g.digits === '12' && !!g.mark && g.mark.drawn === 1
+              && Math.abs(g.mark.box.w - g.n.w) < 0.5; }}""", timeout=20000)
+            _hugs(page.evaluate(RING))
+
+            _mark(page, "alpha", "ink-o", False)
+            _mark(page, "alpha", "ink-x", False)
+            _rest(page, "!Ink.inspect().layer.marks.some(m => m.shape === 'ring')"
+                        " && Ink.inspect().layer.marks.some(m => m.strikeOf)")
+            left = _marks(page)
+            cross = next(m for m in left if m["shape"] == "cross")
+            assert cross["state"] == "struck", left
+            assert [m["strikeOf"] for m in left if m["strikeOf"]] == [cross["id"]], left
+            assert not errors, errors
+            page.close()
+
+            # Reduced motion: both on the paper at once, and no pen travels.
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+            _set(page, OX)
+            came = page.evaluate(RECORD, [[["alpha", "ink-o"], ["alpha", "ink-x"]]])
+            whole = [f for f in came
+                     if sum(1 for m in f["marks"] if m[1] == "pane:alpha" and m[2] == 1) == 2]
+            assert whole and came.index(whole[0]) <= 1, f"not drawn at once: {[f['marks'] for f in came[:4]]}"
+            assert not any(f["hands"] for f in came), "a pen travelled under reduced motion"
+            assert not errors, errors
+            page.close()
+
+            # A rail: only the first pane is open, so beta is 48px wide and the X goes down its middle.
+            S.update_window("main", open="alpha", widths={"alpha": 1})
+            page, errors, _ = _open(browser, port, token, "&ink=on", panes=1)
+            _set(page, OX)
+            rail = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="beta"]')
+              .getBoundingClientRect(); return { x: r.left, w: r.width }; }""")
+            assert rail["w"] < 90, rail
+            _mark(page, "beta", "ink-x")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'cross' && m.drawn === 1)")
+            [cross] = [m for m in _marks(page) if m["shape"] == "cross"]
+            assert (cross["lane"], cross["strokes"]) == ("pane:beta", 2), cross
+            u = _union(cross["bounds"])
+            assert abs((u["x"] + u["r"]) / 2 - (rail["x"] + rail["w"] / 2)) <= 3, (u, rail)
             assert not errors, errors
             browser.close()
     finally:

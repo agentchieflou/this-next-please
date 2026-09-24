@@ -58,12 +58,17 @@ const PLAIN = {
   lines: "@tint",
   loop: "outline: 2px solid %c; outline-offset: 3px;",
   ellipse: "outline: 2px solid %c; outline-offset: 4px;",
+  ring: "box-shadow: 0 0 0 2px %c; border-radius: 999px;",
   strike: "text-decoration-line: line-through; text-decoration-color: %c; text-decoration-thickness: 2px;",
   check: "box-shadow: inset 3px 0 0 %c;",
   bang: "box-shadow: inset 3px 0 0 %c;",
+  cross: "box-shadow: inset 3px 0 0 %c;",
   arrow: "text-decoration-line: underline; text-decoration-style: dotted; text-decoration-color: %c;",
   write: "",
 };
+
+/* The shapes whose plain look is a bar in the pane's margin, an inset shadow (#386). */
+const MARGIN = new Set(["check", "bang", "cross"]);
 
 const PLAIN_TINT = 38;           // percent of the ink in a plain highlight
 const SPEED = [0.25, 4];         // the range a table's `speed` is held to
@@ -245,7 +250,7 @@ function plainCss(t) {
       out.push(sel + " { " + rule + " }");
       // A margin bar is an inset shadow, which would take the selection ring's place on a selected
       // pane: the ring is kept beside it, because a selected pane is still one pane (HIG *Focus*).
-      if (row.shape === "check" || row.shape === "bang") {
+      if (MARGIN.has(row.shape)) {
         out.push("body.ink-off :is(" + row.selector + ").is-selected { box-shadow: inset 3px 0 0 " + c +
                  ", 0 0 0 2px var(--focus, var(--accent)); }");
       }

@@ -62,7 +62,7 @@ function loopPath(r, o, rad, over) {
   return { pts };
 }
 
-/* The margin a check or a bang is written in: the left padding of a pane, or the middle of a rail. */
+/* The margin a check, a bang or a cross is written in: the left padding of a pane, or the middle of a rail. */
 function margin(r) {
   const rail = r.w < RAIL_BELOW;
   return { x: rail ? r.x + r.w / 2 : r.x + 14, top: r.y + (rail ? 16 : 14), rail };
@@ -131,6 +131,17 @@ export const SHAPES = {
     }
     return [{ pts, nobow: true, wob: 0.8 }];
   },
+  /* A tight O round a small box (a pane's number, #386), about 1.1 turns, spiralling out a hair:
+     it hugs the box, so it never reaches the name 8px beside it. */
+  ring(m) {
+    const r = box(m.box), rnd = rng(m.seed), R = Math.max(r.w, r.h) / 2 + 3 + (m.pad || 0);
+    const cx = (r.x + r.r) / 2, cy = (r.y + r.b) / 2, a0 = rnd() * 2 * Math.PI, pts = [];
+    for (let i = 0; i <= 48; i++) {
+      const a = a0 + i / 48 * 2.2 * Math.PI, k = 1 + 0.05 * i / 48;
+      pts.push([cx + Math.cos(a) * R * k, cy + Math.sin(a) * R * k]);
+    }
+    return [{ pts, nobow: true, wob: 0.5 }];
+  },
   /* A line through the box: across the middle of a line of text, corner to corner of a tall box,
      a short slash through a small one. Also how an ink mark leaves (`strikeOver`). */
   strike(m) {
@@ -147,6 +158,12 @@ export const SHAPES = {
     const g = margin(box(m.box)), y0 = g.top - 2, h = 22;
     return [{ pts: [[g.x - 0.5, y0], [g.x + 0.6, y0 + h]], wob: 0.3, nobow: true },
             { pts: [[g.x + 0.4, y0 + h + 7], [g.x + 0.9, y0 + h + 8.8]], nobow: true }];
+  },
+  /* An X in the margin (#386): two 14px strokes, the second across the first. */
+  cross(m) {
+    const g = margin(box(m.box)), y = g.top + 10;
+    return [{ pts: [[g.x - 7, y - 7], [g.x + 7, y + 7]], nobow: true },
+            { pts: [[g.x + 7, y - 7], [g.x - 7, y + 7]], nobow: true }];
   },
   /* From the left of the box to the foot of its target (`to` in the row), curving on the way. */
   arrow(m) {
