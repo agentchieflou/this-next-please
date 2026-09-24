@@ -165,10 +165,11 @@ def test_snapshot_writes_per_test_outcomes(bench_repo):
 # ------------------------------------------------------------------ the end-to-end regression gate
 
 
+@pytest.mark.measured
 def test_a_genuine_optimisation_passes_the_gate_and_a_slower_one_fails(bench_repo):
     """The fixture ships the slow/fast pair so this measures real code, not a stub."""
-    slow = bench_node(bench_repo, node="src/hot.py::slow_version", runs=2, warmup=1, label="before")
-    fast = bench_node(bench_repo, node="src/hot.py::fast_version", runs=2, warmup=1, label="after")
+    slow = bench_node(bench_repo, node="src/hot.py::slow_version", runs=5, warmup=1, label="before")
+    fast = bench_node(bench_repo, node="src/hot.py::fast_version", runs=5, warmup=1, label="after")
     assert slow["ok"] and fast["ok"]
 
     before = os.path.join(bench_repo, slow["path"])
