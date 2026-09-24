@@ -53,8 +53,13 @@ LOCAL_BUDGET_MS = 50.0
 #: The pen's speed in the layer (`layer.js` PEN), in CSS px a second at 1x.
 PEN = 900
 #: What the ink layer's own modules may weigh over the wire. three.js is not in it: 163 KB,
-#: fetched only by a shell the gate turned on, once a skin draws.
-INK_BUDGET = 40 * 1024
+#: fetched only by a shell the gate turned on, once a skin draws. Raised once, from 40 KiB, by #331
+#: on the operator's answer in the decisions register (#318, default yes): every later card that
+#: grows `ink.js`, `layer.js`, `shapes.js` or `pen.js` fits under it, and one-shot effect code goes
+#: to the lazily fetched `ink/fx.js` (#370). It is a figure for the modules as git stores them, LF:
+#: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF
+#: first (operator decision, #331), so CRLF bytes alone never fail it (`_wire`).
+INK_BUDGET = 44 * 1024
 #: What one skin's module may weigh over the wire (the legal pad's is 7 KB, #251).
 SKIN_BUDGET = 16 * 1024
 
@@ -233,12 +238,29 @@ def test_the_layer_is_the_one_place_three_is_imported_and_every_import_carries_t
         assert needle not in app.lower(), f"app.js names {needle}: the layer is `window.Ink` to it"
 
 
+def _wire(body: bytes) -> int:
+    """A module's gzipped size as `INK_BUDGET` counts it: line endings normalised to LF (what git
+    stores) before gzip level 6 with `mtime=0`, so a CRLF checkout measures what an LF one does
+    (operator decision, #331)."""
+    return len(gzip.compress(body.replace(b"\r\n", b"\n"), 6, mtime=0))
+
+
+def test_a_crlf_checkout_of_the_ink_modules_measures_what_an_lf_one_does():
+    """A Windows checkout with `core.autocrlf=true` holds the modules with CRLF endings, about 190
+    bytes more gzipped than LF. The budget measures what git stores, so the two are one figure
+    (operator decision, #331), where a gzip of the raw CRLF bytes is not."""
+    for n in MODULES:
+        lf = open(os.path.join(INK, n), "rb").read().replace(b"\r\n", b"\n")
+        crlf = lf.replace(b"\n", b"\r\n")
+        assert b"\r\n" in crlf and _wire(crlf) == _wire(lf), n
+        assert len(gzip.compress(crlf, 6, mtime=0)) > len(gzip.compress(lf, 6, mtime=0)), n
+
+
 def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     """What the layer's own modules cost over the wire, every one of them, as a shell the gate
     turned on fetches them. three.js is 163 KB of its own and is outside the desk's budget, because
     no desk fetches it unless it draws."""
-    sizes = {n: len(gzip.compress(open(os.path.join(INK, n), "rb").read(), 6, mtime=0))
-             for n in MODULES}
+    sizes = {n: _wire(open(os.path.join(INK, n), "rb").read()) for n in MODULES}
     print(f"\n  ink modules over the wire: {sum(sizes.values())} bytes gzipped {sizes}")
     assert sum(sizes.values()) < INK_BUDGET, sizes
     files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
@@ -516,6 +538,99 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
     assert "crayon" in api["bad"][0] and "star" in api["bad"][1] and "selector" in api["bad"][2]
     assert "eraser" in api["bad"][3] and "`to`" in api["bad"][4] and "no selector" in api["bad"][5]
     assert api["table"] is None, "a refused table replaced the one in force"
+
+
+#: A row whose outline stands 20px off its pane, which only the pane's clip keeps inside it (#331).
+CLIPPED = {"name": "clip", "marks": [
+    {"selector": ".tile.ink-loop", "tool": "red", "shape": "outline", "pad": 20}]}
+
+
+@pytest.mark.browser
+def test_a_mark_is_clipped_to_its_pane(fleet_home, tmp_path):
+    """#331: a mark in a pane's lane is cut to the pane's border box, inset 1px, as well as to the
+    viewport and its scrolling ancestors -- a safety net under the shapes, which keep their own
+    geometry inside. An outline padded 20px off the pane is drawn, and none of it outside."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors, _ = _open(browser, port, token, "&ink=on")
+            _set(page, CLIPPED)
+            _mark(page, "alpha", "ink-loop")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'outline' && m.drawn === 1)")
+            [mark] = _marks(page)
+            pane = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="alpha"]')
+              .getBoundingClientRect(); return { x: r.left, y: r.top, r: r.right, b: r.bottom }; }""")
+            # The right-hand stroke stands 20px past the pane's right edge: where it would be drawn.
+            outside = page.evaluate("b => Ink.sample(b)", {"x": pane["r"] + 2, "y": pane["y"] + 4,
+                                                           "w": 28, "h": pane["b"] - pane["y"] - 8})
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    # Drawn whole -- four strokes, their full length -- and every one of them is outside the pane,
+    # so what is drawn of them, `bounds`, is nothing past its border box.
+    assert (mark["lane"], mark["strokes"], mark["drawn"]) == ("pane:alpha", 4, 1) and mark["len"] > 0, mark
+    for b in mark["bounds"]:
+        assert pane["x"] - 1 <= b["x"] and b["r"] <= pane["r"] + 1, (b, pane)
+        assert pane["y"] - 1 <= b["y"] and b["b"] <= pane["b"] + 1, (b, pane)
+    assert outside == 0, "ink drawn past the pane's right edge"
+
+
+@pytest.mark.browser
+def test_snap_keeps_an_outline_in_the_padding_band_and_leaves_an_underline_with_no_line_alone(fleet_home, tmp_path):
+    """#331, `shapes.snap` in the page: an outline's edges go onto a grid line inside the box's
+    padding band, or down its middle where the band is narrower than a square -- never outside the
+    border box, never over the content. An underline takes the first grid line in [its text's foot
+    + 2, the next row's top - 2], and is left as it was when there is none."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors, _ = _open(browser, port, token, "&ink=on")
+            got = page.evaluate("""async () => {
+              const S = await import(q('/static/ink/shapes.js'));
+              const box = { x: 0, y: 0, w: 300, h: 200 }, at = { x: 13, y: 17 };
+              const outline = band => S.snap(S.SHAPES.outline({ box, pad: 0, seed: 7 }), 'outline', box, at, 28,
+                                             { band: [band, band, band, band] }).map(p => p.pts);
+              const ubox = { x: 0, y: 0, w: 100, h: 16 };
+              const under = S.SHAPES.underline({ box: ubox, base: 16, floor: 30 });
+              return { narrow: outline(10), wide: outline(40), under,
+                       none: S.snap(under, 'underline', ubox, { x: 0, y: 15 }, 28, { base: 16, floor: 30 }),
+                       some: S.snap(under, 'underline', ubox, { x: 0, y: 0 }, 28, { base: 16, floor: 40 }) };
+            }""")
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    L, T, R, B = 13, 17, 313, 217
+
+    def edges(strokes, band):
+        out = []
+        for pts in strokes:
+            vp = [(x + L, y + T) for x, y in pts]
+            assert all(L <= x <= R and T <= y <= B for x, y in vp), ("outside the border box", vp)
+            flat = abs(vp[-1][0] - vp[0][0]) >= abs(vp[-1][1] - vp[0][1])
+            vals = {round(y if flat else x, 3) for x, y in vp}
+            assert len(vals) == 1, ("not ruled straight", vp)
+            v = vals.pop()
+            lo, hi = (T, B) if flat else (L, R)
+            assert lo <= v <= lo + band or hi - band <= v <= hi, ("outside the padding band", v, band)
+            out.append(v)
+        return out
+
+    # A 10px band, a 28px pitch: every edge down its band's middle.
+    assert sorted(edges(got["narrow"], 10)) == [18, 22, 212, 308], got["narrow"]
+    # A 40px band holds a grid line: every edge on one.
+    assert all(v % 28 == 0 for v in edges(got["wide"], 40)), got["wide"]
+    # No grid line in [15 + 18, 15 + 28] = [33, 43]: the underline is left where it was.
+    assert got["none"] == got["under"]
+    # [18, 38] holds 28: the underline is ruled on it.
+    assert all(q[1] == 28 for path in got["some"] for q in path["pts"]), got["some"]
 
 
 @pytest.mark.browser
