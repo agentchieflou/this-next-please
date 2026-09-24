@@ -85,6 +85,16 @@ could never have seen it. It is a backstop for the common shape and it says so: 
 its own list of over-budget gestures and asserts the list is empty has no clock and no ceiling for
 any pattern to find, and carries the marker because its author put it there.
 
+A verdict on real timings counts as a duration too. `row["verdict"] == "faster"` has no clock and no
+ceiling on its line, but when the row came from `bench_node(` it judges two measured runs, and on a
+busy runner it judges the contention: the perf loop saw 8.3 ms against 1.2 ms called `same` (#314).
+So the scan flags a `["verdict"]` compared to `"faster"`, `"slower"` or `"same"` in any function
+that calls `bench_node(`, and leaves alone the verdict tests that run `compare_bench` on fixture
+TSVs or on TSVs they write themselves: those measure nothing. The two that do measure,
+`test_the_full_loop_on_a_covered_node` and `test_a_genuine_optimisation_passes_the_gate_and_a_slower_one_fails`,
+carry the marker, and bench a fixture whose slow version is about 80 times its fast one: the change
+is 98-99%, far above the floor that a noisy baseline's wall-time spread lifts.
+
 `scale` keeps it company for a related reason: a 40,000-event fold sharing four cores with three
 thousand other tests is the same mistake one layer up.
 

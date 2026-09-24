@@ -31,11 +31,6 @@ python -m pytest -q -m browser       # only the rendered-page tests
 python -m pytest -q --shuffle-seed 1 # order dependence; CI runs two seeds
 ```
 
-**Known noise.** Three benchmark-timing tests compare millisecond medians and fail in a slow sandbox with no code
-change: `tests/test_perf_loop.py::test_the_full_loop_on_a_covered_node` and two in `tests/test_testing_bench.py`.
-If those three are the only failures, and they fail with the tree stashed too, they are the machine's. Everything
-else is yours.
-
 **Branches.** Until #161 merges, the two plans and this brief exist only on `claude/adoring-gauss-bf40fr`. Branch
 each slice from it (or from `main` after the merge). One branch and one draft pull request per slice, titled with
 the issue number, body saying what changed and how it was verified, `Closes #<n>` in the body. Never merge; the
