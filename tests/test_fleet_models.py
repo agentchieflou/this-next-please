@@ -163,6 +163,14 @@ def test_ad_fleet_models_exits_0_without_copilot(isolated_path, capsys):
     assert "\x1b[" not in out
 
 
+def test_ad_fleet_models_refresh_asks_the_cli_once(counted, capsys):
+    assert cli_fleet.main(["models", "--refresh"]) == 0
+    out = capsys.readouterr().out
+    assert "source: help" in out and "cli_version: 1.0.88" in out
+    assert "claude-opus-5,anthropic,opus-5,cli,true" in out
+    assert counted == [["--version"], ["help", "config"], ["--help"]]
+
+
 # ------------------------------------------------------------------------------------ entries
 
 

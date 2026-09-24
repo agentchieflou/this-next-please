@@ -1417,7 +1417,8 @@ def cmd_models(a) -> int:
     except C.ConfigError:
         cfg = {}
     seen = [m for m in (S.served_model(r.name) for r in Registry().sorted()) if m]
-    if getattr(a, "refresh", False):
+    refreshed = bool(getattr(a, "refresh", False))
+    if refreshed:
         try:
             M.refresh(cfg)
         except OSError as e:
@@ -1426,7 +1427,7 @@ def cmd_models(a) -> int:
                     "hint": "check that the fleet directory is writable"}
             print(toon.encode({"meta": meta}))
             return EXIT_FAILED
-    cat = M.catalogue(cfg, seen=seen, spawn=True)
+    cat = M.catalogue(cfg, seen=seen, spawn=not refreshed)     # just asked: no second `--version`
     meta = dict(cat["meta"], models=len(cat["models"]), efforts=len(cat["efforts"]))
     failed = bool(meta.get("write_error"))
     payload = {"meta": {"ok": not failed, "source": "ad-fleet models", **meta}}
