@@ -120,9 +120,10 @@ def pytest_runtest_setup(item):  # pragma: no cover - setup hook
 
     `.github/scripts/durations.py` keys a test's time by its file and tier. pytest's default
     `junit_family` (xunit2) drops the `file` attribute from `<testcase>`, but it still writes
-    `user_properties` as `<properties>`, so the file travels there.
+    `user_properties` as `<properties>`, so the file travels there, with `/` on every OS so one
+    file has one key in `tests/durations.json` (`item.location` is `tests\\x.py` on Windows).
     """
-    item.user_properties.append(("file", item.location[0]))
+    item.user_properties.append(("file", item.location[0].replace(os.sep, "/")))
     item.user_properties.append(("markers", ",".join(sorted({m.name for m in item.iter_markers()}))))
 
 

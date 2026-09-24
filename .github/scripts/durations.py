@@ -151,6 +151,10 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--out", default=os.path.join("tests", "durations.json"))
     a = ap.parse_args(argv)
 
+    # The Windows runner's stdout is cp1252, and the job names carry a middle dot: write UTF-8, the
+    # encoding `$GITHUB_STEP_SUMMARY` is read in.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     missing = [p for p in a.junit if not os.path.isfile(p)]
     if missing:
         print("no such junit file: " + ", ".join(missing), file=sys.stderr)

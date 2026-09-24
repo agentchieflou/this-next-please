@@ -135,7 +135,18 @@ def test_a_missing_junit_file_is_named(tmp_path):
     assert p.returncode == 2 and "nope.xml" in p.stderr
 
 
+def test_the_output_is_utf8_whatever_the_console_code_page(tmp_path):
+    """The Windows runner's stdout is cp1252: the job name's middle dot came out mangled (#309's run)."""
+    path = junit(tmp_path / "j.xml", CASES, wall=1.0)
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    p = subprocess.run([sys.executable, SCRIPT, "job", path, "--job", "windows · python 3.14", "--cap-minutes", "40"],
+                       capture_output=True, env=env)
+    assert p.returncode == 0, p.stderr
+    assert "**`windows · python 3.14`**" in p.stdout.decode("utf-8")
+
+
 def test_the_suite_records_the_file_and_the_markers_on_every_test(request):
+    """With `/` on every OS: on Windows `item.location` is `tests\\test_durations_script.py`."""
     props = dict(request.node.user_properties)
     assert props["file"] == "tests/test_durations_script.py"
     assert "markers" in props
