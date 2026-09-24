@@ -5,7 +5,7 @@ stand-in for pncli" — so the Windows behaviour of the module that exists *beca
 skipped on Windows, which is where it breaks. These run on both.
 """
 from __future__ import annotations
-import importlib
+import importlib.util
 import json
 import os
 import subprocess

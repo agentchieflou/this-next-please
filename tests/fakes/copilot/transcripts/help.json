@@ -5,7 +5,7 @@
   "match": [
     "--help"
   ],
-  "stdout": "Usage: copilot [options] [command]\n\nOptions:\n  --reasoning-effort <level>  Set the reasoning effort level [possible values: none, minimal, low, medium, high, xhigh, max]\n  -h, --help                  display help for command\n",
+  "stdout": "Usage: copilot [OPTIONS] [COMMAND]\n\nOptions:\n      --model <model>\n          Set the AI model to use (use 'auto' to let Copilot pick\n          automatically)\n      --reasoning-effort <level>\n          Set the reasoning effort level [possible values: none, minimal, low, medium, high, xhigh, max]\n      --context <tier>\n          Set the context window tier (overrides persisted setting) [possible values: default, long_context]\n  -h, --help\n          Print help\n",
   "stderr": "",
   "returncode": 0
 }
