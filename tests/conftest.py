@@ -11,6 +11,7 @@ Everything here runs against a temporary home unless it asks not to.
 there rather than three months later as "works on my machine".
 """
 from __future__ import annotations
+import importlib
 import os
 import random
 import shutil
@@ -18,6 +19,7 @@ import subprocess
 import sys
 
 import pytest
+from subproc import agentdata_env
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
@@ -69,6 +71,30 @@ def pytest_collection_modifyitems(config, items):  # pragma: no cover - collecti
     if seed is None:
         return
     random.Random(int(seed)).shuffle(items)
+
+
+# The declared dependencies whose absence fails tests rather than skipping them by name (#297; the
+# operator's answer on #288). Imported, not `find_spec`-ed: a shadow package is found without being
+# run, so a dependency that cannot actually import would pass a spec check.
+DECLARED_DEPENDENCIES = ("rich", "yaml")
+
+
+def missing_dependencies(names=DECLARED_DEPENDENCIES):
+    missing = []
+    for name in names:
+        try:
+            importlib.import_module(name)
+        except ImportError:
+            missing.append(name)
+    return missing
+
+
+def pytest_configure(config):  # pragma: no cover - session hook
+    """A sandbox without a declared dependency gets one line, not fourteen wrong failures."""
+    missing = missing_dependencies()
+    if missing:
+        pytest.exit("the suite runs against its declared dependencies; missing: "
+                    f"{', '.join(missing)}. Run: python -m pip install -e \".[dev]\"", returncode=4)
 
 
 @pytest.fixture(autouse=True)
@@ -218,8 +244,7 @@ def run_cmd(tmp_path):
     sequence that only appears when stdout is a pipe.
     """
     def _run(args: list[str], *, cwd: str | None = None, timeout: int = 120, env: dict | None = None):
-        environment = dict(os.environ)
-        environment.update(env or {})
+        environment = agentdata_env(env)
         p = subprocess.run([sys.executable, "-m", "agentdata", *args],
                            capture_output=True, text=True, timeout=timeout,
                            cwd=cwd or str(tmp_path), encoding="utf-8", errors="replace",

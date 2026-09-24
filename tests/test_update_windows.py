@@ -15,6 +15,7 @@ import pytest
 from agentdata import proc, update
 from toon_read import meta as _meta, table as _table
 from agentdata.textio import write_text
+from subproc import agentdata_env
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PIP_FAKES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fakes", "pip", "transcripts")
@@ -127,7 +128,7 @@ def test_every_problem_gets_a_row_not_just_the_last_one_found():
     import sys
 
     out = subprocess.run([sys.executable, "-m", "agentdata", "update", "--check"],
-                         capture_output=True, text=True,
+                         capture_output=True, text=True, env=agentdata_env(),
                          cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     assert out.returncode == 0, out.stderr
     meta = _meta(out.stdout)

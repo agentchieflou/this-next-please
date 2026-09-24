@@ -17,6 +17,7 @@ import pytest
 
 import contract_cases
 from agentdata import toon
+from subproc import agentdata_env
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANSI = re.compile(r"\x1b\[")
@@ -39,8 +40,7 @@ COMMANDS = sorted(scripts())
 
 
 def run(args, *, cwd, extra_env=None, timeout=180):
-    env = dict(os.environ)
-    env.update(extra_env or {})
+    env = agentdata_env(extra_env)
     p = subprocess.run([sys.executable, "-m", "agentdata", *args],
                        capture_output=True, text=True, cwd=cwd, timeout=timeout,
                        encoding="utf-8", errors="replace", env=env)
