@@ -59,15 +59,25 @@ jobs:
       # The matrix used to carry a free-form `select` appended here. It is gone on purpose: a
       # second `-m` on a pytest command line REPLACES the first rather than combining with it,
       # so anyone filling that knob in would have silently switched the tier split off.
+      #
+      # #296: this job installed Chromium above, so a browser test here may fail but never skip.
+      # `AGENTDATA_REQUIRE_BROWSER` turns a skipped `browser` test into a failure (tests/conftest.py),
+      # and `-rs` prints every remaining skip's reason, so a `no chromium` line cannot hide again.
       - name: the suite, in parallel
-        run: python -m pytest -q -n auto -m "not slow and not measured and not scale"
+        env:
+          AGENTDATA_REQUIRE_BROWSER: "1"
+        run: python -m pytest -q -rs -n auto -m "not slow and not measured and not scale"
       - name: the measured and scale tiers, with the machine to themselves
-        run: python -m pytest -q -m "(measured or scale) and not slow"
+        env:
+          AGENTDATA_REQUIRE_BROWSER: "1"
+        run: python -m pytest -q -rs -m "(measured or scale) and not slow"
       # `slow` stays serial and stays here. It builds wheels in fresh venvs, and four concurrent
       # `pip install`s on a two-core runner is a different risk from the one this change is about;
       # it ran serially before and it runs serially now. This is the only leg that runs it on Linux.
       - name: the slow tier, serially
-        run: python -m pytest -q -m slow
+        env:
+          AGENTDATA_REQUIRE_BROWSER: "1"
+        run: python -m pytest -q -rs -m slow
 
       # #220: the desk's own numbers, in the job output rather than in somebody's memory. These
       # tests already measure and assert; `-s` is what lets what they measured reach the log, and
@@ -75,9 +85,11 @@ jobs:
       # a property of the engine and the runner, not of the Python version.
       - name: the desk's measurements, attached
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        env:
+          AGENTDATA_REQUIRE_BROWSER: "1"
         run: |
           set -o pipefail
-          python -m pytest -q -s -p no:cacheprovider \
+          python -m pytest -q -rs -s -p no:cacheprovider \
             tests/test_fleet_motion.py tests/test_fleet_trace.py \
             tests/test_fleet_instant.py tests/test_fleet_engines.py \
             2>&1 | tee desk-measurements.txt
@@ -96,7 +108,8 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         env:
           AGENTDATA_SHOTS: ${{ github.workspace }}/demo-frames
-        run: python -m pytest -q -s -p no:cacheprovider tests/test_fleet_demo_ownership.py
+          AGENTDATA_REQUIRE_BROWSER: "1"
+        run: python -m pytest -q -rs -s -p no:cacheprovider tests/test_fleet_demo_ownership.py
 
       - name: upload the demo
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
@@ -166,8 +179,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {python: "3.12", autocrlf: "true"}    # the floor, checked out the way Git for Windows defaults
-          - {python: "3.14", autocrlf: "false"}   # the laptop, with line endings left alone
+          # require_browser (#296): only the leg that installs Chromium may not skip a browser test.
+          - {python: "3.12", autocrlf: "true", require_browser: ""}     # the floor, checked out the way Git for Windows defaults
+          - {python: "3.14", autocrlf: "false", require_browser: "1"}   # the laptop, with line endings left alone
     steps:
       # A Windows checkout's line endings depend on core.autocrlf, and the fixtures' bytes are the
       # point of several tests. Run the matrix both ways rather than pinning one and hoping.
@@ -199,10 +213,14 @@ jobs:
       # would be guessing. Running serially costs this leg nothing against what it did before.
       - name: pytest
         shell: pwsh
-        run: python -m pytest -q -m "not slow and not measured and not scale"
+        env:
+          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
+        run: python -m pytest -q -rs -m "not slow and not measured and not scale"
       - name: the measured and scale tiers, with the machine to themselves
         shell: pwsh
-        run: python -m pytest -q -m "(measured or scale) and not slow"
+        env:
+          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
+        run: python -m pytest -q -rs -m "(measured or scale) and not slow"
 
       # Split out, verbose, and with its own cap on purpose. A hang inside the slow marker used to
       # take the whole job down and `-q` never said which test it was in -- the log simply stopped
@@ -211,7 +229,9 @@ jobs:
         if: matrix.python == '3.14'
         shell: pwsh
         timeout-minutes: 10
-        run: python -m pytest -m slow -v --durations=0 --capture=tee-sys
+        env:
+          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
+        run: python -m pytest -m slow -v -rs --durations=0 --capture=tee-sys
 
       # one step per shell, so a red job names the shell rather than "Windows"
       - name: smoke · pwsh 7
