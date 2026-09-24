@@ -13,6 +13,10 @@ program that *does things over time*, and the fleet's whole job is watching that
 transcripts carry `steps`, and a step either emits one JSONL event or runs a real `ad-*` command
 and emits what happened. The state files the fleet then reads are real files, changed by the real
 `ad-state`, and not a fixture somebody remembered to update.
+
+A transcript may also declare `"always": true`. These match by argv under any case, even when
+`AGENTDATA_FAKE_CASE` selected an agent case, so informational verbs like `--version` and
+`help config` answer consistently without disrupting case replay.
 """
 from __future__ import annotations
 import json
@@ -251,6 +255,14 @@ def main() -> int:
         return 99
     tool, argv = sys.argv[1], sys.argv[2:]
     case = os.environ.get("AGENTDATA_FAKE_CASE")
+
+    for entry in load(tool, None):
+        if entry.get("always") and matches(entry, argv):
+            if entry.get("delay"):
+                time.sleep(float(entry["delay"]))
+            sys.stdout.write(entry.get("stdout", ""))
+            sys.stderr.write(entry.get("stderr", ""))
+            return int(entry.get("returncode", 0))
 
     for entry in load(tool, case):
         if not (case or matches(entry, argv)):
