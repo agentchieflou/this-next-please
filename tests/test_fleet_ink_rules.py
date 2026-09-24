@@ -81,6 +81,25 @@ SETTLE = """(repo) => new Promise(done => {
 })"""
 
 
+#: The long pane has stopped moving: its box and its transcript's box the same for three frames in
+#: a row, nothing on the page in a transition, and the fonts loaded (#461). On the Windows 3.14 leg
+#: the watch below began while the pane was still settling -- the transcript's top at 221.2, 238.2
+#: or 249.2 before the card, where a settled pane reads 249.2 every time -- and the layer built a
+#: frame for a box the watch never sampled.
+STILL = """(repo) => new Promise(done => {
+  const list = document.querySelector(`.tile[data-repo="${repo}"] .transcript`), pane = list.closest('.tile');
+  let was = '', same = 0;
+  const look = () => {
+    const r = list.getBoundingClientRect(), p = pane.getBoundingClientRect();
+    const now = [p.left, p.top, p.width, p.height, r.top, r.height].map(v => v.toFixed(1)).join(',');
+    same = now === was ? same + 1 : 0; was = now;
+    const moving = document.getAnimations().some(a => a.playState === 'running');
+    if (same >= 3 && !moving && document.fonts.status === 'loaded') done(now); else requestAnimationFrame(look);
+  };
+  requestAnimationFrame(look);
+})"""
+
+
 def _desk(tmp_path):
     """Two panes: a long transcript that overflows -- one-line tool calls, and the agent's words,
     whose `assistant text` label wraps to a second line -- and a short one of two rows."""
@@ -108,6 +127,7 @@ def _look(page, look):
     page.evaluate(f"() => {{ const l = document.querySelector('.tile[data-repo=\"{LONG}\"] .transcript');"
                   " l.scrollTop = l.scrollHeight; }")
     page.evaluate(SETTLE, LONG)
+    page.evaluate(STILL, LONG)
     page.wait_for_function(AT_REST, timeout=20000)
 
 
@@ -252,6 +272,9 @@ def test_the_question_card_redraws_the_rules_once_for_each_move(fleet_home, tmp_
                     (("question_opened", {"question": "which window should this land in?", "id": "q1",
                                           "blocking": True, "choices": ["left", "right"]}), True),
                     (("question_answered", {"id": "q1", "question": "which window should this land in?"}), False)):
+                # The watch starts from a pane at rest, so every box the layer builds for is one it sees.
+                page.evaluate(STILL, LONG)
+                page.wait_for_function(AT_REST, timeout=20000)
                 before = page.evaluate(BUILDS)
                 page.evaluate(WATCH, LONG)
                 _emit(page, LONG, event)
