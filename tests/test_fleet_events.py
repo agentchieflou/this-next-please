@@ -567,3 +567,133 @@ def test_new_handoff_event_kinds_are_redacted_and_resumable(fleet_home, tmp_path
     fold.add(read_back[0])
     st = agentstate.classify(fold)
     assert st["state"] in agentstate.STATES
+
+
+# --------------------------------------------------------------- Copilot sub-agents (#402)
+# Shapes from the Copilot SDK docs (`github/docs` custom-agents.md), not measured from the CLI.
+
+SUB_STARTED = {"type": "subagent.started", "timestamp": "2026-01-01T00:00:01Z",
+               "data": {"toolCallId": "call-a", "agentName": "reviewer", "agentDisplayName": "Reviewer",
+                        "agentDescription": "Reads the diff", "model": "claude-haiku-4.5"}}
+SUB_COMPLETED = {"type": "subagent.completed", "timestamp": "2026-01-01T00:00:05Z",
+                 "data": {"toolCallId": "call-a", "agentName": "reviewer", "durationMs": 4200,
+                          "totalTokens": 5100, "totalToolCalls": 3}}
+SUB_FAILED = {"type": "subagent.failed", "timestamp": "2026-01-01T00:00:06Z",
+              "data": {"toolCallId": "call-b", "agentName": "docs-writer", "error": "x" * 300}}
+TURN_START, TURN_END = RAW_TURN[0], RAW_TURN[5]
+
+
+def test_the_three_sub_agent_types_map_to_two_kinds():
+    (started,) = E.from_copilot(SUB_STARTED, "luna", "RDSD-1")
+    assert started["kind"] == "subagent_started"
+    assert started["data"] == {"id": "call-a", "agent": "reviewer", "name": "Reviewer",
+                               "model": "claude-haiku-4.5"}
+    (done,) = E.from_copilot(SUB_COMPLETED, "luna")
+    assert done["kind"] == "subagent_ended"
+    assert done["data"] == {"id": "call-a", "agent": "reviewer", "ok": True, "ms": 4200, "tools": 3}
+    (failed,) = E.from_copilot(SUB_FAILED, "luna")
+    assert failed["kind"] == "subagent_ended"
+    assert failed["data"] == {"id": "call-b", "agent": "docs-writer", "ok": False, "error": "x" * 200}
+    assert {"subagent_started", "subagent_ended"} <= set(E.KINDS)
+
+
+@pytest.mark.parametrize("kind", ["subagent.selected", "subagent.deselected", "subagent.paused"])
+def test_other_sub_agent_types_stay_raw(kind):
+    (ev,) = E.from_copilot({"type": kind, "data": {"agentName": "reviewer"}}, "luna")
+    assert ev["kind"] == "raw" and ev["data"]["type"] == kind
+
+
+def test_a_secret_inside_a_sub_agent_event_is_redacted():
+    token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+    failed = dict(SUB_FAILED, data=dict(SUB_FAILED["data"], error=f"push refused with {token}"))
+    started = dict(SUB_STARTED, data=dict(SUB_STARTED["data"], agentDisplayName=token))
+    selected = {"type": "subagent.selected", "data": {"agentName": "reviewer", "api_key": "hunter2"}}
+    out = [ev for raw in (failed, started, selected) for ev in E.from_copilot(raw, "luna")]
+    said = json.dumps(out)
+    assert token not in said and "hunter2" not in said, said
+    assert out[0]["data"]["error"] == f"push refused with {E.REDACTED}"
+    assert out[1]["data"]["name"] == E.REDACTED
+
+
+def _stream(*raws):
+    out = []
+    for raw in raws:
+        out.extend(E.from_copilot(raw, "luna"))
+    for i, ev in enumerate(out, 1):
+        ev["seq"] = i
+    return out
+
+
+def _live_subagents(events, live=True):
+    fold = agentstate.Fold()
+    for ev in events:
+        fold.add(ev)
+    return agentstate.classify(fold, live=live)["subagents"]
+
+
+def test_the_fold_counts_live_sub_agents():
+    second = dict(SUB_STARTED, data=dict(SUB_STARTED["data"], toolCallId="call-b", agentName="docs-writer"))
+    started = [E.event("luna", "started", {"pid": 1})] + _stream(TURN_START, SUB_STARTED, second)
+    assert _live_subagents(started) == 2
+    one_done = started + _stream(SUB_COMPLETED)
+    assert _live_subagents(one_done) == 1
+    assert _live_subagents(one_done + [E.event("luna", "exited", {"exit_code": 0})]) == 0
+    assert _live_subagents(one_done + [E.event("luna", "error", {"exit_code": 1})]) == 0
+    assert _live_subagents(one_done + [E.event("luna", "started", {"pid": 2})]) == 0, "a new run clears them"
+    for events in (started, one_done):
+        assert _live_subagents(events, live=False) == 0
+    assert agentstate.derive(started, live=True)["subagents"] == 2
+    assert agentstate.derive(started, live=False)["subagents"] == 0
+
+
+def test_sub_agent_events_add_no_transition():
+    """A sub-agent ending, failed or not, is routine: no state change, so no notification."""
+    def shape(events):
+        return [(t["from"], t["state"], t["kind"]) for t in agentstate.transitions(events)]
+
+    ask = {"type": "assistant.message", "data": {"content": "Shall I open the PR?"}}
+    third = dict(SUB_STARTED, data=dict(SUB_STARTED["data"], toolCallId="call-c"))
+    plain = _stream(TURN_START, ask, TURN_END)
+    busy = _stream(TURN_START, SUB_STARTED, SUB_FAILED, SUB_COMPLETED, ask, third, TURN_END)
+    assert [ev["kind"] for ev in busy].count("subagent_ended") == 2
+    assert shape(busy) == shape(plain)
+    assert [s for _, s, _ in shape(plain)] == ["running", "needs_human"]
+
+
+SUBAGENTS_CASE = os.path.join(ROOT, "tests", "fakes", "copilot", "transcripts", "subagents.json")
+
+
+def test_the_subagents_transcript_says_it_is_synthesized():
+    with open(SUBAGENTS_CASE, encoding="utf-8") as f:
+        case = json.load(f)
+    assert case["source"] == "synthesized"
+    assert time.strptime(case["captured"], "%Y-%m-%d")
+    assert "custom-agents.md" in case["note"] and "not captured" in case["note"]
+
+
+def test_the_subagents_case_replayed_through_the_fake_copilot_folds(tmp_path):
+    """The `test_fleet_console.py` pattern: run the fake `copilot -p` and fold what it prints."""
+    import subprocess
+    import sys
+
+    env = dict(os.environ, AGENTDATA_FAKE_CASE="subagents", PYTHONUTF8="1",
+               COPILOT_SESSION_STATE=str(tmp_path / "state"))
+    done = subprocess.run([sys.executable, os.path.join(ROOT, "tests", "fakes", "runner.py"),
+                           "copilot", "-p", "x"], capture_output=True, text=True, env=env,
+                          cwd=str(tmp_path), timeout=120, encoding="utf-8", errors="replace")
+    assert done.returncode == 0, done.stderr
+    raws = [json.loads(ln) for ln in done.stdout.splitlines() if ln.startswith("{")]
+    events = [E.event("luna", "started", {"pid": 1})]
+    for raw in raws:
+        events.extend(E.from_copilot(raw, "luna"))
+    kinds = [ev["kind"] for ev in events]
+    assert kinds.count("subagent_started") == 2 and kinds.count("subagent_ended") == 2, kinds
+    assert kinds.count("raw") == 2, "selected and deselected stay raw"
+    ended = [ev["data"] for ev in events if ev["kind"] == "subagent_ended"]
+    assert [(d["agent"], d["ok"]) for d in ended] == [("reviewer", True), ("docs-writer", False)]
+    first_end = kinds.index("subagent_ended")
+    assert _live_subagents(events[:first_end]) == 2
+    assert _live_subagents(events[:first_end + 1]) == 1
+    assert _live_subagents(events[:first_end + 2]) == 0
+    assert _live_subagents(events[:first_end], live=False) == 0
+    assert kinds[-1] == "exited" and _live_subagents(events) == 0

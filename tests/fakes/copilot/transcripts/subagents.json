@@ -1,0 +1,100 @@
+{
+  "source": "synthesized",
+  "note": "shapes from the Copilot SDK docs (custom-agents.md), not captured from the CLI (#402)",
+  "captured": "2026-09-24",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-subagents",
+  "usage": {
+    "premiumRequests": 1
+  },
+  "steps": [
+    {
+      "emit": {
+        "type": "assistant.turn_start",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "subagent.selected",
+        "data": {
+          "agentName": "reviewer",
+          "agentDisplayName": "Reviewer"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "subagent.started",
+        "data": {
+          "toolCallId": "call-review",
+          "agentName": "reviewer",
+          "agentDisplayName": "Reviewer",
+          "agentDescription": "Reads the diff and lists what is wrong with it"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "subagent.started",
+        "data": {
+          "toolCallId": "call-docs",
+          "agentName": "docs-writer",
+          "agentDisplayName": "Docs writer",
+          "agentDescription": "Writes the page for a change",
+          "model": "claude-haiku-4.5"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "subagent.completed",
+        "data": {
+          "toolCallId": "call-review",
+          "agentName": "reviewer",
+          "durationMs": 4200,
+          "totalTokens": 5100,
+          "totalToolCalls": 3
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "subagent.failed",
+        "data": {
+          "toolCallId": "call-docs",
+          "agentName": "docs-writer",
+          "error": "the docs folder is not in this checkout"
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "subagent.deselected",
+        "data": {}
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.message",
+        "data": {
+          "content": "The review found nothing; the docs sub-agent could not write its page.",
+          "model": "claude-haiku-4.5",
+          "toolRequests": []
+        }
+      }
+    },
+    {
+      "emit": {
+        "type": "assistant.turn_end",
+        "data": {
+          "turnId": "0"
+        }
+      }
+    }
+  ]
+}

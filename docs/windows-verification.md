@@ -714,6 +714,19 @@ Leave the four agents working for half an hour and do something else.
 > **Expect**: **zero** notifications from agents that are simply working. If a toast arrives for a
 > tool call, paste `ad-fleet notify tail` — the rule that fired is a bug.
 
+### 8b. Sub-agents (#402), not yet measured
+
+Run one turn that asks for a custom agent (e.g. `ad-fleet send <repo> "Use the <agent> agent to …"`,
+with a custom agent installed under `~/.copilot/agents`), then, in that agent's fleet folder:
+
+```
+Select-String subagent. events.jsonl
+```
+
+> **Paste back** what it prints, or "none". The `subagent_started` / `subagent_ended` kinds in
+> [fleet-events.md](fleet-events.md) are built from the Copilot SDK docs; this is what says whether
+> `copilot -p` writes them at all.
+
 ### 9. The end of the day
 
 ```
