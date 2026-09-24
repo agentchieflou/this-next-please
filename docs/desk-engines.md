@@ -126,6 +126,11 @@ only on a shell whose record here says hardware (or a page opened with `?ink=on`
 override), and only once a skin draws with ink. There, since #257, it also draws every agent's trace,
 which was one of the desk's two 2D canvases. Tests hold all three.
 
+Since #349 the desk that will load it names it in a `<link rel="modulepreload">`, so three.js is fetched in
+parallel with the page rather than after the layer has run, and still only where the gate is on. One change
+follows: a shell whose probe says hardware, but whose WebGL context then fails on this load, has fetched three.js
+once, where before it fetched nothing.
+
 ## What happens without each one
 
 | Feature | Without it | Proven by |
