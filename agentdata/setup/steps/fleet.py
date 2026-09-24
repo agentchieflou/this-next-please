@@ -22,6 +22,7 @@ sqlite file must not cost the operator the eight rows that were fine.
 """
 from __future__ import annotations
 import os
+import re
 import time
 
 from ..wizard import Context, Step
@@ -191,8 +192,12 @@ class FleetStep(Step):
         try:
             rc, out, err, _el = proc.run(["copilot", "--version"], timeout=60)
             text = (out or err or "").strip()
-            version = text.split()[-1] if rc == 0 and text else ""
-            why = "" if rc == 0 else (text[:160] or f"exit {rc}")
+            m = re.search(r"\d+\.\d+\.\d+", text)
+            version = m.group(0) if rc == 0 and m else ""
+            if rc == 0:
+                why = "" if version else (text[:160] or "no version in output")
+            else:
+                why = text[:160] or f"exit {rc}"
         except Exception as e:                       # noqa: BLE001 - not found, shim broken, refused
             why = str(e)[:160]
 
