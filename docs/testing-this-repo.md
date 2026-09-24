@@ -531,7 +531,35 @@ Issue: https://github.com/agentchieflou/this-next-please/issues/<n>
 Reproduce it with fakes rather than the real tool — a fake that replays captured output is a test;
 one that invents output is worth less than no test.
 
+## When CI is red
+
+A red check becomes a reproduced cause, never a re-run into green (#316). On 23 Sep, 5 of the 9 pushes to
+`main` were red or cancelled, all on `windows · python 3.14`, and the answers were re-runs, per-test wait tweaks
+and cap raises. None of them named a cause.
+
+1. **Record it before any re-run.** A red check that passes on re-run is a finding, never "a flake": "flake" is
+   not a root cause. Before any re-run, open an issue from the flake template
+   ([`.github/ISSUE_TEMPLATE/flake.md`](../.github/ISSUE_TEMPLATE/flake.md)) with the job URL, the node id, the
+   full failure output (including what `_explain_the_page` printed), the commit, and the runner OS and Python.
+2. **Reproduce before fixing.** Run `-n 8` on 4 cores, several concurrent copies of the one test, or the
+   deterministic trick the cause needs (a late real answer patched in after a stub, as commit a42e0df did). #307
+   adds a CPU throttle and a stress script to this list. Paste the reproduction in the issue.
+3. **Fix the cause**: a missing condition, a stub race, a leaked global, a product defect. A product defect gets
+   a regression file, `tests/regressions/test_<yyyymmdd>_<any|shell>_<short>.py`, quoting what the runner
+   printed (see *The regression convention*).
+4. **Never** skip, xfail, quarantine or deselect a test; add a fixed wait; raise a ceiling or a cap without a
+   reproduction showing the ceiling is the only problem; re-run until green and merge.
+
+**Every pytest job is required in practice**, `windows · python 3.14` included, before and after #311 splits
+that job: the operator waived 3.14 for K (PR #275) only, and no job is advisory. **Merging over red is the
+operator's call, one PR at a time**: it happens only at the operator's word for that PR, and its merge message
+names the check and links its flake issue. Branch protection is the operator's setting and is not changed here;
+the `flake` label the template applies is created by the operator. `tests/test_hygiene_flake_policy.py` keeps
+this section, the template and the rule together.
+
 ## What CI runs
+
+A red job is handled as *When CI is red* says: a flake issue and a reproduction first, never a re-run into green.
 
 | Job | What it proves |
 |---|---|
