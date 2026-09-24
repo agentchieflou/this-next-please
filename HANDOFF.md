@@ -42,6 +42,7 @@ Context: scaffold produced offline. Owner: Michael. Worker model in production: 
 3. Do not change the format policy thresholds without writing the reason in `docs/data-format-policy.md` changelog.
 4. Never put a credential in any file. Connectors resolve creds at runtime only.
 5. After each task: commit, push to `agentchieflou/this-next-please`.
+6. A coding agent developing this repository (not Luna) follows `docs/developing-with-agents.md` and `GEMINI.md`: one issue, one branch, one draft PR with the handover note.
 
 ## First commands
 ```bash
