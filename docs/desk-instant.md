@@ -100,6 +100,15 @@ While it is showing, `body.is-stale` dims the glass a little and the footer says
 while this one loads"*. A stale desk that does not admit it is a desk that lies for a second, and a
 second is long enough to act on.
 
+**While the stream replays, `body.is-replaying` says so (#371).** Every `connect()` opens
+`/api/events` after the page's cursors, and the server writes every event after each one before it
+ends the pass with `tick`; a repo missing from `since` starts at 0, and EventSource's own reconnect
+re-sends the original URL, so it replays from the old cursors. A replayed `li.denied` looks exactly
+like a fresh one. `connect()` and every `onopen` set the class, and the pass's `tick` clears it,
+after the last replayed line is on the page; it is written through `toggle`, so an idle desk, which
+never connects, writes nothing. Nothing styles it: the ink layer's cues read it, so they do not play
+old hits as news (#372). `tests/test_fleet_instant.py` forces a replay and counts the lines at the off.
+
 `restoreCached()` is called at the very bottom of `app.js`, not beside the `refresh()` that starts the
 fetch, because drawing a row touches module state — `departed`, the tiles map — that is `undefined`
 until the script has finished evaluating.

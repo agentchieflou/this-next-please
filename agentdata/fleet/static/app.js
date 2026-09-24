@@ -1692,9 +1692,16 @@ function cursors() {
   return parts.join(",");
 }
 
+/* `body.is-replaying` (#371): the first pass after every open is history, not news. The server
+   writes every event after each cursor in `since` and ends a pass that sent frames with `tick`; a
+   repo missing from `since` starts at 0, and EventSource's own reconnect re-sends the original URL,
+   whose `since` wins over Last-Event-ID, so it replays from the old cursors. A replayed `li.denied`
+   looks exactly like a fresh one, so the page says which until the pass's `tick`. Set here and in
+   `onopen` (the native reconnect calls only that); nothing styles it. */
 function connect() {
   if (source) source.close();
   var link = document.getElementById("link");
+  toggle(document.body, "is-replaying", true);
   source = new EventSource(q("/api/events", { since: cursors() }));
   source.addEventListener("agent", function (m) {
     var ev = JSON.parse(m.data);
@@ -1731,10 +1738,14 @@ function connect() {
     } catch (err) {}
   });
   source.addEventListener("tick", function () {
+    toggle(document.body, "is-replaying", false);
     setClass(link, "dot live");
     text(link, "live");
   });
-  source.onopen = function () { streamDead = false; setClass(link, "dot live"); text(link, "live"); };
+  source.onopen = function () {
+    toggle(document.body, "is-replaying", true);
+    streamDead = false; setClass(link, "dot live"); text(link, "live");
+  };
   source.onerror = function () {
     streamDead = true;
     setClass(link, "dot lost");
