@@ -71,14 +71,21 @@ works.
 
 The last snapshot this window saw is kept in `sessionStorage` and drawn first, and the fetch that is
 already in flight replaces it. Without the transcripts: they are the big part of the payload, the
-part that goes stale fastest, and the stream brings them back within the second anyway. Five
-minutes old at most — past that the shape of the fleet has probably changed, and a wrong desk held
+part that goes stale fastest, and the first answer brings the last forty, and the stream resumes
+after them (#347). Five minutes old at most — past that the shape of the fleet has probably changed, and a wrong desk held
 for a second is worse than an empty one.
 
 The snapshot is taken again as the window goes (`pagehide`), with the desk the window holds and the
 agent it has open. Taken only from the fleet's answers it was older than the last click, and a
 reload reopened the agent from before it, then jumped when the fleet answered: #230's snap-back, on
 the reload path. Its version is not believed, so the first real answer always wins.
+
+**A restored pane resumes the stream (#347).** A pane drawn from the snapshot is marked `restored`,
+and its first real row fills it the way a new pane is filled: each of the row's `recent` (the last
+forty) is appended and moves the pane's cursor. `connect()` then opens `/api/events` after those
+rows. It used to open at `since=<repo>:0`, because the snapshot's rows carry no events, and the
+server replayed every agent's whole history: 3,627 frames on a nine-agent desk, 2-3 s long tasks,
+and the previous skin's ink for five to seven seconds (`tests/test_fleet_stream_resume.py`).
 
 **The snapshot never draws the theme or the tiers (#345).** It used to: taken before a change made on
 /settings or down the stream, it painted the skin just replaced for 130-344 ms after every return to
