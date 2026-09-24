@@ -75,13 +75,13 @@ MEASURE_ON = """(tw) => {
     const bounds = m.bounds.map(b => ({ x: b.x - h, y: b.y - h, r: b.r + h, b: b.b + h }));
     for (const t of TEXTS(pane)) for (const b of bounds) {
       const a = area(b, t);
-      if (a >= 6) hits.push({ word: t.word, el: t.el, area: Math.round(a * 10) / 10,
+      if (a >= 6) hits.push({ pad: getComputedStyle(pane).paddingLeft, word: t.word, el: t.el, area: Math.round(a * 10) / 10,
                              text: [t.x, t.y, t.r, t.b].map(v => Math.round(v * 10) / 10),
                              stroke: [b.x, b.y, b.r, b.b].map(v => Math.round(v * 10) / 10),
-                             pane: [p.left, p.top].map(v => Math.round(v * 10) / 10),
-                             pad: getComputedStyle(pane).paddingLeft, ink: !!document.querySelector('body > #ink[data-skin]') });
+                             pane: [p.left, p.top].map(v => Math.round(v * 10) / 10) });
     }
     out.push({ repo, shape: m.shape, tool: m.tool, selector: m.selector, rail: pane.dataset.tier === 'rail',
+               pad: parseFloat(getComputedStyle(pane).paddingLeft),
                box: m.box, pane: { x: p.left, y: p.top, w: p.width, h: p.height }, bounds, hits });
   }
   return out;
@@ -209,6 +209,7 @@ def check_on(look, width, marks):
             mid = (min(xs) + max(xs)) / 2
             assert abs(mid - (pane["x"] + pane["w"] / 2)) <= 3, (row, "mid-rail", mid, pane)
             continue
+        assert m["pad"] >= 26, (row, "the pane's margin under ink is at least 26px", m["pad"])
         assert not m["hits"], (row, "covers", m["hits"])
 
 

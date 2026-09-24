@@ -160,8 +160,8 @@ rebuilds them. A box under 90px wide is a pane's 48px rail, so a margin mark goe
 
 The margin is the pane's left padding (#330). A `check` or a `bang` row anchors on the pane (`.tile.state-error`,
 never `.tile.state-error .head`), and `margin()` writes it 14px in from the pane's border box. Under ink, app.css gives
-an open pane a 26px left padding (`--ink-margin`, in the #257 block, at `:where()` weight so a skin that pads further,
-like the legal pad's 34px or the notebook's gutter, wins), so the green check (to x+25.3) stays left of the pane number
+an open pane a 26px left padding (`--ink-margin`: the #257 block sets `--pane-margin` on the body, which `.tile`'s own
+padding reads, so a skin that pads further, like the legal pad's 34px or the notebook's gutter, and the rail still win), so the green check (to x+25.3) stays left of the pane number
 and the name. Ink off keeps the 10px padding, and the fallback's bar is drawn inside the pane's 3px border.
 
 | Shape | Drawn | Plain fallback |
