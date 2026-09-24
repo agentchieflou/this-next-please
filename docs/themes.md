@@ -21,15 +21,17 @@ _The terminal a human opens tells them where they are._
 
 ### Secondary Text (`--muted`)
 
-Secondary text (ticket, pane number, why line, footer counts, placeholders) is rendered with `--muted`.
-To guarantee readability at WCAG 1.4.3 minimum contrast (4.5:1), `--muted` is derived to hold at least
-4.6:1 against `--bg`, `--panel`, and `--select`, as well as against every composited panel of every skin
-variant drawn on that palette.
+Secondary text (ticket, pane number, why line, footer counts, placeholders) is painted with `--muted`, and it
+reads at 4.5:1 (WCAG 1.4.3) wherever it is drawn. `--muted` is no longer the terminal's bright black (`ansi[8]`,
+which stays as it was in the terminal):
 
-For custom or random palettes, `_muted(t)` in `agentdata/theme.py` steps down the mix between `text` and
-`ground` in 0.01 increments until the contrast holds across all surfaces. The 10 built-in themes fix
-explicit, calibrated values that keep the hue of the palette while ensuring at least 4.5:1 on every skin paper.
+- **Built-ins** set `muted=` on the `Theme`: the values in the gallery, measured to hold 4.6:1 or better on
+  `--bg`, `--panel`, `--select` and every composited panel of every skin variant drawn on that palette.
+- **`random` and any other palette** without one derive it (`theme._muted`): `text` mixed toward `ground` at the
+  largest weight, in steps of 0.01, that keeps 4.6:1 on `--bg`, `--panel` and `--select`.
 
+`theme.check` rule 6 refuses a palette whose `--muted` falls under 4.5:1 on the ground or skin paper it is checked
+against, and names the skin and both colours.
 
 ## The Host Matrix
 
