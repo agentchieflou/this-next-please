@@ -23,6 +23,21 @@ Agent tools' scratch trees (`.gemini/`, the product's own `.agent/`) are neither
 
 ## Running it
 
+One install command, and nothing runs without it:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+**A missing declared dependency stops the session in one line** (#297). `tests/conftest.py`'s
+`pytest_configure` imports each name in `DECLARED_DEPENDENCIES` (`rich`, `yaml`: the ones whose
+absence failed tests rather than skipping them by name) and, if any is missing, exits with code 4:
+`the suite runs against its declared dependencies; missing: rich. Run: python -m pip install -e ".[dev]"`.
+It imports rather than `find_spec`s, because a shadow package is found without being run. Before
+this, a sandbox without `rich` got fourteen assertion failures in `test_ui.py` and `test_progress.py`
+that read as "terminal-dependent" and were not. That the *product* works without `rich` is its own
+test, `test_ui.py::test_every_command_still_works_without_rich`.
+
 ### The inner loop
 
 ```bash
@@ -228,6 +243,16 @@ first desk request then closed it in `_fresh()` -- a WAL checkpoint under the de
 test's clock, which on the Windows leg was still running three seconds into a five-second wait.
 `_a_test_closes_the_catalogue_it_opened` closes it at teardown instead.
 
+**Subprocesses import the checkout** (#297). A test that spawns `python -m agentdata...` with
+`cwd=tmp_path` imports `agentdata` only if it is installed or on `PYTHONPATH`: an uninstalled
+checkout failed 73 tests with `No module named agentdata`, and an older non-editable install in
+site-packages was quietly tested instead of the checkout. Every such spawn passes
+`env=agentdata_env(...)` or calls `run_agentdata` (`tests/subproc.py`), which put the checkout first
+on the child's `PYTHONPATH`. `tests/test_hygiene_checkout.py` scans `tests/` for an
+`sys.executable, "-m", "agentdata..."` argv outside a function that uses one of them; the fake-tool
+runner (a standalone script with its own prepend), `test_lifecycle.py` (real venvs) and `tests/laptop/`
+are allow-listed with their reasons.
+
 Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only way to catch a bare
 `sys.exit`, an import-time crash, or an escape sequence that appears only when stdout is a pipe),
 `state_file`, `pbip`, `fakes_dir`, `isolated_path`.
@@ -237,7 +262,8 @@ Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only w
 `tests/test_contract.py` spawns every `ad-*` command as a **real subprocess**, parametrised over
 `[project.scripts]`. In-process `main()` calls cannot catch what actually goes wrong in the field:
 an import-time crash, a bare `sys.exit`, a traceback on stderr, or an escape sequence that only
-appears when stdout is a pipe.
+appears when stdout is a pipe. Its `run` spawns through `agentdata_env`, so it tests the checkout it
+sits in whether or not that checkout is installed (#297).
 
 Per command: `--help` exits 0, `--version` prints something, an unknown flag is a usage error and
 not a crash, no arguments is help or usage and not a crash, and one **canned safe invocation** keeps

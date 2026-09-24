@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 import pytest
+from subproc import agentdata_env
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REGISTRY = os.path.join(REPO_ROOT, "docs", "refusals.md")
@@ -225,7 +226,7 @@ def test_view_copes_with_awkward_files(tmp_path, name, payload):
     path = tmp_path / name
     path.write_bytes(payload)
     p = subprocess.run([sys.executable, "-m", "agentdata", "view", str(path)],
-                       capture_output=True, text=True, cwd=str(tmp_path))
+                       capture_output=True, text=True, cwd=str(tmp_path), env=agentdata_env())
     assert "Traceback" not in p.stderr, p.stderr[-800:]
     assert p.returncode in (0, 1, 2), f"{name}: exit {p.returncode}"
 
@@ -237,7 +238,7 @@ def test_diff_without_the_key_column_is_a_usage_error(tmp_path):
     write_text(str(a), "x\ty\n1\t2\n")
     write_text(str(b), "x\ty\n1\t3\n")
     p = subprocess.run([sys.executable, "-m", "agentdata", "diff", str(a), str(b), "--key", "nope"],
-                       capture_output=True, text=True, cwd=str(tmp_path))
+                       capture_output=True, text=True, cwd=str(tmp_path), env=agentdata_env())
     assert p.returncode == 2
     assert "Traceback" not in p.stderr
     assert "ok: false" in p.stdout
