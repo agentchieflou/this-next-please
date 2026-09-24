@@ -277,6 +277,25 @@ on the child's `PYTHONPATH`. `tests/test_hygiene_checkout.py` scans `tests/` for
 runner (a standalone script with its own prepend), `test_lifecycle.py` (real venvs) and `tests/laptop/`
 are allow-listed with their reasons.
 
+**No test process leaves a child behind** (#317). Every failing Windows job sampled, and a failing
+ubuntu one, ended with the runner's cleanup terminating an orphaned `python`. It was a fleet agent:
+the fleet tests start the fake `copilot` (`tests/fakes/runner.py`) through the real
+`supervisor._spawn`, a passing test waits for it to exit, and a failing one stopped at its assert
+with the agent still running. `_a_test_ends_the_agents_it_started` (in `tests/orphans.py`) now
+records every agent `_spawn` starts during a test and, at teardown, ends its group with
+`proc.kill_tree` and waits on it, bounded; a test that patches `_spawn` itself starts nothing and
+replaces the recording. Behind that, `_no_orphans_at_session_end`, a session-scoped autouse fixture
+in the same plugin (listed in `pytest_plugins` in `tests/conftest.py`), lists the direct children of
+the process that ran the tests when its session ends (`/proc/<pid>/task/*/children`, else a `/proc`
+scan, `ps` on macOS, `CreateToolhelp32Snapshot` on Windows, CIM as its fallback) and fails naming the
+pid, name and command line of any live `python`, `node`, `chrome` or `headless_shell`. Under xdist
+it runs in each worker, because a process a test leaks is the worker's child and the controller's
+only children are the workers; the failure is a teardown error on that worker's last test. Being set
+up first, it is torn down last, so a session-scoped fixture that starts a browser or a driver must
+leave nothing either. A child that is meant to outlive a test is not a thing this suite has: kill
+it and wait on it. `tests/test_hygiene_orphans.py` provokes an orphan in an inner session, serially
+and with `-n 2`.
+
 Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only way to catch a bare
 `sys.exit`, an import-time crash, or an escape sequence that appears only when stdout is a pipe),
 `state_file`, `pbip`, `fakes_dir`, `isolated_path`.

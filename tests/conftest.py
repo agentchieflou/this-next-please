@@ -19,7 +19,11 @@ import subprocess
 import sys
 
 import pytest
-from subproc import agentdata_env
+
+# Plugins of the suite's own: tests/orphans.py fails a test process that leaves a child behind (#317).
+pytest_plugins = ["orphans"]
+
+from subproc import agentdata_env  # noqa: E402 - after pytest_plugins, which #317 puts right after pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
