@@ -186,6 +186,12 @@ def measure_on(page):
     return page.evaluate(MEASURE_ON, TOOL_W)
 
 
+#: Ink off, for a failure message only: every pane's classes, tier and computed box-shadow, so a
+#: pane with no bar says what it was wearing when it was measured.
+PANES_OFF = """() => [...document.querySelectorAll('#grid .tile')].map(t => ({
+  repo: t.dataset.repo, tier: t.dataset.tier || '', cls: t.className, shadow: getComputedStyle(t).boxShadow }))"""
+
+
 def measure_off(page):
     return page.evaluate(MEASURE_OFF)
 
@@ -214,13 +220,13 @@ def check_on(look, width, marks):
         assert not m["hits"], (row, "covers", m["hits"])
 
 
-def check_off(look, width, bars):
+def check_off(look, width, bars, panes=()):
     where = f"{look} @ {width}px, ink off"
     skin = look.split(":")[0]
     assert not [b for b in bars if "stray" in b], (where, "a margin bar off the pane", bars)
     got = {b["repo"] for b in bars}
     want = {SUPERVISED, UNSUPERVISED, RAIL} | (set() if skin in NO_BANG else {ERROR})
-    assert want <= got, (where, sorted(got))
+    assert want <= got, (where, sorted(got), panes)
     for b in bars:
         if b["rail"]:
             continue
@@ -270,10 +276,10 @@ def test_the_plain_margin_bar_is_on_the_pane_and_off_the_words_with_ink_off(flee
             desk_states(page)
             for look in LOOKS:
                 choose_off(page, look)
-                seen[look] = measure_off(page)
+                seen[look] = (measure_off(page), page.evaluate(PANES_OFF))
             assert not errors, errors
             browser.close()
     finally:
         _stop(server)
-    for look, bars in seen.items():
-        check_off(look, width, bars)
+    for look, (bars, panes) in seen.items():
+        check_off(look, width, bars, panes)
