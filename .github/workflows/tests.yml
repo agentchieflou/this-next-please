@@ -216,6 +216,18 @@ jobs:
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
         run: python -m pytest -q -rs -m "not slow and not measured and not scale"
+      # #435: late in the serial step Chromium has failed to fetch a script with
+      # `net::ERR_NO_BUFFER_SPACE` (Winsock WSAENOBUFS). The suspect is the dynamic port range run
+      # dry by sockets held in TIME_WAIT. Print both after the suite, pass or fail, so the next red
+      # run says whether that is it. Diagnostics only: this step never fails the job.
+      - name: sockets after the suite (TIME_WAIT, dynamic ports)
+        if: always()
+        shell: pwsh
+        run: |
+          $waiting = @(netstat -ano -p tcp | Select-String -SimpleMatch 'TIME_WAIT').Count
+          Write-Host "TCP connections in TIME_WAIT: $waiting"
+          netsh int ipv4 show dynamicport tcp
+          exit 0
       - name: the measured and scale tiers, with the machine to themselves
         shell: pwsh
         env:
