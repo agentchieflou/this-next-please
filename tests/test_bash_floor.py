@@ -42,11 +42,13 @@ NOT_OURS = (".git", "build", "dist", "__pycache__", ".pytest_cache", "agentdata.
             "node_modules", ".gradle", "out")
 
 
-def _files(suffix: str) -> list[str]:
-    """Every script we ship. `glob` skips dot-directories, so `.github/scripts` needs os.walk."""
+def _files(suffix: str, root: str = REPO_ROOT) -> list[str]:
+    """Every script we ship. `glob` skips dot-directories, so `.github/scripts` needs os.walk. Every other
+    dot-directory is an agent tool's scratch tree (`.gemini/worktrees/<name>/` is a second checkout) or a cache."""
     found = []
-    for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
-        dirnames[:] = [d for d in dirnames if d not in NOT_OURS]
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames
+                       if d not in NOT_OURS and (not d.startswith(".") or d == ".github")]
         for name in filenames:
             if name.endswith(suffix):
                 found.append(os.path.join(dirpath, name))
@@ -63,6 +65,15 @@ def powershell_scripts() -> list[str]:
 
 def _code_lines(text: str) -> str:
     return "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+
+
+def test_the_script_walk_skips_agent_scratch_trees(tmp_path):
+    for rel in (".gemini/worktrees/w/x.sh", ".github/scripts/smoke.sh", "tools/y.sh"):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    found = sorted(os.path.relpath(f, tmp_path).replace(os.sep, "/") for f in _files(".sh", str(tmp_path)))
+    assert found == [".github/scripts/smoke.sh", "tools/y.sh"]
 
 
 def test_there_are_scripts_to_lint():

@@ -19,6 +19,8 @@ point of everything below is that the next one is found by CI.
 | `tests/regressions/` | one file per failure seen on a real machine |
 | `tests/laptop/` | the verification runbook, gated on `AGENTDATA_LAPTOP=1` |
 
+Agent tools' scratch trees (`.gemini/`, the product's own `.agent/`) are neither committed nor scanned: the guards that walk the checkout (`tests/test_entrypoints.py`, `tests/test_bash_floor.py`) skip every dot-directory except `.github`. How agents build and review here is [developing-with-agents.md](developing-with-agents.md).
+
 ## Running it
 
 ### The inner loop

@@ -65,15 +65,38 @@ def test_every_console_script_is_also_a_module_command():
         assert help_text, f"{name} has no help text"
 
 
+# Directories the docs walk never enters: somebody else's files, or trees another parametrised case covers.
+NOT_DOCS = (".git", "build", "__pycache__", "skills", "docs", "tests", "agentdata", "prompts")
+
+
+def _markdown_under(base: str) -> list[str]:
+    """Every Markdown file under `base` that this repository publishes.
+
+    Dot-directories are skipped, except `.github` (the PR template is read by every contributor). An agent tool's
+    scratch tree -- Gemini CLI's `.gemini/worktrees/<name>/`, the product's own `.agent/` -- holds another branch's
+    docs or nothing of ours, and would be checked against this checkout's commands (docs/developing-with-agents.md).
+    """
+    files = []
+    for dirpath, dirs, names in os.walk(base):
+        dirs[:] = [d for d in dirs if d not in NOT_DOCS and (not d.startswith(".") or d == ".github")]
+        files += [os.path.join(dirpath, n) for n in names if n.endswith(".md")]
+    return files
+
+
+def test_the_docs_walk_skips_agent_scratch_trees(tmp_path):
+    for rel in (".gemini/worktrees/w/README.md", ".agent/x.md", ".github/pull_request_template.md", "README.md"):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("run `ad-no-such-command`\n", encoding="utf-8")
+    found = sorted(os.path.relpath(f, tmp_path).replace(os.sep, "/") for f in _markdown_under(str(tmp_path)))
+    assert found == [".github/pull_request_template.md", "README.md"]
+
+
 @pytest.mark.parametrize("where", ["skills", "docs", "."])
 def test_docs_only_mention_commands_that_exist(where):
     """A skill telling Luna to run a command that does not exist is a dead end she cannot diagnose."""
     known = {n[3:] for n in _scripts()}
-    files = []
-    base = os.path.join(ROOT, where)
-    for dirpath, dirs, names in os.walk(base):
-        dirs[:] = [d for d in dirs if d not in (".git", "build", "__pycache__", "skills", "docs", "tests", "agentdata", "prompts")]
-        files += [os.path.join(dirpath, n) for n in names if n.endswith(".md")]
+    files = _markdown_under(os.path.join(ROOT, where))
     assert files, f"no markdown under {where}"
     bad = []
     for f in files:
