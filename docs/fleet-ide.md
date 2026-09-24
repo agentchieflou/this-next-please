@@ -180,7 +180,7 @@ new server work.
 4. **Host the URL** in whatever embedded browser the host has, with `&w=<host>` on it (`pycharm`,
    `vscode`). Nothing else. The page is the UI. The `w` names this host's own window record on the
    desk (#230): without it every window shares `main`, and the tool window and a browser tab
-   followed each other's clicks. Add the name to `IDE_WINDOWS` in `agentdata/fleet/opener.py` as
+   followed each other's clicks. Every link the pages build keeps the host's `w`, `shell` and `ink` (`pageUrl`). Add the name to `IDE_WINDOWS` in `agentdata/fleet/opener.py` as
    well: `ad-fleet open --all` reopens every window the desk remembers except those, and reports
    them as `skipped`, because a browser tab under a host's name would share that host's record.
 5. **Subscribe to `GET /api/events?t=<token>`** and act on `event: notify` frames only. Each carries
