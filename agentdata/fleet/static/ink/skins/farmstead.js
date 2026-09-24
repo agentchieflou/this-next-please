@@ -56,14 +56,15 @@ export function marks() {
     { selector: ".tile.needs-human .head .repo", tool: "highlighter", shape: "lines" },
     // running: a pen line under the name while the sprout grows.
     { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },
-    // error: the head boxed in marker; the crop wilts and the frame is scorched.
-    { selector: ".tile.state-error .head", tool: "marker", shape: "loop", pad: 2 },
+    // error: the pane boxed in marker, inside its frame (#332: round the head, the loop crossed the
+    // chip row and the words under it); the crop wilts and the frame is scorched.
+    { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },
     // done: a green tick in the margin, beside the bloom -- the chip's `done` (a supervised
     // agent) or the fold's own (`is-done`, #253: the chip draws a finished, unsupervised agent
     // as idle, and this is how the page still says it finished).
     { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
     // stale (#240): the session's "old skills" tag ringed in dashed pencil.
-    { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", pad: 2, dash: true },
+    { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", pad: 0, dash: true },
     // answered: the choice the operator picked is circled in pen, while the question is open.
     { selector: ".tile .asks:not([hidden]) .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "loop", pad: 2 },
     // a finding: the friction line in the transcript, ringed in red.

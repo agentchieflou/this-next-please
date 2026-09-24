@@ -168,6 +168,26 @@ name. A skin that adds a mark table adds that rule too. It is not keyed on the i
 `.tile` rule keyed on `body:has(> #ink[data-skin])` unapplied after the layer set `data-skin` (a pane restyled
 from scratch got 26px; one restyled in place kept 10px). Ink off keeps the 10px padding, and the fallback's bar is drawn inside the pane's 3px border.
 
+**A skin's marks keep inside their pane and off other elements' words (#332).** The layer clips a pane's marks to
+its border box inset 1px (#331), so a row that pads outward is cut away rather than drawn in the gutter:
+
+* An `outline` or `loop` round the pane has a pad of 0 or less, so the stroke and half its width are on the pane:
+  an idle outline -5 (the napkin, the legal pad), an error loop -7 (napkin, legal pad, notebook, farmstead), the
+  stale outline round a pane -8 (napkin, notebook). A test reads every skin's table for it.
+* A mark round something in the head is round that thing, never round the head: farmstead's error loop is round
+  the pane, and a stale outline round `.oldsession` is on the note's own box (pad 0).
+* A compact pane's head wraps the name onto a line of its own, 2px over the number and the chip. A skin that
+  underlines the name gives that head room in its sheet (`row-gap: 8px`, layout, keyed
+  `body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier="compact"] .head`): voxel, farmstead and the legal pad.
+  Glass underlines the chip, not the name, and draws no stale outline: round the note it still ran over the chip's
+  age at 700px, and the note's own words say it.
+
+`tests/test_fleet_ink_bounds.py` holds one look per module at 1400px and 700px, with a blocking question, a running
+turn, an error and a stale done: no stroke more than 2px outside its pane, none outside the viewport, none cut away
+whole by the pane's clip, no `outline`, `loop`, `ellipse`, `check`, `bang`, `arrow` or `divider` on another
+element's words by 6 px² (a loop and an ellipse on their ring, an arrow on its curve), and no `underline` on any word
+but its own. The full sweep, every variant, is #340's.
+
 | Shape | Drawn | Plain fallback |
 | --- | --- | --- |
 | `outline` | four lines round the box, each overshooting its corner | `outline: 1px solid` |
@@ -375,7 +395,11 @@ consolidates):
 
 * *The running pen.* When a pane turns `state-running` and the layer has finished its underline, a
   tail runs on from the underline's end, one 6px step for each transcript line the turn writes (up
-  to 132px), with the pen-tip dot at its end. When the pane leaves `state-running` the tail is
+  to 132px), with the pen-tip dot at its end. It is at the underline's own height, which the layer
+  places (#331: 2px under the tallest box on the name's line, never lower than 3.4px over the next
+  row), so it passes under the chip, not through it, and it stops where the layer stops a line that
+  grows, 14px short of the pane's right edge (#332). `inspect().panes[].tailBox` is the tail and its
+  dot on the viewport. When the pane leaves `state-running` the tail is
   struck in pen, like the underline beside it. One struck tail is kept, until the next turn.
 * *The header count.* When `#bellcount` changes, the old number is kept where it stood, beside the
   new one, drawn as a hand writes digits, and struck through in pen. The bell has room for it
@@ -653,6 +677,9 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phas
 fetched once with the token for one with it (not again when that table is set twice), leaves nothing attached after
 a table without `fx`, `Ink.setSkin(null)` or `Ink.off()`, and an idle desk with it attached writes nothing and draws
 nothing. The budgets and the listing of `static/ink/` (`MODULES`, `LAZY`) are in `test_fleet_ink.py`.
+
+`tests/test_fleet_ink_bounds.py` covers where a skin's own marks land: inside their pane and off other elements'
+words, on one look per module at 1400px and 700px, and every pane outline and loop padded inside it (#332).
 
 `tests/test_fleet_trace.py` covers the page's own drawing: the trace drawn in its pane's lane from its series and
 following its data, glass's ground drawn by the layer and still under reduced motion, the fallback's SVG and

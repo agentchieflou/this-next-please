@@ -45,7 +45,7 @@ const MARKS = [
   // for a finished agent nothing supervises, whose chip says idle (#253, #333).
   { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
   // stale (#240): the old-session chip outlined in dashed pencil. A pebble on the stack.
-  { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", dash: true, pad: 2 },
+  { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", dash: true, pad: 0 },
   // answered: the choice pressed in the question card, looped in green.
   { selector: ".tile .ask-choice[aria-pressed=\"true\"]", tool: "green", shape: "loop", pad: 2 },
   // a finding: the line where the agent stopped or was refused, underlined in red. Ore in the stack.

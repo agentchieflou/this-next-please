@@ -813,7 +813,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
     assert live(on, "beta", ".tile.needs-human .head .repo")[0]["tool"] == "highlighter"
     assert live(on, "beta", '.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]')[0]["shape"] == "loop"
     assert live(on, "beta", ".tile .transcript li.friction")[0]["tool"] == "red"
-    assert live(on, "alpha", ".tile.state-error .head")[0]["tool"] == "marker"
+    assert live(on, "alpha", ".tile.state-error")[0]["tool"] == "marker"
     assert live(on, "gamma", ".tile.state-running .head .repo")[0]["tool"] == "pen"
     panes = on["farm"]["panes"]
     assert panes["alpha"]["shown"] == "crop-wilted" and panes["alpha"]["scorched"], panes["alpha"]

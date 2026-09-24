@@ -462,7 +462,11 @@ def test_the_running_pen_grows_with_the_turn_and_is_struck_when_it_ends(fleet_ho
             grown = _skin(page)["panes"][0]
             geo = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="run"] .head .repo').getBoundingClientRect();
               return [r.right, r.bottom]; }""")
-            tip = [geo[0] + 8 + grown["tail"] + 1, geo[1] + 2.8]
+            # The dot's centre: the tail goes on from the underline's end at the underline's own
+            # height (#332, #331's placement under the tallest box on the name's line), not the name's.
+            box = grown["tailBox"]
+            tip = [geo[0] + 8 + grown["tail"] + 1, box["y"] + 1.9]
+            assert abs(box["x"] + box["w"] - 1.9 - tip[0]) < 0.01 and box["y"] + 1.9 >= geo[1] + 2.8, (box, geo)
             px = page.evaluate(PIXELS, [tip, [tip[0] + 30, tip[1]]])
             props = page.evaluate(PROPS)
 
