@@ -514,6 +514,36 @@ python .github/scripts/coverage_floors.py --update      # rounds down to the nea
 
 Lowering one is an edit to that file with the reason in the commit message.
 
+## The agent PR check
+
+The lanes of docs/developing-with-agents.md §7 are data in `.github/agent-lanes.json`, and
+`.github/scripts/agent_pr_check.py` checks a branch against them before anyone reviews it (#324). It is a gate in the
+handover note, not a CI job:
+
+```bash
+python .github/scripts/agent_pr_check.py --base origin/main                  # every lane the branch touched
+python .github/scripts/agent_pr_check.py --base origin/main --lane serve     # and nothing sequenced beyond serve
+python .github/scripts/agent_pr_check.py --base origin/main --allow ci       # the operator approved the ci lane
+```
+
+It diffs from `git merge-base <base> HEAD`, so what `main` did after the branch point, merged in, is never the
+branch's. It prints one `lane | kind | file` row per touched file (`-` for a file no lane owns; `pyproject.toml` is
+split by the dotted keys a lane names, `tool.pytest.ini_options` in `ci` and `project.version` in `version`), then
+`violations: N`.
+
+- **Refused (exit 1):** a `frozen` lane (`ci`, `relay`) or the `release-only` `version` lane touched; with `--lane`,
+  an `exclusive` or `sequenced` lane touched that the branch did not declare.
+- **`--allow <lane>`** lists that lane's violations under `allowed:` instead. The PR links the operator's approving
+  comment.
+- **Warnings only:** a `shared-docs` file that lost lines (append your row, never rewrite another's), two `exclusive`
+  lanes in one branch, and uncommitted changes.
+- **Cannot run (exit 2):** an unknown `--base` says to run `git fetch origin`.
+
+Globs match with `fnmatch.fnmatchcase` on the posix path, so `*` crosses `/`. Every glob and toml key must match
+a tracked file or an existing key (`tests/test_agent_pr_check.py` holds the map to the checkout), except those under
+`planned`: files an open card will create, such as `ink/fx.js`, which move to `paths` once they exist.
+`skin:<name>` expands to one lane per `static/ink/skins/*.js` module (`skin:voxel`).
+
 ## The regression convention
 
 A failure seen on a real machine becomes a file here, so it cannot come back quietly:
