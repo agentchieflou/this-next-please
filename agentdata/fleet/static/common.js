@@ -163,7 +163,8 @@ function patchList(parent, rows, keyOf, create, update) {
 function applyTheme(cssVars, themeName) {
   var root = document.documentElement;
   var tokens = ["--bg", "--text", "--panel", "--line", "--select", "--muted", "--accent",
-                "--focus", "--running", "--waiting", "--human", "--done", "--idle"];
+                "--focus", "--running", "--waiting", "--human", "--done", "--idle",
+                "--on-running", "--on-waiting", "--on-human", "--on-done", "--on-idle"];
   if (cssVars && themeName && themeName !== "none") {
     // Written only where it differs: every refresh applies the theme again, and an idle desk is
     // zero DOM mutations (the render contract) -- a write of the same value is still a mutation,

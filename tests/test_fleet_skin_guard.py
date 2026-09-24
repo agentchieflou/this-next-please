@@ -11,7 +11,7 @@ skin left to agree with a WebGL one.
 The guard, per rule of every such stylesheet:
 
 1. A custom property (`--*`) is allowed anywhere -- it is an input, not a look -- except the
-   palette's own thirteen tokens: a skin never recolours the palette, which is shared with the
+   palette's own eighteen tokens: a skin never recolours the palette, which is shared with the
    terminal (docs/themes.md).
 2. A layout or typography property is allowed anywhere.
 3. Anything else -- a background, a border, a shadow, a radius, a filter, an opacity, a colour --
@@ -37,7 +37,8 @@ INK_SKINS = os.path.join(STATIC, "ink", "skins")
 
 #: The palette's own tokens (app.css, `theme.to_css`): a skin reads them, and never sets them.
 PALETTE = {"--bg", "--panel", "--text", "--line", "--select", "--muted", "--accent", "--focus",
-           "--running", "--waiting", "--human", "--done", "--idle"}
+           "--running", "--waiting", "--human", "--done", "--idle",
+           "--on-running", "--on-waiting", "--on-human", "--on-done", "--on-idle"}
 
 #: What lays the words out and what they are written in -- and three hints to the engine that paint
 #: nothing themselves (`will-change`, `contain`, `color-scheme`).

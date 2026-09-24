@@ -109,6 +109,21 @@ def _muted(t: Theme, accent: str | None = None) -> str:
     return t.text
 
 
+#: The five role tokens a word is written ON (a chip, a badge, a rail's glyph), in `to_css` order.
+ROLES = ("--running", "--waiting", "--human", "--done", "--idle")
+
+
+def on_role(role: str, text: str, ground: str) -> str:
+    """The colour a word is written in on the role colour `role` (#327): the first of `text`,
+    `ground`, white and near-black that reads at 4.5:1 on it, or, if none does, the one that reads
+    best. Status colours are shared with the terminal and never change, so the word bends instead."""
+    candidates = (text, ground, "#FFFFFF", "#111111")
+    for c in candidates:
+        if contrast_ratio(c, role) >= 4.5:
+            return c
+    return max(candidates, key=lambda c: contrast_ratio(c, role))
+
+
 def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
     """Render a Theme as CSS custom properties according to the stated mapping.
 
@@ -126,6 +141,8 @@ def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
       --human: status.fail
       --done: status.ok
       --idle: status.skip
+      --on-running, --on-waiting, --on-human, --on-done, --on-idle: the word on that role colour,
+        chosen by `on_role` (#327)
     """
     if t.name == "none" or t.ground is None or t.text is None:
         return {}
@@ -134,7 +151,7 @@ def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
     line = mix(t.ground, t.text, 0.15)
     select = mix(t.ground, accent, 0.18)
     muted = t.muted if t.muted is not None else _muted(t, accent=accent)
-    return {
+    out = {
         "--bg": t.ground,
         "--text": t.text,
         "--panel": panel,
@@ -149,6 +166,9 @@ def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
         "--done": t.status.get("ok", "#3FB950"),
         "--idle": t.status.get("skip", "#8B949E"),
     }
+    for role in ROLES:
+        out["--on-" + role[2:]] = on_role(out[role], t.text, t.ground)
+    return out
 
 
 def css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
@@ -175,6 +195,8 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
        highlighter, which is read THROUGH: the text on its tint must keep 4.5:1. The ink layer
        brings the mechanism; the pairs arrive with the paper skins (#249-#253).
     6. Muted text on ground (#325): to_css(t)["--muted"] >= 4.5:1 on target_ground.
+    7. The word on a state colour (#327): each to_css(t)["--on-<role>"] >= 4.5:1 on its role
+       colour -- a chip's, a badge's and a rail glyph's word.
     """
     if t.name == "none" or t.ground is None or t.text is None:
         return
@@ -250,6 +272,19 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
             raise ThemeError(
                 f"{skin_ctx}theme '{t.name}': muted contrast {cr_muted:.2f}:1 is below 4.5:1 floor",
                 hint=f"{skin_ctx}muted '{c_muted}' on ground '{target_ground}'"
+            )
+
+    # Rule 7: the word on a state colour (#327)
+    tokens = to_css(t)
+    for role in ROLES:
+        on = tokens.get("--on-" + role[2:])
+        if not on:
+            continue
+        cr_on = contrast_ratio(on, tokens[role])
+        if cr_on < 4.5:
+            raise ThemeError(
+                f"{skin_ctx}theme '{t.name}': the word on {role} is {cr_on:.2f}:1, below 4.5:1 floor",
+                hint=f"{skin_ctx}--on-{role[2:]} '{on}' on {role} '{tokens[role]}'"
             )
 
 
