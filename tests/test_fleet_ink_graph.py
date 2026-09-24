@@ -630,8 +630,8 @@ def test_the_plain_fallback_is_the_same_table_on_a_css_grid(fleet_home, tmp_path
             page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
             page.wait_for_function("""() => document.body.classList.contains('ink-off')
                 && (Ink.inspect().table || '').startsWith('graph') && Ink.inspect().plain
-                && document.querySelector('.tile[data-repo="beta"]').classList.contains('needs-human')
-                && document.querySelector('.tile[data-repo="alpha"]').classList.contains('state-idle')""",
+                && document.querySelector('.tile[data-repo="beta"]')?.classList.contains('needs-human')
+                && document.querySelector('.tile[data-repo="alpha"]')?.classList.contains('state-idle')""",
                                    timeout=20000)
             got = page.evaluate("""() => {
               const cs = s => getComputedStyle(document.querySelector(s));

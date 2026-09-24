@@ -346,7 +346,12 @@ function apply(next, hooks, variant) {
   }
   const wanted = table;
   return start().then(running => {
-    if (running && verdict.on && table === wanted) running.setTable(wanted);
+    if (running && verdict.on && table === wanted) {
+      running.setTable(wanted);
+      // The server serves a skinned page `ink-off` (#345): legible until the ink is there. It goes
+      // in the task that puts `#ink[data-skin]` on, the key app.css clears the panes on.
+      if (body && body.classList.contains("ink-off")) body.classList.remove("ink-off");
+    }
     return { drawn: running && verdict.on ? "ink" : "plain", verdict: Object.assign({}, verdict) };
   }, () => ({ drawn: "plain", verdict: Object.assign({}, verdict) }));
 }
