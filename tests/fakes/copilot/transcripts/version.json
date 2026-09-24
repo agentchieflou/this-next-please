@@ -1,0 +1,11 @@
+{
+  "always": true,
+  "source": "captured",
+  "captured": "2026-09-23",
+  "match": [
+    "--version"
+  ],
+  "stdout": "GitHub Copilot CLI 1.0.88.\nRun 'copilot update' to check for updates.\n",
+  "stderr": "",
+  "returncode": 0
+}

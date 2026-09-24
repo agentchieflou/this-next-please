@@ -5,6 +5,7 @@ stand-in for pncli" — so the Windows behaviour of the module that exists *beca
 skipped on Windows, which is where it breaks. These run on both.
 """
 from __future__ import annotations
+import importlib
 import json
 import os
 import subprocess
@@ -47,6 +48,68 @@ def test_a_case_can_be_selected_explicitly(tmp_path):
     p = subprocess.run([sys.executable, fakes.RUNNER, "pncli", "--version"],
                        capture_output=True, text=True, env=env)
     assert p.returncode == 0 and "pncli/1.4.0" in p.stdout
+
+
+def test_an_always_transcript_answers_under_any_case(tmp_path, monkeypatch):
+    # 1. Under AGENTDATA_FAKE_CASE=asks-question, copilot --version prints GitHub Copilot CLI 1.0.88. with rc 0,
+    # and copilot help config prints the 1.0.88 fixture.
+    env = fakes.install(tmp_path, ["copilot"], case="asks-question")
+    p_ver = subprocess.run([sys.executable, fakes.RUNNER, "copilot", "--version"],
+                           capture_output=True, text=True, env=env)
+    assert p_ver.returncode == 0
+    assert "GitHub Copilot CLI 1.0.88." in p_ver.stdout
+
+    p_conf = subprocess.run([sys.executable, fakes.RUNNER, "copilot", "help", "config"],
+                            capture_output=True, text=True, env=env)
+    assert p_conf.returncode == 0
+    expected_fixture = open(os.path.join(REPO_ROOT, "tests", "fixtures", "copilot", "help-config-1.0.88.txt"),
+                            encoding="utf-8").read()
+    assert p_conf.stdout == expected_fixture
+
+    # 2. Under the same case, copilot -p hi still plays asks-question.
+    # Check in-process: load tests/fakes/runner.py with importlib, monkeypatch sys.argv and play to a recorder,
+    # call main(), and assert recorder got the asks-question entry.
+    spec = importlib.util.spec_from_file_location("fake_runner_mod", fakes.RUNNER)
+    runner_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner_mod)
+
+    played = []
+    monkeypatch.setattr(runner_mod, "play", lambda entry, argv: played.append((entry, argv)) or 0)
+    monkeypatch.setattr(sys, "argv", ["runner.py", "copilot", "-p", "hi"])
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+
+    rc = runner_mod.main()
+    assert rc == 0
+    assert len(played) == 1
+    entry, argv = played[0]
+    assert entry.get("session") == "sess-asks"
+    assert argv == ["-p", "hi"]
+
+    # 3. With no case, copilot --version, help config and --help answer from the new transcripts.
+    env_nocase = fakes.install(tmp_path / "nocase", ["copilot"])
+    p_ver_nc = subprocess.run([sys.executable, fakes.RUNNER, "copilot", "--version"],
+                              capture_output=True, text=True, env=env_nocase)
+    assert p_ver_nc.returncode == 0 and "GitHub Copilot CLI 1.0.88." in p_ver_nc.stdout
+
+    p_conf_nc = subprocess.run([sys.executable, fakes.RUNNER, "copilot", "help", "config"],
+                               capture_output=True, text=True, env=env_nocase)
+    assert p_conf_nc.returncode == 0 and p_conf_nc.stdout == expected_fixture
+
+    help_fixture = open(os.path.join(REPO_ROOT, "tests", "fixtures", "copilot", "help-1.0.88.txt"),
+                        encoding="utf-8").read()
+    p_help_nc = subprocess.run([sys.executable, fakes.RUNNER, "copilot", "--help"],
+                               capture_output=True, text=True, env=env_nocase)
+    assert p_help_nc.returncode == 0 and p_help_nc.stdout == help_fixture
+
+
+def test_an_unclaimed_argv_still_says_so(tmp_path):
+    env = fakes.install(tmp_path, ["copilot"])
+    p = subprocess.run([sys.executable, fakes.RUNNER, "copilot", "completion", "bash"],
+                       capture_output=True, text=True, env=env)
+    assert p.returncode == 99
+    assert "no transcript matches this argv" in p.stderr
+    assert "completion" in p.stderr
 
 
 def test_every_transcript_records_its_provenance():
