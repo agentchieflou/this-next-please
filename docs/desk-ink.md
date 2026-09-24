@@ -475,7 +475,7 @@ stylesheet of every skin that ships a module and refuses the rest:
 
 | A declaration | Allowed |
 | --- | --- |
-| a custom property (`--paper`, `--ink-pen`, `--glass-mesh-1`…): the colours and numbers the module reads | anywhere, **except** the palette's own thirteen tokens (`--bg`, `--panel`, `--text`…): a skin never recolours the palette, which it shares with the terminal |
+| a custom property (`--paper`, `--ink-pen`, `--glass-mesh-1`…): the colours and numbers the module reads | anywhere, **except** the palette's own eighteen tokens (`--bg`, `--panel`, `--text`…): a skin never recolours the palette, which it shares with the terminal |
 | layout (`display`, `padding`, `margin`, `gap`, `width`, `flex`…) and typography (`font-*`, `line-height`, `letter-spacing`, `text-*`…) | anywhere |
 | anything else: a background, a border, a shadow, a radius, a filter, an opacity, a colour | only where the skin's ink is on the page (a selector with `:not(.ink-off)`), and only to clear the page for the canvas or to name a token: `transparent`, `none`, `0` or `var(--…)`. Never a literal colour, never a `url()` |
 

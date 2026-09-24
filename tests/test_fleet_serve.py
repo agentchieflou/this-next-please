@@ -448,10 +448,11 @@ def test_the_themes_come_from_theme_py_and_satisfy_contrast():
     # Read expected tokens from docs/plan-desk-refactor.md
     plan_text = open("docs/plan-desk-refactor.md", encoding="utf-8").read()
     import re
-    plan_tokens = set(re.findall(r'\|\s*`(--[a-z]+)`\s*\|', plan_text))
+    plan_tokens = set(re.findall(r'\|\s*`(--[a-z]+(?:-[a-z]+)*)`\s*\|', plan_text))
     assert plan_tokens == {
         "--bg", "--text", "--panel", "--line", "--select", "--muted",
-        "--accent", "--focus", "--running", "--waiting", "--human", "--done", "--idle"
+        "--accent", "--focus", "--running", "--waiting", "--human", "--done", "--idle",
+        "--on-running", "--on-waiting", "--on-human", "--on-done", "--on-idle"
     }
 
     for theme in found:
