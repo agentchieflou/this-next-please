@@ -158,7 +158,15 @@ def _toolhelp_children(pid: int) -> list[dict] | None:
                     ("dwFlags", wintypes.DWORD), ("szExeFile", wintypes.WCHAR * 260)]
 
     TH32CS_SNAPPROCESS = 0x2
+    # Declared, so a 64-bit handle is not squeezed through a C int on the way in or out.
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
     k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
     snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
     if snap in (None, wintypes.HANDLE(-1).value):
         return None
@@ -176,7 +184,6 @@ def _toolhelp_children(pid: int) -> list[dict] | None:
 
     def created(p: int) -> int | None:
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        k32.OpenProcess.restype = wintypes.HANDLE
         h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, p)
         if not h:
             return None
