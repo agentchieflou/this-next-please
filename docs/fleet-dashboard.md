@@ -156,7 +156,10 @@ skins, and which of them is `current`, because a page that can only fill the pic
 them opens reading *system · no skin* over whatever the config says — which it did, on every
 window, until #195. The settings page carries its own EventSource for the `theme` frame alone, so a
 palette set by `ad-theme` in a terminal, or on the desk in another window, repaints it instead of
-leaving its pickers quietly lying. The footer keeps the two things that change — the counts and
+leaving its pickers quietly lying. `current` is the stream's own `theme` payload, css and all, and
+`POST /api/theme` answers with the same, so the pickers paint first and post second: a pick is worn
+in the task that made it, the answer reconciles it, and a refusal puts the previous one back (#346).
+The footer keeps the two things that change — the counts and
 the notice — and a `?` button (or the `?` key) opens the key map in four short columns. A cell that
 fails to poll goes **grey with the error in a tooltip**, never wrong; a link with no fact behind it
 is absent, never broken.
@@ -453,10 +456,10 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/map` | the fleet as one graph (#401): projects, the checkouts that hang from them, and each checkout's agent with its kind (`console`, `adopted`, `headless`, `adoptable`, `none`), each with a sentence. Read-only; schema 1 in [fleet-map.md](fleet-map.md) §The graph |
 | POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
 | GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent |
-| GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195) |
+| GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195), as the stream's `theme` payload with its css (#346) |
 | GET | `/api/settings` | the editable keys with their type, default and effect-scope; what each is set to; the model per repository; the resolved tool lists |
 | POST | `/api/settings` | write an enumerated key, a per-repo model, or the fleet-wide default |
-| POST | `/api/theme` | set the palette or the skin |
+| POST | `/api/theme` | set the palette or the skin; answers with the stream's `theme` payload, css included (#346) |
 | GET | `/api/board` | your Jira tickets, and which repo each one belongs to |
 | GET | `/api/history` | what was dispatched, how it ended, what it cost |
 | GET | `/api/notifications` | what has been announced |

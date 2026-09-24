@@ -2245,7 +2245,9 @@ def act(what: str, body: dict) -> dict:
                 cfg["theme"]["skin"] = chosen["full"]
                 cfg["theme"]["default"] = chosen["base"]
         C.save(cfg)
-        return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
+        # The stream's own `theme` payload, css and all (#346): the page that posted reconciles
+        # from this answer instead of waiting a tick for the frame to say what it has just chosen.
+        return theme_state()
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
                      "arrange | attach | dismiss | theme | settings | refresh | probe | measure | "
@@ -2526,17 +2528,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, **fleetmap.graph(snap, branch_rows=rows),
                                "theme": snap["theme"]})
         if route == "/api/themes":
-            from .. import config as C
             from . import skins
 
             # What is *chosen*, beside what there is to choose from. Without it the pickers could
             # only be filled, never set: the page built its options after the stream had already
             # told it the answer, and rebuilding the options threw that answer away -- so the desk
             # always opened reading "system / no skin" over whatever the config actually said.
-            chosen = (C.load().get("theme") or {})
+            # It is the stream's `theme` payload, css included (#346): a `current` without css was
+            # painted as "no palette" and wiped the one the stream had just applied.
             return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins(),
-                               "current": {"theme": chosen.get("default", "none") or "none",
-                                           "skin": chosen.get("skin", "none") or "none"}})
+                               "current": theme_state()})
         if route == "/api/settings":
             return self._json({"ok": True, **settings_snapshot()})
         if route == "/api/board":
