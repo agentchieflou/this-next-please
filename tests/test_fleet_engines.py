@@ -42,6 +42,10 @@ FEATURES = {
     "ResizeObserver": "() => typeof ResizeObserver === 'function'",
     "container queries": "() => CSS.supports('container-type', 'inline-size')",
     "OffscreenCanvas": "() => typeof OffscreenCanvas !== 'undefined'",
+    # The prototype only (#384): no context is created to ask, and never a 2D one.
+    "HTML-in-canvas": "() => typeof WebGL2RenderingContext !== 'undefined' "
+                      "&& ['texElementImage2D', 'texElementSubImage2D', 'texElement2D']"
+                      ".some(n => typeof WebGL2RenderingContext.prototype[n] === 'function')",
     "WebGL": "() => { const c = document.createElement('canvas'); "
              "return !!(c.getContext('webgl2') || c.getContext('webgl')); }",
 }
@@ -313,7 +317,7 @@ def test_the_feature_rows_are_what_the_probe_recorded_in_this_engine(fleet_home)
     wrong = {name: (rows[name][column], PR.feature_cell(rec, name)) for name in PR.FEATURES
              if re.sub(r"[*_`]", "", rows[name][column]).strip() != PR.feature_cell(rec, name)}
     assert wrong == {}, f"the table says one thing and the probe measured another: {wrong}"
-    assert shown == "every row works", shown
+    assert shown == "HTML-in-canvas: " + PR.FEATURES["HTML-in-canvas"], shown
     assert not left, "the container query's test element was left in the page"
 
 

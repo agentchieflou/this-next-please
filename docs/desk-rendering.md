@@ -41,6 +41,8 @@ page at run time. The one exception is the vendored three.js's own 1×1 feature 
    draws only on a shell whose WebGL probe said hardware ([desk-engines.md](desk-engines.md)).
    Every other shell gets the plain fallback, because a 3D ground that works on one of the four
    screens is worse than a flat one that works on all of them.
+   Pixel-level HTML in WebGL (HTML-in-Canvas) waits for the gate in
+   [desk-engines.md §Pixel-level HTML](desk-engines.md#pixel-level-html-384).
 
 ## The trace: an hour in sixty numbers
 
