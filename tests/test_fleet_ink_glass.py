@@ -28,7 +28,7 @@ import threading
 import pytest
 
 from agentdata import theme
-from agentdata.fleet import agentstate, events as E, registry, serve as S, skins as K
+from agentdata.fleet import agentstate, events as E, registry, serve as S, skins as K, supervisor
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
@@ -494,7 +494,7 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     hl, q = ".tile.needs-human .repo", ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q"
     assert _drawn(marks, hl, "pane:alpha") and _drawn(marks, q, "pane:alpha"), marks
     assert _drawn(marks, ".tile.state-error .head", "pane:beta"), marks
-    assert _drawn(marks, ".tile.state-done .head", "pane:gamma"), marks
+    assert _drawn(marks, ".tile:is(.state-done, .is-done) .head", "pane:gamma"), marks
     assert _drawn(marks, ".tile .oldsession:not([hidden])", "pane:gamma"), marks
     assert rims == {"alpha": ("human", 1), "beta": ("human", 1), "gamma": ("done", 1)}, rims
 
@@ -507,12 +507,86 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     marks, rims = steps["moved on"]
     assert _struck(marks, hl, "pane:alpha") and _struck(marks, q, "pane:alpha"), marks
     assert _struck(marks, ".tile.state-error .head", "pane:beta"), marks
-    assert _struck(marks, ".tile.state-done .head", "pane:gamma"), marks
+    assert _struck(marks, ".tile:is(.state-done, .is-done) .head", "pane:gamma"), marks
     assert _struck(marks, ".tile .oldsession:not([hidden])", "pane:alpha"), marks
     assert _drawn(marks, ".tile .scopereport.outside:not([hidden])", "pane:beta"), marks
     assert _drawn(marks, ".tile.state-running .chip", "pane:gamma"), marks
     assert rims == {"alpha": (None, 0), "beta": (None, 0), "gamma": (None, 0)}, rims
     assert dict(steps["run"]) == {"alpha": 0, "beta": 0, "gamma": 1}, steps["run"]
+
+
+@pytest.fixture()
+def alive(monkeypatch):
+    """The agents a process is holding; every other agent is one nothing supervises (#147)."""
+    names: set = set()
+    real = supervisor.live
+    monkeypatch.setattr(supervisor, "live",
+                        lambda name: {"pid": 777, "repo": name} if name in names else real(name))
+    return names
+
+
+def _finished_desk(tmp_path, fleet_home, done="beta", skin="glass:smoke"):
+    """Three panes, and `done` an agent whose phase is done: registered so, and its stream ending
+    in the phase change. Nothing holds its process, so the chip says idle and the fold says done."""
+    for name in NAMES:
+        Registry().add(make_project(tmp_path / name, phase="done" if name == done else "idle",
+                                    ticket="RDSD-1"), name=name)
+        E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-1"),
+                        E.event(name, "assistant_text", {"text": "working on " + name}, ticket="RDSD-1"),
+                        E.event(name, "turn_ended", {"turn": "0"}, ticket="RDSD-1")]
+                 + ([E.event(name, "phase_changed", {"from": "build", "to": "done"}, ticket="RDSD-1")]
+                    if name == done else []))
+    S.arrange(order=list(NAMES))
+    S.update_window("main", open=NAMES[0], widths={n: 1 for n in NAMES})
+    (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "%s"}}' % skin, encoding="utf-8")
+
+
+#: `R`'s green check, as the layer has it: in `R`'s lane, not a strike, and in what state.
+CHECKS = """(r) => Ink.inspect().layer.marks.filter(m => m.lane === 'pane:' + r && m.tool === 'green'
+  && m.shape === 'check' && !m.strikeOf).map(m => m.state)"""
+
+
+@pytest.mark.browser
+def test_a_finished_agent_nothing_supervises_is_ticked_and_rimmed_on_every_variant(fleet_home, tmp_path, alive):
+    """#333: the fold calls an agent done only once nothing supervises it, and the chip draws every
+    quiet unsupervised agent as idle -- so the pane is `state-idle is-done` (#253). Glass keys done
+    on both classes, as the paper skins do: a green check in the margin and the rim in green, on
+    every variant, from the fold's own events. Reduced motion, so the rim is set at once (`k` 1).
+    When the agent starts again the check is struck and the rim leaves done."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _finished_desk(tmp_path, fleet_home)
+    server, token, port = _serve()
+    seen = {}
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors, _ = _open(browser, port, token, reduced=True)
+            for v in VARIANTS:
+                _choose(page, "glass:" + v)
+                _ready(page, v, f"({CHECKS})('beta').includes('drawn')"
+                                " && window.__glass.inspect().panes.find(p => p.repo === 'beta').rim === 'done'")
+                seen[v] = {"cls": page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className"""),
+                           "checks": page.evaluate(CHECKS, "beta"), "rims": _rims(page)}
+            alive.add("beta")
+            E.append("beta", [E.event("beta", "turn_started", {"turn": "1"}, ticket="RDSD-1")])
+            page.wait_for_function(
+                """() => { if (document.querySelector('.tile[data-repo="beta"].state-running:not(.is-done)'))
+                             return true; refresh(); return false; }""", timeout=20000, polling=250)
+            page.wait_for_function(f"""() => ({AT_REST})() && !({CHECKS})('beta').includes('drawn')
+                && window.__glass.inspect().panes.find(p => p.repo === 'beta').rim !== 'done'""", timeout=30000)
+            again = {"checks": page.evaluate(CHECKS, "beta"), "rims": _rims(page)}
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    for v, got in seen.items():
+        cls = got["cls"].split()
+        assert "state-idle" in cls and "is-done" in cls, (v, got["cls"])
+        assert got["checks"] == ["drawn"], (v, got["checks"])
+        assert got["rims"]["beta"] == ("done", 1), (v, got["rims"])
+        assert got["rims"]["alpha"] == (None, 0) and got["rims"]["gamma"] == (None, 0), (v, got["rims"])
+    assert again["checks"] == ["struck"], again
+    assert again["rims"]["beta"][0] != "done", again
 
 
 #: Every frame, until the paper is at rest and alpha's rim has settled: the layer's frame count,

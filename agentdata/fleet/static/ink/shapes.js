@@ -90,9 +90,14 @@ export const SHAPES = {
   },
   /* A line under the text, a hair past both ends of it. `m.grow` px more on the right when the row
      grows (#249: the running agent's line lengthens with its turn), never past `m.limit`, and with
-     `m.tip` a pen-tip dot sitting at its end, or with `m.cap` an arrowhead or a bar (#385). */
+     `m.tip` a pen-tip dot sitting at its end, or with `m.cap` an arrowhead or a bar (#385). It
+     sits 2px under `m.base`, the foot of the tallest box on its text's line (a chip beside a name),
+     so a line past the text's end passes under its neighbours' words; and never lower than 2px over
+     `m.floor`, the top of the next row (#331). */
   underline(m) {
-    const r = box(m.box), y = r.b + 1 + (m.pad || 0);
+    const r = box(m.box);
+    let y = Math.max(r.b, m.base || 0) + 2 + (m.pad || 0);
+    if (m.floor !== undefined) y = Math.min(y, m.floor - 3.4);
     let x1 = r.r + 8 + (m.grow || 0);
     if (Number.isFinite(m.limit)) x1 = Math.max(r.r + 8, Math.min(x1, m.limit));
     const out = [{ pts: [[r.x - 3, y], [x1, y + 1.2]], nobow: true }];
@@ -196,19 +201,23 @@ export const PAGE_SHAPES = {
    `at` is where the anchor's top-left is on the viewport, so the paths -- in the anchor's own
    coordinates -- are moved there, ruled, and moved back.
 
-   Each straight stroke keeps its length and moves across onto the nearest line. An outline's
-   corners meet where its lines cross: every end moves with the box edge nearest it. An underline
-   goes down to the first line at or below its text, never up through it. A box smaller than a
-   square is still a square, so an outline never folds into a line. A ruled stroke does not sag
-   or wander: it is drawn to a ruler. */
-export function snap(paths, shape, b, at, g) {
+   A divider moves across onto the nearest line. An outline keeps inside its box (#331): each edge
+   goes onto a line in the box's padding band -- `o.band`, the px between its border box and its
+   content box, left, top, right, bottom -- or, where that band is narrower than a square, down
+   the band's middle, unruled; every end moves with the box edge nearest it and stops at the
+   border box, so its corners still cross and nothing is drawn over the words or past the pane.
+   An underline goes to the first line in [`o.base` + 2, `o.floor` - 2] (its text's foot and the
+   next row's top, as `underline` has them), and stays where it is when there is none. A ruled
+   stroke does not sag or wander: it is drawn to a ruler. */
+export function snap(paths, shape, b, at, g, o = {}) {
   const near = v => Math.round(v / g) * g;
-  const down = v => Math.ceil((v - 0.5) / g) * g;
-  const L = b.x + at.x, T = b.y + at.y, R = L + b.w, B = T + b.h;
-  const sL = near(L), sT = near(T);
-  const sR = Math.max(near(R), sL + g), sB = Math.max(near(B), sT + g);
-  const shiftX = x => x + (Math.abs(x - L) <= Math.abs(x - R) ? sL - L : sR - R);
-  const shiftY = y => y + (Math.abs(y - T) <= Math.abs(y - B) ? sT - T : sB - B);
+  const L = b.x + at.x, T = b.y + at.y, R = L + b.w, B = T + b.h, w = o.band || [0, 0, 0, 0];
+  const edge = (e, d) => (Math.abs(d) < g ? e + d / 2 : near(e + d / 2));
+  const sL = edge(L, w[0]), sT = edge(T, w[1]), sR = edge(R, -w[2]), sB = edge(B, -w[3]);
+  const inX = x => Math.min(R, Math.max(L, x + (Math.abs(x - L) <= Math.abs(x - R) ? sL - L : sR - R)));
+  const inY = y => Math.min(B, Math.max(T, y + (Math.abs(y - T) <= Math.abs(y - B) ? sT - T : sB - B)));
+  const u = Math.ceil((at.y + (o.base ?? b.y + b.h) + 2) / g) * g;
+  if (shape === "underline" && o.floor !== undefined && u > at.y + o.floor - 2) return paths;
   return paths.map(p => {
     const pts = p.pts.map(q => [q[0] + at.x, q[1] + at.y]);
     const a = pts[0], z = pts[pts.length - 1];
@@ -216,11 +225,11 @@ export function snap(paths, shape, b, at, g) {
     const mid = pts.reduce((s, q) => s + q[flat ? 1 : 0], 0) / pts.length;
     let out;
     if (flat) {
-      const y = shape === "underline" ? down(mid) : shape === "outline" ? near(shiftY(mid)) : near(mid);
-      out = pts.map(q => [shape === "outline" ? shiftX(q[0]) : q[0], y]);
+      const y = shape === "underline" ? u : shape === "outline" ? (Math.abs(mid - T) <= Math.abs(mid - B) ? sT : sB) : near(mid);
+      out = pts.map(q => [shape === "outline" ? inX(q[0]) : q[0], y]);
     } else {
-      const x = shape === "outline" ? near(shiftX(mid)) : near(mid);
-      out = pts.map(q => [x, shape === "outline" ? shiftY(q[1]) : q[1]]);
+      const x = shape === "outline" ? (Math.abs(mid - L) <= Math.abs(mid - R) ? sL : sR) : near(mid);
+      out = pts.map(q => [x, shape === "outline" ? inY(q[1]) : q[1]]);
     }
     return Object.assign({}, p, { pts: out.map(q => [q[0] - at.x, q[1] - at.y]), nobow: true, wob: 0 });
   });

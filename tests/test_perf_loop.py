@@ -68,6 +68,7 @@ def uncovered_hot(items):
 # ------------------------------------------------------------------------- the loop, end to end
 
 
+@pytest.mark.measured
 def test_the_full_loop_on_a_covered_node(loop_repo):
     root, graph_dir = loop_repo
 
@@ -81,7 +82,7 @@ def test_the_full_loop_on_a_covered_node(loop_repo):
     assert not any("uncovered_hot" in r["node"] for r in covered_rows)
 
     # step 4: baseline
-    before = bench_node(root, node="src/hot.py::slow_version", runs=2, warmup=1, label="before")
+    before = bench_node(root, node="src/hot.py::slow_version", runs=5, warmup=1, label="before")
     assert before["ok"] is True, before.get("error")
 
     # step 5: the smallest change that removes the pattern the hint names (list scan -> set)
@@ -113,7 +114,7 @@ def test_the_full_loop_on_a_covered_node(loop_repo):
     assert verdict["approved"] == "current"
 
     # step 7: it is actually faster, measured through the tests that exercise it
-    after = bench_node(root, node="src/hot.py::slow_version", runs=2, warmup=1, label="after")
+    after = bench_node(root, node="src/hot.py::slow_version", runs=5, warmup=1, label="after")
     assert after["ok"] is True
     cmp_row = compare_bench(os.path.join(root, before["path"]),
                             os.path.join(root, after["path"]))["row"]

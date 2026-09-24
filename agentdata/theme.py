@@ -40,6 +40,7 @@ class Theme:
     status: dict[str, str]
     light: bool = False
     layout: str = "jandedobbeleer"
+    muted: str | None = None
 
 
 # ---------- Color math & Contrast check ----------
@@ -92,6 +93,22 @@ def mix(h1: str, h2: str, weight: float) -> str:
     return rgb_to_hex((r, g, b))
 
 
+def _muted(t: Theme, accent: str | None = None) -> str:
+    """Derive a muted colour: mix text towards ground at the largest weight that keeps >= 4.6:1."""
+    if not t.text or not t.ground:
+        return "#888888"
+    acc = accent or t.accent or t.text
+    panel = mix(t.ground, t.text, 0.04)
+    select = mix(t.ground, acc, 0.18)
+    surfaces = (t.ground, panel, select)
+    for step in range(100, -1, -1):
+        w = step / 100.0
+        cand = mix(t.text, t.ground, w)
+        if all(contrast_ratio(cand, s) >= 4.6 for s in surfaces):
+            return cand
+    return t.text
+
+
 def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
     """Render a Theme as CSS custom properties according to the stated mapping.
 
@@ -101,7 +118,7 @@ def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
       --panel: ground moved 4% toward text
       --line: ground moved 15% toward text
       --select: ground moved 18% toward accent
-      --muted: ansi.bright_black
+      --muted: t.muted or derived at >= 4.6:1
       --accent: accent or project's own
       --focus: cursor
       --running: status.info
@@ -116,13 +133,14 @@ def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
     panel = mix(t.ground, t.text, 0.04)
     line = mix(t.ground, t.text, 0.15)
     select = mix(t.ground, accent, 0.18)
+    muted = t.muted if t.muted is not None else _muted(t, accent=accent)
     return {
         "--bg": t.ground,
         "--text": t.text,
         "--panel": panel,
         "--line": line,
         "--select": select,
-        "--muted": t.ansi[8] if t.ansi and len(t.ansi) > 8 else "#888888",
+        "--muted": muted,
         "--accent": accent,
         "--focus": t.cursor,
         "--running": t.status.get("info", "#58A6FF"),
@@ -156,6 +174,7 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
        the panel, so >= 3:1 against it (WCAG 1.4.11, non-text contrast) -- except the
        highlighter, which is read THROUGH: the text on its tint must keep 4.5:1. The ink layer
        brings the mechanism; the pairs arrive with the paper skins (#249-#253).
+    6. Muted text on ground (#325): to_css(t)["--muted"] >= 4.5:1 on target_ground.
     """
     if t.name == "none" or t.ground is None or t.text is None:
         return
@@ -223,6 +242,16 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
                 hint=f"{skin_ctx}{tool} '{ink}' on paper '{target_ground}'"
             )
 
+    # Rule 6: muted on ground (#325)
+    c_muted = to_css(t).get("--muted")
+    if c_muted:
+        cr_muted = contrast_ratio(c_muted, target_ground)
+        if cr_muted < 4.5:
+            raise ThemeError(
+                f"{skin_ctx}theme '{t.name}': muted contrast {cr_muted:.2f}:1 is below 4.5:1 floor",
+                hint=f"{skin_ctx}muted '{c_muted}' on ground '{target_ground}'"
+            )
+
 
 # ---------- Built-in Theme Definitions ----------
 
@@ -257,7 +286,8 @@ GREENS = Theme(
         "error": "#F85149",
     },
     light=False,
-    layout="jandedobbeleer"
+    layout="jandedobbeleer",
+    muted="#8DA493",
 )
 
 REDS = Theme(
@@ -278,7 +308,8 @@ REDS = Theme(
         "error": "#FFD166",
     },
     light=False,
-    layout="night-owl"
+    layout="night-owl",
+    muted="#B79191",
 )
 
 EYE_RELIEF = Theme(
@@ -299,7 +330,8 @@ EYE_RELIEF = Theme(
         "error": "#D96B6B",
     },
     light=False,
-    layout="atomic"
+    layout="atomic",
+    muted="#B6AE9C",
 )
 
 EYE_RELIEF_DAY = Theme(
@@ -320,7 +352,8 @@ EYE_RELIEF_DAY = Theme(
         "error": "#A82D2D",
     },
     light=True,
-    layout="atomic"
+    layout="atomic",
+    muted="#5C5A52",
 )
 
 NFL_BROWNS = Theme(
@@ -341,7 +374,8 @@ NFL_BROWNS = Theme(
         "error": "#FF5C5C",
     },
     light=False,
-    layout="jandedobbeleer"
+    layout="jandedobbeleer",
+    muted="#A79984",
 )
 
 NONE = Theme(
@@ -377,7 +411,8 @@ DARK = Theme(
         "error": "#F85149",
     },
     light=False,
-    layout="jandedobbeleer"
+    layout="jandedobbeleer",
+    muted="#A5A9AC",
 )
 
 VANTA_BLACK = Theme(
@@ -398,7 +433,8 @@ VANTA_BLACK = Theme(
         "error": "#F85149",
     },
     light=False,
-    layout="jandedobbeleer"
+    layout="jandedobbeleer",
+    muted="#929292",
 )
 
 MATRIX = Theme(
@@ -419,7 +455,8 @@ MATRIX = Theme(
         "error": "#FF3B3B",
     },
     light=False,
-    layout="jandedobbeleer"
+    layout="jandedobbeleer",
+    muted="#2CAD57",
 )
 
 BLUES = Theme(
@@ -440,7 +477,8 @@ BLUES = Theme(
         "error": "#F85149",
     },
     light=False,
-    layout="night-owl"
+    layout="night-owl",
+    muted="#9BAABE",
 )
 
 SAND = Theme(
@@ -461,7 +499,8 @@ SAND = Theme(
         "error": "#B3261E",
     },
     light=True,
-    layout="atomic"
+    layout="atomic",
+    muted="#60574A",
 )
 
 
@@ -653,38 +692,3 @@ def apply(t: Theme, persist: bool = False) -> dict[str, Any]:
         except Exception:
             pass
     return {"ok": True, "mechanism": f"osc-{host}"}
-
-
-# ---------- CSS Variables Rendering (#150) ----------
-
-def css(t: Theme) -> dict[str, str]:
-    """Render CSS custom properties for the dashboard (1:1 with terminal)."""
-    if t.name == "none" or t.ground is None or t.text is None:
-        return {}
-
-    # Calculate panel colour slightly lighter/darker than ground
-    r, g, b = hex_to_rgb(t.ground)
-    h, l, s = colorsys.rgb_to_hls(r, g, b)
-    l_panel = min(1.0, l + 0.05) if not t.light else max(0.0, l - 0.05)
-    panel = rgb_to_hex(colorsys.hls_to_rgb(h, l_panel, s))
-
-    # Muted text
-    r_t, g_t, b_t = hex_to_rgb(t.text)
-    h_t, l_t, s_t = colorsys.rgb_to_hls(r_t, g_t, b_t)
-    l_muted = max(0.0, l_t - 0.2) if not t.light else min(1.0, l_t + 0.2)
-    muted = rgb_to_hex(colorsys.hls_to_rgb(h_t, l_muted, s_t))
-
-    return {
-        "--bg": t.ground,
-        "--panel": panel,
-        "--text": t.text,
-        "--muted": muted,
-        "--accent": t.accent or t.text,
-        "--border": t.ansi[8] if len(t.ansi) > 8 else "#6E7681",
-        "--ok": t.status.get("ok", "#3FB950"),
-        "--warn": t.status.get("warn", "#D29922"),
-        "--fail": t.status.get("fail", "#F85149"),
-        "--human": t.status.get("fail", "#F85149"),  # Same role as fail (#150)
-        "--skip": t.status.get("skip", "#8B949E"),
-        "--info": t.status.get("info", "#58A6FF"),
-    }
