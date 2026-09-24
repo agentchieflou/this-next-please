@@ -42,11 +42,22 @@ WATCH_CONTEXTS = """
     };
   }"""
 
-#: (a) The upload, with whichever generation of the API the prototype has. The arguments follow
-#: the method's arity: `texElement2D/6` and the 138-149 `texElementImage2D/6` take
-#: (target, level, internalformat, format, type, element); the 150+ three-argument form takes
-#: (target, level, element). The pane's clone is laid out inside a `<canvas layoutsubtree>` the
-#: test adds and removes; the texture is read back through a framebuffer.
+#: (a) The upload, with whichever generation of the API the prototype has. Each form is the one its
+#: engine takes, not a guess from the arity:
+#:
+#: - `texElement2D/6` (Chromium 141) and `texElementImage2D/6` (Chromium 138-149):
+#:   (target, level, internalformat, format, type, element), with an unsized `RGBA`;
+#: - `texElementImage2D/3` (Chromium 150+): (target, internalformat, element), and the format must
+#:   be sized (`RGBA8`): three.js dev calls `texElementImage2D(TEXTURE_2D, RGBA8, element)`;
+#: - `texElementSubImage2D/5` (the explainer): (target, level, xoffset, yoffset, element), into
+#:   storage allocated first.
+#:
+#: Any other name or arity is a form this test has not met, and it says so rather than guessing.
+#: The pane's clone is marked `drawable` and laid out inside a `<canvas layoutsubtree>` the test
+#: adds and removes. Where the engine has the canvas `paint` event (the explainer: an element's
+#: snapshot exists only once it has been painted), the upload happens inside it, after
+#: `requestPaint()`; an engine without it (Chromium 141) uploads after two frames. The texture is
+#: read back through a framebuffer.
 UPLOAD = """async ([name, arity]) => {
   const pane = document.querySelector('#grid .tile.is-solo');
   const r = pane.getBoundingClientRect();
@@ -55,19 +66,44 @@ UPLOAD = """async ([name, arity]) => {
   canvas.setAttribute('layoutsubtree', '');
   canvas.width = w; canvas.height = h;
   const child = pane.cloneNode(true);
+  child.setAttribute('drawable', '');
   canvas.appendChild(child);
   document.body.appendChild(canvas);
-  const out = { name, arity, w, h, error: '', lit: 0, ms: null };
+  const painted = 'onpaint' in canvas || typeof canvas.requestPaint === 'function';
+  const out = { name, arity, w, h, error: '', lit: 0, ms: null, via: painted ? 'paint' : 'frames' };
   try {
-    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
     const gl = canvas.getContext('webgl2');
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    const lead = [gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE].slice(0, Math.max(0, arity - 1));
-    const t0 = performance.now();
-    gl[name](...lead, child);
-    gl.finish();
-    out.ms = performance.now() - t0;
+    const form = name + '/' + arity;
+    const call = () => {
+      const t0 = performance.now();
+      if (form === 'texElement2D/6' || form === 'texElementImage2D/6') {
+        gl[name](gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, child);
+      } else if (form === 'texElementImage2D/3') {
+        gl.texElementImage2D(gl.TEXTURE_2D, gl.RGBA8, child);
+      } else if (form === 'texElementSubImage2D/5') {
+        gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
+        gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, child);
+      } else {
+        throw new Error('a form this test has not met: ' + form);
+      }
+      gl.finish();
+      out.ms = performance.now() - t0;
+    };
+    if (painted) {
+      await new Promise((resolve, reject) => {
+        const late = setTimeout(() => reject(new Error('the canvas never fired paint')), 10000);
+        canvas.addEventListener('paint', () => {
+          clearTimeout(late);
+          try { call(); resolve(); } catch (e) { reject(e); }
+        }, { once: true });
+        if (typeof canvas.requestPaint === 'function') canvas.requestPaint();
+      });
+    } else {
+      await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+      call();
+    }
     const fb = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
@@ -260,7 +296,7 @@ def test_html_in_canvas_is_what_the_probe_recorded_and_the_other_routes_are_meas
               "and line boxes")
     else:
         print(f"  (a) upload    {upload['name']}/{upload['arity']} of a {upload['w']}x{upload['h']} "
-              f"pane: {upload['lit']} lit pixels in {_ms(upload['ms'])}"
+              f"pane: {upload['lit']} lit pixels in {_ms(upload['ms'])} (after {upload['via']})"
               f"{', ' + upload['error'] if upload['error'] else ''}")
     print(f"  (b) snapshot  {snapshot['w']}x{snapshot['h']} pane, {snapshot.get('bytes', 0)} B of SVG, "
           f"{snapshot['comments']} comments dropped: styles {_ms(snapshot.get('styles_ms'))}, "

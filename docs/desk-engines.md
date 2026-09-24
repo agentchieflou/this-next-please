@@ -156,7 +156,7 @@ with the one Blink flag that turns the first on, and prints its numbers every ru
 
 | Route | What it is | Cost (Chromium 141 on SwiftShader) | Fidelity | Which shells have it |
 | --- | --- | --- | --- | --- |
-| HTML-in-Canvas | The WICG proposal: an element that is a child of a `<canvas layoutsubtree>` is uploaded as a WebGL texture by the browser's own painter | the upload about 8 ms for a 457×729 pane (the test) | exact: the browser paints it | none unflagged. Chromium 141 has `texElement2D/6` behind `--enable-blink-features=CanvasDrawElement`; the table's `HTML-in-canvas` row, per shell |
+| HTML-in-Canvas | The WICG proposal: an element that is a child of a `<canvas layoutsubtree>` is uploaded as a WebGL texture by the browser's own painter | the upload about 8 ms for a 457×729 pane (the test) | exact: the browser paints it | none unflagged. Behind `--enable-blink-features=CanvasDrawElement`, Chromium 141 has `texElement2D/6` and Chromium 153 has `texElementImage2D/3`; the table's `HTML-in-canvas` row, per shell |
 | SVG snapshot | A clone of the pane with its computed styles inlined, serialised into an SVG `foreignObject`, decoded as a `data:` image and uploaded with `texImage2D` | 21–45 ms for a 524×729 pane with only the styles that differ inlined (styles 8–15, serialise 4–5, decode 1.5–14, upload 6–17; measured 2026-09-23). About 400 ms when every computed property is inlined, as the test does | approximate: icons, pseudo-elements and scroll position come out wrong | every shell with WebGL |
 | DOM-synced geometry | `Range.getClientRects()` for line boxes and one `Range` per character for glyph boxes, read from the live page | 183 line boxes for a full pane in 0.2 ms, and 2,456 glyph boxes in about 6.5 ms (2026-09-23). The test's short pane: 34 in 0.7 ms and 365 in 3 ms | boxes, not pixels: where the text is, not what it looks like | every shell |
 
@@ -177,8 +177,12 @@ the page again on a 2D context, which the desk has not had since #257, and each 
 
 **Three generations of names.** The proposal has been `texElement2D` (Chromium 141 behind the
 flag; six arguments, `target, level, internalformat, format, type, element`), `texElementImage2D`
-(three.js dev calls it with six arguments for Chrome 138–149 and three for 150+) and, in the
-current explainer, `texElementSubImage2D` with `content="drawable"`. The flagged Chromium 141 also
+(six arguments, the same order, for Chrome 138–149; three for 150+, `target, internalformat,
+element`, where the format must be sized: `RGBA8`, not `RGBA`) and, in the current explainer,
+`texElementSubImage2D` (`target, level, xoffset, yoffset, element`) with `content="drawable"`,
+drawn inside the canvas's `paint` event once the element has a snapshot. The Chromium 153 on CI's
+ubuntu legs has `texElementImage2D/3` behind the same flag, and refuses anything but a sized format
+there (`Invalid internalformat. Must be one of RGBA8, SRGB8_ALPHA8, RGBA16F, or RGBA32F`). The flagged Chromium 141 also
 has `HTMLCanvasElement.prototype.layoutSubtree` and a 2D `drawElement`, but no `requestPaint` or
 `onpaint`. The origin trial is reported for M148–M151. The probe records whichever name it finds,
 with its arity (`hic_api`, for example `texElement2D/6`), so each shell's record says which
@@ -203,7 +207,8 @@ moves its panes into a canvas without a plan of its own. No origin-trial token i
 no shell is launched with a Chromium flag.
 
 **Today's verdict: not yet.** No shell has it unflagged. CI's Chromium 141 has it only with the flag
-(`texElement2D/6`, lit pixels read back, no `SecurityError`). The laptop's shells are read by #383.
+(`texElement2D/6`, lit pixels read back, no `SecurityError`); the Chromium 153 on CI's ubuntu legs
+has `texElementImage2D/3` behind the same flag, and `test_fleet_pixel_html.py` prints its upload. The laptop's shells are read by #383.
 
 ## What is *not* guarded by a fallback
 
