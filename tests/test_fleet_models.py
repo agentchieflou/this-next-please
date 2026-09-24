@@ -163,6 +163,16 @@ def test_ad_fleet_models_exits_0_without_copilot(isolated_path, capsys):
     assert "\x1b[" not in out
 
 
+def test_ad_fleet_models_refresh_without_copilot_says_why(isolated_path, capsys):
+    """`--refresh` with no CLI and no cache: the shipped list, exit 0, and the ask's failure in
+    `why` -- the cache it would have been kept in does not exist."""
+    assert cli_fleet.main(["models", "--refresh"]) == 0
+    out = capsys.readouterr().out
+    assert "source: shipped" in out
+    why = [line for line in out.splitlines() if line.strip().startswith("why:")]
+    assert why and why[0].split(":", 1)[1].strip() not in ("", '""'), out
+
+
 def test_ad_fleet_models_refresh_asks_the_cli_once(counted, capsys):
     assert cli_fleet.main(["models", "--refresh"]) == 0
     out = capsys.readouterr().out

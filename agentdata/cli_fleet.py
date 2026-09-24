@@ -1417,10 +1417,10 @@ def cmd_models(a) -> int:
     except C.ConfigError:
         cfg = {}
     seen = [m for m in (S.served_model(r.name) for r in Registry().sorted()) if m]
-    refreshed = bool(getattr(a, "refresh", False))
+    refreshed, asked = bool(getattr(a, "refresh", False)), {}
     if refreshed:
         try:
-            M.refresh(cfg)
+            asked = M.refresh(cfg)
         except OSError as e:
             meta = {"ok": False, "source": "ad-fleet models", "error": f"cannot write {M.cache_file()}: "
                                                                      f"{e.strerror or e}",
@@ -1429,6 +1429,8 @@ def cmd_models(a) -> int:
             return EXIT_FAILED
     cat = M.catalogue(cfg, seen=seen, spawn=not refreshed)     # just asked: no second `--version`
     meta = dict(cat["meta"], models=len(cat["models"]), efforts=len(cat["efforts"]))
+    if asked.get("failed") and not meta.get("why"):
+        meta["why"] = asked["why"]         # no cache to keep it in: the ask's failure is said here
     failed = bool(meta.get("write_error"))
     payload = {"meta": {"ok": not failed, "source": "ad-fleet models", **meta}}
     print(toon.encode(payload))
