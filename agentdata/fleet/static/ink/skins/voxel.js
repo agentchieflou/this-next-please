@@ -41,8 +41,9 @@ const MARKS = [
   { selector: ".tile.needs-human .head .repo", tool: "marker", shape: "underline" },
   // error: a bang in the head's margin. The stack's block cracks.
   { selector: ".tile.state-error .head", tool: "red", shape: "bang" },
-  // done: a green check in the head's margin. The stack is set full.
-  { selector: ".tile.state-done .head", tool: "green", shape: "check" },
+  // done: a green check in the head's margin. The stack is set full. `is-done` is the fold's word
+  // for a finished agent nothing supervises, whose chip says idle (#253, #333).
+  { selector: ".tile:is(.state-done, .is-done) .head", tool: "green", shape: "check" },
   // stale (#240): the old-session chip outlined in dashed pencil. A pebble on the stack.
   { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", dash: true, pad: 2 },
   // answered: the choice pressed in the question card, looped in green.
@@ -434,6 +435,8 @@ function read(p) {
   const el = p.el, st = p.stack;
   let state = "idle";
   for (const c of el.classList) if (c.startsWith("state-")) state = c.slice(6);
+  // A finished agent nothing supervises: the chip says idle, the fold says done (#333).
+  if (state === "idle" && el.classList.contains("is-done")) state = "done";
   const needs = el.classList.contains("needs-human");
   const old = el.querySelector(".oldsession");
   const stale = !!(old && !old.hidden);
