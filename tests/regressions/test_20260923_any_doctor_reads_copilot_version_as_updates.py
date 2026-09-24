@@ -1,20 +1,27 @@
-"""2026-09-23, ad-doctor in Windows/Linux: the doctor reads copilot version as 'updates.'.
+"""2026-09-23, `ad-doctor` on any shell: the copilot row read the CLI's update hint as its version.
 
-Symptom:
+Symptom (`copilot --version` on Copilot CLI 1.0.88):
 
-    copilot --version on 1.0.88 prints GitHub Copilot CLI 1.0.88. and Run 'copilot update' to check for updates.; the doctor's copilot row read updates. (this fleet was measured against 1.0.81)
+    GitHub Copilot CLI 1.0.88.
+    Run 'copilot update' to check for updates.
 
-The doctor parsed the version by taking text.split()[-1] from copilot --version,
-which took the last word 'updates.' from the two-line output instead of the version number.
+and the doctor's copilot row read:
+
+    copilot ok  updates. (this fleet was measured against 1.0.81)
+
+`_probe` took `text.split()[-1]`, the last word of the output, which is `updates.` once the CLI
+prints a second line; `_older("updates.", "1.0.81")` then read it as `[0, 0]` and appended the
+"measured against" suffix. The version is now the first `N.N.N` in the output, and output with no
+version in it is the `fail` row's reason instead of an empty one.
 
 Issue: https://github.com/agentchieflou/this-next-please/issues/358
 """
 from __future__ import annotations
 
-import pytest
-
 from agentdata.setup.steps.fleet import FleetStep
 from agentdata.setup.wizard import Context, Detectors, Prompter
+
+import fakes
 
 
 def test_the_version_is_read_from_the_two_line_output(monkeypatch):
@@ -71,3 +78,19 @@ def test_a_bare_version_still_parses(monkeypatch):
     probe_fail = FleetStep()._probe(ctx)
     assert probe_fail["version"] == ""
     assert "command not found" in probe_fail["why"]
+
+    # rc 0 with no version in it: no version, and the fail row says what the CLI printed
+    monkeypatch.setattr(proc, "run", lambda argv, timeout=60: (0, "Copilot CLI (dev build)\n", "", 0.1))
+    probe_none = FleetStep()._probe(ctx)
+    assert probe_none["version"] == ""
+    assert probe_none["why"] == "Copilot CLI (dev build)"
+
+
+def test_the_fake_copilot_version_transcript_is_read_as_its_version(monkeypatch, tmp_path):
+    """The fake `copilot` (#416) replays the captured two-line `--version`, through the real
+    `proc.run`, so the doctor is proved against the same bytes every fleet test sees."""
+    fakes.apply(monkeypatch, tmp_path, ["copilot"])
+    ctx = Context(cfg={}, det=Detectors(), ask=Prompter(), interactive=False)
+    probe = FleetStep()._probe(ctx)
+    assert probe["version"] == "1.0.88", probe
+    assert probe["why"] == ""
