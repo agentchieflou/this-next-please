@@ -101,3 +101,36 @@ def test_graph_outlines_stay_in_their_panes_and_off_the_words(fleet_home, tmp_pa
         assert s["hit"] < 6, ("an outline stroke crossed the transcript", s)
     for s in running:
         assert s["hit"] == 0, ("the running underline crossed a word not its own", s)
+
+
+@pytest.mark.browser
+def test_the_running_underline_keeps_off_a_pill_whose_words_stand_high(fleet_home, tmp_path):
+    """Windows, Python 3.14, at 674ce1f and 700px: `the running underline crossed a word not its
+    own`, hit 41.97 px². The name wraps onto a row of its own there; the chip is the first element
+    after it in the markup, but `.oldsession` starts higher, and under a font whose line box is
+    taller than the pill's line-height its words stand above its box. `under()` took the first
+    element in the markup for the next row. The pill's words are put where such a font puts them,
+    and the underline still keeps off them (before the fix: hit 35.0)."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk(tmp_path, fleet_home, {"alpha": "error", "beta": "stale"})
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors = _open(browser, port, token, width=700)
+            page.add_style_tag(content=".head .oldsession { padding-top: 0 !important;"
+                                       " padding-bottom: 6px !important; line-height: 0.9 !important; }")
+            page.wait_for_selector('.tile[data-repo="beta"] .oldsession:not([hidden])', timeout=20000)
+            _run("beta")
+            _tile_has(page, "beta", "state-running")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:beta' && m.shape === 'underline'"
+                        " && m.tool === 'pen' && m.state === 'drawn')")
+            got = page.evaluate(MEASURE)
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+    running = [s for s in got if s["shape"] == "underline" and s["tool"] == "pen"]
+    assert running, got
+    for s in running:
+        assert s["hit"] == 0, ("the running underline crossed a word not its own", s["words"], s)

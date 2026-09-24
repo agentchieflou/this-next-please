@@ -657,8 +657,10 @@ class Layer {
   }
 
   /* Where an underline may go (#331), in the anchor's coordinates: `base` is the foot of the tallest
-     of its siblings on its line, and `floor` the top of the first element after it in its pane
-     that starts below it (none in the header). Read only, where `sync` already measures. */
+     of its siblings on its line, and `floor` the top of the next row in its pane (none in the
+     header): the highest of the elements after it that start below it, and of their words, whose
+     line box can stand above their element's box. Not the first in the markup: a wrapped header
+     puts the chip first but the taller `.oldsession` higher. Read only, where `sync` already measures. */
   under(m, r, s) {
     let b = r.bottom;
     for (const k of m.el.parentElement ? m.el.parentElement.children : []) {
@@ -666,11 +668,17 @@ class Layer {
       if (q.height && q.top < r.bottom && q.bottom > r.top) b = Math.max(b, q.bottom);
     }
     s.base = b - r.top;
+    const range = document.createRange();
     for (let a = m.el; m.lane.root && a && a !== m.lane.root; a = a.parentElement) {
+      let f = Infinity;
       for (let n = a.nextElementSibling; n; n = n.nextElementSibling) {
         const q = n.getBoundingClientRect();
-        if (q.height && q.top > r.bottom) return void (s.floor = q.top - r.top);
+        if (!q.height || q.top <= r.bottom) continue;
+        f = Math.min(f, q.top);
+        range.selectNodeContents(n);
+        for (const w of range.getClientRects()) if (w.height) f = Math.min(f, w.top);
       }
+      if (f < Infinity) return void (s.floor = f - r.top);
     }
   }
 
