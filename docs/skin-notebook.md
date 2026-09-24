@@ -107,6 +107,19 @@ slight falloff of light from the top left. The `frame` hook draws each pane's ma
 edge. A rail has no margin, and its marks go down its middle. The panes are transparent (`skin.css`), so the rules and
 the marks show through them. The check and the bang are written in the margin, left of the line.
 
+**Under the transcript the rules are the transcript's own (#338).** Its rows were 25px and the rules 28px, so the
+rules drifted through the middle of text lines, and a line through text reads as struck, the grammar's own sign for
+"gone". Under ink, `skin.css` makes a transcript row the pitch (`line-height: var(--pitch)`, no vertical padding, no
+divider: the rules are the dividers), sets each row's text 2px low so a line's glyphs end 4px above its rule, lays the
+rows at the transcript's bottom (`margin-top: auto` on the first, `flex-basis: 0` so the transcript's box does not move
+as its content grows), and snaps its scroll to whole rows (`scroll-snap-type: y mandatory`, `scroll-snap-align: end`).
+The `frame` hook covers the transcript's box with the same stock without rules (the shader's `uRuled`), and draws a
+rule every 28px up from the transcript's bottom edge. A card shown or hidden above the transcript moves it inside an
+unchanged pane, so the layer's frame signature carries the transcript's box (desk-ink.md §Following the page). Outside
+the transcript the page's rules stay where they are; graph paper's grid is not ruled this way. A row whose label wraps
+(`assistant text` in its 96px column) is two rules tall. `?ink=off` keeps the plain 25px rows and their dividers.
+`inspect()` answers `{builds}`, the number of `frame` calls so far; `tests/test_fleet_ink_rules.py` is the test.
+
 ## Without ink
 
 A shell the gate turns off (software, nothing measured, `?ink=off`, a lost context) gets `body.ink-off`. The layer's

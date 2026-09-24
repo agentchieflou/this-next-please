@@ -45,7 +45,7 @@ LAYOUT = re.compile(r"^(display|position|inset|top|right|bottom|left|width|heigh
                     r"max-width|max-height|margin(-[a-z]+)*|padding(-[a-z]+)*|gap|row-gap|column-gap|"
                     r"flex(-[a-z]+)*|grid(-[a-z]+)*|align-[a-z]+|justify-[a-z]+|place-[a-z]+|order|"
                     r"overflow(-[a-z]+)?|z-index|box-sizing|vertical-align|content|container(-[a-z]+)?|"
-                    r"will-change|contain|color-scheme)$")
+                    r"scroll-snap-type|scroll-snap-align|will-change|contain|color-scheme)$")
 TYPOGRAPHY = re.compile(r"^(font(-[a-z]+)*|letter-spacing|word-spacing|line-height|text-align|"
                         r"text-transform|text-indent|white-space|word-break|overflow-wrap|hyphens|"
                         r"tab-size)$")
@@ -119,6 +119,9 @@ def test_the_guard_knows_decoration_when_it_sees_it():
     assert refused("body[data-skin=x] .tile { padding-left: 34px; font-family: var(--hand); }") == []
     assert refused("body[data-skin=x]:not(.ink-off) .tile { background: transparent; box-shadow: none; }") == []
     assert refused("body:has(> #ink[data-skin]) .chip { color: var(--running) !important; }") == []
+    # How a list scrolls is layout, in every look: the ruled transcript scrolls in whole rows (#338).
+    assert refused("body[data-skin=x] .transcript { scroll-snap-type: y mandatory; } "
+                   "body[data-skin=x] .transcript > li { scroll-snap-align: end; }") == []
     for css in ("body[data-skin=x] { --bg: #000; }",
                 "body[data-skin=x] .tile { background: #FBF3E0; }",
                 "body[data-skin=x] .tile { box-shadow: 0 4px 10px rgba(0,0,0,.25); }",

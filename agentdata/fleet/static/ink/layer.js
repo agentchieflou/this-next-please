@@ -369,7 +369,7 @@ class Layer {
     return changed;
   }
 
-  /* Each pane's frame where the pane is; built again only when its size changed. */
+  /* Each pane's frame where the pane is; built again only when its size, or its transcript's box, changed. */
   syncFrames() {
     const s = this.skin;
     if (!s || !s.frames.size) return false;
@@ -383,7 +383,9 @@ class Layer {
         f.group.position.set(r.left, -r.top, 0);
         changed = true;
       }
-      const sig = r.width.toFixed(1) + "x" + r.height.toFixed(1);
+      // and where its transcript is: a card shown above it moves it in an unchanged pane (#338)
+      const t = f.el.querySelector(".transcript"), q = t && t.getBoundingClientRect();
+      const sig = r.width.toFixed(1) + "x" + r.height.toFixed(1) + (q ? "@" + (q.top - r.top).toFixed(1) + "+" + q.height.toFixed(1) : "");
       if (sig !== f.sig) {
         f.sig = sig;
         this.empty(f.group);
