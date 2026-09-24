@@ -16,9 +16,12 @@ Never read `agentdata/fleet/static/app.js` (~61k tokens) or `agentdata/fleet/ser
 `grep -n` the symbol and read about 80 lines around it.
 
 ## Branch, PR, checkpoint
-- One issue, one branch `gemini/<issue>-<slug>` from `main`, one draft PR whose body starts `Closes #<issue>`.
-- After every acceptance criterion goes green: run the named tests, commit only what you meant, push, rewrite the
-  handover note in the PR body (`gh pr edit <n> --body-file <file outside the checkout>`).
+- One issue, one branch `gemini/<issue>-<slug>` from `main`. **Open no PR**: your branch is a car on the merge train
+  (decision 7), and the conductor's one train PR carries `Closes #<issue>` for every car.
+- After every acceptance criterion goes green: run the named tests, commit only what you meant, push, and post the
+  handover note as a comment on the issue (`gh issue comment <n> --body-file <file outside the checkout>`).
+- When the inner loop and your browser files (twice) are green, post `CAR #<n> <branch> @ <sha>: locally green` on
+  #429. A red car is pulled out of the train and comes back to you.
 - **The handover note is your memory.** If you cannot recall what you did, re-read it and
   `git log --oneline origin/main..HEAD` before any edit.
 
