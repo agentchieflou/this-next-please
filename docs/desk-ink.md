@@ -23,13 +23,14 @@ Everything is in `agentdata/fleet/static/ink/`. There is no build step and nothi
 | `layer.js` | the canvas, the lanes, marks derived from the DOM, the geometry, the frame loop, and the page's own trace rows (#257) | only when the gate says on **and** a skin sets a table |
 | `shapes.js` | each shape's paths, computed from a box. Pure arithmetic | with `layer.js` |
 | `pen.js` | each tool's physics, the stroke meshes and their shader, the paper, the hand | with `layer.js` |
+| `fx.js` | one-shot effects (#370, epic #293): one group in the scene at `api.order.fx`, and the helpers a skin reaches as `api.fx`. Imports nothing; handed three.js and the scene by the layer, it writes nothing to the page | by `layer.js`, only for a table with effects: a skin that exports `cues` or `options.fx`. Once a page, whichever tables follow |
 | `skins/<name>.js` | a skin's module: its mark table and its materials (§Writing a skin). `skins/example.js` is the pattern, used by the tests | when that skin is chosen, by every shell (the fallback draws its marks too) |
 | `../vendor/three/three.module.min.js` | three.js r160, vendored by #247 and pinned by sha256 | with `layer.js`, and never otherwise |
 
 **Every import carries the token.** A module specifier is resolved against the importing file's URL, which does not
 carry the run token, and every route on this server wants it. So no file in `ink/` imports statically. `ink.js`
 imports `layer.js` with `import(q("/static/ink/layer.js"))`, and `layer.js` imports the other two and three.js the
-same way. That is how `probe.js` imports three.js too. Only `ink/ink.js` is in the server's `ASSETS`, because it is
+same way, and `fx.js` when a table has effects. That is how `probe.js` imports three.js too. Only `ink/ink.js` is in the server's `ASSETS`, because it is
 the only one a page names. `layer.js` is the one module on the desk that names three.js, and a test holds it there.
 
 ## `window.Ink`: all that `app.js` sees
@@ -228,6 +229,7 @@ export function paper({ THREE, scene, camera, tokens, api }) {}     // the stock
 export function frame({ THREE, scene, camera, tokens, api }, el, box) {}   // one pane's frame
 export function tick({ THREE, camera, tokens, api }, dt, now) {}   // per frame; answer true for another
 export function dispose({ THREE, camera, tokens, api }) {}          // the skin is going
+export const cues = [];                      // effects (#372): the layer fetches ink/fx.js for them
 ```
 
 | Hook | Called | Its `scene` |
@@ -247,7 +249,8 @@ What each hook is handed:
   `accent`, `focus`, `running`, `waiting`, `human`, `done` and `idle`, each as `[r, g, b]` in 0–1 sRGB. It also holds
   `inks` (tool → `[r, g, b]`), `dark`, and `css(name)` for any other custom property.
 * **`api`** gives `viewport` (`{w, h, dpr}`), `reduced`, `dark` and `renderer`, and `order` (`{ground: -30, paper:
-  -20, frame: -10}`, all under every mark). It also gives `panes()` (`[{el, repo, box}]` where the panes are now) and
+  -20, frame: -10, fx: -5}`, all under every mark). `api.fx` is `fx.js`'s helpers once a table with effects has it
+  attached, and null otherwise (#375 and #376 fill it). It also gives `panes()` (`[{el, repo, box}]` where the panes are now) and
   `request()` (draw another frame). With `sampleGround`, `groundTexture` and `groundSize` let a frosted pane read
   what is behind it at `gl_FragCoord.xy / groundSize`.
 
@@ -263,6 +266,11 @@ What each hook is handed:
    materials that were in it. Keep module-level references only for `tick`, and free anything else in `dispose`, such
    as a render target or a texture.
 5. **Put the pieces under the marks**, with `api.order`. A mark is drawn at order 0 and above.
+   What `fx: -5` really means: three.js r160 sorts first by the innermost Group's `renderOrder`, and each pane's own
+   frame group (`framePanes`) keeps 0. So the effects group draws over the back pass (ground, paper) and under every
+   pane's frame and every mark, whatever `api.order.frame` says. Within one list three.js draws every opaque object
+   before any transparent one, so effect materials are `transparent: true`, like the skins' own. An effect that must
+   sit on a pane's frame goes into that pane's frame group.
 6. **Drawn, never faded** (ground rule 1). A skin animates its materials, never its marks. Under reduced motion,
    `tick` gets no loop of its own.
 7. **The fallback is the page's.** The marks draw plain by themselves, and under `body.ink-off` every skin is the
@@ -569,7 +577,8 @@ head instead.
 | Budget | Is | Asserted by |
 | --- | --- | --- |
 | the static payload | 154 KB gzipped for the whole desk, the layer's four modules (41,958 bytes gzipped, LF, #385) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
-| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385. Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
+| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385, 42,557 B at #370 (the effects seam). Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
+| `FX_BUDGET` | `fx.js`, lazily fetched, measured the same way, under 8 KiB (8,192 B): 1,089 B at #370, the seam alone. Every later effects card (#372, #374-#376) writes `fx.js` only, under it, and none raises `INK_BUDGET` | `test_fleet_ink.py` |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |
@@ -618,6 +627,11 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phas
   `sampleGround` hands frames the ground as a texture.
 * **At rest:** the desk with no skin using ink is unchanged, and so is an idle desk with ink on it.
 * **Budgets:** catch-up is counted in frames, and a gesture keeps its budget while the ink draws.
+
+`tests/test_fleet_ink_fx.py` covers the effects seam (#370): `fx.js` is never fetched for a table without `fx`,
+fetched once with the token for one with it (not again when that table is set twice), leaves nothing attached after
+a table without `fx`, `Ink.setSkin(null)` or `Ink.off()`, and an idle desk with it attached writes nothing and draws
+nothing. The budgets and the listing of `static/ink/` (`MODULES`, `LAZY`) are in `test_fleet_ink.py`.
 
 `tests/test_fleet_trace.py` covers the page's own drawing: the trace drawn in its pane's lane from its series and
 following its data, glass's ground drawn by the layer and still under reduced motion, the fallback's SVG and
