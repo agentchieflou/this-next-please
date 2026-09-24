@@ -42,9 +42,14 @@ A minor line every **28px** and a heavy line every fifth, **140px**, from the vi
 does not thin at the ends the way a sharpened one does. Every other tool is the layer's own.
 
 **Ruled strokes.** Outlines, dividers and underlines carry `snap: 28`, so the layer rules their
-straight strokes onto the grid's lines: an outline's corners meet where two lines cross, an
-underline goes down to the first line under its text (never up through it), and a divider to the
-nearest. A ruled stroke is drawn to a ruler, with no sag and no wander. Loops, ellipses, checks,
+straight strokes onto the grid's lines, and keeps them in the pane and off its words (#331). An
+outline's edges go onto a grid line inside the pane's padding band (between its border box and its
+content box); the desk's panes have a band narrower than a square (9 to 13px against 28), so each
+edge runs down its band's middle, ruled straight but off the grid, and its corners cross inside the
+pane. An underline goes onto the first line in [its text's foot + 2, the next row's top - 2], where
+its text's foot is the tallest box on the name's line (the chip and the age beside it); with no
+line in that window it stays 2px under that foot, unruled. A divider goes to the nearest line. A
+ruled stroke is drawn to a ruler, with no sag and no wander. Loops, ellipses, checks,
 bangs and arrows stay hand-drawn: a tick drawn to a ruler is not a tick.
 
 ## The state grammar
@@ -124,7 +129,10 @@ for running) rather than setting classes the page owns:
 
 * each state's mark arrives when the page sets it and leaves by erase or strike; the question is
   struck and the name never is;
-* ruled strokes lie on grid lines (`Ink.inspect()` marks' `bounds`);
+* ruled strokes lie on grid lines, or, for an outline, down its padding band's middle and, for an
+  underline, under its row when no line fits (`Ink.inspect()` marks' `bounds`, #331); at 1400 and
+  700px no outline leaves its pane or crosses the transcript, and the running underline crosses no
+  word but its own (`tests/regressions/test_20260923_any_chrome_graph_outline_through_text.py`);
 * the tuned pencil is thin, even and straight, and the layer refuses a `snap`, `leaves` or `tools`
   it cannot honour, naming the row;
 * the hour is plotted on the axis's grid line from `data-trace`, again when it changes, with the
