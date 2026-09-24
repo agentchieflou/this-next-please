@@ -572,6 +572,27 @@ nothing to the page to do it. It is one look shared by every skin, a degraded mo
 second one (see the shapes table). An engine without constructed stylesheets gets one `<style data-ink="plain">` in the
 head instead.
 
+## Loading (#349)
+
+The modules used to arrive as a waterfall that began only once the page had run: ink.js imported the skin module, then
+(with the gate on) `layer.js`, which imported three.js, `shapes.js` and `pen.js`. Going settings → desk with three
+panes, `layer.js` was requested at 139 ms, three.js at 241 ms, and the first ink frame came at 344-423 ms.
+
+The served desk now names them itself. `serve.ink_preload` adds a `<link rel="modulepreload">` to `/` (never to
+/settings or /probe) when the served skin's family is in `ink_skins()`:
+
+| Gate (`serve.ink_gate_on`, ink.js's precedence) | Preloaded |
+| --- | --- |
+| off: no probe, a probe that is not hardware, or `?ink=off` | `ink/skins/<name>.js`, which every shell imports, because the plain fallback draws its table too |
+| on: `?ink=on`, or a hardware probe | that, and `ink/layer.js`, `ink/shapes.js`, `ink/pen.js`, `vendor/three/three.module.min.js` |
+
+Each href is `/static/<path>?t=<token>`, the URL `q()` builds, so the module map dedupes and each module is still
+fetched once. The links go ahead of the skin's stylesheet, which stays the last thing in `<head>` (#345), and the set
+is in the gzip cache key. No ink module changed, so `INK_BUDGET` is untouched. Locally (Chromium 153, SwiftShader,
+two panes, `voxel:nether`) every module is requested at about 16 ms, before `DOMContentLoaded`, and the first ink
+frame came at 185 ms against 412 ms without the preload (`tests/test_fleet_ink_preload.py` prints it; CI has no
+bound, because it renders in software).
+
 ## Budgets
 
 | Budget | Is | Asserted by |
