@@ -26,6 +26,10 @@ if (backLink) backLink.href = pageUrl("/");
    served the old skin, so a plain click waits for the answer -- either answer -- and then goes.
    `href` is read at click time, so #344's `pageUrl` is what is followed. No timer. */
 var pendingTheme = null;
+/* A `theme` frame heard while a write is in flight is the server's word from before that write (the
+   stream's first frame can land after a pick on a slow start). It is kept, not painted: painted, it
+   put the old theme back over the pick; kept, it is what a refusal goes back to. */
+var heardDuringWrite = null;
 if (backLink) {
   backLink.addEventListener("click", function (e) {
     if (!pendingTheme || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -175,7 +179,11 @@ function choose(select, body) {
   }
   settle(mark);
   problem(select, "");
+  heardDuringWrite = null;
   var write = pendingTheme = post("theme", body).then(function (res) {
+    if (pendingTheme !== write) return;          // a later pick is in flight; its answer decides
+    var heard = heardDuringWrite;
+    heardDuringWrite = null;
     if (res && res.ok !== false) {
       if (res.css || res.theme === "none") applyTheme(res.css, res.theme);
       applySkin(res.skin);
@@ -184,10 +192,13 @@ function choose(select, body) {
       saidSaved();
       return;
     }
-    putBack(was);
+    putBack(heard || was);
     problem(select, ((res && res.error) || "refused") + (res && res.hint ? " — " + res.hint : ""));
   }, function () {
-    putBack(was);
+    if (pendingTheme !== write) return;
+    var heard = heardDuringWrite;
+    heardDuringWrite = null;
+    putBack(heard || was);
     problem(select, "the server did not answer — nothing was saved");
   });
   write.then(function () { if (pendingTheme === write) pendingTheme = null; });
@@ -448,6 +459,7 @@ function connectTheme() {
     stream.addEventListener("theme", function (m) {
       try {
         var d = JSON.parse(m.data);
+        if (pendingTheme) { heardDuringWrite = d; return; }
         applyTheme(d.css, d.theme);
         applySkin(d.skin);
         reflectTheme(d);

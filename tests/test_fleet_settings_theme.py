@@ -86,6 +86,31 @@ HOLD = """
 })();
 """
 
+# Holds the page's own `theme` listener until a `POST /api/theme` is held (HOLD's `__held`), so
+# the stream's first frame -- the config as it was before the pick -- lands in the middle of the
+# write. `window.__late` turns true once the page has acted on it.
+LATE_FRAME = """
+(() => {
+  window.__late = false;
+  function held() {
+    return new Promise(r => { (function look() {
+      if (window.__held >= 1) r(); else requestAnimationFrame(look);
+    })(); });
+  }
+  const ES = window.EventSource;
+  window.EventSource = function (u, o) {
+    const s = new ES(u, o);
+    const add = s.addEventListener.bind(s);
+    s.addEventListener = function (type, fn, opt) {
+      if (type !== 'theme') return add(type, fn, opt);
+      return add(type, function (m) { held().then(() => { fn.call(s, m); window.__late = true; }); }, opt);
+    };
+    return s;
+  };
+  window.EventSource.prototype = ES.prototype;
+})();
+"""
+
 FILLED = "() => document.querySelectorAll('#skin option').length > 3"
 BG = "() => document.documentElement.style.getPropertyValue('--bg')"
 
@@ -225,6 +250,48 @@ def test_choosing_a_skin_repaints_settings_before_the_server_answers(browser, fl
                                "&& !document.getElementById('saved').hidden", timeout=15000)
         assert S.theme_state()["skin"] == "voxel:nether"
         assert page.evaluate(BG) == want["css"]["--bg"]
+        assert not errors, errors
+        page.close()
+    finally:
+        _stop(server)
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("answer", ["ok", "refused"])
+def test_a_frame_heard_while_the_write_is_held_does_not_undo_the_pick(browser, fleet_home, tmp_path,
+                                                                       answer):
+    """CI's Chromium heard the stream's first `theme` frame (no skin) after the pick had painted and
+    while its POST was in flight, and that frame put the old theme back over the pick. A frame
+    heard during a write is the server's word from before it: kept for a refusal to go back to,
+    never painted over the pick. Here that frame is made late on purpose."""
+    _desk_of(tmp_path, ("alpha",))
+    want = _state_of(fleet_home, skin="voxel:nether")
+    _config(fleet_home)
+    server, token, port = _serve()
+    try:
+        page, errors = _page(browser, HOLD, LATE_FRAME)
+        if answer == "refused":
+            page.route(_is_theme_post, _refuse)
+        _settings(page, port, token)
+        page.select_option("#skin", "voxel:nether")
+        page.wait_for_function("() => window.__held === 1 && window.__late === true", timeout=15000)
+        got = page.evaluate("""() => ({ skin: document.body.dataset.skin || '',
+            bg: document.documentElement.style.getPropertyValue('--bg'),
+            picked: document.getElementById('skin').value })""")
+        print(f"\n  {answer}: after the late frame, POST held: {got}")
+        assert got == {"skin": "voxel", "bg": want["css"]["--bg"], "picked": "voxel:nether"}, got
+
+        page.evaluate("() => window.__release()")
+        if answer == "ok":
+            page.wait_for_function("() => document.getElementById('saved').hidden === false", timeout=15000)
+            end = ("voxel", want["css"]["--bg"], "voxel:nether")
+        else:
+            page.wait_for_function("() => document.getElementById('skin').classList.contains('bad')",
+                                   timeout=15000)
+            end = ("", "", "none")
+        got = page.evaluate("""() => [document.body.dataset.skin || '',
+            document.documentElement.style.getPropertyValue('--bg'), document.getElementById('skin').value]""")
+        assert tuple(got) == end, (answer, got)
         assert not errors, errors
         page.close()
     finally:
