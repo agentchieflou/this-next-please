@@ -46,7 +46,41 @@ is a run the fleet started, alive or finished). Another answer changes `kind_of`
 
 ## Branches
 
-(written by #403)
+An agent is one working tree, so **its branch is that checkout's current branch**. The other branches belong to the
+project: worktrees of one repository share `refs/heads`, so every checkout of a project lists the same local branches.
+The map therefore draws **one branch list per project** (its lanes) and stands each checkout, and its agent, on one of
+them. Nothing new is read for it: the git poll already runs the cheap branch read every 30 s (`read_branches(full=False)`:
+the default branch, `for-each-ref`, `branch --no-merged`), and `_tick_git` now keeps its rows in a side cache on the
+`Poller` (`Poller.branch_rows(name)`) instead of throwing them away. The cache sits beside the poll cells, not in the
+git cell, because `polls` rides on every `/api/fleet` row; the git cell's fields are unchanged. Each entry is replaced
+whole on every read, never mutated, so a map request on another thread sees one answer or the next.
+
+`/api/map` reads that cache through `serve.current_poller()`, which never constructs a poller, so the map makes no git
+call of its own and never starts polling.
+
+| Key | What |
+| --- | --- |
+| `project.default` | the default branch the poll found (`origin/HEAD`, else `main`, else `master`), `""` before a read |
+| `project.branches[]` | `{id: "b:<project>:<name>", name, unmerged, ticket, age_s, carrying, current_in, says}`: the root checkout's rows, else the union by name over the project's checkouts; unmerged first, newest first, at most 40 |
+| `unmerged` | the branch never reached the default branch (`git branch --no-merged`) |
+| `age_s` | seconds from the branch's last commit to the poll's read |
+| `current_in` | `c:<repo>` of every checkout standing on it: each checkout's cached `current`, else its git cell's `branch` |
+| `carrying` | the name is in any of the project's checkouts' `carrying`: it carries that checkout's active ticket |
+| `checkout.on`, `agent.on` | `b:<project>:<branch>` of the lane it stands on, `""` when its branch is not in the list (or nothing was read) |
+| `agent.branch` | that lane's name, `""` with `on` |
+| `project.branches_says` | *12 branches, 4 never reached main* (*40+* when the list was capped), or *branches not read yet (the git poll runs every 30 s)* when no checkout of it has been read; the project's `says` ends with it |
+| `project.carry_lines` | `poll.carry_line` of each checkout whose read has two or more branches carrying its ticket, once per sentence: *two branches carry RDSD-101 (...); only one can merge* |
+
+A branch's `says` is e.g. *feature/RDSD-101-velocity · never reached main · current in luna-velocity · carries
+RDSD-101*; an agent's `says` gains *· on feature/RDSD-101-velocity*, and *· carries RDSD-101* when that branch is
+`carrying`.
+
+**No ahead counts on the map.** How far each branch is from the default is a `rev-list --count` per branch, which is
+too costly for a 30 s poll across every checkout; it stays on the click (`GET /api/branches`, the inspector's pane).
+Ten projects of forty branches and twenty checkouts answer in under 160 KB.
+
+Built on the default for "branches per agent": an agent's branch is its checkout's current branch, on the lanes of
+the project's local branches (one list, at most 40, unmerged first); ticket carriers marked.
 
 ## The network
 

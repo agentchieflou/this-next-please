@@ -993,6 +993,13 @@ def poller():
         return bag["poller"]
 
 
+def current_poller():
+    """The `Poller` if one exists, else None. Never constructs one: a reader that only wants what
+    the poll already read (the map, #403) must not be the thing that starts polling."""
+    with _desk_lock:
+        return _fresh()["poller"]
+
+
 def inbox_folders(cfg: dict | None = None) -> list[str] | None:
     """`fleet.inbox.folders` from the config, or None for the inbox's own default.
 
@@ -2449,7 +2456,10 @@ class Handler(BaseHTTPRequestHandler):
 
             # The fleet's structure as one graph (#401): how checkouts and agents relate, read-only.
             snap = fleet_snapshot()
-            return self._json({"ok": True, **fleetmap.graph(snap), "theme": snap["theme"]})
+            # Branch lanes (#403) from the git poll's side cache: no git call of the map's own.
+            rows = p.branch_rows if (p := current_poller()) else None
+            return self._json({"ok": True, **fleetmap.graph(snap, branch_rows=rows),
+                               "theme": snap["theme"]})
         if route == "/api/themes":
             from .. import config as C
             from . import skins
