@@ -49,7 +49,7 @@ A palette colours the UI, and the notebook chooses the paper and its inks. Every
 
 `theme.check` gets every pair: each ink 3:1 on its paper, the text 4.5:1 on the paper and through the highlighter,
 for the variant's palette. The words are the palette's own `--text` and `--muted` (#257: a skin never recolours the
-palette), which read at 11:1 and 4.9:1 on the day paper and 13:1 and 8:1 by night. `tests/test_fleet_ink_notebook.py` also holds `skins.py` and
+palette), which read at 11:1 and 6.7:1 on the day paper and 13:1 and 7:1 by night. `tests/test_fleet_ink_notebook.py` also holds `skins.py` and
 `skin.css` to the same numbers, so the declared and the painted colour cannot drift apart.
 
 ### The handwriting

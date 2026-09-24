@@ -4,20 +4,32 @@ _The terminal a human opens tells them where they are._
 
 ## The Gallery
 
-| Theme | Ground | Text | Accent | Dashboard | `why` |
-|---|---|---|---|---|---|
-| `greens` | `#0B1F14` | `#CDE6D2` | `#3FB950` | leaf-green panels, emerald accent stripe | calm and go; a leaf-green desk |
-| `reds` | `#400000` | `#F2D9D9` | `#FF5C5C` | deep maroon panels, coral accent stripe | the loud desk; a red ground where errors cannot hide behind the ground |
-| `eye-relief` | `#2B2A27` | `#D6CDB8` | `#C9A227` | warm charcoal panels, gold accent stripe | for hour six; low blue, low glare, nothing pure white |
-| `eye-relief-day` | `#F2ECDC` | `#3B3A34` | `#8A6D1F` | warm cream parchment, brass accent stripe | the same idea for a bright room (light theme) |
-| `nfl-browns` | `#311D00` | `#F2E8D9` | `#FF3C00` | brown leather panels, orange accent stripe | Cleveland Browns: brown, orange, white |
-| `dark` | `#14171A` | `#E3E7EA` | `#58A6FF` | slate panels, blue accent stripe | the neutral dark the page already had, now a name the terminal can share |
-| `vanta-black` | `#000000` | `#C8C8C8` | `#E6E6E6` | true black ground, high-contrast monochrome panels | the true-black panel for OLED and pitch rooms |
-| `matrix` | `#020A03` | `#3DF07A` | `#00FF41` | black ground, glowing phosphor borders and accents | phosphor on black; the falling code screen |
-| `blues` | `#0B1B33` | `#D6E4F7` | `#4DA3FF` | midnight navy panels, cobalt accent stripe | deep ocean navy and slate |
-| `sand` | `#EFE6D2` | `#3A3126` | `#B9631E` | desert sand panels, copper accent stripe | warm desert solarized parchment (light theme) |
-| `random` | generated | generated | generated | seeded per project | a fresh, stable colour per project or per day; seeded |
-| `none` | — | — | — | follows `prefers-color-scheme` | the terminal exactly as you had it (the default) |
+| Theme | Ground | Text | Muted | Accent | Dashboard | `why` |
+|---|---|---|---|---|---|---|
+| `greens` | `#0B1F14` | `#CDE6D2` | `#8DA493` | `#3FB950` | leaf-green panels, emerald accent stripe | calm and go; a leaf-green desk |
+| `reds` | `#400000` | `#F2D9D9` | `#B79191` | `#FF5C5C` | deep maroon panels, coral accent stripe | the loud desk; a red ground where errors cannot hide behind the ground |
+| `eye-relief` | `#2B2A27` | `#D6CDB8` | `#B6AE9C` | `#C9A227` | warm charcoal panels, gold accent stripe | for hour six; low blue, low glare, nothing pure white |
+| `eye-relief-day` | `#F2ECDC` | `#3B3A34` | `#5C5A52` | `#8A6D1F` | warm cream parchment, brass accent stripe | the same idea for a bright room (light theme) |
+| `nfl-browns` | `#311D00` | `#F2E8D9` | `#A79984` | `#FF3C00` | brown leather panels, orange accent stripe | Cleveland Browns: brown, orange, white |
+| `dark` | `#14171A` | `#E3E7EA` | `#A5A9AC` | `#58A6FF` | slate panels, blue accent stripe | the neutral dark the page already had, now a name the terminal can share |
+| `vanta-black` | `#000000` | `#C8C8C8` | `#929292` | `#E6E6E6` | true black ground, high-contrast monochrome panels | the true-black panel for OLED and pitch rooms |
+| `matrix` | `#020A03` | `#3DF07A` | `#2CAD57` | `#00FF41` | black ground, glowing phosphor borders and accents | phosphor on black; the falling code screen |
+| `blues` | `#0B1B33` | `#D6E4F7` | `#9BAABE` | `#4DA3FF` | midnight navy panels, cobalt accent stripe | deep ocean navy and slate |
+| `sand` | `#EFE6D2` | `#3A3126` | `#60574A` | `#B9631E` | desert sand panels, copper accent stripe | warm desert solarized parchment (light theme) |
+| `random` | generated | generated | derived | generated | seeded per project | a fresh, stable colour per project or per day; seeded |
+| `none` | — | — | — | — | follows `prefers-color-scheme` | the terminal exactly as you had it (the default) |
+
+### Secondary Text (`--muted`)
+
+Secondary text (ticket, pane number, why line, footer counts, placeholders) is rendered with `--muted`.
+To guarantee readability at WCAG 1.4.3 minimum contrast (4.5:1), `--muted` is derived to hold at least
+4.6:1 against `--bg`, `--panel`, and `--select`, as well as against every composited panel of every skin
+variant drawn on that palette.
+
+For custom or random palettes, `_muted(t)` in `agentdata/theme.py` steps down the mix between `text` and
+`ground` in 0.01 increments until the contrast holds across all surfaces. The 10 built-in themes fix
+explicit, calibrated values that keep the hue of the palette while ensuring at least 4.5:1 on every skin paper.
+
 
 ## The Host Matrix
 

@@ -104,7 +104,7 @@ def test_theme_check_holds_every_ink_on_the_notebooks_paper():
         base = theme.get(spec["base"])
         paper = spec["composited_panel"]
         theme.check(base, composited_panel=paper, skin=f"notebook:{variant}", inks=spec["inks"])
-        assert theme.contrast_ratio(theme.css(base)["--muted"], paper) >= 4.5, variant
+        assert theme.contrast_ratio(theme.to_css(base)["--muted"], paper) >= 4.5, variant
 
 
 def test_the_module_carries_no_colour_and_no_markup():
