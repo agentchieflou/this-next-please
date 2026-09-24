@@ -211,6 +211,7 @@ normally produce zero notifications; see [fleet-notifications.md](fleet-notifica
 | [fleet-events.md](fleet-events.md) | the event contract every other slice reads |
 | [fleet-approvals.md](fleet-approvals.md) | what is gated, and the two layers behind it |
 | [fleet-dashboard.md](fleet-dashboard.md) | the page, its endpoints, the token model |
+| [fleet-map.md](fleet-map.md) | the fleet map: `GET /api/map`, the graph of projects, checkouts and agents, and the page that draws it |
 | [fleet-notifications.md](fleet-notifications.md) | when you are interrupted, and when you are not |
 | [fleet-intake.md](fleet-intake.md) | the Jira board and the start guard rails |
 | [fleet-layouts.md](fleet-layouts.md) | the one arrangement and how four became one, `desk.json` schema 2 and its migration, a window's widths, hiding |
