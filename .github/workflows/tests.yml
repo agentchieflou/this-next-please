@@ -10,6 +10,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # #309: a run on demand, so "N consecutive green runs" no longer needs N pushes.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,6 +25,10 @@ jobs:
   pytest:
     name: ${{ matrix.os }} · python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
+    # #309: the step caps below sum to 40, plus 5; a job with no cap of its own gets at most 20.
+    # The ubuntu 3.14 leg's last green run took 16m40s (run 36035530921): its summary shows how
+    # near that is.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -63,21 +69,29 @@ jobs:
       # #296: this job installed Chromium above, so a browser test here may fail but never skip.
       # `AGENTDATA_REQUIRE_BROWSER` turns a skipped `browser` test into a failure (tests/conftest.py),
       # and `-rs` prints every remaining skip's reason, so a `no chromium` line cannot hide again.
+      #
+      # #309: every pytest step writes a junit file and has its own cap, about 1.5x its last green
+      # time rounded up to 5 (run 36035530921, the slower leg): the suite 12m10s, measured and scale
+      # 2m12s, slow 1m20s, the measurements 46s, the demo 7s. The `always()` step at the end of the
+      # job turns the junit files into the per-step tables in the job summary.
       - name: the suite, in parallel
+        timeout-minutes: 20
         env:
           AGENTDATA_REQUIRE_BROWSER: "1"
-        run: python -m pytest -q -rs -n auto -m "not slow and not measured and not scale"
+        run: python -m pytest -q -rs -n auto -m "not slow and not measured and not scale" --junitxml=junit/pytest-parallel.xml
       - name: the measured and scale tiers, with the machine to themselves
+        timeout-minutes: 5
         env:
           AGENTDATA_REQUIRE_BROWSER: "1"
-        run: python -m pytest -q -rs -m "(measured or scale) and not slow"
+        run: python -m pytest -q -rs -m "(measured or scale) and not slow" --junitxml=junit/pytest-measured.xml
       # `slow` stays serial and stays here. It builds wheels in fresh venvs, and four concurrent
       # `pip install`s on a two-core runner is a different risk from the one this change is about;
       # it ran serially before and it runs serially now. This is the only leg that runs it on Linux.
       - name: the slow tier, serially
+        timeout-minutes: 5
         env:
           AGENTDATA_REQUIRE_BROWSER: "1"
-        run: python -m pytest -q -rs -m slow
+        run: python -m pytest -q -rs -m slow --junitxml=junit/pytest-slow.xml
 
       # #220: the desk's own numbers, in the job output rather than in somebody's memory. These
       # tests already measure and assert; `-s` is what lets what they measured reach the log, and
@@ -85,11 +99,12 @@ jobs:
       # a property of the engine and the runner, not of the Python version.
       - name: the desk's measurements, attached
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        timeout-minutes: 5
         env:
           AGENTDATA_REQUIRE_BROWSER: "1"
         run: |
           set -o pipefail
-          python -m pytest -q -rs -s -p no:cacheprovider \
+          python -m pytest -q -rs -s -p no:cacheprovider --junitxml=junit/pytest-measurements.xml \
             tests/test_fleet_motion.py tests/test_fleet_trace.py \
             tests/test_fleet_instant.py tests/test_fleet_engines.py \
             2>&1 | tee desk-measurements.txt
@@ -106,10 +121,11 @@ jobs:
       # is long enough for a review and short enough not to be an archive.
       - name: the ownership demo, recorded
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        timeout-minutes: 5
         env:
           AGENTDATA_SHOTS: ${{ github.workspace }}/demo-frames
           AGENTDATA_REQUIRE_BROWSER: "1"
-        run: python -m pytest -q -rs -s -p no:cacheprovider tests/test_fleet_demo_ownership.py
+        run: python -m pytest -q -rs -s -p no:cacheprovider tests/test_fleet_demo_ownership.py --junitxml=junit/pytest-demo.xml
 
       - name: upload the demo
         if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
@@ -155,6 +171,33 @@ jobs:
         with:
           name: doctor-linux
           path: doctor-linux.toon
+
+      # #309: what each pytest step cost, in the job summary, even when a step failed. A step over
+      # 75% of its cap prints a warning; nothing here fails the build.
+      - name: durations · the per-step table
+        if: always()
+        shell: bash
+        env:
+          JOB_NAME: ${{ matrix.os }} · python ${{ matrix.python }}
+        run: |
+          s=.github/scripts/durations.py
+          report() { [ -f "junit/$1.xml" ] && python "$s" summarize "junit/$1.xml" --step "$2" --cap-minutes "$3" | tee -a "$GITHUB_STEP_SUMMARY"; true; }
+          report pytest-parallel "the suite, in parallel" 20
+          report pytest-measured "the measured and scale tiers" 5
+          report pytest-slow "the slow tier, serially" 5
+          report pytest-measurements "the desk's measurements" 5
+          report pytest-demo "the ownership demo" 5
+          if ls junit/*.xml >/dev/null 2>&1; then
+            python "$s" job junit/*.xml --job "$JOB_NAME" --cap-minutes 20 | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: durations · upload the junit files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.os }}-${{ matrix.python }}
+          path: junit/
+          retention-days: 14
+          if-no-files-found: warn
 
   windows:
     name: windows · python ${{ matrix.python }}
@@ -211,16 +254,22 @@ jobs:
       # per-module autouse fixtures that `--dist load` interleaves straight through) rather than
       # anything the tiers introduced, and it is #227. Chasing it one test at a time from here
       # would be guessing. Running serially costs this leg nothing against what it did before.
+      #
+      # #309: step caps at about 1.5x the 3.14 leg's last green time, rounded up to 5 (run
+      # 36035530921: pytest 22m11s, measured and scale 2m20s, slow 1m38s under its existing 10).
+      # That run's job took 27m48s of its 40; the summary step prints the pytest share of it.
       - name: pytest
         shell: pwsh
+        timeout-minutes: 35
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -q -rs -m "not slow and not measured and not scale"
+        run: python -m pytest -q -rs -m "not slow and not measured and not scale" --junitxml=junit/windows-pytest.xml
       - name: the measured and scale tiers, with the machine to themselves
         shell: pwsh
+        timeout-minutes: 5
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -q -rs -m "(measured or scale) and not slow"
+        run: python -m pytest -q -rs -m "(measured or scale) and not slow" --junitxml=junit/windows-measured.xml
 
       # Split out, verbose, and with its own cap on purpose. A hang inside the slow marker used to
       # take the whole job down and `-q` never said which test it was in -- the log simply stopped
@@ -231,7 +280,7 @@ jobs:
         timeout-minutes: 10
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -m slow -v -rs --durations=0 --capture=tee-sys
+        run: python -m pytest -m slow -v -rs --durations=0 --capture=tee-sys --junitxml=junit/windows-slow.xml
 
       # one step per shell, so a red job names the shell rather than "Windows"
       - name: smoke · pwsh 7
@@ -334,6 +383,30 @@ jobs:
           # command whose failure is not what it is asserting. Every assertion above throws.
           exit 0
 
+      # #309: the per-step table, as on the ubuntu legs.
+      - name: durations · the per-step table
+        if: always()
+        shell: bash
+        env:
+          JOB_NAME: windows · python ${{ matrix.python }}
+        run: |
+          s=.github/scripts/durations.py
+          report() { [ -f "junit/$1.xml" ] && python "$s" summarize "junit/$1.xml" --step "$2" --cap-minutes "$3" | tee -a "$GITHUB_STEP_SUMMARY"; true; }
+          report windows-pytest "pytest" 35
+          report windows-measured "the measured and scale tiers" 5
+          report windows-slow "pytest · slow" 10
+          if ls junit/*.xml >/dev/null 2>&1; then
+            python "$s" job junit/*.xml --job "$JOB_NAME" --cap-minutes 40 | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: durations · upload the junit files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-windows-${{ matrix.python }}
+          path: junit/
+          retention-days: 14
+          if-no-files-found: warn
+
   floor-python:
     name: floor · pip refuses the wheel on Python 3.11
     runs-on: ubuntu-latest
@@ -423,6 +496,7 @@ jobs:
   floor-lints:
     name: lint · bash 4.4 and pwsh 7 floors
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # #309: its one step cap (5) plus 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -431,17 +505,34 @@ jobs:
       - run: pip install -e ".[dev]"
       # CI's bash is 5.x and its pwsh *is* the floor, so what CI can guard is the feature set:
       # nothing after bash 4.4 in anything we ship or emit, and a declared floor in every .ps1.
-      - run: python -m pytest -q tests/test_bash_floor.py
+      - run: python -m pytest -q tests/test_bash_floor.py --junitxml=junit/floor-lints.xml
+        timeout-minutes: 5   # #309: 1 s in run 36035530921
       - name: the laptop suite must never run here
         run: |
           set -e
           python -m pytest -q --collect-only -m laptop | tee collected.txt
           grep -q "no tests ran\|0 tests collected\|deselected" collected.txt || \
             { echo "the laptop suite was collected on CI"; exit 1; }
+      - name: durations · the per-step table
+        if: always()
+        run: |
+          if [ -f junit/floor-lints.xml ]; then
+            python .github/scripts/durations.py summarize junit/floor-lints.xml \
+              --step "tests/test_bash_floor.py" --cap-minutes 5 | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: durations · upload the junit files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-floor-lints
+          path: junit/
+          retention-days: 14
+          if-no-files-found: warn
 
   coverage:
     name: coverage · per-module floors
     runs-on: ubuntu-latest
+    timeout-minutes: 20   # #309: its one step cap (15) plus 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -449,8 +540,9 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
       - name: run the suite under coverage
+        timeout-minutes: 15   # #309: 9m38s in run 36035530921
         run: |
-          python -m coverage run -m pytest -q -ra --durations=10
+          python -m coverage run -m pytest -q -ra --durations=10 --junitxml=junit/coverage.xml
           python -m coverage json -o coverage.json
           python -m coverage report --skip-covered | tail -20
       # No repo-wide number: a single percentage invites padding and says nothing about the modules
@@ -461,10 +553,28 @@ jobs:
         with:
           name: coverage-report
           path: coverage.json
+      - name: durations · the per-step table
+        if: always()
+        run: |
+          if [ -f junit/coverage.xml ]; then
+            python .github/scripts/durations.py summarize junit/coverage.xml \
+              --step "run the suite under coverage" --cap-minutes 15 | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: durations · upload the junit files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-coverage
+          path: junit/
+          retention-days: 14
+          if-no-files-found: warn
 
   order-independence:
     name: suite · shuffled
     runs-on: ubuntu-latest
+    # #309: the step caps sum to 30, plus 5; a job with no cap of its own gets at most 20. Run
+    # 36035530921 took 15m10s.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -473,8 +583,32 @@ jobs:
       - run: pip install -e ".[dev]"
       # A fixture that leaks state shows up here rather than three months later as
       # "works on my machine". Two seeds, because one shuffle proves very little.
-      - run: python -m pytest -q -p no:cacheprovider --shuffle-seed 1
-      - run: python -m pytest -q -p no:cacheprovider --shuffle-seed 20260904
+      # #309: 7m38s and 7m14s in run 36035530921.
+      - run: python -m pytest -q -p no:cacheprovider --shuffle-seed 1 --junitxml=junit/shuffled-1.xml
+        timeout-minutes: 15
+      - run: python -m pytest -q -p no:cacheprovider --shuffle-seed 20260904 --junitxml=junit/shuffled-20260904.xml
+        timeout-minutes: 15
+      - name: durations · the per-step table
+        if: always()
+        run: |
+          s=.github/scripts/durations.py
+          for seed in 1 20260904; do
+            if [ -f "junit/shuffled-$seed.xml" ]; then
+              python "$s" summarize "junit/shuffled-$seed.xml" --step "shuffled, seed $seed" \
+                --cap-minutes 15 | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          if ls junit/*.xml >/dev/null 2>&1; then
+            python "$s" job junit/*.xml --job "suite · shuffled" --cap-minutes 20 | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: durations · upload the junit files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-shuffled
+          path: junit/
+          retention-days: 14
+          if-no-files-found: warn
 
   # ---------------------------------------------------------------- the IDE shells (#100)
   #

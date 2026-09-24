@@ -652,3 +652,34 @@ A red job is handled as *When CI is red* says: a flake issue and a reproduction 
 | `windows · 3.14` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
 | every job | `HYPOTHESIS_PROFILE=ci`, so the property tests search 200 examples rather than 50 |
 | every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): both ubuntu legs and the Windows 3.14 leg (a `require_browser` matrix field; the 3.12 leg installs no browser and leaves it empty). A skipped `browser` test fails there, and every other skip prints its reason |
+| every pytest step | its own `timeout-minutes` and a `--junitxml=junit/<job>-<step>.xml` (#309); every job with one has a job cap and ends with the `if: always()` step *durations · the per-step table* |
+
+### Step budgets and the durations table
+
+Every CI step that runs pytest has its own cap: about 1.5x its last green time, rounded up to 5 minutes, with
+the run and the times in a comment above the step. A job that had no cap got the sum of its step caps plus 5, at
+most 20. The Windows job keeps its 40 until #311 splits it. **A cap is never raised to make a run green**
+(*When CI is red*): a step that outgrows its cap is a finding, and the table below names the file that grew.
+`tests/test_hygiene_ci_budgets.py` fails a pytest step with no `timeout-minutes` or no `--junitxml`, a job with no
+cap or no summary step, and a step cap above its job's cap. The `--collect-only` laptop check is out of its scope.
+
+`tests/conftest.py` records each test's `file` and `markers` as junit properties, because the default
+`junit_family` (xunit2) writes no `file` attribute. `.github/scripts/durations.py summarize` turns each junit file
+into a table in the job summary: the step's wall time against its cap, the summed test time per tier (`default`,
+or the tier markers joined with `+`, such as `browser+measured`), and the 15 most expensive files and tests.
+`durations.py job` prints one line for the job: its pytest steps, summed, against the job's cap. **Above 75% of a
+cap** either one prints `::warning title=<step> near its cap::`, which shows on the run's page and never fails the
+build. The junit files are uploaded as `junit-*` artifacts, kept for 14 days. `workflow_dispatch` runs the workflow
+on demand, so a series of green runs needs no pushes.
+
+`tests/durations.json` is `{os: {file: {tier: seconds}}}`, from one green run. To refresh it, download the `junit-*`
+artifacts of a green run and run:
+
+```bash
+gh run download <run-id> --pattern 'junit-*' --dir junit-run
+python .github/scripts/durations.py update junit-run/junit-ubuntu-latest-*/*.xml --os linux --out tests/durations.json
+python .github/scripts/durations.py update junit-run/junit-windows-*/*.xml --os windows --out tests/durations.json
+```
+
+Within one junit file a file's tests are summed per tier; across junit files the max is taken, not the sum, since
+both legs of an OS run the same files. The other OS's key is kept and the output is byte-stable.
