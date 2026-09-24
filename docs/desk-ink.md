@@ -128,7 +128,7 @@ Ink.setSkin({
 | --- | --- |
 | `selector` | any selector the page can match (checked when the table is set). Each element it matches gets one mark |
 | `tool` | `pencil`, `pen`, `red`, `green`, `marker` or `highlighter`. The eraser is not a mark: it is how pencil leaves |
-| `ink` | borrow another tool's ink (e.g. `pencil` in `pen` ink). Optional; defaults to `tool` |
+| `ink` | another tool whose ink the row draws in, with its own tool's hand and way of leaving: `{tool: 'pencil', ink: 'pen'}` is the pencil's grain in the pen's colour, and is erased. A tool's name, never a colour, so `theme.check`'s per-tool inks cover it; plain, it is the underline's colour too (optional, #385) |
 | `shape` | one of the shapes below |
 | `pad` | px the shape stands off its element (optional) |
 | `dash` | a dashed stroke, for the stale pencil outline (optional; a dashed underline stays dashed plain) |
@@ -136,7 +136,7 @@ Ink.setSkin({
 | `grow` | an `underline` that lengthens: `step` px (default 10) for each element matching this selector that arrives in its pane after the mark was made, never past the pane's right edge. The pen draws on from where it stopped (#249: the running agent's line grows with its turn) |
 | `step` | px an underline grows by, per arrival (optional) |
 | `tip` | a pen-tip dot at the end of an `underline` while its mark is on the paper. It is lifted before the mark is struck or erased (#249) |
-| `cap` | `'arrow'` or `'bar'` at the end of an `underline` (never with `tip`) |
+| `cap` | `'arrow'` (a route's head, two barbs) or `'bar'` (a block across it) at the end of an `underline`, which stays at the end while it grows. Never with `tip`. Plain, a capped underline is a plain underline (optional, #385) |
 | `rewrite` | a `write` mark whose element's text changes after it was written keeps what it said beside it (to the left, in the element's own font and colour), strikes that through in pen, and writes the new text. One struck word is kept per row and element (#249: the header's count) |
 | `snap` | a grid pitch in px (4 or more): the row's straight strokes are ruled onto a grid of that pitch from the viewport's top-left. An outline's corners meet on the grid, an underline goes down to the first line under its text, a divider to the nearest. Only `outline`, `divider` and `underline` may snap (optional, #253) |
 | `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #252, #253) |
@@ -162,7 +162,7 @@ rebuilds them. A box under 90px wide is a pane's 48px rail, so a margin mark goe
 | --- | --- | --- |
 | `outline` | four lines round the box, each overshooting its corner | `outline: 1px solid` |
 | `divider` | a rule across the foot of the box | an inset bottom line |
-| `underline` | a line under the text, a little past both ends | `text-decoration: underline` |
+| `underline` | a line under the text, a little past both ends | `text-decoration: underline`, dashed when the row is (#385) |
 | `lines` | a highlighter pass along every line the text wraps to, as wide as the line is tall | a tinted background (38% of the ink) |
 | `loop` | one rounded stroke round the box, closed past its start | `outline: 2px solid` |
 | `ellipse` | a loose ellipse, a little more than once round | `outline: 2px solid`, further out |
@@ -524,7 +524,7 @@ head instead.
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (40,825 bytes gzipped) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
+| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (40,816 bytes gzipped, #385) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under 40 KB) |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |
