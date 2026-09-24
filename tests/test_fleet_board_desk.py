@@ -703,7 +703,7 @@ def test_the_rows_rules_are_the_pages_rules():
     a wrap of cards, and nothing sideways past the edge but as a last resort. The weight is the
     window's own width for the pane since the gutters (#234): `--w`."""
     css = open(APP_CSS, encoding="utf-8").read()
-    main = css.split("\nmain {", 1)[1].split("}", 1)[0]
+    main = css.split("\n#grid {", 1)[1].split("}", 1)[0]
     assert "display: flex; flex-direction: row; align-items: stretch;" in main
     assert "overflow-x: auto; overflow-y: hidden;" in main
     assert "repeat(auto-fit" not in main, "the grid's wrap is back"

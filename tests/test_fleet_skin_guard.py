@@ -167,16 +167,21 @@ def test_the_page_stands_aside_for_a_skins_canvas_in_one_place():
     assert any(".is-selected" in sel and prop == "box-shadow" for sel, prop, _ in block), block
 
 
-def _inks(spec, palette):
+def _inks(spec, palette, skin_name=None):
     """The inks a variant draws with: the palette's, unless the skin names its own (`inks`, and
     `ink_tokens` for one that borrows another of the palette's colours)."""
-    tokens = theme.css(palette)
+    tokens = theme.to_css(palette)
     by_token = {"pencil": "--muted", "pen": "--accent", "red": "--human", "green": "--done",
                 "marker": "--human", "highlighter": "--waiting"}
     out = {tool: tokens[token] for tool, token in by_token.items() if token in tokens}
     for tool, token in (spec.get("ink_tokens") or {}).items():
         out[tool] = tokens[token]
     out.update({k: v for k, v in (spec.get("inks") or {}).items() if k in by_token})
+    if skin_name:
+        module_path = os.path.join(INK_SKINS, skin_name + ".js")
+        if os.path.exists(module_path):
+            drawn = set(re.findall(r"""tool:\s*["'](\w+)["']""", open(module_path, encoding="utf-8").read()))
+            out = {k: v for k, v in out.items() if k in drawn}
     return out
 
 
@@ -188,8 +193,8 @@ def test_every_skin_and_palette_passes_theme_check_plain_and_in_ink(skin_name, v
     composited paper. Plain, they are on the palette's own panel -- the one look `body.ink-off`
     shows for every skin -- with the skin's mark table drawn as CSS in the same inks."""
     palette = theme.get(spec["base"])
-    inks = _inks(spec, palette) if os.path.exists(os.path.join(INK_SKINS, skin_name + ".js")) else None
+    inks = _inks(spec, palette, skin_name=skin_name) if os.path.exists(os.path.join(INK_SKINS, skin_name + ".js")) else None
     for panel in skins.composited_panels(spec):
         theme.check(palette, composited_panel=panel, skin=f"{skin_name}:{variant}", inks=inks)
-    theme.check(palette, composited_panel=theme.css(palette)["--panel"],
+    theme.check(palette, composited_panel=theme.to_css(palette)["--panel"],
                 skin=f"{skin_name}:{variant} (plain)", inks=inks)

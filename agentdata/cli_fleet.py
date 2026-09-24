@@ -1364,7 +1364,10 @@ def cmd_engines(a) -> int:
     other row, laid out as the table is (#235). Each cell is the doc's own vocabulary, so what is
     printed here is what goes in the doc. `tiers` is the other half of #235's proof: the widths the
     desk changes a pane's tier at on this machine, which `docs/desk-window.md` records beside CI's.
+    `loads` is what each page load measured about itself (#350), grouped by where it came from,
+    and empty unless `fleet.loads.enabled` is on in the config file.
     """
+    from .fleet import loads as LOADS
     from .fleet import settings as SET
 
     rows = PR.engine_rows()
@@ -1377,18 +1380,25 @@ def cmd_engines(a) -> int:
     except C.ConfigError:
         cfg = {}
     tiers = SET.tiers(cfg)
-    print(toon.encode({"meta": {"ok": True, "source": "ad-fleet engines", "shells": len(rows),
-                                "measured": measured, "features_measured": answered,
-                                "file": textio.norm_path(PR.probes_file()), "rule": PR.RULE,
-                                "doc": "docs/desk-engines.md",
-                                "tiers_invalid": tiers["invalid"],
-                                "next": "ad-fleet probe --open pycharm | vscode | edge | browser"}}))
+    loads_on = LOADS.enabled()
+    meta = {"ok": True, "source": "ad-fleet engines", "shells": len(rows),
+            "measured": measured, "features_measured": answered,
+            "file": textio.norm_path(PR.probes_file()), "rule": PR.RULE,
+            "doc": "docs/desk-engines.md",
+            "tiers_invalid": tiers["invalid"],
+            "loads": "on" if loads_on else "off",
+            "loads_file": textio.norm_path(LOADS.loads_file()),
+            "next": "ad-fleet probe --open pycharm | vscode | edge | browser"}
+    if not loads_on:
+        meta["hint"] = LOADS.off_hint()
+    print(toon.encode({"meta": meta}))
     print(toon.table("engines", PR.ENGINE_COLUMNS, rows))
     print(toon.table("features", feature_columns, features))
     print(toon.table("tiers", ["tier", "px", "default", "set", "key"],
                      [[name, tiers[name], SET.TIER_DEFAULTS[name],
                        C.get(cfg, key) is not None, key]
                       for name, key in SET.TIER_KEYS.items()]))
+    print(toon.table("loads", LOADS.LOAD_COLUMNS, LOADS.rows()))
     return EXIT_OK
 
 

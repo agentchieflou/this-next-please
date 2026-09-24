@@ -205,6 +205,30 @@ shape, rows, cols and est_tokens: no cell value, no query text, no path, and the
 its `ad-<name>`. Nothing in this repository transmits the file. Details and the reason it exists:
 `docs/data-format-policy.md` §Measuring the thresholds instead of guessing them.
 
+## Page-load records (off by default, local, opt-in)
+
+The desk and settings pages can keep what each load measured about itself (#350), so "is it the
+browser?" is answered with the same numbers from every host, the IDE windows included. The same file
+turns it on:
+
+```json
+{"fleet": {"loads": {"enabled": true}}}
+```
+
+`fleet.loads.enabled` is read on every post, so a running `ad-fleet serve` starts or stops recording
+without a restart; only `true` is on. It is a file-only key: /settings has no control for it. One
+record holds the shell (`w=`), the page (`desk` or `settings`), where it came from (`from`: empty
+for a cold open, `settings` for settings → desk), the navigation type, `performance.timeOrigin`,
+four durations (first paint, the first fleet answer, the ink layer's first frame, the longest task),
+the skin family the page wore first and the one it settled on, the user agent (200 characters at
+most) and the server's time. No repository, ticket, path or page content.
+
+The records live in `~/.agentdata/fleet/loads.json`, the newest 50 per shell, page and from, and
+nothing in this repository transmits them. `ad-fleet engines` prints them as its `loads` table
+(p50/p95 per duration and the share of loads whose first skin was the settled one), the numbers
+docs/desk-engines.md's switching rows are written from. Turn it off again once the numbers are
+taken: it is a measurement, not a feature.
+
 ## Precedence for every setting
 CLI flag → environment variable → `~/.agentdata/config.json` → project `AGENTS.md` fact → error with a hint.
 Env overrides keep working: `TD_HOST_<ENV>`/`TD_HOST`, `TD_USER`, `TD_LOGMECH`, `HIVE_HOST_<ENV>`, `HIVE_PORT`,
