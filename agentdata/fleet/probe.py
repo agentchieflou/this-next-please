@@ -88,6 +88,7 @@ FEATURES = {
     "ResizeObserver": "falls back — tiers measured after each layout pass",
     "container queries": "falls back — the head wraps",
     "OffscreenCanvas": "n/a — not used",
+    "HTML-in-canvas": "falls back — effects follow element rects and line boxes",
 }
 
 #: A shell's name is the `w=` a desk window already carries (`pycharm`, `vscode`) or the `shell=`
@@ -276,6 +277,7 @@ def normalize(body: dict) -> dict:
         "hidden": body.get("hidden") is True,
         "error": _text(body.get("error")),
         "features": _features(body.get("features")),
+        "hic_api": _text(body.get("hic_api"), 32),
     }
 
 

@@ -134,7 +134,7 @@ def test_the_record_keeps_facts_in_one_shape():
     rec = PR.normalize(facts())
     assert set(rec) == {"shell", "at", "ua", "webgl", "renderer", "vendor", "caveat", "three",
                         "frames", "p50_ms", "p95_ms", "first_stroke_ms", "load_ms", "drawn",
-                        "hidden", "error", "features"}
+                        "hidden", "error", "features", "hic_api"}
     assert rec["shell"] == "pycharm" and rec["webgl"] == "webgl2" and rec["renderer"] == INTEL
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d", rec["at"]), rec["at"]
     # The intervals are reduced once, here, and not kept: every reader agrees on the arithmetic.

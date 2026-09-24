@@ -24,6 +24,7 @@ a smaller promise and a true one; a test refuses any cell that is neither.
 | `ResizeObserver` | works | not yet measured | not yet measured | not yet measured |
 | `container queries` | works | not yet measured | not yet measured | not yet measured |
 | `OffscreenCanvas` | works | not yet measured | not yet measured | not yet measured |
+| `HTML-in-canvas` | falls back — effects follow element rects and line boxes | not yet measured | not yet measured | not yet measured |
 | `WebGL` | falls back — software (SwiftShader) | not yet measured | not yet measured | not yet measured |
 
 The Chromium column is **measured, not remembered**: `test_the_chromium_column_is_what_chromium_
@@ -137,6 +138,7 @@ which was one of the desk's two 2D canvases. Tests hold all three.
 | `ResizeObserver` | The tiers (#233). No observer is made, and the same writer of `data-tier` is fed by a measurement of every pane after each layout pass, and a resize of the window asks for a pass. A pane still draws the tier its width says, a frame later than an observer would have said it. During a gutter drag the tier follows when the hand comes up rather than under it, because a layout pass waits for the hand. | `test_fleet_engines.py` |
 | `container queries` | Not used for the tiers: `data-tier` is an attribute, which tests and the draw code can read and a container query is not (plan-panes §The pane). So a shell without them draws every tier the same. Inside a pane, the head keeps the model's word, the ticket and the chip's age under 500px, and the trace under 560px, and wraps to a second line rather than dropping them. `flex-wrap` is the fallback, and it is why the head has it. | `test_fleet_window.py` |
 | `OffscreenCanvas` | Nothing of the desk's own is lost: the desk has no 2D canvas at all since #257, on or off the page. three.js asks a 1×1 one for a 2D context once, as its renderer starts, to learn whether it could resize a texture off the page. Without it three.js would use a page canvas for that, and the layer never hands it an image to resize. | `test_fleet_trace.py` |
+| `HTML-in-canvas` | Nothing the desk has today is lost: no shell ships it, and the desk does not use it. Effects aim at element rects, line boxes and glyph boxes (#375) instead, read from the DOM. §Pixel-level HTML below says what it would take to use it. | `test_fleet_pixel_html.py`, `test_fleet_engines.py` |
 | `WebGL` | Drawn by the ink layer (#248, [desk-ink.md](desk-ink.md)), and only on a shell whose probe says hardware (the table above). There it draws a skin's marks and materials (glass's ground among them), and every agent's trace beside them (#257). Every other shell gets the plain fallback (`body.ink-off`), and so do a shell nobody has measured, `?ink=off`, a shell that will not give a context, and a lost context. The trace is its own SVG, the ground is the palette's page (#257: a skin's stylesheet paints nothing), and a skin's mark table is drawn as plain borders and highlights. None of it animates, because a desk drawn at software speed is worse than a flat one. | `test_fleet_probe.py`, `test_fleet_ink.py`, `test_fleet_trace.py` |
 
 `test_the_desk_arrives_at_the_same_place_with_every_fallback_taken` takes **all** of the fallbacks
@@ -144,6 +146,64 @@ at once — no view transitions, no pointer capture, no `linear()`, no container
 `ResizeObserver` — which is the worst engine anybody will actually meet. The desk still hides a
 tile, still reorders, still resizes by the gutter, still gives every pane the tier its width says,
 and still draws its traces.
+
+## Pixel-level HTML (#384)
+
+The operator asked for "full html awareness on what seems to be a pixel level": effects that know
+where the page's own words and pixels are. There are three ways to get the desk's HTML into the ink
+layer's WebGL scene. `tests/test_fleet_pixel_html.py` measures all three in CI's Chromium, launched
+with the one Blink flag that turns the first on, and prints its numbers every run.
+
+| Route | What it is | Cost (Chromium 141 on SwiftShader) | Fidelity | Which shells have it |
+| --- | --- | --- | --- | --- |
+| HTML-in-Canvas | The WICG proposal: an element that is a child of a `<canvas layoutsubtree>` is uploaded as a WebGL texture by the browser's own painter | the upload about 8 ms for a 457×729 pane (the test) | exact: the browser paints it | none unflagged. Chromium 141 has `texElement2D/6` behind `--enable-blink-features=CanvasDrawElement`; the table's `HTML-in-canvas` row, per shell |
+| SVG snapshot | A clone of the pane with its computed styles inlined, serialised into an SVG `foreignObject`, decoded as a `data:` image and uploaded with `texImage2D` | 21–45 ms for a 524×729 pane with only the styles that differ inlined (styles 8–15, serialise 4–5, decode 1.5–14, upload 6–17; measured 2026-09-23). About 400 ms when every computed property is inlined, as the test does | approximate: icons, pseudo-elements and scroll position come out wrong | every shell with WebGL |
+| DOM-synced geometry | `Range.getClientRects()` for line boxes and one `Range` per character for glyph boxes, read from the live page | 183 line boxes for a full pane in 0.2 ms, and 2,456 glyph boxes in about 6.5 ms (2026-09-23). The test's short pane: 34 in 0.7 ms and 365 in 3 ms | boxes, not pixels: where the text is, not what it looks like | every shell |
+
+All three keep the desk's rules:
+
+- **No 2D context.** HTML-in-Canvas and the snapshot upload to a WebGL2 texture; the geometry is
+  read from the DOM. The test watches every `getContext` and sees only `webgl2`. The probe row reads
+  `WebGL2RenderingContext.prototype` and creates no context at all.
+- **No `innerHTML`.** The snapshot is built with `cloneNode` and `XMLSerializer`, never by assigning
+  markup. Comment nodes are dropped from the clone first, because a comment holding `--` is not
+  valid XML and the image would not decode.
+- **The CSP** (`serve.py`: `img-src 'self' data:`) already lets a `data:` image load. An SVG
+  `foreignObject` image uploads to WebGL with no taint. HTML-in-Canvas needs no CSP change.
+  Nothing is fetched from anywhere else.
+
+**Refused:** html2canvas-style rasterisers (html2canvas, html-to-image, dom-to-image). Each paints
+the page again on a 2D context, which the desk has not had since #257, and each is a dependency.
+
+**Three generations of names.** The proposal has been `texElement2D` (Chromium 141 behind the
+flag; six arguments, `target, level, internalformat, format, type, element`), `texElementImage2D`
+(three.js dev calls it with six arguments for Chrome 138–149 and three for 150+) and, in the
+current explainer, `texElementSubImage2D` with `content="drawable"`. The flagged Chromium 141 also
+has `HTMLCanvasElement.prototype.layoutSubtree` and a 2D `drawElement`, but no `requestPaint` or
+`onpaint`. The origin trial is reported for M148–M151. The probe records whichever name it finds,
+with its arity (`hic_api`, for example `texElement2D/6`), so each shell's record says which
+generation it has.
+
+**three.js.** The desk's three.js stays r160 (#247). r184's `HTMLTexture` would be the easy way in,
+but r184's `build/three.module.min.js` statically imports `./three.core.min.js`. This server
+refuses that request, because every route wants its `?t=` token and a static import cannot carry
+one. Upgrading three.js is a plan of its own and not part of this gate.
+
+### The gate
+
+HTML-in-Canvas is adopted only when **all** of these hold:
+
+1. It ships without a flag or an origin trial in the Chromium of at least 2 of the 4 shells, as
+   `ad-fleet engines` prints their `HTML-in-canvas` row.
+2. Its method name and arity are unchanged across two stable Chromium releases.
+3. A Playwright check shows that drawable children keep hit testing and accessibility geometry.
+
+Until then the verdict is **not yet**, and effects use DOM-synced geometry (#375). The desk never
+moves its panes into a canvas without a plan of its own. No origin-trial token is committed, and
+no shell is launched with a Chromium flag.
+
+**Today's verdict: not yet.** No shell has it unflagged. CI's Chromium 141 has it only with the flag
+(`texElement2D/6`, lit pixels read back, no `SecurityError`). The laptop's shells are read by #383.
 
 ## What is *not* guarded by a fallback
 
