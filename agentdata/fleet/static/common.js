@@ -6,9 +6,10 @@
    fetched from the internet, which is the constraint the desk has always had (it must load inside
    PyCharm's JCEF and VS Code's Simple Browser behind a corporate proxy).
 
-   What lives here is what a SECOND page genuinely needs: the run token, q(), pageUrl() for links
-   that keep the window and host, the one-line text setter, and the two painters that turn a
-   palette and a skin into what you see. What deliberately does not: anything that assumes a desk.
+   What lives here is what a SECOND page genuinely needs: the run token and the two functions that
+   put it on every request, `pageUrl()` for the links between the pages (they keep the host's `w`,
+   `shell` and `ink`), the one-line text setter, and the two painters that turn a palette and a
+   skin into what you see. What deliberately does not: anything that assumes a desk.
    `rehome()` stays in `app.js` because it always rebuilds a destination through `/open`, which
    hard-codes `/?t=` -- sending it from here would bounce an operator off the settings page mid-edit. */
 

@@ -55,7 +55,8 @@ is not loopback — a forwarded port, a phone on the LAN, a remote desktop.
 The socket binds **127.0.0.1 and nothing else**. Every run generates a fresh token, and every
 request — page, API and event stream — must carry it as `?t=…`. A request without it, or from a
 non-loopback address, gets `403 not authorized` and is not told which of the two it got wrong.
-Links built between the desk and `/settings` (`pageUrl`) carry the window and host parameters (`w`, `shell`, `ink`) across round trips, while any unrelated parameters are dropped.
+The links between the desk and `/settings` (`pageUrl`) carry `t` plus the host's `w`, `shell` and
+`ink`, and nothing else, so a round trip comes back as the same window.
 
 The token is deliberately **not** a cookie. A cookie would be sent automatically by any page in the
 browser, which is exactly what makes a local server on a known port drivable from a hostile tab;
