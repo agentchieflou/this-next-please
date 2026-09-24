@@ -40,11 +40,12 @@
         "agentdata/fleet/static/ink/ink.js",
         "agentdata/fleet/static/ink/layer.js",
         "agentdata/fleet/static/ink/shapes.js",
-        "agentdata/fleet/static/ink/pen.js"
+        "agentdata/fleet/static/ink/pen.js",
+        "agentdata/fleet/static/ink/fx.js"
       ],
       "toml": [],
-      "planned": ["agentdata/fleet/static/ink/fx.js"],
-      "note": "One PR open at a time; the budget rule is in the decisions register. fx.js is created by #370."
+      "planned": [],
+      "note": "One PR open at a time; the budget rule is in the decisions register. fx.js arrived with #370."
     },
     "desk-page": {
       "kind": "sequenced",
