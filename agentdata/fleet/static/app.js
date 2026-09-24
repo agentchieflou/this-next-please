@@ -236,7 +236,12 @@ function acceptDesk(payload) {
 }
 
 function rehome() {
-  window.location.href = "/open?w=" + encodeURIComponent(W_NAME);
+  /* `/open` forwards every param but `t`, so the host's shell and ink ride along from here once. */
+  var more = new URLSearchParams();
+  if (PARAMS.get("shell")) more.set("shell", PARAMS.get("shell"));
+  if (PARAMS.get("ink")) more.set("ink", PARAMS.get("ink"));
+  var rest = more.toString();
+  window.location.href = "/open?w=" + encodeURIComponent(W_NAME) + (rest ? "&" + rest : "");
 }
 
 /* There used to be a `held` map here: the agents the operator had acted on, kept on the glass by
@@ -1855,7 +1860,7 @@ document.addEventListener("keydown", function (e) {
    link cannot be a static href in the markup -- it would 403 and read as a dead button, which is
    exactly what the operator reported. */
 var setLink = /** @type {HTMLAnchorElement} */ (document.getElementById("setbtn"));
-if (setLink) setLink.href = q("/settings");
+if (setLink) setLink.href = pageUrl("/settings");
 
 refresh().then(function () {
   connect();
@@ -3829,7 +3834,7 @@ function openModelCard(repo, anchor) {
   /** @type {HTMLInputElement} */ (document.getElementById("mc-effort")).value = row.effort || "";
   text(document.getElementById("mc-note"), "takes effect on the agent's next turn");
   var all = /** @type {HTMLAnchorElement} */ (document.getElementById("mc-all"));
-  all.href = q("/settings") + "#model-" + encodeURIComponent(repo);
+  all.href = pageUrl("/settings") + "#model-" + encodeURIComponent(repo);
 
   loadModelChoices().then(function (choices) {
     fillDatalist("mc-models", choices.seen);
