@@ -513,7 +513,10 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
                                  {selector: '.tile[', tool: 'pen', shape: 'loop'},
                                  {selector: '.tile', tool: 'eraser', shape: 'loop'},
                                  {selector: '.tile', tool: 'pen', shape: 'arrow'},
-                                 {tool: 'pen', shape: 'loop'}]) {
+                                 {tool: 'pen', shape: 'loop'},
+                                 {selector: '.tile', tool: 'pencil', ink: 'crayon', shape: 'loop'},
+                                 {selector: '.tile', tool: 'pencil', shape: 'loop', cap: 'arrow'},
+                                 {selector: '.tile', tool: 'pencil', shape: 'underline', cap: 'arrow', tip: true}]) {
                 try { Ink.setSkin({ name: 'bad', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}, row] }); bad.push('accepted'); }
                 catch (e) { bad.push(e.message); }
               }
@@ -537,6 +540,7 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
     assert all(m.startswith("ink: mark 1") for m in api["bad"]), api["bad"]
     assert "crayon" in api["bad"][0] and "star" in api["bad"][1] and "selector" in api["bad"][2]
     assert "eraser" in api["bad"][3] and "`to`" in api["bad"][4] and "no selector" in api["bad"][5]
+    assert "crayon" in api["bad"][6] and "`ink`" in api["bad"][6] and "`cap`" in api["bad"][7] and "`cap`" in api["bad"][8]
     assert api["table"] is None, "a refused table replaced the one in force"
 
 
@@ -1312,3 +1316,137 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path):
     worst = max(m["ms"] for m in measures)
     print(f"\n  gestures while the ink draws: {len(measures)} marked, worst {worst:.1f}ms")
     assert [m for m in measures if m["ms"] > LOCAL_BUDGET_MS] == [], measures
+
+
+#: The pixels three.js drew at points in viewport boxes, read back from a frame drawn for the
+#: purpose (`READ` in test_fleet_ink_glass.py, which imports this module).
+READ = """(boxes) => {
+  Ink.sample({ x: 0, y: 0, w: 1, h: 1 });
+  const c = document.getElementById('ink');
+  const gl = c.getContext('webgl2') || c.getContext('webgl');
+  const k = c.width / innerWidth, px = new Uint8Array(4);
+  return boxes.map(b => b.at.map(([fx, fy]) => {
+    const x = Math.floor((b.x + b.w * fx) * k), y = c.height - 1 - Math.floor((b.y + b.h * fy) * k);
+    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return [px[0], px[1], px[2], px[3]];
+  }));
+}"""
+
+#: Some pixel READ finds in the first box is `want`'s channel alone (0 red, 1 green, 2 blue).
+PURE = """([boxes, want]) => (%s)(boxes)[0].some(p =>
+  p[want] > 120 && [0, 1, 2].every(k => k === want || p[k] < 60))""" % READ
+
+
+@pytest.mark.browser
+def test_a_row_borrows_an_ink_and_an_underline_ends_in_a_cap(fleet_home, tmp_path):
+    """#385. A row draws with one tool's hand in another tool's ink: `{tool: 'pencil', ink: 'pen'}`
+    is drawn in the pen's colour, recoloured with it, and erased (pencil's way of leaving), not
+    struck. An underline ends in an arrowhead or a bar, one stroke more, which stays at the growing
+    end. Plain, the borrowed ink is the underline's colour and a dashed underline stays dashed.
+    Reduced motion draws the cap at once, and an idle desk is still idle."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    # Pure inks on <html>, which the layer observes. The pencil's is not the pen's, so a mark drawn
+    # in its own tool's ink reads as the wrong colour.
+    inks = """([pen, pencil]) => { const s = document.documentElement.style;
+      s.setProperty('--ink-pen', pen); s.setProperty('--ink-pencil', pencil);
+      s.setProperty('--ink-green', '#00ff00'); }"""
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+
+            # Plain (the gate is off): the look is CSS in the borrowed ink.
+            page, errors, _ = _open(browser, port, token)
+            page.evaluate(inks, ["#ff0000", "#0000ff"])
+            plain = page.evaluate("""async (t) => {
+                await Ink.setSkin(t);
+                const look = r => { const s = getComputedStyle(document.querySelector(
+                  `.tile[data-repo="${r}"] .repo`));
+                  return [s.textDecorationLine, s.textDecorationStyle, s.textDecorationColor]; };
+                return { off: document.body.classList.contains('ink-off'),
+                         alpha: look('alpha'), beta: look('beta') };
+            }""", {"name": "plain", "marks": [
+                {"selector": ".tile[data-repo=\"alpha\"] .repo", "tool": "pencil", "ink": "pen",
+                 "shape": "underline", "dash": True},
+                {"selector": ".tile[data-repo=\"beta\"] .repo", "tool": "pencil", "ink": "green",
+                 "shape": "underline"}]})
+            assert plain["off"], plain
+            assert plain["alpha"] == ["underline", "dashed", "rgb(255, 0, 0)"], plain
+            assert plain["beta"] == ["underline", "solid", "rgb(0, 255, 0)"], plain
+            assert not errors, errors
+            page.close()
+
+            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+            page.evaluate(inks, ["#ff0000", "#0000ff"])
+            table = {"name": "caps", "speed": 4, "marks": [
+                {"selector": ".tile.borrowed .repo", "tool": "pencil", "ink": "pen", "shape": "underline"},
+                {"selector": ".tile.arrow-cap .repo", "tool": "pen", "shape": "underline",
+                 "grow": ".transcript > li", "cap": "arrow"},
+                {"selector": ".tile.bar-cap .repo", "tool": "pen", "shape": "underline", "cap": "bar"}]}
+            _set(page, table)
+
+            # The pencil's hand in the pen's ink, read where the line is.
+            _mark(page, "alpha", "borrowed")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.state === 'drawn')")
+            line = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
+            assert (line["tool"], line["ink"], line["cap"], line["strokes"]) == ("pencil", "pen", "", 1), line
+            b = line["bounds"][0]
+            at = [{"x": b["x"], "y": b["y"], "w": b["r"] - b["x"], "h": b["b"] - b["y"],
+                   "at": [(fx, fy) for fx in (0.2, 0.35, 0.5, 0.65, 0.8) for fy in (0.4, 0.5, 0.6)]}]
+            page.wait_for_function(PURE, arg=[at, 0], timeout=10000)
+            assert not page.evaluate(PURE, [at, 2]), page.evaluate(READ, at)
+
+            # A second pure colour, set the same way, recolours it.
+            page.evaluate(inks, ["#0000ff", "#00ff00"])
+            page.wait_for_function(PURE, arg=[at, 2], timeout=10000)
+            assert not page.evaluate(PURE, [at, 1]), page.evaluate(READ, at)
+
+            # It leaves the pencil's way: erased, never struck.
+            _mark(page, "alpha", "borrowed", False)
+            _rest(page, "!Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha')")
+            assert not any(m["strikeOf"] for m in _marks(page)), _marks(page)
+
+            # A bar is one stroke more, standing across the line's end.
+            _mark(page, "beta", "bar-cap")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:beta' && m.state === 'drawn')")
+            bar = next(m for m in _marks(page) if m["lane"] == "pane:beta")
+            assert (bar["cap"], bar["ink"], bar["strokes"], bar["drawn"]) == ("bar", "pen", 2, 1), bar
+            assert abs(bar["bounds"][1]["r"] - bar["bounds"][0]["r"]) <= 2, bar["bounds"]
+            assert bar["bounds"][1]["b"] - bar["bounds"][1]["y"] >= 9, bar["bounds"]
+
+            # An arrowhead at the end of a growing line: after two arrivals it is at the new end.
+            _mark(page, "alpha", "arrow-cap")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.state === 'drawn')")
+            arrow = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
+            assert (arrow["cap"], arrow["strokes"], arrow["drawn"]) == ("arrow", 2, 1), arrow
+            line0, head0 = arrow["bounds"]
+            assert abs(head0["r"] - line0["r"]) <= 2, arrow["bounds"]
+            page.evaluate("""() => { const tr = document.querySelector('.tile[data-repo="alpha"] .transcript');
+              for (const t of ['one', 'two']) { const li = document.createElement('li');
+                                                li.textContent = t; tr.appendChild(li); } }""")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.lane === 'pane:alpha' && m.drawn === 1"
+                        f" && m.bounds[0].r > {line0['r']} + 15)")
+            arrow = next(m for m in _marks(page) if m["lane"] == "pane:alpha")
+            line1, head1 = arrow["bounds"]
+            assert line1["r"] > line0["r"] + 15 and abs(head1["r"] - line1["r"]) <= 2, arrow["bounds"]
+            assert head1["x"] > head0["x"] + 15, "the arrowhead stayed where the line was"
+
+            count = page.evaluate(IDLE_LOOP)
+            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+            assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
+            assert not errors, errors
+            page.close()
+
+            # Reduced motion: the line and its cap are on the paper at once, and no pen travels.
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+            _set(page, table)
+            came = page.evaluate(RECORD, [[["alpha", "arrow-cap"]]])
+            whole = [f for f in came if any(m[1] == "pane:alpha" and m[2] == 1 and m[5] == 2
+                                            for m in f["marks"])]
+            assert whole and came.index(whole[0]) <= 1, f"not drawn at once: {[f['marks'] for f in came[:4]]}"
+            assert not any(f["hands"] for f in came), "a pen travelled under reduced motion"
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
