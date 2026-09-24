@@ -692,6 +692,3 @@ def apply(t: Theme, persist: bool = False) -> dict[str, Any]:
         except Exception:
             pass
     return {"ok": True, "mechanism": f"osc-{host}"}
-
-
-

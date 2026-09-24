@@ -7,11 +7,10 @@ Acceptance criteria:
 """
 from __future__ import annotations
 
-import os
 import pytest
 
 from agentdata import theme
-from agentdata.fleet import registry, serve as S, skins
+from agentdata.fleet import skins
 
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import (  # noqa: F401 - fixtures used by name
@@ -26,18 +25,16 @@ def _hex_to_rgb(hex_str: str) -> str:
 
 
 @pytest.mark.browser
-@pytest.mark.parametrize("skin_name,base_theme", [
-    ("notebook:light", "eye-relief-day"),
-    ("glass:smoke", "dark"),
-])
-def test_computed_muted_and_placeholder_tokens(fleet_home, tmp_path, skin_name, base_theme):
+@pytest.mark.parametrize("skin_name", ["notebook:light", "glass:smoke"])
+def test_computed_muted_and_placeholder_tokens(fleet_home, tmp_path, skin_name):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path, ("alpha", "beta"))
 
     # Write skin configuration
     (fleet_home.parent / "cfg.json").write_text(f'{{"theme": {{"skin": "{skin_name}"}}}}', encoding="utf-8")
 
-    t = theme.get(base_theme)
+    skin, variant = skin_name.split(":")
+    t = theme.get(skins.SKINS[skin]["variants"][variant]["base"])
     expected_muted = theme.to_css(t)["--muted"]
     expected_rgb = _hex_to_rgb(expected_muted)
 

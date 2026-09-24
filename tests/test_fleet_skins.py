@@ -304,4 +304,3 @@ def test_farmstead_skin_css_inks_equal_skins_py_inks():
     assert {k: v.upper() for k, v in rainy_inks.items()} == {
         k: v.upper() for k, v in skins.SKINS["farmstead"]["variants"]["rainy"]["inks"].items()
     }
-

@@ -320,5 +320,3 @@ def test_theme_escapes_are_byte_identical_to_golden():
     }
     for t in theme.list_themes():
         assert theme.escapes(t) == golden[t.name]
-
-
