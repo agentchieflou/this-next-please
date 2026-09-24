@@ -104,6 +104,8 @@ While `agentdata` provides native Oh My Posh integration for high-fidelity promp
 
 A **skin** is one more stylesheet over the same DOM: the approved grid with CSS and hand-drawn SVG swapped in. A skin that needs a page change is not a skin.
 
+**Served, not fetched (#345).** Every page but `/probe` is served wearing the chosen palette and skin: the palette's tokens as `<html data-theme="custom" style>`, the skin's stylesheet as a `<link data-skin>` in the head and `<body data-skin data-skin-variant>`, so the first frame is never the system palette or the skin just replaced. A skinned page is also served `body.ink-off`, the legible plain look, until the ink layer draws (desk-ink.md §Following the page); every skin's band text is keyed on `:not(.ink-off)`, which would read 1.30:1 on farmstead:daytime before the canvas is there.
+
 ### The Skin Contract
 - **DOM Stability**: A skin may only alter CSS custom properties, backgrounds, borders, and decorative sprites. It must never require HTML markup changes or alter interactive element IDs.
 - **Pixel-Art Invariant**: Textures and sprites are 100% original, hand-authored SVG `<rect>` pixel art committed directly to the repo. Zero raster images or base64 bitmaps are allowed.

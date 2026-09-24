@@ -80,6 +80,15 @@ agent it has open. Taken only from the fleet's answers it was older than the las
 reload reopened the agent from before it, then jumped when the fleet answered: #230's snap-back, on
 the reload path. Its version is not believed, so the first real answer always wins.
 
+**The snapshot never draws the theme or the tiers (#345).** It used to: taken before a change made on
+/settings or down the stream, it painted the skin just replaced for 130-344 ms after every return to
+the desk. The served page carries them instead (`serve.page_theme`: `<html data-theme style>` and
+`data-tiers`, the skin's `<link>`, `<body data-skin data-skin-variant>`), written exactly as
+`applyTheme`, `applySkin` and `applyTiers` write them, so the first frame is the chosen palette and
+skin and the first `/api/fleet` answer writes nothing. `servedTiers()` hands `applyTiers` the served
+widths before `restoreCached()` draws a pane. A page restored whole from the back-forward cache asks
+again (`pageshow` with `persisted`).
+
 While it is showing, `body.is-stale` dims the glass a little and the footer says *"the last view,
 while this one loads"*. A stale desk that does not admit it is a desk that lies for a second, and a
 second is long enough to act on.
