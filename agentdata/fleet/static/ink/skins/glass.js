@@ -81,8 +81,9 @@ export function marks() {
     // error (and blocked, which the page colours alike): a bang in the margin in marker
     { selector: ".tile.state-error .head", tool: "marker", shape: "bang" },
     { selector: ".tile.state-blocked .head", tool: "marker", shape: "bang" },
-    // done: a green tick in the margin
-    { selector: ".tile.state-done .head", tool: "green", shape: "check" },
+    // done: a green tick in the margin. `is-done` is the fold's word for a finished agent nothing
+    // supervises, whose chip says idle (#253, #333); the paper skins key on both.
+    { selector: ".tile:is(.state-done, .is-done) .head", tool: "green", shape: "check" },
     // stale (#240): the note that the session is old, outlined in dashed pen
     { selector: ".tile .oldsession:not([hidden])", tool: "pen", shape: "outline", dash: true, pad: 2 },
     // a finding: edits outside the scope it was given (#168), ringed in red
@@ -420,7 +421,7 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
 function rimOf(el) {
   const c = el.classList;
   if (c.contains("needs-human") || c.contains("state-error") || c.contains("state-blocked")) return "human";
-  if (c.contains("state-done")) return "done";
+  if (c.contains("state-done") || c.contains("is-done")) return "done";
   return null;
 }
 
