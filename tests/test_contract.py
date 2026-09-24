@@ -16,7 +16,9 @@ import sys
 import pytest
 
 import contract_cases
-from agentdata import toon
+import fakes
+from agentdata import proc, toon
+from agentdata.update import SKILLS_CMD
 from subproc import agentdata_env
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -92,11 +94,52 @@ def test_an_unknown_flag_is_a_usage_error_not_a_crash(name, tmp_path):
     assert rc in (1, 2), f"exit {rc} for a usage error"
 
 
+def fake_gh_env(tmp_path, case):
+    """An environment whose `gh` is the fake from `tests/fakes/`, replaying `case` (#447).
+
+    Bare `ad-update` is not a usage path: it runs `gh skill install` for real, and GitHub's Windows
+    runners ship `gh`, so without this the contract case downloaded the skills over the network and
+    timed out. Fails loudly, before anything is spawned, if `gh` would resolve anywhere else.
+    """
+    env = fakes.install(tmp_path, ["gh"], case=case, npm=False)
+    bin_dir = env["PATH"].split(os.pathsep)[0]
+    found = proc.which("gh", path=env["PATH"])
+    if not found or os.path.normcase(os.path.dirname(os.path.abspath(found))) != os.path.normcase(bin_dir):
+        pytest.fail(f"`gh` resolves to {found!r}, not the fake in {bin_dir}: this test would reach the real gh "
+                    "and the network")
+    return env
+
+
+def gh_calls(env):
+    """What the fake `gh` was sent. Each call it answered is one argv, oldest first."""
+    return fakes.calls(env, "gh")
+
+
 @pytest.mark.parametrize("name", COMMANDS)
 def test_no_arguments_is_help_or_usage_never_a_crash(name, tmp_path):
-    rc, out, err = run([name], cwd=str(tmp_path))
+    env = fake_gh_env(tmp_path, "skill_install_ok")
+    rc, out, err = run([name], cwd=str(tmp_path), extra_env=env)
     assert "Traceback" not in err, err
     assert rc in (0, 1, 2), f"exit {rc} with no arguments"
+    if name == "update":
+        # a bare `ad-update` performs the update: the skills half must have gone to the fake, with the
+        # exact arguments, and nowhere else
+        assert gh_calls(env) == [SKILLS_CMD[1:]], (
+            f"ad-update did not call the fake `gh skill install` as expected: {gh_calls(env)}\n{err[-1500:]}")
+
+
+def test_no_arguments_update_retries_when_skills_are_already_installed(tmp_path):
+    """The failure the real `gh` gives on a second install (#66): `ad-update` probes for `--force`,
+    retries once, and still keeps the contract -- all against the fake, never the network (#447)."""
+    env = fake_gh_env(tmp_path, "2026-09-03-skills-already-installed")
+    rc, out, err = run(["update"], cwd=str(tmp_path), extra_env=env)
+    assert "Traceback" not in err, err
+    assert rc in (0, 1, 2), f"exit {rc} with no arguments"
+    calls = gh_calls(env)
+    assert calls[0] == SKILLS_CMD[1:], calls
+    assert ["skill", "install", "--help"] in calls, f"no --force probe: {calls}"
+    assert calls[-1][:len(SKILLS_CMD) - 1] == SKILLS_CMD[1:], f"no retry of the install: {calls}"
+    assert len(calls) == 3, calls
 
 
 # ------------------------------------------------------------------ the canned safe invocation
