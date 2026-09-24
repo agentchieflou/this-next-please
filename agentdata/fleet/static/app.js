@@ -110,11 +110,13 @@
 
 /** A pane: one agent in the row, and its entry in `tiles` (#233). `el` is its `.tile`, made once by
  *  `makeTile` and patched after (#215), carrying `data-repo` and `data-tier`; `seq` is the last event
- *  drawn into its transcript, and `row` what it was last drawn from.
+ *  drawn into its transcript, and `row` what it was last drawn from. `restored` marks a pane drawn
+ *  from the window's snapshot, whose transcript its first real row brings (#347).
  * @typedef {Object} Pane
  * @property {HTMLElement} el
  * @property {number} seq
  * @property {Row} [row]
+ * @property {boolean} [restored]
  */
 
 /** @type {Map<string, Pane>} */
@@ -1466,6 +1468,19 @@ function readBefore(shown, row) {
 /* One row onto its tile, making the tile if this is the first sight of it. Both an action's
    answer (#219) and a whole snapshot come through here, so a tile cannot be drawn one way by one
    path and another way by the other -- nor by the older of the two because it arrived second. */
+/* A tile's transcript from a row's `recent` (its last forty), the cursor taken from each, then the
+   scroll this window left it at. */
+/** @param {Pane} entry  @param {Row} row */
+function fillTranscript(entry, row) {
+  (row.recent || []).forEach(function (ev) { append(entry.el, ev); entry.seq = ev.seq; });
+  try {
+    var savedScroll = sessionStorage.getItem("fleet.scroll." + row.repo);
+    if (savedScroll !== null) {
+      entry.el.querySelector(".transcript").scrollTop = Number(savedScroll);
+    }
+  } catch (e) {}
+}
+
 /** @param {Row} row  @param {number} [index]  @returns {Pane | null} */
 function patchRow(row, index) {
   if (!row || !row.repo) return null;
@@ -1479,13 +1494,12 @@ function patchRow(row, index) {
     arrivedSinceLastPlace = true;                // and where it first lands is not a move
     entry = { el: el, seq: 0 };
     tiles.set(row.repo, entry);
-    (row.recent || []).forEach(function (ev) { append(el, ev); entry.seq = ev.seq; });
-    try {
-      var savedScroll = sessionStorage.getItem("fleet.scroll." + row.repo);
-      if (savedScroll !== null) {
-        entry.el.querySelector(".transcript").scrollTop = Number(savedScroll);
-      }
-    } catch (e) {}
+    fillTranscript(entry, row);
+  } else if (entry.restored) {
+    // #347: drawn from the snapshot, which keeps no transcript. Its first real row fills it and
+    // sets the cursor, so the stream resumes after that row instead of replaying from 0.
+    entry.restored = false;
+    fillTranscript(entry, row);
   }
   entry.row = row;
   departed.delete(row.repo);
@@ -1502,8 +1516,8 @@ function patchRow(row, index) {
 
    So the last snapshot this window saw is kept and drawn first, marked as what it is, and the
    fetch that is already in flight replaces it. Without the transcripts: they are the big part of
-   the payload, they are the part that goes stale fastest, and the stream brings them back within
-   the second anyway. */
+   the payload, they are the part that goes stale fastest, and the first answer brings the last
+   forty, and the stream resumes after them (#347). */
 var SNAP_KEY = "fleet.snapshot." + W_NAME;
 var SNAP_GOOD_FOR_MS = 5 * 60 * 1000;
 var lastFleet = null;
@@ -1588,7 +1602,10 @@ function restoreCached() {
     if (mine) myWidths = ownWidths(mine.widths);
   }
   lastApprovals = data.approvals || [];
-  data.repos.forEach(function (row, i) { patchRow(row, i); });
+  data.repos.forEach(function (row, i) {
+    var e = patchRow(row, i);
+    if (e) e.restored = true;                     // #347: its first real row brings the transcript
+  });
   hide(document.getElementById("empty"), true);
   // Said, not hidden: the desk on the screen is the last one this window saw, and the operator is
   // told so rather than left to find out.
