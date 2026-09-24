@@ -1497,6 +1497,11 @@ function patchRow(row, index) {
 var SNAP_KEY = "fleet.snapshot." + W_NAME;
 var SNAP_GOOD_FOR_MS = 5 * 60 * 1000;
 var lastFleet = null;
+/* How many `theme` events the stream has delivered (#437). A fleet answer's theme is the one saved
+   when the server answered, so an answer asked before a theme change lands after the stream's
+   event and would put the old skin back. `refresh` applies the answer's theme only when no theme
+   event arrived while it was in flight. */
+var themeEvents = 0;
 
 /* The desk as this window last showed it: the newest desk it holds, with the agent it has open.
    The fleet's own answer is older than both the moment a click lands, and a snapshot kept from it
@@ -1575,6 +1580,7 @@ function restoreCached() {
 
 function refresh() {
   if (pendingRefresh) return pendingRefresh;
+  var themesAsked = themeEvents;
   pendingRefresh = fetch(q("/api/fleet")).then(function (r) {
     if (r.status === 403 && streamDead) {
       rehome();
@@ -1619,6 +1625,7 @@ function refresh() {
           ", which is not a number — the cap is off until it is one", 20);
     }
     if (data.desk) acceptDesk(data.desk);
+    if (themeEvents !== themesAsked) delete data.theme;   // older than the stream's: not drawn, not cached
     if (data.theme) {
       applyTheme(data.theme.css, data.theme.theme);
       applySkin(data.theme.skin);
@@ -1671,6 +1678,7 @@ function connect() {
     place();
   });
   source.addEventListener("theme", function (m) {
+    themeEvents++;
     try {
       var d = JSON.parse(m.data);
       applyTheme(d.css, d.theme);
