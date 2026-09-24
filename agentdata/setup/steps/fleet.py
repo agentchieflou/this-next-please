@@ -215,7 +215,26 @@ class FleetStep(Step):
 
         port = int(C.get(ctx.cfg, "fleet.port", 8765) or 8765)
         return {"version": version, "why": why, "login": login, "port": port,
-                "port_free": self._port_free(port), "ours": bool(S and _ping(port))}
+                "port_free": self._port_free(port), "ours": bool(S and _ping(port)),
+                "models": self._models(ctx, version)}
+
+    @staticmethod
+    def _models(ctx: Context, version: str) -> dict:
+        """The model catalogue (#360), reusing the version `_probe` just read (#365).
+
+        With a version it may refresh -- only when the cache is missing, older than
+        `fleet.model_list.max_age_h` or from another CLI build -- and it passes that version on, so no
+        second `--version` runs. Without one nothing is started: the cache, else the shipped list.
+        `account=` is never passed: the doctor never starts server mode.
+        """
+        from ...fleet import models as M
+
+        try:
+            if version:
+                return M.catalogue(ctx.cfg, spawn=True, cli_version=version)
+            return M.catalogue(ctx.cfg, spawn=False)
+        except Exception as e:                       # noqa: BLE001 - a report must not crash
+            return {"error": str(e)[:160]}
 
     @staticmethod
     def _port_free(port: int) -> bool:
@@ -236,6 +255,7 @@ class FleetStep(Step):
             return
 
         self._check_copilot(ctx, found)
+        self._check_models(ctx, found)
         self._check_skills(ctx, found)
         self._check_port(ctx, found)
         self._check_repos(ctx, found)
@@ -267,6 +287,49 @@ class FleetStep(Step):
                     keys=())
         elif found.get("login") == "ok":
             ctx.add(self.key, "login", "ok", "authenticated", keys=())
+
+    def _check_models(self, ctx: Context, found: dict) -> None:
+        """Where the model list came from, and each configured model the CLI no longer offers (#365).
+
+        No row when `_probe` did not look (a hand-built `found`). It warns and never rewrites: since
+        CLI 0.0.421 a `-p` turn errors on a model it cannot serve, so a CLI update can turn a saved
+        `fleet.models.<repo>` into a failed start, and this is where the operator looks after one.
+        """
+        if "models" not in found:
+            return
+        cat = found["models"] or {}
+        if cat.get("error"):
+            ctx.add(self.key, "models", "warn", f"the model list could not be read: {cat['error']}",
+                    "`ad-fleet models --refresh` asks the CLI again", keys=())
+            return
+        meta = cat.get("meta") or {}
+        version = meta.get("cli_version") or "?"
+        listed = [m for m in cat.get("models") or [] if {"cli", "shipped"} & set(m.get("via") or ())]
+        if meta.get("source") == "shipped":
+            ctx.add(self.key, "models", "warn",
+                    f"copilot could not be asked; showing the list shipped with this version "
+                    f"({version}, {meta.get('fetched_at') or '?'})",
+                    "`ad-fleet models --refresh` once `copilot --version` works", keys=())
+        else:
+            detail = f"{len(listed)} models from copilot {version}, checked {_hours_ago(meta.get('fetched_at'))}"
+            if str(C.get(ctx.cfg, "fleet.model_list.source") or "") == "account" \
+                    and _cached_account() == "ok":
+                detail += " · account: ok"
+            ctx.add(self.key, "models", "ok", detail, keys=())
+
+        offered = {m.get("id") for m in cat.get("models") or [] if m.get("offered")}
+        configured = [("fleet.model", str(C.get(ctx.cfg, "fleet.model") or "").strip(),
+                       "`ad-fleet model --fleet --inherit`")]
+        per_repo = C.get(ctx.cfg, "fleet.models") or {}
+        if isinstance(per_repo, dict):
+            for repo, entry in sorted(per_repo.items()):
+                model = str(entry.get("model") or "").strip() if isinstance(entry, dict) else ""
+                configured.append((f"fleet.models.{repo}", model, f"`ad-fleet model {repo} --inherit`"))
+        for key, model, fix in configured:
+            if model and model not in offered:
+                ctx.add(self.key, f"models {key}", "warn",
+                        f"`{key}` = {model} is not offered by copilot {version}",
+                        f"{fix}, or set another model on /settings", keys=())
 
     def _check_fresh(self, ctx: Context, found: dict) -> None:
         """Is every agent's session on the installed skills (#240)?
@@ -704,6 +767,28 @@ def _age_of(when: str) -> float | None:
         return max(0.0, time.time() - time.mktime(parsed))
     except (OverflowError, ValueError):
         return None
+
+
+def _hours_ago(fetched_at) -> str:
+    """"3h ago" for a UTC `fetched_at` the model cache writes; "just now" under an hour."""
+    from ...fleet import models as M
+
+    hours = M._age_h({"fetched_at": fetched_at or ""})
+    if hours == float("inf"):
+        return "at an unknown time"
+    return "just now" if hours < 1 else f"{int(hours)}h ago"
+
+
+def _cached_account():
+    """The account check's verdict as the cache recorded it (#364), or None. Never asks the CLI."""
+    from ...fleet import models as M
+
+    try:
+        cache = M.load_cache() or {}
+    except Exception:                                # noqa: BLE001 - a report must not crash
+        return None
+    meta = cache.get("meta") if isinstance(cache.get("meta"), dict) else {}
+    return meta.get("account", cache.get("account"))
 
 
 def _older(found: str, floor: str) -> bool:

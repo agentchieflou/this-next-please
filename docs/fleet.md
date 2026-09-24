@@ -47,6 +47,9 @@ its turn ends, by the desk, so keep one open. Consoles and adopted sessions are 
 their own windows. Not `restart`: that resumes the same session, and the same session keeps the
 skills it already read.
 
+A Copilot CLI update can also drop a model an agent is configured with: see **After a CLI update**
+under "Which model an agent runs" below.
+
 ## More than one project: the desk
 
 Everything above is per repository. The desk (#122) is the same fleet pointed at the folder every
@@ -180,6 +183,11 @@ effort alone would pass no `--model` and the fleet default would stop applying. 
 a repository with no model of its own therefore pins the model it resolves today (`meta.pinned_model`),
 or, with nothing to pin, writes the effort and says so in `meta.warning`. A name the catalogue does
 not list is saved with a warning, never refused.
+
+**After a CLI update** (#365). Run `ad-doctor --only fleet` and read its `models` row: it names
+the list's source, its CLI version and age, and warns once per configured model the new build no
+longer offers (since CLI 0.0.421 a turn on such a model fails to start). The fix it names is
+`ad-fleet model <repo> --inherit` or another pick on `/settings`; the doctor changes nothing itself.
 
 **A console the fleet opens** (`ad-fleet console <repo> [KEY]`, #189) is the operator's own
 `cmd.exe` running Copilot in that checkout with a session id the fleet chose; the tile reads the
