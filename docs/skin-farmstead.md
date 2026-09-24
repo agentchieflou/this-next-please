@@ -14,6 +14,14 @@ The DOM keeps every word and every control. With ink on, `skin.css` clears the b
 the panes and the state chip, and the transparent borders on the top, right and bottom of the panes. The canvas behind
 the page shows through. The accent stripe down a pane's left edge is the pane's own, and it stays.
 
+**Which text wears the band ink.** The words written straight on the planks do: the title (`header
+h1`), the group labels (`.glabel`), the stream's dot (`.dot`), the footer's counts (`#counts`) and the
+key map's own text (`footer .keys`), in `--farm-band-ink` or `--farm-band-ink-soft`. A control does
+not (#336): every `button`, `input`, `select` and `kbd` in the header and the footer keeps the
+palette's own background, so it keeps the palette's `--text` as well. The band's near-white had
+cascaded into them and read at 1.30:1 on daylight's light buttons, and 1.22:1 on the `?` key; each
+reads at 4.5:1 or better now, in every weather.
+
 | Piece | Hook | Drawn from | Scale (CSS px per art pixel) |
 | --- | --- | --- | --- |
 | the soil, under the whole page | `ground` | `sprites.svg#soil`, tiled from the viewport's top-left | 2, as the stylesheet drew it |
@@ -21,10 +29,10 @@ the page shows through. The accent stripe down a pane's left edge is the pane's 
 | a pane's shadow on the soil | `frame` | flat black at 32%, 3 art pixels down and right | 1 |
 | a pane's paper | `frame` | `--farm-paper`, the variant's composited panel | — |
 | a pane's frame | `frame` | four `plank` boards, one plank (8 art pixels) thick, half over the pane's border and half into the gutter, lit | 1 |
-| a pane's crop | `frame`, then `tick` | the `crop-*` sprite the chip carried, over the chip's glyph box | 1 |
+| a pane's crop | `frame`, then `tick` | the central 12x12 art pixels of the `crop-*` sprite the chip carried, over the chip's 24px glyph box | 2 |
 
 **Every scale is a whole number of device pixels.** A scale is rounded down to whole device pixels (`unitOf`), so at a
-device pixel ratio of 1.25 the soil is 2 device pixels a texel and the crop is 12.8 CSS px. An art pixel is always a
+device pixel ratio of 1.25 the soil is 2 device pixels a texel and the crop is 19.2 CSS px. An art pixel is always a
 square block of the screen. A crop's position is snapped to the device grid as well.
 
 ## The art, as textures
@@ -55,6 +63,13 @@ A frame is built at its pane's size. The layer moves its group with the pane, an
 size changes, inside the frame the browser laid out. So a gutter drag rebuilds it with no DOM write.
 
 ## The crop grows a stage when the phase advances
+
+**Its size.** The crop is the state's second carrier, beside the chip's word (HIG *Color*: never colour
+alone), so it is drawn large enough to be read (#336). A crop sprite is 16x16 art pixels with the art
+itself 6 to 12 across and a 2-pixel margin round it, so the chip draws the central 12x12 (art 2 to
+14 each way) at twice the art: 24 CSS px in a 24px glyph box at a device pixel ratio of 1, and 19.2
+CSS px at 1.25, two whole device pixels an art pixel. A static test holds every `crop-*` rect inside
+that window, so no leaf is ever clipped.
 
 **The DOM signal is the tile's `state-*` class** (`setTileState` in `app.js`), which the fold derives from the agent's
 phase and its turn, together with `needs-human` and `is-done`. `is-done` is the fold's own *done*: the fold calls an
@@ -150,8 +165,10 @@ stylesheet's cave and rain tiles were drawn from the daylight ones. The palette'
 
 * **Every variant**, in ink with `?ink=on` (ground, bands, a frame per pane, the paper as the composited panel, the
   chip's glyph box left empty) and plain with the gate off (the stylesheet's farm, the marks as CSS).
-* **Crisp pixels at a whole number of device pixels**: at a device pixel ratio of 2, each crop art pixel is a 2x2
-  block and each soil pixel a 4x4 block. Each block is one colour, and every colour is the art's or the paper's.
+* **Crisp pixels at a whole number of device pixels**: at a device pixel ratio of 2, each crop art pixel and
+  each soil pixel is a 4x4 block. Each block is one colour, and every colour is the art's or the paper's.
+* **Readable**: every header and footer control at 4.5:1 on its own background in every weather, and
+  the crop 19 CSS px or more at a device pixel ratio of 1 and 1.25, inside the chip's glyph box (#336).
 * **Frames follow a gutter drag**: the board is where the pane now ends, and paper fills what it grew into.
 * **A crop grows exactly one stage** per advance, row by row, and at once under reduced motion. A finished agent
   (`is-done`, from a real `phase_changed` to done) is ticked and grows its seed to a bloom through the sprout.
