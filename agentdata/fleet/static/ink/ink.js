@@ -217,6 +217,8 @@ function normalise(table) {
     // The page's own trace rows (#257) follow the table, unless the skin plots the hour itself.
     series: table.series !== false,
     marks,
+    // Effects (#370): `{cues, use}`, which has the layer fetch fx.js; none, and it is never asked for.
+    fx: table.fx || null,
   };
 }
 
@@ -370,7 +372,7 @@ function apply(next, hooks, variant) {
    none, and asks for none. */
 const INKED = new Set(String((body && body.dataset.inkSkins) || "").split(/\s+/).filter(Boolean));
 const FAMILY = /^[a-z0-9][a-z0-9_-]{0,31}$/;
-const HOOKS = ["ground", "paper", "frame", "tick", "dispose"];
+const HOOKS = ["ground", "paper", "frame", "tick", "dispose", "cue"];
 let fromSkin = false;          // the table in force is the page's skin's, not a caller's
 let skinKey = "";
 
@@ -383,7 +385,8 @@ function fromModule(m, family, variant) {
   const o = valueOf(m.options, variant) || {};
   return {
     table: { name: family + (variant ? ":" + variant : ""), paper: o.paper, hand: o.hand, speed: o.speed,
-             tools: o.tools, series: o.series, marks: valueOf(m.marks, variant) || [] },
+             tools: o.tools, series: o.series, marks: valueOf(m.marks, variant) || [],
+             fx: m.cues || o.fx ? { cues: valueOf(m.cues, variant), use: o.fx } : null },
     hooks: m,
   };
 }

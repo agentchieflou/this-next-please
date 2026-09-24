@@ -127,6 +127,7 @@ class Layer {
     this.dirty = { table: false, geom: false, colours: true, size: true };
     this.stale = true;                 // something on the paper changed since it was last drawn
     this.stopped = false;
+    this.fx = null;                    // fx.js, attached for a table that has effects (#370)
     this.ids = new WeakMap();
     this.observed = new WeakSet();
     this.nextId = 0;
@@ -192,6 +193,10 @@ class Layer {
     this.unskin();
     this.table = t;
     if (t && t.hooks) this.enskin(t.hooks);
+    // Effects: their own module, fetched only by a skin that has them (docs/desk-ink.md §Budgets).
+    if (t && t.fx) import(q("/static/ink/fx.js")).then(m => {
+      if (this.table === t && !this.stopped) { this.fx = m.attach(this, t.fx); this.refresh(); }
+    }, e => console.error("ink: fx.js: " + e));
     // The skin's rows, then the page's own (#257): the traces, after the skin's marks in each lane.
     this.rows = t ? t.marks.map(row => Object.assign({}, row, { live: new Map(), leaving: new Map(), history: new Map() }))
       .concat(t.series ? this.pageRows : []) : [];
@@ -271,8 +276,10 @@ class Layer {
          frosted pane reads it at `gl_FragCoord.xy / groundSize`. Null otherwise. */
       get groundTexture() { return self.groundRT ? self.groundRT.texture : null; },
       get groundSize() { return self.groundSize; },
-      /* Where a skin's pieces go in the draw order: under every mark. */
-      order: Object.freeze({ ground: -30, paper: -20, frame: -10 }),
+      /* Where a skin's pieces go in the draw order: under every mark (§Writing a skin). */
+      order: Object.freeze({ ground: -30, paper: -20, frame: -10, fx: -5 }),
+      /* fx.js's helpers, once a table with effects has it attached; null otherwise (§Writing a skin). */
+      get fx() { return self.fx && self.fx.api; },
       /* The panes, where they are now: `{el, repo, box: {x, y, w, h}}` in viewport CSS px. */
       panes() {
         return Array.from(document.querySelectorAll(LANE)).map(el => {
@@ -319,6 +326,7 @@ class Layer {
   }
 
   unskin() {
+    if (this.fx) this.fx = this.fx.detach();
     const s = this.skin;
     if (!s) return;
     this.hook("dispose", this.ctx(null));
@@ -467,6 +475,7 @@ class Layer {
       if (!m.el.isConnected) { this.drop(m); changed = true; }
     }
     if (this.framePanes()) changed = true;
+    if (this.fx) this.fx.match();
     return changed;
   }
 
@@ -813,6 +822,7 @@ class Layer {
     for (const m of this.marks) if (!m.strikeOf && this.sync(m)) changed = true;
     for (const m of this.marks) if (m.strikeOf && this.sync(m)) changed = true;
     if (this.syncFrames()) changed = true;
+    if (this.fx) this.fx.measure();
     return changed;
   }
 
@@ -1225,6 +1235,7 @@ class Layer {
     const following = now < this.followUntil;
     if (following) this.dirty.geom = true;
     this.prepare();
+    if (this.fx) this.fx.deliver();
     this.drew = false;
     let busy = false;
     for (const L of this.lanes.values()) {
@@ -1334,7 +1345,7 @@ class Layer {
       frames: Array.from(s.frames.values()).filter(f => f.group.children.length).length,
       sampleGround: !!this.groundRT, errors: Object.keys(s.err),
     } : null;
-    return { lanes, marks, series, skin, frames: this.frames, renders: this.renders, busy: this.busy(),
+    return { lanes, marks, series, skin, fx: this.fx && this.fx.inspect(), frames: this.frames, renders: this.renders, busy: this.busy(),
              hands: this.hands(), reduced: this.instant(), canvas: this.canvas.isConnected,
              webgl2: !!this.renderer.capabilities.isWebGL2, mode: this.mode, dark: this.dark };
   }
