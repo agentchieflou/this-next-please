@@ -10,7 +10,7 @@ It is **read-only**: nothing on the map starts, stops or changes anything; the d
 `{ok: true, schema: 1, as_of, cursor, says, projects, checkouts, theme}`. It is a pure fold over the same snapshot
 `/api/fleet` sends (`agentdata/fleet/fleetmap.py`, `graph(snapshot)`): no git call, no registry or `.agent/` read,
 the same snapshot always gives an equal graph. It never carries a path and never carries event text. Twenty
-checkouts fit in under 16 KiB.
+checkouts fit in under 18 KiB.
 
 | Key | What |
 | --- | --- |
