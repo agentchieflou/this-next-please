@@ -90,9 +90,10 @@ export const SHAPES = {
   },
   /* A line under the text, a hair past both ends of it. `m.grow` px more on the right when the row
      grows (#249: the running agent's line lengthens with its turn), never past `m.limit`, and with
-     `m.tip` a pen-tip dot sitting at its end. It sits 2px under `m.base`, the foot of the tallest
-     box on its text's line (a chip beside a name), so a line past the text's end passes under its
-     neighbours' words; and never lower than 2px over `m.floor`, the top of the next row (#331). */
+     `m.tip` a pen-tip dot sitting at its end, or with `m.cap` an arrowhead or a bar (#385). It
+     sits 2px under `m.base`, the foot of the tallest box on its text's line (a chip beside a name),
+     so a line past the text's end passes under its neighbours' words; and never lower than 2px over
+     `m.floor`, the top of the next row (#331). */
   underline(m) {
     const r = box(m.box);
     let y = Math.max(r.b, m.base || 0) + 2 + (m.pad || 0);
@@ -101,6 +102,8 @@ export const SHAPES = {
     if (Number.isFinite(m.limit)) x1 = Math.max(r.r + 8, Math.min(x1, m.limit));
     const out = [{ pts: [[r.x - 3, y], [x1, y + 1.2]], nobow: true }];
     if (m.tip) out.push({ pts: [[x1 + 2.2, y + 0.8], [x1 + 3.4, y + 1.4]], w: 4.4, nobow: true, wob: 0 });
+    if (m.cap === "arrow") out.push({ pts: [[x1 - 7, y - 4.8], [x1, y + 1.2], [x1 - 7, y + 6.4]], nobow: true });
+    if (m.cap === "bar") out.push({ pts: [[x1, y - 5], [x1 + 0.4, y + 6]], nobow: true });
     return out;
   },
   /* A highlighter pass along every line the text wraps to, as wide as the line is tall. */

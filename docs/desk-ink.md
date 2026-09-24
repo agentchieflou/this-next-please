@@ -128,13 +128,15 @@ Ink.setSkin({
 | --- | --- |
 | `selector` | any selector the page can match (checked when the table is set). Each element it matches gets one mark |
 | `tool` | `pencil`, `pen`, `red`, `green`, `marker` or `highlighter`. The eraser is not a mark: it is how pencil leaves |
+| `ink` | another tool whose ink the row draws in, with its own tool's hand and way of leaving: `{tool: 'pencil', ink: 'pen'}` is the pencil's grain in the pen's colour, and is erased. A tool's name, never a colour, so `theme.check`'s per-tool inks cover it; plain, it is the underline's colour too (optional, #385) |
 | `shape` | one of the shapes below |
 | `pad` | px the shape stands off its element (optional) |
-| `dash` | a dashed stroke, for the stale pencil outline (optional) |
+| `dash` | a dashed stroke, for the stale pencil outline (optional; a dashed underline stays dashed plain) |
 | `to` | an arrow's target: a selector, looked up in the arrow's own pane first, then the page |
 | `grow` | an `underline` that lengthens: `step` px (default 10) for each element matching this selector that arrives in its pane after the mark was made, never past the pane's right edge. The pen draws on from where it stopped (#249: the running agent's line grows with its turn) |
 | `step` | px an underline grows by, per arrival (optional) |
 | `tip` | a pen-tip dot at the end of an `underline` while its mark is on the paper. It is lifted before the mark is struck or erased (#249) |
+| `cap` | `'arrow'` (a route's head, two barbs) or `'bar'` (a block across it) at the end of an `underline`, which stays at the end while it grows. Never with `tip`. Plain, a capped underline is a plain underline (optional, #385) |
 | `rewrite` | a `write` mark whose element's text changes after it was written keeps what it said beside it (to the left, in the element's own font and colour), strikes that through in pen, and writes the new text. One struck word is kept per row and element (#249: the header's count) |
 | `snap` | a grid pitch in px (4 or more): the row's straight strokes are ruled onto a grid of that pitch from the viewport's top-left. An outline's edges go onto a grid line inside its box's padding band (between the border box and the content box), or down the band's middle where the band is narrower than the pitch, and its ends stop at the border box (#331); an underline goes to the first line in [its text's foot + 2, the next row's top - 2] and stays unruled when there is none (#331); a divider goes to the nearest. Only `outline`, `divider` and `underline` may snap (optional, #253) |
 | `leaves` | `"erased"` or `"struck"`, over the tool's own way of leaving: the paper grammar takes up the highlight on an agent's name rather than striking the name (optional, #252, #253) |
@@ -166,7 +168,7 @@ and the name. Ink off keeps the 10px padding, and the fallback's bar is drawn in
 | --- | --- | --- |
 | `outline` | four lines round the box, each overshooting its corner | `outline: 1px solid` |
 | `divider` | a rule across the foot of the box | an inset bottom line |
-| `underline` | a line under the text, a little past both ends: 2px under the tallest box on its text's line (the anchor's siblings whose height overlaps it, so a line past its end passes under a chip beside a name), and never lower than 2px over the next row's top: the highest of the elements after it in its pane that start below it, and of their words (#331) | `text-decoration: underline` |
+| `underline` | a line under the text, a little past both ends: 2px under the tallest box on its text's line (the anchor's siblings whose height overlaps it, so a line past its end passes under a chip beside a name), and never lower than 2px over the next row's top: the highest of the elements after it in its pane that start below it, and of their words (#331) | `text-decoration: underline`, dashed when the row is (#385) |
 | `lines` | a highlighter pass along every line the text wraps to, as wide as the line is tall | a tinted background (38% of the ink) |
 | `loop` | one rounded stroke round the box, closed past its start | `outline: 2px solid` |
 | `ellipse` | a loose ellipse, a little more than once round | `outline: 2px solid`, further out |
@@ -529,8 +531,8 @@ head instead.
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (39 KB) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
-| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331. Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
+| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (41,958 bytes gzipped, LF, #385) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
+| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385. Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |
