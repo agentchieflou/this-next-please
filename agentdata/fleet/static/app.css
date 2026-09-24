@@ -338,8 +338,7 @@ body {
   display: flex; flex-direction: column;
   position: relative;
   background: var(--panel); border: 1px solid var(--line);
-  border-left: 3px solid var(--accent); border-radius: 6px;
-  padding: 8px 10px 8px var(--pane-margin, 10px);   /* the ink's margin under ink (#330, below) */
+  border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 10px;
 }
 .tile.is-solo { flex: var(--w, 1) 1 0; min-width: var(--compact-from); }
 /* The selection is one, unmistakable, and never in a state colour (HIG *Focus and selection*). */
@@ -576,14 +575,6 @@ body:has(> #ink[data-skin]) .tile {
   border-top-color: transparent; border-right-color: transparent; border-bottom-color: transparent;
 }
 body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focus, var(--accent)); }
-/* #330: under ink, an open pane's left padding is the ink's margin, where a skin writes the done
-   check and the error bang (`shapes.js` `margin()`, anchored on the pane). 26px keeps the green check
-   (to x+25.3) left of the content, so it never lands on the pane number or the name. Set here as a
-   custom property on the body, which `.tile`'s own padding reads: the pane rule keeps its weight, so
-   a skin that pads its pane further (the legal pad's 34px, the notebook's gutter) and the rail's
-   `padding: 0` still win, and ink off -- no canvas with a table -- keeps the 10px. (A `.tile` rule
-   keyed on `:where(body:has(> #ink[data-skin]))` was left unapplied by CI's Chromium 153.) */
-body:has(> #ink[data-skin]) { --pane-margin: var(--ink-margin, 26px); }
 
 /* Whatever is under the hand -- an open pane by its head, or a rail by its face. It is lifted out
    of the flow's paint order and given no pointer events, so `elementFromPoint` answers with what

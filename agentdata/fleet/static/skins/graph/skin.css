@@ -61,3 +61,10 @@ body[data-skin="graph"]:not(.ink-off) .tile .oldsession {
    drawing steps aside. Made clear, not hidden: it keeps its `role="img"` and its sentence, the
    trace's text twin (#218), and a screen reader still reads it. */
 body[data-skin="graph"]:not(.ink-off) .tile .trace { opacity: 0; }
+
+/* The ink's margin (#330): an open pane's left padding, where the done check and the error bang are
+   written (`shapes.js` `margin()`, anchored on the pane). 26px keeps the green check (to x+25.3)
+   off the pane number and the name. Keyed on the body's skin and not ink-off, as the legal pad keys
+   its 34px: a rule keyed on the ink canvas (`body:has(> #ink[data-skin])`) was left unapplied to the
+   panes by Chromium 153 after the layer set `data-skin`. Ink off keeps app.css's 10px. */
+body[data-skin="graph"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: var(--ink-margin, 26px); }

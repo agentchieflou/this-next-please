@@ -3,8 +3,9 @@
 `shapes.js` `margin()` writes a check or a bang 14px in from the left of its anchor. Glass, voxel,
 napkin and farmstead anchored those rows on `.tile ... .head`, whose box starts at the pane's content
 edge, so the tick landed on `.head .n` and the agent's name; graph anchored on the pane, but a pane
-had 10px of left padding. Now every check and bang row anchors on the pane, and app.css gives an
-open pane under ink a 26px left padding -- the margin -- which a skin that pads further still wins.
+had 10px of left padding. Now every check and bang row anchors on the pane, and each skin that
+draws gives an open pane under ink a 26px left padding -- the margin -- in its own sheet (the legal
+pad and the notebook pad further).
 What is asserted, on one variant per changed module, at 1400px and 700px, under reduced motion:
 
 * ink on: every check and bang stroke's bound (`Ink.inspect().layer.marks[].bounds`, inflated by

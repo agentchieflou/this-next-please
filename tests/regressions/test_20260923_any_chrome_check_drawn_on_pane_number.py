@@ -11,7 +11,7 @@ farmstead, napkin and graph):
 napkin and farmstead anchored those rows on `.tile ... .head`, whose box starts at the pane's
 content edge, so the mark landed on `.head .n` and the name; graph anchored on the pane, but a pane
 had only 10px of left padding. Now every check and bang row anchors on the pane, and an open pane
-under ink has a 26px left padding (app.css, the #257 block), the margin the marks are written in.
+under ink has a 26px left padding (each drawing skin's sheet), the margin the marks are written in.
 
 Issue: https://github.com/agentchieflou/this-next-please/issues/330
 """

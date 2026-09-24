@@ -55,6 +55,9 @@ body[data-skin="voxel"][data-skin-variant="end"] {
    a rail keeps its 17px. What is written on the header and the footer is written in the band's ink. */
 body[data-skin="voxel"]:not(.ink-off) .tile { border-left-color: transparent !important; }
 body[data-skin="voxel"]:not(.ink-off) .tile[data-tier="rail"] { padding-left: 17px; }
+/* An open pane: the ink's margin (#330), keyed on the body as the legal pad keys its 34px; see
+   skins/glass/skin.css for why not on the ink canvas. */
+body[data-skin="voxel"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: var(--ink-margin, 26px); }
 body[data-skin="voxel"]:not(.ink-off) header,
 body[data-skin="voxel"]:not(.ink-off) header h1,
 body[data-skin="voxel"]:not(.ink-off) footer { color: var(--voxel-band-ink); }
