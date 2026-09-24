@@ -32,6 +32,33 @@ FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 HOME_VARS = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME")
 
 
+def playwright_browsers_dir(environ, platform, home):
+    """Where Playwright looks for its browsers on this machine, before any test moves `~` (#296).
+
+    Playwright finds its browsers relative to the *home* on Linux and macOS, and `isolated_home`
+    points `HOME` at an empty temp dir -- so without this every browser test skipped on Linux CI
+    ("no chromium to drive the page with"), and only the Windows leg, whose browsers live under
+    `%LOCALAPPDATA%`, ran the browser tier at all. `PLAYWRIGHT_BROWSERS_PATH` wins when it is set.
+    """
+    preset = environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if preset:
+        return preset
+    if platform.startswith("win"):
+        local = environ.get("LOCALAPPDATA")
+        return os.path.join(local, "ms-playwright") if local else None
+    if platform == "darwin":
+        return os.path.join(home, "Library", "Caches", "ms-playwright")
+    cache = environ.get("XDG_CACHE_HOME") or os.path.join(home, ".cache")
+    return os.path.join(cache, "ms-playwright")
+
+
+# The real machine's browsers, resolved once at import, before `isolated_home` moves `~`. None when
+# that directory does not exist, so a laptop with no Chromium still skips with a named reason.
+REAL_PLAYWRIGHT_BROWSERS = playwright_browsers_dir(os.environ, sys.platform, os.path.expanduser("~"))
+if REAL_PLAYWRIGHT_BROWSERS and not os.path.isdir(REAL_PLAYWRIGHT_BROWSERS):
+    REAL_PLAYWRIGHT_BROWSERS = None
+
+
 def pytest_addoption(parser):  # pragma: no cover - CLI plumbing
     parser.addoption("--shuffle-seed", action="store", default=None,
                      help="shuffle test order with this seed, to catch order dependence")
@@ -70,6 +97,10 @@ def isolated_home(tmp_path, monkeypatch, request):
 
     home = tmp_path / "home"
     home.mkdir()
+    # #296: HOME moves, the browsers stay where they are. Set only when the machine has them and
+    # nobody named a path already.
+    if REAL_PLAYWRIGHT_BROWSERS and not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", REAL_PLAYWRIGHT_BROWSERS)
     for var in HOME_VARS:
         monkeypatch.setenv(var, str(home))
     monkeypatch.setenv("AGENTDATA_CONFIG", str(home / ".agentdata" / "config.json"))
@@ -95,6 +126,26 @@ def isolated_home(tmp_path, monkeypatch, request):
     yield home
     color.reset_cache()
     ui.reset_cache()
+
+
+def browser_skip_is_a_failure(has_browser_marker, skipped, environ):
+    """A browser test may not skip in a job that installed a browser (#296).
+
+    `AGENTDATA_REQUIRE_BROWSER=1` is that job's promise that Chromium is there; a skip under it is a
+    browser that went missing, which is exactly what hid the whole tier on Linux for days.
+    """
+    return bool(has_browser_marker and skipped and environ.get("AGENTDATA_REQUIRE_BROWSER") == "1")
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):  # pragma: no cover - report hook
+    outcome = yield
+    report = outcome.get_result()
+    skipped = report.skipped and not hasattr(report, "wasxfail")
+    if browser_skip_is_a_failure(item.get_closest_marker("browser") is not None, skipped, os.environ):
+        reason = report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
+        report.outcome = "failed"
+        report.longrepr = f"a browser test may not skip in a job that installed a browser: {reason}"
 
 
 @pytest.fixture()

@@ -154,6 +154,20 @@ suggests only models the event stream has really reported. What *is* refused, at
 value carrying whitespace or a leading dash — `--model "x --allow-all-tools"` is one argument to a
 person and two to a command line, and the allow-list check never sees it.
 
+**Where the list comes from** (#360). The model ids a picker offers are read from the installed
+Copilot CLI, with no login and no premium request: `copilot help config` lists the ids its `model`
+setting takes (26 on 1.0.88, 28 on 1.0.81 — builds differ), falling back to `copilot completion bash`
+when that lists none, and `copilot --help` lists the reasoning efforts. The answer is cached in
+`<fleet dir>/models.json` with the CLI version it came from, and asked again when it is older than
+`fleet.model_list.max_age_h` (default 24) or the CLI's `--version` changed. With no CLI and no
+cache, the list shipped with this package (`agentdata/fleet/models_shipped.json`, 1.0.88) is shown,
+marked stale. Since CLI 1.0.64 the setting also takes the family aliases `opus`, `sonnet`, `haiku`,
+`gpt` and `gemini`, which `help config` omits; they count as offered. A configured or seen id the
+build does not list is marked `offered: false` — a warning, never a refusal. Entries are grouped
+Copilot, OpenAI, Anthropic, Google, Other. `ad-fleet models [--refresh]` prints the catalogue as
+TOON (`models` with `id,group,label,via,offered`, and `efforts`); a page request never starts the
+CLI.
+
 **A console the fleet opens** (`ad-fleet console <repo> [KEY]`, #189) is the operator's own
 `cmd.exe` running Copilot in that checkout with a session id the fleet chose; the tile reads the
 same session from Copilot's own file for it (#188), and the lock is taken with the window's pid.

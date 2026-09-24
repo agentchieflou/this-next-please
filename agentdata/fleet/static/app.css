@@ -89,7 +89,7 @@ header, footer {
 /* HIG *Toolbars*: a group of commands says what it is for. Twelve controls in one unlabelled row
    is a settings panel, which is what the toolbar is not. */
 .toolbar-group .glabel {
-  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
   color: var(--muted); white-space: nowrap;
 }
 .toolbar-group > * { white-space: nowrap; }
@@ -138,7 +138,7 @@ footer { border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted
   white-space: normal;
 }
 .popover > label, .keys-group strong {
-  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
 }
 .popover-up { top: auto; bottom: calc(100% + 6px); }
 /* The key map: four short columns. */
@@ -436,13 +436,13 @@ body {
 }
 .smitem:hover { background: var(--select); border-color: var(--line); }
 .sm-label {
-  margin: 4px 0 0; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  margin: 4px 0 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
   color: var(--muted);
 }
 /* A run is a transcript boundary, not a thing to open: opening one is opening its session, which
    is the row above it. So the runs are rows and not buttons. */
 .live-runs, .ss-runs {
-  list-style: none; margin: 0 0 2px 18px; padding: 0; color: var(--muted); font-size: 10px;
+  list-style: none; margin: 0 0 2px 18px; padding: 0; color: var(--muted); font-size: 11px;
 }
 .live-runs li, .ss-runs li { padding: 1px 0; }
 .sib-list { list-style: none; margin: 0; padding: 0; }
@@ -592,7 +592,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 
 /* A pinned tile says so on the tile, not only in the tint of a 28px button: the pin is why it is
    first, and "why is this one at the top" is the question the tint could not answer. */
-.tile.is-pinned .head .n::after { content: "\00a0\1F4CC"; font-size: 9px; }
+.tile.is-pinned .head .n::after { content: "\00a0\1F4CC"; font-size: 11px; }
 .tile.is-pinned .head .pintoggle { color: var(--accent); }
 .head .pintoggle.active, .head .maxtoggle.active {
   background: var(--select); border-color: var(--line); color: var(--accent);
@@ -709,7 +709,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 #tickets li.dragging { opacity: .5; }
 #tickets .key { font: 12px var(--mono); font-weight: 600; }
 #tickets .st {
-  font: 10px var(--mono); border-radius: 9px; padding: 0 6px; margin-left: 6px;
+  font: 11px var(--mono); border-radius: 9px; padding: 0 6px; margin-left: 6px;
   background: var(--select); color: var(--text);
 }
 #tickets .st.done { background: var(--done); color: #fff; }
@@ -791,7 +791,7 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 #hits li { padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 #hits li:hover { background: var(--select); }
 #hits .p { font: 12px var(--mono); font-weight: 600; }
-#hits .kind { font: 10px var(--mono); border-radius: 9px; padding: 0 6px; margin-left: 6px; background: var(--select); }
+#hits .kind { font: 11px var(--mono); border-radius: 9px; padding: 0 6px; margin-left: 6px; background: var(--select); }
 #hits .snip { display: block; color: var(--muted); }
 
 /* ------------------------------------------------------------- the Downloads inbox (#132) */
@@ -865,7 +865,7 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
   border: 0; border-radius: 3px; cursor: pointer; overflow: hidden;
 }
 .pane-rail:hover { background: var(--select); }
-.pr-n { font: 10px var(--mono); color: var(--muted); flex: 0 0 auto; }
+.pr-n { font: 11px var(--mono); color: var(--muted); flex: 0 0 auto; }
 /* The state's glyph, in the state's colour: the chip's palette, on a disc a rail can carry. The
    glyph is the word for anyone who cannot tell the colours apart; the colour is the glance. */
 .pr-glyph {
@@ -887,7 +887,7 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
   font-weight: 600; font-size: 12px; letter-spacing: .02em;
 }
 .pr-badge {
-  flex: 0 0 auto; font: 10px var(--mono); border-radius: 8px; padding: 0 5px;
+  flex: 0 0 auto; font: 11px var(--mono); border-radius: 8px; padding: 0 5px;
   background: var(--human); color: #fff;
 }
 /* The whole rail red when its agent needs a person -- the face is the rail, so the face is what is
@@ -964,7 +964,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .head [aria-busy="true"] { opacity: .5; }
 /* The model button says a name rather than drawing a glyph: a model is a word, and an icon for one
    would be an icon nobody can read. It ellipsises inside the head rather than running off it. */
-.wordbtn { font: 10px var(--mono); letter-spacing: .02em; white-space: nowrap;
+.wordbtn { font: 11px var(--mono); letter-spacing: .02em; white-space: nowrap;
            max-width: 100%; padding: 0 2px; overflow: hidden; }
 /* The ellipsis has to be on the element that holds the text. It was on the button, whose centred
    flex child was wider than it and overflowed both edges -- so a long model name ran off the side
@@ -1307,12 +1307,12 @@ body.settings-page .setrow select {
 }
 body.settings-page input.bad { border-color: var(--waiting); }
 /* Not `.scope`: the desk's file-drop panel owns that name and gives it a box. */
-body.settings-page .when { font-size: 10px; color: var(--muted); white-space: nowrap; }
+body.settings-page .when { font-size: 11px; color: var(--muted); white-space: nowrap; }
 body.settings-page .saved { font-size: 11px; color: var(--done); }
 
 body.settings-page .settable { width: 100%; border-collapse: collapse; font-size: 12px; }
 body.settings-page .settable th {
-  text-align: left; font-weight: normal; font-size: 10px; letter-spacing: .06em;
+  text-align: left; font-weight: normal; font-size: 11px; letter-spacing: .06em;
   text-transform: uppercase; color: var(--muted); padding: 4px 8px 4px 0;
   border-bottom: 1px solid var(--line);
 }
@@ -1334,4 +1334,4 @@ body.settings-page .patterns li {
   display: flex; align-items: baseline; gap: 8px; justify-content: space-between;
 }
 body.settings-page .patterns code { font: 11px var(--mono); color: var(--text); }
-body.settings-page .patterns .from { font-size: 10px; color: var(--muted); }
+body.settings-page .patterns .from { font-size: 11px; color: var(--muted); }

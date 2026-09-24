@@ -1402,6 +1402,44 @@ def cmd_engines(a) -> int:
     return EXIT_OK
 
 
+def cmd_models(a) -> int:
+    """The model catalogue (#360): what the installed Copilot CLI accepts, what the stream has seen
+    and what the config names, grouped by provider, and the effort levels.
+
+    Without `--refresh` the cache is used while it is younger than `fleet.model_list.max_age_h` and
+    the CLI's version has not changed. No CLI at all is not a failure: the shipped list is printed,
+    marked stale. Exit 1 only when the cache cannot be written.
+    """
+    from .fleet import models as M
+
+    try:
+        cfg = C.load()
+    except C.ConfigError:
+        cfg = {}
+    seen = [m for m in (S.served_model(r.name) for r in Registry().sorted()) if m]
+    refreshed, asked = bool(getattr(a, "refresh", False)), {}
+    if refreshed:
+        try:
+            asked = M.refresh(cfg)
+        except OSError as e:
+            meta = {"ok": False, "source": "ad-fleet models", "error": f"cannot write {M.cache_file()}: "
+                                                                     f"{e.strerror or e}",
+                    "hint": "check that the fleet directory is writable"}
+            print(toon.encode({"meta": meta}))
+            return EXIT_FAILED
+    cat = M.catalogue(cfg, seen=seen, spawn=not refreshed)     # just asked: no second `--version`
+    meta = dict(cat["meta"], models=len(cat["models"]), efforts=len(cat["efforts"]))
+    if asked.get("failed") and not meta.get("why"):
+        meta["why"] = asked["why"]         # no cache to keep it in: the ask's failure is said here
+    failed = bool(meta.get("write_error"))
+    payload = {"meta": {"ok": not failed, "source": "ad-fleet models", **meta}}
+    print(toon.encode(payload))
+    print(toon.table("models", ["id", "group", "label", "via", "offered"],
+                     [[m["id"], m["group"], m["label"], "+".join(m["via"]), m["offered"]] for m in cat["models"]]))
+    print(toon.table("efforts", ["level"], [[e] for e in cat["efforts"]]))
+    return EXIT_FAILED if failed else EXIT_OK
+
+
 def cmd_board(a) -> int:
     """The operator's own tickets, and where each one probably belongs.
 
@@ -1843,6 +1881,11 @@ def build_parser() -> argparse.ArgumentParser:
     eng = sub.add_parser("engines", help="the rows of docs/desk-engines.md, from every shell's probe, "
                                          "and the tier widths in effect")
     eng.set_defaults(fn=cmd_engines)
+
+    mdl = sub.add_parser("models", help="the model ids and efforts the installed Copilot CLI accepts "
+                                        "(cached; no login, no premium request)")
+    mdl.add_argument("--refresh", action="store_true", help="ask the CLI now instead of using the cache")
+    mdl.set_defaults(fn=cmd_models)
 
     brd = sub.add_parser("board", help="your Jira tickets, and which repo each one belongs to")
     brd.add_argument("--refresh", action="store_true", help="ask Jira now instead of using the cache")

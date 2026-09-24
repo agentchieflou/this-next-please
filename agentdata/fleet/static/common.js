@@ -7,10 +7,11 @@
    PyCharm's JCEF and VS Code's Simple Browser behind a corporate proxy).
 
    What lives here is what a SECOND page genuinely needs: the run token and the two functions that
-   put it on every request, the one-line text setter, and the two painters that turn a palette and
-   a skin into what you see. What deliberately does not: anything that assumes a desk. `rehome()`
-   stays in `app.js` because it always rebuilds a destination through `/open`, which hard-codes
-   `/?t=` -- sending it from here would bounce an operator off the settings page mid-edit. */
+   put it on every request, `pageUrl()` for the links between the pages (they keep the host's `w`,
+   `shell` and `ink`), the one-line text setter, and the two painters that turn a palette and a
+   skin into what you see. What deliberately does not: anything that assumes a desk.
+   `rehome()` stays in `app.js` because it always rebuilds a destination through `/open`, which
+   hard-codes `/?t=` -- sending it from here would bounce an operator off the settings page mid-edit. */
 
 "use strict";
 
@@ -25,6 +26,14 @@ function q(path, params) {
   u.searchParams.set("t", TOKEN);
   Object.keys(params || {}).forEach(function (k) { u.searchParams.set(k, params[k]); });
   return u.toString();
+}
+
+var CARRIED = ["w", "shell", "ink"]; // the page's identity in its host; nothing else travels
+
+function pageUrl(path, params) {
+  var carry = {};
+  CARRIED.forEach(function (k) { if (PARAMS.get(k)) carry[k] = PARAMS.get(k); });
+  return q(path, Object.assign(carry, params || {}));
 }
 
 /* A 403 means this page is holding a token the server no longer has -- it was restarted, and the
