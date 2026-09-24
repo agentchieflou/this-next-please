@@ -77,6 +77,7 @@ cannot see them. **The pushed branch and the PR body are the only memory that su
 | browser files touched | python -m pytest -q -m browser <files> | |
 | guards | python -m pytest -q tests/test_fleet_skin_guard.py tests/test_fleet_skins.py tests/test_fleet_components.py tests/test_entrypoints.py tests/test_suite_hygiene.py tests/test_agent_onramp.py | |
 | shuffled | python -m pytest -q -p no:cacheprovider --shuffle-seed 1 <files> | |
+| agent PR check | python .github/scripts/agent_pr_check.py --base origin/main | |
 
 ### Next
 1. <file : symbol - what - the test that proves it> (the first line is the very next action, startable cold)
@@ -148,7 +149,7 @@ fixing the same hunk twice.
 | Lane | Files | Rule |
 |---|---|---|
 | `ci` | `.github/workflows/tests.yml`, `tests/conftest.py`, `[tool.pytest.ini_options]` in `pyproject.toml` | **Frozen**: a PR that edits it links the operator's approving comment |
-| `relay` | `GEMINI.md`, `AGENTS.md`, this page, `.github/pull_request_template.md`, `.github/agent-lanes.json`, `.github/scripts/agent_pr_check.py`, `tests/test_agent_onramp.py` | **Frozen**, as `ci` |
+| `relay` | `GEMINI.md`, `AGENTS.md`, this page, `.github/pull_request_template.md`, `.github/agent-lanes.json`, `.github/scripts/agent_pr_check.py`, `tests/test_agent_onramp.py`, `tests/test_agent_pr_check.py` | **Frozen**, as `ci` |
 | `version` | `version` in `pyproject.toml`, `CHANGELOG.md` headings | Release PR only |
 | `ink-core` | `static/ink/ink.js`, `layer.js`, `shapes.js`, `pen.js`, `fx.js` | One PR open at a time; the budget rule is in the decisions register |
 | `desk-page` | `static/app.js`, `static/app.css`, `static/index.html`, `static/common.js` | Parallel only in the merge order the brief names |
@@ -158,9 +159,10 @@ fixing the same hunk twice.
 | `skin:<name>` | `static/ink/skins/<name>.js`, `static/skins/<name>/`, `tests/test_fleet_ink_<name>.py` | One PR per skin at a time |
 | `shared-docs` | `docs/desk-components.md`, `docs/testing-this-repo.md`, `docs/themes.md`, `docs/refusals.md` | Insert your row beside its relative; never rewrite another issue's row or paragraph |
 
-Once the lanes are recorded as data (`.github/agent-lanes.json`) and checked by `.github/scripts/agent_pr_check.py`
-(the relay epic's lanes card), the reviewer runs that check first. Until then, the reviewer checks lanes by hand from
-`git diff --stat origin/main...HEAD`.
+The lanes are recorded as data in `.github/agent-lanes.json` and checked by `.github/scripts/agent_pr_check.py`
+(#324), and the reviewer runs that check first: `python .github/scripts/agent_pr_check.py --base origin/main`, with
+`--lane <name>` for each lane the issue names and `--allow <lane>` for a frozen lane the operator approved (the PR links
+the approving comment). docs/testing-this-repo.md says what it refuses.
 
 ## 8. Review (Opus 5.5)
 
