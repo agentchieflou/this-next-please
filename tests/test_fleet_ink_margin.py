@@ -57,7 +57,8 @@ TEXTS = """(pane) => {
     r.selectNodeContents(n);
     for (const q of r.getClientRects())
       if (q.width > 0 && q.height > 0 && q.right > p.left && q.left < p.right && q.bottom > p.top && q.top < p.bottom)
-        out.push({ x: q.left, y: q.top, r: q.right, b: q.bottom, word: word.slice(0, 32) });
+        out.push({ x: q.left, y: q.top, r: q.right, b: q.bottom, word: word.slice(0, 32),
+                  el: n.parentElement.tagName.toLowerCase() + '.' + [...n.parentElement.classList].join('.') });
   }
   return out;
 }"""
@@ -74,7 +75,11 @@ MEASURE_ON = """(tw) => {
     const bounds = m.bounds.map(b => ({ x: b.x - h, y: b.y - h, r: b.r + h, b: b.b + h }));
     for (const t of TEXTS(pane)) for (const b of bounds) {
       const a = area(b, t);
-      if (a >= 6) hits.push({ word: t.word, area: Math.round(a * 10) / 10 });
+      if (a >= 6) hits.push({ word: t.word, el: t.el, area: Math.round(a * 10) / 10,
+                             text: [t.x, t.y, t.r, t.b].map(v => Math.round(v * 10) / 10),
+                             stroke: [b.x, b.y, b.r, b.b].map(v => Math.round(v * 10) / 10),
+                             pane: [p.left, p.top].map(v => Math.round(v * 10) / 10),
+                             pad: getComputedStyle(pane).paddingLeft, ink: !!document.querySelector('body > #ink[data-skin]') });
     }
     out.push({ repo, shape: m.shape, tool: m.tool, selector: m.selector, rail: pane.dataset.tier === 'rail',
                box: m.box, pane: { x: p.left, y: p.top, w: p.width, h: p.height }, bounds, hits });
