@@ -43,10 +43,12 @@ STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
 INK = os.path.join(STATIC, "ink")
 THREE_PATH = "/static/vendor/three/three.module.min.js"
 MODULES = ("ink.js", "layer.js", "shapes.js", "pen.js")
+#: Ink modules the layer fetches only when a table asks for them: effects (#370), for a skin with them.
+LAZY = ("fx.js",)
 #: Skin modules (docs/desk-ink.md §Writing a skin): the example, and every skin that draws with ink.
 SKINS = tuple(sorted(n for n in os.listdir(os.path.join(INK, "skins")) if n.endswith(".js")))
 #: Every script in `static/ink/`, the skins' included, as paths under it.
-SCRIPTS = MODULES + tuple(f"skins/{n}" for n in SKINS)
+SCRIPTS = MODULES + LAZY + tuple(f"skins/{n}" for n in SKINS)
 
 #: The page's own budget for a gesture it can answer out of what it already has (#219).
 LOCAL_BUDGET_MS = 50.0
@@ -60,6 +62,9 @@ PEN = 900
 #: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF
 #: first (operator decision, #331), so CRLF bytes alone never fail it (`_wire`).
 INK_BUDGET = 44 * 1024
+#: What the lazily fetched effects module (`ink/fx.js`, #370) may weigh over the wire: every
+#: one-shot effect's code (#372-#376) is held to it, outside `INK_BUDGET`.
+FX_BUDGET = 8 * 1024
 #: What one skin's module may weigh over the wire (the legal pad's is 7 KB, #251).
 SKIN_BUDGET = 16 * 1024
 
@@ -259,13 +264,17 @@ def test_a_crlf_checkout_of_the_ink_modules_measures_what_an_lf_one_does():
 def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     """What the layer's own modules cost over the wire, every one of them, as a shell the gate
     turned on fetches them. three.js is 163 KB of its own and is outside the desk's budget, because
-    no desk fetches it unless it draws."""
+    no desk fetches it unless it draws. The lazy modules (`LAZY`: `fx.js`, #370) are fetched only
+    by a table that asks for them, so each has a budget of its own and is not in `INK_BUDGET`."""
     sizes = {n: _wire(open(os.path.join(INK, n), "rb").read()) for n in MODULES}
     print(f"\n  ink modules over the wire: {sum(sizes.values())} bytes gzipped {sizes}")
     assert sum(sizes.values()) < INK_BUDGET, sizes
+    fx = _wire(open(os.path.join(INK, "fx.js"), "rb").read())
+    print(f"  fx.js over the wire: {fx} bytes gzipped")
+    assert fx < FX_BUDGET, fx
     files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
-    assert files == sorted(MODULES), "a module the budget does not count"
-    assert sorted(os.listdir(INK)) == sorted(MODULES + ("skins",))
+    assert files == sorted(MODULES + LAZY), "a module no budget counts"
+    assert sorted(os.listdir(INK)) == sorted(MODULES + LAZY + ("skins",))
     # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost.
     # Every one but the example is a skin skins.py offers (#249-#256 ship them).
     from agentdata.fleet import skins as K
