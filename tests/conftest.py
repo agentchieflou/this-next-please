@@ -418,6 +418,80 @@ _PAGE_STATE = """() => {
   };
 }"""
 
+# Twice on the Windows 3.14 leg a desk page never finished booting: `app.js` ran, but nothing from
+# `common.js` had (#435). The page state cannot say whether a script failed to load, was answered
+# with an error, or threw. So every page a browser test opens keeps its failed requests, its
+# uncaught errors and the answer to each `/static/*` request, and a wait that runs out prints them.
+#: How many failed requests and page errors a timeout prints, the latest ones.
+PAGE_EVENTS_SHOWN = 40
+
+
+def _record_what_the_page_loads(page) -> None:
+    """Listen on `page` for `requestfailed`, `pageerror` and each `/static/*` request's answer, and
+    keep them on the page for `_explain_the_page`. A listener never raises into the test."""
+    from urllib.parse import urlsplit
+
+    events: list[str] = []
+    statics: dict[str, str] = {}
+
+    def is_static(url: str) -> bool:
+        return urlsplit(url).path.startswith("/static/")
+
+    def quietly(listen):
+        def listener(arg):
+            try:
+                listen(arg)
+            except Exception:                            # noqa: BLE001 - diagnostics never break a test
+                pass
+        return listener
+
+    unanswered = "sent, no answer"
+
+    def request(r):
+        if is_static(r.url):
+            statics[r.url] = unanswered
+
+    def response(r):
+        if is_static(r.url):
+            statics[r.url] = str(r.status)
+
+    def failed(r):
+        events.append(f"requestfailed {r.method} {r.url}: {r.failure}")
+        if is_static(r.url):
+            # Chromium aborts a script answered 404 after its response: keep the status too.
+            answered = statics.get(r.url, unanswered)
+            statics[r.url] = (f"failed: {r.failure}" if answered == unanswered
+                              else f"{answered}, then failed: {r.failure}")
+
+    def error(e):
+        stack = (getattr(e, "stack", None) or str(e)).strip().splitlines()
+        events.append("pageerror " + "\n    ".join(stack[:6]))
+
+    try:
+        page.on("request", quietly(request))
+        page.on("response", quietly(response))
+        page.on("requestfailed", quietly(failed))
+        page.on("pageerror", quietly(error))
+        page._explain_record = (events, statics)
+    except Exception:                                    # noqa: BLE001 - diagnostics never break a test
+        pass
+
+
+def _explain_what_the_page_loaded(page) -> None:
+    record = getattr(page, "_explain_record", None)
+    if record is None:
+        print("(this page's requests were not recorded: it was not opened with browser.new_page or "
+              "context.new_page)", file=sys.stderr)
+        return
+    events, statics = record
+    print(f"--- failed requests and page errors ({len(events)}; the last {PAGE_EVENTS_SHOWN} shown) ---",
+          file=sys.stderr)
+    for line in events[-PAGE_EVENTS_SHOWN:] or ["(none)"]:
+        print(line, file=sys.stderr)
+    print("--- /static/* answers ---", file=sys.stderr)
+    for url, status in list(statics.items()) or [("", "(no /static/ request was made)")]:
+        print(f"{status}  {url}", file=sys.stderr)
+
 
 def _explain_the_page(page, selector: str) -> None:
     import faulthandler
@@ -428,6 +502,10 @@ def _explain_the_page(page, selector: str) -> None:
         print(json.dumps(page.evaluate(_PAGE_STATE), indent=1, default=str), file=sys.stderr)
     except Exception as e:                                   # noqa: BLE001 - diagnostics never mask the failure
         print(f"(the page could not be read: {e})", file=sys.stderr)
+    try:
+        _explain_what_the_page_loaded(page)
+    except Exception as e:                                   # noqa: BLE001 - diagnostics never mask the failure
+        print(f"(the page's requests could not be listed: {e})", file=sys.stderr)
     print("--- every thread in this process: the desk server's handlers are among them ---",
           file=sys.stderr, flush=True)
     faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
@@ -475,7 +553,8 @@ def _watch_the_desk_for_slow_answers(monkeypatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _explain_a_desk_wait_that_ran_out(request, monkeypatch):
-    """On a `browser` test, a `wait_for_selector` that times out prints the page's own state and a
+    """On a `browser` test, a `wait_for_selector` or `wait_for_function` that times out prints the
+    page's own state, its failed requests, its uncaught errors and its `/static/*` answers, and a
     stack for every thread first, then raises exactly as it would have. And a desk request that
     has not been answered after `SLOW_REQUEST_S` prints every thread's stack while it is still
     stuck. Both print to stderr, which pytest shows only for a test that failed. Nothing else
@@ -485,18 +564,36 @@ def _explain_a_desk_wait_that_ran_out(request, monkeypatch):
         return
     _watch_the_desk_for_slow_answers(monkeypatch)
     try:
-        from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+        from playwright.sync_api import Browser, BrowserContext, Page, TimeoutError as PlaywrightTimeout
     except ImportError:
         yield
         return
-    real = Page.wait_for_selector
+    real_selector, real_function = Page.wait_for_selector, Page.wait_for_function
 
     def wait_for_selector(self, selector, *args, **kwargs):
         try:
-            return real(self, selector, *args, **kwargs)
+            return real_selector(self, selector, *args, **kwargs)
         except PlaywrightTimeout:
             _explain_the_page(self, selector)
             raise
 
+    def wait_for_function(self, expression, *args, **kwargs):
+        try:
+            return real_function(self, expression, *args, **kwargs)
+        except PlaywrightTimeout:
+            _explain_the_page(self, f"wait_for_function({expression})")
+            raise
+
+    def recorded(real):
+        # `Browser.new_page` makes its context below the sync API, so both doors are watched.
+        def new_page(self, *args, **kwargs):
+            page = real(self, *args, **kwargs)
+            _record_what_the_page_loads(page)
+            return page
+        return new_page
+
     monkeypatch.setattr(Page, "wait_for_selector", wait_for_selector)
+    monkeypatch.setattr(Page, "wait_for_function", wait_for_function)
+    monkeypatch.setattr(Browser, "new_page", recorded(Browser.new_page))
+    monkeypatch.setattr(BrowserContext, "new_page", recorded(BrowserContext.new_page))
     yield
