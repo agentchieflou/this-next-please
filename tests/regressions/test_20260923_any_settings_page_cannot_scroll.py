@@ -50,10 +50,14 @@ def test_settings_page_scrolls_at_every_window_size(fleet_home, tmp_path):
                 # scrollTo(0,0)
                 page.evaluate("() => window.scrollTo(0, 0)")
 
-                # count focusables in main.settings
+                # count focusables in main.settings, and record which of them Tab reaches: the
+                # criterion is about every one of them, not about whatever count+2 presses land on
                 focusables_count = page.evaluate("""() => {
                     const els = Array.from(document.querySelectorAll('main.settings input, main.settings select, main.settings button, main.settings a[href]'));
-                    return els.filter(el => el.offsetParent !== null || el.getClientRects().length > 0).length;
+                    window.__focusables = els.filter(el => el.offsetParent !== null || el.getClientRects().length > 0);
+                    window.__focused = new Set();
+                    document.addEventListener('focusin', e => window.__focused.add(e.target));
+                    return window.__focusables.length;
                 }""")
                 assert focusables_count > 0
 
@@ -66,6 +70,9 @@ def test_settings_page_scrolls_at_every_window_size(fleet_home, tmp_path):
                         const r = a.getBoundingClientRect();
                         return r.top >= 0 && r.bottom <= window.innerHeight + 1;
                     }""", timeout=5000)
+                missed = page.evaluate("""() => window.__focusables.filter(el => !window.__focused.has(el))
+                    .map(el => el.id || `${el.tagName.toLowerCase()}[name=${el.name || ''}]`)""")
+                assert missed == [], f"at {width}x{height}, Tab never reached {missed}"
 
                 assert not errors, f"errors at {width}x{height}: {errors}"
                 page.close()
