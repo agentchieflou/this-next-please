@@ -44,6 +44,9 @@ KINDS = (
     # the Copilot CLI's JSONL
     "turn_started", "assistant_text", "tool_call", "tool_result", "denied", "turn_ended",
     "session_id", "cost", "exited", "error", "raw",
+    # ...its sub-agents' start and end (#402). The shapes are from the Copilot SDK docs
+    # (custom-agents.md), not measured: whether `copilot -p` writes them is the laptop's to say.
+    "subagent_started", "subagent_ended",
     # .agent/state.json, via `ad-state`
     "phase_changed", "question_opened", "question_answered", "question_cleared", "artifact", "pr_open",
     # .agent/friction/
@@ -252,6 +255,22 @@ def from_copilot(raw: dict, repo: str, ticket: str = "") -> list[dict]:
                         {"exit_code": code, "files_modified": (usage.get("codeChanges") or {})
                          .get("filesModified", [])}))
         return out
+    if kind == "subagent.started":
+        # From the Copilot SDK docs (custom-agents.md), not measured (#402). `selected` and
+        # `deselected` say which agent is chosen, not that one runs, so they stay `raw`.
+        return [make("subagent_started", {"id": data.get("toolCallId"), "agent": data.get("agentName"),
+                                          "name": data.get("agentDisplayName"),
+                                          "model": data.get("model")})]
+    if kind == "subagent.completed":
+        return [make("subagent_ended", {"id": data.get("toolCallId"), "agent": data.get("agentName"),
+                                        "ok": True, "ms": data.get("durationMs"),
+                                        "tools": data.get("totalToolCalls")})]
+    if kind == "subagent.failed":
+        error = data.get("error")
+        if isinstance(error, dict):
+            error = error.get("message") or error.get("code") or ""
+        return [make("subagent_ended", {"id": data.get("toolCallId"), "agent": data.get("agentName"),
+                                        "ok": False, "error": str(error or "")[:200]})]
     return [make("raw", {"type": kind, "data": data})]
 
 

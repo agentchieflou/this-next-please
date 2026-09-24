@@ -224,6 +224,10 @@ None of this blocks the epic; all of it must be filled in before #95, #100 and #
 - [ ] **Two agents at once**, in two repos, sharing `~/.copilot/session-store.db` — does `--resume`
       pick the right session per repo, and does the tenant rate-limit?
 - [ ] **The SDK trial** against `--acp`, if policy allows server mode.
+- [ ] **Sub-agent events** (#402). Does `copilot -p`'s JSONL carry `subagent.started`,
+      `subagent.completed` and `subagent.failed` when a turn uses a custom agent? The fleet maps
+      them from the Copilot SDK docs (custom-agents.md), unmeasured; the laptop step is
+      [windows-verification.md](windows-verification.md) §Fleet: the laptop pass, 8b.
 - [x] ~~Skills installed~~ — done, 2026-09-05. `gh skill install agentchieflou/this-next-please
       --all --scope user --agent github-copilot` wrote 36 skills to `~/.copilot/skills`, and a
       headless turn then ran `session-bootstrap` end to end (see the top of this document).
