@@ -17,6 +17,7 @@ from agentdata.cli_graph import main as graph_main
 from agentdata.graph import approval, explain, guard
 from agentdata.graph.builder import build_graph
 from agentdata.textio import read_text, write_json, write_text
+from subproc import agentdata_env
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
@@ -273,6 +274,7 @@ def test_allow_requires_a_terminal_and_records_nothing(repo):
         [sys.executable, "-m", "agentdata.cli_graph", "guard", root,
          "--graph-dir", graph_dir, "--allow", "lib.py::uncovered_fn"],
         capture_output=True, text=True, cwd=REPO_ROOT, stdin=subprocess.DEVNULL,
+        env=agentdata_env(),
     )
     assert p.returncode == 3, p.stdout
     assert "terminal" in p.stdout.lower()

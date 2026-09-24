@@ -19,6 +19,7 @@ from hypothesis import strategies as st  # noqa: E402
 
 from agentdata import textio, toon  # noqa: E402
 from props_profiles import load_profiles  # noqa: E402
+from subproc import agentdata_env
 
 load_profiles()
 
@@ -132,7 +133,7 @@ def test_norm_path_is_what_the_meta_paths_went_through():
     any command emits.
     """
     out = subprocess.run([sys.executable, "-m", "agentdata", "graph", "summary"],
-                         capture_output=True, text=True, cwd=REPO_ROOT)
+                         capture_output=True, text=True, cwd=REPO_ROOT, env=agentdata_env())
     if out.returncode not in (0, 3):          # 3 = no graph built here; nothing to check
         pytest.skip(f"ad-graph summary exited {out.returncode}")
     assert not toon.validate(out.stdout or "meta:\n  ok: true"), toon.validate(out.stdout)

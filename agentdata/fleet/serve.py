@@ -311,7 +311,7 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
 
     if not stream:
         return ({"n": 0, "started": "", "resumed": False, "session": "",
-                 "session_title": "", "ticket": "", "live": live, "events": []}, [])
+                 "session_title": "", "ticket": "", "live": live, "origin": "", "events": []}, [])
 
     started_indices = [i for i, ev in enumerate(stream) if R.is_run_start(ev)]
     repo_name = stream[0].get("repo", "") if stream else ""
@@ -319,7 +319,7 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         d = agentstate.derive(stream, live=live)
         return ({"n": 1, "started": stream[0].get("ts", ""), "resumed": False,
                  "session": d.get("session", ""), "session_title": "",
-                 "ticket": d.get("ticket", ""), "live": live, "events": stream}, [])
+                 "ticket": d.get("ticket", ""), "live": live, "origin": "", "events": stream}, [])
 
     earlier = []
     for idx, start_i in enumerate(started_indices[:-1]):
@@ -368,9 +368,21 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         "session_title": curr_title,
         "ticket": curr_derived.get("ticket") or start_ev.get("ticket", ""),
         "live": live,
+        # Who started this run, from its `started` event (#401): the map's `kind` reads it, because
+        # a headless `copilot -p` agent exits at every turn's end and liveness alone cannot tell.
+        "origin": run_origin(start_data),
         "events": curr_events,
     }
     return curr_run, earlier
+
+
+def run_origin(start_data: dict) -> str:
+    """Who began a run, from its `started` event's data: console, adopted or fleet (#401)."""
+    if start_data.get("console"):
+        return "console"
+    if start_data.get("adopted") or start_data.get("external"):
+        return "adopted"
+    return "fleet"
 
 
 # How often one repository may be refreshed by hand. It re-reads what the tick reads, so pressing
@@ -2432,6 +2444,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._page(PAGES[route], query)
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
+        if route == "/api/map":
+            from . import fleetmap
+
+            # The fleet's structure as one graph (#401): how checkouts and agents relate, read-only.
+            snap = fleet_snapshot()
+            return self._json({"ok": True, **fleetmap.graph(snap), "theme": snap["theme"]})
         if route == "/api/themes":
             from .. import config as C
             from . import skins

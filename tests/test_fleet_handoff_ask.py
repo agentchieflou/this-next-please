@@ -19,6 +19,7 @@ from agentdata.fleet import agentstate as A, events as E, lifecycle, registry
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
+from subproc import agentdata_env
 
 
 @pytest.fixture()
@@ -239,7 +240,7 @@ def test_a_turn_that_answers_one_and_asks_another_reports_both(fleet_home, tmp_p
 def _state_cli(repo, *args):
     return subprocess.run([sys.executable, "-m", "agentdata.cli_state", *args],
                           cwd=repo, capture_output=True, text=True,
-                          env=dict(os.environ, NO_COLOR="1", AGENTDATA_UI="plain"))
+                          env=agentdata_env({"NO_COLOR": "1", "AGENTDATA_UI": "plain"}))
 
 
 def test_ad_state_ask_and_answer_round_trip_from_a_terminal(fleet_home, tmp_path):

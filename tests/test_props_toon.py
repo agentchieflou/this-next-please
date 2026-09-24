@@ -22,6 +22,7 @@ from hypothesis import strategies as st  # noqa: E402
 from agentdata import toon  # noqa: E402
 from agentdata.model import AgentTable  # noqa: E402
 from props_profiles import load_profiles  # noqa: E402
+from subproc import agentdata_env
 
 load_profiles()
 
@@ -157,7 +158,7 @@ def test_encoding_never_raises_under_a_legacy_stdout(cell, tmp_path):
         "print(toon.table('t', ['c'], [[%r]]))\n" % cell,
         encoding="utf-8",
     )
-    env = dict(os.environ, PYTHONIOENCODING="cp1252", NO_COLOR="1")
+    env = agentdata_env({"PYTHONIOENCODING": "cp1252", "NO_COLOR": "1"})
     out = subprocess.run([sys.executable, str(script)], capture_output=True, cwd=REPO_ROOT,
                          env=env)
     assert out.returncode == 0, out.stderr.decode("utf-8", "replace")
@@ -181,7 +182,8 @@ def test_csv2toon_reduces_dscmd_headers_to_bare_column_names(headers, tmp_path):
     csv_path.write_text(",".join(headers) + "\r\n" + ",".join(["1"] * len(headers)) + "\r\n",
                         encoding="utf-8-sig")
     out = subprocess.run([sys.executable, "-m", "agentdata.csv2toon", str(csv_path)],
-                         capture_output=True, text=True, encoding="utf-8", cwd=REPO_ROOT)
+                         capture_output=True, text=True, encoding="utf-8", cwd=REPO_ROOT,
+                         env=agentdata_env())
     assert out.returncode == 0, out.stderr
     assert "[" not in out.stdout.splitlines()[0], out.stdout.splitlines()[0]
 
@@ -193,7 +195,8 @@ def test_csv2toon_reads_whichever_encoding_dscmd_wrote(encoding, tmp_path):
     with io.open(csv_path, "w", encoding=encoding, newline="") as f:
         f.write(body)
     out = subprocess.run([sys.executable, "-m", "agentdata.csv2toon", str(csv_path)],
-                         capture_output=True, text=True, encoding="utf-8", cwd=REPO_ROOT)
+                         capture_output=True, text=True, encoding="utf-8", cwd=REPO_ROOT,
+                         env=agentdata_env())
     assert out.returncode == 0, out.stderr
     assert "Amount" in out.stdout and "Note" in out.stdout
 
@@ -205,7 +208,7 @@ def test_csv2toon_without_a_file_is_a_usage_error_not_a_crash():
 
     importlib.import_module("agentdata.csv2toon")          # must not do anything on import
     out = subprocess.run([sys.executable, "-m", "agentdata.csv2toon"],
-                         capture_output=True, text=True, cwd=REPO_ROOT)
+                         capture_output=True, text=True, cwd=REPO_ROOT, env=agentdata_env())
     assert out.returncode == 2, out.stderr
     assert "Traceback" not in out.stderr
     assert "usage:" in out.stderr

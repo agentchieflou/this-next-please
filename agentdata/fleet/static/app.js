@@ -312,6 +312,11 @@ function line(ev) {
     case "pr_open": return d.url || "";
     case "artifact": return (d.artifact && d.artifact.path) || "";
     case "session_id": return "";
+    /* #402: from the Copilot SDK docs, not yet measured from the CLI. */
+    case "subagent_started": return "sub-agent " + (d.name || d.agent || "") + " started";
+    case "subagent_ended": return "sub-agent " + (d.agent || "") + (d.ok
+      ? " finished" + (d.tools == null ? "" : " (" + d.tools + " tools)")
+      : " failed: " + (d.error || ""));
     default: return JSON.stringify(d).slice(0, 160);
   }
 }
@@ -321,7 +326,7 @@ var SHOWN = {
   phase_changed: 1, question_opened: 1, needs_approval: 1, approval_resolved: 1,
   exited: 1, error: 1, pr_open: 1, artifact: 1, said: 1,
   "project.ticket_changed": 1, "project.refresh_finished": 1, "project.pr_merged": 1,
-  "inbox.attached": 1
+  "inbox.attached": 1, subagent_started: 1, subagent_ended: 1
 };
 
 function append(el, ev) {
