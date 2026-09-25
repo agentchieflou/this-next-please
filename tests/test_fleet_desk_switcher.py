@@ -9,6 +9,8 @@ checkouts, this checkout's earlier sessions, and a clean one. Reading a session 
 nothing else; making one live again is a second, deliberate press.
 """
 from __future__ import annotations
+import os
+import re
 import threading
 
 import pytest
@@ -101,6 +103,32 @@ def _serve():
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
     return server, token, server.server_address[1]
+
+
+# ------------------------------------------------------------------ start fresh, in the markup (#489)
+
+
+def test_start_fresh_is_one_action_under_one_word():
+    """SESS-D1: *start fresh* replaces *+ new session* everywhere, and every door is one function
+    that posts the verb `ad-fleet fresh` calls. A stale or adopted rail is marked, never coloured."""
+    static = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "agentdata", "fleet", "static")
+    html = open(os.path.join(static, "index.html"), encoding="utf-8").read()
+    js = open(os.path.join(static, "app.js"), encoding="utf-8").read()
+    css = open(os.path.join(static, "app.css"), encoding="utf-8").read()
+    head = html[html.index('<div class="head"'):html.index('<p class="runline">')]
+    assert head.index('class="oldsession"') < head.index('class="freshtoggle wordbtn"')
+    assert "+ new session" not in html
+    assert re.search(r'class="sm-new[^>]*>\s*<span class="sm-new-label">start fresh</span><span class="sm-model">', html)
+    assert "<kbd>Alt</kbd>+<kbd>N</kbd> start this pane fresh" in html
+    assert re.search(r'class="fresh-strip"[^>]*>start fresh</button><button type="button" class="adopt">', html)
+    assert js.count('post("fresh"') == 1 and "function newSession" not in js
+    assert '"new": true' not in js, "no door posts `start {new: true}` any more"
+    rings = re.findall(r"\.pane-rail:is\(\.is-stale, \.is-outside\)[^{]*\{([^}]*)\}", css)
+    assert rings and all("var(--muted)" in r for r in rings), rings
+    for rule in rings:
+        for state in ("--running", "--waiting", "--human", "--done", "--idle"):
+            assert state not in rule, rule
 
 
 # --------------------------------------------------------------------------------- the server
@@ -356,6 +384,13 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
         with sync_playwright() as p:
             browser, page, errors = _page(p, port, token)
             tile = page.locator('.tile[data-repo="alpha"]')
+            # #489: its sessions began before the fleet recorded installs, so it is stale, and the
+            # rail's face says so and names the key.
+            page.wait_for_function(
+                """() => /old skills/.test(document.querySelector('.tile[data-repo="alpha"] .pane-rail').getAttribute('aria-label'))""",
+                timeout=10000)
+            assert "Alt+N starts fresh" in tile.locator(".pane-rail").get_attribute("aria-label")
+            assert tile.locator(".sm-new").inner_text().startswith("start fresh")
 
             tile.locator(".spill").focus()
             page.keyboard.press("Alt+]")                     # opens the menu, on *this session*
@@ -381,8 +416,26 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
             page.wait_for_function(
                 """() => document.activeElement.classList.contains('sm-live')""", timeout=5000)
 
-            page.keyboard.press("Alt+N")                     # a clean session beside this one
+            page.keyboard.press("Alt+N")                     # start this pane fresh (#489)
             assert _eventually(lambda: len(spawns["launched"]) == 1), "Alt+N started nothing"
+            page.wait_for_function("() => /^alpha: /.test(document.getElementById('notice').textContent)",
+                                   timeout=10000)
+
+            # A rail says its answer in the footer: its `.err` is not on the glass. Another pane
+            # opens, alpha folds to a rail, and `Alt+N` on its face is refused mid-turn -- the fresh
+            # session is running -- in the server's words, and nothing more is launched.
+            _repo(tmp_path, "beta")
+            page.evaluate("() => refresh()")
+            page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=10000)
+            page.evaluate("() => openAgent('beta')")
+            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=10000)
+            page.evaluate("() => say('')")
+            page.focus('.tile[data-repo="alpha"] .pane-rail')
+            page.keyboard.press("Alt+N")
+            page.wait_for_function(
+                "() => /^alpha: a session changes between turns/.test(document.getElementById('notice').textContent)",
+                timeout=10000)
+            assert page.is_visible("#notice")
             assert not errors, errors
             browser.close()
     finally:

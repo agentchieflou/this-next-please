@@ -1286,6 +1286,16 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   font-size: 11px; padding: 1px 6px; border-radius: 9px;
   border: 1px dashed var(--muted); color: var(--muted); white-space: nowrap;
 }
+/* #489: start fresh. The head's button is a word button like the model's; the strip's second button
+   (*stop following it*) is the quieter one; a rail that offers it wears a dashed muted ring on its
+   glyph -- a mark, never a state colour (#339). */
+.freshtoggle { white-space: nowrap; }
+.outside .adopt.quiet { background: transparent; color: var(--muted); border-color: var(--line); }
+/* The glyph is the face's one `aria-hidden` part. Not named `.pr-glyph` here: every rule that is
+   names the glyph's colour pair (test_fleet_theme_tokens), and this one only draws a ring round it. */
+.pane-rail:is(.is-stale, .is-outside) > [aria-hidden="true"] { outline: 1px dashed var(--muted); outline-offset: 2px; }
+.ss-src { color: var(--muted); font-size: 11px; }
+.ss-src:empty { display: none; }
 .renew-strip {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
   padding: 8px 16px; border-bottom: 1px solid var(--line);
