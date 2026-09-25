@@ -113,9 +113,9 @@ ul#maptree
 (branches before #403 reads them, the network before #404) is not drawn.
 
 **Classes**, from a closed list: `kind-<kind>`, `state-<state>`, `role-<role>`, `needs-human`, `live`, `stale` (an
-agent); `main`, `worktree`, `dirty` (a checkout); `unmerged`, `is-current` (a non-empty `current_in`), `carrying`, `gone` (a
-branch, #406); `connected` (a window); `grey` (a source with any cell `ok: false`); `pending` (approvals above 0). A kind,
-state or role that is not a plain word is not written.
+agent); `main`, `worktree`, `dirty` (a checkout); `unmerged`, `is-current` (a non-empty `current_in`), `carrying`,
+`gone` (a branch; #406); `connected` (a window); `grey` (a source with any cell `ok: false`); `pending` (approvals above
+0). A kind, state or role that is not a plain word is not written.
 
 **Expansion.** `aria-expanded` is written only when an item is created: projects, checkouts and `n:network` open,
 `bs:` closed. A redraw never undoes what the operator opened or closed; the choice is held in the DOM, in memory,
