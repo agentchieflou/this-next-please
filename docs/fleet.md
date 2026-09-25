@@ -180,6 +180,19 @@ once the server is stopping it starts no process and writes nothing. A list that
 every open page as one `models` stream frame ([fleet-dashboard.md](fleet-dashboard.md) §The
 stream), and `/settings` offers the catalogue's efforts.
 
+**On the settings page** (#367). `/settings` sets both by pressing, not typing. **every agent** is
+the whole catalogue as pills, grouped by provider, with the efforts under it; **CLI default** passes
+no flag at all. Each repository's row has a short picker: **inherit**, which names the default it
+follows, removes the row's entry, model and effort together; the fleet default and the model the
+last turn ran on are one press away; **more…** opens the whole catalogue inside the row, where
+**other…** takes a name the list lacks (saved, and the saved tag says when this CLI does not offer
+it). An effort pressed on a repository with no entry pins the model it inherits along with it, as
+`ad-fleet model` does, and the saved tag says so; a model that does not take the effort set resets
+it to the default and says that too. **refresh the list** asks the CLI again; the line beside it
+names the copilot the list came from and how long ago it was checked, or says the shipped list is
+shown because copilot could not be asked. The model card's **all models · settings** link lands on
+its repository's row, opened, with the keyboard on the pressed pill.
+
 **From the terminal** (#363). `ad-fleet model <repo>` prints the repository's model, effort, the
 source it resolved from and the model its last turn actually ran on, then the catalogue as a
 `models` table (`id,group,label,offered,pressed`) with `*` on the configured id, or on the CLI

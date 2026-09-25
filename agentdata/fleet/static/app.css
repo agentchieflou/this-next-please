@@ -1365,6 +1365,20 @@ body.settings-page .settable input {
   background: var(--bg); color: var(--text); border: 1px solid var(--line);
   border-radius: 5px; padding: 2px 6px; font: inherit; width: 150px;
 }
+/* The model block (#367): the fleet-wide picker beside its label, the line saying where the list
+   came from beside its refresh button, and a row's expansion under its compact picker, in the same
+   cell. The pills are the picker's own (#362); a row's words sit level with its first pills. */
+body.settings-page .setrow > .setlabel {
+  flex: 0 0 190px; align-self: flex-start; font-size: 12px; color: var(--text);
+}
+body.settings-page #fleetpicker { flex: 1 1 320px; min-width: 0; }
+body.settings-page .modelsource { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+body.settings-page .modelsource .why { flex: 1 1 240px; }
+body.settings-page #modeltable th { white-space: nowrap; }
+body.settings-page #modeltable td { vertical-align: top; }
+body.settings-page #modeltable td:not(.modelcell) { padding-top: 10px; }
+body.settings-page #modeltable td.modelcell { width: 100%; }
+body.settings-page .mp-expand { margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
 
 body.settings-page .twocol { display: flex; gap: 22px; flex-wrap: wrap; }
 body.settings-page .twocol > div { flex: 1 1 300px; min-width: 260px; }
