@@ -67,6 +67,34 @@ def test_split_runs_multiple_runs_started_boundary():
     assert earlier[1]["state"] == "error"
 
 
+def test_the_session_began_at_the_last_start_that_was_not_a_resume(fleet_home):
+    """#499: a Send writes a `started` with `resumed: true`, so a run is not a session."""
+    from agentdata.fleet import runs as R, sessions as SS
+
+    stream = [
+        {"kind": "started", "ts": "2026-09-03T12:00:00", "repo": "luna", "data": {"session": "a"}},
+        {"kind": "started", "ts": "2026-09-04T09:00:00", "repo": "luna", "data": {"session": "a", "resumed": True}},
+        {"kind": "started", "ts": "2026-09-04T10:00:00", "repo": "luna",
+         "data": {"session": "a", "resumed": True, "console": True}},
+    ]
+    assert R.session_start(stream)["ts"] == "2026-09-03T12:00:00"
+    run, _ = S.split_runs(stream)
+    assert run["started"] == "2026-09-04T10:00:00" and run["session_began"] == "2026-09-03T12:00:00"
+    marked = stream + [{"kind": "started", "ts": "2026-09-05T08:00:00", "repo": "luna",
+                        "data": {"session": "b", "resumed": True, "new": True}}]
+    assert S.split_runs(marked)[0]["session_began"] == "2026-09-05T08:00:00"
+    adopted = stream + [{"kind": "started", "ts": "2026-09-06T08:00:00", "repo": "luna",
+                         "data": {"session": "c", "resumed": True, "adopted": True}}]
+    assert S.split_runs(adopted)[0]["session_began"] == "2026-09-06T08:00:00"
+
+    # The session's first `started` rolled out of the stream: sessions.json's `first_seen` answers.
+    rolled = stream[1:]
+    assert R.session_start(rolled) == {}
+    assert S.split_runs(rolled)[0]["session_began"] == ""
+    SS.save_sessions("luna", [{"id": "a", "first_seen": "2026-09-03T11:59:00"}])
+    assert S.split_runs(rolled)[0]["session_began"] == "2026-09-03T11:59:00"
+
+
 def test_format_age_str():
     assert S.format_age_str(-1) == ""
     assert S.format_age_str(30) == "30s"

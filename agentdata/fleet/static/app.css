@@ -1129,6 +1129,12 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   margin: 0; padding: 2px 0 2px 8px; border-left: 3px solid var(--human);
   font: 11px var(--mono); white-space: pre-wrap;
 }
+/* #499: a row that does not block, and every row folded under *earlier friction*, is muted. Marks
+   are muted, never a status token (#339). */
+#inspectordetails .frictionrow.quiet { border-left-color: var(--muted); }
+.friction-earlier .frictionrow { border-left-color: var(--muted); color: var(--muted); }
+#inspectordetails .frictionrow button,
+#inspectordetails .frictionrow .frictionasked { display: block; margin-top: 2px; }
 
 /* ---------------------------------------------------------- the dispatch card (#164)
    A drop opens this instead of launching, in the approval card's shape: both are "the tile is

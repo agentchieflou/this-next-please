@@ -22,7 +22,7 @@ import pytest
 
 from agentdata import cli_fleet
 from agentdata.fleet import catalogue as CAT, events as E, inbox as IN, poll as P, serve as S
-from agentdata.fleet.registry import Registry
+from agentdata.fleet.registry import Registry, agent_dir
 
 from test_fleet import make_project
 from test_fleet_events import fleet_home                        # noqa: F401 - a fixture, used by name
@@ -123,6 +123,174 @@ def test_the_panel_answers_from_the_catalogue_once_the_repo_is_indexed(desk, tmp
     assert panel["facts"]["jira_board_id"] == "42"
     stop = panel["friction"][0]
     assert stop["date"] == "2026-01-01" and "restart the gateway" in stop["unblock"]
+
+
+# ------------------------------------------------------ friction that needs you now (#499)
+
+PHOTO = (("20260903T1216-confluence-publish.md", "Provide the installed pncli confluence create-page syntax."),
+         ("20260903T1226-jira-transition.md", "Name the transition that moves the ticket to review."),
+         ("20260903T1304-final-verification.md", "Repair or reinstall the ad-state/ad-pncli launchers."))
+
+
+def friction(repo_path, name, unblock, *, severity="blocker", ticket="RDSD-7"):
+    folder = os.path.join(repo_path, ".agent", "friction")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, name), "w", encoding="utf-8", newline="\n") as f:
+        f.write(f"---\nproject: RDSD\nticket: {ticket}\nskill_in_use: x\ntype: tool-error\n"
+                f"severity: {severity}\n---\n## What I was doing\nx\n## What would unblock me\n{unblock}\n")
+    return os.path.join(folder, name)
+
+
+def ask(repo_path, *questions):
+    state_file = os.path.join(repo_path, ".agent", "state.json")
+    state = json.load(open(state_file, encoding="utf-8"))
+    state["open_questions"] = [{"id": f"q{i}", "q": q} for i, q in enumerate(questions)]
+    with open(state_file, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(state, f)
+
+
+def began(name, ts, **data):
+    E.append(name, [{"kind": "started", "ts": ts, "repo": name, "data": {"session": "s-" + ts[:10], **data}}])
+
+
+def names(rows):
+    return sorted(r["name"] for r in rows)
+
+
+def test_only_the_friction_that_needs_you_now_is_open(desk, tmp_path):
+    """The photo's case: three STOPs of 2026-09-03, no open question, a session begun on 2026-09-04."""
+    path = a_project(tmp_path, "czars", ticket="RDSD-7")
+    for name, unblock in PHOTO:
+        friction(path, name, unblock)
+    began("czars", "2026-09-04T08:00:00", new=True)
+    panel = S.show_for("czars")
+    assert panel["friction_open"] == []
+    assert names(panel["friction_earlier"]) == sorted(n for n, _ in PHOTO)
+    assert len(panel["friction"]) == 3                               # the old list keeps its shape
+    assert [r["stamp"] for r in sorted(panel["friction_earlier"], key=lambda r: r["name"])] == \
+        ["2026-09-03T12:16", "2026-09-03T12:26", "2026-09-03T13:04"]
+
+    # A question the agent is still waiting on keeps its row open, fixed on main or not.
+    ask(path, PHOTO[2][1])
+    panel = S.show_for("czars")
+    assert [(r["name"], r["asked"], r["blocking"]) for r in panel["friction_open"]] == \
+        [(PHOTO[2][0], True, True)]
+    assert len(panel["friction_earlier"]) == 2
+
+    # This session's friction: another ticket's is earlier, and a `nit` never blocks.
+    friction(path, "20260904T0900-other.md", "Another ticket's question.", ticket="RDSD-8")
+    friction(path, "20260904T0910-nit.md", "A note for later.", severity="nit")
+    panel = S.show_for("czars")
+    rows = {r["name"]: r for r in panel["friction_open"]}
+    assert "20260904T0900-other.md" in names(panel["friction_earlier"])
+    assert rows["20260904T0910-nit.md"]["blocking"] is False and rows["20260904T0910-nit.md"]["asked"] is False
+
+
+def test_a_send_keeps_this_sessions_friction_open_and_a_new_session_folds_it(desk, tmp_path):
+    path = a_project(tmp_path, "czars", ticket="RDSD-7")
+    for name, unblock in PHOTO:
+        friction(path, name, unblock)
+    began("czars", "2026-09-03T12:00:00", new=True)
+    began("czars", "2026-09-04T09:00:00", resumed=True)          # a Send: a run, not a session
+    panel = S.show_for("czars")
+    assert names(panel["friction_open"]) == sorted(n for n, _ in PHOTO)
+    assert panel["friction_earlier"] == []
+    began("czars", "2026-09-05T09:00:00")                        # a fresh session
+    panel = S.show_for("czars")
+    assert panel["friction_open"] == [] and len(panel["friction_earlier"]) == 3
+
+
+def test_a_friction_file_that_changed_reaches_the_panel_without_an_index(desk, tmp_path, monkeypatch):
+    import sqlite3
+
+    path = a_project(tmp_path, "czars", ticket="RDSD-7")
+    began("czars", "2026-09-03T12:00:00", new=True)
+    first = friction(path, PHOTO[0][0], PHOTO[0][1])
+    cat = CAT.Catalogue.open()
+    cat.index(Registry())
+    cat.close()
+    S.reset()
+    calls = []
+    real = CAT.Catalogue.index
+
+    def counting(self, repos, *args, **kw):
+        calls.append([getattr(r, "name", r) for r in repos])
+        return real(self, repos, *args, **kw)
+
+    monkeypatch.setattr(CAT.Catalogue, "index", counting)
+    assert names(S.show_for("czars")["friction_open"]) == [PHOTO[0][0]]
+    assert calls == []                                           # an unchanged listing never indexes
+    friction(path, PHOTO[1][0], PHOTO[1][1])
+    assert names(S.show_for("czars")["friction_open"]) == [PHOTO[0][0], PHOTO[1][0]]
+    os.remove(first)
+    assert names(S.show_for("czars")["friction_open"]) == [PHOTO[1][0]]
+    assert len(calls) == 2
+    S.show_for("czars")
+    assert len(calls) == 2
+
+    def locked(self, repos, *args, **kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(CAT.Catalogue, "index", locked)
+    friction(path, PHOTO[2][0], PHOTO[2][1])
+    panel = S.show_for("czars")                                  # the catalogue as it is
+    assert names(panel["friction_open"]) == [PHOTO[1][0]] and panel["indexed"] is True
+
+
+def test_dismissing_friction_writes_the_fleet_directory_and_never_the_checkout(desk, tmp_path):
+    from test_fleet_e2e import _tree
+
+    path = a_project(tmp_path, "czars", ticket="RDSD-7")
+    began("czars", "2026-09-03T12:00:00", new=True)
+    files = [friction(path, n, u) for n, u in PHOTO]
+    ask(path, PHOTO[0][1])
+    S.show_for("czars")                                          # indexed once, before the snapshot
+    before_bytes = [open(f, "rb").read() for f in files]
+    before_tree = _tree(path)
+    state_before = S.row_for("czars")["state"]
+    out = S.act("friction", {"repo": "czars", "dismiss": [PHOTO[0][0]]})
+    assert out["dismissed"] == [PHOTO[0][0]]
+    project = out["project"]
+    assert PHOTO[0][0] not in names(project["friction_open"]) + names(project["friction_earlier"])
+    assert [open(f, "rb").read() for f in files] == before_bytes
+    assert len(E.friction_files(path)) == 3
+    assert _tree(path) == before_tree
+    assert S.row_for("czars")["state"] == state_before
+    register = json.load(open(os.path.join(agent_dir("czars"), "friction.json"), encoding="utf-8"))
+    assert list(register["dismissed"]) == [PHOTO[0][0]]
+    with pytest.raises(S.ServeError) as e:
+        S.act("friction", {"repo": "czars", "dismiss": ["nope.md"]})
+    assert e.value.code == "not_friction" and e.value.hint
+    with pytest.raises(S.ServeError) as e:
+        S.act("friction", {"dismiss": [PHOTO[1][0]]})
+    assert e.value.code == "no_repo" and e.value.hint
+
+
+def test_the_cli_and_the_page_dismiss_through_one_function(desk, tmp_path, capsys, monkeypatch):
+    path = a_project(tmp_path, "czars", ticket="RDSD-7")
+    for name, unblock in PHOTO:
+        friction(path, name, unblock)
+    friction(path, "20260905T1000-now.md", "Something this session needs.")
+    began("czars", "2026-09-05T09:00:00", new=True)
+    seen = []
+    real = S.act
+    monkeypatch.setattr(S, "act", lambda what, body: seen.append((what, body)) or real(what, body))
+
+    assert cli_fleet.main(["friction", "czars"]) == 0
+    out = capsys.readouterr().out
+    assert "open: 1" in out and "earlier: 3" in out and "20260905T1000-now.md" in out
+    assert "name" in out and "severity" in out and "asked" in out
+
+    assert cli_fleet.main(["friction", "czars", "--earlier"]) == 0
+    out = capsys.readouterr().out
+    assert seen[-1] == ("friction", {"repo": "czars", "earlier": True})
+    assert "earlier friction" in out and "dismissed: 3" in out
+    panel = S.show_for("czars")
+    assert names(panel["friction_open"]) == ["20260905T1000-now.md"] and panel["friction_earlier"] == []
+
+    assert cli_fleet.main(["friction", "czars", "--dismiss", "nope.md"]) == 2
+    out = capsys.readouterr().out
+    assert "not_friction" in out and "hint" in out
 
 
 def test_an_unindexed_repo_still_gets_its_links_rather_than_looking_broken(desk, tmp_path):
@@ -789,6 +957,16 @@ def test_a_link_row_without_a_url_is_never_rendered():
     assert "var links = (p.links || []);" in js, "the rail reads the links the server composed"
     assert "if (!row.url) return;" in js, "a row with no url is skipped, never rendered"
     assert "p.missing_keys" in js, "what is missing must still be named somewhere"
+
+
+def test_the_panel_reads_open_and_earlier_friction_and_posts_friction():
+    """#499: the server decides open, earlier and still asked; the page draws them and posts the dismiss."""
+    js = open(APP_JS, encoding="utf-8").read()
+    assert "p.friction_open" in js and "p.friction_earlier" in js
+    assert 'post("friction"' in js
+    assert "earlier friction (" in js and "friction-earlier" in js
+    css = open(APP_CSS, encoding="utf-8").read()
+    assert ".frictionrow.quiet" in css and ".friction-earlier .frictionrow" in css
 
 
 def test_the_page_has_exactly_one_place_that_renders_a_fact_block():
