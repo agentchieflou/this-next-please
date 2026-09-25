@@ -21,6 +21,7 @@ import argparse
 import os
 import sys
 
+from . import completion
 from . import config as C
 from . import policy, proc, toon, ui
 from .console import utf8_stdout
@@ -184,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--remote", help="a remote `git remote` lists (default: origin); never a URL")
     p.add_argument("--dry-run", action="store_true", help="print the plan from local refs; contact no remote")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    completion.autocomplete(ap)
     a, extra = ap.parse_known_args(argv)
     src = "ad-git push"
     if extra:
@@ -195,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
                                     "hint": "no force, delete, mirror, tags or refspec exists here; if the remote "
                                             "moved, fetch and bring it in, then push again"}}))
         return 2
+    a = ap.parse_args(argv)                      # the same parse; this is the one AGENTDATA_PARSE_ONLY watches
     if a.pretty:
         os.environ["AGENTDATA_UI"] = "rich"
         ui.reset_cache()

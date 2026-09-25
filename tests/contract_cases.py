@@ -42,6 +42,7 @@ CASES: dict[str, dict] = {
     # module imports, the parser builds, and the exit code is 0 -- which is most of what breaks.
     "setup":      {"args": ["--help"], "toon": False},
     "jira":       {"args": ["--help"], "toon": False},
+    "git":        {"args": ["--help"], "toon": False},
     "pbip":       {"args": ["--help"], "toon": False},
     "pbi":        {"args": ["--help"], "toon": False},
     "pbiviz":     {"args": ["--help"], "toon": False},
