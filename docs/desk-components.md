@@ -99,6 +99,8 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | notice | one line | `drawNotice` | `#notice` | — | — | `test_fleet_desk_hide.py` |
 | model card | facts, fields, save | `openModelCard` | `.modelcard` | — | `m` | `test_fleet_column.py` |
 | settings page | appearance, models, Copilot, permissions | `settings.js` | `body.settings-page` | — | — | `test_fleet_settings_page.py` |
+| map header | back link, `map`, the graph's sentence (`aria-live`) | `map/map.js` | `#mapsays` | — | Tab | `test_fleet_map_page.py` |
+| map tree | projects › checkouts › agent, then the project's branches (`bs:`), then the network (`n:network`); one `li[role=treeitem]` per node | `drawMapTree` (`map/map.js`) | `#maptree` | `aria-expanded`; the closed class list in [fleet-map.md](fleet-map.md) §The page | ↑ ↓ → ← Home End, Enter on a checkout or agent | `test_fleet_map_page.py` |
 
 `drawer` is not a component: it is a one-line alias for `section("drawer", …)`, kept because the
 rest of the file already calls it that. Nor is the **agent rail** (`drawRail`, `.agentrail`) the
