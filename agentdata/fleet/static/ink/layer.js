@@ -121,6 +121,7 @@ class Layer {
     this.mode = 0;                     // the highlighter's blend: 0 over nothing, 1 multiply, 2 screen
     this.frames = 0;
     this.renders = 0;
+    this.handModel = "";               // the model key of the last hand shown (#387)
     this.raf = 0;
     this.last = 0;
     this.followUntil = 0;
@@ -289,6 +290,24 @@ class Layer {
       },
       /* Draw another frame: a hook changed something outside a call the layer made. */
       request() { self.stale = true; self.backStale = true; self.kick(); },
+      /* A skin's material in a tool's own stroke (#388), from head 0: a shapes.js path in `group`'s
+         coordinates, `group` one a hook was handed or one under it. It dies with the group's
+         contents -- a resize, a palette change, the skin leaving -- and the skin draws it again in
+         its next call: it is never recoloured in place. */
+      stroke(group, path, tool, opts = {}) {
+        const s = self.skin, ink = opts.ink || tool, names = Object.keys(self.host.tools);
+        for (const [k, v] of Object.entries({ tool, ink })) {
+          if (!names.includes(v)) throw new TypeError("ink: api.stroke: `" + k + "` " + JSON.stringify(v) + " is no tool (" + names.join(", ") + ")");
+        }
+        const st = new self.pen.Stroke(tool, opts.seed || 1, opts.dash, opts.tune);
+        st.build(path, group, self.inks[ink], self.mode);
+        if (!st.dead) s.strokes.add(st);
+        return Object.freeze({
+          get len() { return st.len; }, get dead() { return st.dead; },
+          head(h) { st.setHead(h); }, erase(e) { st.setErase(e); }, done(v) { st.setDone(v); },
+          dispose() { if (s.strokes.delete(st)) st.dispose(group); },
+        });
+      },
     });
   }
 
@@ -314,7 +333,8 @@ class Layer {
     const T = this.THREE;
     const group = order => { const g = new T.Group(); g.renderOrder = order; return g; };
     this.skin = { hooks, ground: group(this.api.order.ground), paper: group(this.api.order.paper),
-                  frames: new Map(), framesRoot: group(this.api.order.frame), err: {}, dirty: true };
+                  frames: new Map(), framesRoot: group(this.api.order.frame), err: {}, dirty: true,
+                  strokes: new Set() };        // its live material strokes (#388, `api.stroke`)
     this.back.add(this.skin.ground, this.skin.paper);
     this.scene.add(this.skin.framesRoot);
     if (hooks.sampleGround) {
@@ -330,6 +350,7 @@ class Layer {
     const s = this.skin;
     if (!s) return;
     this.hook("dispose", this.ctx(null));
+    this.kill();
     this.empty(s.ground);
     this.empty(s.paper);
     for (const f of s.frames.values()) this.empty(f.group);
@@ -341,8 +362,17 @@ class Layer {
     this.stale = this.backStale = true;
   }
 
-  /* Everything in a group taken out and its GPU memory freed: a hook's call begins empty. */
+  /* A skin's material strokes (#388) under `g`, or all of them, freed: each handle says `dead` and
+     touches nothing freed. */
+  kill(g) {
+    const s = this.skin;
+    if (s) for (const st of s.strokes) if (!g || g.getObjectById(st.mesh.id)) { s.strokes.delete(st); st.dispose(st.mesh.parent); }
+  }
+
+  /* Everything in a group taken out and its GPU memory freed: a hook's call begins empty, and the
+     material strokes in it are dead. */
   empty(g) {
+    this.kill(g);
     for (const c of g.children.slice()) {
       c.traverse(o => {
         if (o.geometry) o.geometry.dispose();
@@ -870,7 +900,8 @@ class Layer {
     }
     this.backStale = true;
     if (this.skin) {
-      this.skin.dirty = true;
+      // Every frame is made again too, in `syncFrames`, which a palette change alone did not reach (#388).
+      this.skin.dirty = this.dirty.geom = true;
       for (const f of this.skin.frames.values()) f.sig = "";
     }
     for (const m of this.marks) {
@@ -915,6 +946,8 @@ class Layer {
       L.hand = new this.pen.Hand(this.toolScene, this.scene, this.inks);
       L.hand.dark = this.dark;
     }
+    // A stick of chalk (#387) is taken up at the hand's next model, so a new table changes it there.
+    L.hand.chalk = this.table.hand === "chalk";
     return L.hand;
   }
 
@@ -1253,6 +1286,7 @@ class Layer {
     for (const L of this.lanes.values()) {
       if (L.hand && L.hand.vis) {
         L.hand.update(dt, now);
+        this.handModel = L.hand.key;
         this.stale = true;
         if (L.hand.vis) lifting = true;
       }
@@ -1346,10 +1380,10 @@ class Layer {
       hooks: ["ground", "paper", "frame", "tick", "dispose"].filter(k => typeof s.hooks[k] === "function"),
       ground: s.ground.children.length, paper: s.paper.children.length,
       frames: Array.from(s.frames.values()).filter(f => f.group.children.length).length,
-      sampleGround: !!this.groundRT, errors: Object.keys(s.err),
+      sampleGround: !!this.groundRT, errors: Object.keys(s.err), strokes: s.strokes.size,
     } : null;
     return { lanes, marks, series, skin, fx: this.fx && this.fx.inspect(), frames: this.frames, renders: this.renders, busy: this.busy(),
-             hands: this.hands(), reduced: this.instant(), canvas: this.canvas.isConnected,
+             hands: this.hands(), handModel: this.handModel, reduced: this.instant(), canvas: this.canvas.isConnected,
              webgl2: !!this.renderer.capabilities.isWebGL2, mode: this.mode, dark: this.dark };
   }
 

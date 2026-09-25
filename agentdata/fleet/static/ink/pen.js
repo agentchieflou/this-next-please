@@ -499,7 +499,11 @@ export function makePen(THREE, shared) {
       return me;
     };
     const Cy = (a, b, h, s = 16) => new THREE.CylinderGeometry(a, b, h, s);
-    if (key === "pencil" || key === "eraser") {
+    if (key === "chalk") {
+      part(new THREE.SphereGeometry(4.3, 10, 6), "pencil", 2.4, { flat: true, shin: 4 });
+      part(Cy(4.2, 4.6, 38, 10), "pencil", 21, { flat: true, shin: 4 });
+      g.userData.len = 40;
+    } else if (key === "pencil" || key === "eraser") {
       part(Cy(0.95, 0, 3.2, 6), 0x34363b, 1.6, { flat: true, shin: 70 });
       part(Cy(4.2, 0.95, 11, 6), 0xe4c9a2, 8.7, { flat: true });
       part(Cy(4.2, 4.2, 90, 6), "pencil", 59.2, { flat: true, shin: 40 });
@@ -557,9 +561,11 @@ export function makePen(THREE, shared) {
 
     model(tool) {
       const T = TOOLS[tool] || TOOLS.pen;
-      const key = T.model + (T.model === "pen" ? ":" + tool : "");
+      // A stick of chalk (#387) is every tool's hand, the eraser's too: flipped below as the pencil is.
+      const kind = this.chalk ? "chalk" : T.model;
+      const key = kind + (kind === "pen" ? ":" + tool : "");
       if (!this.models[key]) {
-        const m = model(T.model, tool);
+        const m = model(kind, tool);
         this.models[key] = m;
         this.inner.add(m);
         this.tint(m);
@@ -569,6 +575,7 @@ export function makePen(THREE, shared) {
       if (tool === "eraser") { m.rotation.z = Math.PI; m.position.y = m.userData.len; }
       else { m.rotation.z = 0; m.position.y = 0; }
       this.cur = tool;
+      this.key = key;
       this.len = m.userData.len;
       this.mats = [];
       m.traverse(o => { if (o.material) this.mats.push(o.material); });

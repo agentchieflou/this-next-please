@@ -77,8 +77,13 @@ function loadThemes() {
       if (t.name === "none") return;                 // "system" is already the first option
       var option = document.createElement("option");
       option.value = t.name;
-      text(option, t.name);
-      option.title = t.why || t.title || t.name;
+      // Its title, not its slug (#393). The tooltip adds what is drawn on it, as a supplement only:
+      // it is hover-only, and never seen while a skin has the picker disabled -- `#palette-looks`
+      // under the picker is where that is said.
+      text(option, t.title || t.name);
+      var looks = looksOn(data, t.name), why = (data.palette_only || {})[t.name];
+      attr(option, "title", (t.why || t.title || t.name) + "  ·  " + (looks.length
+        ? "drawn by " + looks.join(", ") : "palette only" + (why ? ": " + why : "")));
       themeSel.appendChild(option);
     });
     themeSel.addEventListener("change", function () { choose(themeSel, { theme: themeSel.value }); });
@@ -145,6 +150,38 @@ function skinBase(full) {
     (k.variants || []).forEach(function (v) { if (v.full === full) base = v.base; });
   });
   return base;
+}
+
+/* The looks drawn on a palette (#393), from an `/api/themes` answer: "Glass · Smoke" for every skin
+   variant whose base it is, in the skin picker's order. None means the palette is the plain page
+   only -- `palette_only` says why -- and it is still an ordinary palette to choose. */
+function looksOn(data, name) {
+  var looks = [];
+  ((data && data.skins) || []).forEach(function (k) {
+    (k.variants || []).forEach(function (v) { if (v.base === name) looks.push(lookName(k, v)); });
+  });
+  return looks;
+}
+
+function lookName(k, v) { return (k.title || k.name) + " · " + (v.title || v.name); }
+
+/* The line under the palette picker: what is drawn on the palette, or, while a skin is on, the look
+   the palette comes from -- words a keyboard, a touch screen and a disabled picker all show, which
+   an option's tooltip is not. */
+function looksLine(skin, palette) {
+  if (skin && skin !== "none") {
+    var from = skin;
+    ((themeData && themeData.skins) || []).forEach(function (k) {
+      (k.variants || []).forEach(function (v) {
+        if (v.full === skin || (k.name === skin && v.name === k.default)) from = lookName(k, v);
+      });
+    });
+    return "from " + from;
+  }
+  var looks = looksOn(themeData, palette);
+  if (looks.length) return "drawn by " + looks.join(", ");
+  var why = ((themeData && themeData.palette_only) || {})[palette];
+  return "palette only: the plain page" + (why ? " — " + why : "");
 }
 
 /* Paint, post, reconcile (#346). A pick is painted in the task that made it, from the css the server
@@ -235,6 +272,10 @@ function reflectTheme(cur) {
       ? "the palette comes from the skin — choose “no skin” to pick one yourself"
       : "palette — shared with this project's terminal";
   }
+  // What is drawn on it (#393), said here and so on every pick too: `choose` reflects a palette in
+  // the task that picked it. Before `/api/themes` has answered there is nothing to say it from.
+  if (themeData) text(document.getElementById("palette-looks"),
+                      looksLine(cur.skin, themeSel ? themeSel.value : cur.theme));
 }
 
 /* -------------------------------------------------------------------------------------- models */
