@@ -41,6 +41,8 @@ import mimetypes
 import os
 import re
 import secrets
+import select as _select   # `select` is this module's own function (the desk's selection)
+import socket
 import threading
 import time
 from html import escape as _escape
@@ -2829,6 +2831,53 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):       # noqa: A003 - stdlib's name
         """Silence. The console running the server is the operator's, not a request log."""
 
+    # How often a kept-alive connection, waiting for its next request, looks at `stopping` (#515).
+    idle_poll_s = 0.1
+
+    def handle_one_request(self):
+        """One request -- but not on a connection whose server has stopped (#515).
+
+        HTTP/1.1 keeps a connection open between requests, and the standard library waits for the
+        next one in a blocking `readline`, which nothing but the peer ends on Windows: Winsock's
+        `shutdown(SD_RECEIVE)` refuses later receives but does not wake one already waiting, and
+        `closesocket` must never be issued while another call is using the socket. So the wait is
+        made here instead, in `select` with a short timeout, looking at `stopping` in between. A
+        request already in the buffer, or bytes (or the end) on the socket, go on to the read."""
+        if not self._next_request_comes():
+            self.close_connection = True
+            return
+        super().handle_one_request()
+
+    def _next_request_comes(self) -> bool:
+        stopping = getattr(self.server, "stopping", None)
+        if stopping is None:
+            return True
+        while not stopping.is_set():
+            if self._request_buffered():
+                return True
+            try:
+                ready, _, _ = _select.select([self.connection], [], [], self.idle_poll_s)
+            except (OSError, ValueError):     # closed under us: the read says how
+                return True
+            if ready:
+                # Looked at again: a read side shut by closing reads as ready too, and on Winsock a
+                # read from it is an error rather than the end.
+                return not stopping.is_set()
+        return False
+
+    def _request_buffered(self) -> bool:
+        """Whether `rfile` already holds bytes a `select` on the socket would not see (a request
+        pipelined behind the last one), read without blocking."""
+        sock = self.connection
+        was = sock.gettimeout()
+        try:
+            sock.setblocking(False)
+            return bool(self.rfile.peek(1))
+        except OSError:
+            return True
+        finally:
+            sock.settimeout(was)
+
     # ------------------------------------------------------------------ plumbing
 
     def _authorized(self, query: dict) -> bool:
@@ -3492,6 +3541,7 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
             # Before the bind: a taken port makes the base class call `server_close()` from here.
             self.stopping = threading.Event()
             self.handlers: list[threading.Thread] = []
+            self.connections: dict[threading.Thread, socket.socket] = {}
             self.handlers_lock = threading.Lock()
             super().__init__(*args, **kwargs)
 
@@ -3501,13 +3551,37 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
         # harmless, but a suite runs a desk per test, and a window write finishing late landed in
         # the NEXT test's desk (#245). Closing now says `stopping`, which ends every stream on its
         # next tick, and waits a bounded time for whatever is left.
+        #
+        # That left one thread closing did not end: HTTP/1.1 keeps a connection open between
+        # requests, and its handler waits in `readline` for the next one, which `stopping` never
+        # reaches. A page still open after its server closed -- a test that failed before closing
+        # it, with a browser that outlives the test -- was answered by that thread, from whatever
+        # fleet directory and desk the process had moved on to (#227, #298), and closing waited
+        # the full `close_wait_s` for it every time. So closing also shuts the read side of every
+        # connection still open: a handler waiting for a request reads the end of it and goes,
+        # and one still writing an answer finishes it. That wakes a waiting read on POSIX only; on
+        # Windows the handler's own wait (`Handler.handle_one_request`, in `select`) sees
+        # `stopping` within `idle_poll_s` and goes (#515, the Windows leg of train 7).
         def process_request(self, request, client_address):
             t = threading.Thread(target=self.process_request_thread,
                                  args=(request, client_address), daemon=True)
             with self.handlers_lock:
                 self.handlers = [h for h in self.handlers if h.is_alive()]
+                self.connections = {h: s for h, s in self.connections.items() if h.is_alive()}
                 self.handlers.append(t)
+                self.connections[t] = request
             t.start()
+
+        @staticmethod
+        def _end_reads(sockets):
+            """Where the OS allows it, wake a handler waiting in a read at once: on POSIX a shut read
+            side reads as the end. Winsock does not wake a waiting read this way, which is why the
+            handler also waits in `select` and looks at `stopping` every `idle_poll_s` (#515)."""
+            for s in sockets:
+                try:
+                    s.shutdown(socket.SHUT_RD)
+                except OSError:                  # already closed by its handler: nothing to end
+                    pass
 
         def server_close(self):
             self.stopping.set()
@@ -3515,6 +3589,8 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
             deadline = time.monotonic() + self.close_wait_s
             with self.handlers_lock:
                 left = list(self.handlers)
+                open_ = [s for h, s in self.connections.items() if h.is_alive()]
+            self._end_reads(open_)
             for t in left:
                 t.join(max(0.0, deadline - time.monotonic()))
 
