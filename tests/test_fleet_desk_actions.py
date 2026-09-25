@@ -439,6 +439,274 @@ def test_an_adopted_session_refuses_the_controls_it_cannot_honour(fleet_home, tm
     assert "will not say which process" in stopping.value.msg
 
 
+# The operator's own chat, stood in for (#487): a real process whose argv names `copilot`, started
+# from the checkout the way a terminal starts one, that writes down every signal it can catch. It
+# says it is ready once its handlers are in, so a test never races a signal against their install.
+CHAT = ("import signal, sys, time\n"
+        "def said(n, _f):\n"
+        "    open(sys.argv[1], 'a').write(str(n) + '\\n')\n"
+        "for s in ('SIGTERM', 'SIGINT', 'SIGHUP', 'SIGUSR1', 'SIGUSR2', 'SIGBREAK'):\n"
+        "    if hasattr(signal, s):\n"
+        "        signal.signal(getattr(signal, s), said)\n"
+        "open(sys.argv[2], 'w').close()\n"
+        "while True:\n"
+        "    time.sleep(0.05)\n")
+
+
+def _until(predicate, timeout: float = 20.0) -> None:
+    deadline = time.time() + timeout
+    while not predicate():
+        assert time.time() < deadline, "the stand-in chat never said it was ready"
+        time.sleep(0.02)
+
+
+@pytest.fixture()
+def launches(monkeypatch):
+    """A launcher that records what it was asked to run and runs nothing."""
+    launched: list[list[str]] = []
+
+    class _Child:
+        def __init__(self, pid):
+            self.pid = pid
+
+    def spawn(repo, name, argv, exe=None):
+        launched.append(list(argv))
+        return _Child(90000 + len(launched))
+
+    monkeypatch.setattr(supervisor, "_spawn", spawn)
+    return launched
+
+
+@pytest.fixture()
+def no_copilot_home(tmp_path, monkeypatch):
+    """Copilot's session files and store, in this test's own folder and never a real home."""
+    monkeypatch.setenv("COPILOT_SESSION_STATE", str(tmp_path / "session-state"))
+    monkeypatch.setenv("COPILOT_SESSION_STORE", str(tmp_path / "no-store.db"))
+    return tmp_path / "session-state"
+
+
+def _session_file(root, sid: str, checkout: str) -> str:
+    """A Copilot session file for this checkout, written now: `-p` and interactive alike write one."""
+    d = os.path.join(str(root), sid)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "workspace.yaml"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(f"id: {sid}\ncwd: '{checkout}'\n")
+    path = os.path.join(d, "events.jsonl")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps({"type": "assistant.turn_start", "data": {"turnId": "0"}}) + "\n")
+    return path
+
+
+def test_stop_and_reset_never_end_a_chat_the_fleet_did_not_start(fleet_home, no_copilot_home, tmp_path,  # noqa: F811
+                                                                 monkeypatch, capsys):
+    """#487. An adopted pane that knows its chat's pid used to reach `proc.kill_tree` from *Stop*:
+    the operator's own terminal chat died of SIGKILL with no confirmation. *Reset* is that stop and
+    then a resume, `start --force` stops first too, and `ad-fleet stop` is the same function. Every
+    one of them now refuses `external_session`, says where the chat is and how to stop following
+    it, and the chat is alive, unsignalled, at the end (SESS-D3: the fleet never ends it)."""
+    import subprocess
+    import sys
+
+    from agentdata import cli_fleet, proc
+    from agentdata.fleet import adopt as A
+
+    repo = make_project(tmp_path / "rigel", phase="working", ticket="RDSD-118")
+    Registry().add(repo, name="rigel")
+    _touch(os.path.join(repo, ".agent", "state.json"), 3)
+
+    heard, ready = tmp_path / "signals.txt", tmp_path / "ready"
+    chat = subprocess.Popen([sys.executable, "-c", CHAT, str(heard), str(ready), "copilot"],
+                            cwd=repo, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            **({"start_new_session": True} if os.name != "nt" else {}))
+    aimed: list[int] = []
+    real_kill = proc.kill_tree
+    monkeypatch.setattr(proc, "kill_tree", lambda pid: aimed.append(pid) or real_kill(pid))
+    try:
+        _until(ready.exists)
+        A.adopt("rigel", pid=chat.pid)
+        assert supervisor.live("rigel").get("pid") == chat.pid, "the pane knows its chat's pid"
+
+        presses = [
+            ("Stop", lambda: supervisor.stop("rigel", wait=1)),
+            ("Reset", lambda: supervisor.reset("rigel", wait=1)),
+            ("the page's Stop", lambda: S.act("stop", {"repo": "rigel"})),
+            ("the page's Reset", lambda: S.act("reset", {"repo": "rigel"})),
+            ("start --force", lambda: supervisor.start("rigel", new=True, force=True)),
+            ("+ new session", lambda: supervisor.start("rigel", new=True)),
+            ("open in a console", lambda: supervisor.console("rigel")),
+        ]
+        for press, call in presses:
+            with pytest.raises(supervisor.SupervisorError) as refused:
+                call()
+            said = refused.value
+            assert said.code == "external_session", (press, said.code, said.msg)
+            assert "your own Copilot chat" in said.msg and f"pid {chat.pid}" in said.msg, (press, said.msg)
+            assert "close it in its own window" in said.hint, (press, said.hint)
+            assert "`ad-fleet release rigel`" in said.hint, (press, said.hint)
+            assert "ad-fleet send" not in said.hint and "ad-fleet stop" not in said.hint, \
+                (press, "a hint must not point at a verb that refuses too", said.hint)
+            assert chat.poll() is None, f"{press} ended the operator's chat"
+
+        # The terminal: one repository is a refusal, exit 2, with the hint; `--all` reports it.
+        assert cli_fleet.main(["stop", "rigel"]) == 2
+        out = capsys.readouterr().out
+        assert "ok: false" in out and "external_session" in out and "ad-fleet release rigel" in out, out
+        assert cli_fleet.main(["stop", "--all"]) == 0
+        out = capsys.readouterr().out
+        assert "stopped: 0" in out and "ad-fleet release rigel" in out, out
+
+        assert chat.poll() is None, "the operator's chat is still running"
+        assert chat.pid not in aimed, "nothing reached for a kill aimed at the operator's chat"
+        assert not heard.exists() or heard.read_text() == "", f"the chat was signalled: {heard.read_text()}"
+        assert supervisor.read_lock("rigel").get("external"), "and the fleet still follows it"
+    finally:
+        chat.kill()
+        chat.wait(timeout=30)
+
+
+def test_every_start_refuses_beside_a_chat_it_can_name(fleet_home, no_copilot_home, tmp_path,  # noqa: F811
+                                                        monkeypatch, launches):
+    """#487. After *hand it back*, the strip still names the chat by pid -- and *+ new session* used
+    to launch a headless agent beside it at once: two agents in one working tree. The foreign guard
+    ran for `--resume` only. Every start now asks, in the adopt strip's words, and launches nothing.
+    """
+    from agentdata.fleet import adopt as A
+
+    repo = make_project(tmp_path / "orion", phase="idle", ticket="")
+    Registry().add(repo, name="orion")
+    E.append("orion", [E.event("orion", "started", {"pid": 4100, "session": "", "new": True}),
+                       E.event("orion", "session_id", {"session": "sess-orion"}),
+                       E.event("orion", "exited", {"exit_code": 0})])
+    _touch(os.path.join(repo, ".agent", "state.json"), 3)
+    # `**_` because a refusal asks for a fresh listing (`max_age=0`), as the resume guard's tests do.
+    monkeypatch.setattr(A, "agent_processes",
+                        lambda **_: [{"pid": 26846, "cwd": repo, "cmdline": "node copilot"}])
+
+    assert A.adopt("orion")["pid"] == 26846
+    assert A.release("orion")["released"] is True        # hand it back: the chat is still there
+
+    starts = [
+        ("+ new session", lambda: supervisor.start("orion", new=True)),
+        ("a ticket", lambda: supervisor.start("orion", key="RDSD-118")),
+        ("a resume", lambda: supervisor.start("orion", resume="sess-orion")),
+        ("a bare start", lambda: supervisor.start("orion", prompt="carry on")),
+        ("the page's + new session", lambda: S.act("start", {"repo": "orion", "new": True})),
+    ]
+    for start, call in starts:
+        with pytest.raises(supervisor.SupervisorError) as refused:
+            call()
+        assert refused.value.code == "foreign_session", (start, refused.value.code, refused.value.msg)
+        assert "did not start" in refused.value.msg and "pid 26846" in refused.value.msg, (start, refused.value.msg)
+        assert "close that window" in refused.value.hint, (start, refused.value.hint)
+    assert launches == [], "no start ran beside the chat"
+
+    # Evidence without a pid (a session file being written, a state file) refuses nothing here.
+    monkeypatch.setattr(A, "agent_processes", lambda **_: [])
+    _session_file(no_copilot_home, "native-orion", repo)
+    supervisor.start("orion", new=True)
+    assert len(launches) == 1, "a start with no process to name goes ahead, as it always has"
+
+
+def test_the_fleets_own_process_and_session_are_never_somebody_elses(fleet_home, no_copilot_home,  # noqa: F811
+                                                                      tmp_path, monkeypatch):
+    """A `-p` turn writes the same session file an interactive chat does, and its process can still
+    be exiting in the checkout when the next start comes. Neither is somebody else's: a start
+    straight after a fleet turn is not refused, and `outside` never names the fleet's own pid, its
+    own session, or the process asking. The turn is a real one, by the fake `copilot`, so the pid
+    and the session id are the ones the supervisor and the process actually recorded."""
+    import fakes
+
+    from agentdata.fleet import adopt as A
+
+    fakes.apply(monkeypatch, tmp_path, ["copilot"], npm=True)
+    monkeypatch.setenv("AGENTDATA_FAKE_CASE", "new-session")
+    monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
+    cfg = {"fleet": {"notify": {"toast": False}}}
+    repo = make_project(tmp_path / "vega", phase="idle", ticket="")
+    Registry().add(repo, name="vega")
+
+    def turn() -> tuple[int, str]:
+        lock = supervisor.start("vega", new=True, cfg=cfg)
+        deadline = time.time() + 60
+        while supervisor.live("vega"):
+            assert time.time() < deadline, "the fake copilot's turn never ended"
+            time.sleep(0.05)
+        E.refresh("vega", repo, repo_state=Registry().get("vega").state())
+        return int(lock["pid"]), supervisor.session_id("vega")
+
+    pid, session = turn()
+    assert pid and session, "the turn recorded its pid and announced its session"
+    assert A.fleets_own("vega") == ({pid}, {session})
+    # Its process still exiting in the checkout, its `-p` session file fresh, and the asker too.
+    _touch(os.path.join(repo, ".agent", "state.json"), 3)
+    _touch(_session_file(no_copilot_home, session, repo), 10)      # fresh, and older than the chat's
+    monkeypatch.setattr(A, "agent_processes", lambda **_: [
+        {"pid": pid, "cwd": repo, "cmdline": "copilot -p"},
+        {"pid": os.getpid(), "cwd": repo, "cmdline": "python -m pytest copilot"}])
+    assert A.outside("vega", fresh_listing=True) == {}
+
+    # Where the listing cannot place a process (Windows), a session file is the evidence -- and the
+    # fleet's own `-p` session file is still not somebody else's.
+    monkeypatch.setattr(A, "listing_places", lambda: False)
+    assert A.outside("vega") == {}
+    again, _ = turn()
+    assert again != pid, "a start straight after a fleet turn is not refused"
+
+    # And where the listing places processes, a session file with no process here is nobody's.
+    monkeypatch.setattr(A, "agent_processes", lambda **_: [])
+    _session_file(no_copilot_home, "native-vega", repo)
+    monkeypatch.setattr(A, "listing_places", lambda: True)
+    assert A.outside("vega") == {}
+    monkeypatch.setattr(A, "listing_places", lambda: False)
+    seen = A.outside("vega")
+    assert seen["session"] == "native-vega" and seen["pid"] == 0, seen
+    assert seen["how"] == "matched by session file" and seen["session_file"]
+
+    # A pid the stream recorded as *adopted* is the operator's, and stays nameable.
+    E.append("vega", [E.event("vega", "started", {"pid": 26900, "adopted": True, "external": True})])
+    monkeypatch.setattr(A, "agent_processes",
+                        lambda **_: [{"pid": 26900, "cwd": repo, "cmdline": "node copilot"}])
+    assert A.outside("vega", fresh_listing=True)["pid"] == 26900
+
+
+def test_a_refused_stop_exits_2_with_its_hint(fleet_home, tmp_path, monkeypatch, capsys):  # noqa: F811
+    """`ad-fleet stop` on a refusal printed `ok: true, stopped: 0` and exited 0, and dropped the
+    hint -- so a script, or an operator reading the last line, took it for done. A stop of one
+    repository that is refused now goes out through `_refuse`: exit 2, `error`, `hint`, `code`."""
+    from agentdata import cli_fleet, proc
+    from agentdata.fleet import adopt as A
+
+    aimed: list[int] = []
+    monkeypatch.setattr(proc, "kill_tree", aimed.append)
+    monkeypatch.setattr(supervisor, "pid_alive", lambda pid: pid == 4242)
+
+    repo = make_project(tmp_path / "luna", phase="working", ticket="RDSD-118")
+    Registry().add(repo, name="luna")
+    _touch(os.path.join(repo, ".agent", "state.json"), 3)
+    A.adopt("luna", pid=0)
+
+    assert cli_fleet.main(["stop", "luna"]) == 2
+    out = capsys.readouterr().out
+    assert "ok: false" in out and "code: external_session" in out, out
+    assert "hint:" in out and "ad-fleet release luna" in out, out
+
+    # A console the fleet opened: the registry has said exit 2 for this since #189.
+    A.release("luna")
+    supervisor.write_lock("luna", {"pid": 4242, "kind": "console", "repo": "luna",
+                                   "path": repo, "session": "sess-c"})
+    assert cli_fleet.main(["stop", "luna"]) == 2
+    out = capsys.readouterr().out
+    assert "code: console_window" in out and "close that window" in out, out
+
+    # `--all` is a sweep: one row per repository, and the refusal's hint in its own column.
+    assert cli_fleet.main(["stop", "--all"]) == 0
+    out = capsys.readouterr().out
+    assert "{repo,stopped,detail,hint}" in out and "close that window" in out, out
+    assert supervisor.read_lock("luna").get("kind") == "console", "and the console's lock is kept"
+    assert aimed == [], "a refused stop reaches for no kill"
+
+
 def test_release_hands_back_only_what_was_adopted(fleet_home, tmp_path):  # noqa: F811
     """A release that could clear a real lock would let `start` launch a second agent over a live
     one, which is the failure the lock exists to prevent."""
@@ -537,6 +805,16 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
         assert "nothing is supervised" not in page.inner_text('.tile[data-repo="busy"] .why')
         # And the controls that cannot reach somebody else's stdin say so instead of lying.
         assert page.get_attribute('.tile[data-repo="busy"] .send', "disabled") is not None
+        # Stop is refused for it (#487): the operator's own chat is theirs to close, and the page
+        # reads the supervisor's own words and hint, not a button that seemed to do nothing.
+        page.click('.tile[data-repo="busy"] .stop')
+        page.wait_for_function(
+            """() => /your own Copilot chat/.test(
+                   document.querySelector('.tile[data-repo="busy"] .err').textContent)""",
+            timeout=15000)
+        refused = page.inner_text('.tile[data-repo="busy"] .err')
+        assert "close it in its own window" in refused and "ad-fleet release busy" in refused, refused
+        assert page.is_visible('.tile[data-repo="busy"] .err'), "the refusal is on the screen"
 
         page.click('.tile[data-repo="busy"] .adopt')            # hand it back
         page.wait_for_function(

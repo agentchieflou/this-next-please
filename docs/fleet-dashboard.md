@@ -357,9 +357,14 @@ cost an adopted session never had, and liveness is the file's own quiet, not the
 
 Adoption **supersedes; it does not supervise.** The fleet did not start that process, has no pipe to
 its stdin and may not know its pid, so Send and Start are disabled and say where to type instead of
-being offered and quietly doing nothing. One checkout still holds one agent: a repo the fleet is
-already running an agent in cannot adopt a second. *Hand it back* releases it, and only ever removes
-a lock the fleet did not create.
+being offered and quietly doing nothing. Stop and Reset refuse it too, with `external_session`, even
+when the fleet knows its pid: the fleet never ends the operator's own chat, and the refusal says to
+close it in its own window or `ad-fleet release` it (#487). One checkout still holds one agent: a
+repo the fleet is already running an agent in cannot adopt a second. *Hand it back* releases it, and
+only ever removes a lock the fleet did not create. No start of any kind runs beside a Copilot the
+fleet can name by pid in the checkout: a new session, a ticket and a resume all refuse
+`foreign_session` in the adopt strip's words, and the fleet's own agent, still exiting after its
+turn, is never taken for one.
 
 The page has one arrangement, the row above, and each window's widths over it. `ad-fleet serve` still accepts
 `--layout` for one release and ignores it, with a `note` saying so; how the four arrangements of
