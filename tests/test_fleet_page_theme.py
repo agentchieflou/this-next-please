@@ -162,6 +162,11 @@ def test_with_nothing_chosen_the_pages_are_the_files_as_they_were(fleet_home):
                 raw = raw.replace(f'"/static/{asset}"', f'"/static/{asset}?t={token}"')
             if name == "index.html":
                 html = re.sub(r"<body [^>]*>", "<body>", html, count=1)
+            elif name in S.INKED_PAGES:
+                # /map (#405): its own `ink-off` kept, then the gate's facts, exactly as the desk's.
+                html = re.sub(r'(<body class="ink-off") data-ink-shell="[a-z]+" '
+                              r'data-ink-probe="[a-z]+" data-ink-skins="[a-z ]*">', r"\1>",
+                              html, count=1)
             assert html == raw, route
     finally:
         _stop(server)
