@@ -98,8 +98,13 @@ def test_the_tree_lists_the_fleet_and_a_keyboard_walk_opens_a_checkout_on_the_de
     S.update_window("side", open="luna")
     server, token, port = _serve()
     try:
-        graph = json.loads(_get(port, "/api/map", token))
         page, errors = _open(browser, port, token, "&w=side")
+        # The map's own stream is a window on its network (#404, #406): the refetch that follows the
+        # first `desk` and `polls` frames adds it, and the first poll pass, to the words. The copy to
+        # compare with is read once the page has drawn its own window as connected, not before.
+        page.wait_for_function("""() => !!document.querySelector('#maptree [data-node="w:side"].connected')""",
+                               timeout=15000)
+        graph = json.loads(_get(port, "/api/map", token))
         tree = page.evaluate("""() => [...document.querySelectorAll('#maptree [role=treeitem]')]
             .map(li => ({id: li.dataset.node, cls: li.className, say: li.querySelector('.say').textContent,
                          depth: (() => { let d = 0, u = li; while ((u = u.parentElement.closest('[role=treeitem]'))) d++; return d; })()}))""")
