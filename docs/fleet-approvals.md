@@ -59,6 +59,7 @@ command, where a refusal is a return value rather than a guess about a command s
 | Command | Gated when | Not gated |
 | --- | --- | --- |
 | `ad-jira transition <KEY> --to <intent>` | run without `--dry-run` | `--dry-run`; `ad-jira transitions`, `changelog`, and every other read |
+| `ad-jira comment <KEY> --body …` | run without `--dry-run`; the operator approves the exact body (`kind: jira-comment`) | `--dry-run` (reads the issue, prints `chars`, `lines` and `first_line`, posts nothing) |
 | `ad-jira create --summary …` | run without `--dry-run`; the operator approves the exact `POST /issue` body | `--dry-run` (resolves every field, posts nothing) |
 | `ad-pncli raw <product> <verb> …` | the verb is not in the read allow-list below | any command carrying `--dry-run`; every verb in the list |
 | `ad-pncli jira search` / `ad-pncli jira get` | never | these are reads by construction — they do not go through `raw` |
@@ -73,8 +74,8 @@ The pncli read allow-list is `agentdata/connectors/pncli.READ_VERBS`:
 **Everything else is treated as a write.** That direction is deliberate. A write verb missing from
 a *write*-list would be sent unattended; a read verb missing from this list costs the operator one
 extra click. It is also what makes the gate work on verbs nobody has pinned yet — the Bitbucket PR
-verb and the Jira comment verb are both still `TODO(HANDOFF)` in their skills, and both are gated
-today regardless of what they turn out to be called.
+verb is still `TODO(HANDOFF)` in its skill, and it is gated today regardless of what it turns out to be
+called. A Jira comment no longer goes through pncli at all: `ad-jira comment` posts it, gated above.
 
 ## What the agent sees
 
@@ -95,7 +96,7 @@ The third one is the fail-closed case: if the approvals directory cannot be writ
 delay.
 
 The four skills that perform writes each carry one line to this effect — `jira-transition` step 7,
-`jira-create` step 3, `bitbucket-pr` step 7, `confluence-publish` step 8.
+`jira-create` step 3, `bitbucket-pr` step 7, `confluence-publish` steps 8 and 9.
 
 ## Where it lives on disk
 

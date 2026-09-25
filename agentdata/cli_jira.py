@@ -1,5 +1,5 @@
 # PYTHON_ARGCOMPLETE_OK
-"""ad-jira: Jira REST reusing pncli's token. whoami · fields · statuses · transitions · transition · sprints · changelog · sprint-replay · cache.
+"""ad-jira: Jira REST reusing pncli's token. whoami · fields · statuses · transitions · transition · comment · sprints · changelog · sprint-replay · cache.
 Never shells out to pncli; the token is read from pncli's config file by key name at call time.
 
 Epic #121 changed how a changelog pull is *run*; it never changed what a row means. Four operator-facing
@@ -249,6 +249,73 @@ def cmd_transition(a) -> int:
     else:
         print(toon.encode({"meta": {k: v for k, v in meta.items() if v is not None}}))
     return 0 if meta["moved"] else 1
+
+
+# Jira's own ceiling on a comment body (its `jira.text.field.character.limit` default); a longer POST is a 400.
+COMMENT_MAX_CHARS = 32767
+
+
+def _comment_refusal(src: str, key: str, code: str, error: str, hint: str) -> int:
+    print(toon.encode({"meta": {"ok": False, "source": src, "key": key, "refused": code, "error": error, "hint": hint}}))
+    return 2
+
+
+def cmd_comment(a) -> int:
+    """Post one comment without moving the issue: dry-run first, gated like a transition, never replayed (#501)."""
+    src = f"ad-jira comment {a.key}"
+    if a.body_file:
+        try:
+            with open(a.body_file, encoding="utf-8") as f:
+                body = f.read()
+        except OSError as e:
+            print(error(f"cannot read --body-file {a.body_file}: {e.strerror or e}", "pass a readable UTF-8 file",
+                        "ad-jira")); return 2
+    else:
+        body = a.body or ""
+    body = body.strip("\r\n").replace("\r\n", "\n")
+    if not body.strip():
+        return _comment_refusal(src, a.key, "empty_body", "the comment body is empty",
+                                "write the note first: --body \"<text>\" or --body-file <path>")
+    if len(body) > COMMENT_MAX_CHARS:
+        return _comment_refusal(src, a.key, "body_too_long",
+                                f"the comment is {len(body)} characters; Jira takes at most {COMMENT_MAX_CHARS}",
+                                "shorten it, or link the long text (a Confluence page, a PR) from a short comment")
+    cfg, j, _ = _client()
+    try:
+        fields = (j.issue(a.key, ["summary", "status"]) or {}).get("fields") or {}
+    except J.JiraHTTPError as e:
+        if e.status != 404:
+            raise
+        return _comment_refusal(src, a.key, "no_issue", f"Jira has no issue {a.key} (or this token cannot see it)",
+                                "check the key: ad-state show names the active ticket")
+    lines = body.split("\n")
+    meta = {"ok": True, "source": src, "key": a.key, "summary": fields.get("summary") or "",
+            "status": (fields.get("status") or {}).get("name") or None, "flavor": j.flavor.kind,
+            "chars": len(body), "lines": len(lines), "first_line": lines[0][:120]}
+    if a.dry_run:
+        meta["dry_run"] = True
+        print(toon.encode({"meta": {k: v for k, v in meta.items() if v is not None}}))
+        return 0
+
+    from .fleet import approval
+
+    decision = approval.require("jira-comment", f"{a.key}: comment ({len(body)} chars)", {"key": a.key, "body": body},
+                                ticket=a.key, cfg=cfg)
+    if not decision.ok:
+        print(toon.encode({"meta": approval.refusal(decision, src)}))
+        return 2
+    made = j.add_comment(a.key, body)
+    cid = str(made.get("id") or "")
+    meta["comment_id"] = cid
+    meta["url"] = f"{j.creds.base_url.rstrip('/')}/browse/{a.key}?focusedCommentId={cid}" if cid else None
+    if not cid:
+        meta.update({"ok": False, "error": "Jira answered the comment POST without an id",
+                     "hint": f"open {j.creds.base_url.rstrip('/')}/browse/{a.key} before re-running: it may have landed"})
+    if policy.pretty():
+        ui.facts([(k, v) for k, v in meta.items() if v is not None], title=src)
+    else:
+        print(toon.encode({"meta": {k: v for k, v in meta.items() if v is not None}}))
+    return 0 if cid else 1
 
 
 def cmd_create(a) -> int:
@@ -1047,6 +1114,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--force", action="store_true", help="run even if the issue already looks like it is there")
     p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
     p.set_defaults(fn=cmd_transition)
+    p = sub.add_parser("comment", help="post a comment on an issue without moving it (--dry-run first; gated in a fleet)")
+    p.add_argument("key", metavar="KEY")
+    body = p.add_mutually_exclusive_group(required=True)
+    body.add_argument("--body", help="the comment text (sent as ADF on Cloud, a plain string on Data Center)")
+    body.add_argument("--body-file", help="read the comment text from a UTF-8 file")
+    p.add_argument("--dry-run", action="store_true", help="read the issue and print what would be posted; post nothing")
+    p.add_argument("--pretty", action="store_true", help="draw it as a table for a person to read (same as AGENTDATA_UI=rich)")
+    p.set_defaults(fn=cmd_comment)
     p = sub.add_parser("create", help="open a ticket with the project's defaults from AGENTS.md "
                                       "(jira_issue_type, jira_components, jira_fields, jira_labels, jira_parent, jira_assignee)")
     p.add_argument("--summary", "-s", required=True, help="one line: what, and why")
