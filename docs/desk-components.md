@@ -83,7 +83,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | state chip | word, age | `drawTile` | `.chip` | the five status roles, `stale` | — | `test_fleet_desk_regressions.py` |
 | old-session chip | "old skills" or "renew queued", the reason as its title | `drawOldSession` | `.oldsession` | hidden unless the session began on older skills or CLI | — | `test_fleet_renew.py` |
 | session pill | label, menu | `drawSessionPill` | `.spill`, `.smenu` | `is-reading` | `Alt+[`, `Alt+]`, `Alt+N` | `test_fleet_desk_switcher.py` |
-| runs list | one row per run, newest last | `drawRuns`, through `patchList` keyed by run number (#494) | `.live-runs`, `.ss-runs` | hidden when there are none | — | `test_fleet_desk_switcher.py`, `test_fleet_ink.py` (idle) |
+| runs list | one row per run, newest last | `drawRuns`, through `patchList` keyed by run number (#494) | `.live-runs`, `.ss-runs` | hidden when there are none | — | `test_fleet_ink.py` (idle, in place) |
 | cells | spend, ticket, pr, refresh, git | `drawCells` | `.cell` | `grey`, `idle`, `warn`, `over` | git cell opens the branches pane | `test_fleet_spend.py`, `test_fleet_branches.py` |
 | spend cell | label, value | `drawSpendCell` | `.cell.spend` | `warn`, `over` | — | `test_fleet_demo_meter.py` |
 | asks card | head, one row per question, send | `drawAsks` | `.asks` | — | — | `test_fleet_handoff_ask.py` |
