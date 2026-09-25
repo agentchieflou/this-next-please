@@ -30,6 +30,7 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Confluence | the body is Markdown rather than storage format | `error` naming `ad-confluence html`, exit 2 | `test_proc.py::test_raw_refuses_to_post_markdown_to_confluence` |
 | pncli | an argument cannot survive cmd.exe and there is no Node entry point | `refused: cmd_unsafe_argument` | `test_fakes.py::test_a_multiline_body_is_refused_through_a_cmd_shim` |
 | pncli | the launcher is not on PATH, PATHEXT or the npm prefix | `ProcError not_found` naming the npm package | `test_fakes.py::test_a_missing_pncli_names_the_npm_package` |
+| pncli | `ad-pncli capture-help` inside a fleet (both markers set): it writes a file for the operator to read and attach | `refused: operator_only`, exit 2, nothing written | `test_pncli_capture.py::test_capture_help_is_the_operators_and_refuses_inside_a_fleet` |
 | Graph approval | `ad-graph approve` has no terminal | exit 3, `hint`, nothing written | `test_graph_explain.py::test_approve_refuses_without_a_terminal_and_writes_nothing` |
 | Graph guard | the graph is unapproved or stale | exit 1, hint naming `codebase-map` | `test_graph_guard.py::test_a_missing_approval_refuses_everything` |
 | Graph guard | the changed node is not covered by tests | exit 1, hint naming `test-cover` | `test_graph_guard.py::test_editing_an_uncovered_function_is_refused_and_names_test_cover` |
