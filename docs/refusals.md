@@ -89,6 +89,10 @@ refusal call sites in `agentdata/` is pinned, so a new one has to be added here 
 | Launch | `fleet.model` / `fleet.effort` is more than one argument | `LaunchError` before the argv is built | `test_fleet.py::test_a_model_value_that_would_become_a_second_flag_is_refused` |
 | Approval gate | an operator denied the write | `refused: approval_denied`, exit 2, quoting the reason | `test_fleet_approval.py::test_ad_jira_transition_refuses_on_a_denial_and_never_posts` |
 | Approval gate | `ad-jira create` inside a fleet, denied | `refused: approval_denied`, exit 2, nothing posted | `test_jira_create.py::test_the_gate_holds_the_post_and_a_denial_never_creates` |
+| Jira comment | the body is empty or only whitespace | `refused: empty_body`, exit 2, a hint; Jira is not asked | `test_jira_comment.py::test_an_empty_or_oversized_body_is_refused_before_jira_is_asked` |
+| Jira comment | the body is over Jira's 32,767 characters | `refused: body_too_long`, exit 2, a hint; Jira is not asked | `test_jira_comment.py::test_an_empty_or_oversized_body_is_refused_before_jira_is_asked` |
+| Jira comment | Jira has no such issue (a mistyped key), caught by the dry-run's read | `refused: no_issue`, exit 2, nothing posted | `test_jira_comment.py::test_a_key_jira_does_not_know_fails_in_the_preview_with_no_issue` |
+| Approval gate | `ad-jira comment` inside a fleet, denied | `refused: approval_denied`, exit 2, nothing posted | `test_jira_comment.py::test_inside_a_fleet_a_deny_posts_nothing` |
 | Jira create | a `--field` or `jira_fields` name Jira does not have, a pair without `=`, or no project | `ok: false`, exit 2, the `available` names / the `jira_project` hint; nothing posted | `test_jira_create.py::test_an_unknown_field_is_refused_with_the_nearest_names_and_no_post` |
 | Jira create | a value the field's type cannot take, or `me` with nobody signed in | `CreateError` before the POST | `test_jira_create.py::test_refusals_happen_before_anything_is_sent` |
 | XMLA sign-in | `powerbi.auth.mode` is not `token` or `interactive` | `ConfigError` listing both | `test_pbi_auth.py::test_env_overrides_win_and_a_typo_is_refused_not_defaulted` |

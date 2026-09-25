@@ -433,6 +433,13 @@ class Jira:
             body["update"] = {"comment": [{"add": {"body": adf(comment) if self.flavor.api == "3" else comment}}]}
         self.post(f"{self.api}/issue/{key}/transitions", body, idempotent=False)
 
+    def add_comment(self, key: str, text: str) -> dict:
+        """Post one comment and answer Jira's record of it. Never replayed, for the transition's reason: a POST that
+        timed out may well have landed, and a second one posts the note twice."""
+        from ..jira_workflow import adf
+        body = {"body": adf(text) if self.flavor.api == "3" else text}
+        return self.post(f"{self.api}/issue/{key}/comment", body, idempotent=False) or {}
+
     # ---------- changelog ----------
     def iter_changelog(self, keys: list[str], field_ids: list[str] | None = None, name_to_id: dict | None = None,
                        id_to_key: dict | None = None, use_bulk: bool = True, bulk_issues: int = 200,
