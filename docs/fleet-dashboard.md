@@ -89,6 +89,19 @@ catalogue), and **project** — the selected project's link rail, verify pane, f
 and offered files. Every window on this server agrees on which project is selected, so clicking a
 tile on the left monitor changes the inspector on the centre one.
 
+**Open friction** (#499) is decided by the server, not the page. A STOP is *open* when the operator
+has not dismissed it, it is on the active ticket (or names none), and either its unblock sentence is
+still an open question in `state.json` — it then reads *still asked — answer it on the pane*, which
+opens the pane's question card — or it was written in this session. *This session* begins at the
+newest `started` that is not a resume (or is marked `new`, or adopted), so a Send keeps this
+session's friction open and a fresh session folds it. Everything else sits under one closed
+*earlier friction (n)*, muted. A `nit` is drawn muted even when open. *dismiss* on any row, or
+*dismiss all* on the fold, records the name in `~/.agentdata/fleet/agents/<repo>/friction.json`
+(`ad-fleet friction <repo> --dismiss NAME` / `--earlier` do the same). The friction file is never
+moved, edited or deleted, and dismissing never answers the question. A friction file added or
+deleted reaches the panel on the next desk tick: a changed listing re-indexes that repository (at
+most two per snapshot), with no `ad-fleet index`.
+
 A **console** the fleet opens (#189) is a session the operator drives in their own `cmd.exe` window,
 started by `ad-fleet console <repo> [KEY]` with a session id the fleet chose. The lock is taken the
 way `start` takes it, with the window's pid, so one agent per working tree holds for consoles too;
@@ -461,6 +474,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/measure` | `{w}` asks that desk window to go to `/probe` (`ad-fleet probe --open pycharm`). The ask is held in memory for ten minutes and shows in the desk frame's `measure`. `{w, take: true}` is the window claiming it, answered `go: true` once |
 | GET | `/api/fleet` | every repo's state, its model and the one its last turn ran on, the recent events, and the pending approvals. A row's `run` is its current run without its events (`n`, `started`, `session`, `ticket`, `events_n`, …) and `run.origin`, who started it: `console`, `adopted`, `fleet`, or `""` before any `started` event (#401) |
 | GET | `/api/map` | the fleet as one graph (#401): projects, the checkouts that hang from them, and each checkout's agent with its kind (`console`, `adopted`, `headless`, `adoptable`, `none`), each with a sentence. Read-only; schema 1 in [fleet-map.md](fleet-map.md) §The graph |
+| POST | `/api/friction` | `{repo, dismiss: [names]}` or `{repo, earlier: true}` (#499): records the dismissals in the fleet directory, never the checkout, and answers `{repo, dismissed, project}` with the fresh panel. `409 no_repo`, or `not_friction` for a name not in `.agent/friction/` |
 | POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
 | GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent; `?frames=theme` sends no agent frames (the settings page, #348); `?notify=0` runs no notification sweep, and neither does `?frames=theme` (#356, §The stream) |
 | GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195), as the stream's `theme` payload with its css (#346) |
