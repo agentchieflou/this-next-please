@@ -1295,7 +1295,9 @@ def theme_state() -> dict:
         skin_name = skin_info["full"]
 
     t = theme_or_none(default_name)
-    css_vars = T.to_css(t) if t and t.name != "none" else {}
+    # A word in a state colour is chosen against every panel the palette is drawn on (#328), so
+    # the tokens are one set per palette, the same under every skin on it.
+    css_vars = T.to_css(t, panels=skins.panels_on(t.name)) if t and t.name != "none" else {}
     proj_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_map, dict):
         proj_map = {}
@@ -3122,12 +3124,13 @@ def models_snapshot() -> dict:
 def themes() -> list[dict]:
     """Palettes from agentdata.theme, rendered through theme.to_css()."""
     from .. import theme as T
+    from . import skins
 
     out = []
     for t in T.list_themes():
         if t.name == "none":
             continue
-        c = T.to_css(t)
+        c = T.to_css(t, panels=skins.panels_on(t.name))   # the tokens `theme_state` serves (#328)
         colors = {
             "bg": c.get("--bg", ""),
             "panel": c.get("--panel", ""),

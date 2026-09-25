@@ -333,6 +333,74 @@ def test_theme_check_rule_7_the_word_on_a_state_colour():
     assert f"--on-running '{c['--on-running']}' on --running '#787878'" in exc.value.hint
 
 
+ROLES = ("--running", "--waiting", "--human", "--done", "--idle")
+
+
+def test_theme_check_rule_8_a_word_in_a_state_colour():
+    """Rule 8 of theme.check (#328): each `--<role>-text` token reads >= 4.5:1 on the palette's
+    ground and on every panel it is drawn on -- for every built-in with `skins.panels_on(name)` and
+    for 200 random rolls with none. The token is the role colour itself where that already reads on
+    `--bg`, `--panel`, `--select` and every panel, else the first step of 0.02 toward `--text` that
+    does; and a palette whose words cannot reach 4.5:1 on a panel is refused with a hint naming both."""
+    from agentdata.fleet import skins
+
+    palettes = [(t, skins.panels_on(t.name)) for t in theme.list_themes() if t.name != "none"]
+    palettes += [(theme.random_theme(i * 1013 + 7), []) for i in range(200)]
+    for t, panels in palettes:
+        theme.check(t, panels=panels)
+        c = theme.to_css(t, panels=panels)
+        grounds = (c["--bg"], c["--panel"], c["--select"], *panels)
+        for role in ROLES:
+            word = c[role + "-text"]
+            steps = [c[role]] + [theme.mix(c[role], c["--text"], s / 50) for s in range(1, 50)]
+            first = next((x for x in steps if all(theme.contrast_ratio(x, g) >= 4.5 for g in grounds)),
+                         c["--text"])
+            assert word == first, f"{t.name} {role}-text {word}, the rule's first is {first}"
+            assert all(theme.contrast_ratio(word, g) >= 4.5 for g in grounds), f"{t.name} {role}-text {word}"
+        # The role colour itself stays for marks: rule 2's 3:1, unchanged.
+        assert c["--human"] == t.status["fail"]
+
+    # A panel on which no word reaches 4.5:1, not even the text: every word falls back to `--text`,
+    # and rule 8 refuses it there. Rules 1-7 read the palette's own ground, so they pass it.
+    with pytest.raises(theme.ThemeError) as exc:
+        theme.check(theme.DARK, panels=["#7A7F84"])
+    assert "the word in --running" in str(exc.value) and "below 4.5:1 floor" in str(exc.value)
+    assert "--running-text '#E3E7EA' on '#7A7F84'" in exc.value.hint
+
+
+def test_the_pressed_ground_holds_text_at_4_5():
+    """Rule 9 of theme.check (#328), "pressed ground": `--text` on `--select`, the ground a pressed
+    control writes its word on (the model picker's pill, the pressed tab, the pin), reads >= 4.5:1
+    for every built-in and 200 random rolls. A palette whose text reads on its page and not on a
+    pressed control is refused by rule 9 alone, with a hint naming the text, the select and the
+    accent the select moved toward."""
+    palettes = [t for t in theme.list_themes() if t.name != "none"]
+    palettes += [theme.random_theme(i * 1013 + 7) for i in range(200)]
+    for t in palettes:
+        c = theme.to_css(t)
+        assert theme.contrast_ratio(c["--text"], c["--select"]) >= 4.5, (t.name, c["--text"], c["--select"])
+        theme.check(t)
+
+    crafted = Theme(
+        name="pressed-grey", title="Pressed grey", why="text that reads on the page, not when pressed",
+        ground="#FFFFFF", text="#6E6E6E", accent="#000000", cursor="#000000",
+        ansi=theme._make_ansi("#FFFFFF", "#6E6E6E", "#000000", light=True),
+        status={"ok": "#2E7D32", "warn": "#8A6D00", "fail": "#C62828", "skip": "#6E6E6E",
+                "info": "#1565C0"},
+        light=True, muted="#595959",
+    )
+    c = theme.to_css(crafted)
+    assert c["--select"] == "#D1D1D1"
+    assert round(theme.contrast_ratio("#6E6E6E", "#FFFFFF"), 2) == 5.10
+    assert round(theme.contrast_ratio("#6E6E6E", "#D1D1D1"), 2) == 3.34
+    with pytest.raises(ThemeError) as exc:
+        check(crafted)
+    # Refused by rule 9, the last: rules 1-8 passed it.
+    assert "pressed ground" in str(exc.value), str(exc.value)
+    for colour in ("#6E6E6E", "#D1D1D1", "#000000"):
+        assert colour in exc.value.hint, (colour, exc.value.hint)
+
+
 def test_theme_escapes_are_byte_identical_to_golden():
     """theme.escapes(t) for every built-in is byte-identical to golden captured at 8557b2b."""
     golden = {

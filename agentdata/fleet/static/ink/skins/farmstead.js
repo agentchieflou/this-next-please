@@ -27,7 +27,14 @@ const SHEET = "/static/skins/farmstead/sprites.svg";
    holds exactly the pixels in the file, and every enlargement after it is NearestFilter's. */
 const RASTER = 1;
 const CROPS = ["crop-seed", "crop-sprout", "crop-sun", "crop-bloom", "crop-wilted"];
-const SPRITES = ["soil", "plank"].concat(CROPS);
+/* The art the farm's effects draw with (#380), not crops and never grown: nothing draws it yet. */
+const PROPS = ["produce", "cloud", "hen-a", "hen-b", "cat-sleep", "cat-stretch", "crow"];
+const SPRITES = ["soil", "plank"].concat(CROPS, PROPS);
+/* Each sprite's size in art px; 16x16 when it is not here. load() makes every texture before the
+   sheet is fetched, so a size cannot come from the svg: this table is the source, and a static test
+   holds every nested <svg>'s width and height in sprites.svg to it. */
+const SIZE = { plank: [16, 8], produce: [8, 8], cloud: [16, 8], "hen-a": [12, 12], "hen-b": [12, 12],
+               "cat-sleep": [16, 8], "cat-stretch": [16, 8], crow: [8, 8] };
 /* How a crop grows. A change along this line is the phase advancing: one stage drawn per step. */
 const GROWS = ["crop-seed", "crop-sprout", "crop-bloom"];
 /* Rows of art a growing crop gains a second, and never fewer than one a frame: a stage is up in
@@ -137,7 +144,7 @@ function load(THREE, api) {
   const s = sheet = { textures: {}, data: {}, sizes: {}, base: {}, loaded: false, failed: "",
                       nearest: THREE.NearestFilter };
   for (const id of SPRITES) {
-    const w = 16 * RASTER, h = (id === "plank" ? 8 : 16) * RASTER;
+    const [w, h] = (SIZE[id] || [16, 16]).map(n => n * RASTER);
     s.sizes[id] = [w, h];
     s.data[id] = new Uint8Array(w * h * 4);
     const t = new THREE.DataTexture(s.data[id], w, h, THREE.RGBAFormat);

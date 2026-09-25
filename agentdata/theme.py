@@ -124,7 +124,21 @@ def on_role(role: str, text: str, ground: str) -> str:
     return max(candidates, key=lambda c: contrast_ratio(c, role))
 
 
-def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
+def role_text(role: str, text: str, grounds) -> str:
+    """The colour a word is written in when it is written IN the role colour `role` (#328): the why
+    line, "exit 2", "it asked you:", a clear chip's word. The role itself when it reads at 4.5:1 on
+    every one of `grounds`; otherwise the role moved toward `text` in steps of 0.02 until it does;
+    `text` if no step does (rule 8 of `check` then judges it). A mark in the role colour -- a border,
+    an outline, a disc -- is held to 3:1 and keeps the role itself; a word needs 4.5:1 (WCAG 1.4.3)."""
+    grounds = tuple(grounds)
+    for step in range(50):
+        cand = mix(role, text, step / 50) if step else role
+        if all(contrast_ratio(cand, g) >= 4.5 for g in grounds):
+            return cand
+    return text
+
+
+def to_css(t: Theme, project_accent: str | None = None, panels=()) -> dict[str, str]:
     """Render a Theme as CSS custom properties according to the stated mapping.
 
     Tokens:
@@ -143,6 +157,13 @@ def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
       --idle: status.skip
       --on-running, --on-waiting, --on-human, --on-done, --on-idle: the word on that role colour,
         chosen by `on_role` (#327)
+      --running-text, --waiting-text, --human-text, --done-text, --idle-text: a word written in that
+        role colour, chosen by `role_text` against --bg, --panel, --select and every colour in
+        `panels` (#328)
+
+    `panels` are the composited panels the palette is drawn on under a skin (the fleet's
+    `skins.panels_on(t.name)`, which the caller passes: this module never imports the fleet), so one
+    set of `-text` tokens serves the palette under every skin drawn on it.
     """
     if t.name == "none" or t.ground is None or t.text is None:
         return {}
@@ -168,12 +189,15 @@ def to_css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
     }
     for role in ROLES:
         out["--on-" + role[2:]] = on_role(out[role], t.text, t.ground)
+    grounds = (t.ground, panel, select, *panels)
+    for role in ROLES:
+        out[role + "-text"] = role_text(out[role], t.text, grounds)
     return out
 
 
-def css(t: Theme, project_accent: str | None = None) -> dict[str, str]:
+def css(t: Theme, project_accent: str | None = None, panels=()) -> dict[str, str]:
     """Alias for to_css()."""
-    return to_css(t, project_accent=project_accent)
+    return to_css(t, project_accent=project_accent, panels=panels)
 
 
 #: How much of a highlighter's ink a highlighted line of text is read through -- the plain
@@ -183,7 +207,7 @@ INK_TINT = 0.38
 
 
 def check(t: Theme, composited_panel: str | None = None, skin: str | None = None,
-          inks: dict[str, str] | None = None) -> None:
+          inks: dict[str, str] | None = None, panels=()) -> None:
     """The theme invariant, computed, not judged by eye.
 
     1. text on ground >= 4.5:1 and <= 19:1 (pure white on pure black is refused).
@@ -197,6 +221,16 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
     6. Muted text on ground (#325): to_css(t)["--muted"] >= 4.5:1 on target_ground.
     7. The word on a state colour (#327): each to_css(t)["--on-<role>"] >= 4.5:1 on its role
        colour -- a chip's, a badge's and a rail glyph's word.
+    8. A word in a state colour (#328): each `--<role>-text` >= 4.5:1 on target_ground and on each
+       of `panels` -- the why line, "exit 2", "it asked you:", a clear chip's word. The tokens are
+       the ones `to_css` chooses for the grounds judged here (the composited panel and `panels`),
+       as the page is served them for every panel of its skins (`skins.panels_on`). The role
+       colour itself stays for marks, at rule 2's 3:1.
+    9. The pressed ground (#328): to_css(t)["--text"] >= 4.5:1 on to_css(t)["--select"], the word
+       on a pressed control (the model picker's pill, the pressed tab, the pin). The palette is the
+       only input: a project's accent paints only the pane's left edge. `--accent` on `--panel` or
+       `--select` is not held: random rolls fall under 2.5:1 there, and a pressed control's ring is
+       a second mark -- its word carries the state.
     """
     if t.name == "none" or t.ground is None or t.text is None:
         return
@@ -286,6 +320,30 @@ def check(t: Theme, composited_panel: str | None = None, skin: str | None = None
                 f"{skin_ctx}theme '{t.name}': the word on {role} is {cr_on:.2f}:1, below 4.5:1 floor",
                 hint=f"{skin_ctx}--on-{role[2:]} '{on}' on {role} '{tokens[role]}'"
             )
+
+    # Rule 8: a word in a state colour (#328)
+    grounds = [target_ground] + [p for p in panels if p != target_ground]
+    worded = to_css(t, panels=((composited_panel,) if composited_panel else ()) + tuple(panels))
+    for role in ROLES:
+        word = worded[role + "-text"]
+        for g in grounds:
+            cr_word = contrast_ratio(word, g)
+            if cr_word < 4.5:
+                raise ThemeError(
+                    f"{skin_ctx}theme '{t.name}': the word in {role} is {cr_word:.2f}:1 on '{g}', "
+                    f"below 4.5:1 floor",
+                    hint=f"{skin_ctx}{role}-text '{word}' on '{g}' ({role} '{worded[role]}' moved "
+                         f"toward text '{t.text}' reads on no step)"
+                )
+
+    # Rule 9: the pressed ground (#328)
+    cr_pressed = contrast_ratio(tokens["--text"], tokens["--select"])
+    if cr_pressed < 4.5:
+        raise ThemeError(
+            f"{skin_ctx}theme '{t.name}': text on the pressed ground is {cr_pressed:.2f}:1, below 4.5:1 floor",
+            hint=f"{skin_ctx}text '{tokens['--text']}' on --select '{tokens['--select']}' "
+                 f"(ground '{t.ground}' moved 18% toward accent '{tokens['--accent']}')"
+        )
 
 
 # ---------- Built-in Theme Definitions ----------

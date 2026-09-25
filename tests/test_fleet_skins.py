@@ -65,6 +65,16 @@ def test_all_svg_sprites_use_rect_pixel_art_with_named_comments():
         assert "soil tile" in content
         assert "wood plank" in content
         assert "crop stage" in content
+        # The farm's effects' art (#380), each named in its own comment.
+        for name in ("produce", "cloud", "hen a", "hen b", "cat sleep", "cat stretch", "crow"):
+            assert re.search(r"<!--[^>]*\b%s\b" % name, content), f"no comment names the {name} sprite"
+        # And every sprite has one: the comment right before its <svg> gives its size and names it.
+        sprites = re.findall(r'<!--((?:(?!-->).)*)-->\s*<svg id="([\w-]+)"[^>]*?\bwidth="(\d+)" height="(\d+)"',
+                             content, re.S)
+        assert len(sprites) == content.count("<svg id="), "a sprite with no comment of its own"
+        for comment, sprite, w, h in sprites:
+            assert f"{w}x{h}" in comment and all(part in comment for part in sprite.split("-")), \
+                f"{skin_name}: #{sprite}'s comment does not name it and its size: {comment.strip()!r}"
 
 
 def test_every_skin_variant_passes_the_contrast_rule_on_its_own_ground():
@@ -300,6 +310,41 @@ def test_muted_contrast_on_every_variant_composited_panel():
                 f"{skin_name}:{variant} muted {muted} on panel {panel} contrast {cr:.2f}:1 "
                 f"below 4.5:1 floor"
             )
+
+
+def test_panels_on_is_every_composited_panel_drawn_on_a_palette():
+    """#328: `panels_on(base)` is every composited panel of every variant drawn on `base` (both ends
+    of glass's frost), each once, in `every_variant` order -- and nothing for a palette no skin is
+    drawn on. It is what serve.py chooses a palette's `-text` tokens against."""
+    for base in {spec["base"] for _, _, spec in skins.every_variant()}:
+        drawn = [p for _, _, spec in skins.every_variant() if spec["base"] == base
+                 for p in skins.composited_panels(spec)]
+        assert skins.panels_on(base) == list(dict.fromkeys(drawn)), base
+    smoke = skins.SKINS["glass"]["variants"]["smoke"]
+    assert {smoke["composited_panel"]["darkest"], smoke["composited_panel"]["lightest"]} <= \
+        set(skins.panels_on(smoke["base"]))
+    assert skins.panels_on("none") == [] and skins.panels_on("random") == []
+
+
+def test_every_word_in_a_state_colour_reads_at_4_5_on_every_composited_panel():
+    """Acceptance criterion (#328). A word in a state colour -- the why line, "exit 2", "it asked
+    you:", farmstead's clear chip -- is written on the variant's frost, slab or paper, not on the
+    palette's ground. For every variant, each `-text` token served for its palette
+    (`to_css(base, panels=panels_on(base))`, as serve.py writes it) reads at 4.5:1 on each of the
+    variant's composited panels, and rule 8 holds there."""
+    low = []
+    for skin_name, variant, spec in skins.every_variant():
+        base = theme.get(spec["base"])
+        panels = skins.panels_on(spec["base"])
+        served = theme.to_css(base, panels=panels)
+        for panel in skins.composited_panels(spec):
+            for role in ("--running", "--waiting", "--human", "--done", "--idle"):
+                word = served[role + "-text"]
+                ratio = theme.contrast_ratio(word, panel)
+                if ratio < 4.5:
+                    low.append(f"{skin_name}:{variant} {role}-text {word} on {panel} = {ratio:.2f}")
+            theme.check(base, composited_panel=panel, skin=f"{skin_name}:{variant}", panels=panels)
+    assert not low, low
 
 
 def test_farmstead_skin_css_inks_equal_skins_py_inks():

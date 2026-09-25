@@ -133,6 +133,11 @@ the tile's header switches one column and two; a pin keeps a tile first. Nothing
 | `--on-human` | the same, on `status.fail` | — |
 | `--on-done` | the same, on `status.ok` | — |
 | `--on-idle` | the same, on `status.skip` | — |
+| `--running-text` | a word written in `status.info`: the role itself where it reads at 4.5:1 on `--bg`, `--panel`, `--select` and every composited panel of the palette's skins, else moved toward `text` until it does (#328) | — |
+| `--waiting-text` | the same, for `status.warn` | — |
+| `--human-text` | the same, for `status.fail` | — |
+| `--done-text` | the same, for `status.ok` | — |
+| `--idle-text` | the same, for `status.skip` | — |
 
 **The status rule is restated, not broken.** `app.css` says "status colours never change", and it meant
 *never change meaning*: a chip that says "needs you" is `status.fail` in every theme, and `state → role` is
