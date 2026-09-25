@@ -226,3 +226,4 @@ def test_the_action_is_in_the_vocabulary_an_unknown_one_lists(fleet_home, tmp_pa
     with pytest.raises(S.ServeError) as e:
         S.act("nonsense", {})
     assert "settings" in (e.value.hint or "") + e.value.msg
+    assert "models" in (e.value.hint or ""), "the model list's refresh (#361) is in the vocabulary"

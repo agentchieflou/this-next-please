@@ -30,10 +30,12 @@ from .registry import fleet_dir
 from .serve import SERVE_FILE
 
 WHERE = ("browser", "vscode", "pycharm", "edge")
-# The windows the two IDE shells load the desk as (`WINDOW` in `Fleet.kt` and `fleet.ts`, #230). Each
-# is an IDE's own view, which nothing outside the IDE can point at a URL, so `ad-fleet open --all`
-# leaves them to it: a browser tab under one of these names would share the view's record.
-IDE_WINDOWS = ("pycharm", "vscode")
+# The windows a host of its own loads the desk as: the two IDE shells (`WINDOW` in `Fleet.kt` and
+# `fleet.ts`, #230) and the spike's desktop window (`WINDOW` in ide/desktop/fleet_window.py, #353).
+# Nothing outside its host can point one at a URL, so `ad-fleet open --all` leaves them to it: a
+# browser tab under one of these names would share the host's record. `desktop` is not in `WHERE`:
+# no `ad-fleet` verb launches the spike, only its own command.
+IDE_WINDOWS = ("pycharm", "vscode", "desktop")
 PING_TIMEOUT_S = 2.0
 
 LAUNCHER = "fleet.html"

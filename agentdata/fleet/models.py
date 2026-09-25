@@ -11,13 +11,20 @@ The list is a suggestion, never a gate: nothing refuses a name it lacks. A confi
 build does not list is marked `offered: false` so a picker can say so, and the CLI stays the
 validator at the agent's next turn.
 
+A server asks the CLI on a thread of its own (#361): `start_refresh` once when `ad-fleet serve` or
+`quickstart` starts and on `POST /api/models {refresh: true}`, one at a time per process, so a page
+is never kept waiting on a process.
+
 This module never imports `serve`: the caller passes the ids the stream has seen.
 """
 from __future__ import annotations
 import datetime as _dt
+import hashlib
 import json
 import os
 import re
+import threading
+import time
 
 from .. import config as C
 from .. import proc
@@ -46,6 +53,7 @@ SHIPPED_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models_
 MAX_AGE_KEY = "fleet.model_list.max_age_h"      # never under fleet.models.*: model_for reads every key there as a repo
 DEFAULT_MAX_AGE_H = 24
 TIMEOUT = 60
+STOPPED = "the server stopped before the CLI was asked"
 
 
 # ------------------------------------------------------------------------------------ parsers
@@ -110,19 +118,25 @@ def group_of(model_id: str) -> str:
 # ------------------------------------------------------------------------------------ discovery
 
 
-def _run(argv: list[str], timeout: int) -> str:
+def _run(argv: list[str], timeout: int, stop: threading.Event | None = None) -> str:
+    if stop is not None and stop.is_set():
+        # A server going away starts nothing more (#361): its refresh is not worth a process.
+        raise proc.ProcError("stopped", STOPPED)
     code, out, err, _ = proc.run(argv, timeout=timeout, hint="install the Copilot CLI, or leave the model to it")
     return (out or "") + ("\n" + err if err and code != 0 else "")
 
 
-def discover_help(timeout: int = TIMEOUT, *, cli_version: str | None = None) -> dict:
-    """Ask the installed CLI. Never raises: a start failure or timeout is `{"ok": False, "why": …}`."""
+def discover_help(timeout: int = TIMEOUT, *, cli_version: str | None = None,
+                  stop: threading.Event | None = None) -> dict:
+    """Ask the installed CLI. Never raises: a start failure or timeout is `{"ok": False, "why": …}`.
+    Once `stop` is set, nothing more is started."""
     try:
-        version = cli_version if cli_version is not None else parse_version(_run(["copilot", "--version"], timeout))
-        ids, source = parse_help_config(_run(["copilot", "help", "config"], timeout)), "help"
-        efforts = parse_efforts(_run(["copilot", "--help"], timeout))
+        version = (cli_version if cli_version is not None
+                   else parse_version(_run(["copilot", "--version"], timeout, stop)))
+        ids, source = parse_help_config(_run(["copilot", "help", "config"], timeout, stop)), "help"
+        efforts = parse_efforts(_run(["copilot", "--help"], timeout, stop))
         if not ids:
-            ids, source = parse_completion(_run(["copilot", "completion", "bash"], timeout)), "completion"
+            ids, source = parse_completion(_run(["copilot", "completion", "bash"], timeout, stop)), "completion"
     except proc.ProcError as e:
         return {"ok": False, "why": e.msg, "code": e.code}
     if not ids:
@@ -176,23 +190,29 @@ def max_age_h(cfg: dict | None) -> float:
     return value if value > 0 else float(DEFAULT_MAX_AGE_H)
 
 
-def refresh(cfg: dict | None = None, *, cli_version: str | None = None) -> dict:
+def refresh(cfg: dict | None = None, *, cli_version: str | None = None, path: str | None = None,
+            stop: threading.Event | None = None) -> dict:
     """Ask the CLI and write the cache. A failed ask keeps the old cache and records `why` in it.
 
     Returns the cache now on disk, or `{"failed": True, "why": …}` when the ask failed and there
-    was none. Raises OSError only when the cache cannot be written.
+    was none. Raises OSError only when the cache cannot be written. `path` is the cache file,
+    `cache_file()` by default. Once `stop` is set nothing is written: the cache on disk is
+    returned as it was.
     """
-    got = discover_help(cli_version=cli_version)
+    path = path or cache_file()
+    got = discover_help(cli_version=cli_version, stop=stop)
+    if stop is not None and stop.is_set():
+        return _read(path) or {"failed": True, "why": STOPPED}
     if got["ok"]:
         cache = {"source": got["source"], "cli_version": got["cli_version"], "fetched_at": _now(),
                  "models": got["models"], "efforts": got["efforts"], "why": ""}
-        textio.write_json(cache_file(), cache)
+        textio.write_json(path, cache)
         return cache
-    cache = load_cache()
+    cache = _read(path)
     if cache is None:
         return {"failed": True, "why": got["why"]}
     cache["why"] = got["why"]
-    textio.write_json(cache_file(), cache)
+    textio.write_json(path, cache)
     return cache
 
 
@@ -206,33 +226,35 @@ def _configured(cfg: dict) -> list[str]:
     return [m for m in out if m]
 
 
-def catalogue(cfg: dict | None = None, *, seen=(), spawn: bool = False, cli_version: str | None = None) -> dict:
+def catalogue(cfg: dict | None = None, *, seen=(), spawn: bool = False, cli_version: str | None = None,
+              path: str | None = None, stop: threading.Event | None = None) -> dict:
     """`{models, groups, efforts, meta}` for a picker.
 
     `spawn=False` starts no process: the cache, else the shipped list marked stale. `spawn=True`
     refreshes when the cache is missing or older than `fleet.model_list.max_age_h`; otherwise it
     compares the CLI version (`cli_version`, else one `copilot --version`) with the cached one and
-    refreshes only when they differ.
+    refreshes only when they differ. `path` and `stop` are `refresh`'s.
     """
     cfg = cfg if cfg is not None else {}
+    path = path or cache_file()
     limit = max_age_h(cfg)
-    cache, why, write_error = load_cache(), "", ""
+    cache, why, write_error = _read(path), "", ""
     if spawn:
         try:
             if cache is None or _age_h(cache) > limit:
-                cache = refresh(cfg, cli_version=cli_version)
+                cache = refresh(cfg, cli_version=cli_version, path=path, stop=stop)
             else:
                 version = cli_version
                 if version is None:
                     try:
-                        version = parse_version(_run(["copilot", "--version"], TIMEOUT))
+                        version = parse_version(_run(["copilot", "--version"], TIMEOUT, stop))
                     except proc.ProcError as e:
                         version, why = "", e.msg
                 if version and version != cache.get("cli_version"):
-                    cache = refresh(cfg, cli_version=version)
+                    cache = refresh(cfg, cli_version=version, path=path, stop=stop)
         except OSError as e:
-            write_error = f"cannot write {cache_file()}: {e.strerror or e}"
-            cache = load_cache()
+            write_error = f"cannot write {path}: {e.strerror or e}"
+            cache = _read(path)
         if cache is not None and cache.get("failed"):
             why, cache = cache["why"], None
 
@@ -278,9 +300,87 @@ def catalogue(cfg: dict | None = None, *, seen=(), spawn: bool = False, cli_vers
             e["offered"] = False
 
     meta = {"source": source, "cli_version": base.get("cli_version", ""), "fetched_at": fetched_at,
-            "max_age_h": int(limit) if limit.is_integer() else limit, "stale": stale, "why": why, "file": cache_file()}
+            "max_age_h": int(limit) if limit.is_integer() else limit, "stale": stale, "why": why, "file": path}
     if write_error:
         meta["write_error"] = write_error
     return {"models": list(entries.values()),
             "groups": [{"key": k, "title": t} for k, t, _ in GROUPS],
             "efforts": efforts, "meta": meta}
+
+
+def digest(cat: dict) -> str:
+    """A `models` stream frame's `version` (#361): each entry's id and whether the CLI offers it,
+    and the efforts. A refresh that found the same list keeps it; `fetched_at` is not in it."""
+    rows = [[m.get("id", ""), bool(m.get("offered"))] for m in cat.get("models") or []]
+    blob = json.dumps(rows + [str(e) for e in cat.get("efforts") or []], ensure_ascii=False)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()   # noqa: S324 - a change marker, not a credential
+
+
+# ------------------------------------------------------------------------------------ the refresh thread
+
+
+#: One refresh at a time in this process (#361), and no module state to hold it: the running thread
+#: is the state, found by this name in `threading.enumerate()`, so nothing is left for a test (or a
+#: server that stops and starts again) to reset.
+REFRESH_THREAD = "models-refresh"
+# Held while one call looks for a running refresh and starts its own, so two calls never both start.
+_REFRESH_LOCK = threading.Lock()
+
+
+def _running() -> list[threading.Thread]:
+    return [t for t in threading.enumerate() if t.name == REFRESH_THREAD and t.is_alive()]
+
+
+def _refresh_thread(cfg: dict, path: str, stop: threading.Event | None, force: bool) -> None:
+    try:
+        if stop is not None and stop.is_set():
+            return
+        if force:
+            refresh(cfg, path=path, stop=stop)
+        else:
+            catalogue(cfg, spawn=True, path=path, stop=stop)
+    except Exception:                        # noqa: BLE001 - a refresh must never take its server down
+        from ..log import debug_exc
+
+        debug_exc("fleet models refresh")
+
+
+def start_refresh(stop: threading.Event | None = None, *, force: bool = False) -> bool:
+    """Ask the CLI on a daemon thread and return at once: True when this call started it, False when
+    a refresh was already running, which this call joins instead of starting a second.
+
+    `force=True` asks whatever the cache says (`refresh`); otherwise the cache is kept while it is
+    fresh and from the installed `--version` (`catalogue(spawn=True)`). The cache path and the
+    config are read here, when the refresh starts, never later: a test whose fleet directory has
+    been put back cannot have a late write land in the next test's, or in the real home. Once
+    `stop` (the server's `stopping`) is set, nothing more is started and nothing is written.
+    """
+    with _REFRESH_LOCK:
+        if _running():
+            return False
+        try:
+            cfg = C.load()
+        except (C.ConfigError, OSError):
+            cfg = {}
+        # `start()` returns once the thread is alive, so the next call under the lock sees it.
+        threading.Thread(target=_refresh_thread, args=(cfg, cache_file(), stop, force),
+                         name=REFRESH_THREAD, daemon=True).start()
+    return True
+
+
+def refreshing() -> bool:
+    """True while a refresh is running in this process."""
+    return bool(_running())
+
+
+def wait_refresh(timeout: float) -> bool:
+    """True once no refresh is running; False at the deadline, with one still running."""
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    while True:
+        running = _running()
+        if not running:
+            return True
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return False
+        running[0].join(left)

@@ -8,11 +8,19 @@ no way for an operator to tell which is current.
 So the rule "a shell contains no rule logic" is an executable check here rather than a line on a
 review checklist, and the two constants that have to agree with the server are read from the source
 rather than trusted.
+
+The spike's desktop window (#353, `ide/desktop/`) is held to the same per-file rules. The IDE checks
+are the two IDE shells' own, and pywebview is never imported here: a fake stands in for it.
 """
 from __future__ import annotations
+import ast
+import importlib.util
 import json
 import os
 import re
+import sys
+import time
+import types
 
 import pytest
 
@@ -21,6 +29,7 @@ from agentdata.fleet import agentstate, notify as N, opener as O, serve as S
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VSCODE = os.path.join(ROOT, "ide", "vscode")
 JETBRAINS = os.path.join(ROOT, "ide", "jetbrains")
+DESKTOP = os.path.join(ROOT, "ide", "desktop")
 DOC = os.path.join(ROOT, "docs", "fleet-ide.md")
 
 
@@ -49,6 +58,19 @@ def shells() -> dict[str, str]:
     return joined
 
 
+def desktop_sources() -> dict[str, str]:
+    """The spike's desktop window (#353). Only the per-file rule checks read it: it is a host, not
+    an IDE shell, so `shells()` and the escape check stay the two IDE shells' own."""
+    out = {}
+    for dirpath, dirs, names in os.walk(DESKTOP):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for name in names:
+            if name.endswith(".py"):
+                path = os.path.join(dirpath, name)
+                out[os.path.relpath(path, ROOT).replace("\\", "/")] = read(path)
+    return out
+
+
 # ------------------------------------------------------------------------ they are still shells
 
 
@@ -66,7 +88,7 @@ def test_no_shell_decides_what_an_agent_state_means():
     # that field is the opposite of the thing being forbidden. The next test asserts they do read it.
     # `running`, `done` and `error` are words too common to grep for meaningfully.
     states = set(agentstate.STATES) - {"running", "done", "error", "needs_human"}
-    for path, body in shell_sources().items():
+    for path, body in {**shell_sources(), **desktop_sources()}.items():
         for state in sorted(states):
             assert f'"{state}"' not in body, f"{path} names the agent state {state!r}"
         # ...and `needs_human` may be read as a field, never compared as a state.
@@ -76,7 +98,7 @@ def test_no_shell_decides_what_an_agent_state_means():
 def test_no_shell_decides_when_to_interrupt_a_person():
     """Cooldowns, quiet hours and idle thresholds are `notify.py`'s. A shell that held one would
     hold a *different* one within a release."""
-    for path, body in shell_sources().items():
+    for path, body in {**shell_sources(), **desktop_sources()}.items():
         for word in ("cooldown", "quiet_hours", "quietHours", "idle_minutes", "idleMinutes"):
             assert word not in body, f"{path} carries a notification rule ({word})"
         assert "needs_the_human" not in body and "needsTheHuman" not in body, path
@@ -93,7 +115,7 @@ def test_a_shell_reads_the_servers_answer_rather_than_counting_for_itself():
 def test_the_only_event_kind_a_shell_acts_on_is_notify():
     """Acceptance criterion, executable. A shell that started reacting to `denied` or
     `phase_changed` would be deciding what they mean."""
-    for path, body in shell_sources().items():
+    for path, body in {**shell_sources(), **desktop_sources()}.items():
         if "event: " not in body and '"notify"' not in body:
             continue
         acted_on = set(re.findall(r'== "([a-z_]+)"', body)) & set(N.RULES)
@@ -162,8 +184,9 @@ def test_each_shell_names_its_own_window_on_the_desk():
 def test_open_all_leaves_exactly_the_windows_the_shells_name():
     """`ad-fleet open --all` leaves each IDE view's window to its IDE, and `IDE_WINDOWS` is how it
     knows them. Read from the source rather than trusted: a shell that renamed its window would
-    otherwise be given a browser tab sharing its record the next time the operator opened them all."""
-    named = {m.group(1) for body in shells().values()
+    otherwise be given a browser tab sharing its record the next time the operator opened them all.
+    The spike's desktop window (#353) is such a host too."""
+    named = {m.group(1) for body in [*shells().values(), *desktop_sources().values()]
              for m in re.finditer(r'\bWINDOW = "([^"]+)"', body)}
     assert named == set(O.IDE_WINDOWS)
 
@@ -173,6 +196,159 @@ def test_both_shells_ping_before_starting_a_second_server():
                  read(JETBRAINS, "src", "main", "kotlin", "com", "agentdata", "fleet", "Fleet.kt")):
         assert "/api/ping" in body
         assert "startServer" in body
+
+
+# ---------------------------------------------------------- the spike's desktop window (#353)
+
+
+FLEET_WINDOW = os.path.join(DESKTOP, "fleet_window.py")
+RECORD = {"url": "http://127.0.0.1:8765/?t=tok", "token": "tok", "port": 8765}
+
+
+def fleet_window() -> types.ModuleType:
+    """The spike, loaded from its path the way `python ide/desktop/fleet_window.py` runs it: it is
+    not in the wheel, so there is no module name to import it by."""
+    spec = importlib.util.spec_from_file_location("fleet_window", FLEET_WINDOW)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def imported_on_load(node: ast.AST) -> set[str]:
+    """The modules a file imports as it loads -- at the top, under an `if` or a `try` -- and not
+    those that only calling one of its functions imports."""
+    names: set[str] = set()
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        if isinstance(child, ast.Import):
+            names.update(alias.name.split(".")[0] for alias in child.names)
+        elif isinstance(child, ast.ImportFrom) and child.module:
+            names.add(child.module.split(".")[0])
+        names |= imported_on_load(child)
+    return names
+
+
+def test_the_desktop_window_is_a_shell():
+    """#353: the spike finds its desk the way `ad-fleet open` does and names its own window record,
+    and CI and the wheel never need pywebview: only `main()` imports it. It starts no process
+    itself -- `current_desk` starts the desk."""
+    assert "ide/desktop/fleet_window.py" in desktop_sources(), "the rule checks above cannot see it"
+    body = read(FLEET_WINDOW)
+    assert "opener.current_desk(" in body
+    assert 'WINDOW = "desktop"' in body
+    tree = ast.parse(body)
+    assert "webview" not in imported_on_load(tree), "pywebview is imported when the file loads"
+    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
+    assert any(isinstance(n, ast.Import) and any(a.name == "webview" for a in n.names)
+               for n in ast.walk(main)), "main() is where the spike imports pywebview"
+    assert "subprocess" not in body
+
+
+def test_the_desktop_window_without_pywebview_says_how_to_get_it(monkeypatch, capsys):
+    """No pywebview: one line saying how to get it, and exit 2 -- before a desk is started that
+    there would be no window to show."""
+    monkeypatch.setitem(sys.modules, "webview", None)  # `import webview` raises ImportError
+    monkeypatch.setattr(O, "current_desk",
+                        lambda *a, **k: pytest.fail("started a desk with no window to show it in"))
+    assert fleet_window().main([]) == 2
+    out = capsys.readouterr().out.strip().splitlines()
+    assert len(out) == 1 and "pip install pywebview" in out[0], out
+
+
+def test_the_desktop_window_keeps_its_geometry_in_the_fleet_dir(monkeypatch, tmp_path):
+    """Where the window was closed is where it reopens, and the file moves with
+    `AGENTDATA_FLEET_DIR` like the rest of the fleet. A monitor left of the main one has a
+    negative x, and that is a place too."""
+    monkeypatch.setenv("AGENTDATA_FLEET_DIR", str(tmp_path))
+    spike = fleet_window()
+    assert spike._saved_geometry() == {}, "nothing saved yet: pywebview's own size, centred"
+    spike._save_geometry(types.SimpleNamespace(x=-1270, y=40, width=1200, height=900))
+    saved = json.loads((tmp_path / "desktop.json").read_text(encoding="utf-8"))
+    assert saved == {"x": -1270, "y": 40, "width": 1200, "height": 900}
+    assert spike._saved_geometry() == saved
+    (tmp_path / "desktop.json").write_text("{not json", encoding="utf-8")
+    assert spike._saved_geometry() == {}, "a file it cannot read never keeps the window shut"
+
+
+class FakeEvent:
+    """`window.events.<name>` in pywebview: handlers join with `+=`, and a `closing` handler that
+    returns False keeps the window open."""
+
+    def __init__(self):
+        self.handlers = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def set(self) -> list:
+        return [handler() for handler in self.handlers]
+
+
+def fake_webview(opened: list, sessions: list) -> types.ModuleType:
+    """Just enough pywebview for `main()`. A window keeps how it was made, and each `start()` plays
+    the next of `sessions`: what the operator does with the window before closing it."""
+    webview = types.ModuleType("webview")
+
+    def create_window(title, url, **made_with):
+        events = types.SimpleNamespace(closing=FakeEvent(), minimized=FakeEvent(),
+                                       restored=FakeEvent(), maximized=FakeEvent())
+        window = types.SimpleNamespace(title=title, url=url, made_with=made_with, started_with={},
+                                       x=0, y=0, width=800, height=600, events=events)
+        opened.append(window)
+        return window
+
+    def start(**started_with):
+        window = opened[-1]
+        window.started_with = started_with
+        sessions.pop(0)(window)
+        assert False not in window.events.closing.set(), "a closing handler kept the window open"
+
+    webview.create_window, webview.start = create_window, start
+    return webview
+
+
+def moved_to_another_monitor(window) -> None:
+    window.x, window.y, window.width, window.height = 1930, 12, 1200, 1000
+
+
+def minimised(window) -> None:
+    """Where Windows parks a minimised window, and the size of its title bar."""
+    window.events.minimized.set()
+    window.x, window.y, window.width, window.height = -32000, -32000, 160, 28
+
+
+def test_the_desktop_window_hosts_the_desk_as_its_own_window(monkeypatch, tmp_path, capsys):
+    """What `main()` asks of pywebview, against a fake: the desk as `w=desktop` in a window titled
+    `fleet` on Edge's engine, `/probe` as shell `desktop` with `--probe`, the start time on one
+    line, and the geometry saved on close and given back on the next start -- unless it was closed
+    minimised. Only the laptop (#354) shows that pywebview and WebView2 do what the fake does."""
+    monkeypatch.setenv("AGENTDATA_FLEET_DIR", str(tmp_path))
+    opened: list = []
+    sessions = [moved_to_another_monitor, minimised]
+    monkeypatch.setitem(sys.modules, "webview", fake_webview(opened, sessions))
+    monkeypatch.setattr(O, "current_desk", lambda *a, **k: (RECORD, "started"))
+
+    before = time.time()
+    spike = fleet_window()
+    assert spike.main([]) == 0
+    after = time.time()
+    desk = opened[-1]
+    assert (desk.title, desk.url) == ("fleet", O.url_of(RECORD, window="desktop"))
+    assert "w=desktop" in desk.url
+    assert desk.started_with.get("gui") == "edgechromium"
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert len(lines) == 1, lines
+    started = float(re.search(r"\d+\.\d+", lines[0]).group(0))
+    assert before <= started <= after, "the line carries the script's own time.time()"
+
+    assert spike.main(["--probe"]) == 0
+    probe = opened[-1]
+    assert probe.url == O.page_urls(RECORD, "probe", {"shell": "desktop"})[0]
+    where = {"x": 1930, "y": 12, "width": 1200, "height": 1000}
+    assert {k: probe.made_with.get(k) for k in where} == where, "it reopens where it was closed"
+    assert spike._saved_geometry() == where, "closed minimised, it keeps the place it had before"
 
 
 # --------------------------------------------------------------------- nothing mangled them
