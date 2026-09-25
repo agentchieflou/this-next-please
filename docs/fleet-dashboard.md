@@ -62,6 +62,13 @@ The token is deliberately **not** a cookie. A cookie would be sent automatically
 browser, which is exactly what makes a local server on a known port drivable from a hostile tab;
 a query parameter has to be known to be used.
 
+**`fresh=1` only previews** (#511). `ad-fleet serve --open --fresh` and `ad-fleet open --fresh` add it,
+and `/open?fresh=1` forwards it: the page opens the fresh day's preview (`POST /api/fresh {all: true,
+dry_run: true}`), which is the only thing the parameter ever posts, and takes it off the address so a
+reload does not open it again. No parameter confirms anything: only the strip's *start N fresh* posts
+the ticked `repos`, and `/open` needs no token, so an address from anywhere may open a preview and no
+more (DAY-D4).
+
 This is loopback security, not authentication. It is the right size for a tool that runs on the
 operator's own machine and is never reachable from another one. Remote access is out of scope.
 
@@ -137,7 +144,8 @@ skipped its pre-flight. A ticket row takes the keyboard: `1`–`9` picks the
 rail chip in that position, `Enter` the row's one candidate.
 
 The **toolbar** is three labelled groups and one row: *widths* (the three presets, #234), *see*
-(search, the sidebar, and a *settings* link) and *alerts* (chime, the bell). A group named *window*
+(search, the sidebar, and a *settings* link) and *alerts* (chime, the bell, and the **day** menu: *start
+the day fresh (Shift+N)*, #511; #512 adds the sweeps). A group named *window*
 chose between the arrangements, and went with them (#232); the presets stand where it was. Settings are a **page**, `/settings`, not a popover: the palette was never
 the only one, and the model each agent runs and the flags the Copilot CLI is launched with have no
 business behind a button on a bar that is about the agents. The link's `href` is built at runtime
@@ -408,6 +416,7 @@ red everywhere or the colour stops being information:
 | `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
+| `Shift`+`N` | a fresh day for every pane (preview): the day strip under the toolbar, one row per agent — ticked, tickable (no ticket), or why not, a *needs you* row with its question and *answer* — then *start N fresh — about N premium turns*; `Esc` closes it (#511) |
 | `Alt`+`N` | start this pane fresh: a clean session on its ticket, the one it is on kept under *earlier* (#489) |
 | `/` | the search box — `where` over the catalogue |
 | `i` | the sidebar's inbox |

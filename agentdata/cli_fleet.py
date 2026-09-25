@@ -1211,6 +1211,14 @@ def _status_polls(a) -> int:
 # ---------------------------------------------------------------------- quickstart (#134)
 
 
+def _with_fresh(url: str) -> str:
+    """The desk's address, asking it to open a fresh day's preview (#511). The page posts the preview
+    and nothing else for it, and takes the parameter off the address: no URL confirms a launch."""
+    if not url:
+        return url
+    return f"{url}{'&' if '?' in url else '?'}fresh=1"
+
+
 def _open_browser(url: str) -> str:
     """Windows first: `os.startfile` is the shell's own "open this", and it needs no dependency.
 
@@ -1366,6 +1374,15 @@ def _remembered_windows() -> tuple[list[str], list[str]]:
             [w for w in names if w in O.IDE_WINDOWS])
 
 
+def _fresh_urls(a, record: dict, window: str) -> dict:
+    """`open --fresh` (#511): the same two addresses, each asking for the fresh day's preview, as
+    `open_in`'s `urls`. Without `--fresh`, nothing: `open_in` builds its own."""
+    if not getattr(a, "fresh", False):
+        return {}
+    return {"urls": (_with_fresh(O.url_of(record, window=window)),
+                     _with_fresh(O.open_in_url(record, window=window)))}
+
+
 def cmd_open(a) -> int:
     """Put the dashboard in front of the operator, starting one if none is up.
 
@@ -1382,7 +1399,8 @@ def cmd_open(a) -> int:
     try:
         if getattr(a, "all", False):
             wins, skipped = _remembered_windows()
-            dids = [O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w) for w in wins]
+            dids = [O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w,
+                              **_fresh_urls(a, record, w)) for w in wins]
             return _emit("ad-fleet open", {"where": a.where, "server": server,
                                            "port": record.get("port"), "windows": wins,
                                            "skipped": skipped,
@@ -1390,7 +1408,8 @@ def cmd_open(a) -> int:
         # Edge is a window of its own, so it gets a record of its own (#230): a plain `main` would
         # follow every click made in the browser tab, and the tab every click made in Edge.
         w = getattr(a, "window", "") or ("edge" if a.where == "edge" else "")
-        did = O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w)
+        did = O.open_in(a.where, record, launcher_dir=a.write_launcher or "", window=w,
+                        **_fresh_urls(a, record, w))
     except O.OpenError as e:
         return _refuse("ad-fleet open", e)
 
@@ -1850,6 +1869,10 @@ def cmd_serve(a) -> int:
     _refresh_models(server)
     url = S.url_for(server, token)
     S.record(server, token)
+    # `--fresh` (#511, DAY-D4): the page opens the fresh day's preview. The server launches nothing,
+    # and neither does the page until the operator ticks and confirms.
+    if getattr(a, "fresh", False):
+        url = _with_fresh(url)
     _emit("ad-fleet serve", {"url": url, "port": server.server_address[1],
                              "bound": "127.0.0.1 only",
                              "note": _layout_note(a, "the token in the URL is required on every "
@@ -2146,6 +2169,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="which named window to open (e.g. main, left; default: edge for "
                           "--in edge, else main)")
     opn.add_argument("--all", action="store_true", help="open every window the desk remembers")
+    opn.add_argument("--fresh", action="store_true",
+                     help="open the desk on a fresh day's preview (launches nothing; #511)")
     opn.set_defaults(fn=cmd_open)
 
     prb = sub.add_parser("probe", help="WebGL, measured in a shell: what each one recorded, "
@@ -2207,6 +2232,8 @@ def build_parser() -> argparse.ArgumentParser:
     srv = sub.add_parser("serve", help="the multi-viewer: one local page, one tile per agent")
     srv.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 picks a free one)")
     srv.add_argument("--open", action="store_true", help="open it in the default browser")
+    srv.add_argument("--fresh", action="store_true",
+                     help="the page opens on a fresh day's preview; nothing launches until you confirm (#511)")
     srv.add_argument("--layout", help=argparse.SUPPRESS)
     srv.set_defaults(fn=cmd_serve)
 
