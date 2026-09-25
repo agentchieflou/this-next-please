@@ -333,6 +333,18 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
             assert page.get_attribute('.tile[data-repo="fresh"] .oldsession', "hidden") is not None
             assert "0.13.1" in page.get_attribute('.tile[data-repo="old"] .oldsession', "title")
             assert "1 session began" in page.inner_text("#renew-strip .renew-sum")
+            # #489: the stale pane's own door, on its head: what it starts, on which model. Only
+            # presence and title here -- this test fails any start.
+            fresh = '.tile[data-repo="old"] .freshtoggle'
+            page.wait_for_selector(fresh + ":not([hidden])", timeout=10000)
+            title = page.get_attribute(fresh, "title")
+            assert "on RDSD-1" in title and "cli-auto" in title and "Alt+N" in title, title
+            # #509: the button is drawn on every pane with a verdict, and offered (`is-offer`) only
+            # where #489 offers it; off a compact pane, one that is not offered is not shown.
+            assert page.evaluate("""() => { const b = document.querySelector('.tile[data-repo="fresh"] .freshtoggle');
+                return !b.classList.contains('is-offer') && (b.closest('.tile').dataset.tier === 'compact'
+                       || getComputedStyle(b).display === 'none'); }""")
+            assert "start fresh (Alt+N)" in page.get_attribute('.tile[data-repo="old"] .oldsession', "title")
 
             page.click("#renew")
             page.wait_for_selector('#renew-strip .renew-row[data-rowkey="old"]', timeout=5000)

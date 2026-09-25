@@ -72,7 +72,8 @@ queued), `console_window` on a console the fleet opened, `needs_you` while a que
 own chat may still be open but has no pid (an adopted lock that is still live, or a session file
 written within `fleet.console.idle_s`), the first call refuses `chat_open`; close the chat, then
 `--closed` stops following it and starts the clean session. `--closed` is not `--force`: on `start`,
-`--force` replaces a live agent.
+`--force` replaces a live agent. On the desk it is the pane's own **start fresh** (its head, its
+session menu, or `Alt`+`N`), beside the header's renew (#489).
 
 A Copilot CLI update can also drop a model an agent is configured with: see **After a CLI update**
 under "Which model an agent runs" below.

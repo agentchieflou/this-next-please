@@ -387,6 +387,23 @@ def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = F
         debug_exc("fleet started event")
 
 
+def not_a_ticket(key: str) -> None:
+    """Refuse text that is not a ticket key (#509), before anything else is asked.
+
+    The reply box's placeholder says *reply, or a ticket key to start*, and Start took whatever was
+    in it as the ticket: `hello` started an agent on `Ticket hello.` on a pane with no ticket, and
+    was refused `mid_ticket` on any other. A key is what `board.KEY` matches, as typed or in capitals.
+    """
+    from .board import KEY
+
+    if not KEY.match((key or "").strip().upper()):
+        raise SupervisorError(
+            f"{key} is not a ticket key",
+            "type a key such as RDSD-123, or empty the box and press Start fresh; Send sends text to "
+            "the agent",
+            code="not_a_ticket")
+
+
 def check_ticket(repo: Repo, key: str, *, cross_project: bool = False, board_rows=None,
                  force: bool = False) -> str:
     """Is this ticket one this repository should be started on? Returns its summary, or "".
@@ -457,6 +474,7 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
     reg = registry or Registry()
     repo = reg.get(name)
     if key:
+        not_a_ticket(key)
         summary = summary or check_ticket(repo, key, cross_project=cross_project,
                                           board_rows=board_rows, force=force)
 

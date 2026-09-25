@@ -83,7 +83,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | state chip | word, age | `drawTile` | `.chip` | the five status roles, `stale` | — | `test_fleet_desk_regressions.py` |
 | model chip (#492) | the head's `.modeltoggle .bm-name`: the model the next turn runs, name first (`shortModel`, the twin of `models.label`); the full ids in the button's title | `drawTile` (`chipModel`) | `.bm-name` | `next` (slanted, dotted underline, titled "from the next turn · the last turn ran …") from a saved switch until a `started` carries it; a tenant-served model unmarked, its title saying the tenant pinned it | `m` | `test_fleet_column.py`, `test_fleet_model_chip.py` |
 | old-session chip | "old skills" or "renew queued", the reason as its title | `drawOldSession` | `.oldsession` | hidden unless the session began on older skills or CLI | — | `test_fleet_renew.py` |
-| session pill | label, menu (its *+ new session* and *open in a console* each name the model they start on, `.sm-model`, #368) | `drawSessionPill` | `.spill`, `.smenu` | `is-reading` | `Alt+[`, `Alt+]`, `Alt+N` | `test_fleet_desk_switcher.py`, `test_fleet_desk_rail.py` |
+| session pill | label, menu (its *start fresh* (#489) and *open in a console* each name the model they start on, `.sm-model`, #368; each earlier row says `your chat` / `console` and `left · <when>`, `.ss-src`) | `drawSessionPill` | `.spill`, `.smenu` | `is-reading` | `Alt+[`, `Alt+]`, `Alt+N` | `test_fleet_desk_switcher.py`, `test_fleet_desk_rail.py` |
 | runs list | one row per run, newest last | `drawRuns`, through `patchList` keyed by run number (#494) | `.live-runs`, `.ss-runs` | hidden when there are none | — | `test_fleet_ink.py` (idle, in place) |
 | cells | spend, ticket, pr, refresh, git | `drawCells` | `.cell` | `grey`, `idle`, `warn`, `over` | git cell opens the branches pane | `test_fleet_spend.py`, `test_fleet_branches.py` |
 | spend cell | label, value | `drawSpendCell` | `.cell.spend` | `warn`, `over` | — | `test_fleet_demo_meter.py` |
@@ -138,8 +138,14 @@ Who writes what, one owner each:
   tier never feeds back into the width, or a tier that changed the width would change the tier.
 * **What is drawn at a tier** is `drawTile`'s: a rail skips the trace, the session menu, the
   cards, the scope report and the cells; a compact pane skips the trace, the menu, the scope report
-  and the cells. `needs-human` is written at every tier, because `isHidden` reads it.
-* **The face** is `drawPaneRail`'s — its whole `class`, its glyph, name, badge, label and title —
+  and the cells. `needs-human` is written at every tier, because `isHidden` reads it. The head's
+  **start fresh** (`.freshtoggle`, #489) is drawn at every tier by `drawFresh` whenever the row has
+  `fresh`, with `is-offer` when `row.fresh.offer`: app.css hides a button without it on every pane but
+  a compact one, so a compact pane -- which hides the menu and the bottom row -- shows its one door on
+  every pane, and a full pane keeps #489's rule (#509). On a full pane the bottom row's Start is the
+  door instead: `drawStart` makes it *Start fresh* while the reply box is empty (#509).
+* **The face** is `drawPaneRail`'s — its whole `class` (with `is-stale` or `is-outside` when the pane
+  offers *start fresh*: a dashed `--muted` ring on the glyph, #489), its glyph, name, badge, label and title —
   and it reads the row, `unread` and the group it heads. `bell()` calls it when a count changes.
 * **`is-grouped`, `is-selected`** are `place()`'s. A project's checkouts share one rail
   (`is-grouped` on all but the first) only when the rails do not fit (`groupRails`). *needs me*

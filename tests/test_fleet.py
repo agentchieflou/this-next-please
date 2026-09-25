@@ -372,7 +372,7 @@ def test_a_missing_copilot_says_how_to_install_it(fleet_home, tmp_path, monkeypa
 
     monkeypatch.setattr(proc, "command", not_installed)
     with pytest.raises(supervisor.SupervisorError) as e:
-        supervisor.start("a", key="X-1")
+        supervisor.start("a", key="RDSD-1")
     assert "npm install -g @github/copilot" in e.value.hint
 
 
