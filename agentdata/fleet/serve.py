@@ -50,7 +50,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
                inbox as IN, launch as LAUNCH, lifecycle, links as LK, loads as LOADS, notify as N,
-               poll as P, probe as PROBE, supervisor, trace as TRACE)
+               poll as P, probe as PROBE, supervisor, trace as TRACE, wrapup as WRAP)
 from .registry import Registry, RegistryError, agent_dir, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
@@ -1912,7 +1912,7 @@ def show_for(name: str, _budget: list | None = None) -> dict:
         # duplicating that filter here is how the two would eventually disagree.
         facts = CAT._facts(repo.path)
     state = repo.state()
-    rail = LK.links_for(repo, facts, state)
+    rail = LK.links_for(repo, facts, WRAP.state_with_recorded(name, state))
     cells = poll_state(name)
     # The branch from the poll's git cell, which shells out *in this checkout* and is therefore
     # already worktree-correct. The catalogue's own `branch` came from the index, and an index
@@ -2431,10 +2431,23 @@ def act(what: str, body: dict) -> dict:
             started = MODELS.start_refresh(getattr(_SERVING.get("server"), "stopping", None), force=True)
             return {"refreshing": True, "started": started}
         return {"refreshing": MODELS.refreshing(), "started": False}
+    if what == "wrapup":
+        # Preview or write one agent's wrap-up (#503), on a thread as the model refresh is: a preview
+        # is five adapter runs, three of them round trips to Jira or Bitbucket, and no request thread
+        # waits on that. The answer goes out at once; the rows arrive as `wrapup` frames.
+        try:
+            if body.get("dry_run"):
+                return WRAP.start_plan(repo, str(body.get("mode") or "day"), comment=body.get("comment"),
+                                       to=body.get("to") or None, overwrite=body.get("overwrite") or None)
+            return WRAP.start_run(str(body.get("job") or ""), list(body.get("steps") or []),
+                                  comment=body.get("comment"), to=body.get("to") or None,
+                                  overwrite=body.get("overwrite") or None)
+        except WRAP.WrapupError as e:
+            raise ServeError(e.msg, e.hint, code=e.code) from None
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
                      "arrange | attach | dismiss | theme | settings | models | refresh | probe | "
-                     "measure | load")
+                     "measure | load | wrapup")
 
 
 def _write_settings(C, SET, body: dict) -> None:
@@ -2627,6 +2640,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     models_file = MODELS.cache_file()
     models_mark: tuple | None = None
     seen_models: str | None = None
+    wrapup_marks: dict = {}
+    wrapup_primed = False
 
     def config_mtime() -> float:
         try:
@@ -2752,6 +2767,21 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
                 write(f"event: models\ndata: {json.dumps(frame, ensure_ascii=False)}\n\n")
                 sent = True
             seen_models = digest
+        # A wrap-up job moved (#503): one `wrapup` frame per checkout whose job file changed. The first
+        # look only records, as the models list's does; a page asks `GET /api/wrapup` itself.
+        for repo in repos:
+            try:
+                st = os.stat(WRAP.job_path(repo.name))
+                mark = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                mark = None
+            if wrapup_primed and wrapup_marks.get(repo.name) != mark and mark is not None:
+                job = WRAP.job_state(repo.name)
+                frame = {"repo": repo.name, "job": job.get("job", ""), "state": job.get("state", "")}
+                write(f"event: wrapup\ndata: {json.dumps(frame, ensure_ascii=False)}\n\n")
+                sent = True
+            wrapup_marks[repo.name] = mark
+        wrapup_primed = True
         if sent or time.time() - last_beat > heartbeat:
             # The heartbeat is not decoration: a proxy that sees no bytes for a minute closes the
             # connection, and the tiles then quietly stop updating with no error anywhere.
@@ -3003,6 +3033,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "repo": repo_name, "error": str(e)[:300],
                                    "hint": "git could not be asked in this checkout; "
                                            "`git status` there says why", "branches": []})
+        if route == "/api/wrapup":
+            # The wrap-up job's state (#503): reading, planned (with the rows), writing, or done.
+            repo_name = (query.get("repo") or [""])[0]
+            if not repo_name:
+                return self._refuse(400, "repo required", "pass ?repo=<name>")
+            try:
+                Registry().get(repo_name)
+            except RegistryError as e:
+                return self._refuse(404, e.msg, e.hint)
+            return self._json({"ok": True, "repo": repo_name, **WRAP.job_state(repo_name)})
         if route == "/api/notifications":
             try:
                 limit = int((query.get("limit") or ["50"])[0])

@@ -299,6 +299,63 @@ def cmd_renew(a) -> int:
     return EXIT_OK
 
 
+def cmd_wrapup(a) -> int:
+    """Preview one agent's writes -- push, PR, page, comment, transition -- and write the ticked ones (#503)."""
+    from .fleet import wrapup as WRAP
+
+    src = "ad-fleet wrapup"
+    if not a.repo:
+        return _refuse(src, WRAP.WrapupError("name a repo", "ad-fleet wrapup <repo> [--day | --project]; "
+                                                            "`ad-fleet repo list` names them", code="no_repo"))
+    mode = "project" if a.project else "day"
+    comment = None
+    if a.comment_file:
+        try:
+            with open(a.comment_file, encoding="utf-8") as f:
+                comment = f.read()
+        except OSError as e:
+            return _refuse(src, WRAP.WrapupError(f"cannot read {a.comment_file}: {e.strerror or e}",
+                                                 "pass a readable UTF-8 file", code="no_file"))
+    overwrite = {k: v for k, v in (("page", a.overwrite_page), ("pr", a.overwrite_pr)) if v}
+    kw = {"comment": comment, "to": a.to, "overwrite": overwrite or None}
+    try:
+        planned = WRAP.plan(a.repo, mode, **kw)
+    except (RegistryError, WRAP.WrapupError) as e:
+        return _refuse(src, e)
+
+    def table(rows, results=None):
+        done = {r["id"]: r for r in results or []}
+        return toon.table("steps", ["id", "step", "ok", "ticked", "summary", "hint"] + (["done"] if results else []),
+                          [[r["id"], r["step"], r["ok"], r["ticked"], r["summary"], r["hint"] or "-"]
+                           + ([done.get(r["id"], {}).get("done", "-")] if results else []) for r in rows])
+
+    meta = {"repo": a.repo, "mode": mode, "plan_id": planned["plan_id"], "writes": planned["writes"],
+            "ticket": planned["ticket"] or None, "notes": planned["notes"] or None}
+    if a.dry_run:
+        _emit(src, {**{k: v for k, v in meta.items() if v is not None}, "dry_run": True})
+        print(table(planned["rows"]))
+        return EXIT_OK
+    if not a.confirm:
+        print(toon.encode({"meta": {"ok": False, "source": src, **{k: v for k, v in meta.items() if v is not None},
+                                    "refused": "confirm_required", "error": "nothing runs unseen",
+                                    "hint": f"confirm with `--confirm {planned['plan_id']}`"}}))
+        print(table(planned["rows"]))
+        return EXIT_REFUSED
+    if a.confirm != planned["plan_id"]:
+        print(toon.encode({"meta": {"ok": False, "source": src, **{k: v for k, v in meta.items() if v is not None},
+                                    "refused": "plan_changed", "error": f"the preview changed since {a.confirm}",
+                                    "hint": f"read the new table, then `--confirm {planned['plan_id']}`"}}))
+        print(table(planned["rows"]))
+        return EXIT_REFUSED
+    steps = [r["id"] for r in planned["rows"] if r["ticked"] and r["ok"]]
+    done = WRAP.run(a.repo, mode, steps, **kw)
+    ok = all(r["ok"] for r in done["results"])
+    print(toon.encode({"meta": {"ok": ok, "source": src, **{k: v for k, v in meta.items() if v is not None},
+                                "written": done["written"]}}))
+    print(table(done["rows"], done["results"]))
+    return EXIT_OK if ok else EXIT_FAILED
+
+
 def cmd_reset(a) -> int:
     """Stop and resume in one verb, because "it is stuck, make it go again" is one intention.
 
@@ -1943,6 +2000,21 @@ def build_parser() -> argparse.ArgumentParser:
     fresh.add_argument("--dry-run", action="store_true",
                        help="show which agents are stale, why, and what renewing would do; change nothing")
     fresh.set_defaults(fn=cmd_renew)
+
+    wrap = sub.add_parser("wrapup", help="preview one agent's Jira, Bitbucket and Confluence writes, then write "
+                                         "the ticked ones in order (push, PR, page, comment, transition)")
+    wrap.add_argument("repo", nargs="?", help="the agent (a bare `ad-fleet wrapup` is refused: name a repo)")
+    preset = wrap.add_mutually_exclusive_group()
+    preset.add_argument("--day", action="store_true", help="end of day (the default): push, update, a progress comment")
+    preset.add_argument("--project", action="store_true",
+                        help="end of project: a ready PR, the page, a final comment, review (done shown unticked)")
+    wrap.add_argument("--dry-run", action="store_true", help="show every step's preview and its plan_id; write nothing")
+    wrap.add_argument("--confirm", metavar="PLAN_ID", help="write the ticked ok steps, only if the fresh plan has this id")
+    wrap.add_argument("--comment-file", help="the Jira comment's text instead of the template")
+    wrap.add_argument("--to", help="the transition's intent or name instead of the preset's")
+    wrap.add_argument("--overwrite-page", metavar="V", help="replace a page edited since this tool wrote it (its live version)")
+    wrap.add_argument("--overwrite-pr", metavar="H", help="replace a PR description edited since (its live hash)")
+    wrap.set_defaults(fn=cmd_wrapup)
 
     again = sub.add_parser("restart", help="resume a stopped agent on its own session")
     again.add_argument("repo")

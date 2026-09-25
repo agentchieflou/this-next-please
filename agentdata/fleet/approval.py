@@ -163,6 +163,24 @@ def _emit(agent: str, kind: str, data: dict, ticket: str) -> None:
 # ---------------------------------------------------------------------------- the operator side
 
 
+def record(kind: str, summary: str, payload=None, *, repo: str, ticket: str = "", by: str = "operator",
+           via: str = "wrapup") -> dict:
+    """A write the operator approved somewhere else -- a wrap-up's confirm (#503) -- kept as a decided record.
+
+    The decision file is written first and the request second, each complete: `pending()` lists a request only
+    while it has no decision, so no moment exists at which a pane could offer this one to the `a` key.
+    """
+    id = new_id(repo, kind)
+    now = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+    decision = {"id": id, "decision": APPROVED, "reason": "", "by": by, "via": via, "decided": now}
+    request = {"id": id, "repo": repo, "ticket": ticket, "kind": kind, "summary": summary, "payload": payload,
+               "created": now, "via": via}
+    os.makedirs(approvals_dir(), exist_ok=True)
+    textio.write_json(_decision_path(id), decision)
+    textio.write_json(_request_path(id), request)
+    return {**request, **decision}
+
+
 def read_request(id: str) -> dict:
     try:
         return textio.read_json(_request_path(id), "approval")
