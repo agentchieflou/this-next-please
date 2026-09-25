@@ -146,7 +146,91 @@ Tests: `tests/test_fleet_map_page.py` (5 browser tests, one Chromium for the mod
 
 ## Layout
 
-(written by #408)
+`static/map/layout.js` (#408) says where everything on the map stands. It is an ES module of pure arithmetic:
+no DOM, no three.js, no randomness, no clock, imported through `q()` like every module under `static/map/`.
+`layout(outline)` depends only on names and structure. The same outline gives byte-identical `JSON.stringify`
+output whatever order its arrays arrive in, keys it does not define (a state, a count, an age) change nothing,
+and nothing is scaled by a count that changes with time (ahead counts, ages, event counts). The scene (#409)
+builds the outline from the tree (§The page) and draws what comes back.
+
+**The outline.** Only these fields are read:
+
+```
+{projects: [{id: "p:<project>", default: "b:<p>:<name>" | "",
+             branches: [{id: "b:<p>:<name>", unmerged}],
+             checkouts: [{id: "c:<repo>", main, on: "b:..." | "", agent: "a:<repo>" | ""}]}],
+ network: {server, install, approvals: id | "", windows: [id], sources: [id], stale: [agent ids]}}
+```
+
+`network.stale` lists the `a:` items with class `stale`. The network, or any of its ids, may be absent (#404).
+
+**What comes back**, in world units on the x-z ground, y up, where 1 unit is one island's width:
+
+```
+{nodes: {<id>: {x, y, z, w, h, d, kind}},          a box: its centre and its size
+ lanes: [{id, project, from: [x, z], to: [x, z], trunk, unmerged}],
+ links: [[idA, idB]],
+ bounds: {minX, maxX, minZ, maxZ}}                 every box, and every lane at its width
+```
+
+`kind` is one of `project`, `island` (a checkout), `agent`, `server`, `window`, `source`, `install` and
+`approvals`. Every id the outline names has a place: each branch (and the default) is a lane, and everything
+else is a node. Nothing else is placed. A lane's width is not stored on the lane: it is `DIMS.trunkW`, `laneW`
+or `stubW`.
+
+**The rules.**
+
+| What | Where |
+| --- | --- |
+| Districts | Projects by id on a grid of `ceil(sqrt(n))` columns, at a fixed pitch (`districtW` and `districtD`, each plus `gutter`) sized for the 40-lane cap, so a project growing a branch never moves another. The first row's heads are at z = 0; later rows are placed behind it (-z) |
+| Gate | The project's node (`kind: project`), in front of its trunk's head |
+| Trunk | The default branch: a road along -z from the head (lane `trunk: true`), `trunk` long plus one `pitch` for each other lane |
+| Lanes | The other branches, by name, on alternating sides of the trunk (left first), one `pitch` apart, square to the trunk and touching it. An unmerged lane is `laneL` long and `laneW` wide; a merged one is a `stubL` by `stubW` stub. Both are fixed |
+| Islands | The main checkout sits at the trunk's head (the first by id if several say `main`). Every other checkout stands at the far end of the lane it is `on`; on the default branch, that is past the trunk's end. A checkout `on` `""`, or on a lane its project lacks, stands beside the head, to the right. Checkouts that share a place stack there by id, one `floor` each, so none of them moves another |
+| Agents | On their island, `y` above it |
+| Network | Past the first row's heads: the hub behind the districts' centre, install (left) and approvals (right) beside it, the windows in a row behind it, and the sources in a column down the grid's right (+x) edge |
+| Links | Hub to each window, hub to install, hub to approvals, each source to the hub, hub to each district's gate, and install to each agent in `network.stale`. There is no hub-to-agent link |
+
+Every list is sorted by id before anything is placed, in plain code-unit order, never a locale's. The order an
+array arrives in therefore never reaches the output.
+
+**Why the network faces the heads.** The issue puts the hub "behind the districts' centre". It stands behind
+the districts as seen from the lanes: past their heads, not past the far ends of their trunks. A district's
+fixed cell stays empty past its last lane until the project has 40 lanes. A hub past the far ends would leave
+that empty space between the hub and everything drawn: a one-project map would be about 40 units deep for 12
+units of content, and every hub-to-head link would run the length of its district. With the hub past the heads,
+links to the first row cross no district, and the bounds hug what exists. Moving it back is a sign change in
+`layout()` (`hz`, the windows and the sources) and in the test's network rules.
+
+**`DIMS`** holds every measure, frozen, so the laptop look (#415) retunes them in one place. They are halves and
+quarters, which floating point adds exactly:
+
+| Key | Value | What |
+| --- | --- | --- |
+| `island`, `islandH` | 1, 0.25 | An island's width and depth (the unit), and its height |
+| `agent` | 0.5 | An agent's width, depth and height |
+| `floor` | 1 | One storey of a stack: an island, its agent and the air above them |
+| `gap` | 0.5 | The air between two neighbours |
+| `trunkW`, `trunk` | 0.5, 2 | The trunk's width, and its length before its first lane (the head) |
+| `pitch` | 0.75 | Along the trunk, from one lane to the next |
+| `laneL`, `laneW` | 3, 0.375 | An unmerged lane's length and width |
+| `stubL`, `stubW` | 0.75, 0.125 | A merged lane's length and width |
+| `lanes` | 40 | The lanes a district is sized for (the graph's cap) |
+| `gateW`, `gateH`, `gateD` | 2, 0.25, 0.5 | A project's gate |
+| `hub`, `hubH` | 2, 1 | The server's width and depth, and its height |
+| `node`, `nodeH` | 1, 0.5 | Every other network node |
+| `gutter` | 2 | Between two districts, and between the grid and the network |
+| `districtW`, `districtD` | 8.5, 34 | A district's fixed footprint, derived from the values above |
+
+**No force-directed or physics layout.** A force layout animates until it settles and moves everything whenever
+anything changes. That breaks the render contract, under which an idle map draws zero WebGL frames (§The scene),
+and it makes motion (#413) impossible to reason about. Rules over names and structure give every node its place
+at once, and a place changes only when the structure does.
+
+Tests: `tests/test_fleet_map_layout.py` holds two tests. One reads the source in plain Python: no `Math.random`,
+`Date`, `performance`, `globalThis`, `window.` or `document.` member, static import or colour literal, and under
+6 KiB gzipped (inside `MAP_BUDGET`). The other is one browser test that opens `/map` once and runs every case in
+a single `page.evaluate`.
 
 ## The scene
 
