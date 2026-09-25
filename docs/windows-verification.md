@@ -107,6 +107,7 @@ Pass: `whoami` returns `flavor` (`cloud` or `dc`), `auth`, `api`, `display_name`
 
 | # | What to do | What it must do | Host | Date |
 |---|---|---|---|---|
+| P1 | `ad-pncli capture-help` (#498, WRAP-D6), then read the file it names and attach it to #506 | one file beside the config: a header per `pncli … --help` call with its exit code; your Jira, Confluence and Bitbucket hosts read `<jira-host>`, `<confluence-host>`, `<bitbucket-host>`, other hosts `<host>`, your home `<home>` | _not yet measured_ | — |
 | L1 | Move (rename) the venv the `ad-*` launchers were installed from, then run `python -m agentdata doctor` from the moved venv's python (#500) | `console/launchers: fail`, naming the launcher and *Unable to create process*, with a hint naming that `sys.executable`; a `console/module` row naming the `python` on PATH and its version. Run the hint: `launchers: ok` | _not yet measured_ | — |
 
 ## 3. Jira changelog and sprint replay

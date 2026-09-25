@@ -880,6 +880,38 @@ def cmd_index(a) -> int:
     return EXIT_OK
 
 
+def cmd_friction(a) -> int:
+    """The project panel's friction (#499): what needs you now, what folded, and dismissing either.
+
+    `--dismiss` and `--earlier` go through `S.act("friction", ...)`, the function the page posts to,
+    so the two cannot disagree. The friction files themselves are never touched.
+    """
+    source = "ad-fleet friction"
+    try:
+        if a.dismiss or a.earlier:
+            body = {"repo": a.repo, "earlier": True} if a.earlier else {"repo": a.repo, "dismiss": list(a.dismiss)}
+            out = S.act("friction", body)
+            panel, dismissed = out["project"], out["dismissed"]
+        else:
+            panel, dismissed = S.show_for(a.repo), []
+    except (RegistryError, S.ServeError) as e:
+        return _refuse(source, e)
+    rows = []
+    for open_, group in ((True, panel.get("friction_open") or []), (False, panel.get("friction_earlier") or [])):
+        for f in group:
+            rows.append([f.get("name", ""), f.get("date", ""), f.get("type", ""), f.get("severity", ""),
+                         open_, bool(f.get("asked")), f.get("unblock", "")])
+    meta = {"repo": a.repo, "open": len(panel.get("friction_open") or []),
+            "earlier": len(panel.get("friction_earlier") or []), "dismissed": len(dismissed)}
+    if a.earlier:
+        meta["note"] = f"earlier friction ({len(dismissed)}) dismissed: the files are kept, and no question was answered"
+    elif not rows:
+        meta["note"] = "no friction needs you, and none folded"
+    print(toon.encode({"meta": {"ok": True, "source": source, **meta}}))
+    print(toon.table("friction", ["name", "date", "type", "severity", "open", "asked", "why"], rows))
+    return EXIT_OK
+
+
 def cmd_where(a) -> int:
     """Which project owns this word. The one question that used to cost four tabs."""
     cat, code = _catalogue("ad-fleet where")
@@ -2062,6 +2094,14 @@ def build_parser() -> argparse.ArgumentParser:
     idx.add_argument("--rebuild", action="store_true",
                      help="re-read every file instead of only what changed")
     idx.set_defaults(fn=cmd_index)
+
+    fr = sub.add_parser("friction", help="the friction that needs you now, what folded as earlier, and "
+                        "dismissing either (the files are kept; answering the question is what unblocks)")
+    fr.add_argument("repo")
+    fr.add_argument("--dismiss", action="append", default=[], metavar="NAME",
+                    help="dismiss this friction file's row on the panel (repeatable)")
+    fr.add_argument("--earlier", action="store_true", help="dismiss every earlier row")
+    fr.set_defaults(fn=cmd_friction)
 
     whr = sub.add_parser("where", help="which project mentions this, and in what")
     whr.add_argument("query", help="plain words, or a ticket key")
