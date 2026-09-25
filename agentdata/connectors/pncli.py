@@ -54,15 +54,38 @@ def verb(args: list[str]) -> tuple:
     return tuple(a for a in args if not a.startswith("-"))[:2]
 
 
+# Options known to take no value, so the token after one is not its value (#524). Anything else that
+# starts with `-` and carries no `=` is assumed to take the next token: in doubt, that is a write.
+_NO_VALUE = frozenset({"--help", "-h", "--dry-run", "--version"})
+
+
+def asks_for_help(args: list[str]) -> bool:
+    """Is `--help` / `-h` a flag in its own position? Not the value of the option before it (`--title -h`),
+    and not after `--`. Without pncli's verb table, any option not in `_NO_VALUE` is taken to take a value."""
+    value_next = False
+    for a in args:
+        if a == "--":
+            return False
+        if value_next:
+            value_next = False
+            continue
+        if a in ("--help", "-h"):
+            return True
+        if a.startswith("-"):
+            value_next = "=" not in a and a not in _NO_VALUE
+    return False
+
+
 def is_write(args: list[str]) -> bool:
     """Would running this change something on a system of record?
 
     `--dry-run` is not a write whatever the verb: pncli resolves and prints, and sends nothing. Nor is
-    `--help` / `-h`: commander.js prints the help and exits before the action runs.
+    `--help` / `-h` in its own position (`asks_for_help`): commander.js prints the help and exits before
+    the action runs. As an option's value it is not help, and the verb still runs (#524).
     """
     if any(a == "--dry-run" for a in args):
         return False
-    if any(a in ("--help", "-h") for a in args):      # commander.js prints help and exits before any action
+    if asks_for_help(args):
         return False
     path = verb(args)
     if not path:

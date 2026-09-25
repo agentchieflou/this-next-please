@@ -48,6 +48,19 @@ def test_help_is_never_a_write_whatever_the_verb():
     assert P.is_write(["bitbucket"]) is True
 
 
+def test_a_help_token_that_is_an_option_value_is_still_a_write():
+    """#524: `--title -h` is a title, and the verb still runs as a write. Help is a read only in its
+    own position, and in doubt (an option not known to take no value) the next token is its value."""
+    assert P.is_write(["bitbucket", "create-pr", "--title", "-h"]) is True
+    assert P.is_write(["bitbucket", "create-pr", "--description", "--help"]) is True
+    assert P.is_write(["bitbucket", "create-pr", "--title", "x", "--", "--help"]) is True
+    assert P.is_write(["bitbucket", "create-pr", "--draft", "--help"]) is True      # not known to be boolean
+    assert P.is_write(["bitbucket", "--help"]) is False
+    assert P.is_write(["bitbucket", "create-pr", "--help"]) is False
+    assert P.is_write(["bitbucket", "create-pr", "--title", "x", "-h"]) is False
+    assert P.is_write(["bitbucket", "create-pr", "--title=-h", "--help"]) is False  # `=` carries its own value
+
+
 # commander.js's own README, the Quick Start's `string-util` example:
 # https://github.com/tj/commander.js/blob/master/Readme.md#quick-start (example file:
 # https://github.com/tj/commander.js/blob/master/examples/string-util.js). The README shows the subcommand's
