@@ -118,6 +118,7 @@ adjective.
 | opening an agent | `open:pane` |
 | a change of widths (#234) | `widths:drag` / `step` / `even` / `beside` / `one` / `all` / `needs` / `undo` |
 | one frame of a gutter drag | `gutter:frame` |
+| a skin or a palette picked on /settings (#346) | `theme:skin` / `theme:palette` |
 
 The budget is **50 ms**, asserted in a browser by `tests/test_fleet_instant.py`. The `open:pane`
 mark is closed *inside* the transition callback rather than around the call: the view-transition

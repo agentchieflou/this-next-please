@@ -27,6 +27,7 @@ Closes #
 | browser files touched | python -m pytest -q -m browser <files> | |
 | guards | python -m pytest -q tests/test_fleet_skin_guard.py tests/test_fleet_skins.py tests/test_fleet_components.py tests/test_entrypoints.py tests/test_suite_hygiene.py tests/test_agent_onramp.py | |
 | shuffled | python -m pytest -q -p no:cacheprovider --shuffle-seed 1 <files> | |
+| agent PR check | python .github/scripts/agent_pr_check.py --base origin/main | |
 
 ### Next
 1. <file : symbol - what - the test that proves it>

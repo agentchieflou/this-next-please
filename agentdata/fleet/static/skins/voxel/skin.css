@@ -58,6 +58,10 @@ body[data-skin="voxel"]:not(.ink-off) .tile[data-tier="rail"] { padding-left: 17
 /* An open pane: the ink's margin (#330), keyed on the body as the legal pad keys its 34px; see
    skins/glass/skin.css for why not on the ink canvas. */
 body[data-skin="voxel"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: var(--ink-margin, 26px); }
+/* The needs-you underline (#332): a compact pane's head wraps the name onto a line of its own, and
+   the marker under it (2px below its foot, 4.6px wide) needs more than app.css's 2px before the
+   number and the chip on the next line; the stale outline keeps off the chip row the same way. */
+body[data-skin="voxel"]:not(.ink-off) .tile[data-tier="compact"] .head { row-gap: 8px; }
 body[data-skin="voxel"]:not(.ink-off) header,
 body[data-skin="voxel"]:not(.ink-off) header h1,
 body[data-skin="voxel"]:not(.ink-off) footer { color: var(--voxel-band-ink); }

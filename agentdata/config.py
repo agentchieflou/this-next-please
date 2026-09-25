@@ -9,8 +9,15 @@ import datetime as _dt
 import json
 import os
 import re
+import threading
 from typing import Any
 from . import textio
+
+#: The one lock for an in-process read-modify-write of config.json (#348): `load`, change, `save`.
+#: The dashboard's `act("theme")` and `act("settings")` and the poller's Jira flavour write run on
+#: different threads of one process, and two of them at once lost an update. It lives here so the
+#: poller can take it without importing the server. Never hold it across a network call.
+LOCK = threading.Lock()
 
 CONFIG_ENV = "AGENTDATA_CONFIG"
 DEFAULT_PATH = "~/.agentdata/config.json"

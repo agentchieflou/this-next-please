@@ -457,9 +457,10 @@ def test_the_felt_tip_bleeds_along_the_emboss(fleet_home, tmp_path, monkeypatch)
             page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
             _settle(page, "Ink.inspect().layer.marks.some(m => m.tool === 'marker' && m.drawn === 1)")
             r = page.evaluate(f"() => document.querySelector('{_tile('err')}').getBoundingClientRect().toJSON()")
-            # A band 6-11px outside the loop (which runs 5px outside the pane) along its top,
-            # clear of the corners: the stroke and its wobble end ~4px from the line.
-            band = {"x": r["x"] + 40, "y": r["y"] - 5 - 11, "w": r["width"] - 80, "h": 5}
+            # A band 6-11px inside the loop (which runs 4px inside the pane, #332) down its left
+            # side, in the pane's margin: below the bang written there and clear of the corners.
+            # The stroke and its wobble end ~4px from the line.
+            band = {"x": r["x"] + 4 + 6, "y": r["y"] + 80, "w": 5, "h": r["height"] - 120}
             pixels = page.evaluate(PIXELS, band)
             assert not errors, errors
             browser.close()

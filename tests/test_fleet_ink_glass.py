@@ -451,7 +451,7 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     needs you: the name and the question highlighted, the rim lit in the human colour. answered:
     the choice circled in pen, and struck when another is chosen. error: a bang, the rim lit.
     done: a green tick, the rim in green. running: the chip underlined, the top glint running.
-    stale: the note outlined in dashed pen. A finding: the scope report ringed in red. A state that
+    stale: no mark, the note's own words (#332: an outline round it ran over the chip's age). A finding: the scope report ringed in red. A state that
     goes is struck (an ink never fades), and the rim that went with it is off. Reduced motion, so
     every step is at rest at once."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
@@ -495,7 +495,8 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     assert _drawn(marks, hl, "pane:alpha") and _drawn(marks, q, "pane:alpha"), marks
     assert _drawn(marks, ".tile.state-error", "pane:beta"), marks
     assert _drawn(marks, ".tile:is(.state-done, .is-done)", "pane:gamma"), marks
-    assert _drawn(marks, ".tile .oldsession:not([hidden])", "pane:gamma"), marks
+    stale = ".tile .oldsession:not([hidden])"
+    assert not [m for m in marks if m[0] == stale], ("stale is the note's own words on glass", marks)
     assert rims == {"alpha": ("human", 1), "beta": ("human", 1), "gamma": ("done", 1)}, rims
 
     choice = '.tile .ask-choice[aria-pressed="true"]'
@@ -508,7 +509,7 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     assert _struck(marks, hl, "pane:alpha") and _struck(marks, q, "pane:alpha"), marks
     assert _struck(marks, ".tile.state-error", "pane:beta"), marks
     assert _struck(marks, ".tile:is(.state-done, .is-done)", "pane:gamma"), marks
-    assert _struck(marks, ".tile .oldsession:not([hidden])", "pane:alpha"), marks
+    assert not [m for m in marks if m[0] == stale], marks
     assert _drawn(marks, ".tile .scopereport.outside:not([hidden])", "pane:beta"), marks
     assert _drawn(marks, ".tile.state-running .chip", "pane:gamma"), marks
     assert rims == {"alpha": (None, 0), "beta": (None, 0), "gamma": (None, 0)}, rims

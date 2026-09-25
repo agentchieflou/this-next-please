@@ -34,6 +34,10 @@ body[data-skin="legalpad"]:not(.ink-off) header { margin-top: 10px; }
 /* A pane is a sheet of the pad: its text starts right of the double red margin the layer draws. A
    rail has no margin. */
 body[data-skin="legalpad"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: 34px; }
+/* The running pen and its tail under the name (#332): a compact pane's head wraps the name onto a
+   line of its own, and the line 2px below its foot needs more than app.css's 2px before the number
+   and the chip on the next line; the stale outline keeps off the chip row the same way. */
+body[data-skin="legalpad"]:not(.ink-off) .tile[data-tier="compact"] .head { row-gap: 8px; }
 
 /* The transcript is written on the rules (#338): a row is the pad's 28px, its rows end at its
    bottom, where the module measures its rules from, and it scrolls in whole rows. The rules are

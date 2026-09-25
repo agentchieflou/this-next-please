@@ -159,7 +159,7 @@ Shapes are computed from `getBoundingClientRect` in the element's own coordinate
 gutter drag, a scroll or a reorder, moves its marks. Only a pane that changes size, or whose text wraps differently,
 rebuilds them. A box under 90px wide is a pane's 48px rail, so a margin mark goes down its middle.
 
-The margin is the pane's left padding (#330). A `check` or a `bang` row anchors on the pane (`.tile.state-error`,
+The margin is the pane's left padding (#330). A `check`, a `bang` or a `cross` row anchors on the pane (`.tile.state-error`,
 never `.tile.state-error .head`), and `margin()` writes it 14px in from the pane's border box. Under ink, each skin that
 draws gives an open pane a 26px left padding in its own sheet (`var(--ink-margin, 26px)`, keyed
 `body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"])`, the way the legal pad keys
@@ -167,6 +167,26 @@ its 34px; the notebook pads with its gutter), so the green check (to x+25.3) sta
 name. A skin that adds a mark table adds that rule too. It is not keyed on the ink canvas: Chromium 153 left a
 `.tile` rule keyed on `body:has(> #ink[data-skin])` unapplied after the layer set `data-skin` (a pane restyled
 from scratch got 26px; one restyled in place kept 10px). Ink off keeps the 10px padding, and the fallback's bar is drawn inside the pane's 3px border.
+
+**A skin's marks keep inside their pane and off other elements' words (#332).** The layer clips a pane's marks to
+its border box inset 1px (#331), so a row that pads outward is cut away rather than drawn in the gutter:
+
+* An `outline` or `loop` round the pane has a pad of 0 or less, so the stroke and half its width are on the pane:
+  an idle outline -5 (the napkin, the legal pad), an error loop -7 (napkin, legal pad, notebook, farmstead), the
+  stale outline round a pane -8 (napkin, notebook). A test reads every skin's table for it.
+* A mark round something in the head is round that thing, never round the head: farmstead's error loop is round
+  the pane, and a stale outline round `.oldsession` is on the note's own box (pad 0).
+* A compact pane's head wraps the name onto a line of its own, 2px over the number and the chip. A skin that
+  underlines the name gives that head room in its sheet (`row-gap: 8px`, layout, keyed
+  `body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier="compact"] .head`): voxel, farmstead and the legal pad.
+  Glass underlines the chip, not the name, and draws no stale outline: round the note it still ran over the chip's
+  age at 700px, and the note's own words say it.
+
+`tests/test_fleet_ink_bounds.py` holds one look per module at 1400px and 700px, with a blocking question, a running
+turn, an error and a stale done: no stroke more than 2px outside its pane, none outside the viewport, none cut away
+whole by the pane's clip, no `outline`, `loop`, `ellipse`, `check`, `bang`, `arrow` or `divider` on another
+element's words by 6 px² (a loop and an ellipse on their ring, an arrow on its curve), and no `underline` on any word
+but its own. The full sweep, every variant, is #340's.
 
 | Shape | Drawn | Plain fallback |
 | --- | --- | --- |
@@ -176,9 +196,11 @@ from scratch got 26px; one restyled in place kept 10px). Ink off keeps the 10px 
 | `lines` | a highlighter pass along every line the text wraps to, as wide as the line is tall | a tinted background (38% of the ink) |
 | `loop` | one rounded stroke round the box, closed past its start | `outline: 2px solid` |
 | `ellipse` | a loose ellipse, a little more than once round | `outline: 2px solid`, further out |
+| `ring` | a tight O round a small box (a pane's number), 3px out from its longer side, about 1.1 turns, so it never reaches the name 8px beside it (#386) | a rounded 2px ring (`box-shadow: 0 0 0 2px`, `border-radius: 999px`) |
 | `strike` | a line through: across a line of text, corner to corner of a tall box | `text-decoration: line-through` |
 | `check` | a tick in the margin | a bar in the margin |
 | `bang` | an exclamation mark in the margin | a bar in the margin |
+| `cross` | an X in the margin, two 14px strokes, down the middle of a rail (#386) | a bar in the margin, beside a selected pane's focus ring |
 | `arrow` | a curve from the box to its `to` target, with a head | a dotted underline |
 | `write` | the handwriting reveal: the element's **own text** uncovered left to right as the pen moves along it | the text, as it is |
 
@@ -375,7 +397,11 @@ consolidates):
 
 * *The running pen.* When a pane turns `state-running` and the layer has finished its underline, a
   tail runs on from the underline's end, one 6px step for each transcript line the turn writes (up
-  to 132px), with the pen-tip dot at its end. When the pane leaves `state-running` the tail is
+  to 132px), with the pen-tip dot at its end. It is at the underline's own height, which the layer
+  places (#331: 2px under the tallest box on the name's line, never lower than 3.4px over the next
+  row), so it passes under the chip, not through it, and it stops where the layer stops a line that
+  grows, 14px short of the pane's right edge (#332). `inspect().panes[].tailBox` is the tail and its
+  dot on the viewport. When the pane leaves `state-running` the tail is
   struck in pen, like the underline beside it. One struck tail is kept, until the next turn.
 * *The header count.* When `#bellcount` changes, the old number is kept where it stood, beside the
   new one, drawn as a hand writes digits, and struck through in pen. The bell has room for it
@@ -597,8 +623,8 @@ bound, because it renders in software).
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (41,958 bytes gzipped, LF, #385) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
-| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385, 42,557 B at #370 (the effects seam). Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
+| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (42,847 bytes gzipped, LF, #386) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
+| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385, 42,557 B at #370 (the effects seam), 42,847 B at #386 (`ring` and `cross`). Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
 | `FX_BUDGET` | `fx.js`, lazily fetched, measured the same way, under 8 KiB (8,192 B): 1,089 B at #370, the seam alone. Every later effects card (#372, #374-#376) writes `fx.js` only, under it, and none raises `INK_BUDGET` | `test_fleet_ink.py` |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
@@ -653,6 +679,9 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phas
 fetched once with the token for one with it (not again when that table is set twice), leaves nothing attached after
 a table without `fx`, `Ink.setSkin(null)` or `Ink.off()`, and an idle desk with it attached writes nothing and draws
 nothing. The budgets and the listing of `static/ink/` (`MODULES`, `LAZY`) are in `test_fleet_ink.py`.
+
+`tests/test_fleet_ink_bounds.py` covers where a skin's own marks land: inside their pane and off other elements'
+words, on one look per module at 1400px and 700px, and every pane outline and loop padded inside it (#332).
 
 `tests/test_fleet_trace.py` covers the page's own drawing: the trace drawn in its pane's lane from its series and
 following its data, glass's ground drawn by the layer and still under reduced motion, the fallback's SVG and

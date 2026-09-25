@@ -217,6 +217,25 @@ def test_the_workflow_runs_all_three_shells_and_swallows_nothing():
     assert "refused" in five_one[0]["name"].lower()
 
 
+def test_the_workflow_is_shaped_for_the_merge_train():
+    """Decision 7 (#429): a superseded run is cancelled, a draft PR skips only the Windows job, and
+    marking a PR ready for review runs it."""
+    import yaml
+
+    wf = yaml.safe_load(open(os.path.join(REPO_ROOT, ".github", "workflows", "tests.yml"), encoding="utf-8"))
+    on = wf.get("on", wf.get(True))  # YAML 1.1 reads a bare `on` key as True
+    assert on["push"]["branches"] == ["main"]
+    assert on["pull_request"]["types"] == ["opened", "synchronize", "reopened", "ready_for_review"]
+
+    assert wf["concurrency"] == {"group": "tests-${{ github.ref }}", "cancel-in-progress": True}
+
+    draft_gate = "github.event_name != 'pull_request' || github.event.pull_request.draft == false"
+    assert wf["jobs"]["windows"]["if"] == draft_gate
+    for name, job in wf["jobs"].items():
+        if name != "windows":
+            assert "if" not in job, f"only the Windows job is gated on draft, not {name}"
+
+
 def test_the_doctor_contract_checker_catches_a_hintless_fail_row():
     """The helper the smoke scripts pipe into, exercised directly."""
     text = toon.encode({"meta": {"ok": False}}) + "\n" + toon.table(

@@ -38,7 +38,8 @@ twice, and paste the lines into the handover note. Fourteen terminal-output test
 | The payload budgets: the page under 200 KiB gzipped; the four always-fetched ink modules under `INK_BUDGET` (raised once, to 44 KiB, by #331 on the register's answer); effect code in the lazily fetched `ink/fx.js` under 8 KiB (#370) | `tests/test_fleet_serve.py`, `tests/test_fleet_ink.py` |
 | Subprocesses go through `agentdata/proc.py`; a refusal is exit 2 with a hint and a row in `docs/refusals.md` | `tests/test_proc.py`, `tests/test_refusals.py` |
 | A failure seen on a real machine becomes `tests/regressions/test_<yyyymmdd>_<host>_<short>.py`, with `Symptom` and the issue URL | `tests/regressions/test_convention.py` |
-| Conventional Commits; one issue, one branch, one draft PR with `Closes #n`; no version or CHANGELOG change | review R7; `tests/test_update.py` |
+| Conventional Commits; one issue, one branch; no version or CHANGELOG change | review R7; `tests/test_update.py` |
+| The merge train (decision 7): a builder pushes its branch and posts a CAR line, opens no PR; the conductor merges cars `--no-ff` into `train/<N>` and opens one PR with every `Closes #n`, merged with a merge commit | the conductor; [developing-with-agents.md](developing-with-agents.md) §2 |
 | `ci` and `relay` are frozen lanes: edit them only with the operator's approval linked in the PR | review R1; #324 once it lands |
 
 ## 2. Decisions already made
@@ -54,6 +55,7 @@ twice, and paste the lines into the handover note. Fourteen terminal-output test
   permission for it. The measurement decides whether it becomes the default.
 - **Effects may animate the page itself**, through one sanctioned, transient writer in the ink layer (#374). Nothing
   is written at rest, and nothing animates under reduced motion.
+- **The merge train replaces one PR per issue** (decision 7, [#429](https://github.com/agentchieflou/this-next-please/issues/429#issuecomment-5823490430)): a red car is pulled out and the rest ship.
 - **Operator decisions live in one register, #318.** A reversible row runs on its default until answered; an
   irreversible row waits.
 
