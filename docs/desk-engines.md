@@ -243,3 +243,45 @@ those is missing the page does not load, which is a failure nobody can mistake f
 Every one of those is printed by the test that measures it, so a CI run carries the numbers as
 well as the verdict. `tests/test_fleet_motion.py`, `tests/test_fleet_trace.py`,
 `tests/test_fleet_instant.py` and `tests/test_fleet_engines.py` are where they live.
+
+## Switching, measured in each shell (#351)
+
+Playwright cannot drive PyCharm's tool window, VS Code's view or the native window, and the lag the
+operator sees is on the laptop. So while measuring is switched on, every desk and /settings load in
+any host posts one record of itself, and `ad-fleet engines` prints them as its `loads` table (#350),
+the baseline the native-host gate (#354) reads.
+
+**The switch.** `"fleet": {"loads": {"enabled": true}}` in `~/.agentdata/config.json`
+([setup.md](setup.md) §Page-load records). A config key reaches every host, including the IDE
+windows whose URLs nobody types, so there is no `?measure=` parameter. The server tells the page by
+serving `data-measure="loads"` on `<html>` of `/` and `/settings` (never `/probe`), so the page needs
+no request to find out. Off, the default, the markup is byte-identical to what it was, and the pages
+register nothing, observe nothing, touch no storage and send nothing.
+
+**What a page sends.** One `navigator.sendBeacon` to `/api/load` at `pagehide`, at most once per
+document, from `common.js`; nothing is written to the page and the ink modules are not touched.
+
+| Field | From |
+| --- | --- |
+| `page` | `desk` on `/`, `settings` on `/settings` |
+| `from` | `settings` when /settings left `fleet.load.from` in sessionStorage as it went; else empty |
+| `shell` | the page's `shell=`, else `w=`, else `browser` (as `ink_facts` reads it) |
+| `how` | the navigation entry's `type` |
+| `origin_ms` | `performance.timeOrigin` |
+| `first_paint_ms` | the buffered `paint` entry `first-paint` |
+| `longest_task_ms` | the longest buffered `longtask`; left out where the engine has no such entry type |
+| `fleet_ms` | desk only: the first `/api/fleet` resource entry's `responseEnd` |
+| `ink_first_frame_ms` | desk only: `performance.now()` at the first animation frame in which `#ink` carries `data-skin` and `Ink.inspect().layer.renders >= 1`. Left out when the verdict is off, there is no layer, 10 s pass, or the page goes first. No entry type sees a WebGL frame, so the layer's own counter is read |
+| `skin_first` | `body.dataset.skin` in the first animation frame |
+| `skin_settled` | the same after the desk's first refresh, or after /settings has listed its themes |
+| `ua` | `navigator.userAgent`, cut at 200 characters |
+
+**Why `from`.** Every page is served `Referrer-Policy: no-referrer`, and a navigation entry reads
+`navigate` both for a cold open and for settings → desk. So /settings says so itself, and the
+`loads` table keeps the two apart: a desk opened from settings is one row, a cold open another.
+
+**Reading the table.** One row per shell, page and from: `n`, the p50 and p95 of each duration over
+the loads that reported it, and `settled_pct`, the share whose first-frame skin was the one it
+settled on. A desk served by #345 wears its skin in its first frame, so `settled_pct` below 100 is a
+finding. The laptop runbook is [windows-verification.md](windows-verification.md) §Switching.
+`tests/test_fleet_loads_page.py` holds all of it in headless Chromium.

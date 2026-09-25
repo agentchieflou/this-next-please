@@ -475,3 +475,64 @@ def test_a_reopened_window_shows_the_desk_it_had_while_the_new_one_loads(fleet_h
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.browser
+def test_the_page_says_while_the_stream_replays_its_backlog(fleet_home, tmp_path):
+    """`body.is-replaying` (#371): from `connect()` until the pass's `tick`, the stream is sending
+    history, and a replayed `li.denied` looks exactly like a fresh one. The class says which, so
+    the ink cues (#372) do not replay old hits; and when it clears, the whole pass is on the page."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _repos(tmp_path, "alpha", "beta")
+    for name in ("alpha", "beta"):
+        E.append(name, [E.event(name, "denied", {"message": "no push"}, ticket="RDSD-1")])
+    S.arrange(order=["alpha", "beta"])
+
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                      wait_until="domcontentloaded")
+            # `#link` says live at `onopen`, before the first pass's `tick`: the first pass has
+            # ended only when the class is gone too.
+            page.wait_for_function(
+                "() => !document.body.classList.contains('is-stale')"
+                " && !document.body.classList.contains('is-replaying')"
+                " && document.getElementById('link').textContent === 'live'"
+                " && document.querySelectorAll('.transcript li.denied').length === 2",
+                timeout=15000)
+
+            # Every on and off of the class, with how many refusals the page held at that moment.
+            page.evaluate("""() => {
+              window.__replaying = [];
+              new MutationObserver(function (records) {
+                records.forEach(function (r) {
+                  var was = (r.oldValue || '').split(/\\s+/).indexOf('is-replaying') >= 0;
+                  var now = r.target.classList.contains('is-replaying');
+                  if (was === now) return;
+                  window.__replaying.push({ on: now,
+                    denied: document.querySelectorAll('.transcript li.denied').length });
+                });
+              }).observe(document.body, { attributes: true, attributeFilter: ['class'],
+                                          attributeOldValue: true });
+            }""")
+            page.evaluate("() => { tiles.get('alpha').seq = 0; connect(); }")
+            page.wait_for_function(
+                "() => window.__replaying.some(function (m, i) { return m.on"
+                " && window.__replaying.slice(i + 1).some(function (n) { return !n.on; }); })",
+                timeout=15000)
+            seen = page.evaluate("() => window.__replaying")
+            first_on = next(i for i, m in enumerate(seen) if m["on"])
+            first_off = next(m for m in seen[first_on + 1:] if not m["on"])
+            assert first_off["denied"] == 3, (
+                f"the class cleared before the replay had landed: {seen}")
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()

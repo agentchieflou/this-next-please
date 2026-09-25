@@ -88,7 +88,11 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # `ink/ink.js` (#248) is the ink layer's front door, a module beside `app.js`. The rest of the layer
 # -- `ink/layer.js`, `ink/shapes.js`, `ink/pen.js` and the vendored three.js -- is never named in a
 # page: the layer imports it through `q()`, token and all, and only once the gate says on.
-ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.js")
+#
+# `/map` (#405) brings its stylesheet and its one script, `map/map.js`; a scene it draws later
+# (#409) is imported through `q()` like the ink layer's modules, never named here.
+ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
+          "map.css", "map/map.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -99,7 +103,15 @@ ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.
 # facts to `/api/probe`. The desk loads three.js only through the ink layer (#248), only when that
 # shell's probe said hardware (or the page was opened with `?ink=on`), and only once a skin draws
 # with ink -- and a test holds it to that.
-PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html"}
+#
+# `/map` (#405) is the fourth: the fleet's structure as an accessible tree (docs/fleet-map.md
+# §The page), read-only, and a page rather than a desk view for the reason settings is one.
+PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
+         "/map": "map.html"}
+
+#: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
+#: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
+INKED_PAGES = ("index.html", "map.html")
 
 
 def ink_facts(query: dict) -> dict:
@@ -1339,6 +1351,18 @@ def ink_gate_on(query: dict, probe_class: str | None = None) -> bool:
     return (probe_class if probe_class is not None else ink_facts(query)["class"]) == "hardware"
 
 
+#: The pages that time their own load while measuring is on (#351); never `/probe`, which measures
+#: a shell rather than a load.
+MEASURED_PAGES = ("index.html", "settings.html")
+
+
+def measure_attr(name: str) -> str:
+    """` data-measure="loads"` for `<html>` while `fleet.loads.enabled` is on and `name` is a
+    measured page (#351), else nothing -- so with measuring off the markup is byte-identical to what
+    it was. The page reads the attribute at boot and needs no request to find out."""
+    return ' data-measure="loads"' if name in MEASURED_PAGES and LOADS.enabled() else ""
+
+
 def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
     """The chosen palette, skin and tiers as the served page's own markup (#345), so its first
     painted frame is the one the operator chose -- not the system palette, and not the snapshot of
@@ -2349,7 +2373,7 @@ def _config_changed() -> None:
 def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float = HEARTBEAT_S,
                   tick: float = TICK_S, once: bool = False, url: str = "",
                   notify_every: float = NOTIFY_EVERY_S, polls: bool = True,
-                  agents: bool = True) -> None:
+                  agents: bool = True, sweep: bool = True) -> None:
     """Multiplex every agent's new events onto one SSE connection until the client goes away.
 
     `write` raises when the socket closes, which is how this ends -- a browser tab being shut is
@@ -2382,6 +2406,12 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
 
     `agents=False` (`?frames=theme`, the settings page) skips only the per-agent reads and their
     frames: a page that listens for one frame does not download every agent's history.
+
+    `sweep=False` (#356: `?notify=0`, or `?frames=theme`) skips the notification sweep entirely.
+    `notify.sweep` advances ONE shared cursor and hands what it found to whichever stream swept
+    first, so a stream that is not a desk's took the desk's `notify` frames and dropped them. With
+    only such pages open nothing sweeps, as when no window is open; the next desk stream announces
+    what accumulated.
     """
     last_beat = 0.0
     last_sweep = 0.0
@@ -2425,7 +2455,7 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
         # Not behind `polls`: a renew queued for a turn's end (#241) is the fleet's own work, and a
         # desk with project polling switched off must still carry it out.
         renew_tick()
-        if time.time() - last_sweep >= notify_every:
+        if sweep and time.time() - last_sweep >= notify_every:
             last_sweep = time.time()
             for item in _sweep(url):
                 write(f"event: notify\ndata: {json.dumps(item, ensure_ascii=False)}\n\n")
@@ -2782,12 +2812,14 @@ class Handler(BaseHTTPRequestHandler):
         with no second request and nothing drawn first and taken back.
         """
         html = textio.read_text(os.path.join(STATIC, name))
+        # Read once, so the markup and its gzip entry agree about the switch (#351).
+        measured = measure_attr(name)
         for asset in ASSETS:
             html = html.replace(f'"/static/{asset}"', f'"/static/{asset}?t={self.token}"')
         ink: tuple = ()
         desk = name == "index.html"
         facts, gate_on = "", False
-        if desk:
+        if name in INKED_PAGES:
             gate = ink_facts(query or {})
             inked = " ".join(ink_skins())
             ink = (gate["shell"], gate["class"], inked)
@@ -2795,7 +2827,8 @@ class Handler(BaseHTTPRequestHandler):
             # before they are written), so nothing here needs escaping.
             facts = (f' data-ink-shell="{gate["shell"]}" data-ink-probe="{gate["class"]}" '
                      f'data-ink-skins="{inked}"')
-            gate_on = ink_gate_on(query or {}, gate["class"])
+            # The map (#405) is told the facts and never turns ink on: it keeps `ink-off`.
+            gate_on = desk and ink_gate_on(query or {}, gate["class"])
         themed: tuple = ()
         # The chosen theme, in the markup (#345): every page but the probe, which measures a shell
         # and has no business wearing a skin.
@@ -2806,11 +2839,14 @@ class Handler(BaseHTTPRequestHandler):
             # stylesheet, which stays the last thing in <head>.
             preload = ink_preload(ts, self.token, gate_on=gate_on) if desk else ""
             themed = (worn["html"], worn["link"], worn["body_class"], worn["body"], preload)
-            html = html.replace('<html lang="en">', '<html lang="en"' + worn["html"] + ">", 1)
+            html = html.replace('<html lang="en">', '<html lang="en"' + worn["html"] + measured + ">", 1)
             html = html.replace("</head>", preload + worn["link"] + "</head>", 1)
 
             def dress(m):
-                classes = " ".join(c for c in (m.group(1) or "", worn["body_class"]) if c)
+                own = m.group(1) or ""
+                # A page that already wears `ink-off` (/map, #405) is not given it twice.
+                extra = "" if worn["body_class"] in own.split() else worn["body_class"]
+                classes = " ".join(c for c in (own, extra) if c)
                 return ("<body" + (f' class="{classes}"' if classes else "") + worn["body"] + facts + ">")
             html = re.sub(r'<body(?: class="([^"]*)")?>', dress, html, count=1)
         stamp = os.stat(os.path.join(STATIC, name))
@@ -2819,7 +2855,8 @@ class Handler(BaseHTTPRequestHandler):
         # whichever was compressed first to both. The desk's shell and its class are in it too, and
         # the theme every page but the probe now wears.
         self._send(200, html.encode("utf-8"), "text/html; charset=utf-8",
-                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) + ink + themed)
+                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) + ink + themed
+                   + (measured,))
 
     def _static(self, name: str) -> None:
         """One file out of the package's `static/` directory, and nothing above or beside it.
@@ -2869,8 +2906,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             # `?frames=theme` (#348): the settings page listens for one frame, not the agents' history.
             frames = (query.get("frames") or [""])[0].split(",")
+            # Only a desk's stream sweeps (#356): the sweep's cursor is shared, so a stream that
+            # does not draw `notify` frames (`?notify=0`, `?frames=theme`) would take the desk's.
+            notify = (query.get("notify") or [""])[0]
             stream_events(cursors, getattr(self.server, "stopping", threading.Event()), write,
-                          url=url, agents="theme" not in frames)
+                          url=url, agents="theme" not in frames,
+                          sweep=notify != "0" and "theme" not in frames)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass                              # the tab was closed. Not an error.
         self.close_connection = True

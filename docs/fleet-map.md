@@ -88,7 +88,57 @@ the project's local branches (one list, at most 40, unmerged first); ticket carr
 
 ## The page
 
-(written by #405)
+`GET /map` (`static/map.html`, `map.css`, `map/map.js`; `/open?page=map` lands there) is the fleet as a WAI-ARIA
+tree, readable at any width and keyboard-first. The tree is the map's text twin and its whole plain look
+([desk-rendering.md](desk-rendering.md) rules 3-4): the scene (#409) is drawn from it and carries nothing it lacks,
+and #406 keeps it live. The page reads `GET /api/map` once, paints its theme (`applyTheme`, `applySkin`, which write
+only on change), draws, and puts the graph's `says` in `#mapsays` (`aria-live="polite"`). Its `<body>` is
+`class="ink-off"` for the page's whole life, and carries the desk's ink gate facts (`data-ink-shell`,
+`data-ink-probe`, `data-ink-skins`: `serve.INKED_PAGES`) for the scene; nothing on /map ever removes `ink-off`.
+
+**The tree.** One `li[role=treeitem]` per node, `data-node` its id, its words in `.say` (the node's `says`):
+
+```
+ul#maptree
+  li p:<project>              data-name, data-default
+    li c:<repo>               data-name, data-on       (main first, then worktrees)
+      li a:<repo>             data-subagents
+    li bs:<project>           text: branches_says; only when the project has it; starts collapsed
+      li b:<project>:<name>
+  li n:network                text: network.says; last; only when the graph has a network (#404)
+    li n:server, li w:*, li s:*, li n:approvals, li n:install
+```
+
+`bs:<project>` and `n:network` are ids the page makes; every other id is the graph's. What is absent from the graph
+(branches before #403 reads them, the network before #404) is not drawn.
+
+**Classes**, from a closed list: `kind-<kind>`, `state-<state>`, `role-<role>`, `needs-human`, `live`, `stale` (an
+agent); `main`, `worktree`, `dirty` (a checkout); `unmerged`, `is-current` (a non-empty `current_in`), `carrying` (a
+branch); `connected` (a window); `grey` (a source with any cell `ok: false`); `pending` (approvals above 0). A kind,
+state or role that is not a plain word is not written.
+
+**Expansion.** `aria-expanded` is written only when an item is created: projects, checkouts and `n:network` open,
+`bs:` closed. A redraw never undoes what the operator opened or closed; the choice is held in the DOM, in memory,
+and not persisted. `#maptree [aria-expanded="false"] > ul` is not shown. Clicking an item's words toggles it.
+
+**Keys** (the WAI-ARIA tree pattern): ↓ ↑ move through the visible items; → opens a closed item, else moves to its
+first child; ← closes an open item, else moves to its parent; Home and End. One item is in the tab order (roving
+`tabindex`): the last one reached, else the first. Enter on a checkout or an agent posts `window {w, open: <repo>}`
+and lands on the desk, `w`, `shell` and `ink` kept (`pageUrl("/")`); `#mapback` goes there too.
+
+**Focus** is a 2px `--focus` outline on the item's `.say`, never a state colour. No tree or header word is in
+`--muted`: every one reads at 4.5:1 on the default and `sand` palettes (measured, computed, by the tests).
+
+**Layout.** Plain, the tree is the page and `#mapstage` is not shown. With `body.map-scene` (#409 sets it) the tree
+is a 320 px column and `#mapstage` fills the rest; at 900 px and below (a PyCharm tool window or a VS Code view) the
+tree stacks above the stage at full width and the stage is `min(55vh, 480px)` tall.
+
+**`window.FleetMap`** (frozen): `ready` resolves after the first draw; `draw(graph)` draws a graph of the caller's
+and sets `paused`, which the page's own drawing (and #406's refetch) honours; `graph` is the last graph drawn;
+`scene` is `null` until #409.
+
+Tests: `tests/test_fleet_map_page.py` (5 browser tests, one Chromium for the module), plus the budgets and hooks in
+`test_fleet_serve.py`, the gate in `test_fleet_ink.py` and the inventory in `test_fleet_components.py`.
 
 ## Staying live
 
@@ -124,7 +174,10 @@ the project's local branches (one list, at most 40, unmerged first); ticket carr
 
 ## Budgets
 
-(written by #405)
+`map.html` and `map.css` sit in `static/` beside the desk's files, inside the desk's 200 KiB, and are held to 4 KiB
+gzipped together. The map's scripts, `static/map/**/*.js` outside `map/skins/`, have `MAP_BUDGET` = 32 KiB gzipped
+of their own (`tests/test_fleet_serve.py`), outside the desk's: a desk never fetches them. `INK_BUDGET` is untouched.
+`map/map.js` is a classic script (checked by `node --check` as `.js`); every other `map/**/*.js` is checked as a module.
 
 ## Measured
 
