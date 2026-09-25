@@ -1702,7 +1702,7 @@ function connect() {
   if (source) source.close();
   var link = document.getElementById("link");
   toggle(document.body, "is-replaying", true);
-  source = new EventSource(q("/api/events", { since: cursors() }));
+  source = new EventSource(q("/api/events", { since: cursors(), w: W_NAME, shell: PARAMS.get("shell") || "" }));
   source.addEventListener("agent", function (m) {
     var ev = JSON.parse(m.data);
     var entry = tiles.get(ev.repo);

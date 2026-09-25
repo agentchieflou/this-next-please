@@ -1013,6 +1013,56 @@ def current_poller():
         return _fresh()["poller"]
 
 
+# Who is listening right now (#404): one entry per open `/api/events` connection, added before the
+# stream starts and removed in its `finally`. In memory only, never written anywhere: a window that
+# is open is a fact about this process, and `desk.json` is what every window agrees on, not who is
+# looking. A closed tab is noticed on its stream's next write -- an event, a tick, or at most the
+# `HEARTBEAT_S` beat when nothing happens.
+_live_lock = threading.Lock()
+_live: dict[int, dict] = {}
+
+
+def live_entry(query: dict) -> dict:
+    """What a stream's query says about the window that opened it: `w` and `page` only when they
+    are names (`SKIN_FAMILY`), else `main` and `settings` (for `frames=theme`) or `desk`."""
+    def name(key: str) -> str:
+        got = ((query.get(key) or [""])[0] or "").strip()
+        return got if SKIN_FAMILY.match(got) else ""
+
+    frames = (query.get("frames") or [""])[0].split(",")
+    now = time.time()
+    return {"w": name("w") or "main",
+            "page": name("page") or ("settings" if "theme" in frames else "desk"),
+            "shell": ink_facts(query)["shell"],
+            "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "last": now}
+
+
+def live_windows() -> list[dict]:
+    """Copies of every open stream's entry, oldest first."""
+    with _live_lock:
+        return sorted((dict(v) for v in _live.values()), key=lambda v: (v["since"], v["w"]))
+
+
+def map_network(port: int) -> dict:
+    """The raw facts `fleetmap.graph(network=)` draws the network from (#404). It reads what the
+    process already knows -- who is listening, what the poll counted -- and asks nothing of anyone:
+    no ping, no probe, and never a `Poller` of its own (`current_poller`, not `poller`)."""
+    from ..version import version_string
+
+    live = current_poller()
+    try:
+        settings = live.settings if live is not None else P.settings()
+    except Exception:                        # noqa: BLE001 - a broken config is `ad-doctor`'s
+        settings = {}
+    try:
+        counts = live.counts() if live is not None else None
+    except Exception:                        # noqa: BLE001 - a map without counts, not no map
+        counts = None
+    parts = version_string().split()
+    return {"port": int(port), "version": parts[1] if len(parts) > 1 else "",
+            "live": live_windows(), "counts": counts, "settings": settings}
+
+
 def inbox_folders(cfg: dict | None = None) -> list[str] | None:
     """`fleet.inbox.folders` from the config, or None for the inbox's own default.
 
@@ -2642,7 +2692,9 @@ class Handler(BaseHTTPRequestHandler):
             snap = fleet_snapshot()
             # Branch lanes (#403) from the git poll's side cache: no git call of the map's own.
             rows = p.branch_rows if (p := current_poller()) else None
-            return self._json({"ok": True, **fleetmap.graph(snap, branch_rows=rows),
+            # The network (#404): who is listening and what the poll counted, from this process.
+            net = map_network(self.server.server_address[1])
+            return self._json({"ok": True, **fleetmap.graph(snap, branch_rows=rows, network=net),
                                "theme": snap["theme"]})
         if route == "/api/themes":
             from . import skins
@@ -2897,13 +2949,20 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", CSP)
         self.end_headers()
         cursors = _cursors((query.get("since") or [""])[0] or self.headers.get("Last-Event-ID", ""))
+        # Who is listening (#404): this stream's entry, stamped on each frame written, gone in the
+        # `finally` -- from the dict it was added to, whatever `_live` is bound to by then.
+        live, key, entry = _live, id(self), live_entry(query)
 
         def write(chunk: str) -> None:
             self.wfile.write(chunk.encode("utf-8"))
             self.wfile.flush()
+            with _live_lock:
+                entry["last"] = time.time()
 
         url = f"http://127.0.0.1:{self.server.server_address[1]}/?t={self.token}"
         try:
+            with _live_lock:
+                live[key] = entry
             # `?frames=theme` (#348): the settings page listens for one frame, not the agents' history.
             frames = (query.get("frames") or [""])[0].split(",")
             # Only a desk's stream sweeps (#356): the sweep's cursor is shared, so a stream that
@@ -2914,6 +2973,9 @@ class Handler(BaseHTTPRequestHandler):
                           sweep=notify != "0" and "theme" not in frames)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass                              # the tab was closed. Not an error.
+        finally:
+            with _live_lock:
+                live.pop(key, None)
         self.close_connection = True
 
     # --------------------------------------------------------------------- POST
