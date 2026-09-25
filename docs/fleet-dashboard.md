@@ -478,6 +478,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/where` | the catalogue search behind the header's box |
 | POST | `/api/start` | `{repo, ticket?, prompt?, force?}` |
 | POST | `/api/fresh` | `{repo, closed?, dry_run?}` — leave this checkout's session for a clean one (#488): `dry_run` answers the plan (`verdict`, `code`, `why`, `leaves`, `starts`); a start answers the row. `chat_open` answers 409 with `second_press: true`, and `closed: true` is that deliberate second press; every other refusal is 409 with its code |
+| POST | `/api/fresh` | `{all: true, dry_run: true, keyless?}` — a fresh day's preview (#508): `rows` (each with `ticked`, `keyless`, `began`, and a `needs_you` row's `question`), `plan_id`, `ticked`, `premium_turns`, `skipped` by code. `{all: true, repos: [..]}` starts the ticked repos that are still `now`: `rows` with `done` (`started`, `skipped`, `changed`) and each pane's new `row`; an unknown repo is listed in `unknown_repos`. `{all: true}` alone is 409 `preview_first`; nothing else launches |
 | POST | `/api/send` | `{repo, message}` |
 | POST | `/api/stop` | `{repo}` |
 | POST | `/api/reset` | `{repo, force?}` — stop, then resume the same session |

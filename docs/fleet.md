@@ -17,6 +17,12 @@ ad-fleet status
 
 ## The daily loop
 
+0. **Start the day** (#508): `ad-fleet fresh --all --dry-run` lists every agent — ticked (a ticket in
+   progress, idle, not waiting on you: a clean session on its ticket and configured model), tickable
+   (no ticket or a finished one: a keyless session, with `--keyless`), and the rest with the reason
+   (mid-turn, needs you with its question, a console, your own chat, already on today's session).
+   Then `ad-fleet fresh --all --confirm <plan_id>` starts exactly the ticked rows, one premium turn
+   each. The day boundary is when a session began, never when its current run did.
 1. **`ad-fleet open`** (or `serve --open`) — the dashboard, one tile per registered repository.
 2. **Press `b`** for your Jira board. Drag a ticket onto a tile, or click *start on `<repo>`*.
 3. **Work on something else.** A tile turns amber when an agent wants to write to Jira, red when it
