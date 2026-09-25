@@ -156,7 +156,8 @@ def _gated(monkeypatch, capsys, state, reason=""):
         result["rc"], result["out"], _ = _run(monkeypatch, capsys, ["comment", "RDSD-1", "--body", "Progress: 3 commits"],
                                               fake=fake)
 
-    monkeypatch.setattr(approval, "POLL_S", 0.02)
+    real_require = approval.require                     # poll fast: the default two seconds is a person's pace
+    monkeypatch.setattr(approval, "require", lambda *a, **kw: real_require(*a, **{"poll": 0.02, **kw}))
     t = threading.Thread(target=agent)
     t.start()
     req = _wait_for_request()
