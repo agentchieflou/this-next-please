@@ -65,6 +65,16 @@ def test_all_svg_sprites_use_rect_pixel_art_with_named_comments():
         assert "soil tile" in content
         assert "wood plank" in content
         assert "crop stage" in content
+        # The farm's effects' art (#380), each named in its own comment.
+        for name in ("produce", "cloud", "hen a", "hen b", "cat sleep", "cat stretch", "crow"):
+            assert re.search(r"<!--[^>]*\b%s\b" % name, content), f"no comment names the {name} sprite"
+        # And every sprite has one: the comment right before its <svg> gives its size and names it.
+        sprites = re.findall(r'<!--((?:(?!-->).)*)-->\s*<svg id="([\w-]+)"[^>]*?\bwidth="(\d+)" height="(\d+)"',
+                             content, re.S)
+        assert len(sprites) == content.count("<svg id="), "a sprite with no comment of its own"
+        for comment, sprite, w, h in sprites:
+            assert f"{w}x{h}" in comment and all(part in comment for part in sprite.split("-")), \
+                f"{skin_name}: #{sprite}'s comment does not name it and its size: {comment.strip()!r}"
 
 
 def test_every_skin_variant_passes_the_contrast_rule_on_its_own_ground():

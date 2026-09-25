@@ -22,6 +22,9 @@ body[data-skin="farmstead"] {
   --farm-diffuse: 0.62;
   --farm-band-ink: #FFFDF5;
   --farm-band-ink-soft: #F0DCC0;
+  /* The effects' colours (#380), nothing draws them yet: the rain's streak on the boards, 3:1 on
+     the median lit plank of its weather (test_fleet_ink_farmstead). The cave adds its fireflies. */
+  --farm-rain: #A9C4DC;
   /* The palette's pencil is too faint on this paper for a mark (3:1); a graphite with some soil in
      it is not. The other inks are the palette's own. */
   --ink-pencil: #74695A;
@@ -42,6 +45,9 @@ body[data-skin="farmstead"][data-skin-variant="cave"] {
   --farm-band-light: 0.9;
   --farm-band-ink: #F0E9D8;
   --farm-band-ink-soft: #CFC6AE;
+  --farm-rain: #9DB8D6;
+  /* A firefly's glow on the soil, 3:1 on --farm-soil. */
+  --farm-firefly: #D8F07A;
   /* Lamplight: a paler pencil to be seen by, and a highlighter dark enough that the text read
      through it keeps 4.5:1 (theme.check, test_fleet_ink_farmstead). */
   --ink-pencil: #968F82;
@@ -57,6 +63,7 @@ body[data-skin="farmstead"][data-skin-variant="rainy"] {
   --farm-band-light: 0.9;
   --farm-band-ink: #E4EDFA;
   --farm-band-ink-soft: #B9CBE4;
+  --farm-rain: #8FB0D8;
   /* A slate pencil: the palette's is lost on the night-blue paper (3:1). */
   --ink-pencil: #8A97AB;
 }
