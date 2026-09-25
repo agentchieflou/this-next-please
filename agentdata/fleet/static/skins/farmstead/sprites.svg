@@ -65,4 +65,101 @@
     <rect x="10" y="10" width="3" height="3" fill="#A88B58"/>
     <rect x="11" y="11" width="1" height="1" fill="#40321F"/>
   </svg>
+
+  <!-- The farm's effects draw these (#380): each is its own size, at 0,0 like the rest, and
+       farmstead.js's SIZE is the table a test holds every width and height to. -->
+
+  <!-- 8x8 produce: a root vegetable with its leaves -->
+  <svg id="produce" viewBox="0 0 8 8" width="8" height="8">
+    <rect x="2" y="0" width="1" height="2" fill="#6CB839"/>
+    <rect x="5" y="0" width="1" height="2" fill="#6CB839"/>
+    <rect x="3" y="1" width="2" height="2" fill="#4B8227"/>
+    <rect x="2" y="3" width="4" height="3" fill="#C2527F"/>
+    <rect x="1" y="4" width="6" height="1" fill="#C2527F"/>
+    <rect x="2" y="3" width="1" height="2" fill="#E07AA3"/>
+    <rect x="3" y="6" width="2" height="1" fill="#9E3A64"/>
+    <rect x="4" y="7" width="1" height="1" fill="#9E3A64"/>
+  </svg>
+
+  <!-- 16x8 cloud: a rain cloud over the boards -->
+  <svg id="cloud" viewBox="0 0 16 8" width="16" height="8">
+    <rect x="1" y="4" width="14" height="3" fill="#E6EBF0"/>
+    <rect x="3" y="2" width="5" height="2" fill="#E6EBF0"/>
+    <rect x="8" y="1" width="5" height="3" fill="#F7F9FB"/>
+    <rect x="5" y="1" width="2" height="1" fill="#F7F9FB"/>
+    <rect x="9" y="1" width="3" height="1" fill="#FFFFFF"/>
+    <rect x="2" y="7" width="12" height="1" fill="#B8C2CC"/>
+  </svg>
+
+  <!-- 12x12 hen a: a hen running, first frame -->
+  <svg id="hen-a" viewBox="0 0 12 12" width="12" height="12">
+    <rect x="3" y="4" width="6" height="4" fill="#F2EEE4"/>
+    <rect x="1" y="3" width="2" height="3" fill="#F2EEE4"/>
+    <rect x="7" y="1" width="3" height="3" fill="#F2EEE4"/>
+    <rect x="8" y="0" width="2" height="1" fill="#D8402F"/>
+    <rect x="10" y="3" width="1" height="1" fill="#D8402F"/>
+    <rect x="10" y="2" width="1" height="1" fill="#F0A020"/>
+    <rect x="8" y="2" width="1" height="1" fill="#2A2420"/>
+    <rect x="4" y="5" width="3" height="2" fill="#D6CFBF"/>
+    <rect x="4" y="8" width="1" height="3" fill="#E08B16"/>
+    <rect x="3" y="11" width="2" height="1" fill="#E08B16"/>
+    <rect x="7" y="8" width="1" height="2" fill="#E08B16"/>
+    <rect x="7" y="10" width="2" height="1" fill="#E08B16"/>
+  </svg>
+
+  <!-- 12x12 hen b: a hen running, second frame -->
+  <svg id="hen-b" viewBox="0 0 12 12" width="12" height="12">
+    <rect x="3" y="4" width="6" height="4" fill="#F2EEE4"/>
+    <rect x="1" y="3" width="2" height="3" fill="#F2EEE4"/>
+    <rect x="7" y="1" width="3" height="3" fill="#F2EEE4"/>
+    <rect x="8" y="0" width="2" height="1" fill="#D8402F"/>
+    <rect x="10" y="3" width="1" height="1" fill="#D8402F"/>
+    <rect x="10" y="2" width="1" height="1" fill="#F0A020"/>
+    <rect x="8" y="2" width="1" height="1" fill="#2A2420"/>
+    <rect x="4" y="4" width="3" height="2" fill="#D6CFBF"/>
+    <rect x="5" y="8" width="1" height="2" fill="#E08B16"/>
+    <rect x="4" y="10" width="2" height="1" fill="#E08B16"/>
+    <rect x="6" y="8" width="1" height="3" fill="#E08B16"/>
+    <rect x="6" y="11" width="2" height="1" fill="#E08B16"/>
+  </svg>
+
+  <!-- 16x8 cat sleep: a cat curled up asleep -->
+  <svg id="cat-sleep" viewBox="0 0 16 8" width="16" height="8">
+    <rect x="2" y="3" width="10" height="5" fill="#8C7B6A"/>
+    <rect x="10" y="4" width="4" height="4" fill="#8C7B6A"/>
+    <rect x="10" y="3" width="1" height="1" fill="#8C7B6A"/>
+    <rect x="13" y="3" width="1" height="1" fill="#8C7B6A"/>
+    <rect x="4" y="3" width="1" height="3" fill="#6E5E4E"/>
+    <rect x="7" y="3" width="1" height="3" fill="#6E5E4E"/>
+    <rect x="3" y="7" width="8" height="1" fill="#6E5E4E"/>
+    <rect x="0" y="6" width="2" height="2" fill="#6E5E4E"/>
+    <rect x="11" y="6" width="2" height="1" fill="#3A302A"/>
+  </svg>
+
+  <!-- 16x8 cat stretch: the same cat, waking with a stretch -->
+  <svg id="cat-stretch" viewBox="0 0 16 8" width="16" height="8">
+    <rect x="3" y="3" width="9" height="3" fill="#8C7B6A"/>
+    <rect x="12" y="3" width="4" height="3" fill="#8C7B6A"/>
+    <rect x="12" y="2" width="1" height="1" fill="#8C7B6A"/>
+    <rect x="15" y="2" width="1" height="1" fill="#8C7B6A"/>
+    <rect x="3" y="6" width="2" height="2" fill="#8C7B6A"/>
+    <rect x="10" y="6" width="6" height="1" fill="#8C7B6A"/>
+    <rect x="5" y="3" width="1" height="2" fill="#6E5E4E"/>
+    <rect x="8" y="3" width="1" height="2" fill="#6E5E4E"/>
+    <rect x="1" y="0" width="1" height="4" fill="#6E5E4E"/>
+    <rect x="2" y="3" width="1" height="1" fill="#6E5E4E"/>
+    <rect x="13" y="4" width="1" height="1" fill="#3A302A"/>
+  </svg>
+
+  <!-- 8x8 crow: a crow on the fence -->
+  <svg id="crow" viewBox="0 0 8 8" width="8" height="8">
+    <rect x="2" y="3" width="4" height="3" fill="#2B2A33"/>
+    <rect x="5" y="1" width="2" height="3" fill="#2B2A33"/>
+    <rect x="0" y="4" width="2" height="2" fill="#2B2A33"/>
+    <rect x="3" y="3" width="2" height="1" fill="#3E3D4A"/>
+    <rect x="6" y="2" width="1" height="1" fill="#D9D2BE"/>
+    <rect x="7" y="2" width="1" height="1" fill="#6B6558"/>
+    <rect x="3" y="6" width="1" height="2" fill="#6B6558"/>
+    <rect x="5" y="6" width="1" height="2" fill="#6B6558"/>
+  </svg>
 </svg>

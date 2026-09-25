@@ -558,7 +558,7 @@ stylesheet of every skin that ships a module and refuses the rest:
 
 | A declaration | Allowed |
 | --- | --- |
-| a custom property (`--paper`, `--ink-pen`, `--glass-mesh-1`…): the colours and numbers the module reads | anywhere, **except** the palette's own eighteen tokens (`--bg`, `--panel`, `--text`…): a skin never recolours the palette, which it shares with the terminal |
+| a custom property (`--paper`, `--ink-pen`, `--glass-mesh-1`…): the colours and numbers the module reads | anywhere, **except** the palette's own twenty-three tokens (`--bg`, `--panel`, `--text`…): a skin never recolours the palette, which it shares with the terminal |
 | layout (`display`, `padding`, `margin`, `gap`, `width`, `flex`…) and typography (`font-*`, `line-height`, `letter-spacing`, `text-*`…) | anywhere |
 | anything else: a background, a border, a shadow, a radius, a filter, an opacity, a colour | only where the skin's ink is on the page (a selector with `:not(.ink-off)`), and only to clear the page for the canvas or to name a token: `transparent`, `none`, `0` or `var(--…)`. Never a literal colour, never a `url()` |
 
@@ -758,6 +758,12 @@ panel. Every ink is a mark on the paper, so it needs **3:1** against it (WCAG 1.
 highlighter is read *through*, so the text needs **4.5:1** on its tint (`theme.INK_TINT`, the plain fallback's 38%).
 Rule 6 (#325) holds secondary text (`--muted`) to **4.5:1** on the target ground or composited panel, with a hint
 naming the skin and both colours if refused.
+Rule 8 (#328) holds a word written in a state colour (`--<role>-text`) to **4.5:1** on the target ground and on each of
+`panels`, the composited panels the palette is drawn on; the marks keep the state colour itself at rule 2's 3:1.
+Rule 9 (#328), **pressed ground**, holds `--text` to **4.5:1** on `--select`, the ground a pressed control writes its
+word on, for the palette alone (a project's accent paints only the pane's left edge). A pressed control's ring is not
+gated: `--accent` on `--panel` or `--select` falls under 2.5:1 on random rolls, and the ring is a second mark beside
+the word, which carries the state.
 `tests/test_fleet_skins.py` passes each variant's `inks`. No variant declares any in B, so this is the hook the paper
 skins (#249–#253) fill in, with the composited-pane pairs of the three.js skins after them.
 
