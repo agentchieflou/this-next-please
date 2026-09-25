@@ -15,16 +15,18 @@ open beside the agent the operator is reading (`sol`), with the checkout the tic
 agent rail.
 """
 from __future__ import annotations
+import os
 import threading
 import time
 
 import pytest
 
-from agentdata.fleet import board as B, events as E, preflight as PF, registry, serve as S, supervisor
+from agentdata.fleet import board as B, events as E, preflight as PF, registry, serve as S, spend as SPEND, supervisor
 from agentdata.fleet.registry import Registry
 
 import fakes
 from test_fleet import make_project
+from test_fleet_board_desk import PHOTO, friction
 from test_fleet_branches import seven_branches
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_handoff_pickup import RICH
@@ -33,6 +35,13 @@ pytestmark = [pytest.mark.slow, pytest.mark.browser]
 
 TICKET = "RDSD-7"
 SETTLE_S = 90
+
+# #504: the photo's shape -- nine AGENTS.md facts (every one a link fact, so every one reaches the
+# panel and the rail), three friction files of 2026-09-03 and a spend ledger.
+NINE_FACTS = (("jira_project", "RDSD"), ("jira_url", "https://jira.example.test"), ("jira_board_id", "42"),
+              ("bitbucket_url", "https://bitbucket.example.test"), ("bitbucket_repo", "rdsd/luna"),
+              ("confluence_base", "https://confluence.example.test"), ("confluence_space", "RDSD"),
+              ("report_id", "0f1e2d3c"), ("ws_id", "9a8b7c6d"))
 
 
 @pytest.fixture()
@@ -51,7 +60,15 @@ def desk(tmp_path, monkeypatch):
     fakes.apply(monkeypatch, tmp_path, ["copilot"], npm=True)
     path = make_project(tmp_path / "luna", project="RDSD", phase="triaged")
     seven_branches(path, ticket=TICKET)
+    with open(os.path.join(path, "AGENTS.md"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("# Project\n\n" + "".join(f"- {k}: {v}\n" for k, v in NINE_FACTS))
+    for name, unblock in PHOTO:
+        friction(path, name, unblock, ticket=TICKET)
     Registry().add(path, name="luna")
+    SPEND.write_ledger("luna", {"sessions": {"s-0903": {"premium": 41.5, "turns": 12, "first": "2026-09-03T12:00:00",
+                                                        "last": "2026-09-03T13:04:00", "model": "", "ticket": TICKET,
+                                                        "ended": "2026-09-03T13:05:00"}},
+                                "days": {"2026-09-03": 41.5}, "session": "s-0903", "turn_closed": True})
     Registry().add(make_project(tmp_path / "sol", project="OPS"), name="sol")
     S.update_window("main", open="sol")
     B.write_cache({"jql": B.DEFAULT_JQL, "fetched_at": time.time(), "rows": [
@@ -184,6 +201,62 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
                 ["feature/RDSD-7-part-2", "fix/RDSD-9", "feature/RDSD-7-part-1"], rows
             assert grid.locator("#inspector .branches-carry").inner_text() == \
                 "two branches carry RDSD-7 (feature/RDSD-7-part-2, feature/RDSD-7-part-1); only one can merge"
+
+            # 5. The project panel fits one screen (#504): the rail, no open friction, one spend line,
+            #    the branches with their seven rows in sight, and a closed *more* holding the facts.
+            grid.wait_for_selector("#inspectordetails > details.more", state="attached", timeout=10000)
+            shape = grid.evaluate("""() => {
+                const el = document.getElementById('inspector');
+                const body = document.getElementById('inspectordetails');
+                const kids = Array.from(body.children);
+                const at = (sel) => kids.findIndex(k => k.matches(sel));
+                const more = body.querySelector(':scope > details.more');
+                const spend = body.querySelector(':scope > .spendline');
+                const rows = Array.from(body.querySelectorAll('.branches .branchrow'));
+                const cs = spend ? getComputedStyle(spend) : null;
+                const line = cs ? (parseFloat(cs.lineHeight) || 1.5 * parseFloat(cs.fontSize)) : 0;
+                return { scroll: el.scrollHeight, client: el.clientHeight,
+                         rail: at('.rail'), friction: at('.frictionrow'), spend: at('.spendline'),
+                         branches: at('.branches'), more: at('details.more'), last: kids.length - 1,
+                         spendCount: body.querySelectorAll('.spendline').length,
+                         spendOneLine: !!spend && spend.getBoundingClientRect().height < 2 * line,
+                         spendTitle: spend ? spend.title : '',
+                         moreOpen: !!more && more.open, factsInMore: !!(more && more.querySelector('.facts')),
+                         facts: document.querySelectorAll('#inspector .facts').length,
+                         factKeys: more ? Array.from(more.querySelectorAll('.facts .k')).map(k => k.textContent) : [],
+                         summary: more ? more.querySelector(':scope > summary').textContent : '',
+                         rowsVisible: rows.filter(r => r.checkVisibility() && r.getBoundingClientRect().bottom <= el.getBoundingClientRect().bottom).length,
+                         rowHeights: rows.map(r => Math.round(r.getBoundingClientRect().height)) };
+            }""")
+            assert shape["scroll"] <= shape["client"] + 1, shape
+            assert shape["rail"] == 0 and shape["friction"] == -1, shape
+            assert 0 < shape["spend"] < shape["branches"] < shape["more"] == shape["last"], shape
+            assert shape["spendCount"] == 1 and shape["spendOneLine"] and "turn" in shape["spendTitle"], shape
+            assert not shape["moreOpen"] and shape["factsInMore"] and shape["facts"] == 1, shape
+            assert not {"project", "path", "branch"} & set(shape["factKeys"]) and "jira" in shape["factKeys"], shape
+            assert shape["summary"].startswith("more") and "facts" in shape["summary"] and \
+                "3 earlier friction" in shape["summary"], shape
+            assert shape["rowsVisible"] == 7, shape
+
+            # An open *more* stays open across a desk tick, and a tick with nothing changed writes nothing.
+            grid.evaluate("() => { document.querySelector('#inspectordetails > details.more').open = true; }")
+            ticked = grid.evaluate("""async () => {
+                const body = document.getElementById('inspectordetails');
+                const seen = [];
+                const watch = new MutationObserver((records) => { for (const r of records) seen.push(r.type + ':' + (r.target.className || r.target.nodeName)); });
+                watch.observe(body, { subtree: true, childList: true, attributes: true, characterData: true });
+                await loadDesk();
+                await new Promise(requestAnimationFrame);
+                watch.disconnect();
+                return { n: seen.length, seen: seen.slice(0, 8),
+                         open: document.querySelector('#inspectordetails > details.more').open };
+            }""")
+            assert ticked["n"] == 0 and ticked["open"], ticked
+            # A rebuild (a re-read of the branches) keeps both folds as the operator left them.
+            grid.evaluate("() => loadBranches('luna', true)")
+            grid.wait_for_function("""() => document.querySelectorAll('#inspector .branches .branchrow').length === 7
+                && document.querySelector('#inspectordetails > details.more').open
+                && document.querySelector('#inspector details.branches-list').open""", timeout=10000)
             assert not errors, errors
             browser.close()
     finally:

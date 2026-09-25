@@ -981,6 +981,21 @@ def test_the_page_has_exactly_one_place_that_renders_a_fact_block():
     assert "serve.tile_facts()" in js, "the page must say where the narrowing happens"
 
 
+def test_the_panel_draws_the_rail_first_and_folds_the_facts_under_more():
+    """#504: the panel opens on the rail; the one fact loop sits inside the one *more* fold, which is
+    appended after it, and an unchanged project never rebuilds the panel."""
+    js = open(APP_JS, encoding="utf-8").read()
+    start = js.index("function drawInspector(")
+    body = js[start:js.index("\n}\n", start)]
+    assert body.index("body.appendChild(rail)") < body.index("body.appendChild(more)")
+    assert body.index('inspectorFold(name, "more"') < body.index("Object.keys(factsFromCatalogue)")
+    assert "more.appendChild(facts)" in body and "body.appendChild(facts)" not in body
+    assert "inspectorDrawn" in body and "return;" in body[:body.index("while (body.firstChild)")]
+    css = open(APP_CSS, encoding="utf-8").read()
+    assert "#inspectordetails details.more" in css and "details.branches-list" in css
+    assert css.index("#inspectordetails .frictionrow {") < css.index("#inspectordetails details.more")
+
+
 def test_the_desk_puts_no_agent_output_into_markup():
     body = open(APP_JS, encoding="utf-8").read()
     assert "innerHTML" not in body
