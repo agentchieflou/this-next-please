@@ -139,8 +139,11 @@ Who writes what, one owner each:
 * **What is drawn at a tier** is `drawTile`'s: a rail skips the trace, the session menu, the
   cards, the scope report and the cells; a compact pane skips the trace, the menu, the scope report
   and the cells. `needs-human` is written at every tier, because `isHidden` reads it. The head's
-  **start fresh** (`.freshtoggle`, #489) is drawn at every tier by `drawFresh` when `row.fresh.offer`,
-  so a compact pane -- which hides the menu and the bottom row -- still has its one door.
+  **start fresh** (`.freshtoggle`, #489) is drawn at every tier by `drawFresh` whenever the row has
+  `fresh`, with `is-offer` when `row.fresh.offer`: app.css hides a button without it on every pane but
+  a compact one, so a compact pane -- which hides the menu and the bottom row -- shows its one door on
+  every pane, and a full pane keeps #489's rule (#509). On a full pane the bottom row's Start is the
+  door instead: `drawStart` makes it *Start fresh* while the reply box is empty (#509).
 * **The face** is `drawPaneRail`'s — its whole `class` (with `is-stale` or `is-outside` when the pane
   offers *start fresh*: a dashed `--muted` ring on the glyph, #489), its glyph, name, badge, label and title —
   and it reads the row, `unread` and the group it heads. `bell()` calls it when a count changes.

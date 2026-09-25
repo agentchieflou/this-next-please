@@ -946,6 +946,10 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 .tile[data-tier="compact"] .head .hidetoggle { margin-left: auto; }
 .tile[data-tier="compact"] .head .chipage,
 .tile[data-tier="compact"] .head .ticket { display: inline; }
+/* Start fresh on every pane (#509, SESS-D6): compact hides the bottom row's Start, so its head's
+   *start fresh* shows whatever `offer` says; a full pane keeps #489's rule (stale, adopted, began
+   outside). The page draws the button whenever the row has a verdict, and a tier change is CSS. */
+.tile:not([data-tier="compact"]) .head .freshtoggle:not(.is-offer) { display: none; }
 
 /* Put away, and represented. A hidden pane leaves the row (the footer counts it); a checkout
    grouped into its project's rail is on the glass as that rail. */

@@ -72,7 +72,7 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 
 | On a tile | What it shows |
 | --- | --- |
-| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, maximise. The model button names the next turn's model, name first (`luna 5.6`, `sonnet 5`; the full id in its title): marked *next turn* (slanted, dotted underline) from the moment a switch is saved until a turn launches with it, and the model a tenant served in its place when it pinned another (#492) |
+| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, maximise, and **start fresh** on a stale, adopted or began-outside pane — and on every compact pane, which hides the bottom row's Start (#509). The model button names the next turn's model, name first (`luna 5.6`, `sonnet 5`; the full id in its title): marked *next turn* (slanted, dotted underline) from the moment a switch is saved until a turn launches with it, and the model a tenant served in its place when it pinned another (#492) |
 | Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
 | Session pill | which **session** this transcript is — `session · running · 6d` — and the one menu that changes which one it is: this session, the earlier ones with how each ended and what it cost (each says where it ran -- `your chat`, `console` -- and `left · <when>` once a fresh start left it), **start fresh** (#489), the console, and the project's other checkouts (#206) |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
@@ -81,7 +81,7 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 | Transcript | assistant text, tool calls, denials, phase changes — the current run only |
 | Earlier runs | folded under their session in the pill's menu — one *earlier*, not two adjacent ones (#206) |
 | Outside strip | a session in this checkout the fleet did not start: what it is, how sure we are, and *adopt it*; once adopted, **start fresh** first and the quieter *stop following it* (#489) |
-| Bottom row | reply box (→ `send`), Start (a ticket key in the same box), **Reset**, Stop. Over budget, *Send* re-arms as **Send anyway**: one more turn, on a second and deliberate press (#213) |
+| Bottom row | reply box (→ `send`), Start (a ticket key in the same box; with the box empty it reads **Start fresh** and is *start fresh*, titled with the ticket, the model and when the session it leaves began, #509 — text that is not a ticket key is refused `not_a_ticket`), **Reset**, Stop. Over budget, *Send* re-arms as **Send anyway**: one more turn, on a second and deliberate press (#213) |
 
 The **sidebar** sits beside the glass and holds five sections, one open at a time: the Jira **board**
 (`b`), the Downloads **inbox** (`i`), **alerts** (`n`), **where** (`/`, `ad-fleet where` over the
@@ -240,7 +240,8 @@ Under the run line there is a **tab strip**:
 * **start fresh** (#489) posts `fresh` -- `ad-fleet fresh <repo>` (#488): a clean session in this
   checkout on its active ticket and the configured model, the previous one still listed, marked
   `left`, and still resumable. The same action is the head's *start fresh* on a stale, adopted or
-  began-outside pane (full and compact alike), the adopt strip's first button, and `Alt`+`N` -- from a
+  began-outside pane (full and compact alike) and on every compact pane, the bottom row's *Start
+  fresh* on a full pane whose reply box is empty (#509), the adopt strip's first button, and `Alt`+`N` -- from a
   rail too, whose answer is said in the footer. When the operator's own chat may still be open the
   first press is refused with the server's sentence and the pressed button reads *start fresh — it
   is closed*; the next press is that deliberate second one. The footer then says *{repo}: left
