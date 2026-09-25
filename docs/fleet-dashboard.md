@@ -72,7 +72,7 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 
 | On a tile | What it shows |
 | --- | --- |
-| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, maximise |
+| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, maximise. The model button names the next turn's model, name first (`luna 5.6`, `sonnet 5`; the full id in its title): marked *next turn* (slanted, dotted underline) from the moment a switch is saved until a turn launches with it, and the model a tenant served in its place when it pinned another (#492) |
 | Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
 | Session pill | which **session** this transcript is — `session · running · 6d` — and the one menu that changes which one it is: this session, the earlier ones with how each ended and what it cost, `+ new session`, the console, and the project's other checkouts (#206) |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
@@ -392,7 +392,7 @@ red everywhere or the colour stops being information:
 | `=` | *all*: every pane on the glass an even share |
 | `u` | take the last change of widths back |
 | `r` | re-read the agent the keyboard is on — a rail as well — now; spends no premium request |
-| `m` | which model that agent runs, and which one its last turn actually ran on |
+| `m` | which model that agent runs, and which one its last turn actually ran on; a press there shows on the pane at once, and applies from the next turn (#492) |
 | `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |

@@ -615,13 +615,13 @@ def test_a_model_typed_here_reaches_the_command_line(fleet_home, tmp_path):
                 page.click("#model-beta .mp-expand .mp-effort button.pill[data-effort='high']")
             page.wait_for_function(f"""() => ({source})('beta') === 'fleet.models.beta'
                 && document.getElementById('saved').textContent
-                   === 'saved — model pinned to sonnet-5 so the effort can apply'""", timeout=10000)
+                   === 'saved — model pinned to sonnet 5 so the effort can apply'""", timeout=10000)
             assert C.get_leaf(C.load(), "fleet.models", "beta", {}) == {"model": "claude-sonnet-5", "effort": "high"}
 
             # `inherit` in alpha's row, which says what it inherits, pressed from the keyboard.
             inherit = "#model-alpha .mpick[data-variant=compact] button.pill[data-model='']"
             page.wait_for_function("(sel) => document.querySelector(sel + ' .pill-label').textContent"
-                                   " === 'inherit · sonnet-5'", arg=inherit, timeout=10000)
+                                   " === 'inherit · sonnet 5'", arg=inherit, timeout=10000)
             page.focus(inherit)
             page.evaluate("""() => { window.__pill = document.activeElement;
                                      window.__row = document.getElementById('model-alpha'); }""")

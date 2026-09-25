@@ -371,6 +371,9 @@ def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = F
                                 {"pid": lock.get("pid"), "prompt": (lock.get("prompt") or "")[:400],
                                  "summary": lock.get("summary", ""),
                                  "resumed": resumed, "new": new, "session": lock.get("session", ""),
+                                 # What this turn was launched with (#492): the desk's chip says
+                                 # "next turn" until a `started` carries the model just chosen.
+                                 "model": lock.get("model", "") or "", "effort": lock.get("effort", "") or "",
                                  **stamp,
                                  **({"console": True} if console else {})},
                                 ticket=lock.get("ticket", ""))])

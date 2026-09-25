@@ -99,9 +99,30 @@ def parse_version(text: str) -> str:
     return m.group(0) if m else ""
 
 
+# A family word the name follows, dropped from a label (`claude-`), or kept only when nothing else
+# names the model (`gpt-5.5`, `gemini-…` without a word). A version is digits, or `k` and digits.
+_FAMILY = re.compile(r"^(claude|gpt|gemini)-")
+_VERSION = re.compile(r"^k?\d+(\.\d+)*$")
+
+
 def label(model_id: str) -> str:
-    """What a pill says: `claude-opus-4.8-20260101` -> `opus-4.8`, as the desk's `shortModel`."""
-    return re.sub(r"-\d{8}$", "", re.sub(r"^claude-", "", str(model_id or "").strip()))
+    """What a pill and the pane's chip say (decision 15, #492): the name first, then the version.
+
+    `claude-sonnet-5` -> `sonnet 5`, `gpt-5.6-luna` -> `luna 5.6`, `claude-opus-4.8-fast` ->
+    `opus 4.8 fast`, `claude-opus-4.8-20260101` -> `opus 4.8`. An id with no word of its own besides
+    its family stays as it is (`gpt-5.5`), and so does one with no version (`opus`, `auto`). The
+    desk's `shortModel` is this rule's twin, and the two are checked against each other.
+    """
+    whole = re.sub(r"-\d{8}$", "", str(model_id or "").strip())
+    parts = _FAMILY.sub("", whole).split("-")
+    at = next((i for i, p in enumerate(parts) if _VERSION.match(p)), -1)
+    words = [p for p in parts if p and not _VERSION.match(p)]
+    if at < 0 or not words:
+        return re.sub(r"^claude-", "", whole)
+    if at == 0:
+        # The name after the version (`5.6-luna`) comes first: `luna 5.6`.
+        return " ".join([parts[at + 1]] + parts[:at + 1] + parts[at + 2:]) if at + 1 < len(parts) else whole
+    return " ".join(parts)
 
 
 def group_of(model_id: str) -> str:

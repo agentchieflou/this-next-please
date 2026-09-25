@@ -26,7 +26,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Hello from the console.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }

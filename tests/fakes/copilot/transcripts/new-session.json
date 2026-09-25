@@ -27,7 +27,7 @@
         "type": "assistant.message",
         "data": {
           "content": "A clean session in this checkout.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }
@@ -55,7 +55,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Picking up where this session left off.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }

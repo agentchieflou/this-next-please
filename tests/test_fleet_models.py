@@ -42,7 +42,7 @@ def test_completion_fallback_drops_auto():
 
 def test_version_label_and_groups():
     assert M.parse_version("GitHub Copilot CLI 1.0.88.\nRun 'copilot update'") == "1.0.88"
-    assert M.label("claude-opus-4.8-20260101") == "opus-4.8"
+    assert M.label("claude-opus-4.8-20260101") == "opus 4.8"
     assert M.label("gpt-5.5") == "gpt-5.5"
     assert [M.group_of(i) for i in ("auto", "gpt-5.5", "o3-mini", "claude-opus-5", "gemini-3.8-flash",
                                     "grok-4.5", "opus")] == \
@@ -177,7 +177,7 @@ def test_ad_fleet_models_refresh_asks_the_cli_once(counted, capsys):
     assert cli_fleet.main(["models", "--refresh"]) == 0
     out = capsys.readouterr().out
     assert "source: help" in out and "cli_version: 1.0.88" in out
-    assert "claude-opus-5,anthropic,opus-5,cli,true" in out
+    assert "claude-opus-5,anthropic,opus 5,cli,true" in out
     assert counted == [["--version"], ["help", "config"], ["--help"]]
 
 
