@@ -260,6 +260,12 @@ register nothing, observe nothing, touch no storage and send nothing.
 
 **What a page sends.** One `navigator.sendBeacon` to `/api/load` at `pagehide`, at most once per
 document, from `common.js`; nothing is written to the page and the ink modules are not touched.
+A close does not always run `pagehide` (#481): Chrome gives a closing page's unload handlers 500 ms
+and closes it without them after that, so a page still busy when it is closed, the slow load the
+table is for, would post nothing. Where the engine has `fetchLater` (Chromium 135+), the page also
+keeps the record queued with it, queues it again as each measurement lands, and cancels it once the
+beacon is on its way; the browser sends a copy still queued when the document goes. One record
+either way, and `LOAD.queued` is the queued copy.
 
 | Field | From |
 | --- | --- |
@@ -268,7 +274,7 @@ document, from `common.js`; nothing is written to the page and the ink modules a
 | `shell` | the page's `shell=`, else `w=`, else `browser` (as `ink_facts` reads it) |
 | `how` | the navigation entry's `type` |
 | `origin_ms` | `performance.timeOrigin` |
-| `first_paint_ms` | the buffered `paint` entry `first-paint` |
+| `first_paint_ms` | the buffered `paint` entry `first-paint`. Chromium adds it once the frame has been presented, which under load is hundreds of ms after the frame, so a page gone before then leaves it out |
 | `longest_task_ms` | the longest buffered `longtask`; left out where the engine has no such entry type |
 | `fleet_ms` | desk only: the first `/api/fleet` resource entry's `responseEnd` |
 | `ink_first_frame_ms` | desk only: `performance.now()` at the first animation frame in which `#ink` carries `data-skin` and `Ink.inspect().layer.renders >= 1`. Left out when the verdict is off, there is no layer, 10 s pass, or the page goes first. No entry type sees a WebGL frame, so the layer's own counter is read |
