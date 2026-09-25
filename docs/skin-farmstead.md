@@ -40,15 +40,33 @@ square block of the screen. A crop's position is snapped to the device grid as w
 There is no texture helper in the layer, so the loader is in the skin module:
 
 1. `sprites.svg` is fetched once, through `q()`, and parsed with `DOMParser`.
-2. Each sprite (`soil`, `plank`, and the five `crop-*`) is serialised as its own SVG document with the sheet's
-   `shape-rendering: crispEdges`. It is drawn by an `Image` into a canvas **on the art's own grid**: one texel per
-   art pixel (`RASTER = 1`, the smallest whole multiple), so the texture holds exactly the pixels the repo reviews.
-   The image is a `data:` URL, because the desk's CSP allows images from itself and `data:` alone.
-3. Each canvas is a `CanvasTexture` with `NearestFilter` for both filters, no mipmaps, `flipY` off and no colour
-   space, so the art's bytes are untouched. The shaders sample at texel centres too.
+2. Each sprite's `<rect>`s are filled, in document order, into its own array **on the art's own grid**: one texel
+   per art pixel (`RASTER = 1`), so the texture holds exactly the pixels the repo reviews. No browser rasterises it
+   and there is no 2D context (#257).
+3. Each array is a `DataTexture` with `NearestFilter` for both filters, no mipmaps, `flipY` off and no colour space,
+   so the art's bytes are untouched. The shaders sample at texel centres too.
 
-The textures exist, blank, from the first hook. The art arrives in them when the sheet has been drawn, and the layer
-is asked for a frame (`api.request()`). `dispose` frees all seven when the skin or its weather changes.
+The sprites, and each one's size in art pixels:
+
+| Sprite | Size | What it is |
+| --- | --- | --- |
+| `soil` | 16x16 | the ground under the page |
+| `plank` | 16x8 | the header and footer bands, and every board of a frame |
+| `crop-seed`, `crop-sprout`, `crop-sun`, `crop-bloom`, `crop-wilted` | 16x16 | the crop in the chip |
+| `produce` | 8x8 | a root vegetable with its leaves |
+| `cloud` | 16x8 | a rain cloud |
+| `hen-a`, `hen-b` | 12x12 | a hen's two-frame run |
+| `cat-sleep`, `cat-stretch` | 16x8 | a cat asleep, and waking |
+| `crow` | 8x8 | a crow |
+
+The last seven are the farm's effects' art (#380, drawn by #381 and #382); nothing draws them yet. They are original,
+like the rest of the sheet.
+
+The textures exist, blank, from the first hook, so a sprite's size cannot come from the fetched sheet: it is the
+`SIZE` table in `farmstead.js` (16x16 for a sprite not in it), and nothing is re-created or resized after the fetch.
+`SIZE` is the source: `test_every_sprite_is_the_size_the_loader_makes_it` holds every nested `<svg>`'s `width` and
+`height` in `sprites.svg` to it. The art arrives in the textures when the sheet has been read, and the layer is asked
+for a frame (`api.request()`). `dispose` frees all fourteen when the skin or its weather changes.
 
 ## The frames are lit
 
@@ -125,6 +143,12 @@ and again on every frame it draws, because the stylesheet can land after the ski
 | `--farm-band-light` | 0.55 | 0.9 | 0.9 |
 | `--ink-pencil` | `#74695A` | `#968F82` | `#8A97AB` |
 | `--ink-highlighter` | the palette's | `#A8861F` | the palette's |
+| `--farm-rain` (a rain streak on the boards) | `#A9C4DC` | `#9DB8D6` | `#8FB0D8` |
+| `--farm-firefly` (a glow on the soil) | — | `#D8F07A` | — |
+
+`--farm-rain` and `--farm-firefly` are for the farm's effects (#380, drawn by #381 and #382); nothing reads them yet.
+Each rain keeps 3:1 on the median plank texel of its weather, lit as the band shader lights it, and the firefly keeps
+3:1 on the cave's soil (`test_the_rain_and_the_fireflies_read_on_what_they_are_drawn_over`).
 
 A weather recolours a sprite by each texel's brightness against the sprite's commonest colour, which is how the
 stylesheet's cave and rain tiles were drawn from the daylight ones. The palette's other inks are its own.
@@ -174,7 +198,9 @@ stylesheet's cave and rain tiles were drawn from the daylight ones. The palette'
   (`is-done`, from a real `phase_changed` to done) is ticked and grows its seed to a bloom through the sprout.
 * **The grammar**: each state's mark and material appear from the fold's own events, and leave struck when a new run
   begins.
-* **The chip's glyph**: each `sprites.svg#crop-*` is exactly that sprite's colours at 16x16, and the sheet with no
-  fragment draws nothing.
+* **The chip's glyph**: each `sprites.svg#crop-*` is exactly that sprite's colours at 16x16, each of the effects'
+  sprites is its own colours inside its own size, and the sheet with no fragment draws nothing.
+* **The sizes and the effects' colours**, without a browser: every nested `<svg>` in the sheet is the size `SIZE`
+  makes its texture, and `--farm-rain` and `--farm-firefly` keep 3:1 on what they are drawn over.
 * **`theme.check`** pairs, the bounded catch-up in frames, the idle desk (zero writes, zero frames), and `dispose`
   freeing the textures (the renderer's own count).
