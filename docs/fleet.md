@@ -183,12 +183,11 @@ stream), and `/settings` offers the catalogue's efforts.
 **On the settings page** (#367). `/settings` sets both by pressing, not typing. **every agent** is
 the whole catalogue as pills, grouped by provider, with the efforts under it; **CLI default** passes
 no flag at all. Each repository's row has a short picker: **inherit**, which names the default it
-follows, removes the row's entry, model and effort together; the fleet default and the model the
-last turn ran on are one press away; **more…** opens the whole catalogue inside the row, where
-**other…** takes a name the list lacks (saved, and the saved tag says when this CLI does not offer
-it). An effort pressed on a repository with no entry pins the model it inherits along with it, as
-`ad-fleet model` does, and the saved tag says so; a model that does not take the effort set resets
-it to the default and says that too. **refresh the list** asks the CLI again; the line beside it
+follows, clears the row's model; the fleet default and the model the last turn ran on are one press
+away; **more…** opens the whole catalogue inside the row, where **other…** takes a name the list
+lacks (saved, and the saved tag says when this CLI does not offer it), and the efforts, whose
+**inherit** (or **default**) clears the row's effort. **inherit both** removes the whole entry. The
+resolved-from column names where each half comes from when they differ. **refresh the list** asks the CLI again; the line beside it
 names the copilot the list came from and how long ago it was checked, or says the shipped list is
 shown because copilot could not be asked. The model card's **all models · settings** link lands on
 its repository's row, opened, with the keyboard on the pressed pill.
@@ -200,11 +199,17 @@ default when it inherits. It reads the cache and never starts copilot; `ad-fleet
 asks the CLI. `ad-fleet model <repo> <name> [--effort <level>]` sets it, `--inherit` removes the
 entry, and `ad-fleet model --fleet [<name>] [--effort <level>]` shows or sets the fleet default --
 through the settings page's writer, with its refusals (`bad_model`, exit 2, nothing written) and an
-unregistered repository refused. **The effort pin:** a per-repo entry is read as a whole, so an
-effort alone would pass no `--model` and the fleet default would stop applying. `--effort` alone on
-a repository with no model of its own therefore pins the model it resolves today (`meta.pinned_model`),
-or, with nothing to pin, writes the effort and says so in `meta.warning`. A name the catalogue does
+unregistered repository refused. `--effort` alone sets the effort alone. A name the catalogue does
 not list is saved with a warning, never refused.
+
+**Model and effort inherit separately** (#493, decision 15). A repository's model is its own, else
+`fleet.model`, else none (the CLI chooses); its effort, independently, its own, else `fleet.effort`,
+else none. So an entry holding only an effort goes with the fleet's model, and one holding only a
+model goes with the fleet's effort; `--show-launch` and `ad-fleet model` print where each half came
+from (`source`, `effort_source`). An effort survives a model switch: it is never reset because the
+model changed, and an effort can be set while the model is the CLI's choice. If the CLI refuses the
+pair at start -- the turn ends before its first reply -- the pane says which effort ran on which
+model, and `m` opens the card to pick another.
 
 **After a CLI update** (#365). Run `ad-doctor --only fleet` and read its `models` row: it names
 the list's source, its CLI version and age, and warns once per configured model the new build no

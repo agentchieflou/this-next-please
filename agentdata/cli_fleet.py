@@ -444,9 +444,10 @@ def cmd_status(a) -> int:
             registered = [r["repo"] for r in rows]
         model_rows = []
         for name in registered:
+            # Each half says where it came from (#493): they are inherited separately.
             model, effort, source = launch.model_for(name, cfg)
-            model_rows.append([name, model or "-", effort or "-", source])
-        print(toon.table("models", ["repo", "model", "effort", "source"], model_rows))
+            model_rows.append([name, model or "-", effort or "-", source, launch.effort_source(name, cfg)])
+        print(toon.table("models", ["repo", "model", "effort", "source", "effort_source"], model_rows))
         for row in rows:
             lock = supervisor.read_lock(row["repo"])
             if lock.get("launch"):
@@ -1513,20 +1514,9 @@ def cmd_model(a) -> int:
             elif name is not None:
                 SET.set_model(cfg, repo, model=name, effort=effort)
             else:
-                # `--effort` alone. `model_for` reads a per-repo entry as a whole, so an entry that
-                # holds only an effort passes no `--model` and the fleet default stops applying to
-                # this repo. Pin the model it resolves today, or say plainly that it now has none.
-                entry = C.get_leaf(cfg, "fleet.models", repo, {}) or {}
-                own = str(entry.get("model") or "").strip() if isinstance(entry, dict) else ""
-                resolved, _eff, _src = launch.model_for(repo, cfg)
-                if own or not resolved:
-                    SET.set_model(cfg, repo, effort=effort)
-                    if not own and effort:
-                        warnings.append(f"{repo} now passes no --model; fleet.model no longer applies "
-                                        "to it — pass a model too to keep one")
-                else:
-                    SET.set_model(cfg, repo, model=resolved, effort=effort)
-                    meta["pinned_model"] = resolved
+                # `--effort` alone sets the effort alone (#493): the model is inherited on its own,
+                # so it keeps following `fleet.model` (or the CLI's choice).
+                SET.set_model(cfg, repo, effort=effort)
         except SET.SettingsError as e:
             return _refuse(source, e)
         except launch.LaunchError as e:
@@ -1549,7 +1539,7 @@ def cmd_model(a) -> int:
         entry = C.get_leaf(cfg, "fleet.models", repo, {}) or {}
         pressed = str(entry.get("model") or "").strip() if isinstance(entry, dict) else ""
         meta.update({"repo": repo, "model": model, "effort": eff, "source": src,
-                     "actual": S.served_model(repo)})
+                     "effort_source": launch.effort_source(repo, cfg), "actual": S.served_model(repo)})
     if writing and name:
         row = next((m for m in cat["models"] if m["id"] == name), None)
         if row is not None and not row["offered"]:
