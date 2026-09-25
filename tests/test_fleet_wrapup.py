@@ -29,7 +29,6 @@ from tests.fakes import jira as FJ
 from test_fleet import make_project
 
 GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main"]
-PREFIX = [sys.executable, "-m", "agentdata"]
 
 
 def git(cwd, *args) -> str:
@@ -165,7 +164,7 @@ def test_plan_runs_only_dry_runs_of_the_module_form_and_writes_nothing_in_the_ch
     plan = WRAP.plan("luna", "day")
     assert luna["rec"].calls, "no adapter was run"
     for argv, cwd, env in luna["rec"].calls:
-        assert argv[:3] == PREFIX, argv
+        assert argv[:3] == [sys.executable, "-m", "agentdata"], argv
         assert "--dry-run" in argv, argv
         assert os.path.samefile(cwd, luna["path"])
         assert env[registry.AGENT_ENV] is None and env[registry.FLEET_DIR_ENV] is None, \

@@ -302,21 +302,21 @@ def _stamp(ts) -> float:
         return 0.0
 
 
-def comment_text(repo, mode: str, st: dict, facts: dict, *, pr_url: str = "", page_url: str = "") -> str:
+def comment_text(repo, mode: str, st: dict, seen: dict, *, pr_url: str = "", page_url: str = "") -> str:
     """The Jira comment, from the checkout alone (WRAP-D2). One line per clause, so it reads on both flavors."""
     from .. import state as STATE
 
-    q = facts["questions"]
+    q = seen["questions"]
     first = STATE.question_text(q[0]) if q else ""
-    subjects = "; ".join(facts["subjects"]) if facts["subjects"] else "none"
+    subjects = "; ".join(seen["subjects"]) if seen["subjects"] else "none"
     lines = [
-        f"{LABEL[mode]}, {time.strftime('%Y-%m-%d')} — {repo.name} on {facts['branch']}",
+        f"{LABEL[mode]}, {time.strftime('%Y-%m-%d')} — {repo.name} on {seen['branch']}",
         f"phase: {st.get('phase') or 'unknown'}",
-        f"{facts['count']} commit{'s' if facts['count'] != 1 else ''} since {facts['since']}: {subjects}",
+        f"{seen['count']} commit{'s' if seen['count'] != 1 else ''} since {seen['since']}: {subjects}",
         f"PR: {pr_url or 'none'}",
         f"page: {page_url or 'none'}",
         f"{len(q)} open question{'s' if len(q) != 1 else ''}" + (f": {first}" if first else ""),
-        "artifacts: " + (", ".join(facts["artifacts"]) or "none"),
+        "artifacts: " + (", ".join(seen["artifacts"]) or "none"),
     ]
     return "\n".join(lines) + "\n"
 
@@ -389,7 +389,7 @@ def plan(name: str, mode: str = "day", *, comment: str | None = None, to: str | 
     env = child_env()
     cwd = repo.path
     last = _last_comment(name)
-    facts = checkout_facts(repo, st, last)
+    seen = checkout_facts(repo, st, last)
     rows: list[dict] = []
 
     # push
@@ -400,7 +400,7 @@ def plan(name: str, mode: str = "day", *, comment: str | None = None, to: str | 
     ahead = int(meta.get("ahead") or 0) if ok else 0
     payload = {k: meta.get(k) for k in ("branch", "remote", "target", "upstream", "ahead", "behind", "subjects",
                                         "protected", "note")}
-    payload["head"] = facts["head"]
+    payload["head"] = seen["head"]
     if not on_branch:
         rows.append(_row(name, "push", ok=False, ticked=False, summary="push: the work is not on a branch",
                          payload=payload, code=code, hint=f"{err} — the work is not on a branch (AGENTS.md rule 16)"))
@@ -419,7 +419,7 @@ def plan(name: str, mode: str = "day", *, comment: str | None = None, to: str | 
         rows.append(_row(name, "pr", ok=False, ticked=False, summary="pr: the work is not on a branch",
                          code=code, hint="the work is not on a branch (AGENTS.md rule 16)"))
     else:
-        title = f"{ticket}: {st.get('summary') or facts['branch']}" if ticket else str(st.get("summary") or facts["branch"])
+        title = f"{ticket}: {st.get('summary') or seen['branch']}" if ticket else str(st.get("summary") or seen["branch"])
         argv = ["pncli", "bitbucket", "pr", "--title", title, "--draft" if mode == "day" else "--ready"]
         if overwrite.get("pr"):
             argv += ["--overwrite", str(overwrite["pr"])]
@@ -474,14 +474,14 @@ def plan(name: str, mode: str = "day", *, comment: str | None = None, to: str | 
 
     # comment
     terminal = phase in TERMINAL
-    nothing_new = bool(last) and last.get("head") == facts["head"] and last.get("phase") == phase \
-        and not facts["artifacts"]
+    nothing_new = bool(last) and last.get("head") == seen["head"] and last.get("phase") == phase \
+        and not seen["artifacts"]
     if mode == "day" and terminal:
         notes.append(f"no progress comment: the phase is {phase}")
     elif mode == "day" and nothing_new:
         notes.append("no progress comment: nothing new since the last wrap-up")
     else:
-        text = comment if comment is not None else comment_text(repo, mode, st, facts,
+        text = comment if comment is not None else comment_text(repo, mode, st, seen,
                                                                 pr_url=str(st.get("pr_url") or ""),
                                                                 page_url=str(st.get("confluence_url") or ""))
         path = comment_path(name)
@@ -501,7 +501,7 @@ def plan(name: str, mode: str = "day", *, comment: str | None = None, to: str | 
     if to:
         targets.append((to, True, ""))
     elif mode == "day":
-        if facts["count"] and not terminal:
+        if seen["count"] and not terminal:
             targets.append(("in-progress", True, ""))
     else:
         review = has_pr or bool(pr_row.get("ok") and pr_row.get("ticked"))
