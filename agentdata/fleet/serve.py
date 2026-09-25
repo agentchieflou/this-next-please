@@ -51,7 +51,7 @@ from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
                inbox as IN, launch as LAUNCH, lifecycle, links as LK, loads as LOADS, notify as N,
                poll as P, probe as PROBE, supervisor, trace as TRACE)
-from .registry import Registry, RegistryError, fleet_dir
+from .registry import Registry, RegistryError, agent_dir, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -326,7 +326,7 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
     from . import runs as R
 
     if not stream:
-        return ({"n": 0, "started": "", "resumed": False, "session": "",
+        return ({"n": 0, "started": "", "resumed": False, "session": "", "session_began": "",
                  "session_title": "", "ticket": "", "live": live, "origin": "", "events": []}, [])
 
     started_indices = [i for i, ev in enumerate(stream) if R.is_run_start(ev)]
@@ -335,6 +335,7 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         d = agentstate.derive(stream, live=live)
         return ({"n": 1, "started": stream[0].get("ts", ""), "resumed": False,
                  "session": d.get("session", ""), "session_title": "",
+                 "session_began": _session_began(stream, repo_name, d.get("session", "")),
                  "ticket": d.get("ticket", ""), "live": live, "origin": "", "events": stream}, [])
 
     earlier = []
@@ -382,6 +383,8 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         "resumed": bool(start_data.get("resumed", False)),
         "session": curr_sess,
         "session_title": curr_title,
+        # When this *session* began (#499), which a Send does not move: derived, never stored.
+        "session_began": _session_began(stream, repo_name, curr_sess),
         "ticket": curr_derived.get("ticket") or start_ev.get("ticket", ""),
         "live": live,
         # Who started this run, from its `started` event (#401): the map's `kind` reads it, because
@@ -390,6 +393,28 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         "events": curr_events,
     }
     return curr_run, earlier
+
+
+def _session_began(stream: list[dict], repo_name: str, session: str) -> str:
+    """The `ts` of the `started` that began the current session (#499).
+
+    Every Send writes a `started` with `resumed: true`, so the current *run* moves on each one; the
+    session does not. When that `started` has rolled out of the stream, the session's `first_seen`
+    in sessions.json answers, and otherwise nothing does.
+    """
+    from . import runs as R
+
+    began = R.session_start(stream).get("ts", "")
+    if began or not (repo_name and session):
+        return began
+    try:
+        from . import sessions as SS
+        for rec in SS.load_sessions(repo_name):
+            if rec.get("id") == session:
+                return str(rec.get("first_seen") or "")
+    except Exception:                    # noqa: BLE001 - an unreadable sessions.json is no boundary
+        pass
+    return ""
 
 
 def run_origin(start_data: dict) -> str:
@@ -1776,7 +1801,91 @@ def tile_facts(facts: dict) -> dict:
     return {k: facts[k] for k in CAT.LINK_FACTS if facts.get(k)}
 
 
-def show_for(name: str) -> dict:
+FRICTION_REGISTER = "friction.json"         # per agent, in the fleet directory: what the operator dismissed
+REINDEX_PER_SNAPSHOT = 2                     # repos whose friction listing changed, re-indexed per snapshot
+
+
+def _friction_listing(path: str) -> list[str]:
+    """`.agent/friction/*.md`, one `listdir`, as `events.friction_files` lists them."""
+    return sorted(os.path.basename(p) for p in E.friction_files(path))
+
+
+def friction_register(name: str) -> dict:
+    """`{"dismissed": {"<file name>": "<ts>"}}`, the operator's dismissals for one agent (#499)."""
+    try:
+        data = json.loads(textio.read_text(os.path.join(agent_dir(name), FRICTION_REGISTER)))
+    except (OSError, ValueError):
+        return {"dismissed": {}}
+    dismissed = data.get("dismissed") if isinstance(data, dict) else None
+    return {"dismissed": dict(dismissed) if isinstance(dismissed, dict) else {}}
+
+
+def _said(text: str) -> str:
+    return " ".join(str(text or "").split()).strip().rstrip(".").casefold()
+
+
+def split_friction(rows: list[dict], state: dict, session_began: str, dismissed: dict) -> tuple[list, list]:
+    """(open, earlier): which STOPs need the operator now, and which fold away (#499).
+
+    Open: not dismissed, on the active ticket (or none), and either its unblock sentence is still an
+    open question -- the agent is still waiting on it, `asked` -- or it was written in this session.
+    Everything else is earlier. `blocking` is the severity rule the tile folds by, and only an open
+    row blocks. The friction file is never touched; the fresh `state` decides, not the indexed one.
+    """
+    from .. import state as STATE
+
+    ticket = str(state.get("active_ticket") or "")
+    asked_now = {_said(STATE.question_text(q)) for q in state.get("open_questions") or []
+                 if not STATE.is_answered(q)}
+    asked_now.discard("")
+    began = str(session_began or "")[:16]
+    opened, earlier = [], []
+    for f in rows:
+        name = str(f.get("path") or "").rsplit("/", 1)[-1]
+        if name in dismissed:
+            continue
+        stamp = f.get("stamp") or CAT._friction_stamp(name)
+        unblock = _said(f.get("unblock"))
+        asked = bool(unblock) and any(unblock == q or (min(len(unblock), len(q)) >= 12 and (unblock in q or q in unblock))
+                                      for q in asked_now)
+        on_ticket = not f.get("ticket") or not ticket or f.get("ticket") == ticket
+        this_session = bool(stamp) and (not began or stamp >= began)
+        is_open = on_ticket and (asked or this_session)
+        row = {**f, "name": name, "stamp": stamp, "open": is_open, "asked": asked and is_open,
+               "blocking": is_open and str(f.get("severity") or "").strip().lower() in agentstate.BLOCKING_SEVERITIES}
+        (opened if is_open else earlier).append(row)
+    return opened[:DESK_LIMIT], earlier[:DESK_LIMIT]
+
+
+def _panel_catalogue(cat, repo, budget: list | None) -> tuple[dict, bool]:
+    """`cat.show(repo)`, re-indexed first when the friction listing moved under it (#499).
+
+    One `listdir`; `index` only when the names differ from the catalogue's, and at most
+    `REINDEX_PER_SNAPSHOT` repos per snapshot (`budget`). A locked catalogue (`ad-fleet index`
+    running) answers as it is.
+    """
+    import sqlite3
+
+    try:
+        shown = cat.show(repo.name)
+    except CAT.CatalogueError:
+        shown = None
+    except sqlite3.OperationalError:
+        return {}, False
+    listed = _friction_listing(repo.path)
+    known = sorted(str(f.get("path") or "").rsplit("/", 1)[-1] for f in (shown or {}).get("friction") or [])
+    if listed != known and (shown is not None or listed) and (budget is None or budget[0] > 0):
+        if budget is not None:
+            budget[0] -= 1
+        try:
+            cat.index([repo])
+            shown = cat.show(repo.name)
+        except (CAT.CatalogueError, sqlite3.OperationalError):
+            pass
+    return (shown or {}), shown is not None
+
+
+def show_for(name: str, _budget: list | None = None) -> dict:
     """The "what is this project" panel: the catalogue's facts, the link rail, the cells, the tray.
 
     Every half degrades on its own. An unindexed repository still gets a link rail, because the facts
@@ -1796,11 +1905,8 @@ def show_for(name: str) -> dict:
     cat = catalogue()
     facts, shown, indexed = {}, {}, False
     if cat is not None:
-        try:
-            shown = cat.show(name)
-            facts, indexed = shown.get("facts") or {}, True
-        except CAT.CatalogueError:
-            shown = {}
+        shown, indexed = _panel_catalogue(cat, repo, _budget)
+        facts = (shown.get("facts") or {}) if indexed else {}
     if not facts:
         # The same allow-listed read the index does, secret-looking keys dropped by the same rule --
         # duplicating that filter here is how the two would eventually disagree.
@@ -1814,6 +1920,10 @@ def show_for(name: str) -> dict:
     # is the one string they most need to differ in. The catalogue's `_inside` wall (realpath every
     # read, refuse anything outside the repository) is not touched for the sake of one string.
     polled = ((cells.get("git") or {}).get("value") or {}).get("branch") or ""
+    current, _ = split_runs(E.read(name))
+    friction_open, friction_earlier = split_friction(shown.get("friction") or [], state,
+                                                     current.get("session_began", ""),
+                                                     friction_register(name)["dismissed"])
     return {"project": repo.project, "name": name, "repo": name,
             "path": textio.norm_path(repo.path),
             "worktree_of": repo.worktree_of,
@@ -1823,6 +1933,8 @@ def show_for(name: str) -> dict:
             "last_indexed": shown.get("last_indexed", ""),
             "facts": tile_facts(facts), "state": state,
             "friction": (shown.get("friction") or [])[:DESK_LIMIT],
+            # What needs the operator now, and what folds under *earlier friction* (#499).
+            "friction_open": friction_open, "friction_earlier": friction_earlier,
             "pbip": shown.get("pbip") or [],
             "links": LK.present(rail), "missing": [r for r in rail if not r.get("url")],
             "missing_keys": LK.missing_keys(rail),
@@ -1841,9 +1953,10 @@ def desk_snapshot() -> dict:
         names = [r.name for r in Registry().sorted()]
     except RegistryError:
         names = []
+    budget = [REINDEX_PER_SNAPSHOT]
     for name in names:
         try:
-            projects[name] = show_for(name)
+            projects[name] = show_for(name, budget)
             order.append(name)
         except (RegistryError, OSError):
             continue
@@ -2007,6 +2120,38 @@ def _attach_bytes(body: dict) -> dict:
 #: every tile on the desk to redraw one of them. `arrange` and `window` are not here -- they change
 #: the *arrangement*, which comes back as `desk` and reaches every window down the stream. `models`
 #: is not here either: the model list is the fleet's, not a row's (#361).
+def _act_friction(repo: str, body: dict) -> dict:
+    """Dismiss friction rows on the panel (#499): the register in the fleet directory, never the file.
+
+    `{repo, dismiss: [names]}` or `{repo, earlier: true}`. Dismissing never answers the question and
+    never unblocks the agent; the pane's question card does that.
+    """
+    if not repo:
+        raise ServeError("which agent's friction?", "name the repo: `ad-fleet friction <repo>`", code="no_repo")
+    try:
+        found = Registry().get(repo)
+    except RegistryError as e:
+        raise ServeError(e.msg, e.hint or "`ad-fleet repo list` names the registered agents", code="no_repo") from None
+    listed = set(_friction_listing(found.path))
+    if body.get("earlier"):
+        wanted = [r["name"] for r in show_for(repo).get("friction_earlier") or []]
+    else:
+        wanted = [str(n) for n in body.get("dismiss") or []]
+        unknown = [n for n in wanted if n not in listed]
+        if unknown or not wanted:
+            raise ServeError(f"{', '.join(unknown) or 'nothing'} is not a friction file of {repo}",
+                             f"name a file under .agent/friction/: `ad-fleet friction {repo}` lists them",
+                             code="not_friction")
+    register = friction_register(repo)
+    stamp = E.stamp()
+    for n in wanted:
+        register["dismissed"].setdefault(n, stamp)
+    if wanted:
+        os.makedirs(agent_dir(repo), exist_ok=True)
+        textio.write_json(os.path.join(agent_dir(repo), FRICTION_REGISTER), register)
+    return {"repo": repo, "dismissed": wanted, "project": show_for(repo)}
+
+
 ROW_ACTIONS = ("start", "console", "say", "send", "stop", "reset", "answer", "approve", "deny",
                "adopt", "release", "refresh", "hold", "resume", "attach", "attach-bytes")
 
@@ -2246,6 +2391,8 @@ def act(what: str, body: dict) -> dict:
         box, offer = _offer(str(body.get("id") or ""))
         box.dismiss(offer)
         return {"dismissed": offer.name, "id": offer.id}
+    if what == "friction":
+        return _act_friction(repo, body)
     if what == "settings":
         # `C` is imported inside several branches of this function, which makes the name local to
         # the whole of it -- so a branch that uses it without its own import raises UnboundLocalError

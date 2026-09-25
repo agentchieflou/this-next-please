@@ -77,6 +77,9 @@ of every installed `SKILL.md`'s text. A resume also carries `origin_install`, th
 *began* on, looked up when it resumed so that it survives the stream rolling over. An adopted
 session records `install: null`, because nobody knows what it started on. The desk compares these
 with what is installed now to say which sessions are stale (`docs/plan-fresh.md`).
+A current run's `session_began` (#499) is derived from `started`, never stored: the `ts` of the newest
+`started` that is not a resume (or is `new`, or adopted), else the session's `first_seen` in
+sessions.json once that event has rolled out. No field is added to any event.
 
 ```json
 {"schema": 1, "seq": 1, "ts": "2026-01-04T09:30:02", "repo": "luna", "ticket": "RDSD-118", "kind": "started", "data": {"pid": 24188, "prompt": "Work RDSD-118 end to end.", "resumed": false, "new": true, "session": "", "install": {"version": "0.14.0", "commit": "ca45368e1f02", "skills": "5d1e0c9a7b3f"}, "answers": ["q1"], "scope": 3}}
