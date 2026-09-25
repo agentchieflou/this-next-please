@@ -187,6 +187,11 @@ intent the workflow cannot satisfy is refused with the list of what it can do. `
 `--resolution` / `--field NAME=VALUE` answer a transition screen, and `--pin` stores the resolved status under
 `jira.workflow.<type>.<intent>` so the next issue of that type resolves exactly.
 
+Jira comments: `ad-jira comment <KEY> --body "<text>"` (or `--body-file <path>`) posts a note without moving the
+issue — ADF on Cloud, the plain string on Data Center. `--dry-run` reads the issue and prints `summary`, `chars`,
+`lines` and `first_line`, posting nothing; a mistyped key is refused there with `no_issue`. The real run prints the
+`comment_id` and its `…/browse/<KEY>?focusedCommentId=<id>` URL, and is never re-sent after a failed POST.
+
 Confluence pages: `ad-confluence html <file.md>` converts a Markdown file to storage format (Confluence renders
 Markdown as literal text) and refuses a body it cannot parse as XML, which is what Confluence would reject. Publish
 the result with `ad-pncli raw --body-file <file.html> confluence create-page …`; that command refuses a body that is
