@@ -5,15 +5,16 @@
    behind a button on a toolbar that is meant to be about the agents.
 
    It shares `common.js` with the desk -- the token, `q`, `post`, `text`, and the two painters -- and
-   nothing else. It deliberately does NOT load `app.js`: that file boots a desk (an EventSource
-   feeding tiles, a fifteen-second `loadDesk`, a `place()` that rewrites `document.body` several
-   times a second) and none of it has any business running under somebody editing a dropdown.
+   `picker.js`, the model picker (#362), and nothing else. It deliberately does NOT load `app.js`:
+   that file boots a desk (an EventSource feeding tiles, a fifteen-second `loadDesk`, a `place()`
+   that rewrites `document.body` several times a second) and none of it has any business running
+   under somebody editing a dropdown.
 
-   It does open one EventSource of its own, for exactly one frame. The `theme` frame is emitted
-   whenever `config.json` changes, so a palette set from `ad-theme` in a terminal, or from another
-   window, repaints this page instead of leaving its pickers saying something that is no longer
-   true. That was bug #195 on the desk, and a settings page with no stream is where it would come
-   back. */
+   It does open one EventSource of its own, for two frames. The `theme` frame is emitted whenever
+   `config.json` changes, so a palette set from `ad-theme` in a terminal, or from another window,
+   repaints this page instead of leaving its pickers saying something that is no longer true. That
+   was bug #195 on the desk, and a settings page with no stream is where it would come back. The
+   `models` frame says the model list changed (#361), and the model pickers are drawn again. */
 
 "use strict";
 
@@ -280,92 +281,289 @@ function reflectTheme(cur) {
 
 /* -------------------------------------------------------------------------------------- models */
 
-/* Free text with suggestions, not a dropdown of model names. `--model` is on the measured list of
-   flags this build has; WHICH names it accepts was never measured, and a hardcoded enum would be
-   this repository inventing an answer it does not have. The suggestions are models the event
-   stream has actually reported, so the list grows from what really ran. The CLI is the validator,
-   at the next turn. */
-function fillList(id, values) {
-  var list = document.getElementById(id);
-  if (!list) return;
-  while (list.firstChild) list.removeChild(list.firstChild);
-  (values || []).forEach(function (v) {
-    var option = document.createElement("option");
-    option.value = v;
-    list.appendChild(option);
-  });
+/* Pressed, not typed (#367). Which names the installed Copilot CLI takes is measured now: `GET
+   /api/models` is what `copilot help config` listed (#360), cached, else the list this package ships,
+   and a page never waits on the CLI for it. The list is a suggestion and never a gate: `other…` in
+   a row's expansion is the one place a name is typed, a name the CLI does not offer is saved and the
+   saved tag says so, and the CLI stays the validator at the agent's next turn.
+
+   `picker.js` draws every picker here (#362): a full one for the fleet-wide default, and a compact
+   one per repository, whose `more…` opens a full one in the same cell. The picker never posts; this
+   page applies the inherit rule. Inherit is the entry removed, never kept as `{}`. And `model_for`
+   reads a repository's entry as a whole, so an effort pressed on a repository with no entry pins the
+   model it inherits along with it: alone, the effort would run on the CLI's model, not the fleet's. */
+var modelList = null;                  // the `/api/models` answer every picker here is drawn from
+var modelListAsked = null;             // its one fetch on load, which the first `load()` waits for
+var modelsHeard = "";                  // the last `models` frame's `version` (#361)
+var modelSnap = null;                  // the `model` block of the last `/api/settings`
+var fleetPicker = null;
+var rowPickers = new WeakMap();        // a row's <tr> -> its pickers, its expansion, their options
+var landing = location.hash.indexOf("#model-") === 0;   // the model card's link, acted on once
+
+function loadModelList() {
+  return fetch(q("/api/models")).then(function (r) { return r.json(); }).then(function (data) {
+    if (data && data.ok !== false) modelList = data;
+  }).catch(function () { /* no list: the pickers offer the default and `other…` */ });
 }
 
-function cell(row, value, title) {
-  var td = document.createElement("td");
-  text(td, value);
-  if (title) td.title = title;
-  row.appendChild(td);
-  return td;
+function modelEntry(id) {
+  var found = null;
+  ((modelList && modelList.models) || []).forEach(function (m) { if (m && m.id === id) found = m; });
+  return found;
 }
 
-function fieldCell(row, value, placeholder, onsave) {
-  var td = document.createElement("td");
-  var input = document.createElement("input");
-  input.type = "text";
-  input.value = value || "";
-  input.placeholder = placeholder;
-  input.addEventListener("change", function () { onsave(input.value, input); });
-  td.appendChild(input);
-  row.appendChild(td);
-  return input;
+function modelLabel(id) {
+  var m = modelEntry(id);
+  return (m && m.label) || id;
+}
+
+function ago(iso) {
+  var at = Date.parse(iso || "");
+  if (isNaN(at)) return "";
+  var min = Math.max(0, Math.round((Date.now() - at) / 60000));
+  if (min < 1) return "just now";
+  if (min < 60) return min + " min ago";
+  return min < 48 * 60 ? Math.round(min / 60) + "h ago" : Math.round(min / 1440) + " days ago";
+}
+
+/* The line over the table: where the list came from, and how old it is. */
+function listLine(cat) {
+  var meta = cat && cat.meta;
+  if (!meta) return "";
+  var line = meta.source === "shipped"
+    ? "shipped list — copilot could not be asked" + (meta.why ? " (" + meta.why + ")" : "")
+    : "list: copilot " + (meta.cli_version || "?") +
+      (meta.fetched_at ? " · checked " + ago(meta.fetched_at) : "");
+  return line + (meta.account ? " · account: " + meta.account : "");
+}
+
+function fleetDefault() {
+  var f = (modelSnap && modelSnap.fleet) || {};
+  return { model: String(f.model || ""), effort: String(f.effort || "") };
+}
+
+/* A row's `inherit` pill says what it inherits. The picker reads its options at every draw. */
+function inheritWords(opts) {
+  var f = fleetDefault();
+  opts.emptyLabel = "inherit · " + (f.model ? modelLabel(f.model) : "CLI default");
+  opts.emptyTitle = f.model ? "no model of its own: the fleet-wide default, " + f.model
+                            : "no model of its own: no --model is passed and the CLI chooses";
 }
 
 function renderModels(data) {
-  var body = document.getElementById("modelrows");
-  if (!body) return;
-  while (body.firstChild) body.removeChild(body.firstChild);
-
-  var fleetModel = document.getElementById("fleetmodel");
-  var fleetEffort = document.getElementById("fleeteffort");
-  if (fleetModel) fleetModel.value = (data.model && data.model.fleet && data.model.fleet.model) || "";
-  if (fleetEffort) fleetEffort.value = (data.model && data.model.fleet && data.model.fleet.effort) || "";
-
-  fillList("modelnames", (data.model && data.model.seen) || []);
-  fillList("effortnames", (data.model && data.model.efforts) || []);
-
-  (data.model && data.model.repos || []).forEach(function (r) {
-    var row = document.createElement("tr");
-    cell(row, r.repo);
-    fieldCell(row, r.model, "inherit", function (v, input) {
-      saveModel(r.repo, { model: v }, input);
-    });
-    fieldCell(row, r.effort, "inherit", function (v, input) {
-      saveModel(r.repo, { effort: v }, input);
-    });
-    cell(row, r.source, r.source === "cli-auto"
-      ? "nothing is configured, so no --model flag is passed and the CLI chooses"
-      : "resolved from " + r.source);
-    /* Configured is not served. The tenant may pin a model, and a page that reported only what was
-       asked for would show a setting that is not what ran. This column is what the stream said the
-       last turn actually used. */
-    cell(row, r.actual || "—", r.actual
-      ? "what the last turn actually ran on, from the event stream"
-      : "no turn has reported a model for this repository yet");
-    body.appendChild(row);
-  });
-
+  modelSnap = data.model || {};
+  drawModels();
   var note = document.getElementById("modelnote");
   if (note) {
-    text(note, (data.model && data.model.repos || []).length
-      ? "A blank field inherits the fleet-wide default above; a blank default passes no flag at all."
+    text(note, (modelSnap.repos || []).length
+      ? "“inherit” follows the fleet-wide default above; “CLI default” there passes no flag at all."
       : "No repositories are registered yet — `ad-fleet repo add <path>`.");
   }
 }
 
-function saveModel(repo, patch, input) {
-  return post("settings", { models: [{ repo: repo, model: patch.model, effort: patch.effort }] })
-    .then(function (res) {
-      if (res && res.ok === false) { problem(input, res.error + (res.hint ? " — " + res.hint : "")); return; }
-      problem(input, "");
-      saidSaved("saved — takes effect on the next turn");
-      load();
+/* Patched, never rebuilt: the keyboard, an open expansion and a half-typed `other…` survive every
+   `load()` after a save. */
+function drawModels() {
+  if (!modelSnap) return;
+  var host = document.getElementById("fleetpicker");
+  if (host && !fleetPicker) {
+    fleetPicker = createModelPicker({ variant: "full", label: "every agent",
+                                      emptyLabel: "CLI default",
+                                      emptyTitle: "pass no --model; the CLI chooses",
+                                      onPick: pickFleet });
+    host.appendChild(fleetPicker);
+  }
+  if (fleetPicker) {
+    drawModelPicker(fleetPicker, { catalogue: modelList || {}, current: fleetDefault() });
+  }
+  patchList(document.getElementById("modelrows"), modelSnap.repos || [],
+            function (r) { return r.repo; }, modelRow, paintModelRow);
+  text(document.getElementById("modellist"), listLine(modelList));
+}
+
+function modelRow(r) {
+  var tr = document.createElement("tr");
+  var p = { repo: r.repo, row: tr, full: null, fullOpts: null, expand: null };
+  p.opts = { variant: "compact", label: r.repo, onPick: function (pick) { pickRepo(p, pick); },
+             onMore: function () {
+               if (p.expand && !p.expand.hidden) closeExpansion(p, true); else openExpansion(p, true);
+             } };
+  p.compact = createModelPicker(p.opts);
+  tr.id = "model-" + r.repo;
+  var name = document.createElement("td"), model = document.createElement("td");
+  model.className = "modelcell";
+  model.appendChild(p.compact);
+  tr.append(name, model, document.createElement("td"), document.createElement("td"));
+  rowPickers.set(tr, p);
+  return tr;
+}
+
+function paintModelRow(tr, r) {
+  var p = rowPickers.get(tr), cells = tr.children, f = fleetDefault();
+  if (!p) return;
+  text(cells[0], r.repo);
+  inheritWords(p.opts);
+  if (p.fullOpts) inheritWords(p.fullOpts);
+  var state = { catalogue: modelList || {}, current: { model: r.model || "", effort: r.effort || "" },
+                inherited: { model: f.model, effort: f.effort }, actual: r.actual || "",
+                quick: [f.model, r.actual || ""] };
+  drawModelPicker(p.compact, state);
+  if (p.full) drawModelPicker(p.full, state);
+  attr(moreOf(p), "aria-expanded", p.expand && !p.expand.hidden ? "true" : "false");
+  text(cells[2], r.source);
+  attr(cells[2], "title", r.source === "cli-auto"
+    ? "nothing is configured, so no --model flag is passed and the CLI chooses"
+    : "resolved from " + r.source);
+  /* Configured is not served. The tenant may pin a model, and a page that reported only what was
+     asked for would show a setting that is not what ran. This column is what the stream said the
+     last turn actually used. */
+  text(cells[3], r.actual || "—");
+  attr(cells[3], "title", r.actual ? "what the last turn actually ran on, from the event stream"
+                                   : "no turn has reported a model for this repository yet");
+}
+
+function rowOf(repo) {
+  var found = null;
+  ((modelSnap && modelSnap.repos) || []).forEach(function (r) { if (r.repo === repo) found = r; });
+  return found;
+}
+
+function moreOf(p) { return p.compact.querySelector("button.mp-more"); }
+
+function focusPressed(root) {
+  var b = root && (root.querySelector('.mp-models button.pill[aria-pressed="true"]') ||
+                   root.querySelector(".mp-models button.pill"));
+  if (b) b.focus();
+}
+
+/* `more…`: a full picker for one row, inside that row's model cell -- never a sibling row, which a
+   keyed list strands on a reorder and orphans when its repository leaves. Built the first time and
+   kept; one is open at a time, and Escape or a pick closes it. */
+function openExpansion(p, focus) {
+  Array.prototype.forEach.call(document.querySelectorAll("#modelrows .mp-expand"), function (el) {
+    var other = rowPickers.get(el.closest("tr"));
+    if (other && other !== p) closeExpansion(other, false);
+  });
+  if (!p.full) {
+    p.fullOpts = { variant: "full", label: p.repo, onPick: function (pick) { pickRepo(p, pick); } };
+    p.full = createModelPicker(p.fullOpts);
+    p.expand = document.createElement("div");
+    p.expand.className = "mp-expand";
+    p.expand.hidden = true;
+    p.expand.appendChild(p.full);
+    // Escape is the host's (#362): it closes the expansion and gives the keyboard back to `more…`.
+    p.expand.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeExpansion(p, true);
     });
+    p.row.children[1].appendChild(p.expand);
+  }
+  hide(p.expand, false);
+  var r = rowOf(p.repo);
+  if (r) paintModelRow(p.row, r);
+  if (focus) focusPressed(p.full);
+}
+
+function closeExpansion(p, focusMore) {
+  if (!p.expand || p.expand.hidden) return;
+  hide(p.expand, true);
+  attr(moreOf(p), "aria-expanded", "false");
+  if (focusMore && moreOf(p)) moreOf(p).focus();
+}
+
+/* The model card's link is `/settings#model-<repo>` (app.js): that row, scrolled to, opened, and the
+   keyboard on its pressed pill. Found by id, never by selector, so a dotted name is just a name. */
+function landOnRow() {
+  if (!landing) return;
+  landing = false;
+  var repo;
+  try { repo = decodeURIComponent(location.hash.slice(7)); } catch (e) { return; }
+  var tr = document.getElementById("model-" + repo), p = tr && rowPickers.get(tr);
+  if (!p) return;
+  openExpansion(p, false);
+  tr.scrollIntoView({ block: "center" });
+  focusPressed(p.full);
+}
+
+function pickFleet(pick) {
+  // `~default` is `{model: "", effort: ""}`: no flag at all.
+  saveModel({ model: pick.model, effort: pick.effort }, pick.model, pick, "", null);
+}
+
+function pickRepo(p, pick) {
+  var r = rowOf(p.repo) || {};
+  var entry = { repo: p.repo, model: pick.model, effort: pick.effort }, pinned = "";
+  if (pick.toolbar === "effort" && !r.model && !r.effort) pinned = entry.model = fleetDefault().model;
+  saveModel({ models: [entry] }, entry.model, pick, pinned, p);
+}
+
+/* Post, then read the page back (the row is patched), then say what was saved. A pick made in an
+   expansion closes it and leaves the keyboard on the row's pressed pill, which is the one chosen. */
+function saveModel(body, model, pick, pinned, p) {
+  var inside = !!(p && p.expand && p.expand.contains(document.activeElement));
+  return post("settings", body).then(function (res) {
+    if (res && res.ok === false) {
+      refuse(p, res.error + (res.hint ? " — " + res.hint : ""));
+      return;
+    }
+    problem(otherBox(p), "");
+    return load().then(function () {
+      // A name the list did not have is in it now, as configured: asked again, it says whether
+      // this CLI offers it.
+      return model && !modelEntry(model) ? loadModelList().then(drawModels) : null;
+    }).then(function () {
+      saidSaved(savedWords(model, pick, pinned));
+      if (!p) return;
+      closeExpansion(p, false);
+      if (inside) focusPressed(p.compact);
+    });
+  }, function () { refuse(p, "the server did not answer — nothing was saved"); });
+}
+
+function otherBox(p) {
+  var picker = p ? p.full : fleetPicker;
+  return picker ? picker.querySelector("input.mp-other") : null;
+}
+
+/* A refusal is said on the `other…` box of the picker it came from (class `bad`, the reason as its
+   title), opened if it was not: a pill's id cannot be a second flag, so what refuses a pill is the
+   config file itself, and the box is where the row has room to say so. */
+function refuse(p, message) {
+  if (p && (!p.expand || p.expand.hidden)) openExpansion(p, false);
+  var box = otherBox(p);
+  if (box && box.hidden) {
+    var open = box.parentElement.querySelector("button.mp-otherbtn");
+    if (open) open.click();
+  }
+  problem(box, message);
+}
+
+function savedWords(model, pick, pinned) {
+  var m = model ? modelEntry(model) : null, said = [];
+  if (m && m.offered === false) {
+    var ver = ((modelList && modelList.meta) || {}).cli_version;
+    said.push("not offered by copilot" + (ver ? " " + ver : "") + ", the turn may fail at start");
+  }
+  if (pinned) said.push("model pinned to " + modelLabel(pinned) + " so the effort can apply");
+  if (pick.droppedEffort) {
+    said.push("effort reset to default: " + modelLabel(pick.model) + " does not take " +
+              pick.droppedEffort);
+  }
+  return "saved — " + (said.length ? said.join(" · ") : "takes effect on the next turn");
+}
+
+var modelRefresh = document.getElementById("modelrefresh");
+if (modelRefresh) {
+  // The server asks on a thread of its own and answers at once (#361); a list that changed comes
+  // back as a `models` frame.
+  modelRefresh.addEventListener("click", function () {
+    post("models", { refresh: true }).then(function (res) {
+      saidSaved(res && res.ok === false ? "not asked — " + (res.error || "refused")
+                                        : "asking copilot for its model list");
+    }, function () { saidSaved("the server did not answer — copilot was not asked"); });
+  });
 }
 
 /* ------------------------------------------------------------------------------------- copilot */
@@ -482,14 +680,21 @@ function renderPatterns(listId, countId, rows) {
 /* ---------------------------------------------------------------------------------------- load */
 
 function load() {
-  return fetch(q("/api/settings")).then(function (r) { return r.json(); }).then(function (data) {
-    if (!data || data.ok === false) return;
-    renderModels(data);
-    renderConfig(data);
-    renderTierNote(data.tiers);
-    renderPatterns("allowlist", "allowcount", (data.tools || {}).allow);
-    renderPatterns("denylist", "denycount", (data.tools || {}).deny);
-  }).catch(function () { /* a settings page that cannot reach the server says nothing new */ });
+  // The model list is asked for once (#367), and the first draw waits for it: every section comes
+  // in one paint, and no picker is drawn empty and then again full.
+  if (!modelListAsked) modelListAsked = loadModelList();
+  var settings = fetch(q("/api/settings")).then(function (r) { return r.json(); });
+  return Promise.all([settings, modelListAsked])
+    .then(function (got) {
+      var data = got[0];
+      if (!data || data.ok === false) return;
+      renderModels(data);
+      renderConfig(data);
+      renderTierNote(data.tiers);
+      renderPatterns("allowlist", "allowcount", (data.tools || {}).allow);
+      renderPatterns("denylist", "denycount", (data.tools || {}).deny);
+      landOnRow();                       // last: every section above the row is drawn
+    }).catch(function () { /* a settings page that cannot reach the server says nothing new */ });
 }
 
 /* One frame, one reason: `config.json` changed under us. Without it this page would keep showing
@@ -506,6 +711,16 @@ function connectTheme() {
         applySkin(d.skin);
         reflectTheme(d);
       } catch (e) { /* a frame we cannot read is not worth breaking the page over */ }
+    });
+    // The model list changed on disk (#361): a refresh from this page, another window or
+    // `ad-fleet models --refresh`. Asked for again only when its `version` moved.
+    stream.addEventListener("models", function (m) {
+      try {
+        var d = JSON.parse(m.data);
+        if (!d || !d.version || d.version === modelsHeard) return;
+        modelsHeard = d.version;
+        loadModelList().then(drawModels);
+      } catch (e) { /* as above */ }
     });
   } catch (e) { /* no stream is a stale page, not a broken one */ }
 }
