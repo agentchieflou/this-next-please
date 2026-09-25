@@ -282,6 +282,118 @@ def scripts_on_path() -> bool:
         os.path.normcase(os.path.abspath(scripts_dir()))
 
 
+LAUNCHERS = ("ad-state", "ad-pncli", "ad-jira", "ad-confluence")
+LAUNCH_TIMEOUT = 20
+_VERSION = re.compile(r"agentdata\s+(\S+)")
+
+
+def _reported(text: str) -> str:
+    m = _VERSION.search(text or "")
+    return m.group(1) if m else ""
+
+
+def launcher_probe(ctx=None) -> tuple[list[dict], dict]:
+    """`(launchers_start(), module_form())`, asked once per doctor run: the console step and the
+    fleet step both report them, and each launch costs a process start (seconds on a scanned laptop)."""
+    held = getattr(ctx, "__dict__", {}).get("_launcher_probe") if ctx is not None else None
+    if held is None:
+        held = (launchers_start(), module_form())
+        if ctx is not None:
+            ctx.__dict__["_launcher_probe"] = held
+    return held
+
+
+def launchers_start(names: tuple[str, ...] = LAUNCHERS) -> list[dict]:
+    """Does each `ad-*` launcher the ticket flow uses actually start? (#500)
+
+    `scripts_on_path` finds a file; this runs `<name> --version`. On Windows pip's console-script
+    `.exe` stores the absolute path of the interpreter it was installed with, so a moved venv makes
+    every launcher fail with *Unable to create process* while the file is still right there.
+    One row per name: `{name, path, ok, version, error}`; a launcher that is not on PATH at all has
+    `path: ""` and is the `scripts` row's to report.
+    """
+    rows = []
+    for name in names:
+        path = proc.which(name) or ""
+        row = {"name": name, "path": textio.norm_path(path) if path else "", "ok": False, "version": "", "error": ""}
+        if not path:
+            row["error"] = "not on PATH"
+            rows.append(row)
+            continue
+        try:
+            code, out, err, _el = proc.run([name, "--version"], timeout=LAUNCH_TIMEOUT)
+        except proc.ProcError as e:
+            row["error"] = e.msg[:200]
+            rows.append(row)
+            continue
+        row["version"] = _reported(out) or _reported(err)
+        if code != 0 or not row["version"]:
+            tail = ((err or "").strip() or (out or "").strip()).splitlines()
+            row["error"] = f"exit {code}: " + (tail[-1][:200] if tail else "no output")
+        else:
+            row["ok"] = True
+        rows.append(row)
+    return rows
+
+
+def module_form() -> dict:
+    """What `python -m agentdata`, the agents' fallback, would run: `{exe, ok, version, same}` (#500).
+
+    It runs whatever `python` is first on PATH (`py -3` on Windows when there is none), which in
+    exactly the case that breaks launchers -- a moved venv -- can be another interpreter with an
+    older agentdata, one without the approval gate. `same` means that exe is this interpreter.
+    """
+    candidates = [["python"]] + ([["py", "-3"]] if os.name == "nt" else [])
+    for argv in candidates:
+        exe = proc.which(argv[0])
+        if not exe:
+            continue
+        same = os.path.normcase(os.path.abspath(exe)) == os.path.normcase(os.path.abspath(sys.executable))
+        try:
+            code, out, err, _el = proc.run([*argv, "-m", "agentdata", "--version"], timeout=LAUNCH_TIMEOUT)
+        except proc.ProcError as e:
+            return {"exe": textio.norm_path(exe), "ok": False, "version": "", "same": same, "error": e.msg[:200]}
+        found = _reported(out) or _reported(err)
+        return {"exe": textio.norm_path(exe), "ok": code == 0 and bool(found), "version": found, "same": same,
+                "error": "" if code == 0 and found else f"exit {code}"}
+    return {"exe": "", "ok": False, "version": "", "same": False, "error": "no `python` on PATH"}
+
+
+def launcher_rows(launchers: list[dict], module: dict) -> list[tuple[str, str, str, str]]:
+    """The doctor's `launchers` and `module` rows, as (name, status, detail, hint). Shared by the
+    console step and the fleet step, because agents run exactly these commands."""
+    this = version()
+    me = textio.norm_path(sys.executable)
+    reinstall = (f"run `\"{me}\" -m pip install --force-reinstall --no-deps agentdata` -- the interpreter that "
+                 "`python -m agentdata doctor` reports (sys.executable); it rewrites the launchers")
+    broken = [r for r in launchers if r["path"] and not r["ok"]]
+    other = [r for r in launchers if r["ok"] and r["version"] != this]
+    missing = [r["name"] for r in launchers if not r["path"]]
+    rows = []
+    if broken:
+        rows.append(("launchers", "fail", "; ".join(f"{r['name']} does not start ({r['error']})" for r in broken),
+                     reinstall))
+    elif other:
+        rows.append(("launchers", "warn", "another install shadows this one: " +
+                     ", ".join(f"{r['name']} reports {r['version']}" for r in other) + f" (this is {this})",
+                     reinstall))
+    elif missing:
+        rows.append(("launchers", "warn", f"not on PATH: {', '.join(missing)}",
+                     "the `scripts` row says which directory to add to PATH"))
+    else:
+        rows.append(("launchers", "ok", f"{', '.join(r['name'] for r in launchers)} start ({this})", ""))
+    fallback = f"`python -m agentdata state`, the agents' fallback, would run {module.get('version') or 'nothing'}" \
+               f" from {module.get('exe') or 'no python on PATH'}"
+    hint = (f"put this interpreter's directory first on PATH ({me}), or reinstall agentdata into the `python` "
+            "on PATH; the writes to Jira, Confluence and Bitbucket stay on the gated launchers either way")
+    if module.get("ok") and module.get("version") == this:
+        rows.append(("module", "ok", f"python on PATH runs {this} ({module['exe']}"
+                     + (")" if module.get("same") else "; not this interpreter, same version)"), ""))
+    else:
+        rows.append(("module", "warn", fallback, hint))
+    return rows
+
+
 def environment() -> dict:
     """Shell and console facts, so a pasted failure says where it ran.
 

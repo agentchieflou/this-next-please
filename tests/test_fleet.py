@@ -135,6 +135,43 @@ def test_configuration_can_narrow_the_allow_list_but_never_the_deny_list():
         assert floor in denied, f"{floor} is a floor, not a default"
 
 
+def test_the_module_form_is_allowed_for_state_and_doctor_and_never_for_a_write():
+    """#500, WRAP-D7: an agent whose `ad-state` launcher is broken can still record state and ask for
+    help. The write adapters get no module form: the `python` on PATH may be another install, one
+    without the approval gate."""
+    allowed, denied = launch.allow_tools(), launch.deny_tools()
+    assert "shell(python -m agentdata state)" in allowed and "shell(python -m agentdata doctor)" in allowed
+    for write in ("jira", "pncli", "confluence", "git"):
+        assert not any(a.startswith(f"shell(python -m agentdata {write}") for a in allowed), write
+    for floor in ("fleet", "update", "setup"):
+        assert f"shell(python -m agentdata {floor})" in denied
+
+
+def test_the_fleet_doctor_repeats_the_launcher_rows_and_names_the_allow_entries_a_config_lacks(
+        fleet_home, tmp_path, monkeypatch):
+    """#500: agents run these commands, so the fleet step reports them too. An operator whose
+    `fleet.allow_tools` replaced the default is told the two module forms to add."""
+    from agentdata import update as U
+    from agentdata.setup.steps.fleet import FleetStep
+    from agentdata.setup.wizard import Context, Detectors, Prompter
+
+    Registry().add(make_project(tmp_path / "luna"), name="luna")
+    broken = [{"name": "ad-state", "path": "/x/ad-state", "ok": False, "version": "",
+               "error": "exit 101: Unable to create process"}]
+    monkeypatch.setattr(U, "launchers_start", lambda *a, **k: broken)
+    monkeypatch.setattr(U, "module_form", lambda: {"exe": "/x/python", "ok": True, "version": U.version(),
+                                                  "same": False, "error": ""})
+    cfg = {"fleet": {"allow_tools": ["shell(ad-state)"]}}
+    ctx = Context(cfg=cfg, det=Detectors(), ask=Prompter(), interactive=False)
+    step = FleetStep()
+    step.check(ctx, step.detect(ctx))
+    rows = {c.name: c for c in ctx.checks if c.step == "fleet"}
+    assert rows["launchers"].status == "fail" and "ad-state" in rows["launchers"].detail
+    assert rows["module"].status == "warn"
+    assert "shell(python -m agentdata state)" in rows["module"].hint
+    assert "shell(python -m agentdata doctor)" in rows["module"].hint
+
+
 @pytest.mark.parametrize("bad", ["--allow-all", "--yolo", "--allow-all-tools"])
 def test_a_config_that_asks_for_blanket_permission_is_refused_by_name(bad):
     """Not filtered out quietly: the operator who wrote it believes the fleet runs that way, and
