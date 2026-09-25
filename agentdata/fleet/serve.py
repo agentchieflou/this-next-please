@@ -41,6 +41,7 @@ import mimetypes
 import os
 import re
 import secrets
+import socket
 import threading
 import time
 from html import escape as _escape
@@ -3202,6 +3203,7 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
             # Before the bind: a taken port makes the base class call `server_close()` from here.
             self.stopping = threading.Event()
             self.handlers: list[threading.Thread] = []
+            self.connections: dict[threading.Thread, socket.socket] = {}
             self.handlers_lock = threading.Lock()
             super().__init__(*args, **kwargs)
 
@@ -3211,12 +3213,23 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
         # harmless, but a suite runs a desk per test, and a window write finishing late landed in
         # the NEXT test's desk (#245). Closing now says `stopping`, which ends every stream on its
         # next tick, and waits a bounded time for whatever is left.
+        #
+        # That left one thread closing did not end: HTTP/1.1 keeps a connection open between
+        # requests, and its handler waits in `readline` for the next one, which `stopping` never
+        # reaches. A page still open after its server closed -- a test that failed before closing
+        # it, with a browser that outlives the test -- was answered by that thread, from whatever
+        # fleet directory and desk the process had moved on to (#227, #298), and closing waited
+        # the full `close_wait_s` for it every time. So closing also shuts the read side of every
+        # connection still open: a handler waiting for a request reads the end of it and goes,
+        # and one still writing an answer finishes it.
         def process_request(self, request, client_address):
             t = threading.Thread(target=self.process_request_thread,
                                  args=(request, client_address), daemon=True)
             with self.handlers_lock:
                 self.handlers = [h for h in self.handlers if h.is_alive()]
+                self.connections = {h: s for h, s in self.connections.items() if h.is_alive()}
                 self.handlers.append(t)
+                self.connections[t] = request
             t.start()
 
         def server_close(self):
@@ -3225,6 +3238,12 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
             deadline = time.monotonic() + self.close_wait_s
             with self.handlers_lock:
                 left = list(self.handlers)
+                open_ = [s for h, s in self.connections.items() if h.is_alive()]
+            for s in open_:
+                try:
+                    s.shutdown(socket.SHUT_RD)
+                except OSError:                  # already closed by its handler: nothing to end
+                    pass
             for t in left:
                 t.join(max(0.0, deadline - time.monotonic()))
 
