@@ -222,32 +222,44 @@ def check_model_value(what: str, value: str) -> str:
     return text
 
 
+def _halves(repo: str | None, cfg: dict) -> tuple[str, str, str, str]:
+    """The repository's own `(model, effort)` and the fleet's, each checked as a flag value."""
+    entry = C.get_leaf(cfg, "fleet.models", str(repo or ""), {}) or {}
+    if not isinstance(entry, dict):
+        entry = {}
+    return (check_model_value("model", entry.get("model", "")),
+            check_model_value("effort", entry.get("effort", "")),
+            check_model_value("model", C.get(cfg, "fleet.model") or ""),
+            check_model_value("effort", C.get(cfg, "fleet.effort") or ""))
+
+
 def model_for(repo: str | None, cfg: dict | None = None) -> tuple[str, str, str]:
-    """`(model, effort, source)` for one repository: the per-repo entry, else the fleet-wide
-    default, else nothing at all.
+    """`(model, effort, source)` for one repository. Each half is inherited on its own (decision
+    15, #493): the repository's model, else `fleet.model`, else none; its effort, else
+    `fleet.effort`, else none. An entry that holds only an effort keeps the fleet's model, and one
+    that holds only a model keeps the fleet's effort -- a pair read as one unit silently dropped
+    the other half.
 
     `fleet.models.<repo>` is read with `get_leaf` and never as the dot-path
     `f"fleet.models.{repo}"`: a repository's name is the basename of its checkout and routinely has
     a dot in it, and `C.get` splits on every one of them -- the failure `put_leaf`'s own docstring
     was written about.
 
-    The third element is what `--show-launch` and the settings page print, so an operator can see
-    *why* an agent is on the model it is on rather than only that it is. `cli-auto` is printed
-    explicitly rather than left blank: an unset model is a decision the CLI makes, not an absence.
+    The third element names where the **model** came from, and is what `--show-launch` and the
+    settings page print, so an operator can see *why* an agent is on the model it is on rather than
+    only that it is. `cli-auto` is printed explicitly rather than left blank: an unset model is a
+    decision the CLI makes, not an absence. `effort_source` names the effort's.
     """
     cfg = cfg if cfg is not None else {}
-    entry = C.get_leaf(cfg, "fleet.models", str(repo or ""), {}) or {}
-    if not isinstance(entry, dict):
-        entry = {}
-    model = check_model_value("model", entry.get("model", ""))
-    effort = check_model_value("effort", entry.get("effort", ""))
-    if model or effort:
-        return model, effort, f"fleet.models.{repo}"
-    model = check_model_value("model", C.get(cfg, "fleet.model") or "")
-    effort = check_model_value("effort", C.get(cfg, "fleet.effort") or "")
-    if model or effort:
-        return model, effort, "fleet.model"
-    return "", "", "cli-auto"
+    own_model, own_effort, fleet_model, fleet_effort = _halves(repo, cfg)
+    source = f"fleet.models.{repo}" if own_model else ("fleet.model" if fleet_model else "cli-auto")
+    return own_model or fleet_model, own_effort or fleet_effort, source
+
+
+def effort_source(repo: str | None, cfg: dict | None = None) -> str:
+    """Where `model_for`'s effort came from: `fleet.models.<repo>`, `fleet.effort` or `cli-auto`."""
+    _own_model, own_effort, _fleet_model, fleet_effort = _halves(repo, cfg if cfg is not None else {})
+    return f"fleet.models.{repo}" if own_effort else ("fleet.effort" if fleet_effort else "cli-auto")
 
 
 def prompt_for(key: str | None, prompt: str | None, cfg: dict | None = None,

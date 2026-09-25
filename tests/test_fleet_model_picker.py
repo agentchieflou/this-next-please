@@ -3,8 +3,9 @@ keyboard-first, drawn only with theme tokens, and silent when idle.
 
 `static/picker.js` is built on /settings from an in-test catalogue: the 1.0.88 ids `models.catalogue`
 answers before the CLI has been asked, with one id not offered, one the account cannot use, one that
-takes two efforts, and premium multipliers. No host wires it yet (#366-#368), so each test mounts it
-in a `.setblock`, the card /settings will host it in, and drives it with the keyboard.
+takes two efforts, and premium multipliers. Each test mounts its own in a `.setblock`, the card
+/settings hosts it in, and drives it with the keyboard. /settings wires its own pickers too (#367),
+so every selector here is scoped to the mounted ones in `#mphost`.
 
 Every palette and every look is worn in ONE page: `post('theme', …)`, then a wait until the page
 wears it. No flat waits. One Chromium for the module, a context per test, a server per test.
@@ -34,8 +35,8 @@ UNAVAILABLE = "gemini-3.5-flash"   # `available: false`
 UNOFFERED = "kimi-k2.7-code"       # `offered: false`
 WHY = "your organisation has not enabled this model"
 MARKER = "the settings page (/settings)"
-FULL = ".mpick[data-variant=full]"
-COMPACT = ".mpick[data-variant=compact]"
+FULL = "#mphost .mpick[data-variant=full]"
+COMPACT = "#mphost .mpick[data-variant=compact]"
 
 
 @pytest.fixture()
@@ -318,11 +319,13 @@ def test_the_keyboard_walks_one_stop_per_toolbar_and_picks_once(browser, fleet_h
 @pytest.mark.browser
 def test_every_state_says_what_it_is_and_reports_what_was_pressed(browser, fleet_home):
     """An `available:false` pill is focusable, its `aria-describedby` resolves to the reason, and it
-    is never picked. `~default` reports `{model: "", effort: ""}`. Inheriting with
-    `inherited.model = ""` every effort pill is `aria-disabled` and `.mp-effort-why` is on the page;
-    inheriting a model, they are live. From `{claude-opus-5, xhigh}` a model taking only low and
-    medium reports `effort: ""`, `droppedEffort: "xhigh"`. The compact picker offers the pressed
-    pill, the default, two quick ids and `more…`, and wraps in a narrow card."""
+    is never picked. `~default` reports `model: ""` and the effort as it is. The effort is a half of its own
+    (#493, decision 15): live whatever the model, "CLI chooses" included, its `""` pill named for the
+    effort it inherits. From `{claude-opus-5, xhigh}` a model taking only low and medium keeps
+    `xhigh` (`droppedEffort` is `""`), and that pill is marked ⊘ instead. (Before #493 the effort
+    was dropped, and every effort pill was `aria-disabled` while inheriting no model.) The compact
+    picker offers the pressed pill, the default, two quick ids and `more…`, and wraps in a narrow
+    card."""
     effort_state = """() => ({
         disabled: Array.from(window.__full.querySelectorAll('.mp-effort button.pill')).map(b => b.getAttribute('aria-disabled')),
         pressed: Array.from(window.__full.querySelectorAll('.mp-effort button.pill[aria-pressed="true"]')).map(b => b.dataset.effort),
@@ -358,7 +361,7 @@ def test_every_state_says_what_it_is_and_reports_what_was_pressed(browser, fleet
                     b.querySelector('.pill-sr').textContent.trim(), getComputedStyle(b).borderTopWidth]; }""")
         assert pressed == [CURRENT, "✓•", "×3", "(the last turn ran on this)", "2px"], pressed
 
-        # The effort a picked model does not take is dropped, and named.
+        # The effort survives a model switch, even to a model that does not list it.
         efforts = page.evaluate("() => Array.from(window.__full.querySelectorAll('.mp-effort button.pill')).map(b => b.dataset.effort)")
         assert efforts == [""] + _catalogue()["efforts"], "a model with no levels of its own gets the catalogue's"
         page.click(f"{FULL} .mp-models button.pill[data-model='{SMALL}']")
@@ -366,30 +369,38 @@ def test_every_state_says_what_it_is_and_reports_what_was_pressed(browser, fleet
         page.click(f"{FULL} .mp-effort button.pill[data-effort='max']")
         page.click(f"{FULL} .mp-models button.pill[data-model='']")
         assert page.evaluate("() => window.__picks.splice(0)") == [
-            {"model": SMALL, "effort": "", "toolbar": "model", "droppedEffort": "xhigh"},
+            {"model": SMALL, "effort": "xhigh", "toolbar": "model", "droppedEffort": ""},
             {"model": INHERITED, "effort": "xhigh", "toolbar": "model", "droppedEffort": ""},
             {"model": CURRENT, "effort": "max", "toolbar": "effort", "droppedEffort": ""},
-            {"model": "", "effort": "", "toolbar": "model", "droppedEffort": ""}]
+            # `~default` is the model half alone (#493): the effort stays what it was.
+            {"model": "", "effort": "xhigh", "toolbar": "model", "droppedEffort": ""}]
         assert page.evaluate("""() => { const b = window.__full.querySelector('.mp-models button.pill[data-model=""]');
             return [b.dataset.rowkey, b.querySelector('.pill-label').textContent, b.title]; }""") \
             == ["~default", "CLI default", "the CLI chooses"]
-        _draw(page, {"current": {"model": SMALL, "effort": ""}})
-        efforts = page.evaluate("() => Array.from(window.__full.querySelectorAll('.mp-effort button.pill')).map(b => b.dataset.effort + '|' + b.textContent)")
-        assert efforts == ["|✓default", "low|low", "medium|medium"], efforts
+        _draw(page, {"current": {"model": SMALL, "effort": "xhigh"}})
+        efforts = page.evaluate("""() => Array.from(window.__full.querySelectorAll('.mp-effort button.pill')).map(
+            b => [b.dataset.effort, b.textContent, b.title])""")
+        takes = ("low", "medium")
+        assert efforts == [["", "default", ""]] + [
+            [e, ("✓" if e == "xhigh" else "") + ("" if e in takes else "⊘") + e,
+             "" if e in takes else f"{M.label(SMALL)} does not list {e}; the CLI may refuse the pair at start"]
+            for e in _catalogue()["efforts"]], efforts
 
-        # Inheriting nothing pins no effort; inheriting a model, the efforts are live.
+        # Inheriting no model the efforts are live all the same, and pressing one reports it.
         _draw(page, {"current": {"model": "", "effort": ""},
                      "inherited": {"model": "", "effort": "", "source": "fleet"}})
         off = page.evaluate(effort_state)
-        assert set(off["disabled"]) == {"true"} and off["pressed"] == [""] and off["described"], off
-        assert off["why"] == "effort follows the inherited model; press a model to set one", off
+        assert set(off["disabled"]) == {None} and off["pressed"] == [""] and off["why"] is None, off
         assert off["model"] == ""
-        page.click(f"{FULL} .mp-effort button.pill[data-effort='high']", force=True)
-        assert page.evaluate("() => window.__picks") == [], "a disabled effort is not picked"
+        page.click(f"{FULL} .mp-effort button.pill[data-effort='high']")
+        assert page.evaluate("() => window.__picks.splice(0)") == [
+            {"model": "", "effort": "high", "toolbar": "effort", "droppedEffort": ""}]
+        # Inheriting a model and an effort: no effort of its own pressed, named for the inherited.
         _draw(page, {"current": {"model": "", "effort": ""},
                      "inherited": {"model": INHERITED, "effort": "high", "source": "fleet"}})
         live = page.evaluate(effort_state)
-        assert set(live["disabled"]) == {None} and live["pressed"] == ["high"] and live["why"] is None, live
+        assert set(live["disabled"]) == {None} and live["pressed"] == [""] and live["why"] is None, live
+        assert page.inner_text(f"{FULL} .mp-effort button.pill[data-effort=''] .pill-label") == "inherit · high"
         page.click(f"{FULL} .mp-effort button.pill[data-effort='low']")
         assert page.evaluate("() => window.__picks.splice(0)") == [
             {"model": "", "effort": "low", "toolbar": "effort", "droppedEffort": ""}]
@@ -413,8 +424,9 @@ def test_every_state_says_what_it_is_and_reports_what_was_pressed(browser, fleet
         assert got["rows"] > 1 and got["fits"], "it wraps inside a narrow card"
         assert got["ellipsis"] == "ellipsis" and got["minWidth"] == "0px", got
         page.click(f"{COMPACT} button.pill[data-model='']")
+        # The model half alone (#493): the effort it reports is the one it had.
         assert page.evaluate("() => window.__picks") == [
-            {"model": "", "effort": "", "toolbar": "model", "droppedEffort": ""}]
+            {"model": "", "effort": "high", "toolbar": "model", "droppedEffort": ""}]
 
 
 @pytest.mark.browser

@@ -32,7 +32,7 @@
         "type": "assistant.message",
         "data": {
           "content": "RDSD-7 · To Do · phase=triaged · branch=main · branches=1 (0 unmerged). No branch carries RDSD-7; creating it.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }

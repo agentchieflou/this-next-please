@@ -1319,25 +1319,129 @@ def test_a_shell_that_will_not_give_a_webgl_context_falls_back_without_fetching_
 @pytest.mark.browser
 def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fleet_home, tmp_path):
     """The render contract with the layer running: once the marks are drawn, an idle desk is still
-    zero DOM mutations -- and zero WebGL frames, because a paper with nothing new is not redrawn."""
+    zero DOM mutations -- and zero WebGL frames, because a paper with nothing new is not redrawn.
+    With a pane's model chip waiting for the next turn on it, too (#492).
+
+    Alpha has run more than once, so its row carries `earlier` runs and the session pill's runs list
+    is drawn on every row pass: patched, never torn down and rebuilt (#494). A run arriving adds one
+    row and leaves the others' elements alone; an ended run's time is written into its row in place."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    _desk_of(tmp_path)
+    from agentdata import config as C
+
+    # `_desk_of`, with alpha's runs launched on sonnet 5 and luna set for its next turn: `next`.
+    Registry().add(make_project(tmp_path / "alpha", ticket="RDSD-1"), name="alpha")
+    E.append("alpha", [E.event("alpha", "started", {"pid": 1, "model": "claude-sonnet-5"}, ticket="RDSD-1"),
+                       E.event("alpha", "assistant_text", {"text": "working on alpha", "model": "claude-sonnet-5"},
+                               ticket="RDSD-1"),
+                       E.event("alpha", "turn_ended", {"turn": "0"}, ticket="RDSD-1")])
+    _repos(tmp_path, ["beta"])
+    S.arrange(order=["alpha", "beta"])
+    S.update_window("main", open="alpha", widths={"alpha": 1, "beta": 1})
+    cfg = C.load()
+    C.put_leaf(cfg, "fleet.models", "alpha", {"model": "gpt-5.6-luna"})
+    C.save(cfg)
+    _run_again("alpha")
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+            page.wait_for_function("""() => { const b = document.querySelector('.tile[data-repo="alpha"] .bm-name');
+                return b.textContent === 'luna 5.6' && b.classList.contains('next'); }""", timeout=10000)
+            page.wait_for_function(f"() => document.querySelectorAll('{RUNS}').length === 1"
+                                   " && !!document.querySelector('.tile[data-repo=\"alpha\"] .spill')"
+                                   ".textContent", timeout=15000)
+            first = page.evaluate(f"""() => {{ window.__run1 = document.querySelector('{RUNS}');
+              return {{ words: window.__run1.textContent,
+                        hidden: window.__run1.parentElement.hidden }}; }}""")
+            _run_again("alpha")
+            page.wait_for_function(f"() => document.querySelectorAll('{RUNS}').length === 2",
+                                   timeout=15000)
+            arrived = page.evaluate(f"""() => {{ const li = [...document.querySelectorAll('{RUNS}')];
+              return {{ kept: li[0] === window.__run1, words: li.map(e => e.textContent) }}; }}""")
             _set(page, dict(TABLE, speed=4))
             for repo, cls in (("alpha", "ink-loop"), ("alpha", "ink-write"), ("beta", "ink-hl")):
                 _mark(page, repo, cls)
             _rest(page, "Ink.inspect().layer.marks.length === 3")
             count = page.evaluate(IDLE_LOOP)
+            kept = page.evaluate(f"() => document.querySelector('{RUNS}') === window.__run1")
+            in_place = page.evaluate(RUNS_IN_PLACE)
+            # And with the model card open on it (#366): `m` on a pane, the list drawn, the keyboard
+            # on the pressed pill -- and still nothing written and nothing drawn while it waits.
+            page.focus('.tile[data-repo="alpha"]')
+            page.keyboard.press("m")
+            page.wait_for_function("""() => !document.getElementById('modelcard').hidden
+                && document.activeElement.matches('#modelcard .mp-models button.pill[aria-pressed="true"]')""",
+                                   timeout=10000)
+            carded = page.evaluate(IDLE_LOOP)
+            assert page.evaluate("document.activeElement.closest('#modelcard') !== null")
+            # And with the dispatch card open on a pane instead (#368): a ticket dropped on alpha,
+            # its pre-flight read and its model picker drawn.
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+            page.evaluate("""() => {
+              const tile = document.querySelector('.tile[data-repo="alpha"]');
+              const dt = new DataTransfer();
+              dt.setData('application/x-agentdata-ticket', 'RDSD-1');
+              dt.setData('text/plain', 'RDSD-1');
+              tile.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true}));
+            }""")
+            page.wait_for_function("""() => !document.getElementById('dispatch').hidden
+                && document.querySelector('#dispatch .verdict').textContent.trim() !== 'reading…'
+                && !!document.querySelector('#dispatch .dispatch-model button[aria-pressed="true"]')""",
+                                   timeout=10000)
+            dispatched = page.evaluate(IDLE_LOOP)
             assert not errors, errors
             browser.close()
     finally:
         _stop(server)
     assert count["n"] == 0, f"an idle desk with ink on it wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle paper was redrawn {count['renders']} times"
+    assert carded["n"] == 0, f"an idle desk with the model card open wrote to the page: {carded}"
+    assert carded["renders"] == 0, f"an idle paper under the model card was redrawn {carded['renders']} times"
+    assert dispatched["n"] == 0, f"an idle desk with the dispatch card open wrote to the page: {dispatched}"
+    assert dispatched["renders"] == 0, f"an idle paper under the dispatch card was redrawn {dispatched['renders']} times"
+    assert re.fullmatch(r"run 1 · RDSD-1 · [\w-]+ \(\d\d:\d\d–\d\d:\d\d\)", first["words"]), first
+    assert first["hidden"] is False, first
+    assert arrived["kept"], f"a run arriving re-created the rows already there: {arrived}"
+    assert [w.split(" · ")[0] for w in arrived["words"]] == ["run 1", "run 2"], arrived
+    assert kept, "an idle pass re-created a row of the runs list"
+    assert in_place == {"kept": True, "equal": 0, "words": "run 1 · done (10:00–10:05)",
+                        "added": 1, "empty": True}, in_place
+
+
+#: Alpha's runs list, under its session pill.
+RUNS = '.tile[data-repo="alpha"] .live-runs li'
+
+#: `drawRuns` on a list of its own: an ended run's time is written into the row it already has, an
+#: equal draw writes nothing, a new run adds exactly one row, and no runs hides the list.
+RUNS_IN_PLACE = """() => {
+  const list = document.createElement('ol');
+  const one = { n: 1, state: 'done', started: '2026-09-25T10:00:00Z', ended: '' };
+  drawRuns(list, [one]);
+  const li = list.firstChild;
+  drawRuns(list, [Object.assign({}, one, { ended: '2026-09-25T10:05:00Z' })]);
+  const obs = new MutationObserver(() => {});
+  obs.observe(list, { subtree: true, childList: true, attributes: true, characterData: true });
+  drawRuns(list, [Object.assign({}, one, { ended: '2026-09-25T10:05:00Z' })]);
+  const equal = obs.takeRecords().length;
+  obs.disconnect();
+  const words = li.textContent;
+  drawRuns(list, [Object.assign({}, one, { ended: '2026-09-25T10:05:00Z' }),
+                  { n: 2, state: 'running', started: '2026-09-25T10:06:00Z', ended: '' }]);
+  const added = list.children.length - 1;
+  const kept = list.firstChild === li && li.parentNode === list;
+  drawRuns(list, []);
+  return { kept, equal, words, added, empty: list.hidden };
+}"""
+
+
+def _run_again(name):
+    """One more run in `name`'s stream: a second `started` event is what makes a row's `earlier`."""
+    E.append(name, [E.event(name, "started", {"pid": 2, "model": "claude-sonnet-5"}, ticket="RDSD-1"),
+                    E.event(name, "assistant_text", {"text": "again in " + name, "model": "claude-sonnet-5"},
+                            ticket="RDSD-1"),
+                    E.event(name, "turn_ended", {"turn": "0"}, ticket="RDSD-1")])
 
 
 @pytest.mark.browser

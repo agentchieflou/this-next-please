@@ -115,6 +115,25 @@ def emit(event: dict) -> None:
             f.flush()
 
 
+#: What a transcript's `"model": "{model}"` reports when no `--model` was passed: the model every
+#: transcript was captured on.
+CAPTURED_MODEL = "claude-haiku-4.5"
+
+
+def served(argv: list[str]) -> str:
+    """The model a reply says it ran on (#492): the `--model` it was launched with, as a real CLI
+    reports it, unless `AGENTDATA_FAKE_SERVED_MODEL` pins another -- a tenant that serves its own
+    choice whatever was asked for."""
+    return os.environ.get("AGENTDATA_FAKE_SERVED_MODEL") or _one(argv, "--model") or CAPTURED_MODEL
+
+
+def _with_model(event: dict, model: str) -> dict:
+    data = event.get("data")
+    if isinstance(data, dict) and data.get("model") == "{model}":
+        event["data"] = dict(data, model=model)
+    return event
+
+
 def play(entry: dict, argv: list[str]) -> int:
     """Replay a transcript that *acts*: emit events, run commands, honour the permission flags."""
     allow = _flag_values(argv, "--allow-tool")
@@ -140,7 +159,7 @@ def play(entry: dict, argv: list[str]) -> int:
         if "sleep" in step:
             time.sleep(float(step["sleep"]))
         if "emit" in step:
-            emit(dict(step["emit"]))
+            emit(_with_model(dict(step["emit"]), served(argv)))
         if "stderr" in step:
             sys.stderr.write(step["stderr"])
             sys.stderr.flush()

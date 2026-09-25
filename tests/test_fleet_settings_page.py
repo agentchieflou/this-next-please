@@ -21,11 +21,13 @@ import json
 import os
 import re
 import threading
+import time
 import urllib.request
 
 import pytest
 
-from agentdata.fleet import events as E, registry, serve as S, skins as K
+from agentdata import textio
+from agentdata.fleet import events as E, models as M, registry, serve as S, skins as K
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
@@ -124,11 +126,42 @@ def _settled(page, **want):
         raise AssertionError(f"never {want}; the page reads {page.evaluate(_PICKERS)}") from None
 
 
+def _seed_models(version="1.0.88", extra=()):
+    """`<fleet_dir>/models.json` as `ad-fleet models --refresh` writes it (#360): the 1.0.88 ids
+    plus `extra`, checked now. The page offers the measured list and no copilot is started."""
+    shipped = M.shipped()
+    os.makedirs(registry.fleet_dir(), exist_ok=True)
+    textio.write_json(M.cache_file(), {
+        "source": "help", "cli_version": version,
+        "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "models": shipped["models"] + list(extra), "efforts": shipped["efforts"], "why": ""})
+
+
+def _posted(page):
+    """Around a press on a model picker: wait for its `POST /api/settings` to be answered."""
+    return page.expect_response(
+        lambda r: r.request.method == "POST" and r.url.split("?")[0].endswith("/api/settings"),
+        timeout=10000)
+
+
+# What the keyboard is on in a model picker (#362): a model pill, an effort pill, or another pill.
+_ON = """() => { const a = document.activeElement;
+    return a.dataset.model !== undefined ? 'm:' + a.dataset.model
+         : a.dataset.effort !== undefined ? 'e:' + a.dataset.effort : a.className; }"""
+
+
 # ------------------------------------------------------------------------------------ the page
 
 
 @pytest.mark.browser
 def test_the_page_renders_every_section_and_can_get_back(fleet_home, tmp_path):
+    """Every section, and the ways in and out.
+
+    The model block is pressed, not typed (#367): the fleet-wide default is a picker beside its
+    label, each repository's row is `#model-<repo>` with a picker of its own, and the line above
+    the table says where the list came from -- the shipped one here, as no copilot was asked.
+    `refresh the list` asks for it. The model card's link, `/settings#model-<repo>`, lands on that
+    repository's row, a dotted name included: scrolled to, opened, and on its pressed pill."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta")
 
@@ -151,6 +184,64 @@ def test_the_page_renders_every_section_and_can_get_back(fleet_home, tmp_path):
             assert page.eval_on_selector_all("#allowlist li", "els => els.length") > 5
             assert page.eval_on_selector_all("#denylist li", "els => els.length") > 5
 
+            # The model block: a picker for every agent, one per row, and no box to type into.
+            block = page.evaluate("""() => {
+                const d = document.querySelector('#fleetpicker .mpick[data-variant=full] button.pill[data-model=""]');
+                return {
+                    heads: Array.from(document.querySelectorAll('#modeltable th')).map(th => th.textContent),
+                    rows: Array.from(document.querySelectorAll('#modelrows tr')).map(
+                        tr => [tr.id, !!tr.querySelector('.mpick[data-variant=compact]')]),
+                    fleet: d && [document.getElementById('fleetmodel-label').textContent,
+                                 d.closest('[role=toolbar]').getAttribute('aria-label'),
+                                 d.querySelector('.pill-label').textContent, d.title, d.getAttribute('aria-pressed')],
+                    typed: document.getElementById('modeltable').closest('.setblock')
+                        .querySelectorAll('input:not(.mp-other), datalist').length,
+                    list: document.getElementById('modellist').textContent,
+                    status: document.getElementById('saved').getAttribute('role') };
+            }""")
+            assert block == {
+                "heads": ["repository", "model", "resolved from", "last turn actually used"],
+                "rows": [["model-alpha", True], ["model-beta", True]],
+                "fleet": ["every agent", "every agent", "CLI default", "pass no --model; the CLI chooses", "true"],
+                "typed": 0, "list": "shipped list — copilot could not be asked", "status": "status"}, block
+
+            # `refresh the list` asks the server to ask copilot, and says so. Answered here, so no
+            # CLI is started on the machine running the suite.
+            asked = []
+
+            def ask(route):
+                if route.request.method != "POST":
+                    return route.continue_()
+                asked.append(json.loads(route.request.post_data or "{}"))
+                return route.fulfill(status=200, content_type="application/json",
+                                     body='{"ok": true, "refreshing": true, "started": true}')
+
+            page.route("**/api/models*", ask)
+            page.click("#modelrefresh")
+            page.wait_for_function("""() => !document.getElementById('saved').hidden
+                && document.getElementById('saved').textContent.startsWith('asking copilot')""", timeout=10000)
+            assert asked == [{"refresh": True}], asked
+            page.unroute("**/api/models*")
+
+            # The card's link, in a window short enough that the row starts off the glass.
+            _repos(tmp_path, "rdsd.pbi")
+            (tmp_path / "cfg.json").write_text(json.dumps(
+                {"fleet": {"models": {"rdsd.pbi": {"model": "claude-opus-4.8"}}}}), encoding="utf-8")
+            page.set_viewport_size({"width": 900, "height": 600})
+            page.goto("about:blank")
+            page.goto(f"http://127.0.0.1:{port}/settings?t={token}#model-rdsd.pbi",
+                      wait_until="domcontentloaded")
+            landed = page.wait_for_function("""() => {
+                const tr = document.getElementById('model-rdsd.pbi'), a = document.activeElement;
+                if (!tr || !a || !a.closest('.mp-expand') || !tr.contains(a)) return false;
+                const r = tr.getBoundingClientRect(), b = a.getBoundingClientRect();
+                return { on: a.dataset.model, pressed: a.getAttribute('aria-pressed'),
+                         open: !tr.querySelector('.mp-expand').hidden, scrolled: window.scrollY > 0,
+                         row: r.top < innerHeight && r.bottom > 0, pill: b.top >= 0 && b.bottom <= innerHeight };
+            }""", timeout=10000).json_value()
+            assert landed == {"on": "claude-opus-4.8", "pressed": "true", "open": True, "scrolled": True,
+                              "row": True, "pill": True}, landed
+
             back = page.locator("#backbtn")
             assert f"t={token}" in (back.get_attribute("href") or ""), "the way back carries no token"
             back.click()
@@ -167,17 +258,77 @@ def test_the_page_renders_every_section_and_can_get_back(fleet_home, tmp_path):
 def test_nothing_hidden_is_visible_or_swallows_a_click(fleet_home, tmp_path):
     """The defect that made the whole desk unusable in 0.8.0: an id selector setting `display:flex`
     outranks the browser's `[hidden]` rule, so `el.hidden = true` changed an attribute and nothing
-    else, and full-height panels ate every click meant for what was under them."""
+    else, and full-height panels ate every click meant for what was under them.
+
+    A row's expansion (#367) is the newest thing here that hides: closed, it takes no box. Open in a
+    900x600 window, every pill in it is reachable -- by the arrows, each landing on the glass, and by
+    the wheel, each at some point on the glass and the thing under the pointer."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha")
+    _seed_models()
+    hidden_on_glass = """() => Array.from(document.querySelectorAll('[hidden]'))
+        .filter(el => el.getBoundingClientRect().width > 0)
+        .map(el => el.id || el.className)"""
+    pills = "#model-alpha .mp-expand button.pill"
+    key = """(b) => b.dataset.model !== undefined ? 'm:' + b.dataset.model
+                  : b.dataset.effort !== undefined ? 'e:' + b.dataset.effort : b.className"""
 
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
             browser, page, errors = _settings(p, port, token)
-            shown = page.evaluate("""() => Array.from(document.querySelectorAll('[hidden]'))
-                .filter(el => el.getBoundingClientRect().width > 0)
-                .map(el => el.id || el.className)""")
+            shown = page.evaluate(hidden_on_glass)
+            assert shown == [], f"hidden and still on the glass: {shown}"
+
+            page.set_viewport_size({"width": 900, "height": 600})
+            page.click("#model-alpha .mp-more")
+            page.wait_for_function("(sel) => !!document.activeElement.closest(sel)",
+                                   arg="#model-alpha .mp-expand", timeout=10000)
+            every = page.eval_on_selector_all(pills, f"bs => bs.map({key})")
+            assert len(every) > 30, every
+
+            # The arrows: each toolbar from Home round to its first pill again, one Tab between.
+            walked = []
+            for bar, tab in (("mp-models", False), ("mp-effort", True)):
+                if tab:
+                    page.keyboard.press("Tab")
+                page.keyboard.press("Home")
+                for _ in range(page.eval_on_selector_all(f"#model-alpha .mp-expand .{bar} button.pill",
+                                                         "bs => bs.length")):
+                    walked.append(page.evaluate(f"""() => {{ const a = document.activeElement,
+                        r = a.getBoundingClientRect(); return [a.closest('#model-alpha .mp-expand')
+                        ? ({key})(a) : 'outside: ' + a.tagName,
+                        r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth]; }}"""))
+                    page.keyboard.press("ArrowRight")
+            assert sorted(k for k, _ in walked) == sorted(every), walked
+            assert [k for k, on in walked if not on] == [], "focused off the glass"
+
+            # The wheel, from the top of the page to its foot.
+            page.evaluate("() => { window.scrollTo(0, 0); window.__wheeled = new Set(); }")
+            page.mouse.move(450, 300)
+            for _ in range(80):
+                seen, bottom = page.evaluate("""(sel) => {
+                    for (const b of document.querySelectorAll(sel)) {
+                        const r = b.getBoundingClientRect();
+                        if (r.width === 0 || r.top < 0 || r.bottom > innerHeight) continue;
+                        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                        if (hit && b.contains(hit)) window.__wheeled.add(b);
+                    }
+                    const s = document.scrollingElement;
+                    return [window.__wheeled.size, Math.ceil(s.scrollTop + innerHeight) >= s.scrollHeight];
+                }""", pills)
+                if bottom:
+                    break
+                at = page.evaluate("() => document.scrollingElement.scrollTop")
+                page.mouse.wheel(0, 240)
+                page.wait_for_function("(at) => document.scrollingElement.scrollTop > at", arg=at, timeout=5000)
+            assert bottom and seen == len(every), (seen, len(every))
+
+            # Closed, it is hidden, and nothing hidden is on the glass.
+            page.focus("#model-alpha .mp-expand button.pill")
+            page.keyboard.press("Escape")
+            assert page.evaluate("() => document.querySelector('#model-alpha .mp-expand').hidden") is True
+            shown = page.evaluate(hidden_on_glass)
             assert shown == [], f"hidden and still on the glass: {shown}"
             assert not errors, errors
             browser.close()
@@ -378,9 +529,14 @@ def test_the_skin_picker_groups_variants_under_their_skin(fleet_home, tmp_path):
 def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path):
     """The reason this page carries a stream at all. `ad-theme set` in a terminal, or the desk in
     another window, writes the same `config.json`; without the frame this page would keep showing
-    the palette it was opened with and its pickers would be quietly lying."""
+    the palette it was opened with and its pickers would be quietly lying.
+
+    The model list is the same kind of fact (#367): `ad-fleet models --refresh` in a terminal
+    rewrites `models.json`, the stream says so with a `models` frame, and the page asks for the list
+    again and redraws its pills and the line saying where the list came from."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha")
+    _seed_models()
 
     server, token, port = _serve()
     try:
@@ -395,6 +551,17 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path):
             page.wait_for_function(
                 """() => document.body.getAttribute('data-skin') === 'voxel'""", timeout=15000)
             assert page.evaluate("() => document.getElementById('skin').value") == "voxel:nether"
+
+            # The stream has made passes by now, so the list it last looked at is the seeded one.
+            page.wait_for_function("""() => document.getElementById('modellist').textContent
+                .startsWith('list: copilot 1.0.88 · checked ')""", timeout=10000)
+            assert page.evaluate("""() => document.querySelector(
+                '#fleetpicker button.pill[data-model="byok-model-7"]')""") is None
+            _seed_models("1.0.90", extra=("byok-model-7",))
+            page.wait_for_function("""() => document.getElementById('modellist').textContent
+                    .startsWith('list: copilot 1.0.90 · checked ')
+                && !!document.querySelector('#fleetpicker button.pill[data-model="byok-model-7"]')
+                && !!document.querySelector('#model-alpha button.pill[data-model=""]')""", timeout=15000)
             assert not errors, errors
             browser.close()
     finally:
@@ -409,12 +576,22 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path):
 @pytest.mark.browser
 def test_a_model_typed_here_reaches_the_command_line(fleet_home, tmp_path):
     """The whole point of the section: not that the box remembers a string, but that the string
-    becomes `--model` on the argv the next turn is launched with."""
+    becomes `--model` on the argv the next turn is launched with.
+
+    Typed in `other…`, the one place a name is still typed (#367): `more…` in the row, then
+    `other…` in its expansion. First the two presses that need no name. A pill on the fleet-wide
+    default is written to `fleet.model`, and a repository with no entry resolves it. `inherit` on a
+    pinned model and effort removes the whole key, so the repository is back on that default, and
+    the row is patched rather than rebuilt: the keyboard stays on the pill it pressed."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata import config as C
     from agentdata.fleet import launch as L
 
-    _repos(tmp_path, "alpha")
+    _repos(tmp_path, "alpha", "beta")
+    _seed_models()
+    (tmp_path / "cfg.json").write_text(json.dumps(
+        {"fleet": {"models": {"alpha": {"model": "claude-opus-5", "effort": "high"}}}}), encoding="utf-8")
+    source = "(repo) => document.getElementById('model-' + repo).children[2].textContent"
 
     server, token, port = _serve()
     try:
@@ -422,18 +599,80 @@ def test_a_model_typed_here_reaches_the_command_line(fleet_home, tmp_path):
             browser, page, errors = _settings(p, port, token)
             page.wait_for_selector("#modelrows tr", timeout=10000)
 
-            row = page.locator("#modelrows tr", has_text="alpha")
-            row.locator("input").first.fill("claude-opus-5")
-            row.locator("input").first.dispatch_event("change")
+            # A pill on the fleet-wide default: `fleet.model`, and what beta, with no entry, runs.
+            assert page.evaluate(source, "beta") == "cli-auto"
+            with _posted(page):
+                page.click("#fleetpicker .mp-models button.pill[data-model='claude-sonnet-5']")
+            page.wait_for_function(f"() => ({source})('beta') === 'fleet.model'", timeout=10000)
+            cfg = C.load()
+            assert C.get(cfg, "fleet.model") == "claude-sonnet-5", cfg
+            assert L.model_for("beta", cfg) == ("claude-sonnet-5", "", "fleet.model")
+
+            # An effort on beta, which has no entry: the effort alone is written, and the model
+            # keeps following the fleet's (#493, decision 15; it used to be pinned with it). The
+            # row says where each half comes from.
+            page.click("#model-beta .mp-more")
+            with _posted(page):
+                page.click("#model-beta .mp-expand .mp-effort button.pill[data-effort='high']")
+            page.wait_for_function(f"""() => ({source})('beta') === 'fleet.model · effort from fleet.models.beta'
+                && document.getElementById('saved').textContent === 'saved — takes effect on the next turn'""",
+                                   timeout=10000)
+            assert C.get_leaf(C.load(), "fleet.models", "beta", {}) == {"effort": "high"}
+            assert L.model_for("beta", C.load()) == ("claude-sonnet-5", "high", "fleet.model")
+
+            # `inherit` in alpha's row, which says what it inherits, pressed from the keyboard.
+            inherit = "#model-alpha .mpick[data-variant=compact] button.pill[data-model='']"
+            page.wait_for_function("(sel) => document.querySelector(sel + ' .pill-label').textContent"
+                                   " === 'inherit · sonnet 5'", arg=inherit, timeout=10000)
+            page.focus(inherit)
+            page.evaluate("""() => { window.__pill = document.activeElement;
+                                     window.__row = document.getElementById('model-alpha'); }""")
+            with _posted(page):
+                page.keyboard.press("Enter")
+            # The model half alone (#493): alpha keeps its own effort, with the fleet's model.
+            page.wait_for_function(f"() => ({source})('alpha') === 'fleet.model · effort from fleet.models.alpha'",
+                                   timeout=10000)
+            cfg = C.load()
+            assert C.get_leaf(cfg, "fleet.models", "alpha", {}) == {"effort": "high"}, cfg
+            assert L.model_for("alpha", cfg) == ("claude-sonnet-5", "high", "fleet.model")
+            assert page.evaluate("""() => [document.activeElement === window.__pill,
+                window.__pill.getAttribute('aria-pressed'),
+                document.getElementById('model-alpha') === window.__row]""") == [True, "true", True]
+
+            row = page.locator("#model-alpha")
+            row.locator(".mp-more").click()
+            row.locator(".mp-expand .mp-otherbtn").click()
+            row.locator(".mp-expand input.mp-other").fill("claude-opus-5")
+            row.locator(".mp-expand input.mp-other").press("Enter")
             page.wait_for_function(
-                """() => document.querySelectorAll('#modelrows tr td:nth-child(4)')[0]
+                """() => document.querySelectorAll('#modelrows tr td:nth-child(3)')[0]
                           .textContent.indexOf('fleet.models') === 0""", timeout=10000)
 
             cfg = C.load()
-            assert C.get_leaf(cfg, "fleet.models", "alpha", {}) == {"model": "claude-opus-5"}
+            assert C.get_leaf(cfg, "fleet.models", "alpha", {}) == {"model": "claude-opus-5", "effort": "high"}
             argv = L.launch_command("copilot", "/r", "p", log_dir="/l", cfg=cfg,
                                     **dict(zip(("model", "effort"), L.model_for("alpha", cfg)[:2])))
             assert "--model" in argv and argv[argv.index("--model") + 1] == "claude-opus-5"
+
+            # The fleet back to "CLI chooses": beta's effort pills are still pressable, and a press
+            # writes the effort alone (#493). `inherit both` then clears beta's whole entry.
+            with _posted(page):
+                page.click("#fleetpicker .mp-models button.pill[data-model='']")
+            page.wait_for_function(f"() => ({source})('beta').indexOf('cli-auto') === 0", timeout=10000)
+            page.click("#model-beta .mp-more")
+            low = "#model-beta .mp-expand .mp-effort button.pill[data-effort='low']"
+            page.wait_for_selector(low, timeout=10000)
+            assert page.get_attribute(low, "aria-disabled") is None
+            with _posted(page):
+                page.click(low)
+            page.wait_for_function("() => document.getElementById('saved').textContent.indexOf('saved') === 0",
+                                   timeout=10000)
+            assert C.get_leaf(C.load(), "fleet.models", "beta", {}) == {"effort": "low"}
+            assert L.model_for("beta", C.load()) == ("", "low", "cli-auto")
+            with _posted(page):
+                page.click("#model-beta .inherit-both")
+            page.wait_for_function(f"() => ({source})('beta') === 'cli-auto'", timeout=10000)
+            assert "beta" not in (C.get(C.load(), "fleet.models") or {})
             assert not errors, errors
             browser.close()
     finally:
@@ -445,11 +684,19 @@ def test_a_model_typed_here_reaches_the_command_line(fleet_home, tmp_path):
 @pytest.mark.browser
 def test_a_model_that_would_become_a_second_flag_is_refused_in_the_page(fleet_home, tmp_path):
     """`--model "x --allow-all-tools"` is the case. The allow-list check never sees it: it reads the
-    tool lists, not this. So it is refused here, at the keystroke, and nothing is written."""
+    tool lists, not this. So it is refused here, at the keystroke, and nothing is written.
+
+    Typed in the row's expansion (#367), and refused on its `other…` box. Then the same row by the
+    keyboard alone: Escape closes the expansion onto `more…`, Enter opens it on its pressed pill,
+    the arrows reach `claude-opus-5` and Enter presses it. That reaches the command line, the saved
+    tag -- a live region -- says so, and the row is patched rather than rebuilt: the expansion
+    closes and the keyboard lands on the row's pressed pill, which is the model just chosen."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata import config as C
+    from agentdata.fleet import launch as L
 
     _repos(tmp_path, "alpha")
+    _seed_models()
 
     server, token, port = _serve()
     try:
@@ -457,14 +704,49 @@ def test_a_model_that_would_become_a_second_flag_is_refused_in_the_page(fleet_ho
             browser, page, errors = _settings(p, port, token)
             page.wait_for_selector("#modelrows tr", timeout=10000)
 
-            field = page.locator("#modelrows tr", has_text="alpha").locator("input").first
+            row = page.locator("#model-alpha")
+            row.locator(".mp-more").click()
+            row.locator(".mp-expand .mp-otherbtn").click()
+            field = row.locator(".mp-expand .mp-other")
             field.fill("x --allow-all-tools")
-            field.dispatch_event("change")
+            field.press("Enter")
             page.wait_for_function(
-                """() => document.querySelector('#modelrows input.bad') !== null""", timeout=10000)
+                """() => document.querySelector('#model-alpha .mp-expand .mp-other.bad') !== null""",
+                timeout=10000)
             assert "more than one argument" in (field.get_attribute("title") or "")
 
             assert C.get_leaf(C.load(), "fleet.models", "alpha", {}) == {}, "it was written anyway"
+
+            # The same row, by the keyboard alone.
+            page.keyboard.press("Escape")
+            assert page.evaluate("""() => [document.querySelector('#model-alpha .mp-expand').hidden,
+                document.activeElement.classList.contains('mp-more'),
+                document.activeElement.getAttribute('aria-expanded')]""") == [True, True, "false"]
+            page.evaluate("() => { window.__row = document.getElementById('model-alpha'); }")
+            page.keyboard.press("Enter")
+            assert page.evaluate(_ON) == "m:", "it opens on the pressed pill, and alpha inherits"
+            order = page.eval_on_selector_all("#model-alpha .mp-expand .mp-models button.pill",
+                                              "bs => bs.map(b => b.dataset.model)")
+            for _ in range(order.index("claude-opus-5")):
+                page.keyboard.press("ArrowRight")
+            assert page.evaluate(_ON) == "m:claude-opus-5"
+            with _posted(page):
+                page.keyboard.press("Enter")
+            after = page.wait_for_function("""() => {
+                const a = document.activeElement, s = document.querySelector('#saved[role=status]');
+                return !!a.closest('#model-alpha .mpick[data-variant=compact]')
+                    && a.dataset.model === 'claude-opus-5' && !!s && !s.hidden
+                    && [a.getAttribute('aria-pressed'), s.textContent,
+                        document.querySelector('#model-alpha .mp-expand').hidden,
+                        document.querySelector('#model-alpha .mp-other').classList.contains('bad'),
+                        document.getElementById('model-alpha') === window.__row];
+            }""", timeout=10000).json_value()
+            assert after == ["true", "saved — takes effect on the next turn", True, False, True], after
+            cfg = C.load()
+            assert C.get_leaf(cfg, "fleet.models", "alpha", {}) == {"model": "claude-opus-5"}
+            argv = L.launch_command("copilot", "/r", "p", log_dir="/l", cfg=cfg,
+                                    **dict(zip(("model", "effort"), L.model_for("alpha", cfg)[:2])))
+            assert argv[argv.index("--model") + 1] == "claude-opus-5"
             assert not errors, errors
             browser.close()
     finally:

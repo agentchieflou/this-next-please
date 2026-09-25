@@ -26,7 +26,7 @@
         "type": "assistant.message",
         "data": {
           "content": "The acceptance criteria contradict each other.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }
@@ -42,7 +42,7 @@
         "type": "assistant.message",
         "data": {
           "content": "I have logged friction and stopped.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }

@@ -138,8 +138,8 @@ when a change takes effect, because the answers differ:
 
 | Setting | What it does | In effect |
 |---|---|---|
-| `fleet.model`, `fleet.effort` | the model every agent is launched with; blank passes no flag and the CLI chooses | from the agent's next turn |
-| `fleet.models.<repo>` | `{"model": …, "effort": …}` for one repository, over the fleet-wide default | from the agent's next turn |
+| `fleet.model`, `fleet.effort` | the model every agent is launched with, set on /settings by pressing a model; **CLI default** passes no flag and the CLI chooses | from the agent's next turn |
+| `fleet.models.<repo>` | `{"model": …, "effort": …}` for one repository, over the fleet-wide default, set on /settings by pressing a model in its row; **inherit** removes it | from the agent's next turn |
 | `fleet.model_list.max_age_h` | hours the model list read from the Copilot CLI is kept before it is asked again (default 24; a new CLI version is asked at once). `ad-fleet models --refresh` asks now | at the next read of the list |
 | `fleet.approval_timeout` | seconds a gated write waits for your click | now |
 | `fleet.max_restarts`, `fleet.log_mb`, `fleet.log_keep` | how often an agent is resumed after a crash, and how its logs rotate | now |

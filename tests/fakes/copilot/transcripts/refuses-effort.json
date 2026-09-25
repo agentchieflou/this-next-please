@@ -1,0 +1,21 @@
+{
+  "source": "synthesized",
+  "note": "a CLI that ends a turn before its first reply, as a start it will not serve ends (#493); the wording is invented, the shape (non-zero exit, no assistant event) is a refused start's",
+  "captured": "2026-09-25",
+  "match": [
+    "-p"
+  ],
+  "session": "sess-refused",
+  "returncode": 1,
+  "usage": {
+    "premiumRequests": 0,
+    "codeChanges": {
+      "filesModified": []
+    }
+  },
+  "steps": [
+    {
+      "stderr": "Error: the selected model does not accept this reasoning effort\n"
+    }
+  ]
+}
