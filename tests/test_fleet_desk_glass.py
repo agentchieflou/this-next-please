@@ -30,18 +30,6 @@ def fleet_home(tmp_path, monkeypatch):
     return tmp_path / "fleet"
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-
-
 def _png_pixels(data: bytes):
     """A PNG as (width, height, bytes-per-pixel, rows). Enough of the format for a screenshot:
     8-bit RGB or RGBA, one IDAT stream, the five filters. No image library in the test venv."""

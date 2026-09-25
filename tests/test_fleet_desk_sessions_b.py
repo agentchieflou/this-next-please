@@ -31,28 +31,6 @@ from test_fleet_desk_regressions import _drain_and_age
 from test_fleet_events import fleet_home  # noqa: F401
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    """Every test here gets the desk module's globals to itself, and gives them back.
-
-    `_selection` and `_desk_loaded` are process-wide, which is right in production -- one
-    `ad-fleet serve` has one fleet directory for its life, and `_fresh()` drops the handles if that
-    ever changes. In a suite it is not: each test gets a fresh temporary fleet directory, and
-    `_ensure_desk_loaded` returns early on the flag the *previous* test set, so the second test in
-    the file inherits the first one's selection and window records instead of reading its own
-    `desk.json`. Every test in this file passed alone and two of them failed when the file ran
-    whole, which is exactly what that looks like from the outside.
-    """
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-
-
 # ----------------------------------------------------------- shutdown and desk persistence
 
 

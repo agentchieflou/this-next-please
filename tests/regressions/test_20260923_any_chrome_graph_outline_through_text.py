@@ -26,7 +26,7 @@ from __future__ import annotations
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink_graph import (_desk, _open, _own_desk_globals, _rest, _run, _serve,  # noqa: F401 - fixtures
+from test_fleet_ink_graph import (_desk, _open, _rest, _run, _serve,  # noqa: F401 - fixtures
                                   _stop, _tile_has, fleet_home)
 
 #: Every drawn outline and underline's strokes, as drawn (the tool's width included), against its

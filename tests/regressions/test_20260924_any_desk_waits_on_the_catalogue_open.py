@@ -26,7 +26,7 @@ import threading
 
 from agentdata.fleet import catalogue as CAT, serve as S
 
-from test_fleet_ink import _own_desk_globals, fleet_home  # noqa: F401 - fixtures
+from test_fleet_ink import fleet_home  # noqa: F401 - fixtures
 
 #: How long each desk call may take while the catalogue is still opening. The calls are in-memory
 #: work under a lock; before the fix they did not return until the open was released.

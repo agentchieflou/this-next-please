@@ -35,9 +35,9 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import (IDLE_LOOP, INK, STATIC, _layer, _marks, _open, _rest, _serve,
-                            _stop, _own_desk_globals, catch_up_frames, fleet_home)
+                            _stop, catch_up_frames, fleet_home)
 
-__all__ = ["_own_desk_globals", "fleet_home"]     # fixtures, used by name
+__all__ = ["fleet_home"]     # a fixture, used by name
 
 MODULE = os.path.join(INK, "skins", "legalpad.js")
 CSS = os.path.join(STATIC, "skins", "legalpad", "skin.css")

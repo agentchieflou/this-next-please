@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink_glass import (_finished_desk, _open, _own_desk_globals, _serve, _stop,  # noqa: F401 - fixtures
+from test_fleet_ink_glass import (_finished_desk, _open, _serve, _stop,  # noqa: F401 - fixtures
                                   alive, fleet_home)
 
 #: The skin's module, the very instance `ink.js` imported (the same URL), kept as `window.__skin`.

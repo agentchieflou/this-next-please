@@ -23,7 +23,7 @@ from __future__ import annotations
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink_glass import (_choose, _finished_desk, _open, _own_desk_globals, _serve,  # noqa: F401 - fixtures
+from test_fleet_ink_glass import (_choose, _finished_desk, _open, _serve,  # noqa: F401 - fixtures
                                   _stop, alive, fleet_home)
 
 #: The next `/api/fleet` answer is asked for at once and held until `__release()`.

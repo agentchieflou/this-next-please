@@ -23,7 +23,7 @@ import re
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import _desk_of, _open, _serve, _stop, fleet_home, _own_desk_globals  # noqa: F401 - fixtures
+from test_fleet_ink import _desk_of, _open, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 
 SKINS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                          "agentdata", "fleet", "static", "skins")

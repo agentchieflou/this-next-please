@@ -20,7 +20,7 @@ from agentdata.fleet import probe as PR
 from agentdata.fleet import serve as S
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import _desk_of, _facts, _serve, _stop, fleet_home, _own_desk_globals  # noqa: F401
+from test_fleet_ink import _desk_of, _facts, _serve, _stop, fleet_home  # noqa: F401
 
 LAYER = ("ink/layer.js", "ink/shapes.js", "ink/pen.js", "vendor/three/three.module.min.js")
 PRELOAD = re.compile(r'<link rel="modulepreload" href="/static/([^"?]+)\?t=([^"]+)">')

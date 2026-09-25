@@ -36,7 +36,7 @@ from agentdata.fleet import agentstate, events as E, skins, supervisor
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_gutters import _gutter_point
 from test_fleet_ink import (IDLE_LOOP, COUNT_FETCHES, _desk_of, _serve, _stop, catch_up_frames,  # noqa: F401
-                            fleet_home, _own_desk_globals)
+                            fleet_home)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")

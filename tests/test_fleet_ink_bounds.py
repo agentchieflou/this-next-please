@@ -34,7 +34,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import AT_REST, _choose, _open, _own_desk_globals, _serve, _stop, fleet_home  # noqa: F401
+from test_fleet_ink import AT_REST, _choose, _open, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until, alive, finished  # noqa: F401 - fixtures are used by name
 
 #: One variant per changed or affected module.

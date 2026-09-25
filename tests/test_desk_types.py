@@ -99,9 +99,6 @@ def test_the_records_are_typed_as_the_server_writes_them(monkeypatch):
     """The page's types for the desk are only true while they name what `serve.py` sends. A field
     added to the window record, or to the desk, fails here until the typedef says what it is."""
     monkeypatch.setattr(S, "_desk_loaded", True)
-    monkeypatch.setattr(S, "_selection", {"schema": S.DESK_SCHEMA, "selected": "", "version": 0,
-                                          "at": "", "arrangement": S._blank_arrangement(),
-                                          "windows": {}})
     assert _typedef("DeskRecord") == set(S.desk_state())
     assert _typedef("WindowRecord") == set(S.WINDOW_FIELDS)
     assert _typedef("Arrangement") == set(S._blank_arrangement())

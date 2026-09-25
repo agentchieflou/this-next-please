@@ -27,7 +27,7 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_desk_glass import _png_pixels
-from test_fleet_ink import AT_REST, _choose, _open, _own_desk_globals, _repos, _serve, _stop, fleet_home  # noqa: F401
+from test_fleet_ink import AT_REST, _choose, _open, _repos, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until_class
 
 #: The long transcript and the short one.

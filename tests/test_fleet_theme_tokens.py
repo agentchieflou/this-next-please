@@ -19,7 +19,7 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import (  # noqa: F401 - fixtures used by name
-    _desk_of, _open, _serve, _stop, fleet_home, _own_desk_globals
+    _desk_of, _open, _serve, _stop, fleet_home
 )
 from test_fleet_ink_notebook import _emit, alive, finished  # noqa: F401 - fixtures used by name
 

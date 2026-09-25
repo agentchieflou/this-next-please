@@ -36,18 +36,6 @@ def fleet_home(tmp_path, monkeypatch):
     return tmp_path / "fleet"
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-
-
 def _line(kind: str, **data) -> str:
     return json.dumps({"type": kind, "id": "e", "parentId": None,
                        "timestamp": "2026-09-12T10:00:00Z", "data": data}) + "\n"

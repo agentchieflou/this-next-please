@@ -36,20 +36,7 @@ sys_git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpg
 def fleet_home(tmp_path, monkeypatch):
     monkeypatch.setenv(registry.FLEET_DIR_ENV, str(tmp_path / "fleet"))
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    P._branches_cache.clear()
     return tmp_path / "fleet"
-
-
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
 
 
 def git(root, *args, when: int = 0) -> str:
