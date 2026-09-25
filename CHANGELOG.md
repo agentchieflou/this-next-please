@@ -108,7 +108,7 @@ still waits for a current one (#282, #285). A window write no longer waits while
   arrow or bar `cap`, the `ring` and `cross` shapes, and `ink/fx.js` for effects (#370, #385, #386). The layer's
   budget is 44 KiB.
 
-**Train 3.**
+**Also in this release.**
 - **`/settings` shows each palette by its title, and a line under the picker names the looks drawn on it** (#393), or,
   while a skin is on, the look the palette comes from. One that no skin uses (NFL Browns, Greens) says *palette
   only*, and can still be chosen while no skin is on.
