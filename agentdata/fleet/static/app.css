@@ -29,6 +29,17 @@
   --on-done: #1b1f23;
   --on-idle: #1b1f23;
 
+  /* A word written IN a state colour (#328): the why line, "exit 2", "it asked you:". A state
+     colour is held to 3:1, a mark's floor, and a word needs 4.5:1, so the word is the state moved
+     toward `--text` until it reads on `--bg`, `--panel` and `--select` (`theme.role_text`, as
+     `theme.to_css` chooses it for every palette). Borders, outlines and discs keep the state. The
+     dark block below has its own: these read 2.3-3.2:1 on its grounds. */
+  --running-text: #2a68aa;
+  --waiting-text: #8a5e13;
+  --human-text: #be3141;
+  --done-text: #27754b;
+  --idle-text: #5f6872;
+
   --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
   --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
@@ -59,6 +70,9 @@
   :root:not([data-theme]) {
     --bg: #14171a; --panel: #1c2024; --text: #e3e7ea; --muted: #909aa4;
     --accent: #58a6ff; --line: #2c3237; --select: #23303d;
+    /* The words in a state colour, chosen by the same rule on these grounds (#328). */
+    --running-text: #5e9ada; --waiting-text: #cb8817; --human-text: #d67f8a;
+    --done-text: #4da876; --idle-text: #8f98a3;
   }
 }
 
@@ -104,7 +118,7 @@ header, footer {
 }
 .toolbar-group > * { white-space: nowrap; }
 #find { flex: 0 1 auto; width: clamp(120px, 16vw, 240px); min-width: 90px; }
-#notice { color: var(--waiting); font: 11px var(--mono); }
+#notice { color: var(--waiting-text); font: 11px var(--mono); }
 /* Under about 1100px the group labels are the first thing that can go: the controls they name are
    all titled and keyboard-reachable, and a wrapped toolbar is worse than an unlabelled one. */
 @media (max-width: 1100px) { .toolbar-group .glabel { display: none; } }
@@ -432,7 +446,7 @@ body {
 .spill:hover { color: var(--text); border-color: var(--accent); }
 .spill::after { content: " ▾"; opacity: .7; }
 /* Reading an earlier session is a state the tile is IN, so the control that put it there says so. */
-.spill.is-reading { color: var(--waiting); border-color: var(--waiting); }
+.spill.is-reading { color: var(--waiting-text); border-color: var(--waiting); }
 .smenu {
   position: absolute; top: calc(100% + 4px); left: 0; z-index: 25;
   display: flex; flex-direction: column; gap: 4px;
@@ -481,7 +495,7 @@ body {
   margin: 6px 0 0; font: 11px var(--mono); color: var(--muted);
 }
 .ro-what { flex: 1 1 12rem; min-width: 0; color: var(--text); }
-.ro-note { flex: 1 1 100%; color: var(--human); }
+.ro-note { flex: 1 1 100%; color: var(--human-text); }
 .history {
   flex: 1 1 auto; overflow: auto; margin: 8px 0 0; padding: 0; list-style: none;
   font: 12px/1.5 var(--mono); border-top: 1px dashed var(--line); opacity: .92;
@@ -643,7 +657,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 .chip.not-supervised   { background: var(--muted); color: var(--panel); }
 
 .why { margin: 6px 0 0; color: var(--muted); }
-.tile.state-needs_human .why, .tile.state-blocked .why, .tile.state-error .why { color: var(--human); }
+.tile.state-needs_human .why, .tile.state-blocked .why, .tile.state-error .why { color: var(--human-text); }
 
 /* ------------------------------------------------------------------------------ the transcript */
 
@@ -655,7 +669,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 .transcript li:last-child { border-bottom: 0; }
 .transcript .k { color: var(--muted); flex: 0 0 96px; }
 .transcript .v { white-space: pre-wrap; overflow-wrap: anywhere; }
-.transcript li.denied .v, .transcript li.error .v, .transcript li.friction .v { color: var(--human); }
+.transcript li.denied .v, .transcript li.error .v, .transcript li.friction .v { color: var(--human-text); }
 .transcript li.assistant_text .v { color: var(--text); }
 .transcript li.tool_call .v, .transcript li.tool_result .v { color: var(--muted); }
 
@@ -665,7 +679,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
   margin-top: 8px; padding: 8px; border: 1px solid var(--waiting); border-radius: 5px;
   background: var(--select);
 }
-.approval-head { font-weight: 600; color: var(--waiting); }
+.approval-head { font-weight: 600; color: var(--waiting-text); }
 .approval .summary { margin: 4px 0; }
 .approval pre {
   margin: 4px 0; padding: 6px; max-height: 140px; overflow: auto;
@@ -675,7 +689,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 .row { display: flex; gap: 6px; align-items: center; }
 .row input { flex: 1 1 auto; }
 .bottom { margin-top: 8px; }
-.err { margin: 6px 0 0; color: var(--human); }
+.err { margin: 6px 0 0; color: var(--human-text); }
 
 @media (max-width: 640px) {
   .keys { display: none; }
@@ -684,7 +698,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 /* ------------------------------------------------------------------- notifications (#97) */
 
 #bell { position: relative; }
-#bell.unread { border-color: var(--human); color: var(--human); font-weight: 600; }
+#bell.unread { border-color: var(--human); color: var(--human-text); font-weight: 600; }
 .muted { color: var(--muted); font-size: 11px; }
 
 .badge {
@@ -735,8 +749,8 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 #history summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 #history table { width: 100%; border-collapse: collapse; font: 11px var(--mono); }
 #history td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
-#history td.state-done { color: var(--done); }
-#history td.state-error, #history td.state-blocked, #history td.state-needs_human { color: var(--human); }
+#history td.state-done { color: var(--done-text); }
+#history td.state-error, #history td.state-blocked, #history td.state-needs_human { color: var(--human-text); }
 
 
 /* ------------------------------------------------- the project's own state and links (#131) */
@@ -754,20 +768,20 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 .cell .old { color: var(--muted); }
 /* Grey, never wrong: the last value it actually had, how old that is, and the error in the tooltip.
    Dashed as well as grey, because a colour alone is not a signal on a bad monitor at arm's length. */
-.cell.grey { border-style: dashed; border-color: var(--idle); color: var(--idle); }
-.cell.grey .val { color: var(--idle); }
+.cell.grey { border-style: dashed; border-color: var(--idle); color: var(--idle-text); }
+.cell.grey .val { color: var(--idle-text); }
 .cell.idle { opacity: .55; }
 /* The git cell is a button with a second line (#184), amber at `fleet.branches.warn`. */
 button.cell { background: transparent; color: var(--text); cursor: pointer; text-align: left; flex-wrap: wrap; }
 button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 .cell .val2 { flex-basis: 100%; color: var(--muted); }
-.cell.warn { border-color: var(--waiting); color: var(--waiting); }
-.cell.warn .val2 { color: var(--waiting); }
+.cell.warn { border-color: var(--waiting); color: var(--waiting-text); }
+.cell.warn .val2 { color: var(--waiting-text); }
 /* The spend cell (#211). Amber at four fifths, red at the line -- and never colour alone: each
    carries the sentence that explains it in its title, and the value itself says `of 10`. */
 .cell.spend .val { font-variant-numeric: tabular-nums; }
-.cell.spend.warn { border-color: var(--waiting); color: var(--waiting); }
-.cell.spend.over { border-color: var(--human); color: var(--human); }
+.cell.spend.warn { border-color: var(--waiting); color: var(--waiting-text); }
+.cell.spend.over { border-color: var(--human); color: var(--human-text); }
 
 .rail { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .rail a, .rail button {
@@ -829,7 +843,7 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
    `.held` to keep the one just answered from dimming under the reply. The *needs me* preset
    replaced it (#234): a press that makes whoever needs you wide and the rest rails, and takes
    nothing back when one of them stops needing you, so there is nothing left to hold. */
-.tile.needs-human .head .repo { color: var(--human); }
+.tile.needs-human .head .repo { color: var(--human-text); }
 
 /* A session the fleet did not start (#2). An offer, not an alarm: nothing is wrong, the fleet has
    simply noticed something it does not own. Once adopted the same strip stays, saying so, because
@@ -1090,9 +1104,9 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .branches { display: flex; flex-direction: column; gap: 4px; font: 11px var(--mono); }
 .branches-head { display: flex; align-items: center; gap: 8px; font: 12px var(--ui); }
 .branches p { margin: 0; }
-.branches-sum.warn, .branches-carry { color: var(--waiting); }
+.branches-sum.warn, .branches-carry { color: var(--waiting-text); }
 .branches-carry { padding: 2px 0 2px 8px; border-left: 3px solid var(--waiting); }
-.branches-note.err { color: var(--human); }
+.branches-note.err { color: var(--human-text); }
 .branchlist { margin: 0; padding: 0; list-style: none; }
 .branchrow { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 2px 0 2px 8px; border-left: 3px solid transparent; }
 .branchrow.unmerged { border-left-color: var(--waiting); }
@@ -1130,9 +1144,9 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; color: var(--muted);
 }
 /* Never colour alone: each verdict carries its word, and the tint only reinforces it. */
-.verdict.v-ready { color: var(--done); border-color: var(--done); }
-.verdict.v-thin { color: var(--waiting); border-color: var(--waiting); }
-.verdict.v-blocked { color: var(--human); border-color: var(--human); }
+.verdict.v-ready { color: var(--done-text); border-color: var(--done); }
+.verdict.v-thin { color: var(--waiting-text); border-color: var(--waiting); }
+.verdict.v-blocked { color: var(--human-text); border-color: var(--human); }
 .verdict.v-unknown { color: var(--muted); }
 .dispatch-rows { list-style: none; margin: 6px 0; padding: 0; }
 .dispatch-row { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--line); }
@@ -1140,8 +1154,8 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .dr-name { color: var(--muted); min-width: 9ch; }
 .dr-value { font-variant-numeric: tabular-nums; }
 .dr-why { color: var(--muted); margin-left: auto; text-align: right; }
-.dispatch-row.r-thin .dr-value { color: var(--waiting); }
-.dispatch-row.r-blocked .dr-value { color: var(--human); }
+.dispatch-row.r-thin .dr-value { color: var(--waiting-text); }
+.dispatch-row.r-blocked .dr-value { color: var(--human-text); }
 .dispatch-row.r-unknown .dr-value { color: var(--muted); }
 .dispatch-brieflabel { display: block; color: var(--muted); margin-top: 4px; }
 .dispatch .brief {
@@ -1158,7 +1172,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   margin-top: 8px; padding: 8px; border: 1px solid var(--human); border-radius: 5px;
   background: var(--select);
 }
-.asks-head { font-weight: 600; color: var(--human); }
+.asks-head { font-weight: 600; color: var(--human-text); }
 .asks-list { list-style: none; margin: 6px 0; padding: 0; }
 .ask { padding: 4px 0; border-bottom: 1px solid var(--line); }
 .ask:last-child { border-bottom: 0; }
@@ -1178,7 +1192,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .assumed { list-style: none; margin: 6px 0 0; padding: 0; }
 .assumption {
   display: flex; gap: 8px; align-items: baseline;
-  color: var(--waiting); border-left: 2px solid var(--waiting); padding-left: 6px;
+  color: var(--waiting-text); border-left: 2px solid var(--waiting); padding-left: 6px;
 }
 .overturn {
   margin-left: auto; min-height: 28px; background: none; color: var(--text);
@@ -1209,8 +1223,8 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px;
 }
 .sc-why { color: var(--muted); margin-left: auto; }
-.scope-row.s-resolved .sc-path { color: var(--done); }
-.scope-row.s-ambiguous .sc-path { color: var(--waiting); }
+.scope-row.s-resolved .sc-path { color: var(--done-text); }
+.scope-row.s-ambiguous .sc-path { color: var(--waiting-text); }
 .scope-row.s-unmatched .sc-name { color: var(--muted); }
 .sc-attach, .scope-tell {
   min-height: 28px; background: var(--panel); color: var(--text);
@@ -1220,7 +1234,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 /* The scope report (#168): a sentence, not a state. `outside` is worth noticing and is never an
    error -- an agent that had to go outside the scope to do the work was probably right to. */
 .scopereport { color: var(--muted); margin: 2px 0; }
-.scopereport.outside { color: var(--waiting); }
+.scopereport.outside { color: var(--waiting-text); }
 
 /* ------------------------------------------------------------------------------ the chip (#173)
    A hidden pane keeps its slot and leaves the row; the footer counts it (#233, above). The chip is
@@ -1241,11 +1255,11 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   border-bottom: 1px dashed var(--line);
 }
 .rail-chip .rail-open { cursor: pointer; }
-.rail-chip.needs-human .rail-open { border-color: var(--human); color: var(--human); }
+.rail-chip.needs-human .rail-open { border-color: var(--human); color: var(--human-text); }
 .rail-chip.is-candidate .rail-open { border-color: var(--accent); box-shadow: 0 0 0 2px var(--select); }
 .rail-chip.is-dim { opacity: .45; }
 .rail-chip .rail-open.drop-target { background: var(--select); border-color: var(--accent); border-style: dashed; }
-.railnote { margin: 0 0 6px; color: var(--human); }
+.railnote { margin: 0 0 6px; color: var(--human-text); }
 #railslot .dispatch { margin: 0 0 8px; }
 /* A ticket row takes the keyboard: `1`-`9` picks a rail chip, `Enter` its one candidate. */
 #tickets li:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -1350,7 +1364,7 @@ body.settings-page .setrow select {
 body.settings-page input.bad { border-color: var(--waiting); }
 /* Not `.scope`: the desk's file-drop panel owns that name and gives it a box. */
 body.settings-page .when { font-size: 11px; color: var(--muted); white-space: nowrap; }
-body.settings-page .saved { font-size: 11px; color: var(--done); }
+body.settings-page .saved { font-size: 11px; color: var(--done-text); }
 
 body.settings-page .settable { width: 100%; border-collapse: collapse; font-size: 12px; }
 body.settings-page .settable th {

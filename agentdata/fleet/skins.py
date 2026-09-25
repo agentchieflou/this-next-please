@@ -352,3 +352,19 @@ def every_variant() -> list[tuple[str, str, dict]]:
     return [(name, v, skin["variants"][v])
             for name, skin in SKINS.items()
             for v in skin["variants"]]
+
+
+def panels_on(base: str) -> list[str]:
+    """Every composited panel of every variant drawn on the palette `base` -- both ends of glass's
+    frost -- each once, in `every_variant` order (#328). A word written in a state colour is read
+    on all of them, so they are what its `-text` token is chosen against
+    (`theme.to_css(t, panels=panels_on(t.name))`): one set per palette, the same under every skin
+    drawn on it. Pure data; `theme` never imports the fleet, so the caller passes these."""
+    out: list[str] = []
+    for _, _, spec in every_variant():
+        if spec["base"] != base:
+            continue
+        for panel in composited_panels(spec):
+            if panel not in out:
+                out.append(panel)
+    return out
