@@ -62,13 +62,15 @@ def _typedef(name: str) -> set[str]:
 
 
 def test_the_program_is_the_one_the_plan_names():
-    """Checked and never emitted, strict off to begin with, and both files in one program: `app.js`
-    is a classic script that reads `common.js`'s globals, and a global resolves only inside one."""
+    """Checked and never emitted, strict off to begin with, and the files in one program: `app.js`
+    is a classic script that reads `common.js`'s globals, and a global resolves only inside one.
+    `picker.js` (#362) sits between them, as the pages load it."""
     cfg = _tsconfig()
     opts = cfg["compilerOptions"]
     assert opts["allowJs"] is True and opts["checkJs"] is True and opts["noEmit"] is True
     assert opts["strict"] is False, "turning strict on is a decision the plan leaves to its number"
-    assert cfg["files"] == ["agentdata/fleet/static/common.js", "agentdata/fleet/static/app.js"]
+    assert cfg["files"] == ["agentdata/fleet/static/common.js", "agentdata/fleet/static/picker.js",
+                            "agentdata/fleet/static/app.js"]
     for rel in cfg["files"]:
         assert os.path.isfile(os.path.join(ROOT, rel)), rel
     # Dev-only: nothing about the check reaches the page or the wheel.

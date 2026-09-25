@@ -91,7 +91,10 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 #
 # `/map` (#405) brings its stylesheet and its one script, `map/map.js`; a scene it draws later
 # (#409) is imported through `q()` like the ink layer's modules, never named here.
-ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
+#
+# `picker.js` (#362) is the model picker, a classic script the desk and /settings both load right
+# after `common.js`.
+ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
           "map.css", "map/map.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
