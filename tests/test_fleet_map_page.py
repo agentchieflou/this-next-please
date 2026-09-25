@@ -18,7 +18,7 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import _serve, _stop
-from test_fleet_map import _own_desk_globals, _worktree, fleet_home, row, snap  # noqa: F401
+from test_fleet_map import _worktree, fleet_home, row, snap  # noqa: F401
 
 READY = "() => !!window.FleetMap && FleetMap.graph !== null"
 
