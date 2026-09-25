@@ -428,7 +428,7 @@ function rowOf(repo) {
   return found;
 }
 
-function moreOf(p) { return p.compact.querySelector(".mp-more"); }
+function moreOf(p) { return p.compact.querySelector("button.mp-more"); }
 
 function focusPressed(root) {
   var b = root && (root.querySelector('.mp-models button.pill[aria-pressed="true"]') ||
@@ -524,7 +524,7 @@ function saveModel(body, model, pick, pinned, p) {
 
 function otherBox(p) {
   var picker = p ? p.full : fleetPicker;
-  return picker ? picker.querySelector(".mp-other") : null;
+  return picker ? picker.querySelector("input.mp-other") : null;
 }
 
 /* A refusal is said on the `other…` box of the picker it came from (class `bad`, the reason as its
@@ -534,7 +534,7 @@ function refuse(p, message) {
   if (p && (!p.expand || p.expand.hidden)) openExpansion(p, false);
   var box = otherBox(p);
   if (box && box.hidden) {
-    var open = box.parentElement.querySelector(".mp-otherbtn");
+    var open = box.parentElement.querySelector("button.mp-otherbtn");
     if (open) open.click();
   }
   problem(box, message);
