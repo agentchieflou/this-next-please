@@ -65,6 +65,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | toolbar | brand, live dot, `widths` group (the presets), `see` group, map link, settings link, `alerts` group | — (static) | `.toolbar` | — | `g` | `test_fleet_desk_toolbar.py` |
 | presets | *one*, *all*, *needs me*: one segmented control, three presses, each one write of this window's widths | — (static); `applyPreset` on the press | `.presets` | — (presses, not modes) | `1`, `=`, `f` | `test_fleet_gutters.py`, `test_fleet_column.py` |
 | away strip | title, one line per repo, dismiss | `checkAway` | `.away-strip` | — | — | `test_fleet_desk_sessions_b.py` |
+| day strip (#511) | the morning line (*N panes are on sessions that began before today*, *preview a fresh day*, *not today*), then the fresh day's preview: one row per agent (a tick, repo, verdict, ticket, model and its source, began, why; a *needs you* row's question and *answer*), *tick every idle agent*, *start N fresh — about N premium turns*, cancel; the toolbar's *day* menu (`#daymenu`) | `drawDayOffer`, `drawDayPlan` | `.day-strip`, `.day-row`, `#daymenu` | hidden until a pane is on a session from before today or the preview is asked for; *not today* hides the line until the next local day (localStorage); `verdict-*`, `done-started`, `done-changed` | `Shift+N`, `Esc` | `test_fleet_renew.py` |
 | renew strip | the desk's own line, sentence, preview, then one row per stale agent (repo, verdict, why), renew, cancel | `drawRenewStrip`, `drawRenewPlan` | `.renew-strip`, `.renew-row` | hidden when no session is stale; `verdict-now`, `verdict-at-turn-end`, `verdict-skipped` | `Esc` | `test_fleet_renew.py` |
 | row | the panes in the arrangement's order, then the rails of repositories that left | `place`, `reorderDomTiles`, `paintWidths`, the tier observer (`onRowResize`) | `#grid`, `.panes` | grouped (a project's checkouts share one rail) only when the rails do not fit | `←`, `→`, `j`, `k`, `2`–`9`, `Esc` | `test_fleet_panes.py`, `test_fleet_column.py`, `test_fleet_gutters.py` |
 | pane (rail, compact, full) | the rail's face; head, run line, session pill, cards, cells, transcript, composer; the gutter on its right | `drawTile`, `drawPaneRail`; its width `paintWidths` | `.tile`, `.pane-rail` | `data-tier` (`rail`, `compact`, `full`), `state-*`, `needs-human`, `is-done` (the fold's own *done*, which the chip draws as idle, #253), `is-solo` (it has a width), `is-selected`, `is-hidden`, `is-grouped`, `is-pinned`, `is-dragging` | `Enter` and `Shift+Enter` on a rail, `h`, `r`, `m`, `a`, `Alt+←/→`, `Alt+Shift+←/→`, `Alt+Enter` | `test_fleet_panes.py`, `test_fleet_column.py`, `test_fleet_window.py`, `test_fleet_gutters.py`, `test_fleet_desk_regressions.py` |
@@ -140,8 +141,11 @@ Who writes what, one owner each:
 * **What is drawn at a tier** is `drawTile`'s: a rail skips the trace, the session menu, the
   cards, the scope report and the cells; a compact pane skips the trace, the menu, the scope report
   and the cells. `needs-human` is written at every tier, because `isHidden` reads it. The head's
-  **start fresh** (`.freshtoggle`, #489) is drawn at every tier by `drawFresh` when `row.fresh.offer`,
-  so a compact pane -- which hides the menu and the bottom row -- still has its one door.
+  **start fresh** (`.freshtoggle`, #489) is drawn at every tier by `drawFresh` whenever the row has
+  `fresh`, with `is-offer` when `row.fresh.offer`: app.css hides a button without it on every pane but
+  a compact one, so a compact pane -- which hides the menu and the bottom row -- shows its one door on
+  every pane, and a full pane keeps #489's rule (#509). On a full pane the bottom row's Start is the
+  door instead: `drawStart` makes it *Start fresh* while the reply box is empty (#509).
 * **The face** is `drawPaneRail`'s — its whole `class` (with `is-stale` or `is-outside` when the pane
   offers *start fresh*: a dashed `--muted` ring on the glyph, #489), its glyph, name, badge, label and title —
   and it reads the row, `unread` and the group it heads. `bell()` calls it when a count changes.

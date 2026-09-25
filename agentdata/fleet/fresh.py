@@ -329,3 +329,225 @@ def row_cell(row: dict, *, st: dict, stream: list[dict], lock: dict, offer: dict
                        "model_label": M.label(starts["model"]) if starts["model"] else "",
                        "model_source": starts["model_source"],
                        "effort": starts["effort"], "effort_source": starts["effort_source"]}}
+
+
+# ------------------------------------------------------------------------ a fresh day (#508)
+#
+# `ad-fleet fresh --all`: #488's `plan` and `run` over the whole fleet, previewed and confirmed. The
+# operator: *a way to start the fleet with all sessions fresh (envisioning beginning a day)*. It is
+# a loop over the one-pane door with three checks only a sweep needs, and it never acts on the
+# operator's own chat: #488's *adopted, then quiet -> now* is right for a press on that pane and
+# wrong for a sweep, so the sweep skips it before #488 is asked (#497's non-goal).
+
+SKIPPED, CHANGED = "skipped", "changed"
+
+YOUR_OWN_CHAT = ("your own Copilot chat — a sweep never acts on it; start fresh on its pane (Alt+N) "
+                 "when you are done with it")
+CHAT_OPEN_SWEEP = "your own chat may still be open — close it, then start fresh on its pane"
+KEYLESS_WHY = "no ticket in progress — a keyless session runs session-bootstrap, then router"
+NOT_BEGUN_WHY = "today's fresh start did not begin"
+
+
+def _is_session_start(event: dict) -> bool:
+    """A `started` that began a session: not a resume, or marked `new`, or adopted from outside --
+    the boundary `supervisor.session_id()` applies. A Send or a Reset is a run, never a session."""
+    if event.get("kind") != "started":
+        return False
+    data = event.get("data") or {}
+    return bool(not data.get("resumed") or data.get("new") or data.get("adopted") or data.get("external"))
+
+
+def session_began(stream: list[dict]) -> str:
+    """The `ts` of the `started` that began the current session, or "" when there is none.
+
+    The day boundary is when the *session* started, never when the current run did: a Send this
+    morning on yesterday's session begins a run today on yesterday's session (#497).
+    """
+    for event in reversed(stream or []):
+        if _is_session_start(event):
+            return str(event.get("ts") or "")
+    return ""
+
+
+def _session_has_id(stream: list[dict]) -> bool:
+    """Did the current session get as far as a session id?"""
+    for event in reversed(stream or []):
+        data = event.get("data") or {}
+        if event.get("kind") == "session_id" and data.get("session"):
+            return True
+        if _is_session_start(event):
+            return bool(data.get("session"))
+    return False
+
+
+def _midnight() -> float:
+    """Today's local midnight, as an epoch."""
+    import time
+
+    lt = time.localtime()
+    return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+
+
+def _epoch(stamp: str) -> float | None:
+    """The stream's clock is UTC, second resolution, no zone suffix (`events.stamp`)."""
+    import calendar
+    import time
+
+    try:
+        return float(calendar.timegm(time.strptime(str(stamp).replace("Z", "")[:19], "%Y-%m-%dT%H:%M:%S")))
+    except (TypeError, ValueError):
+        return None
+
+
+def before_today(began: str) -> bool:
+    """Did this session begin before today's local midnight? An unknown beginning counts as before."""
+    at = _epoch(began) if began else None
+    return at is None or at < _midnight()
+
+
+def _local_hm(began: str) -> str:
+    import time
+
+    at = _epoch(began)
+    return time.strftime("%H:%M", time.localtime(at)) if at is not None else "?"
+
+
+def _first_question(st: dict) -> dict:
+    from .. import state as STATE
+
+    for q in (st.get("open_questions") or []):
+        if STATE.is_blocking(q):
+            return {"id": str(q.get("id") or ""), "q": str(q.get("q") or "")} if isinstance(q, dict) \
+                else {"id": "", "q": str(q)}
+    return {}
+
+
+def _sweep_row(name: str, reg: Registry, *, seen: dict, keyless: bool, cfg: dict | None) -> dict:
+    """One agent's row in a fresh day, from the pieces `judge` reads plus the sweep's own checks."""
+    from .serve import run_origin
+
+    _repo, st, stream, lock, state, stale = _pieces(name, reg)
+    began = session_began(stream)
+    last = next((ev for ev in reversed(stream) if ev.get("kind") == "started"), {})
+    extra = {"began": began, "ticked": False, "keyless": False}
+    # 1. Before #488's verdicts: the operator's own chat, adopted or external, live or gone quiet.
+    #    `adopt.release` is never reached from here.
+    if lock.get("external") or (last and run_origin(last.get("data") or {}) == "adopted"):
+        row = {"repo": name, "leaves": _leaves(name, stream, lock, stale), "starts": _starts(name, st, cfg)}
+        return {**row, **extra, "verdict": SKIPPED, "code": "your_own_chat", "why": YOUR_OWN_CHAT,
+                "hint": f"`ad-fleet fresh {name}` on its own, once your chat there is closed"}
+    # 2. #488's verdicts.
+    row = {**judge(name, st=st, stream=stream, lock=lock, derived_state=state, seen=seen, stale=stale,
+                   cfg=cfg), **extra}
+    if row["verdict"] == SECOND_PRESS:
+        return {**row, "why": CHAT_OPEN_SWEEP}
+    if row["verdict"] != NOW:
+        if row["code"] == "needs_you":
+            row["question"] = _first_question(st)
+        return row
+    # 3. After a `now`: already on today's session.
+    if began and not before_today(began):
+        if _session_has_id(stream):
+            return {**row, "verdict": SKIPPED, "code": "fresh_today",
+                    "why": f"already on today's session (began {_local_hm(began)})",
+                    "hint": f"`ad-fleet fresh {name}` on its own if you mean a second one today"}
+        row["why"] = NOT_BEGUN_WHY
+    # 4. A `now` with no ticket: tickable, and ticked only when asked for (DAY-D1).
+    if not row["starts"]["ticket"]:
+        return {**row, "code": "keyless", "keyless": True, "ticked": bool(keyless), "why": KEYLESS_WHY}
+    return {**row, "ticked": True}
+
+
+def _plan_id(rows: list[dict]) -> str:
+    """A hash of each row's stable fields. No ages or timestamps: two plans with nothing changed agree."""
+    import hashlib
+    import json
+
+    stable = [[r["repo"], r["verdict"], r.get("code", ""), r["starts"].get("ticket", ""),
+               (r.get("leaves") or {}).get("session", ""), r["starts"].get("model", ""),
+               r["starts"].get("effort", ""), bool(r.get("ticked"))] for r in rows]
+    return hashlib.sha256(json.dumps(stable, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
+def plan_all(names: list[str] | None = None, *, registry: Registry | None = None,
+             keyless: bool = False, cfg: dict | None = None) -> dict:
+    """Every agent's row in a fresh day, and what confirming it would spend. Changes nothing.
+
+    One process listing for the whole fleet (`agent_processes(max_age=0)`, once), handed to each
+    row's judgement: a preview of twenty agents is not twenty listings.
+    """
+    from . import adopt as A
+
+    reg = registry or Registry()
+    wanted = [str(n) for n in (names or []) if str(n)]
+    repos = [r for r in reg.sorted() if not wanted or r.name in wanted]
+    unknown = sorted(set(wanted) - {r.name for r in repos})
+    try:
+        listing = A.agent_processes(max_age=0)
+        offers = {c["repo"]: c for c in A.candidates(reg, processes=listing)}
+    except Exception:                        # noqa: BLE001 - a listing never blocks a preview
+        offers = {}
+    rows = [_sweep_row(r.name, reg, seen=seen_from(r.name, offers.get(r.name)), keyless=keyless, cfg=cfg)
+            for r in repos]
+    skipped: dict[str, int] = {}
+    for r in rows:
+        if r["verdict"] != NOW:
+            skipped[r["code"] or r["verdict"]] = skipped.get(r["code"] or r["verdict"], 0) + 1
+    try:
+        from . import fingerprint as FP
+
+        installed = FP.current()
+    except Exception:                        # noqa: BLE001 - as the snapshot reads it
+        installed = {}
+    ticked = sum(bool(r["ticked"]) for r in rows)
+    return {"rows": rows, "plan_id": _plan_id(rows), "keyless_ticked": bool(keyless),
+            "now": sum(r["verdict"] == NOW for r in rows), "ticked": ticked,
+            "keyless": sum(bool(r["keyless"]) for r in rows), "skipped": skipped,
+            # One fresh session is one first turn (DAY-D2): the spend the operator is agreeing to.
+            "premium_turns": ticked, "installed": installed or {}, "unknown_repos": unknown}
+
+
+def run_all(expect: list[str] | None = None, *, registry: Registry | None = None,
+            cfg: dict | None = None) -> dict:
+    """Start a clean session for each repository the operator ticked that is still `now`.
+
+    Each is judged again just before its launch -- the sweep's checks, then #488's `run`, which takes
+    a fresh listing of its own -- so a repository that turned mid-turn, or whose session became
+    today's, since the preview is reported and never launched. Never `closed=True`, nothing queued
+    (DAY-D3), no new launch path.
+    """
+    from . import supervisor
+
+    wanted = list(dict.fromkeys(str(n) for n in (expect or []) if str(n)))
+    if not wanted:
+        raise FreshRefused({"why": "a fresh day runs only the repositories you ticked, and none was named",
+                            "hint": "preview first: `ad-fleet fresh --all --dry-run` (or {all: true, "
+                                    "dry_run: true}), then confirm the ticked ones",
+                            "code": "preview_first"})
+    reg = registry or Registry()
+    unknown = [n for n in wanted if n not in {r.name for r in reg.sorted()}]
+    results = []
+    for repo in reg.sorted():
+        name = repo.name
+        if name not in wanted:
+            # Not ticked: said, never launched.
+            results.append({**_sweep_row(name, reg, seen={}, keyless=False, cfg=cfg), "ticked": False,
+                            "done": SKIPPED})
+            continue
+        row = _sweep_row(name, reg, seen={}, keyless=True, cfg=cfg)
+        if row["verdict"] != NOW:
+            results.append({**row, "ticked": False, "done": CHANGED})
+            continue
+        try:
+            done = run(name, closed=False, cfg=cfg, registry=reg)
+        except FreshRefused as e:
+            results.append({**row, **e.row, "ticked": False, "done": CHANGED})
+            continue
+        except supervisor.SupervisorError as e:
+            results.append({**row, "ticked": False, "verdict": REFUSED, "done": CHANGED,
+                            "code": e.code or "refused", "why": e.msg, "hint": e.hint})
+            continue
+        results.append({**row, **done, "ticked": True, "began": row["began"]})
+    started = [r for r in results if r["done"] == "started"]
+    return {"rows": results, "started": len(started), "premium_turns": len(started),
+            "changed": sum(r["done"] == CHANGED for r in results), "unknown_repos": unknown}

@@ -17,6 +17,7 @@ from agentdata.fleet import supervisor
 from agentdata.fleet.registry import Registry, agent_dir
 
 from test_fleet import make_project
+from test_fleet_ink import IDLE_LOOP
 
 OLD = {"version": "0.13.1", "commit": "aaaaaaaaaaaa", "skills": "111111111111"}
 NOW = {"version": "0.13.2", "commit": "bbbbbbbbbbbb", "skills": "222222222222"}
@@ -312,6 +313,14 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
     monkeypatch.setattr(FP, "current", lambda: dict(NOW))
     _repo(tmp_path, "fresh", events=[started(NOW), turn_ended()])
     _repo(tmp_path, "old", events=[started(OLD), turn_ended()])
+    # #511: the morning. One pane on yesterday's session, one on yesterday's with a Send made this
+    # morning, one waiting on a question, and one with no ticket.
+    yday = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 86400))
+    last_night = [dict(started(NOW), ts=yday), dict(turn_ended(), ts=yday)]
+    _repo(tmp_path, "yday", events=last_night)
+    _repo(tmp_path, "sent", events=last_night + [started(NOW, resumed=True, session="s-sent"), turn_ended()])
+    _repo(tmp_path, "asking", events=last_night, questions=[{"id": "q1", "q": "which workspace?"}])
+    _repo(tmp_path, "free", phase="idle", ticket="", events=last_night)
     posted = []
     real_act = S.act
     monkeypatch.setattr(S, "act", lambda what, body: posted.append((what, dict(body))) or real_act(what, body))
@@ -339,7 +348,11 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
             page.wait_for_selector(fresh + ":not([hidden])", timeout=10000)
             title = page.get_attribute(fresh, "title")
             assert "on RDSD-1" in title and "cli-auto" in title and "Alt+N" in title, title
-            assert page.get_attribute('.tile[data-repo="fresh"] .freshtoggle', "hidden") is not None
+            # #509: the button is drawn on every pane with a verdict, and offered (`is-offer`) only
+            # where #489 offers it; off a compact pane, one that is not offered is not shown.
+            assert page.evaluate("""() => { const b = document.querySelector('.tile[data-repo="fresh"] .freshtoggle');
+                return !b.classList.contains('is-offer') && (b.closest('.tile').dataset.tier === 'compact'
+                       || getComputedStyle(b).display === 'none'); }""")
             assert "start fresh (Alt+N)" in page.get_attribute('.tile[data-repo="old"] .oldsession', "title")
 
             page.click("#renew")
@@ -351,12 +364,88 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
 
             page.click("#renewcancel")
             page.wait_for_selector("#renew-strip .renew-rows", state="hidden", timeout=5000)
+
+            # #511: a fresh day from the desk. The line counts the two idle panes with a ticket on
+            # sessions that began before today -- the Send this morning does not make `sent` today's.
+            page.wait_for_function("""() => !document.getElementById('day-strip').hidden
+                && /^2 panes are on sessions that began before today/.test(
+                     document.querySelector('#day-strip .day-offer-words').textContent)""", timeout=10000)
+            page.keyboard.press("Shift+N")
+            page.wait_for_function("""() => document.querySelectorAll('#day-strip .day-rows li:not(.day-pattern)').length === 6
+                && !document.getElementById('daygo').disabled""", timeout=10000)
+            day = {r["repo"]: r for r in page.evaluate(DAY_ROWS)}
+            assert (day["yday"]["ticked"], day["sent"]["ticked"]) == (True, True), day
+            assert (day["free"]["ticked"], day["free"]["disabled"], day["free"]["verdict"]) == (False, False, "keyless")
+            assert (day["asking"]["disabled"], day["asking"]["verdict"]) == (True, "needs_you")
+            assert day["asking"]["question"] == "“which workspace?”" and day["asking"]["answer"], day["asking"]
+            assert day["asking"]["why"].startswith("answer it first")
+            assert day["yday"]["model"] == "auto · cli-auto" and "no --model flag" in day["yday"]["model_title"]
+            assert day["yday"]["began"].startswith("began yesterday"), day["yday"]
+            assert page.is_visible("#day-strip .day-keyless")
+            assert page.inner_text("#daygo") == "start 4 fresh — about 4 premium turns", "yday, sent, fresh, old"
+            assert [b for w, b in posted if w == "fresh"] == [{"all": True, "dry_run": True}], posted
+            # An idle desk with the strip open writes nothing.
+            count = page.evaluate(IDLE_LOOP)
+            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+            page.click("#daycancel")
+            page.wait_for_selector("#day-strip .day-rows", state="hidden", timeout=5000)
+            # The *day* menu's item opens the same preview, and Esc closes the strip.
+            page.click("#daybtn")
+            page.wait_for_selector("#daymenu:not([hidden])", timeout=5000)
+            assert page.get_attribute("#daybtn", "aria-expanded") == "true"
+            page.click("#dayfresh")
+            page.wait_for_selector("#day-strip .day-rows:not([hidden])", timeout=5000)
+            page.wait_for_function("() => !document.getElementById('daygo').disabled", timeout=10000)
+            assert page.is_hidden("#daymenu")
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#day-strip .day-rows", state="hidden", timeout=5000)
+            assert [b for w, b in posted if w == "fresh"] == [{"all": True, "dry_run": True}] * 2, posted
+
+            # `?fresh=1` only previews, from `/open` and from the tokened address, and comes off the
+            # address. No parameter makes the page post `repos`.
+            for url in (f"http://127.0.0.1:{port}/open?fresh=1",
+                        f"http://127.0.0.1:{port}/?t={token}&fresh=1&repos=yday&all=1&confirm=1"):
+                before = len(posted)
+                page.goto(url, wait_until="domcontentloaded")
+                page.wait_for_function("""() => document.querySelectorAll('#day-strip .day-rows li:not(.day-pattern)').length === 6
+                    && !document.getElementById('daygo').disabled""", timeout=15000)
+                assert "fresh=1" not in page.url and "t=" in page.url, page.url
+                assert [b for w, b in posted[before:] if w == "fresh"] == [{"all": True, "dry_run": True}]
+            assert not [b for w, b in posted if "repos" in b], "no address confirms a fresh day"
             assert not errors, errors
             browser.close()
     finally:
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+#: #511: the fresh day's rows as the strip draws them.
+DAY_ROWS = """() => [...document.querySelectorAll('#day-strip .day-rows li:not(.day-pattern)')].map(li => ({
+  repo: li.dataset.rowkey, ticked: li.querySelector('.day-tick').checked,
+  disabled: li.querySelector('.day-tick').disabled, verdict: li.querySelector('.day-verdict').textContent,
+  why: li.querySelector('.day-why').textContent, question: li.querySelector('.day-question').textContent,
+  answer: !li.querySelector('.day-answer').hidden, model: li.querySelector('.day-model').textContent,
+  model_title: li.querySelector('.day-model').title, began: li.querySelector('.day-began').textContent }))"""
+
+
+def test_only_the_confirm_posts_the_repos_of_a_fresh_day():
+    """#511, DAY-D4: `#daygo` posts `fresh` with `all` and the ticked `repos`; nothing else on the page
+    posts `repos`, so no address, key or load can confirm a launch. `?fresh=1` asks for the preview."""
+    import re
+
+    static = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "agentdata", "fleet", "static")
+    js = open(os.path.join(static, "app.js"), encoding="utf-8").read()
+    posts = re.findall(r'post\("fresh", ([^)]*)\)', js)
+    assert sorted(posts) == sorted(['{ all: true, dry_run: true }', '{ all: true, repos: repos }',
+                                    'closed ? { repo: repo, closed: true } : { repo: repo }']), posts
+    run = js[js.index("function runDay()"):js.index("function previewFromAddress()")]
+    assert 'post("fresh", { all: true, repos: repos })' in run
+    assert js.count("repos: repos") == 1
+    assert 'dayGo().addEventListener("click", runDay)' in js and js.count("runDay(") == 1
+    address = js[js.index("function previewFromAddress()"):js.index("(function bindDay()")]
+    assert "openDay()" in address and "runDay" not in address and "repos" not in address
 
 
 # --------------------------------------------------------------------------- a current desk (#242)

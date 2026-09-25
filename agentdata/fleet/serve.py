@@ -392,6 +392,12 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         "origin": run_origin(start_data),
         "events": curr_events,
     }
+    # Is this pane on a session that began before today (#508)? Derived, never stored: from the
+    # `started` that began the session, never the current run -- a Send this morning on yesterday's
+    # session is still yesterday's. Unknown counts as before. #511's morning offer reads it.
+    from . import fresh as FRESH
+
+    curr_run["before_today"] = FRESH.before_today(FRESH.session_began(stream))
     return curr_run, earlier
 
 
@@ -2283,6 +2289,23 @@ def act(what: str, body: dict) -> dict:
         from .. import config as C
         from . import fresh as FRESH
 
+        if body.get("all"):
+            # A fresh day (#508): the preview, or the repos the operator ticked in it. Nothing else
+            # launches -- `{all: true}` alone is refused, and no field confirms a plan by itself.
+            try:
+                if body.get("dry_run"):
+                    return FRESH.plan_all(keyless=bool(body.get("keyless")), cfg=C.load())
+                repos = [str(n) for n in (body.get("repos") or []) if str(n)]
+                if not repos:
+                    raise ServeError("preview first: {all: true, dry_run: true}, then post the repos you ticked",
+                                     "a fresh day launches only what you saw and ticked",
+                                     code="preview_first")
+                out = FRESH.run_all(expect=repos, cfg=C.load())
+            except FRESH.FreshRefused as e:
+                raise ServeError(e.msg, e.hint, code=e.code) from None
+            # Each answer carries its pane's new row, so the page patches it at once: one snapshot.
+            rows = {r.get("repo"): r for r in fleet_snapshot().get("repos", [])}
+            return {**out, "rows": [{**r, "row": rows.get(r["repo"], {})} for r in out["rows"]]}
         if not repo:
             raise ServeError("which repository?", "pass {repo}", code="no_repo")
         try:

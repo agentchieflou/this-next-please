@@ -946,6 +946,10 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 .tile[data-tier="compact"] .head .hidetoggle { margin-left: auto; }
 .tile[data-tier="compact"] .head .chipage,
 .tile[data-tier="compact"] .head .ticket { display: inline; }
+/* Start fresh on every pane (#509, SESS-D6): compact hides the bottom row's Start, so its head's
+   *start fresh* shows whatever `offer` says; a full pane keeps #489's rule (stale, adopted, began
+   outside). The page draws the button whenever the row has a verdict, and a tier change is CSS. */
+.tile:not([data-tier="compact"]) .head .freshtoggle:not(.is-offer) { display: none; }
 
 /* Put away, and represented. A hidden pane leaves the row (the footer counts it); a checkout
    grouped into its project's rail is on the glass as that rail. */
@@ -1344,6 +1348,27 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .renew-row .renew-why { color: var(--muted); overflow-wrap: anywhere; }
 .renew-row.verdict-now .renew-verdict, .renew-row.verdict-at-turn-end .renew-verdict { font-weight: 600; }
 .renew-actions { display: flex; gap: 8px; }
+
+/* A fresh day (#511): the renew strip's shape, in a strip of its own. A row is a checkbox, then the
+   repo, verdict, ticket, model, began, why and -- for one waiting on you -- its question and *answer*.
+   Words in `--text`; the why in `--muted` as renew's is, with the question beside it in `--text`. */
+.day-strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  padding: 8px 16px; border-bottom: 1px solid var(--line);
+  background: var(--panel); font: 12px/1.4 var(--ui);
+}
+.day-strip .day-offer, .day-strip .day-sum { margin: 0; flex: 1 1 100%; }
+.day-rows { list-style: none; margin: 0; padding: 0; flex: 1 1 100%; display: grid; gap: 2px; }
+.day-row {
+  display: grid; align-items: baseline; gap: 12px; font-size: 12px;
+  grid-template-columns: auto minmax(8em, max-content) 9em 7em 10em 9em minmax(0, 1fr) auto auto;
+}
+.day-row .day-why { color: var(--muted); overflow-wrap: anywhere; }
+.day-row .day-question { color: var(--text); overflow-wrap: anywhere; }
+.day-row .day-tick:disabled + .day-repo { font-weight: 400; }
+.day-row.done-started .day-verdict { font-weight: 600; }
+.day-actions { display: flex; gap: 8px; }
+#daymenu { min-width: 200px; }
 
 /* ---- the model picker (#362)
    `picker.js`, on the model card, /settings and the dispatch card. Tokens only, every selector under
