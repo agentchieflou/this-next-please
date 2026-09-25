@@ -43,6 +43,8 @@ installed). A launcher treats `current: false`, or a desk too old to say either,
 `/open?page=probe` lands on the WebGL probe (#247) rather than the desk, with the rest of the query
 string carried over — `http://127.0.0.1:8765/open?page=probe&w=vscode` is the address to paste into
 Simple Browser to measure it. Only a page the server serves; any other `page=` is the desk.
+`/open?page=map&w=pycharm` lands on the fleet map (#405, [fleet-map.md](fleet-map.md) §The page), the tree
+a tool window 400-600 px wide reads well; Enter on a checkout there opens it on that window's desk.
 
 ## VS Code
 

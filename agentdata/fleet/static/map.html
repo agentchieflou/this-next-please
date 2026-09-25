@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fleet · map</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/map.css">
+</head>
+<body class="ink-off">
+<header class="toolbar">
+  <a id="mapback" class="linkbtn" title="back to the desk">&larr; the desk</a>
+  <h1>map</h1>
+  <p id="mapsays" aria-live="polite"></p>
+</header>
+
+<main id="map">
+  <nav aria-label="the fleet"><ul id="maptree" role="tree" aria-label="the fleet"></ul></nav>
+  <div id="mapstage" aria-hidden="true"></div>
+</main>
+
+<template id="map-item"><li role="treeitem"><span class="say"></span><ul role="group"></ul></li></template>
+<template id="map-leaf"><li role="treeitem"><span class="say"></span></li></template>
+
+<script src="/static/common.js"></script>
+<script src="/static/map/map.js"></script>
+</body>
+</html>

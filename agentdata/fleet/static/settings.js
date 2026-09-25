@@ -469,6 +469,14 @@ function connectTheme() {
   } catch (e) { /* no stream is a stale page, not a broken one */ }
 }
 
-loadThemes();
+// The skin the page settles on, for its load record (#351). Harmless when measuring is off.
+loadThemes().then(function () { LOAD.settled = document.body.dataset.skin || ""; });
 load();
 connectTheme();
+// While measuring is on (#351), the note that tells the desk this load came from here: a desk
+// opened from settings and a cold open both read `navigate`, and every page is `no-referrer`.
+if (LOAD.on) {
+  window.addEventListener("pagehide", function () {
+    try { sessionStorage.setItem("fleet.load.from", "settings"); } catch (e) { /* not counted */ }
+  });
+}
