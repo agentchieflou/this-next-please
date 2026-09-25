@@ -491,6 +491,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/inbox` | the tray: what Downloads is offering, and what is listed but not offered |
 | GET | `/api/where` | the catalogue search behind the header's box |
 | POST | `/api/start` | `{repo, ticket?, prompt?, force?}` |
+| POST | `/api/fresh` | `{repo, closed?, dry_run?}` — leave this checkout's session for a clean one (#488): `dry_run` answers the plan (`verdict`, `code`, `why`, `leaves`, `starts`); a start answers the row. `chat_open` answers 409 with `second_press: true`, and `closed: true` is that deliberate second press; every other refusal is 409 with its code |
 | POST | `/api/send` | `{repo, message}` |
 | POST | `/api/stop` | `{repo}` |
 | POST | `/api/reset` | `{repo, force?}` — stop, then resume the same session |

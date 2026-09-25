@@ -185,6 +185,7 @@ def test_every_verdict(fleet_home, tmp_path, monkeypatch):
     assert got["untracked"][0] == "skipped" and "no ticket" in got["untracked"][1]
     assert got["current"] == ("skipped", "not stale")
     assert got["adopted"][0] == "skipped" and got["adopted"][1].startswith("adopted")
+    assert "`ad-fleet fresh adopted`" in got["adopted"][1], "the skip names the verb that takes it (#488)"
     plan = RENEW.plan()
     assert (plan["now"], plan["at_turn_end"], plan["premium_turns"]) == (1, 1, 2)
 

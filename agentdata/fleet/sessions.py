@@ -257,6 +257,10 @@ def fold_stream(stream: list[dict], existing_titles: dict[str, str] | None = Non
     titles = existing_titles or {}
     sessions_by_id: dict[str, dict] = {}
     order: list[str] = []
+    # A fresh start (#488) says which session it left on its `started`: that session is marked
+    # `left` at that moment, and the new one says `after` it. Nothing else changes, nothing goes.
+    left_at: dict[str, str] = {}
+    after: dict[str, str] = {}
 
     # Break stream into runs at each 'started' event
     started_indices = [i for i, ev in enumerate(stream) if ev.get("kind") == "started"]
@@ -273,6 +277,9 @@ def fold_stream(stream: list[dict], existing_titles: dict[str, str] | None = Non
             continue
         first_ev = run_events[0]
         start_data = first_ev.get("data") or {}
+        left = (start_data.get("leaves") or {}).get("session") if first_ev.get("kind") == "started" else ""
+        if left:
+            left_at[str(left)] = str(first_ev.get("ts", ""))
 
         # Look for session_id in this run
         sid = ""
@@ -287,6 +294,8 @@ def fold_stream(stream: list[dict], existing_titles: dict[str, str] | None = Non
         if not sid:
             # A run that died before emitting a session_id
             continue
+        if left and str(left) != sid:
+            after[sid] = str(left)
 
         ticket = first_ev.get("ticket") or ""
         summary = start_data.get("summary") or ""
@@ -344,6 +353,12 @@ def fold_stream(stream: list[dict], existing_titles: dict[str, str] | None = Non
             if run_cost > rec["cost"]:
                 rec["cost"] = run_cost
 
+    for sid, ts in left_at.items():
+        if sid in sessions_by_id:
+            sessions_by_id[sid]["left"] = ts
+    for sid, prev in after.items():
+        if sid in sessions_by_id:
+            sessions_by_id[sid]["after"] = prev
     out = [sessions_by_id[sid] for sid in order]
     return out
 
@@ -360,8 +375,13 @@ def rebuild_sessions(name: str, repo_path: str = "") -> list[dict]:
     if repo_path:
         store_sessions = read_store_sessions(repo_path, repo_name=name)
         seen_ids = {s["id"] for s in sessions}
+        left_at = {str((ev.get("data") or {}).get("leaves", {}).get("session") or ""): str(ev.get("ts", ""))
+                   for ev in stream if ev.get("kind") == "started"
+                   and isinstance((ev.get("data") or {}).get("leaves"), dict)}
         for ss in store_sessions:
             if ss["id"] not in seen_ids:
+                if ss["id"] in left_at:
+                    ss = {**ss, "left": left_at[ss["id"]]}
                 sessions.append(ss)
                 seen_ids.add(ss["id"])
 

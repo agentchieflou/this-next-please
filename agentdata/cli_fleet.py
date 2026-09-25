@@ -299,6 +299,41 @@ def cmd_renew(a) -> int:
     return EXIT_OK
 
 
+def cmd_fresh(a) -> int:
+    """Leave this checkout's session for a clean one, in one call (#488). `--dry-run` only shows.
+
+    The page's *start fresh* posts the same two functions. `--closed` is the deliberate second press
+    over a chat that may still be open ("my own chat there is closed"); it is never `--force`, which
+    on `start` means replacing a live agent.
+    """
+    from .fleet import fresh as FRESH
+
+    source = "ad-fleet fresh"
+    try:
+        out = (FRESH.plan(a.repo, cfg=C.load()) if a.dry_run
+               else FRESH.run(a.repo, closed=bool(a.closed), cfg=C.load()))
+    except FRESH.FreshRefused as e:
+        return _refuse(source, e)
+    except (RegistryError, supervisor.SupervisorError, OSError) as e:
+        return _refuse(source, e)
+    leaves, starts = out["leaves"], out["starts"]
+    meta = {"repo": a.repo, "dry_run": bool(a.dry_run), "verdict": out["verdict"],
+            "done": out.get("done", "-")}
+    if out.get("code"):
+        meta["code"] = out["code"]
+    if a.dry_run and out["verdict"] != FRESH.NOW:
+        meta["why"] = out["why"]
+        meta["hint"] = out["hint"]
+    row = [out["verdict"], leaves.get("session") or "-", leaves.get("origin") or "-",
+           f"earlier on the pane; `ad-fleet sessions {a.repo}`" if leaves.get("session") else "-",
+           starts["ticket"] or "-", starts["model"] or "the CLI chooses", starts["model_source"],
+           starts["effort"] or "-"]
+    print(toon.encode({"meta": {"ok": True, "source": source, **meta}}))
+    print(toon.table("fresh", ["verdict", "leaves", "origin", "stays", "ticket", "model", "model_source",
+                               "effort"], [row]))
+    return EXIT_OK
+
+
 def cmd_reset(a) -> int:
     """Stop and resume in one verb, because "it is stuck, make it go again" is one intention.
 
@@ -544,11 +579,11 @@ def cmd_sessions(a) -> int:
         if not rows:
             rows = S.rebuild_sessions(a.repo, repo_path=repo.path)
 
-    cols = ["id", "title", "ticket", "first_seen", "last_seen", "runs", "ended", "cost", "source"]
+    cols = ["id", "title", "ticket", "first_seen", "last_seen", "runs", "ended", "cost", "source", "left"]
     table_rows = [[r.get("id", ""), r.get("title", ""), r.get("ticket", "") or "-",
                    str(r.get("first_seen", ""))[:16], str(r.get("last_seen", ""))[:16],
                    r.get("runs", 1), r.get("ended", "") or "-", r.get("cost", 0.0),
-                   r.get("source", "fleet")] for r in rows]
+                   r.get("source", "fleet"), str(r.get("left", ""))[:16] or "-"] for r in rows]
     if ui.on():
         ui.table(cols, table_rows, title=f"fleet sessions: {a.repo}")
         return EXIT_OK
@@ -1943,6 +1978,15 @@ def build_parser() -> argparse.ArgumentParser:
     fresh.add_argument("--dry-run", action="store_true",
                        help="show which agents are stale, why, and what renewing would do; change nothing")
     fresh.set_defaults(fn=cmd_renew)
+
+    clean = sub.add_parser("fresh", help="leave this checkout's session for a clean one, on the same "
+                                         "ticket and the configured model")
+    clean.add_argument("repo")
+    clean.add_argument("--dry-run", action="store_true",
+                       help="show what it would leave and start, and whether it can now; change nothing")
+    clean.add_argument("--closed", action="store_true",
+                       help="my own Copilot chat there is closed: the second press over `chat_open`")
+    clean.set_defaults(fn=cmd_fresh)
 
     again = sub.add_parser("restart", help="resume a stopped agent on its own session")
     again.add_argument("repo")
