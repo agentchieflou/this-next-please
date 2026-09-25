@@ -7,7 +7,7 @@ It is **read-only**: nothing on the map starts, stops or changes anything; the d
 ## The graph
 
 `GET /api/map` (token required, like every route but `/api/ping` and `/open`) answers
-`{ok: true, schema: 1, as_of, cursor, says, projects, checkouts, theme}`. It is a pure fold over the same snapshot
+`{ok: true, schema: 1, as_of, cursor, says, projects, checkouts, network, theme}` (`network`: §The network). It is a pure fold over the same snapshot
 `/api/fleet` sends (`agentdata/fleet/fleetmap.py`, `graph(snapshot)`): no git call, no registry or `.agent/` read,
 the same snapshot always gives an equal graph. It never carries a path and never carries event text. Twenty
 checkouts fit in under 18 KiB.
@@ -84,7 +84,38 @@ the project's local branches (one list, at most 40, unmerged first); ticket carr
 
 ## The network
 
-(written by #404)
+"Our network", read locally (#404): what this desk server knows about itself and about what it talks to. `GET
+/api/map` adds `network` beside the graph; `fleetmap.graph(snapshot, network=)` draws it from the snapshot and from
+`serve.map_network(port)`'s raw facts (`{port, version, live, counts, settings}`), and without those facts the graph
+has no `network`. Twenty checkouts' network (four sources of twenty cells, three windows) is under 8 KiB, on top of
+the graph's 18.
+
+| Key | What |
+| --- | --- |
+| `server` | `{id: "n:server", port, version, current, says}`: this process, its port and `version_string()`; `current` is `/api/fleet`'s `server.current` (is the running desk the installed one) |
+| `windows[]` | `{id: "w:<name>", name, shell, pages, connected, since, says}` by name: the union of the desk's window records (`desk.json`, names only) and the streams open now; a name that is not one (`SKIN_FAMILY`) reads `main`, for a record as for a stream. `pages` is the pages a window has a stream open on (`desk`, `settings`, `map`), `[]` when none; `since` is the oldest open stream's UTC stamp |
+| `sources[]` | `{id: "s:<jira\|pr\|powerbi\|git>", name, on, requests, errors, stood_down, cells, says}` in `poll.SOURCES` order. `on` is `fleet.poll.*`; the counts are today's `Poller.counts()` (`0` when nothing polls); `cells` is `[{checkout: "c:<repo>", ok, age_s}]`, one per checkout with a cell, `ok` being `not grey` |
+| `approvals` | `{id: "n:approvals", pending, says}`: the requests waiting at the approval gate |
+| `install` | `{id: "n:install", version, commit, stale_agents, says}` from `server.installed`; every agent whose `stale` is true is in `stale_agents` and gains `stale_of: "n:install"` |
+| `says` | *the desk server, 2 windows open, 4 sources, 1 approval waiting*; zeros read *no windows open*, *no sources*, *no approvals waiting*. Sources counts the ones that are on |
+
+The graph's own `says` gains *, 2 windows open* and, for each source with grey cells, *, Power BI unreachable for 2
+checkouts*. A source says *Power BI · unreachable for 2 checkouts · 14 requests today · 2 errors*, *Jira · off*, or
+*git · not polled yet* before the first tick; a window *window left · pycharm · open on desk, map* or *window right ·
+not open*.
+
+**Who is listening.** `serve._live` holds one entry per open `/api/events` stream, `{w, page, shell, since, last}`,
+added before the stream starts and removed in its `finally`; `live_windows()` hands out copies. `w` and `page` are
+kept only when they are names (`SKIN_FAMILY`), else `main` and `settings` (for `frames=theme`) or `desk`; `shell` is
+`ink_facts`' (`shell=`, else `w=`). `last` is stamped on every frame written. It is in memory only: a connect or a
+disconnect writes nothing, to `desk.json` or anywhere. **The honest bound:** a closed tab is noticed on its stream's
+next write, which is at once when anything happens (an event, a poll, the desk) and at most `HEARTBEAT_S` (15 s) when
+nothing does.
+
+**What it is not.** No other machine: the fleet runs nothing remotely ([fleet.md](fleet.md) §What it deliberately is
+not). No MCP (disabled by policy). No proxy, no pings, no outbound probe and no polling of its own: the sources are
+what the poll already counted, and `/api/map` never creates a `Poller` (`current_poller()`). Nothing in `network`
+carries a token, a URL, a filesystem path or an error text; a cell is `ok` and `age_s`, no more.
 
 ## The page
 
