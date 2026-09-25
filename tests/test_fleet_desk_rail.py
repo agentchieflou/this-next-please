@@ -172,7 +172,7 @@ def _eventually(cond, timeout=5.0):
 
 @pytest.mark.browser
 def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start_starts_it_once(
-        fleet_home, tmp_path, spawns):
+        fleet_home, tmp_path, spawns, monkeypatch):
     """Acceptance criterion. With the board open and the checkout off the glass, a ticket row
     dragged onto a rail chip opens the pre-flight card under the rail with its verdict; *Start*
     counts exactly one `started` event on that checkout.
@@ -185,6 +185,10 @@ def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start
     _seed_models()
     E.append("luna", [E.event("luna", "assistant_text", {"text": "done", "model": "claude-opus-5"},
                               ticket="RDSD-1")])
+    # Every issue read the pre-flight makes: the drop's one, and none for a press (decision 15).
+    fetched: list[str] = []
+    read_issue = PF.fetch_issue
+    monkeypatch.setattr(PF, "fetch_issue", lambda key, **kw: (fetched.append(key), read_issue(key, **kw))[1])
 
     server, token, port = _serve()
     try:
@@ -216,6 +220,11 @@ def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start
             page.wait_for_selector('#dispatch .dispatch-model button[data-model="claude-opus-5"][aria-pressed="true"]',
                                    timeout=5000)
             assert _started("luna") == 0, "a press is a setting, not a launch"
+            # The card's own `model` row is current at once, and reading it read no issue.
+            page.wait_for_function(
+                """() => document.querySelector('#dispatch .dispatch-row[data-row="model"] .dr-value')
+                         .textContent === 'opus-5 · fleet.models.luna'""", timeout=5000)
+            assert fetched == ["RDSD-118"], fetched
 
             card.locator(".dispatch-go").click()
             assert _eventually(lambda: _started("luna") == 1), "Start started nothing"
@@ -455,6 +464,14 @@ def test_a_refusal_on_an_open_tile_lands_on_the_tile_and_the_rail_note_stays_emp
             page.wait_for_selector('#modelcard button[data-model="claude-opus-5"]', timeout=5000)
             page.click('#modelcard button[data-model="claude-opus-5"]')
             assert _eventually(lambda: _luna_model() == "claude-opus-5"), "the model card's press wrote nothing"
+            # The dispatch card under it says so at once: its `model` row is current and ready, and
+            # with the model the card's one thin row, the card is ready and its button says Start.
+            page.wait_for_function(
+                """() => { const li = document.querySelector('#dispatch .dispatch-row[data-row="model"]');
+                  return li.querySelector('.dr-value').textContent === 'opus-5 · fleet.models.luna'
+                    && li.classList.contains('r-ready') && !li.querySelector('.dr-why'); }""", timeout=5000)
+            assert page.inner_text("#dispatch .verdict").strip().lower() == "ready"
+            assert page.inner_text("#dispatch .dispatch-go").strip() == "Start"
 
             # The session menu says what a new session and a console start on.
             page.wait_for_function(

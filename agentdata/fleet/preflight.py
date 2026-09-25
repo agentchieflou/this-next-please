@@ -273,15 +273,18 @@ def _catalogue_row(names: list[str], repo_name: str) -> dict:
     return _row("mentions", ", ".join(names[:3]) + " — none of them indexed")
 
 
-def _model_row(repo_name: str, cfg: dict) -> dict:
+def model_row(repo_name: str, cfg: dict | None = None) -> dict:
     """Which model the agent will start on (#368), and whether the installed CLI still offers it.
 
     Read from `models.json` alone (`models.catalogue(spawn=False)`): the pre-flight never starts the
     CLI. Since CLI 0.0.421 a `-p` turn errors on a model the CLI cannot serve, so an id the cache
     marks as not offered is `thin` -- a nudge before Start, never a block. With no cache nothing is
-    marked, and the row is `ready`.
+    marked, and the row is `ready`. Also answered on its own (`GET /api/preflight?row=model`), so the
+    card's row is current the moment a pill is pressed, with no Jira read (decision 15).
     """
     from . import launch as LAUNCH, models as MODELS
+
+    cfg = cfg if cfg is not None else C.load()
 
     try:
         model, _effort, source = LAUNCH.model_for(repo_name, cfg)
@@ -359,14 +362,14 @@ def preflight(key: str, repo_name: str = "", *, cfg: dict | None = None, client=
             summary = supervisor.check_ticket(
                 repo, key, board_rows=(B.read_cache() or {}).get("rows") or [])
             rows.append(_row("repo", repo.name, why=suggestion.get("why", "")))
-            rows.append(_model_row(repo.name, cfg))
+            rows.append(model_row(repo.name, cfg))
             if summary:
                 rows.append(_row("summary", summary))
         except supervisor.SupervisorError as e:
             rows.append(_row("repo", repo.name, verdict=BLOCKED, why=e.msg))
             rows[-1]["code"] = e.code
             rows[-1]["hint"] = e.hint
-            rows.append(_model_row(repo.name, cfg))
+            rows.append(model_row(repo.name, cfg))
 
     issue = fetch_issue(key, cfg=cfg, client=client, now=now)
     if issue.get("error"):

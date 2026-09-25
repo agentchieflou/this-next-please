@@ -2400,23 +2400,11 @@ function dispatchCard(key, repo) {
   }).then(function (card_data) {
     if (card.dataset.key !== key) return;           // a second drop overtook this one
     var verdict = (card_data && card_data.verdict) || "unknown";
-    var chip = card.querySelector(".verdict");
-    text(chip, verdict);
-    setClass(chip, "verdict v-" + verdict);
-    (card_data.rows || []).forEach(function (r) {
-      var li = document.createElement("li");
-      setClass(li, "dispatch-row r-" + (r.verdict || "ready"));
-      var n = document.createElement("span"); setClass(n, "dr-name"); text(n, r.row);
-      var v = document.createElement("span"); setClass(v, "dr-value"); text(v, r.value);
-      li.appendChild(n); li.appendChild(v);
-      if (r.why) { var w = document.createElement("span"); setClass(w, "dr-why"); text(w, r.why); li.appendChild(w); }
-      rows.appendChild(li);
-    });
+    (card_data.rows || []).forEach(function (r) { rows.appendChild(dispatchRow(r)); });
     // `thin` is the one verdict that asks for something: the brief box takes the focus and the
     // button says so. `blocked` still offers the press, because the refusal is the server's to
     // give in its own words and the operator may hold an override the card does not know about.
-    var go = card.querySelector(".dispatch-go");
-    text(go, verdict === "ready" ? "Start" : "Start anyway");
+    paintVerdict(card, verdict);
     // A card thin on the model alone (#368) asks for a model, not a brief: its why is the note,
     // and the keyboard goes to the pressed pill.
     var thin = (card_data.rows || []).filter(function (r) { return r.verdict === "thin"; });
@@ -2437,6 +2425,49 @@ function dispatchCard(key, repo) {
     text(card.querySelector(".verdict"), "unknown");
     text(card.querySelector(".dispatch-note"), "the pre-flight could not be read; Start still works");
   });
+}
+
+/* One pre-flight row. Its name and verdict ride on it as data, so the one row a press changes can
+   be found and drawn again, and the card's verdict read back from its rows. */
+function dispatchRow(r) {
+  var li = document.createElement("li");
+  setClass(li, "dispatch-row r-" + (r.verdict || "ready"));
+  setData(li, "row", r.row);
+  setData(li, "verdict", r.verdict || "ready");
+  var n = document.createElement("span"); setClass(n, "dr-name"); text(n, r.row);
+  var v = document.createElement("span"); setClass(v, "dr-value"); text(v, r.value);
+  li.appendChild(n); li.appendChild(v);
+  if (r.why) { var w = document.createElement("span"); setClass(w, "dr-why"); text(w, r.why); li.appendChild(w); }
+  return li;
+}
+
+function paintVerdict(card, verdict) {
+  var chip = card.querySelector(".verdict");
+  text(chip, verdict);
+  setClass(chip, "verdict v-" + verdict);
+  text(card.querySelector(".dispatch-go"), verdict === "ready" ? "Start" : "Start anyway");
+}
+
+/* The card's `model` row after a press (#368, decision 15): read again on its own -- the config and
+   the cached model list, never Jira -- and drawn in place, with the verdict worked out again from
+   the rows by `preflight.verdict_for`'s table (a refusal, then an unread source, then thin). */
+function rereadDispatchModelRow(repo) {
+  var card = document.getElementById("dispatch");
+  var key = card.dataset.key || "";
+  if (!key || dispatchRepo() !== repo) return Promise.resolve();
+  return fetch(q("/api/preflight", { key: key, repo: repo, row: "model" })).then(function (r) {
+    return r.json();
+  }).then(function (data) {
+    var was = card.querySelector('.dispatch-row[data-row="model"]');
+    if (!data || !data.row || !was || card.dataset.key !== key || dispatchRepo() !== repo) return;
+    was.replaceWith(dispatchRow(data.row));
+    var kinds = Array.prototype.map.call(card.querySelectorAll(".dispatch-row"), function (li) {
+      return li.dataset.verdict;
+    });
+    paintVerdict(card, ["blocked", "unknown", "thin"].filter(function (k) {
+      return kinds.indexOf(k) >= 0;
+    })[0] || "ready");
+  }).catch(function () {});
 }
 
 /* Which model the agent will start on (#368): the dispatch card's compact picker, made once
@@ -4181,6 +4212,7 @@ function queueModelWrite(repo, pick, lead, say, field) {
         if (modelCardRepo() === repo) writeModelFacts(repo);
         drawModelCard();
         drawDispatchModel();
+        return rereadDispatchModelRow(repo);
       });
     }).catch(function (e) { say(String(e)); });
   });

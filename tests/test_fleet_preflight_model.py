@@ -109,6 +109,8 @@ def test_a_repos_own_model_is_its_label_and_where_it_comes_from(fleet_home, tmp_
     row = _model(_card("claude-opus-5"))
     assert row["value"] == "opus-5 · fleet.models.luna", row
     assert row["verdict"] == PF.READY and row["why"] == "", row
+    # The row on its own, as a press on the card reads it again (decision 15): the same row.
+    assert PF.model_row("luna", {"fleet": {"models": {"luna": {"model": "claude-opus-5"}}}}) == row
     assert spawned == []
 
 

@@ -71,7 +71,8 @@ go grey with the error in their `why`, the verdict reads `unknown`, and the butt
 **Runs on** (#368). Under the rows the card says which model the agent will start on, as pills:
 the one in force, *inherit*, the fleet's default and the model the last turn ran on, and `more…`,
 which opens the model card for everything else. A press writes the repository's model — this start
-and every later one, through the settings page's own writer — and the note says so. The `model`
+and every later one, through the settings page's own writer — and the note says so, and the card's
+`model` row is read again on its own (never a Jira read), so it is current at once. The `model`
 row is `thin` only when the cached list marks the model as not offered by the installed CLI (since
 CLI 0.0.421 a turn on such a model fails at start); when it is the only thin row, the note says why
 and the keyboard goes to the pressed pill rather than the brief. It never blocks a start. Every key
