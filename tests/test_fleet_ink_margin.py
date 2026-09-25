@@ -173,12 +173,25 @@ def choose_on(page, look):
         raise AssertionError((look, page.evaluate(SEEN))) from e
 
 
+#: Ink off, the bars at rest (#451): the unsupervised pane wears the whole 3px bar, and no pane is
+#: part-way through a transition. The reduced-motion block gives every element a 0.01ms transition
+#: of `all` (tests/test_fleet_gutters.py says the same of widths), so when the fallback sheet puts a
+#: bar on, a pane's computed box-shadow starts at `rgba(0, 0, 0, 0) 0px 0px 0px 0px inset`. That is
+#: the transition's first frame, not the bar, and it held for a whole measurement on a loaded runner.
+#: `/inset/` alone accepted it.
+OFF_AT_REST = f"""() => {{
+  const panes = [...document.querySelectorAll('#grid .tile')];
+  const moving = panes.some(t => t.getAnimations().some(a => a.playState === 'running'));
+  const cs = getComputedStyle(document.querySelector('.tile[data-repo="{UNSUPERVISED}"]'));
+  return !moving && /inset/.test(cs.boxShadow) && /\\b3px 0px 0px/.test(cs.boxShadow);
+}}"""
+
+
 def choose_off(page, look):
     skin = look.split(":")[0]
     _choose(page, look)
     page.wait_for_function(f"""() => (Ink.inspect().table === '{look}' || (refresh(), false)) && Ink.inspect().plain
-      && ({_sheet(skin)}) && document.body.classList.contains('ink-off')
-      && /inset/.test(getComputedStyle(document.querySelector('.tile[data-repo="{UNSUPERVISED}"]')).boxShadow)""",
+      && ({_sheet(skin)}) && document.body.classList.contains('ink-off') && ({OFF_AT_REST})()""",
                            timeout=30000, polling=250)
 
 

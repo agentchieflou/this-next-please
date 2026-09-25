@@ -47,7 +47,7 @@ moving it, still takes the view transition — see `docs/desk-motion.md`.
 
 ## One round trip, not two
 
-`ROW_ACTIONS` in `serve.py` names the seventeen actions that change one repository's row. The
+`ROW_ACTIONS` in `serve.py` names the sixteen actions that change one repository's row. The
 endpoint answers each of them with that row:
 
 ```json
@@ -71,8 +71,8 @@ works.
 
 The last snapshot this window saw is kept in `sessionStorage` and drawn first, and the fetch that is
 already in flight replaces it. Without the transcripts: they are the big part of the payload, the
-part that goes stale fastest, and the stream brings them back within the second anyway. Five
-minutes old at most — past that the shape of the fleet has probably changed, and a wrong desk held
+part that goes stale fastest, and the first answer brings the last forty, and the stream resumes
+after them (#347). Five minutes old at most — past that the shape of the fleet has probably changed, and a wrong desk held
 for a second is worse than an empty one.
 
 The snapshot is taken again as the window goes (`pagehide`), with the desk the window holds and the
@@ -80,9 +80,34 @@ agent it has open. Taken only from the fleet's answers it was older than the las
 reload reopened the agent from before it, then jumped when the fleet answered: #230's snap-back, on
 the reload path. Its version is not believed, so the first real answer always wins.
 
+**A restored pane resumes the stream (#347).** A pane drawn from the snapshot is marked `restored`,
+and its first real row fills it the way a new pane is filled: each of the row's `recent` (the last
+forty) is appended and moves the pane's cursor. `connect()` then opens `/api/events` after those
+rows. It used to open at `since=<repo>:0`, because the snapshot's rows carry no events, and the
+server replayed every agent's whole history: 3,627 frames on a nine-agent desk, 2-3 s long tasks,
+and the previous skin's ink for five to seven seconds (`tests/test_fleet_stream_resume.py`).
+
+**The snapshot never draws the theme or the tiers (#345).** It used to: taken before a change made on
+/settings or down the stream, it painted the skin just replaced for 130-344 ms after every return to
+the desk. The served page carries them instead (`serve.page_theme`: `<html data-theme style>` and
+`data-tiers`, the skin's `<link>`, `<body data-skin data-skin-variant>`), written exactly as
+`applyTheme`, `applySkin` and `applyTiers` write them, so the first frame is the chosen palette and
+skin and the first `/api/fleet` answer writes nothing. `servedTiers()` hands `applyTiers` the served
+widths before `restoreCached()` draws a pane. A page restored whole from the back-forward cache asks
+again (`pageshow` with `persisted`).
+
 While it is showing, `body.is-stale` dims the glass a little and the footer says *"the last view,
 while this one loads"*. A stale desk that does not admit it is a desk that lies for a second, and a
 second is long enough to act on.
+
+**While the stream replays, `body.is-replaying` says so (#371).** Every `connect()` opens
+`/api/events` after the page's cursors, and the server writes every event after each one before it
+ends the pass with `tick`; a repo missing from `since` starts at 0, and EventSource's own reconnect
+re-sends the original URL, so it replays from the old cursors. A replayed `li.denied` looks exactly
+like a fresh one. `connect()` and every `onopen` set the class, and the pass's `tick` clears it,
+after the last replayed line is on the page; it is written through `toggle`, so an idle desk, which
+never connects, writes nothing. Nothing styles it: the ink layer's cues read it, so they do not play
+old hits as news (#372). `tests/test_fleet_instant.py` forces a replay and counts the lines at the off.
 
 `restoreCached()` is called at the very bottom of `app.js`, not beside the `refresh()` that starts the
 fetch, because drawing a row touches module state — `departed`, the tiles map — that is `undefined`
@@ -102,6 +127,7 @@ adjective.
 | opening an agent | `open:pane` |
 | a change of widths (#234) | `widths:drag` / `step` / `even` / `beside` / `one` / `all` / `needs` / `undo` |
 | one frame of a gutter drag | `gutter:frame` |
+| a skin or a palette picked on /settings (#346) | `theme:skin` / `theme:palette` |
 
 The budget is **50 ms**, asserted in a browser by `tests/test_fleet_instant.py`. The `open:pane`
 mark is closed *inside* the transition callback rather than around the call: the view-transition

@@ -60,7 +60,7 @@ export function marks() {
     // stale (#240): the chip's own words as a pencil note, a dashed pencil outline round it, and an
     // arrow to the run line -- the line that says which session and run this transcript is.
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "write" },
-    { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", dash: true, pad: 3 },
+    { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "outline", dash: true, pad: 0 },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "arrow", to: ".runline" },
     // a finding: a transcript line the agent was refused or stopped on, ringed in red, its kind
     // highlighted, and its own text written out.
@@ -272,6 +272,28 @@ function freeAll(group, list) {
   }
 }
 
+/* The height, on the viewport, of the layer's underline under the name (layer.js `under`, shapes.js
+   `underline`, #331): 2px under the tallest box on the name's line, and never lower than 3.4px over
+   the next row -- the first box below the name, or its words, which can stand higher. Read only. */
+function tailY(repo, rr, pane) {
+  let base = rr.bottom, floor = Infinity;
+  for (const k of repo.parentElement.children) {
+    const q = k.getBoundingClientRect();
+    if (q.height && q.top < rr.bottom && q.bottom > rr.top) base = Math.max(base, q.bottom);
+  }
+  const range = document.createRange();
+  for (let a = repo; a && a !== pane && floor === Infinity; a = a.parentElement) {
+    for (let n = a.nextElementSibling; n; n = n.nextElementSibling) {
+      const q = n.getBoundingClientRect();
+      if (!q.height || q.top <= rr.bottom) continue;
+      floor = Math.min(floor, q.top);
+      range.selectNodeContents(n);
+      for (const w of range.getClientRects()) if (w.height) floor = Math.min(floor, w.top);
+    }
+  }
+  return Math.min(base + 2, floor - 3.4);
+}
+
 /* One pane's tail and pen-tip dot: answers whether it wants another frame. */
 function runningPen(THREE, tokens, api, el, p, dt) {
   const on = el.classList.contains("state-running");
@@ -299,8 +321,15 @@ function runningPen(THREE, tokens, api, el, p, dt) {
   const repo = el.querySelector(".head .repo");
   const rr = repo ? repo.getBoundingClientRect() : null, pr = el.getBoundingClientRect();
   const visible = !!(rr && rr.width && pr.width);
-  const x0 = visible ? rr.right - pr.left + 8 : 0, y = visible ? rr.bottom - pr.top + 2.2 : 0;
-  const len = Math.min(TAIL_MAX, GROW * run.lines);
+  // Where the layer's underline ends (shapes.js `underline`, placed by #331): the tail goes on from
+  // there, at that height, and stops where the layer stops a line that grows: 14px short of the
+  // pane's right edge (#332). It used to sit 2.2px under the name's own box, through the chip.
+  const y = visible ? tailY(repo, rr, el) - pr.top + 1.2 : 0;
+  const x0 = visible ? rr.right - pr.left + 8 : 0;
+  const len = Math.max(0, Math.min(TAIL_MAX, GROW * run.lines, pr.width - 14 - x0));
+  run.len = len;
+  // The ink's extent on the viewport: the line (1.45px wide) and the dot (r 1.9) at its end.
+  run.box = visible ? { x: pr.left + x0 - 0.9, y: pr.top + y - 1.3, w: len + 3.8, h: 3.8 } : null;
   const sig = [visible, x0.toFixed(1), y.toFixed(1), len, run.strike.toFixed(3)].join("|");
   if (sig === run.sig && p.meshes && p.meshes.every(m => m.parent === p.group)) return run.strike >= 0 && run.strike < 1;
   run.sig = sig;
@@ -399,7 +428,9 @@ export function inspect() {
   return {
     panes: Array.from(panes, ([el, p]) => ({
       repo: el.dataset.repo, running: !!(p.run && p.run.on), shown: !!(p.run && p.run.shown),
-      lines: p.run ? p.run.lines : 0, tail: p.run ? Math.min(TAIL_MAX, GROW * p.run.lines) : 0,
+      lines: p.run ? p.run.lines : 0, tail: p.run ? (p.run.len ?? Math.min(TAIL_MAX, GROW * p.run.lines)) : 0,
+      // The tail and its dot on the viewport (#332), while the pen is on the page.
+      tailBox: p.run && p.run.shown && p.run.box ? Object.assign({}, p.run.box) : null,
       strike: p.run ? p.run.strike : -1, pieces: p.meshes ? p.meshes.filter(m => m.parent).length : 0,
     })),
     count: { now: count.last, old: count.old, strike: count.strike,

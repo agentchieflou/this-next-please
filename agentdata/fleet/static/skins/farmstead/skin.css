@@ -22,6 +22,9 @@ body[data-skin="farmstead"] {
   --farm-diffuse: 0.62;
   --farm-band-ink: #FFFDF5;
   --farm-band-ink-soft: #F0DCC0;
+  /* The effects' colours (#380), nothing draws them yet: the rain's streak on the boards, 3:1 on
+     the median lit plank of its weather (test_fleet_ink_farmstead). The cave adds its fireflies. */
+  --farm-rain: #A9C4DC;
   /* The palette's pencil is too faint on this paper for a mark (3:1); a graphite with some soil in
      it is not. The other inks are the palette's own. */
   --ink-pencil: #74695A;
@@ -42,6 +45,9 @@ body[data-skin="farmstead"][data-skin-variant="cave"] {
   --farm-band-light: 0.9;
   --farm-band-ink: #F0E9D8;
   --farm-band-ink-soft: #CFC6AE;
+  --farm-rain: #9DB8D6;
+  /* A firefly's glow on the soil, 3:1 on --farm-soil. */
+  --farm-firefly: #D8F07A;
   /* Lamplight: a paler pencil to be seen by, and a highlighter dark enough that the text read
      through it keeps 4.5:1 (theme.check, test_fleet_ink_farmstead). */
   --ink-pencil: #968F82;
@@ -57,6 +63,7 @@ body[data-skin="farmstead"][data-skin-variant="rainy"] {
   --farm-band-light: 0.9;
   --farm-band-ink: #E4EDFA;
   --farm-band-ink-soft: #B9CBE4;
+  --farm-rain: #8FB0D8;
   /* A slate pencil: the palette's is lost on the night-blue paper (3:1). */
   --ink-pencil: #8A97AB;
 }
@@ -79,11 +86,15 @@ body[data-skin="farmstead"]:not(.ink-off) :is(header, footer) :is(button, input,
    the foot of the panes -- the drawing buffer was whole (read back), the screen was not. Its own
    layer puts it right; the header holds no popover a stacking context could trap. */
 body[data-skin="farmstead"]:not(.ink-off) header { will-change: transform; }
+/* The renew and away strips stand aside for the canvas like the panes (#337): opaque, they sat as
+   panels over the drawing. Keyed here, as every drawing skin keys it, not on `:has()` (#441). */
+body[data-skin="farmstead"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
 
 /* The state as a crop stage, beside the chip's word and colour and never instead of them (#157):
    the chip keeps a 24px box before its word, and the module draws the crop in it at twice the
    art (#336), large enough to be read. The chip itself is clear, so the crop shows, and its word is
-   in the state's own colour. */
+   in the state's colour for words, `--<role>-text` (#328): read on the paper at 4.5:1, where the
+   state itself is held only to a mark's 3:1. */
 body[data-skin="farmstead"]:not(.ink-off) .chip {
   display: inline-flex; align-items: center; gap: 6px;
   background: transparent; box-shadow: none;
@@ -91,11 +102,11 @@ body[data-skin="farmstead"]:not(.ink-off) .chip {
 body[data-skin="farmstead"]:not(.ink-off) .chip::before {
   content: ""; width: 24px; height: 24px; flex: 0 0 24px;
 }
-body[data-skin="farmstead"]:not(.ink-off) .chip.running { color: var(--running); }
-body[data-skin="farmstead"]:not(.ink-off) .chip.waiting_approval { color: var(--waiting); }
-body[data-skin="farmstead"]:not(.ink-off) :is(.chip.needs_human, .chip.blocked, .chip.error) { color: var(--human); }
-body[data-skin="farmstead"]:not(.ink-off) .chip.done { color: var(--done); }
-body[data-skin="farmstead"]:not(.ink-off) :is(.chip.starting, .chip.idle) { color: var(--idle); }
+body[data-skin="farmstead"]:not(.ink-off) .chip.running { color: var(--running-text); }
+body[data-skin="farmstead"]:not(.ink-off) .chip.waiting_approval { color: var(--waiting-text); }
+body[data-skin="farmstead"]:not(.ink-off) :is(.chip.needs_human, .chip.blocked, .chip.error) { color: var(--human-text); }
+body[data-skin="farmstead"]:not(.ink-off) .chip.done { color: var(--done-text); }
+body[data-skin="farmstead"]:not(.ink-off) :is(.chip.starting, .chip.idle) { color: var(--idle-text); }
 body[data-skin="farmstead"]:not(.ink-off) .chip.not-supervised { color: var(--muted); }
 
 /* ------------------------------------------------------------------------- the scrollbar (#181)
@@ -111,3 +122,7 @@ body[data-skin="farmstead"] {
    its 34px: a rule keyed on the ink canvas (`body:has(> #ink[data-skin])`) was left unapplied to the
    panes by Chromium 153 after the layer set `data-skin`. Ink off keeps app.css's 10px. */
 body[data-skin="farmstead"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"]) { padding-left: var(--ink-margin, 26px); }
+/* The running pen under the name (#332): a compact pane's head wraps the name onto a line of its
+   own, and the line 2px below its foot needs more than app.css's 2px before the number and the
+   chip on the next line. */
+body[data-skin="farmstead"]:not(.ink-off) .tile[data-tier="compact"] .head { row-gap: 8px; }

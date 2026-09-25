@@ -41,6 +41,9 @@
          agent runs and what the Copilot CLI is launched with live there too. The href is empty here
          and set by `app.js` at boot: `_authorized` reads the token from the query string alone, so a
          static href would 403 with "not authorized" and look like a broken button. -->
+    <!-- #407: the door to the map, the same kind of link as settings and for the same reason: its
+         href is set by `app.js` at boot, never static, and keeps the desk's `w`/`shell`/`ink`. -->
+    <a id="mapbtn" class="linkbtn" title="the map: projects, worktrees, branches, agents and the network (g)">map</a>
     <a id="setbtn" class="linkbtn" title="settings: the palette, the model each agent runs, and how Copilot is launched">settings</a>
   </div>
 
@@ -250,6 +253,7 @@
       <span><kbd>n</kbd> alerts</span>
     </div>
     <div class="keys-group"><strong>this page</strong>
+      <span><kbd>g</kbd> the map</span>
       <span><kbd>?</kbd> these keys</span>
       <span><kbd>Esc</kbd> the last one, or close what is open</span>
     </div>
@@ -492,6 +496,7 @@
 </template>
 
 <script src="/static/common.js"></script>
+<script src="/static/picker.js"></script>
 <script src="/static/app.js"></script>
 <!-- #248: the ink layer's front door. A module, so it runs once the page is parsed; it reads the
      gate the server wrote on <body> and is `window.Ink`, the only part of the layer app.js sees. -->

@@ -14,7 +14,10 @@
      skin. The layer calls `ground` and `paper` again when it does, and on a resize.
    * Every call to `ground`, `paper` and `frame` begins with an empty scene, and the layer frees
      what was in it. Keep references in the module only for `tick`.
-   * Put pieces under the marks: `api.order.ground`, `.paper` and `.frame` are the render orders. */
+   * Put pieces under the marks: `api.order.ground`, `.paper` and `.frame` are the render orders.
+   * A one-shot effect is a cue (docs/desk-ink.md §Effects): a row of `cues` says when, from the
+     page's classes, and `cue` plays it. It is decoration: it ends by moving, shrinking or being
+     covered, never by a fade, and leaves an idle desk at zero frames. */
 
 /* The mark table's rows, or a function of the variant that answers them. */
 export function marks(variant) {
@@ -72,12 +75,57 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   scene.add(line);
 }
 
-/* Every frame the layer draws, with the seconds since the last. Answer true to be given another:
-   a ground that drifts would. Under reduced motion the answer is not honoured. */
-export function tick() {
-  return false;
+/* The cue table (#372): the layer fetches `ink/fx.js` for a skin that has one. A row plays its cue
+   once for each new match (`arrive`) or each match that goes (`leave`), never for what the page
+   already showed or is replaying. `.tile.ink-cue` is a class only the tests set; a grouped pane
+   matches the leave row too, and plays nothing when it is hidden later. */
+export const cues = [
+  { selector: ".tile.ink-cue", on: "arrive", cue: "example" },
+  { selector: "#grid > .tile:not(.is-hidden)", on: "leave", cue: "example-leave" },
+  { selector: ".tile .transcript li.denied", on: "arrive", cue: "example-line" },
+];
+
+/* How long a quad plays, in frames: a third of a second at 60 Hz. */
+const LIFE = 20;
+const played = [];                     // every cue this page played, for `inspect`
+let quads = [];                        // the quads `tick` is still playing
+
+/* One cue. `scene` is the effects group, under every frame and mark; `box` is where the element is
+   (`arrive`) or last was (`leave`), in viewport CSS px; `how` is "arrived", "unmatched" or
+   "removed". Never called under reduced motion. What it adds, `tick` frees. */
+export function cue({ THREE, scene, tokens }, name, el, box, how) {
+  played.push({ name, how, box });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(box.w, box.h),
+                              new THREE.MeshBasicMaterial({ color: colour(THREE, tokens.accent), transparent: true }));
+  mesh.position.set(box.x + box.w / 2, -box.y - box.h / 2, 0);
+  scene.add(mesh);
+  quads.push({ mesh, age: 0 });
 }
 
-/* The skin is going. The layer frees everything in the scenes it handed out; free what else the
-   skin made (a render target, a texture). */
-export function dispose() {}
+/* Every frame the layer draws, with the seconds since the last. Answer true to be given another:
+   a ground that drifts would, and so does a quad still playing -- it shrinks away, and is freed
+   after `LIFE` frames. Under reduced motion the answer is not honoured. */
+export function tick() {
+  for (const q of quads) {
+    q.age += 1;
+    q.mesh.scale.setScalar(1 - q.age / LIFE);
+    if (q.age >= LIFE) {
+      q.mesh.removeFromParent();
+      q.mesh.geometry.dispose();
+      q.mesh.material.dispose();
+    }
+  }
+  quads = quads.filter(q => q.age < LIFE);
+  return quads.length > 0;
+}
+
+/* The skin is going. The layer frees everything in the scenes it handed out, the effects group's
+   quads included; free what else the skin made (a render target, a texture). */
+export function dispose() {
+  quads = [];
+}
+
+/* For the tests: every cue played on this page (`{name, how, box}`), and the quads still playing. */
+export function inspect() {
+  return { cues: played.slice(), quads: quads.length };
+}

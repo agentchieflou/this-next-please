@@ -100,6 +100,19 @@ could never have seen it. It is a backstop for the common shape and it says so: 
 its own list of over-budget gestures and asserts the list is empty has no clock and no ceiling for
 any pattern to find, and carries the marker because its author put it there.
 
+**A `measured` result means something only when the test ran serially** (#473, operator ruling
+(a)). `test_a_gesture_keeps_its_budget_while_the_ink_draws` went over its 50 ms budget under
+`-n auto` on two branches, and a diagnostic ran its six gestures with the ink drawing, at rest and
+off (`?ink=off`) beside six concurrent `test_fleet_ink_glass.py` runs. The ink made no difference:
+it breached with the ink drawing (114 ms) and with it off alike (126 and 81 ms). Every breach was
+`arrange:move`, the gesture with the most layout, and it came from other Chromium renderers
+competing for the cores, which six plain CPU spinners did not reproduce. The ink draws in `requestAnimationFrame`, after the
+synchronous task a gesture's mark closes in, so it cannot land inside a mark. CI runs the tier in
+its own step after the bulk, `python -m pytest -q -rs -m "(measured or scale) and not slow"`, with
+no `-n`. So read a breach under `-n` or next to another browser as contention, not as evidence
+against a branch, and re-run the test on its own before calling it a regression. The budget stays
+at 50 ms.
+
 A verdict on real timings counts as a duration too. `row["verdict"] == "faster"` has no clock and no
 ceiling on its line, but when the row came from `bench_node(` it judges two measured runs, and on a
 busy runner it judges the contention: the perf loop saw 8.3 ms against 1.2 ms called `same` (#314).
@@ -294,7 +307,9 @@ only children are the workers; the failure is a teardown error on that worker's 
 up first, it is torn down last, so a session-scoped fixture that starts a browser or a driver must
 leave nothing either. A child that is meant to outlive a test is not a thing this suite has: kill
 it and wait on it. `tests/test_hygiene_orphans.py` provokes an orphan in an inner session, serially
-and with `-n 2`.
+and with `-n 2`. Its sleeper says `ready` before the test goes on. `Popen` can return while the child
+is still inside `execve`, and until that finishes `/proc/<pid>/cmdline` shows the parent's command
+line, or nothing. On a loaded runner the guard read it in that window (#459).
 
 Other fixtures: `run_cmd` (an `ad-*` command as a real subprocess — the only way to catch a bare
 `sys.exit`, an import-time crash, or an escape sequence that appears only when stdout is a pipe),
@@ -582,6 +597,36 @@ python .github/scripts/coverage_floors.py --update      # rounds down to the nea
 ```
 
 Lowering one is an edit to that file with the reason in the commit message.
+
+## The agent PR check
+
+The lanes of docs/developing-with-agents.md §7 are data in `.github/agent-lanes.json`, and
+`.github/scripts/agent_pr_check.py` checks a branch against them before anyone reviews it (#324). It is a gate in the
+handover note, not a CI job:
+
+```bash
+python .github/scripts/agent_pr_check.py --base origin/main                  # every lane the branch touched
+python .github/scripts/agent_pr_check.py --base origin/main --lane serve     # and nothing sequenced beyond serve
+python .github/scripts/agent_pr_check.py --base origin/main --allow ci       # the operator approved the ci lane
+```
+
+It diffs from `git merge-base <base> HEAD`, so what `main` did after the branch point, merged in, is never the
+branch's. It prints one `lane | kind | file` row per touched file (`-` for a file no lane owns; `pyproject.toml` is
+split by the dotted keys a lane names, `tool.pytest.ini_options` in `ci` and `project.version` in `version`), then
+`violations: N`.
+
+- **Refused (exit 1):** a `frozen` lane (`ci`, `relay`) or the `release-only` `version` lane touched; with `--lane`,
+  an `exclusive` or `sequenced` lane touched that the branch did not declare.
+- **`--allow <lane>`** lists that lane's violations under `allowed:` instead. The PR links the operator's approving
+  comment.
+- **Warnings only:** a `shared-docs` file that lost lines (append your row, never rewrite another's), two `exclusive`
+  lanes in one branch, and uncommitted changes.
+- **Cannot run (exit 2):** an unknown `--base` says to run `git fetch origin`.
+
+Globs match with `fnmatch.fnmatchcase` on the posix path, so `*` crosses `/`. Every glob and toml key must match
+a tracked file or an existing key (`tests/test_agent_pr_check.py` holds the map to the checkout), except those under
+`planned`: files an open card will create, such as `ink/fx.js`, which move to `paths` once they exist.
+`skin:<name>` expands to one lane per `static/ink/skins/*.js` module (`skin:voxel`).
 
 ## The regression convention
 

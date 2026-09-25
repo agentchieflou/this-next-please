@@ -51,8 +51,11 @@ def test_a_fleet_answer_asked_before_a_skin_change_does_not_put_the_old_skin_bac
             page.wait_for_function("() => Ink.inspect().table === 'glass:azure' && pendingRefresh === null",
                                    timeout=20000)
             page.evaluate(HOLD_ONE_ANSWER)
-            page.evaluate("() => { refresh(); }")
-            page.wait_for_function("() => window.__held === true", timeout=10000)
+            # Asked again until an answer is held: a `refreshSoon()` timer can start a refresh with
+            # the real fetch between the wait above and the hold, and `refresh()` then hands back
+            # that one (#349).
+            page.wait_for_function("() => { if (pendingRefresh === null) refresh(); return window.__held === true; }",
+                                   timeout=10000)
             _choose(page, "glass:noir")
             page.wait_for_function("() => Ink.inspect().table === 'glass:noir'", timeout=20000)
             page.evaluate("() => window.__release()")

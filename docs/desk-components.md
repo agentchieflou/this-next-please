@@ -62,7 +62,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 
 | Component | Parts, in DOM order | Drawn by | Styled in | States | Keys | Tested by |
 | --- | --- | --- | --- | --- | --- | --- |
-| toolbar | brand, live dot, `widths` group (the presets), `see` group, settings link, `alerts` group | — (static) | `.toolbar` | — | — | `test_fleet_desk_toolbar.py` |
+| toolbar | brand, live dot, `widths` group (the presets), `see` group, map link, settings link, `alerts` group | — (static) | `.toolbar` | — | `g` | `test_fleet_desk_toolbar.py` |
 | presets | *one*, *all*, *needs me*: one segmented control, three presses, each one write of this window's widths | — (static); `applyPreset` on the press | `.presets` | — (presses, not modes) | `1`, `=`, `f` | `test_fleet_gutters.py`, `test_fleet_column.py` |
 | away strip | title, one line per repo, dismiss | `checkAway` | `.away-strip` | — | — | `test_fleet_desk_sessions_b.py` |
 | renew strip | the desk's own line, sentence, preview, then one row per stale agent (repo, verdict, why), renew, cancel | `drawRenewStrip`, `drawRenewPlan` | `.renew-strip`, `.renew-row` | hidden when no session is stale; `verdict-now`, `verdict-at-turn-end`, `verdict-skipped` | `Esc` | `test_fleet_renew.py` |
@@ -98,7 +98,10 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | inspector | facts, rail, spend pane, branches pane, verify | `drawInspector` | `#inspectordetails` | — | — | `test_fleet_branches.py` |
 | notice | one line | `drawNotice` | `#notice` | — | — | `test_fleet_desk_hide.py` |
 | model card | facts, fields, save | `openModelCard` | `.modelcard` | — | `m` | `test_fleet_column.py` |
+| model picker (#362) | the model toolbar (`.mp-models`): a group per provider in the catalogue's order (`.mp-glabel`, then pills: `.pill-mark`, `.pill-label`, `.pill-note`), `other…` last; `input.mp-other`; the full picker's effort toolbar (`.mp-effort`) and `.mp-effort-why`. Compact: the pressed pill, the default, two quick ids, `more…` | `drawModelPicker` (`picker.js`), built once by `createModelPicker`; no host wires it yet (#366–#368) | `.mpick` | `data-variant` `full`, `compact`; pressed (`aria-pressed`, ✓, a 2px ring on `--select`); the last turn's (•); not offered (⚠); unavailable (⊘, dashed, `aria-disabled`, its reason by `aria-describedby`); every effort `aria-disabled` while inheriting no model | one tab stop per toolbar; `←` `→` `↑` `↓`, `Home`, `End`, `Enter`, `Space`; `Enter` in `other…`'s input; `Esc` is the host's | `test_fleet_model_picker.py` |
 | settings page | appearance, models, Copilot, permissions | `settings.js` | `body.settings-page` | — | — | `test_fleet_settings_page.py` |
+| map header | back link, `map`, the graph's sentence (`aria-live`) | `map/map.js` | `#mapsays` | — | Tab | `test_fleet_map_page.py` |
+| map tree | projects › checkouts › agent, then the project's branches (`bs:`), then the network (`n:network`); one `li[role=treeitem]` per node | `drawMapTree` (`map/map.js`) | `#maptree` | `aria-expanded`; the closed class list in [fleet-map.md](fleet-map.md) §The page | ↑ ↓ → ← Home End, Enter on a checkout or agent | `test_fleet_map_page.py` |
 
 `drawer` is not a component: it is a one-line alias for `section("drawer", …)`, kept because the
 rest of the file already calls it that. Nor is the **agent rail** (`drawRail`, `.agentrail`) the

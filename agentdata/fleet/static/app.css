@@ -19,6 +19,27 @@
   --done: #2c9a5c;
   --idle: #7c8794;
 
+  /* The word on each state colour (#327): a chip's, a badge's, a rail glyph's. The first of
+     `--text`, `--bg`, white and #111111 that reads at 4.5:1 on it, as `theme.to_css` chooses for
+     every palette. White on --done is 3.57:1 here, so no word is white by default. The dark block
+     below needs none: the state colours are shared. */
+  --on-running: #111111;
+  --on-waiting: #1b1f23;
+  --on-human: #f6f7f8;
+  --on-done: #1b1f23;
+  --on-idle: #1b1f23;
+
+  /* A word written IN a state colour (#328): the why line, "exit 2", "it asked you:". A state
+     colour is held to 3:1, a mark's floor, and a word needs 4.5:1, so the word is the state moved
+     toward `--text` until it reads on `--bg`, `--panel` and `--select` (`theme.role_text`, as
+     `theme.to_css` chooses it for every palette). Borders, outlines and discs keep the state. The
+     dark block below has its own: these read 2.3-3.2:1 on its grounds. */
+  --running-text: #2a68aa;
+  --waiting-text: #8a5e13;
+  --human-text: #be3141;
+  --done-text: #27754b;
+  --idle-text: #5f6872;
+
   --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
   --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
@@ -49,6 +70,9 @@
   :root:not([data-theme]) {
     --bg: #14171a; --panel: #1c2024; --text: #e3e7ea; --muted: #909aa4;
     --accent: #58a6ff; --line: #2c3237; --select: #23303d;
+    /* The words in a state colour, chosen by the same rule on these grounds (#328). */
+    --running-text: #5e9ada; --waiting-text: #cb8817; --human-text: #d67f8a;
+    --done-text: #4da876; --idle-text: #8f98a3;
   }
 }
 
@@ -94,7 +118,7 @@ header, footer {
 }
 .toolbar-group > * { white-space: nowrap; }
 #find { flex: 0 1 auto; width: clamp(120px, 16vw, 240px); min-width: 90px; }
-#notice { color: var(--waiting); font: 11px var(--mono); }
+#notice { color: var(--waiting-text); font: 11px var(--mono); }
 /* Under about 1100px the group labels are the first thing that can go: the controls they name are
    all titled and keyboard-reachable, and a wrapped toolbar is worse than an unlabelled one. */
 @media (max-width: 1100px) { .toolbar-group .glabel { display: none; } }
@@ -422,7 +446,7 @@ body {
 .spill:hover { color: var(--text); border-color: var(--accent); }
 .spill::after { content: " ▾"; opacity: .7; }
 /* Reading an earlier session is a state the tile is IN, so the control that put it there says so. */
-.spill.is-reading { color: var(--waiting); border-color: var(--waiting); }
+.spill.is-reading { color: var(--waiting-text); border-color: var(--waiting); }
 .smenu {
   position: absolute; top: calc(100% + 4px); left: 0; z-index: 25;
   display: flex; flex-direction: column; gap: 4px;
@@ -471,7 +495,7 @@ body {
   margin: 6px 0 0; font: 11px var(--mono); color: var(--muted);
 }
 .ro-what { flex: 1 1 12rem; min-width: 0; color: var(--text); }
-.ro-note { flex: 1 1 100%; color: var(--human); }
+.ro-note { flex: 1 1 100%; color: var(--human-text); }
 .history {
   flex: 1 1 auto; overflow: auto; margin: 8px 0 0; padding: 0; list-style: none;
   font: 12px/1.5 var(--mono); border-top: 1px dashed var(--line); opacity: .92;
@@ -491,8 +515,9 @@ body {
 .head > * { flex-shrink: 0; }
 .head .chip, .head .ticket { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticket { color: var(--muted); font: 11px var(--mono); }
-/* Every state carries its own age, inside the chip, because "done" without "2d" is the bug. */
-.chipage { opacity: .8; font-weight: 400; }
+/* Every state carries its own age, inside the chip, because "done" without "2d" is the bug. It is
+   lighter by weight, never faded: the chip's word colour is chosen to read at 4.5:1 (#327). */
+.chipage { font-weight: 400; }
 .chip.stale .chipage { text-decoration: underline dotted; }
 
 /* 28px is the HIG desktop floor for a hit target; 20px was below it. */
@@ -621,18 +646,18 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
   font: 11px var(--mono); border-radius: 10px; padding: 1px 8px;
   background: var(--select); color: var(--text);
 }
-.chip.running          { background: var(--running); color: #fff; }
-.chip.waiting_approval { background: var(--waiting); color: #fff; }
+.chip.running          { background: var(--running); color: var(--on-running); }
+.chip.waiting_approval { background: var(--waiting); color: var(--on-waiting); }
 .chip.needs_human,
 .chip.blocked,
-.chip.error            { background: var(--human); color: #fff; }
-.chip.done             { background: var(--done); color: #fff; }
+.chip.error            { background: var(--human); color: var(--on-human); }
+.chip.done             { background: var(--done); color: var(--on-done); }
 .chip.starting,
-.chip.idle             { background: var(--idle); color: #fff; }
+.chip.idle             { background: var(--idle); color: var(--on-idle); }
 .chip.not-supervised   { background: var(--muted); color: var(--panel); }
 
 .why { margin: 6px 0 0; color: var(--muted); }
-.tile.state-needs_human .why, .tile.state-blocked .why, .tile.state-error .why { color: var(--human); }
+.tile.state-needs_human .why, .tile.state-blocked .why, .tile.state-error .why { color: var(--human-text); }
 
 /* ------------------------------------------------------------------------------ the transcript */
 
@@ -644,7 +669,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 .transcript li:last-child { border-bottom: 0; }
 .transcript .k { color: var(--muted); flex: 0 0 96px; }
 .transcript .v { white-space: pre-wrap; overflow-wrap: anywhere; }
-.transcript li.denied .v, .transcript li.error .v, .transcript li.friction .v { color: var(--human); }
+.transcript li.denied .v, .transcript li.error .v, .transcript li.friction .v { color: var(--human-text); }
 .transcript li.assistant_text .v { color: var(--text); }
 .transcript li.tool_call .v, .transcript li.tool_result .v { color: var(--muted); }
 
@@ -654,7 +679,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
   margin-top: 8px; padding: 8px; border: 1px solid var(--waiting); border-radius: 5px;
   background: var(--select);
 }
-.approval-head { font-weight: 600; color: var(--waiting); }
+.approval-head { font-weight: 600; color: var(--waiting-text); }
 .approval .summary { margin: 4px 0; }
 .approval pre {
   margin: 4px 0; padding: 6px; max-height: 140px; overflow: auto;
@@ -664,7 +689,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 .row { display: flex; gap: 6px; align-items: center; }
 .row input { flex: 1 1 auto; }
 .bottom { margin-top: 8px; }
-.err { margin: 6px 0 0; color: var(--human); }
+.err { margin: 6px 0 0; color: var(--human-text); }
 
 @media (max-width: 640px) {
   .keys { display: none; }
@@ -673,12 +698,12 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 /* ------------------------------------------------------------------- notifications (#97) */
 
 #bell { position: relative; }
-#bell.unread { border-color: var(--human); color: var(--human); font-weight: 600; }
+#bell.unread { border-color: var(--human); color: var(--human-text); font-weight: 600; }
 .muted { color: var(--muted); font-size: 11px; }
 
 .badge {
   font: 11px var(--mono); border-radius: 9px; padding: 0 7px;
-  background: var(--human); color: #fff;
+  background: var(--human); color: var(--on-human);
 }
 
 /* One sidebar, five sections, one open at a time -- see `#side` below. These were five fixed
@@ -712,8 +737,8 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
   font: 11px var(--mono); border-radius: 9px; padding: 0 6px; margin-left: 6px;
   background: var(--select); color: var(--text);
 }
-#tickets .st.done { background: var(--done); color: #fff; }
-#tickets .st.indeterminate { background: var(--running); color: #fff; }
+#tickets .st.done { background: var(--done); color: var(--on-done); }
+#tickets .st.indeterminate { background: var(--running); color: var(--on-running); }
 #tickets .sum { display: block; margin: 2px 0; }
 #tickets .to { color: var(--muted); font: 11px var(--mono); }
 #tickets .go { font: 11px var(--ui); padding: 1px 6px; margin-left: 6px; }
@@ -724,8 +749,8 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 #history summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 #history table { width: 100%; border-collapse: collapse; font: 11px var(--mono); }
 #history td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
-#history td.state-done { color: var(--done); }
-#history td.state-error, #history td.state-blocked, #history td.state-needs_human { color: var(--human); }
+#history td.state-done { color: var(--done-text); }
+#history td.state-error, #history td.state-blocked, #history td.state-needs_human { color: var(--human-text); }
 
 
 /* ------------------------------------------------- the project's own state and links (#131) */
@@ -743,20 +768,20 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 .cell .old { color: var(--muted); }
 /* Grey, never wrong: the last value it actually had, how old that is, and the error in the tooltip.
    Dashed as well as grey, because a colour alone is not a signal on a bad monitor at arm's length. */
-.cell.grey { border-style: dashed; border-color: var(--idle); color: var(--idle); }
-.cell.grey .val { color: var(--idle); }
+.cell.grey { border-style: dashed; border-color: var(--idle); color: var(--idle-text); }
+.cell.grey .val { color: var(--idle-text); }
 .cell.idle { opacity: .55; }
 /* The git cell is a button with a second line (#184), amber at `fleet.branches.warn`. */
 button.cell { background: transparent; color: var(--text); cursor: pointer; text-align: left; flex-wrap: wrap; }
 button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 .cell .val2 { flex-basis: 100%; color: var(--muted); }
-.cell.warn { border-color: var(--waiting); color: var(--waiting); }
-.cell.warn .val2 { color: var(--waiting); }
+.cell.warn { border-color: var(--waiting); color: var(--waiting-text); }
+.cell.warn .val2 { color: var(--waiting-text); }
 /* The spend cell (#211). Amber at four fifths, red at the line -- and never colour alone: each
    carries the sentence that explains it in its title, and the value itself says `of 10`. */
 .cell.spend .val { font-variant-numeric: tabular-nums; }
-.cell.spend.warn { border-color: var(--waiting); color: var(--waiting); }
-.cell.spend.over { border-color: var(--human); color: var(--human); }
+.cell.spend.warn { border-color: var(--waiting); color: var(--waiting-text); }
+.cell.spend.over { border-color: var(--human); color: var(--human-text); }
 
 .rail { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .rail a, .rail button {
@@ -818,7 +843,7 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
    `.held` to keep the one just answered from dimming under the reply. The *needs me* preset
    replaced it (#234): a press that makes whoever needs you wide and the rest rails, and takes
    nothing back when one of them stops needing you, so there is nothing left to hold. */
-.tile.needs-human .head .repo { color: var(--human); }
+.tile.needs-human .head .repo { color: var(--human-text); }
 
 /* A session the fleet did not start (#2). An offer, not an alarm: nothing is wrong, the fleet has
    simply noticed something it does not own. Once adopted the same strip stays, saying so, because
@@ -871,13 +896,13 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 .pr-glyph {
   flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; border-radius: 50%;
-  font: 600 12px/1 var(--mono); color: #fff; background: var(--idle);
+  font: 600 12px/1 var(--mono); color: var(--on-idle); background: var(--idle);
 }
-.pane-rail.st-running .pr-glyph { background: var(--running); }
-.pane-rail.st-waiting_approval .pr-glyph { background: var(--waiting); }
-.pane-rail.st-blocked .pr-glyph, .pane-rail.st-error .pr-glyph { background: var(--human); }
-.pane-rail.st-done .pr-glyph { background: var(--done); }
-.pane-rail.st-group .pr-glyph { background: var(--muted); }
+.pane-rail.st-running .pr-glyph { background: var(--running); color: var(--on-running); }
+.pane-rail.st-waiting_approval .pr-glyph { background: var(--waiting); color: var(--on-waiting); }
+.pane-rail.st-blocked .pr-glyph, .pane-rail.st-error .pr-glyph { background: var(--human); color: var(--on-human); }
+.pane-rail.st-done .pr-glyph { background: var(--done); color: var(--on-done); }
+.pane-rail.st-group .pr-glyph { background: var(--muted); color: var(--panel); }
 /* The name down the rail's length. Clipped at the foot rather than wrapped: a name is read from
    its start, and the whole of it is in the label. */
 .pr-name {
@@ -888,15 +913,16 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
 }
 .pr-badge {
   flex: 0 0 auto; font: 11px var(--mono); border-radius: 8px; padding: 0 5px;
-  background: var(--human); color: #fff;
+  background: var(--human); color: var(--on-human);
 }
 /* The whole rail red when its agent needs a person -- the face is the rail, so the face is what is
-   red, and a skin that paints the tile's own background cannot take that away. White on the
-   status red, with the glyph turned round: `!` in red on a white disc. */
-.pane-rail.needs-human { background: var(--human); color: #fff; }
-.pane-rail.needs-human .pr-n { color: #fff; }
-.pane-rail.needs-human .pr-glyph { background: #fff; color: var(--human); }
-.pane-rail.needs-human .pr-badge { background: #fff; color: var(--human); }
+   red, and a skin that paints the tile's own background cannot take that away. The word is
+   `--on-human` on the status red (#327), with the glyph turned round: `!` in red on an
+   `--on-human` disc. */
+.pane-rail.needs-human { background: var(--human); color: var(--on-human); }
+.pane-rail.needs-human .pr-n { color: var(--on-human); }
+.pane-rail.needs-human .pr-glyph { background: var(--on-human); color: var(--human); }
+.pane-rail.needs-human .pr-badge { background: var(--on-human); color: var(--human); }
 .tile[data-tier="rail"].needs-human { border-color: var(--human); }
 
 /* Compact: what a band carried, and room to answer. The name takes the head's first line; the
@@ -947,7 +973,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   flex: 0 0 var(--rail); display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 8px 0; border: 1px dashed var(--line); border-radius: 6px; color: var(--muted);
 }
-.gone-rail .pr-glyph { background: var(--muted); }
+.gone-rail .pr-glyph { background: var(--muted); color: var(--panel); }
 
 /* The footer's count of what is put away, and the one press that brings it all back -- and beside
    it, the one press that takes the last change of widths back (#234). */
@@ -1078,9 +1104,9 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .branches { display: flex; flex-direction: column; gap: 4px; font: 11px var(--mono); }
 .branches-head { display: flex; align-items: center; gap: 8px; font: 12px var(--ui); }
 .branches p { margin: 0; }
-.branches-sum.warn, .branches-carry { color: var(--waiting); }
+.branches-sum.warn, .branches-carry { color: var(--waiting-text); }
 .branches-carry { padding: 2px 0 2px 8px; border-left: 3px solid var(--waiting); }
-.branches-note.err { color: var(--human); }
+.branches-note.err { color: var(--human-text); }
 .branchlist { margin: 0; padding: 0; list-style: none; }
 .branchrow { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 2px 0 2px 8px; border-left: 3px solid transparent; }
 .branchrow.unmerged { border-left-color: var(--waiting); }
@@ -1118,9 +1144,9 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; color: var(--muted);
 }
 /* Never colour alone: each verdict carries its word, and the tint only reinforces it. */
-.verdict.v-ready { color: var(--done); border-color: var(--done); }
-.verdict.v-thin { color: var(--waiting); border-color: var(--waiting); }
-.verdict.v-blocked { color: var(--human); border-color: var(--human); }
+.verdict.v-ready { color: var(--done-text); border-color: var(--done); }
+.verdict.v-thin { color: var(--waiting-text); border-color: var(--waiting); }
+.verdict.v-blocked { color: var(--human-text); border-color: var(--human); }
 .verdict.v-unknown { color: var(--muted); }
 .dispatch-rows { list-style: none; margin: 6px 0; padding: 0; }
 .dispatch-row { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--line); }
@@ -1128,8 +1154,8 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .dr-name { color: var(--muted); min-width: 9ch; }
 .dr-value { font-variant-numeric: tabular-nums; }
 .dr-why { color: var(--muted); margin-left: auto; text-align: right; }
-.dispatch-row.r-thin .dr-value { color: var(--waiting); }
-.dispatch-row.r-blocked .dr-value { color: var(--human); }
+.dispatch-row.r-thin .dr-value { color: var(--waiting-text); }
+.dispatch-row.r-blocked .dr-value { color: var(--human-text); }
 .dispatch-row.r-unknown .dr-value { color: var(--muted); }
 .dispatch-brieflabel { display: block; color: var(--muted); margin-top: 4px; }
 .dispatch .brief {
@@ -1146,7 +1172,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   margin-top: 8px; padding: 8px; border: 1px solid var(--human); border-radius: 5px;
   background: var(--select);
 }
-.asks-head { font-weight: 600; color: var(--human); }
+.asks-head { font-weight: 600; color: var(--human-text); }
 .asks-list { list-style: none; margin: 6px 0; padding: 0; }
 .ask { padding: 4px 0; border-bottom: 1px solid var(--line); }
 .ask:last-child { border-bottom: 0; }
@@ -1166,7 +1192,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .assumed { list-style: none; margin: 6px 0 0; padding: 0; }
 .assumption {
   display: flex; gap: 8px; align-items: baseline;
-  color: var(--waiting); border-left: 2px solid var(--waiting); padding-left: 6px;
+  color: var(--waiting-text); border-left: 2px solid var(--waiting); padding-left: 6px;
 }
 .overturn {
   margin-left: auto; min-height: 28px; background: none; color: var(--text);
@@ -1197,8 +1223,8 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px;
 }
 .sc-why { color: var(--muted); margin-left: auto; }
-.scope-row.s-resolved .sc-path { color: var(--done); }
-.scope-row.s-ambiguous .sc-path { color: var(--waiting); }
+.scope-row.s-resolved .sc-path { color: var(--done-text); }
+.scope-row.s-ambiguous .sc-path { color: var(--waiting-text); }
 .scope-row.s-unmatched .sc-name { color: var(--muted); }
 .sc-attach, .scope-tell {
   min-height: 28px; background: var(--panel); color: var(--text);
@@ -1208,7 +1234,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 /* The scope report (#168): a sentence, not a state. `outside` is worth noticing and is never an
    error -- an agent that had to go outside the scope to do the work was probably right to. */
 .scopereport { color: var(--muted); margin: 2px 0; }
-.scopereport.outside { color: var(--waiting); }
+.scopereport.outside { color: var(--waiting-text); }
 
 /* ------------------------------------------------------------------------------ the chip (#173)
    A hidden pane keeps its slot and leaves the row; the footer counts it (#233, above). The chip is
@@ -1229,11 +1255,11 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   border-bottom: 1px dashed var(--line);
 }
 .rail-chip .rail-open { cursor: pointer; }
-.rail-chip.needs-human .rail-open { border-color: var(--human); color: var(--human); }
+.rail-chip.needs-human .rail-open { border-color: var(--human); color: var(--human-text); }
 .rail-chip.is-candidate .rail-open { border-color: var(--accent); box-shadow: 0 0 0 2px var(--select); }
 .rail-chip.is-dim { opacity: .45; }
 .rail-chip .rail-open.drop-target { background: var(--select); border-color: var(--accent); border-style: dashed; }
-.railnote { margin: 0 0 6px; color: var(--human); }
+.railnote { margin: 0 0 6px; color: var(--human-text); }
 #railslot .dispatch { margin: 0 0 8px; }
 /* A ticket row takes the keyboard: `1`-`9` picks a rail chip, `Enter` its one candidate. */
 #tickets li:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -1254,6 +1280,36 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .renew-row .renew-why { color: var(--muted); overflow-wrap: anywhere; }
 .renew-row.verdict-now .renew-verdict, .renew-row.verdict-at-turn-end .renew-verdict { font-weight: 600; }
 .renew-actions { display: flex; gap: 8px; }
+
+/* ---- the model picker (#362)
+   `picker.js`, on the model card, /settings and the dispatch card. Tokens only, every selector under
+   `.mpick`, and no word in `--muted`, which is under 4.5:1 in nine palettes. Pressed is `--text` on
+   `--select` with a 2px `--accent` ring and a ✓: accent text on `--select` is 2.84:1 in sand, and the
+   ring is read against the card around the pill. A skin that clears button fills (the notebook)
+   leaves the ✓ and the ring, which is why they are there. */
+.mpick { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mpick .mp-models { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mpick .mp-group, .mpick .mp-effort, .mpick[data-variant="compact"] .mp-models {
+  display: flex; flex-flow: row wrap; align-items: center; gap: 4px; min-width: 0;
+}
+.mpick .mp-glabel { flex: 0 0 100%; font-size: 11px; font-weight: 400; color: var(--text); }
+.mpick .pill {
+  display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%;
+  min-height: 28px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel); color: var(--text); font-size: 12px; font-weight: 500; line-height: 1.2;
+}
+.mpick .pill[aria-pressed="true"] { padding: 2px 8px; border: 2px solid var(--accent); background: var(--select); }
+.mpick .pill[aria-disabled="true"] { border-style: dashed; cursor: default; }
+.mpick .pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mpick .pill-mark { letter-spacing: 2px; }
+.mpick .pill-mark:empty, .mpick .pill-note:empty { display: none; }
+.mpick .pill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mpick .pill-note { font-size: 11px; font-weight: 400; color: var(--text); }
+.mpick .mp-other { font: 12px var(--mono); background: var(--panel); color: var(--text); max-width: 100%; }
+.mpick .mp-effort-why { font-size: 11px; color: var(--text); }
+@media (prefers-reduced-motion: no-preference) {
+  .mpick .pill { transition: background-color var(--motion-fast) var(--ease-out); }
+}
 
 /* ------------------------------------------------------------------- the settings page (/settings) */
 
@@ -1308,7 +1364,7 @@ body.settings-page .setrow select {
 body.settings-page input.bad { border-color: var(--waiting); }
 /* Not `.scope`: the desk's file-drop panel owns that name and gives it a box. */
 body.settings-page .when { font-size: 11px; color: var(--muted); white-space: nowrap; }
-body.settings-page .saved { font-size: 11px; color: var(--done); }
+body.settings-page .saved { font-size: 11px; color: var(--done-text); }
 
 body.settings-page .settable { width: 100%; border-collapse: collapse; font-size: 12px; }
 body.settings-page .settable th {

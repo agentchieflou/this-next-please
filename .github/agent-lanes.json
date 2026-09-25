@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "lanes": {
+    "ci": {
+      "kind": "frozen",
+      "paths": [
+        ".github/workflows/tests.yml",
+        "tests/conftest.py"
+      ],
+      "toml": ["tool.pytest.ini_options"],
+      "planned": [],
+      "note": "A PR that edits it links the operator's approving comment and runs the check with --allow ci."
+    },
+    "relay": {
+      "kind": "frozen",
+      "paths": [
+        "GEMINI.md",
+        "AGENTS.md",
+        "docs/developing-with-agents.md",
+        ".github/pull_request_template.md",
+        ".github/agent-lanes.json",
+        ".github/scripts/agent_pr_check.py",
+        "tests/test_agent_onramp.py",
+        "tests/test_agent_pr_check.py"
+      ],
+      "toml": [],
+      "planned": [],
+      "note": "Frozen, as ci: link the operator's approving comment and run the check with --allow relay."
+    },
+    "version": {
+      "kind": "release-only",
+      "paths": ["CHANGELOG.md"],
+      "toml": ["project.version"],
+      "planned": [],
+      "note": "The release PR at the end of a wave changes both; tests/test_update.py pins them together."
+    },
+    "ink-core": {
+      "kind": "exclusive",
+      "paths": [
+        "agentdata/fleet/static/ink/ink.js",
+        "agentdata/fleet/static/ink/layer.js",
+        "agentdata/fleet/static/ink/shapes.js",
+        "agentdata/fleet/static/ink/pen.js",
+        "agentdata/fleet/static/ink/fx.js"
+      ],
+      "toml": [],
+      "planned": [],
+      "note": "One PR open at a time; the budget rule is in the decisions register. fx.js arrived with #370."
+    },
+    "desk-page": {
+      "kind": "sequenced",
+      "paths": [
+        "agentdata/fleet/static/app.js",
+        "agentdata/fleet/static/app.css",
+        "agentdata/fleet/static/index.html",
+        "agentdata/fleet/static/common.js"
+      ],
+      "toml": [],
+      "planned": [],
+      "note": "Parallel only in the merge order the brief names."
+    },
+    "settings-page": {
+      "kind": "sequenced",
+      "paths": [
+        "agentdata/fleet/static/settings.html",
+        "agentdata/fleet/static/settings.js"
+      ],
+      "toml": [],
+      "planned": [],
+      "note": "As desk-page."
+    },
+    "serve": {
+      "kind": "sequenced",
+      "paths": ["agentdata/fleet/serve.py"],
+      "toml": [],
+      "planned": [],
+      "note": "As desk-page."
+    },
+    "theme": {
+      "kind": "sequenced",
+      "paths": [
+        "agentdata/theme.py",
+        "agentdata/fleet/skins.py"
+      ],
+      "toml": [],
+      "planned": [],
+      "note": "As desk-page."
+    },
+    "skin:<name>": {
+      "kind": "exclusive",
+      "paths": [
+        "agentdata/fleet/static/ink/skins/<name>.js",
+        "agentdata/fleet/static/skins/<name>/*",
+        "tests/test_fleet_ink_<name>.py"
+      ],
+      "toml": [],
+      "planned": [],
+      "note": "One PR per skin at a time. Expands to one lane per agentdata/fleet/static/ink/skins/*.js stem (skin:voxel)."
+    },
+    "shared-docs": {
+      "kind": "append-rows",
+      "paths": [
+        "docs/desk-components.md",
+        "docs/testing-this-repo.md",
+        "docs/themes.md",
+        "docs/refusals.md"
+      ],
+      "toml": [],
+      "planned": [],
+      "note": "Insert your row beside its relative; never rewrite another issue's row or paragraph. Deleted lines only warn."
+    }
+  }
+}

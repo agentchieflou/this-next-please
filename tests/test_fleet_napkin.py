@@ -202,9 +202,45 @@ def _kinds(marks):
 #: The napkin has come to rest: the layer's lanes are empty and the felt tip has soaked in.
 SETTLED = f"""() => ({AT_REST})() && Object.values({NAPKIN}).every(p => !p.bleed || p.tail === 1)"""
 
+#: What the napkin had when `_settle` gave up: the layer's frames, the lanes still drawing or
+#: holding a hand, every mark not yet drawn whole, and how far each felt tip has soaked.
+WHY = f"""() => {{ const l = Ink.inspect().layer, n = {NAPKIN};
+  return !l ? 'no layer' : {{ frames: l.frames, busy: l.busy,
+    lanes: Object.entries(l.lanes).filter(([k, x]) => x.busy || x.hand)
+             .map(([k, x]) => k + (x.hand ? ' hand' : '') + ' queued ' + x.queued),
+    drawing: l.marks.filter(m => m.drawn !== 1).map(m => [m.lane, m.selector, m.state, m.drawn].join(' ')),
+    soaked: Object.keys(n).filter(k => n[k].bleed).map(k => k + ' ' + n[k].tail) }}; }}"""
+
 
 def _settle(page, also="true", timeout=30000):
-    page.wait_for_function(f"() => ({SETTLED})() && ({also})", timeout=timeout)
+    """Wait for the napkin at rest (`SETTLED`) and `also`, for as long as the layer is drawing its
+    way there. The pen keeps time in frames -- the layer holds a frame's `dt` to 0.1 s -- and in
+    SwiftShader a napkin frame costs about a tenth of a second on an idle machine and from half a
+    second to more than one on a loaded one. So a clock was the wrong bound: the felt tip's desk
+    comes to rest in about 57 frames, 5 s idle and 40 s at a load average of 45, where a 30 s
+    clock ran out with the pen still drawing (#479; glass met the same, #254). Each step waits for
+    the napkin settled or for the layer's next frame. It fails when the layer draws no frame for
+    `timeout` ms without settling -- a pen that stopped, or a page that never changed -- or
+    draws, without settling, the frames `timeout` is at 60 Hz, the fastest it draws: a pen that
+    never lifts."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    step = f"""(seen) => {{
+      if (({SETTLED})() && ({also})) return 'settled';
+      const l = Ink.inspect().layer;
+      return !!l && l.frames > seen && l.frames; }}"""
+    first = seen = page.evaluate("() => { const l = Ink.inspect().layer; return l ? l.frames : 0; }")
+    while seen - first <= timeout * 60 // 1000:
+        try:
+            got = page.wait_for_function(step, arg=seen, timeout=timeout).json_value()
+        except PlaywrightTimeout as e:
+            raise AssertionError(("the napkin drew no frame for", timeout, "ms and did not settle",
+                                  also, page.evaluate(WHY))) from e
+        if got == "settled":
+            return
+        seen = got
+    raise AssertionError(("the napkin drew", seen - first, "frames and did not settle", also,
+                          page.evaluate(WHY)))
 
 
 @pytest.mark.browser
@@ -457,9 +493,10 @@ def test_the_felt_tip_bleeds_along_the_emboss(fleet_home, tmp_path, monkeypatch)
             page.wait_for_selector(_tile("err") + ".state-error", timeout=15000)
             _settle(page, "Ink.inspect().layer.marks.some(m => m.tool === 'marker' && m.drawn === 1)")
             r = page.evaluate(f"() => document.querySelector('{_tile('err')}').getBoundingClientRect().toJSON()")
-            # A band 6-11px outside the loop (which runs 5px outside the pane) along its top,
-            # clear of the corners: the stroke and its wobble end ~4px from the line.
-            band = {"x": r["x"] + 40, "y": r["y"] - 5 - 11, "w": r["width"] - 80, "h": 5}
+            # A band 6-11px inside the loop (which runs 4px inside the pane, #332) down its left
+            # side, in the pane's margin: below the bang written there and clear of the corners.
+            # The stroke and its wobble end ~4px from the line.
+            band = {"x": r["x"] + 4 + 6, "y": r["y"] + 80, "w": 5, "h": r["height"] - 120}
             pixels = page.evaluate(PIXELS, band)
             assert not errors, errors
             browser.close()

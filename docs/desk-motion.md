@@ -35,6 +35,23 @@ fallback is the point of the pair, not decoration.
 exceed 320 ms. Nothing may repeat for ever except `.dot`, which says the event stream is alive and
 is alive for as long as the stream is.
 
+## Effects on the canvas (#372)
+
+The three numbers are the page's. A one-shot effect the ink layer draws on its canvas (a cue,
+[desk-ink.md](desk-ink.md) §Effects) has a ceiling of its own, the effects epic's decision (#293):
+**readable within 320 ms, gone within 1.2 s**. The epic sets voxel's effects at 0.8 s, the farm's
+at 1.2 s, and a pane the layer moves (#374) at 320 ms.
+
+* **Counted in frames**, as the ink's own catch-up is: 320 ms is 19 frames at 60 Hz and 1.2 s is
+  72. A runner that renders in software draws fewer frames a second, so an effect runs longer there
+  in milliseconds and never shows more.
+* **The durations live in the skin module**, beside the effect they time — not on `:root`, and not
+  in a stylesheet, which a cue never touches. The example skin's quad plays 20 frames.
+* **Gone means gone.** The effect ends by moving, shrinking or being covered, never by a fade, and
+  then the layer draws nothing: an idle desk is zero frames. `fx.js` takes out anything a skin left
+  in the effects group after 90 frames (1.5 s), a net no shipped skin relies on.
+* **Reduced motion plays none.** No cue is queued, which is the canvas's half of the block below.
+
 ## Arriving and going away: one pattern, nine panels
 
 ```css
@@ -114,6 +131,14 @@ A tile is a box of text and a view transition animates *pictures* of the old and
 Scaling one picture to the other's size stretches the words, which is the giveaway that what is on
 the screen is a photograph of a tile rather than the tile. Pinned to their own size at the top left,
 what moves is the box and what cross-fades is text at the size it was written.
+
+## The model picker's press (#362)
+
+A pill fades its fill for `--motion-fast` (`background-color` only) when it is pressed, and when a
+palette changes under it. The transition is declared inside
+`@media (prefers-reduced-motion: no-preference)`, so under `reduce` there is none to zero: the
+pill changes at once. `tests/test_fleet_model_picker.py` reads it back off a pill: `0.12s`, and at
+most `0.00001s` under `reduce`.
 
 ## Reduced motion
 

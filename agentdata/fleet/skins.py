@@ -205,6 +205,16 @@ SKINS = {
 }
 
 
+# The palettes no variant above is drawn on yet, each with the reason (#393). Every built-in palette
+# but `none` is a variant's `base` or is listed here, never both (`tests/test_fleet_skins.py`), so
+# /settings can say of every palette which looks are drawn on it -- or that it is the plain page
+# only, and still one to choose. It empties as the skins land: #389 removes `nfl-browns`, #396 `greens`.
+PALETTE_ONLY: dict[str, str] = {
+    "nfl-browns": "the playbook is planned",
+    "greens": "the circuit board is planned",
+}
+
+
 # Glass's inks (#254): the palette token each tool of its mark table (`static/ink/skins/glass.js`)
 # is drawn in, unless a variant's `ink_tokens` names another -- which its skin.css says again as
 # `--ink-<tool>`. Resolved against the variant's own palette, so `theme.check` holds every mark on
@@ -342,3 +352,19 @@ def every_variant() -> list[tuple[str, str, dict]]:
     return [(name, v, skin["variants"][v])
             for name, skin in SKINS.items()
             for v in skin["variants"]]
+
+
+def panels_on(base: str) -> list[str]:
+    """Every composited panel of every variant drawn on the palette `base` -- both ends of glass's
+    frost -- each once, in `every_variant` order (#328). A word written in a state colour is read
+    on all of them, so they are what its `-text` token is chosen against
+    (`theme.to_css(t, panels=panels_on(t.name))`): one set per palette, the same under every skin
+    drawn on it. Pure data; `theme` never imports the fleet, so the caller passes these."""
+    out: list[str] = []
+    for _, _, spec in every_variant():
+        if spec["base"] != base:
+            continue
+        for panel in composited_panels(spec):
+            if panel not in out:
+                out.append(panel)
+    return out

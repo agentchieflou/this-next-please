@@ -270,6 +270,89 @@ def test_a_live_stream_delivers_a_new_event_within_a_second(running, tmp_path):
         stream.close()
 
 
+# ------------------------------------------------------------------ who sweeps for notifications (#356)
+
+
+def _read_until(stream, marker: str, deadline_s: float = 10.0) -> str:
+    """What a live stream said up to and including the first line holding `marker`."""
+    deadline, seen = time.time() + deadline_s, ""
+    while time.time() < deadline:
+        line = stream.readline().decode("utf-8")
+        seen += line
+        if marker in line:
+            return seen
+    raise AssertionError(f"no {marker!r} within {deadline_s}s; the stream said:\n{seen}")
+
+
+def _a_notification_waiting(tmp_path) -> list[dict]:
+    """An agent whose last turn was denied, after a sweep has seen it once: the next sweep announces
+    one `needs_human`. Answers what that sweep will say (a dry run moves nothing)."""
+    from agentdata.fleet import notify as N
+
+    a_repo(tmp_path, "luna")
+    E.append("luna", [E.event("luna", "started", {"prompt": "work RDSD-1"}, ticket="RDSD-1")])
+    N.sweep(cfg={})                                              # first sight; nothing said
+    E.append("luna", [E.event("luna", "denied", {"message": "no `git push`"}, ticket="RDSD-1"),
+                      E.event("luna", "turn_ended", {}, ticket="RDSD-1")])
+    would = N.sweep(cfg={}, dry_run=True)
+    assert [i["state"] for i in would] == ["needs_human"]
+    return would
+
+
+def _notify_frames(text: str) -> list[dict]:
+    return [json.loads(block.split("data: ", 1)[1]) for block in text.split("\n\n")
+            if block.startswith("event: notify\n")]
+
+
+@pytest.mark.parametrize("quiet", ["notify=0", "frames=theme"])
+def test_a_stream_that_is_not_a_desk_leaves_the_notifications_to_the_desk(running, tmp_path, quiet):
+    """The sweep's cursor is shared and its finds go to whichever stream swept first. A settings
+    page (`frames=theme`) or a map (`notify=0`) that swept first took the desk's bell and dropped it.
+
+    The quiet stream is opened first and read through its first pass (the sweep runs before the
+    `desk` frame in a pass); the desk's stream, opened after, gets the notification -- the same one
+    a sweep said it would before either stream was open."""
+    base, token, _ = running
+    would = _a_notification_waiting(tmp_path)
+    other = urllib.request.urlopen(f"{base}/api/events?t={token}&since=&{quiet}", timeout=15)
+    try:
+        first_pass = _read_until(other, "event: desk")
+        assert _notify_frames(first_pass) == [], f"the {quiet} stream swept"
+        desk = urllib.request.urlopen(f"{base}/api/events?t={token}&since=", timeout=15)
+        try:
+            said = _read_until(desk, "event: notify") + desk.readline().decode("utf-8")
+            heard = _notify_frames(said + "\n")
+        finally:
+            desk.close()
+    finally:
+        other.close()
+    assert [(i["repo"], i["state"], i["title"]) for i in heard] == \
+        [(i["repo"], i["state"], i["title"]) for i in would]
+
+
+def test_a_stream_told_not_to_sweep_never_sweeps(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    """`sweep=False` skips the sweep block whole, over several passes that would each sweep."""
+    a_repo(tmp_path, "luna")
+    calls = []
+    monkeypatch.setattr(S, "_sweep", lambda url: calls.append(url) or [])
+
+    def passes(n: int, **kw) -> int:
+        stop, ticks = threading.Event(), []
+
+        def write(frame: str) -> None:
+            if frame.startswith("event: tick"):
+                ticks.append(frame)
+                if len(ticks) >= n:
+                    stop.set()
+        S.stream_events({}, stop, write, tick=0.01, heartbeat=0.0, notify_every=0.0, **kw)
+        return len(ticks)
+
+    assert passes(5, sweep=False) == 5
+    assert calls == []
+    passes(5)                                    # the desk's stream, as before: every pass sweeps
+    assert len(calls) == 5
+
+
 # -------------------------------------------------------------------------------- the page itself
 
 
@@ -329,6 +412,28 @@ def test_the_static_payload_is_small_enough_to_load_over_anything():
     assert sent < 200 * 1024, f"{sent} bytes over the wire ({on_disk} on disk): {sorted(raw)}"
 
 
+#: The map's own scripts (#405): `static/map/**/*.js` outside `map/skins/`, gzipped. Outside the
+#: desk's 200 KiB, which only the desk's files count: a desk never fetches them.
+MAP_BUDGET = 32 * 1024
+
+
+def test_the_map_page_fits_inside_the_desk_budget_and_its_scripts_inside_their_own():
+    """`map.html` and `map.css` sit in `static/` beside the desk's files, so the 200 KiB above counts
+    them; they are held to 4 KiB of it together. The map's scripts have a budget of their own."""
+    import gzip as gz
+
+    def wire(rel):
+        return len(gz.compress(open(os.path.join(STATIC, rel), "rb").read(), 6, mtime=0))
+
+    page = wire("map.html") + wire("map.css")
+    assert page < 4 * 1024, page
+    scripts_ = [n for n in map_scripts() if not n.startswith("map/skins/")]
+    assert "map/map.js" in scripts_, scripts_
+    sent = sum(wire(n) for n in scripts_)
+    print(f"\n  map page {page} bytes gzipped; map scripts {sent} bytes gzipped {scripts_}")
+    assert sent < MAP_BUDGET, (sent, scripts_)
+
+
 def test_the_page_and_its_assets_are_served_compressed():
     """What the budget above measures has to be what the server actually sends, or the number is a
     claim about a file rather than about a page load."""
@@ -340,7 +445,7 @@ def test_the_page_and_its_assets_are_served_compressed():
     thread.start()
     port = server.server_address[1]
     try:
-        for route in ("/", "/settings", "/static/app.js", "/static/common.js",
+        for route in ("/", "/settings", "/map", "/static/app.js", "/static/common.js",
                       "/static/settings.js", "/static/app.css", "/static/ink/ink.js",
                       "/static/ink/layer.js"):
             asked = urllib.request.Request(f"http://127.0.0.1:{port}{route}?t={token}",
@@ -382,7 +487,19 @@ def scripts() -> list[str]:
     ink = [f"ink/{n}" for n in os.listdir(os.path.join(STATIC, "ink")) if n.endswith(".js")]
     skins = [f"ink/skins/{n}" for n in os.listdir(os.path.join(STATIC, "ink", "skins"))
              if n.endswith(".js")]
-    return sorted(top + ink + skins)
+    # The map's scripts (#405), walked all the way down: its scene and skins (#409, #414) will
+    # live in folders under `static/map/`.
+    return sorted(top + ink + skins + map_scripts())
+
+
+def map_scripts() -> list[str]:
+    """Every `.js` under `static/map/`, as a path under `static/`."""
+    found = []
+    for root, _, files in os.walk(os.path.join(STATIC, "map")):
+        for n in files:
+            if n.endswith(".js"):
+                found.append(os.path.relpath(os.path.join(root, n), STATIC).replace(os.sep, "/"))
+    return sorted(found)
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="no node on this machine to check the syntax")
@@ -393,7 +510,8 @@ def test_the_page_script_parses(name, tmp_path):
     The ink modules `export`, which only a module may: they are checked as `.mjs` copies, so the
     answer does not depend on whether this machine's node guesses a `.js` file's kind."""
     path = os.path.join(STATIC, name)
-    if name.startswith("ink/"):
+    # `map/map.js` is a classic script like `settings.js`; the rest of `map/` will be modules.
+    if name.startswith("ink/") or (name.startswith("map/") and name != "map/map.js"):
         copy = tmp_path / (os.path.basename(name)[:-3] + ".mjs")
         shutil.copyfile(path, copy)
         path = str(copy)
@@ -418,7 +536,8 @@ def test_the_script_writes_text_rather_than_markup():
 # both and holds what neither owns, so its hooks are checked against whichever page uses them.
 PAGE_SCRIPTS = [("index.html", ["app.js", "common.js"]),
                 ("settings.html", ["settings.js", "common.js"]),
-                ("probe.html", ["probe.js", "common.js"])]
+                ("probe.html", ["probe.js", "common.js"]),
+                ("map.html", ["map/map.js", "common.js"])]
 
 
 @pytest.mark.parametrize("page,names", PAGE_SCRIPTS, ids=[p for p, _ in PAGE_SCRIPTS])
@@ -448,10 +567,12 @@ def test_the_themes_come_from_theme_py_and_satisfy_contrast():
     # Read expected tokens from docs/plan-desk-refactor.md
     plan_text = open("docs/plan-desk-refactor.md", encoding="utf-8").read()
     import re
-    plan_tokens = set(re.findall(r'\|\s*`(--[a-z]+)`\s*\|', plan_text))
+    plan_tokens = set(re.findall(r'\|\s*`(--[a-z]+(?:-[a-z]+)*)`\s*\|', plan_text))
     assert plan_tokens == {
         "--bg", "--text", "--panel", "--line", "--select", "--muted",
-        "--accent", "--focus", "--running", "--waiting", "--human", "--done", "--idle"
+        "--accent", "--focus", "--running", "--waiting", "--human", "--done", "--idle",
+        "--on-running", "--on-waiting", "--on-human", "--on-done", "--on-idle",
+        "--running-text", "--waiting-text", "--human-text", "--done-text", "--idle-text"
     }
 
     for theme in found:

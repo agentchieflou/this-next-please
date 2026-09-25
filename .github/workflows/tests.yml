@@ -9,9 +9,17 @@ name: tests
 on:
   push:
     branches: [main]
+  # ready_for_review: a draft skips the Windows job below, so marking it ready has to run it.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   # #309: a run on demand, so "N consecutive green runs" no longer needs N pushes.
   workflow_dispatch:
+
+# Decision 7 (the merge train, #429): a newer push to the same ref cancels the run it supersedes,
+# so a train rebuilt without a red car does not queue behind the run that found it.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -202,6 +210,9 @@ jobs:
   windows:
     name: windows · python ${{ matrix.python }}
     runs-on: windows-latest
+    # Decision 7 (the merge train, #429): the slowest job waits for a PR that is ready for review,
+    # and always runs on a push to main. Builders' cars are tested locally; the train PR is not a draft.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     # The 3.14 leg runs the `slow` marker, which includes the install/update lifecycle: a real venv
     # and a real `pip install` from a `git+file://` clone. Venv creation is the entire cost and it
     # is minutes on a Windows runner -- four venvs blew straight through an 18-minute cap, so the
@@ -264,6 +275,18 @@ jobs:
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
         run: python -m pytest -q -rs -m "not slow and not measured and not scale" --junitxml=junit/windows-pytest.xml
+      # #435: late in the serial step Chromium has failed to fetch a script with
+      # `net::ERR_NO_BUFFER_SPACE` (Winsock WSAENOBUFS). The suspect is the dynamic port range run
+      # dry by sockets held in TIME_WAIT. Print both after the suite, pass or fail, so the next red
+      # run says whether that is it. Diagnostics only: this step never fails the job.
+      - name: sockets after the suite (TIME_WAIT, dynamic ports)
+        if: always()
+        shell: pwsh
+        run: |
+          $waiting = @(netstat -ano -p tcp | Select-String -SimpleMatch 'TIME_WAIT').Count
+          Write-Host "TCP connections in TIME_WAIT: $waiting"
+          netsh int ipv4 show dynamicport tcp
+          exit 0
       - name: the measured and scale tiers, with the machine to themselves
         shell: pwsh
         timeout-minutes: 5

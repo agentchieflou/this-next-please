@@ -84,8 +84,8 @@ export function marks() {
     // done: a green tick in the margin. `is-done` is the fold's word for a finished agent nothing
     // supervises, whose chip says idle (#253, #333); the paper skins key on both.
     { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
-    // stale (#240): the note that the session is old, outlined in dashed pen
-    { selector: ".tile .oldsession:not([hidden])", tool: "pen", shape: "outline", dash: true, pad: 2 },
+    // stale (#240): no mark. The note's own words say it; a dashed outline round it, even at pad 0,
+    // ran over the chip's age above it in a compact pane (#332), and the words come first.
     // a finding: edits outside the scope it was given (#168), ringed in red
     { selector: ".tile .scopereport.outside:not([hidden])", tool: "red", shape: "ellipse", pad: 2 },
   ];

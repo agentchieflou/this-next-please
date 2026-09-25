@@ -23,13 +23,14 @@ Everything is in `agentdata/fleet/static/ink/`. There is no build step and nothi
 | `layer.js` | the canvas, the lanes, marks derived from the DOM, the geometry, the frame loop, and the page's own trace rows (#257) | only when the gate says on **and** a skin sets a table |
 | `shapes.js` | each shape's paths, computed from a box. Pure arithmetic | with `layer.js` |
 | `pen.js` | each tool's physics, the stroke meshes and their shader, the paper, the hand | with `layer.js` |
+| `fx.js` | one-shot effects (#370, epic #293): one group in the scene at `api.order.fx`, the cues that play into it (#372, §Effects), and the helpers a skin reaches as `api.fx`. Imports nothing; handed three.js and the scene by the layer, it reads the page and writes nothing to it | by `layer.js`, only for a table with effects: a skin that exports `cues` or `options.fx`. Once a page, whichever tables follow |
 | `skins/<name>.js` | a skin's module: its mark table and its materials (§Writing a skin). `skins/example.js` is the pattern, used by the tests | when that skin is chosen, by every shell (the fallback draws its marks too) |
 | `../vendor/three/three.module.min.js` | three.js r160, vendored by #247 and pinned by sha256 | with `layer.js`, and never otherwise |
 
 **Every import carries the token.** A module specifier is resolved against the importing file's URL, which does not
 carry the run token, and every route on this server wants it. So no file in `ink/` imports statically. `ink.js`
 imports `layer.js` with `import(q("/static/ink/layer.js"))`, and `layer.js` imports the other two and three.js the
-same way. That is how `probe.js` imports three.js too. Only `ink/ink.js` is in the server's `ASSETS`, because it is
+same way, and `fx.js` when a table has effects. That is how `probe.js` imports three.js too. Only `ink/ink.js` is in the server's `ASSETS`, because it is
 the only one a page names. `layer.js` is the one module on the desk that names three.js, and a test holds it there.
 
 ## `window.Ink`: all that `app.js` sees
@@ -113,7 +114,7 @@ page does not have.
 Ink.setSkin({
   name: "notebook",
   paper: "--bg",          // optional: a colour, or a custom property, drawn behind the marks
-  hand: true,             // optional: the small lit pencil that travels (default true)
+  hand: true,             // optional: true, false or 'chalk': the small lit hand that travels (default true)
   speed: 1,               // optional: the pen's speed, 0.25x to 4x (default 1)
   marks: [
     { selector: ".tile.needs-human .repo", tool: "highlighter", shape: "lines" },
@@ -158,7 +159,7 @@ Shapes are computed from `getBoundingClientRect` in the element's own coordinate
 gutter drag, a scroll or a reorder, moves its marks. Only a pane that changes size, or whose text wraps differently,
 rebuilds them. A box under 90px wide is a pane's 48px rail, so a margin mark goes down its middle.
 
-The margin is the pane's left padding (#330). A `check` or a `bang` row anchors on the pane (`.tile.state-error`,
+The margin is the pane's left padding (#330). A `check`, a `bang` or a `cross` row anchors on the pane (`.tile.state-error`,
 never `.tile.state-error .head`), and `margin()` writes it 14px in from the pane's border box. Under ink, each skin that
 draws gives an open pane a 26px left padding in its own sheet (`var(--ink-margin, 26px)`, keyed
 `body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier]:not([data-tier="rail"])`, the way the legal pad keys
@@ -166,6 +167,26 @@ its 34px; the notebook pads with its gutter), so the green check (to x+25.3) sta
 name. A skin that adds a mark table adds that rule too. It is not keyed on the ink canvas: Chromium 153 left a
 `.tile` rule keyed on `body:has(> #ink[data-skin])` unapplied after the layer set `data-skin` (a pane restyled
 from scratch got 26px; one restyled in place kept 10px). Ink off keeps the 10px padding, and the fallback's bar is drawn inside the pane's 3px border.
+
+**A skin's marks keep inside their pane and off other elements' words (#332).** The layer clips a pane's marks to
+its border box inset 1px (#331), so a row that pads outward is cut away rather than drawn in the gutter:
+
+* An `outline` or `loop` round the pane has a pad of 0 or less, so the stroke and half its width are on the pane:
+  an idle outline -5 (the napkin, the legal pad), an error loop -7 (napkin, legal pad, notebook, farmstead), the
+  stale outline round a pane -8 (napkin, notebook). A test reads every skin's table for it.
+* A mark round something in the head is round that thing, never round the head: farmstead's error loop is round
+  the pane, and a stale outline round `.oldsession` is on the note's own box (pad 0).
+* A compact pane's head wraps the name onto a line of its own, 2px over the number and the chip. A skin that
+  underlines the name gives that head room in its sheet (`row-gap: 8px`, layout, keyed
+  `body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier="compact"] .head`): voxel, farmstead and the legal pad.
+  Glass underlines the chip, not the name, and draws no stale outline: round the note it still ran over the chip's
+  age at 700px, and the note's own words say it.
+
+`tests/test_fleet_ink_bounds.py` holds one look per module at 1400px and 700px, with a blocking question, a running
+turn, an error and a stale done: no stroke more than 2px outside its pane, none outside the viewport, none cut away
+whole by the pane's clip, no `outline`, `loop`, `ellipse`, `check`, `bang`, `arrow` or `divider` on another
+element's words by 6 px² (a loop and an ellipse on their ring, an arrow on its curve), and no `underline` on any word
+but its own. The full sweep, every variant, is #340's.
 
 | Shape | Drawn | Plain fallback |
 | --- | --- | --- |
@@ -175,9 +196,11 @@ from scratch got 26px; one restyled in place kept 10px). Ink off keeps the 10px 
 | `lines` | a highlighter pass along every line the text wraps to, as wide as the line is tall | a tinted background (38% of the ink) |
 | `loop` | one rounded stroke round the box, closed past its start | `outline: 2px solid` |
 | `ellipse` | a loose ellipse, a little more than once round | `outline: 2px solid`, further out |
+| `ring` | a tight O round a small box (a pane's number), 3px out from its longer side, about 1.1 turns, so it never reaches the name 8px beside it (#386) | a rounded 2px ring (`box-shadow: 0 0 0 2px`, `border-radius: 999px`) |
 | `strike` | a line through: across a line of text, corner to corner of a tall box | `text-decoration: line-through` |
 | `check` | a tick in the margin | a bar in the margin |
 | `bang` | an exclamation mark in the margin | a bar in the margin |
+| `cross` | an X in the margin, two 14px strokes, down the middle of a rail (#386) | a bar in the margin, beside a selected pane's focus ring |
 | `arrow` | a curve from the box to its `to` target, with a head | a dotted underline |
 | `write` | the handwriting reveal: the element's **own text** uncovered left to right as the pen moves along it | the text, as it is |
 
@@ -196,6 +219,15 @@ shader.
 | `marker` | 4.6 | felt: bleeds outward the longer it has been down, and pools where the nib stopped | `--human` | a strike |
 | `highlighter` | 18 | ragged ends and streaks, **multiplied** into a light paper and **screened** onto a dark one (a translucent swipe where the skin has no paper) | `--waiting` | a strike along each swipe |
 | `eraser` | 14 | a faint scuff where it passed | the pencil's | — |
+
+**A hand is tinted by its ink.** The hand that travels a stroke is a low-poly model of its tool: the lit pencil
+(turned over to its pink end for the eraser), the pen, the marker, the highlighter. Its body is coloured by the
+tool's own ink at paint time, like the stroke. A table's `hand` is `true` (these), `false` (no hand) or `'chalk'`
+(#387): a short worn stick of chalk in **every** hand, the pencil's, the pen's and the eraser's (flipped, as the
+pencil is), coloured by the pencil's ink (`--ink-pencil`) and never by a hex, so a chalkboard's erasing never brings
+the lit pencil back. Anything else is refused, naming `hand`. A new table's hand is taken up at a lane's next stroke.
+`Ink.inspect().layer.handModel` is the model of the last hand shown (`'chalk'`, `'pencil'`, `'pen:pen'`,
+`'eraser'`, ...), or `''` before one has been.
 
 **A palette colours the inks, and a skin chooses the paper.** Colours are read from the page's custom properties at
 paint time, on `body`, so a skin can override `--ink-pen` and a palette change repaints them. They are never carried
@@ -228,15 +260,18 @@ export function paper({ THREE, scene, camera, tokens, api }) {}     // the stock
 export function frame({ THREE, scene, camera, tokens, api }, el, box) {}   // one pane's frame
 export function tick({ THREE, camera, tokens, api }, dt, now) {}   // per frame; answer true for another
 export function dispose({ THREE, camera, tokens, api }) {}          // the skin is going
+export const cues = [ /* rows: {selector, on: "arrive" | "leave", cue} */ ];      // or a function of the variant
+export function cue({ THREE, scene, camera, tokens, api }, name, el, box, how) {}  // one cue (§Effects)
 ```
 
 | Hook | Called | Its `scene` |
 | --- | --- | --- |
 | `ground` | when the skin arrives, on a resize, on a palette change | the ground group, drawn first (`api.order.ground`, -30), in the back pass |
 | `paper` | the same | the paper group, over the ground (`api.order.paper`, -20), in the back pass. A skin with a `paper` hook replaces the flat `options.paper` |
-| `frame` | for each pane (`.tile[data-repo]`) when it appears and whenever its **size** changes. It is not called for a move: its group is at the pane's top-left and moves with it | that pane's own group; `box` is `{x: 0, y: 0, w, h}`; `el` is the pane, to read and never write. The group is freed when the pane leaves |
+| `frame` | for each pane (`.tile[data-repo]`) when it appears, whenever its **size** changes, and on a palette change (#388). It is not called for a move: its group is at the pane's top-left and moves with it | that pane's own group; `box` is `{x: 0, y: 0, w, h}`; `el` is the pane, to read and never write. The group is freed when the pane leaves |
 | `tick` | on every frame the layer draws, with the seconds since the last. Answer `true` to be given another. Under reduced motion that answer is not honoured | none |
 | `dispose` | when the skin is replaced or the layer stops | none |
+| `cue` | once for each event a row of `cues` names, in the frame after it, at most four a frame; never under reduced motion (§Effects, #372) | the effects group (`api.order.fx`, -5), under every frame and mark; the skin frees what it adds, in `tick` |
 
 What each hook is handed:
 
@@ -247,9 +282,47 @@ What each hook is handed:
   `accent`, `focus`, `running`, `waiting`, `human`, `done` and `idle`, each as `[r, g, b]` in 0–1 sRGB. It also holds
   `inks` (tool → `[r, g, b]`), `dark`, and `css(name)` for any other custom property.
 * **`api`** gives `viewport` (`{w, h, dpr}`), `reduced`, `dark` and `renderer`, and `order` (`{ground: -30, paper:
-  -20, frame: -10}`, all under every mark). It also gives `panes()` (`[{el, repo, box}]` where the panes are now) and
-  `request()` (draw another frame). With `sampleGround`, `groundTexture` and `groundSize` let a frosted pane read
+  -20, frame: -10, fx: -5}`, all under every mark). `api.fx` is `fx.js`'s helpers once a table with effects has it
+  attached, and null otherwise (#375 and #376 fill it). It also gives `panes()` (`[{el, repo, box}]` where the panes are now),
+  `request()` (draw another frame) and `stroke()` (below). With `sampleGround`, `groundTexture` and `groundSize` let a frosted pane read
   what is behind it at `gl_FragCoord.xy / groundSize`.
+
+**A material drawn with a tool's stroke (#388).** `api.stroke(group, path, tool, opts)` draws a skin's own piece
+(goalposts, a ball, a scorch) stroke by stroke with a tool's physics and shader, the ones the marks beside it are
+drawn with, rather than a flat quad of its own:
+
+| Argument | Is |
+| --- | --- |
+| `group` | a group a hook was handed (a pane's `frame` group, the `paper` or the `ground` group), or one the skin added under it |
+| `path` | a `shapes.js` path, `{pts, smooth?, w?, nobow?, wob?}`, in `group`'s coordinates, y down |
+| `tool` | the tool whose width, grain, wobble and taper lay it down: one of `Ink.tools` |
+| `opts` | `{ink?, seed?, tune?, dash?}`: `ink` the tool whose colour it is drawn in, as a row's `ink` (one of `Ink.tools`), `seed` its wobble (default 1), `tune` the tool's numbers for this stroke (as a table's `tools`), `dash` a dashed stroke |
+
+A `tool` or an `ink` that is no tool throws a `TypeError` naming it, which the hook's call reports as the skin's error
+(rule 8). The stroke starts at head 0, and `stroke()` answers a frozen handle: `len` in px, `dead`, `head(px)` (drawn
+that far), `erase(px)` (taken up that far), `done(bool)`, and `dispose()`, which may be called twice. **Nothing ticks
+by itself**: the skin advances `head` in `tick`, answers `true` only while something advances, and under `api.reduced`
+sets `head(len)` at once. A material stroke has no hand, and is never faded: it arrives by `head` and leaves by `erase`
+or with its group.
+
+**It lives as long as its group.** A resize, a palette change or the skin leaving empties every group a hook was
+handed, and every material stroke in it dies there: its handle says `dead: true` and touches nothing freed. The layer
+never recolours one in place. The skin draws it again in its next `ground`, `paper` or `frame` call, in the ink the
+page has then. `Ink.inspect().layer.skin.strokes` is how many are alive. A post drawn down each pane's right edge:
+
+```js
+let posts = [];                                            // what `tick` is still drawing
+export function frame({ scene, api }, el, box) {           // a new pane, a new size or a new palette
+  const h = api.stroke(scene, { pts: [[box.w - 30, 12], [box.w - 30, 60]], nobow: true }, "pencil", { ink: "pen" });
+  posts.push({ h, at: 0 });
+  api.request();                                           // a frame, so that `tick` starts drawing it
+}
+export function tick({ api }, dt) {
+  posts = posts.filter(p => !p.h.dead && p.at < p.h.len); // drawn, or gone with its group
+  for (const p of posts) p.h.head(p.at = api.reduced ? p.h.len : Math.min(p.h.len, p.at + 900 * dt));
+  return posts.some(p => p.at < p.h.len);
+}
+```
 
 **The rules a skin keeps.**
 
@@ -260,11 +333,17 @@ What each hook is handed:
 3. **Colours come from `tokens`, and never from a hex written in the module.** A palette change calls `ground` and
    `paper` again and rebuilds every frame. Inks come from `--ink-<tool>`, which the skin's `skin.css` may set.
 4. **Every call to `ground`, `paper` or `frame` starts with an empty scene.** The layer frees the geometry and the
-   materials that were in it. Keep module-level references only for `tick`, and free anything else in `dispose`, such
-   as a render target or a texture.
+   materials that were in it, and a material stroke in it is dead (#388). Keep module-level references only for
+   `tick`, and free anything else in `dispose`, such as a render target or a texture.
 5. **Put the pieces under the marks**, with `api.order`. A mark is drawn at order 0 and above.
+   What `fx: -5` really means: three.js r160 sorts first by the innermost Group's `renderOrder`, and each pane's own
+   frame group (`framePanes`) keeps 0. So the effects group draws over the back pass (ground, paper) and under every
+   pane's frame and every mark, whatever `api.order.frame` says. Within one list three.js draws every opaque object
+   before any transparent one, so effect materials are `transparent: true`, like the skins' own. An effect that must
+   sit on a pane's frame goes into that pane's frame group.
 6. **Drawn, never faded** (ground rule 1). A skin animates its materials, never its marks. Under reduced motion,
-   `tick` gets no loop of its own.
+   `tick` gets no loop of its own. A cue's effect ends by moving, shrinking or being covered, never by a fade
+   (§Effects).
 7. **The fallback is the page's.** The marks draw plain by themselves, and under `body.ink-off` every skin is the
    one plain look (§What a skin's stylesheet holds). Where the skin draws, the page stands aside for it by itself:
    `app.css` clears the panes, the header, the footer and the cards once a canvas with a table is on the page.
@@ -367,7 +446,11 @@ consolidates):
 
 * *The running pen.* When a pane turns `state-running` and the layer has finished its underline, a
   tail runs on from the underline's end, one 6px step for each transcript line the turn writes (up
-  to 132px), with the pen-tip dot at its end. When the pane leaves `state-running` the tail is
+  to 132px), with the pen-tip dot at its end. It is at the underline's own height, which the layer
+  places (#331: 2px under the tallest box on the name's line, never lower than 3.4px over the next
+  row), so it passes under the chip, not through it, and it stops where the layer stops a line that
+  grows, 14px short of the pane's right edge (#332). `inspect().panes[].tailBox` is the tail and its
+  dot on the viewport. When the pane leaves `state-running` the tail is
   struck in pen, like the underline beside it. One struck tail is kept, until the next turn.
 * *The header count.* When `#bellcount` changes, the old number is kept where it stood, beside the
   new one, drawn as a hand writes digits, and struck through in pen. The bell has room for it
@@ -443,6 +526,25 @@ decoration out of the CSS skins, every pane shows the paper.
 `Ink.inspect().layer.series` holds each trace mark, with its lane, tool, shape, state, how much is drawn, and the data
 it was drawn from, apart from the skin's `marks`.
 
+**The header's layer and the strips (#337).** Every skin that draws does two more things for the page, each in its
+own sheet, keyed `body[data-skin="<skin>"]:not(.ink-off)`:
+
+```css
+body[data-skin="<skin>"]:not(.ink-off) header { will-change: transform; }
+body[data-skin="<skin>"]:not(.ink-off) :is(.renew-strip, .away-strip) { background: transparent; box-shadow: none; }
+```
+
+- **The header gets its own compositor layer.** Without it, while the renew strip showed, Chromium composited the
+  canvas with a band missing across the foot of the panes: the strip's rectangle mirrored, at about y 787-858 at
+  1400x900. The drawing buffer read back whole. Farmstead had this fix first, for itself.
+- **The renew and away strips stand aside for the canvas**, like the panes. Opaque, they sat as panels over the
+  drawing. Each keeps its `border-bottom`, so it is still a strip.
+
+These rules are in the skins' sheets, not in `app.css` on `body:has(> #ink[data-skin])`. Chromium 153 did not
+re-apply a rule keyed that way to the page when it started matching late (#441, §Shapes). A skin that adds a mark
+table adds both rules. `tests/test_fleet_ink_band.py` compares the foot of the panes with the canvas alone. It uses
+a full-viewport screenshot, because a clipped screenshot was composited whole even while the screen showed the band.
+
 **The one 2D context left is three.js's own.** `WebGLRenderer` asks a 1×1 `OffscreenCanvas` for one as it starts, to
 learn whether it could resize a texture off the page. It never draws with it, and the vendored file is pinned by its
 sha256. `tests/test_fleet_trace.py` holds the page to exactly that, at run time, and scans `static/` (minus
@@ -456,7 +558,7 @@ stylesheet of every skin that ships a module and refuses the rest:
 
 | A declaration | Allowed |
 | --- | --- |
-| a custom property (`--paper`, `--ink-pen`, `--glass-mesh-1`…): the colours and numbers the module reads | anywhere, **except** the palette's own thirteen tokens (`--bg`, `--panel`, `--text`…): a skin never recolours the palette, which it shares with the terminal |
+| a custom property (`--paper`, `--ink-pen`, `--glass-mesh-1`…): the colours and numbers the module reads | anywhere, **except** the palette's own twenty-three tokens (`--bg`, `--panel`, `--text`…): a skin never recolours the palette, which it shares with the terminal |
 | layout (`display`, `padding`, `margin`, `gap`, `width`, `flex`…) and typography (`font-*`, `line-height`, `letter-spacing`, `text-*`…) | anywhere |
 | anything else: a background, a border, a shadow, a radius, a filter, an opacity, a colour | only where the skin's ink is on the page (a selector with `:not(.ink-off)`), and only to clear the page for the canvas or to name a token: `transparent`, `none`, `0` or `var(--…)`. Never a literal colour, never a `url()` |
 
@@ -503,7 +605,78 @@ written, and only while it is written. The element is covered from the moment it
 then uncovered, then left with no style at all. An erased pencil note is covered again. A table that is taken away, or
 a layer that stops, takes back every clip it wrote.
 
+## Effects (#372)
+
+A skin can play a one-shot effect when something arrives on the desk or leaves it, and is handed the box the element
+last had. It is one table for every skin, and like the marks it comes from the page: `fx.js` matches it with the table,
+on the frame after the page changed, and nothing in `app.js` pushes a cue.
+
+**The table.** A skin exports `cues`, an array or a function of the variant, and the hook that plays them:
+
+```js
+export const cues = [
+  { selector: "#grid > .tile:not(.is-hidden)", on: "leave", cue: "example-leave" },   // a pane hidden or removed
+  { selector: ".tile .transcript li.denied", on: "arrive", cue: "example-line" },     // a refusal, as it happens
+];
+export function cue({ THREE, scene, tokens, api }, name, el, box, how) {}
+```
+
+| Argument | Is |
+| --- | --- |
+| `name` | the row's `cue` |
+| `el` | the element, to read and never write. For a leave it may have left the page |
+| `box` | `{x, y, w, h}` in viewport CSS px: where the element is, for `arrive`; the last non-empty box it had, for `leave` |
+| `how` | `"arrived"`, `"unmatched"` (still on the page, no longer matching) or `"removed"` (gone from the page) |
+| `scene` (in the context) | the effects group at `api.order.fx` (-5): over the ground and the paper, under every pane's frame and every mark (§Writing a skin, rule 5). Its materials are `transparent: true`. An effect on a frame goes in that pane's frame group |
+
+The skin frees what it adds, from `tick`, which answers `true` while an effect plays. `skins/example.js` has three
+rows (the two above and `.tile.ink-cue`, a class only the tests set); its `cue` adds one quad in the palette's accent
+that shrinks away over 20 frames, and its `inspect()` lists every cue it was handed.
+
+**Checks, when the table is set.** At most 16 rows. Each selector parses, `on` is `arrive` or `leave`, `cue` is a name
+(`/^[a-z][a-z0-9-]{0,23}$/`), and every `[attribute]` a selector names is one the layer observes: `class`, `id`,
+`hidden`, `data-tier`, `data-skin`, `data-skin-variant`, `open`, and whatever the table's mark rows name. A cue on any
+other attribute would never be matched when it changed. One bad row refuses the whole cue table, naming the row, as
+`ink: cue 2 (#x): ...` in the console and in `Ink.inspect().layer.fx.refused`. The marks draw on: a module fetched
+lazily cannot throw from `Ink.setSkin`.
+
+**A cue is news, never history.** Nothing is cued:
+
+* on a table's first match: what the page already showed is not an event (nor is anything on a reload);
+* while `body.is-stale` or `body.is-replaying` (#371) is set, nor on the first match after either. `fx.js` reads the
+  body once a frame, which would miss a replay said and unsaid between two frames, so it also observes `<body>`'s
+  `class` with `attributeOldValue` and takes the records' word for it. That observer reads; it writes nothing;
+* for an arrival inside a pane that only just arrived: a pane that arrives already matching cues nothing;
+* without a skin, or under reduced motion (§Reduced motion). Nothing is queued then at all.
+
+**The one-frame box.** The layer measures after it matches, so a hide still finds the box its pane had: `.is-hidden`
+is `display: none` in the click's own task (app.css), and the ResizeObserver's next look sees the pane at 0x0. Each
+time the marks are measured, `fx.js` measures its leave rows' matches again (never its arrive rows'); an empty measure
+keeps the last box and stamps the frame. A box stamped more than one frame ago counts as empty. That matters for
+`.tile.is-grouped`, which is `display: none` and still matches `:not(.is-hidden)`: hidden later, it has been 0x0 for
+frames, so it cues nothing. Skins play nothing for `is-grouped`.
+
+**Caps.** At most 16 cues wait (another is counted in `dropped`), at most 4 are delivered a frame, and the layer is
+asked for another frame while more wait or a piece is still in the effects group. A piece older than 90 frames (1.5 s
+at 60 Hz) is taken out, freed and counted in `reaped`. That is a safety net; no shipped skin relies on it.
+
+**`Ink.inspect().layer.fx`** is `{loaded, rows, delivered, queued, dropped, armed, reaped, zero, children, refused}`:
+`armed` says the next match may cue, `zero` counts leave-row matches whose box is stamped empty, and `children` counts
+the effects group's pieces, none on an idle desk.
+
+**The rule.** A cue is decoration. It never shows a state the page does not have, ends by moving, shrinking or being
+covered and never by an alpha fade, draws nothing under reduced motion, and leaves an idle desk at zero frames. Its
+durations are counted in frames and live in the skin module, under the canvas's ceiling
+([desk-motion.md](desk-motion.md) §Effects on the canvas).
+
 ## Following the page
+
+**The page arrives skinned and `ink-off` (#345).** The server writes the chosen skin on `<body>` (`data-skin`,
+`data-skin-variant`) and, on a skinned page, `class="ink-off"`: the plain, legible look, because a skin's band text is
+keyed on `:not(.ink-off)` and would be read against nothing until the canvas draws. ink.js keeps it where the gate is
+off, and where the gate is on it removes it in the same task in which the layer first sets `#ink[data-skin]` (the key
+app.css clears the panes on); `turnOff()` puts it back. The palette is on the first frame and the ink ground follows
+when the layer draws.
 
 The canvas is `position: fixed`, the size of the viewport, `z-index: -1` (behind the page, in front of the
 stylesheet's own ground), with `pointer-events: none` and `aria-hidden`. It is the only canvas on the desk, and it is
@@ -518,7 +691,7 @@ on the page for as long as the layer runs.
 | any of these, in a pane | a mark in a pane's lane is also clipped to the pane's border box, inset 1px, where the other clips are taken: no mark is drawn past its pane, whatever its shape or `pad` says. The header's lane keeps the viewport. It is a safety net; the shapes keep their own geometry inside (#331) |
 | a reorder (FLIP) or any transition | `transitionrun`/`animationstart` follows every frame for 400ms (`--motion-slow` and a margin) |
 | fonts arriving | re-measures, because the text wrapped |
-| the palette or the colour scheme | reads the inks again and repaints |
+| the palette or the colour scheme | reads the inks again and repaints, and a skin's ground, paper and frames are made again (#388) |
 
 **A frame with nothing new draws nothing.** An idle desk with ink on it is still zero DOM mutations and zero WebGL
 frames.
@@ -538,12 +711,34 @@ nothing to the page to do it. It is one look shared by every skin, a degraded mo
 second one (see the shapes table). An engine without constructed stylesheets gets one `<style data-ink="plain">` in the
 head instead.
 
+## Loading (#349)
+
+The modules used to arrive as a waterfall that began only once the page had run: ink.js imported the skin module, then
+(with the gate on) `layer.js`, which imported three.js, `shapes.js` and `pen.js`. Going settings → desk with three
+panes, `layer.js` was requested at 139 ms, three.js at 241 ms, and the first ink frame came at 344-423 ms.
+
+The served desk now names them itself. `serve.ink_preload` adds a `<link rel="modulepreload">` to `/` (never to
+/settings or /probe) when the served skin's family is in `ink_skins()`:
+
+| Gate (`serve.ink_gate_on`, ink.js's precedence) | Preloaded |
+| --- | --- |
+| off: no probe, a probe that is not hardware, or `?ink=off` | `ink/skins/<name>.js`, which every shell imports, because the plain fallback draws its table too |
+| on: `?ink=on`, or a hardware probe | that, and `ink/layer.js`, `ink/shapes.js`, `ink/pen.js`, `vendor/three/three.module.min.js` |
+
+Each href is `/static/<path>?t=<token>`, the URL `q()` builds, so the module map dedupes and each module is still
+fetched once. The links go ahead of the skin's stylesheet, which stays the last thing in `<head>` (#345), and the set
+is in the gzip cache key. No ink module changed, so `INK_BUDGET` is untouched. Locally (Chromium 153, SwiftShader,
+two panes, `voxel:nether`) every module is requested at about 16 ms, before `DOMContentLoaded`, and the first ink
+frame came at 185 ms against 412 ms without the preload (`tests/test_fleet_ink_preload.py` prints it; CI has no
+bound, because it renders in software).
+
 ## Budgets
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (41,958 bytes gzipped, LF, #385) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
-| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385. Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
+| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (43,848 bytes gzipped, LF, #388) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 3 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
+| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385, 42,557 B at #370 (the effects seam), 42,847 B at #386 (`ring` and `cross`), 43,171 B at #387 (the chalk hand), 43,848 B at #388 (`api.stroke`, 626 B of it; 51 B are #332's underline floor). Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
+| `FX_BUDGET` | `fx.js`, lazily fetched, measured the same way, under 8 KiB (8,192 B): 1,089 B at #370, the seam alone; 3,694 B at #372 (the cues). Every later effects card (#374-#376) writes `fx.js` only, under it, and none raises `INK_BUDGET` | `test_fleet_ink.py` |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |
@@ -553,7 +748,8 @@ Real-GPU frame times come from the probe on the laptop ([desk-engines.md](desk-e
 ## Reduced motion
 
 `prefers-reduced-motion: reduce` draws every mark at once, erases and strikes at once, and shows no hand. The layer
-reads it on every frame, so changing it takes effect without a reload.
+reads it on every frame, so changing it takes effect without a reload. It plays no effect: `fx.js` queues no cue while
+it holds (§Effects), so the end state is simply the page as it now is.
 
 ## `theme.check`, and ink on paper
 
@@ -562,6 +758,12 @@ panel. Every ink is a mark on the paper, so it needs **3:1** against it (WCAG 1.
 highlighter is read *through*, so the text needs **4.5:1** on its tint (`theme.INK_TINT`, the plain fallback's 38%).
 Rule 6 (#325) holds secondary text (`--muted`) to **4.5:1** on the target ground or composited panel, with a hint
 naming the skin and both colours if refused.
+Rule 8 (#328) holds a word written in a state colour (`--<role>-text`) to **4.5:1** on the target ground and on each of
+`panels`, the composited panels the palette is drawn on; the marks keep the state colour itself at rule 2's 3:1.
+Rule 9 (#328), **pressed ground**, holds `--text` to **4.5:1** on `--select`, the ground a pressed control writes its
+word on, for the palette alone (a project's accent paints only the pane's left edge). A pressed control's ring is not
+gated: `--accent` on `--panel` or `--select` falls under 2.5:1 on random rolls, and the ring is a second mark beside
+the word, which carries the state.
 `tests/test_fleet_skins.py` passes each variant's `inks`. No variant declares any in B, so this is the hook the paper
 skins (#249–#253) fill in, with the composited-pane pairs of the three.js skins after them.
 
@@ -578,7 +780,10 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phas
 
 * **Payload:** three.js is fetched from the vendored copy with the token, once, and only when the gate is on and a
   table is set. There is one canvas.
-* **Surface:** `window.Ink` is the whole surface, and a table it cannot draw is refused, naming the row.
+* **Surface:** `window.Ink` is the whole surface, and a table it cannot draw is refused, naming the row (or
+  `hand`).
+* **The hand:** `hand: 'chalk'` is a stick of chalk while a pencil and a pen draw and while the eraser takes the
+  pencil up; `hand: true` is the pencil, the pen and the eraser end as before; no hand under reduced motion.
 * **Marks:** a mark is drawn when its class appears, and erased or struck when it goes.
 * **Lanes:** two panes draw at once, and one pane's marks never interleave.
 * **Following:** marks follow a gutter drag in the frame that moves the panes, with no DOM write from the layer, and
@@ -590,8 +795,29 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phas
 * **Skins:** a skin module is fetched with the token when the config chooses it. Its marks are drawn per variant,
   in ink or plain, and its ground, paper and frames run. A hook that throws is the skin's own problem, and
   `sampleGround` hands frames the ground as a texture.
+* **Materials:** `api.stroke` draws a skin's material with a tool's stroke in another tool's ink, from head 0 and
+  whole once the skin's `tick` has advanced it; it dies with its group on a palette change and a resize and is drawn
+  again, the live strokes do not grow, replacing the skin frees its geometries, and an idle desk stays idle (#388).
 * **At rest:** the desk with no skin using ink is unchanged, and so is an idle desk with ink on it.
 * **Budgets:** catch-up is counted in frames, and a gesture keeps its budget while the ink draws.
+
+`tests/test_fleet_ink_fx.py` covers the effects seam (#370): `fx.js` is never fetched for a table without `fx`,
+fetched once with the token for one with it (not again when that table is set twice), leaves nothing attached after
+a table without `fx`, `Ink.setSkin(null)` or `Ink.off()`, and an idle desk with it attached writes nothing and draws
+nothing. The budgets and the listing of `static/ink/` (`MODULES`, `LAZY`) are in `test_fleet_ink.py`.
+
+It also covers the cues (#372), through the real desk with the example skin chosen by the config: nothing on the first
+match; a grouped pane hidden later cues nothing; a hide cues its leave row once, within 1px of the box the pane had
+before the click; a removed pane cues `removed`; an arrival cues once per new match and nothing is written to the page
+while it plays; a pane that arrives already matching, a forced replay and a replay said and unsaid inside one task cue
+nothing; a live refusal cues exactly one; the idle loop after them all writes nothing, draws nothing and delivers
+nothing; a bad row refuses its table while the marks draw on; reduced motion queues nothing; `?ink=off` fetches
+nothing. **Cues stay disarmed until the stream's first pass has been drawn**, which `_open` does not wait for, so a
+cue test calls `_armed(page)` after opening and after every reload: it waits on `ARMED`, `l.fx.armed` and no
+`body.is-replaying`.
+
+`tests/test_fleet_ink_bounds.py` covers where a skin's own marks land: inside their pane and off other elements'
+words, on one look per module at 1400px and 700px, and every pane outline and loop padded inside it (#332).
 
 `tests/test_fleet_trace.py` covers the page's own drawing: the trace drawn in its pane's lane from its series and
 following its data, glass's ground drawn by the layer and still under reduced motion, the fallback's SVG and

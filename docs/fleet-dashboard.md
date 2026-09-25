@@ -156,7 +156,10 @@ skins, and which of them is `current`, because a page that can only fill the pic
 them opens reading *system · no skin* over whatever the config says — which it did, on every
 window, until #195. The settings page carries its own EventSource for the `theme` frame alone, so a
 palette set by `ad-theme` in a terminal, or on the desk in another window, repaints it instead of
-leaving its pickers quietly lying. The footer keeps the two things that change — the counts and
+leaving its pickers quietly lying. `current` is the stream's own `theme` payload, css and all, and
+`POST /api/theme` answers with the same, so the pickers paint first and post second: a pick is worn
+in the task that made it, the answer reconciles it, and a refusal puts the previous one back (#346).
+The footer keeps the two things that change — the counts and
 the notice — and a `?` button (or the `?` key) opens the key map in four short columns. A cell that
 fails to poll goes **grey with the error in a tooltip**, never wrong; a link with no fact behind it
 is absent, never broken.
@@ -394,6 +397,7 @@ red everywhere or the colour stops being information:
 | `a` | approve the open agent's pending write |
 | `b` | the sidebar's Jira board |
 | `n` | the sidebar's alerts |
+| `g` | the map (`/map`), in the window the desk is in: `w`, `shell` and `ink` kept, as the toolbar's `map` link does (#407) |
 | `Alt`+`←` / `Alt`+`→` | move the focused pane one slot |
 | `Alt`+`Shift`+`←` / `Alt`+`Shift`+`→` | the gutter on the focused pane's right, one step (#234) |
 | `Alt`+`Home` | pin the focused pane first |
@@ -441,8 +445,9 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 
 | Method | Path | What |
 | --- | --- | --- |
-| GET | `/` | the desk. Its `<body>` carries `data-ink-shell`, `data-ink-probe` and `data-ink-skins` (the skins that ship an ink module): the window's shell (`shell=`, else `w=`, else `browser`) and the class its `/probe` record has, or `unmeasured` — the ink layer's gate ([desk-ink.md](desk-ink.md)). `?ink=on` forces the layer on for tests; `?ink=off` forces the plain fallback |
-| GET | `/settings` | the settings page: appearance, the model per agent, the Copilot launch settings |
+| GET | `/` | the desk. Its `<body>` carries `data-ink-shell`, `data-ink-probe` and `data-ink-skins` (the skins that ship an ink module), last: the window's shell (`shell=`, else `w=`, else `browser`) and the class its `/probe` record has, or `unmeasured` — the ink layer's gate ([desk-ink.md](desk-ink.md)). `?ink=on` forces the layer on for tests; `?ink=off` forces the plain fallback. Like `/settings` it is served wearing the theme (#345): `<html data-theme="custom" style="--bg:…">` for a palette, `data-tiers="rail compact full slack"` with `--rail`/`--compact-from` for widths off the defaults (the desk only), the skin's `<link data-skin>` and `<body class="ink-off" data-skin data-skin-variant>` for a skin. With none of them the page is the file as it was. For a skin that draws with ink, its `<head>` also carries `<link rel="modulepreload">` for `ink/skins/<name>.js`, and where the gate is on for `ink/layer.js`, `ink/shapes.js`, `ink/pen.js` and three.js, ahead of the skin's stylesheet (#349, [desk-ink.md](desk-ink.md) §Loading) |
+| GET | `/settings` | the settings page: appearance, the model per agent, the Copilot launch settings. Served wearing the palette and skin, as `/` is |
+| GET | `/map` | the fleet map (#405, [fleet-map.md](fleet-map.md) §The page): the fleet as an accessible tree, drawn from `GET /api/map`. Served wearing the palette and skin, as `/settings` is, and its `<body class="ink-off">` carries the desk's `data-ink-shell`, `data-ink-probe` and `data-ink-skins` for the scene (#409); it keeps `ink-off` for its whole life |
 | GET | `/probe` | the WebGL probe (#247): three seconds of three.js strokes in whatever shell opened it, posted once to `/api/probe` ([desk-engines.md](desk-engines.md) §WebGL, probed in each shell). The desk loads three.js too, but only through the ink layer, only when this gate says on, and only once a skin draws |
 | GET | `/static/…` | the pages' assets: `app.css`, `common.js`, `app.js`, `settings.js`, `probe.js`, the ink layer's `ink/ink.js` (and, imported by it with the token, `ink/layer.js`, `ink/shapes.js`, `ink/pen.js` and the chosen skin's `ink/skins/<name>.js`), and the vendored `vendor/three/three.module.min.js` (r160, MIT) |
 | POST | `/api/probe` | `{shell, ua, webgl, renderer, vendor, caveat, three, intervals, first_stroke_ms, load_ms, drawn, error}` — facts only; one record per shell in `~/.agentdata/fleet/probes.json`, answered with the class and the WebGL cell `probe.classify` gives it. `409 probe_shell` / `probe_shape` for a record it cannot read. A probe that did not finish (`incomplete`) is kept as the shell's latest attempt and answered `kept: true` when a finished record stands |
@@ -452,11 +457,13 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/fleet` | every repo's state, its model and the one its last turn ran on, the recent events, and the pending approvals. A row's `run` is its current run without its events (`n`, `started`, `session`, `ticket`, `events_n`, …) and `run.origin`, who started it: `console`, `adopted`, `fleet`, or `""` before any `started` event (#401) |
 | GET | `/api/map` | the fleet as one graph (#401): projects, the checkouts that hang from them, and each checkout's agent with its kind (`console`, `adopted`, `headless`, `adoptable`, `none`), each with a sentence. Read-only; schema 1 in [fleet-map.md](fleet-map.md) §The graph |
 | POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
-| GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent |
-| GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195) |
+| GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent; `?frames=theme` sends no agent frames (the settings page, #348); `?notify=0` runs no notification sweep, and neither does `?frames=theme` (#356, §The stream) |
+| GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195), as the stream's `theme` payload with its css (#346) |
 | GET | `/api/settings` | the editable keys with their type, default and effect-scope; what each is set to; the model per repository; the resolved tool lists |
 | POST | `/api/settings` | write an enumerated key, a per-repo model, or the fleet-wide default |
-| POST | `/api/theme` | set the palette or the skin |
+| GET | `/api/models` | the model list a picker offers (#361): `{refreshing, models, groups, efforts, meta}`, the catalogue of [fleet.md](fleet.md) §The rules with the ids the last turns ran on. Read from `<fleet dir>/models.json`, else the list shipped with the package with `meta.source: "shipped"` and `meta.stale: true`; it never starts the Copilot CLI |
+| POST | `/api/models` | `{refresh: true}` asks the CLI again on a thread and answers `{refreshing: true, started}` at once; an ask while a refresh runs joins it (`started: false`). A changed list reaches the pages as a `models` frame (§The stream). Not a row action |
+| POST | `/api/theme` | set the palette or the skin; answers with the stream's `theme` payload, css included (#346) |
 | GET | `/api/board` | your Jira tickets, and which repo each one belongs to |
 | GET | `/api/history` | what was dispatched, how it ended, what it cost |
 | GET | `/api/notifications` | what has been announced |
@@ -503,6 +510,27 @@ and its own, so a shared cursor would replay one stream and skip another.
 
 A `polls` event names a checkout whose cells changed with no agent event to say so — the git cell
 never has one (#184) — and the page re-reads `/api/fleet`, the snapshot it draws cells from.
+
+A `theme` event carries the palette, the skin and the tiers whenever config.json changes (#348). A
+write this server made (`POST /api/theme`, `POST /api/settings`) wakes every open stream, and the
+frame goes out at the top of the next pass, ahead of the polls, the fold and the agents' reads. A
+write made elsewhere (`ad-theme set` in a terminal) arrives on the next tick, by the file's mtime.
+The in-process writers share one lock, `config.LOCK`, so two at once lose nothing. `?frames=theme`
+is the same stream without the agent backlog: the settings page listens for this one frame.
+
+A `models` event (#361) is `{version, fetched_at}`: the model list changed, and a page that shows
+it fetches `GET /api/models` again. The stream looks at `<fleet dir>/models.json` the way it looks
+at config.json, by its mtime, and then compares a digest of the ids, whether each is offered, and
+the efforts with the one it last sent: a refresh that found the same list sends nothing. A new
+stream records the list without a frame, since a page fetches it when it loads. The list is never
+carried inside another frame, and no frame goes out on a tick where nothing changed.
+
+A `notify` event is a notification the sweep found (#97). **Only a desk's stream sweeps** (#356).
+`notify.sweep` advances one shared cursor and hands what it found to whichever stream swept first,
+so a stream that does not draw `notify` frames -- `?notify=0` (the fleet map's), or `?frames=theme`
+(the settings page's) -- would take the desk's bell and chime and drop them. Those two skip the
+sweep entirely. With only a map or a settings window open, nothing sweeps, as when no window is
+open; the next desk stream announces what accumulated, dedupe and cooldown applying.
 
 A `tick` event goes out at least every 15 seconds. It is not decoration: a proxy that sees no bytes
 for a minute closes the connection, and the tiles then stop updating with nothing anywhere saying

@@ -43,6 +43,8 @@ installed). A launcher treats `current: false`, or a desk too old to say either,
 `/open?page=probe` lands on the WebGL probe (#247) rather than the desk, with the rest of the query
 string carried over — `http://127.0.0.1:8765/open?page=probe&w=vscode` is the address to paste into
 Simple Browser to measure it. Only a page the server serves; any other `page=` is the desk.
+`/open?page=map&w=pycharm` lands on the fleet map (#405, [fleet-map.md](fleet-map.md) §The page), the tree
+a tool window 400-600 px wide reads well; Enter on a checkout there opens it on that window's desk.
 
 ## VS Code
 
@@ -161,6 +163,16 @@ it takes no shell-quoted arguments and touches no shell-specific path. Running i
 open the dashboard twice — `/api/ping` is checked first, and an already-running server is reused
 when it is current, and replaced when it says it is not (#242).
 
+**A third host, experimental: the desktop window (#353).** `ide/desktop/fleet_window.py` hosts the
+desk as `w=desktop` in a WebView2 window (Edge's engine) with no browser tab. It is the spike
+instrument for #354, which measures it against Edge `--app` on the laptop. It is unsigned,
+unpackaged and outside the wheel, and it runs only by its own command,
+`python ide/desktop/fleet_window.py` (`--probe` hosts the WebGL probe as shell `desktop`); no
+`ad-fleet` verb launches it. pywebview is its only dependency, never the wheel's:
+[ide/desktop/README.md](../ide/desktop/README.md) says how to install it beside `agentdata`. Whether
+an unsigned Python GUI may run on a managed laptop is for its IT policy to answer, first thing at the
+#354 sitting, and the window becomes the default only if #354 records GO.
+
 ## What a shell must do (#100)
 
 Two thin shells now exist — `ide/jetbrains/` (a JCEF tool window) and `ide/vscode/` (a webview) —
@@ -178,7 +190,8 @@ new server work.
    detached: closing the IDE must not take the dashboard down, because the other shells are
    attached to the same server.
 4. **Host the URL** in whatever embedded browser the host has, with `&w=<host>` on it (`pycharm`,
-   `vscode`). Nothing else. The page is the UI. The `w` names this host's own window record on the
+   `vscode`, and `desktop` for the spike's desktop window, #353). Nothing else. The page is the UI.
+   The `w` names this host's own window record on the
    desk (#230): without it every window shares `main`, and the tool window and a browser tab
    followed each other's clicks. Every link the pages build keeps the host's `w`, `shell` and
    `ink` (`pageUrl` in `common.js`), so a trip to /settings and back is the same window. Add the

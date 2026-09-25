@@ -33,6 +33,44 @@ which stays as it was in the terminal):
 `theme.check` rule 6 refuses a palette whose `--muted` falls under 4.5:1 on the ground or skin paper it is checked
 against, and names the skin and both colours.
 
+### The word on a state colour (`--on-*`)
+
+A chip, a badge, a ticket's status and a rail's glyph write their word on a state colour (`--running`,
+`--waiting`, `--human`, `--done`, `--idle`). The state colours are shared with the terminal and never change, so the
+word's colour is chosen instead (#327): `theme.to_css` adds `--on-running`, `--on-waiting`, `--on-human`, `--on-done`
+and `--on-idle`, each the first of `--text`, `--bg`, `#FFFFFF` and `#111111` that reads at 4.5:1 on its state colour,
+or, if none does, the one that reads best. The `none` palette's values are written in `app.css :root` by the same
+rule; white on its `--done` is 3.57:1, so none of them is white. A chip's age is lighter by weight, never faded.
+The group glyph sits on `--muted` and writes in `--panel`, as the unsupervised chip does (rule 6 holds that pair).
+
+`theme.check` rule 7 refuses a palette whose `--on-<role>` falls under 4.5:1 on its state colour, and names both.
+A skin reads the five tokens and never sets them (`tests/test_fleet_skin_guard.py`).
+
+### A word in a state colour (`-text`)
+
+A word written *in* a state colour is text: the why line of a pane that errored or needs you, the transcript's
+"exit 2", the question card's "it asked you:", a board cell's warning, farmstead's clear chips. Text reads at 4.5:1
+(WCAG 1.4.3). The state colours are held to 3:1 (rule 2), the floor for a mark (WCAG 1.4.11), and they stay on
+every border, outline, underline and disc, which are marks: a ring that changed colour because a word sits inside it
+would be one more thing to translate. So the word gets its own colour (#328): `theme.to_css` adds `--running-text`,
+`--waiting-text`, `--human-text`, `--done-text` and `--idle-text`. Each is the state colour itself where that
+already reads at 4.5:1 on `--bg`, `--panel`, `--select` and every composited panel of every skin variant drawn on the
+palette (`skins.panels_on`); otherwise it is the state moved toward `--text` in steps of 0.02 until it does
+(`theme.role_text`), and `--text` itself if no step does. The server passes the panels, so a palette is served one
+set of tokens, the same under every skin drawn on it. The move can be long where a ground is far from the text:
+matrix's `--human` reads 3.87:1 on its green `--select`, and its word is `#9A995C`.
+
+`app.css` writes every such word in its token, and a static test scans it and every skin's stylesheet for a bare
+`color: var(--<state>)`, allowed only on the state's own `--on-<state>` disc (the needs-you rail). The plain page
+(`none`) carries its tokens in `app.css :root`, chosen by the same rule on its grounds, and the OS dark scheme has
+its own in the `prefers-color-scheme: dark` block: the light values read 2.3-3.2:1 on the dark grounds.
+
+`theme.check` rule 8 refuses a palette whose `-text` token falls under 4.5:1 on the ground or a panel it is checked
+against, and names both colours. Rule 9, **pressed ground**, refuses a palette whose `--text` falls under 4.5:1 on
+`--select`, where a pressed control writes its word (the model picker's pill, the pressed tab, the pin); its hint
+names the text, the select and the accent the select moved toward. A skin reads the ten `--on-*` and `-text` tokens
+and never sets them.
+
 ## The Host Matrix
 
 Every mechanism is gated by `color.enabled()`, so a pipe gets zero escape bytes and reports `mechanism: none`.
@@ -103,6 +141,8 @@ While `agentdata` provides native Oh My Posh integration for high-fidelity promp
 ## Skins (Desk on Windows)
 
 A **skin** is one more stylesheet over the same DOM: the approved grid with CSS and hand-drawn SVG swapped in. A skin that needs a page change is not a skin.
+
+**Served, not fetched (#345).** Every page but `/probe` is served wearing the chosen palette and skin: the palette's tokens as `<html data-theme="custom" style>`, the skin's stylesheet as a `<link data-skin>` in the head and `<body data-skin data-skin-variant>`, so the first frame is never the system palette or the skin just replaced. A skinned page is also served `body.ink-off`, the legible plain look, until the ink layer draws (desk-ink.md §Following the page); every skin's band text is keyed on `:not(.ink-off)`, which would read 1.30:1 on farmstead:daytime before the canvas is there.
 
 ### The Skin Contract
 - **DOM Stability**: A skin may only alter CSS custom properties, backgrounds, borders, and decorative sprites. It must never require HTML markup changes or alter interactive element IDs.

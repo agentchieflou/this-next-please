@@ -110,11 +110,13 @@
 
 /** A pane: one agent in the row, and its entry in `tiles` (#233). `el` is its `.tile`, made once by
  *  `makeTile` and patched after (#215), carrying `data-repo` and `data-tier`; `seq` is the last event
- *  drawn into its transcript, and `row` what it was last drawn from.
+ *  drawn into its transcript, and `row` what it was last drawn from. `restored` marks a pane drawn
+ *  from the window's snapshot, whose transcript its first real row brings (#347).
  * @typedef {Object} Pane
  * @property {HTMLElement} el
  * @property {number} seq
  * @property {Row} [row]
+ * @property {boolean} [restored]
  */
 
 /** @type {Map<string, Pane>} */
@@ -1466,6 +1468,19 @@ function readBefore(shown, row) {
 /* One row onto its tile, making the tile if this is the first sight of it. Both an action's
    answer (#219) and a whole snapshot come through here, so a tile cannot be drawn one way by one
    path and another way by the other -- nor by the older of the two because it arrived second. */
+/* A tile's transcript from a row's `recent` (its last forty), the cursor taken from each, then the
+   scroll this window left it at. */
+/** @param {Pane} entry  @param {Row} row */
+function fillTranscript(entry, row) {
+  (row.recent || []).forEach(function (ev) { append(entry.el, ev); entry.seq = ev.seq; });
+  try {
+    var savedScroll = sessionStorage.getItem("fleet.scroll." + row.repo);
+    if (savedScroll !== null) {
+      entry.el.querySelector(".transcript").scrollTop = Number(savedScroll);
+    }
+  } catch (e) {}
+}
+
 /** @param {Row} row  @param {number} [index]  @returns {Pane | null} */
 function patchRow(row, index) {
   if (!row || !row.repo) return null;
@@ -1479,13 +1494,12 @@ function patchRow(row, index) {
     arrivedSinceLastPlace = true;                // and where it first lands is not a move
     entry = { el: el, seq: 0 };
     tiles.set(row.repo, entry);
-    (row.recent || []).forEach(function (ev) { append(el, ev); entry.seq = ev.seq; });
-    try {
-      var savedScroll = sessionStorage.getItem("fleet.scroll." + row.repo);
-      if (savedScroll !== null) {
-        entry.el.querySelector(".transcript").scrollTop = Number(savedScroll);
-      }
-    } catch (e) {}
+    fillTranscript(entry, row);
+  } else if (entry.restored) {
+    // #347: drawn from the snapshot, which keeps no transcript. Its first real row fills it and
+    // sets the cursor, so the stream resumes after that row instead of replaying from 0.
+    entry.restored = false;
+    fillTranscript(entry, row);
   }
   entry.row = row;
   departed.delete(row.repo);
@@ -1502,8 +1516,8 @@ function patchRow(row, index) {
 
    So the last snapshot this window saw is kept and drawn first, marked as what it is, and the
    fetch that is already in flight replaces it. Without the transcripts: they are the big part of
-   the payload, they are the part that goes stale fastest, and the stream brings them back within
-   the second anyway. */
+   the payload, they are the part that goes stale fastest, and the first answer brings the last
+   forty, and the stream resumes after them (#347). */
 var SNAP_KEY = "fleet.snapshot." + W_NAME;
 var SNAP_GOOD_FOR_MS = 5 * 60 * 1000;
 var lastFleet = null;
@@ -1543,10 +1557,22 @@ function cacheSnapshot(data) {
       approvals: data.approvals || [],
       desk: deskAsShown(data.desk || null),
       spend: data.spend || {},
-      theme: data.theme || null,
     }));
   } catch (e) { /* a private window, or no room: the desk simply loads the slow way */ }
 }
+
+/* The tiers the server wrote on <html> (#345), `rail compact full slack`, or null on the defaults. */
+/** @returns {Tiers | null} */
+function servedTiers() {
+  var said = document.documentElement.dataset.tiers;
+  if (!said) return null;
+  var n = said.split(" ").map(Number);
+  return { rail: n[0], compact: n[1], full: n[2], slack: n[3], invalid: "" };
+}
+
+/* Back into a page the browser kept whole (bfcache): what it shows is from before it was left, and
+   a theme chosen meanwhile reaches it only by asking again. */
+window.addEventListener("pageshow", function (e) { if (e.persisted) refresh(); });
 
 /* Taken again as the window goes -- a reload, a navigation, a closed tab -- so the next load draws
    what was on the screen, not what the last fleet answer said a click or two before. */
@@ -1562,11 +1588,8 @@ function restoreCached() {
   // Five minutes. Past that the shape of the fleet has probably changed, and a wrong desk held
   // for a second is worse than an empty one -- the fetch is in flight either way.
   if (Date.now() - (data.at || 0) > SNAP_GOOD_FOR_MS) return false;
-  if (data.theme) {
-    applyTheme(data.theme.css, data.theme.theme);
-    applySkin(data.theme.skin);
-    applyTiers(data.theme.tiers);                 // #235: before a pane is drawn
-  }
+  // No theme and no tiers (#345): the served page already wears the chosen ones, and a snapshot's
+  // were taken before the change that sent the operator here -- the skin just replaced.
   if (data.desk) {
     // Shown, not believed. Its version is the snapshot's, so it is dropped: the first real answer
     // has to win whatever number it carries, or a desk.json that started again from nought would
@@ -1579,7 +1602,10 @@ function restoreCached() {
     if (mine) myWidths = ownWidths(mine.widths);
   }
   lastApprovals = data.approvals || [];
-  data.repos.forEach(function (row, i) { patchRow(row, i); });
+  data.repos.forEach(function (row, i) {
+    var e = patchRow(row, i);
+    if (e) e.restored = true;                     // #347: its first real row brings the transcript
+  });
   hide(document.getElementById("empty"), true);
   // Said, not hidden: the desk on the screen is the last one this window saw, and the operator is
   // told so rather than left to find out.
@@ -1666,9 +1692,16 @@ function cursors() {
   return parts.join(",");
 }
 
+/* `body.is-replaying` (#371): the first pass after every open is history, not news. The server
+   writes every event after each cursor in `since` and ends a pass that sent frames with `tick`; a
+   repo missing from `since` starts at 0, and EventSource's own reconnect re-sends the original URL,
+   whose `since` wins over Last-Event-ID, so it replays from the old cursors. A replayed `li.denied`
+   looks exactly like a fresh one, so the page says which until the pass's `tick`. Set here and in
+   `onopen` (the native reconnect calls only that); nothing styles it. */
 function connect() {
   if (source) source.close();
   var link = document.getElementById("link");
+  toggle(document.body, "is-replaying", true);
   source = new EventSource(q("/api/events", { since: cursors() }));
   source.addEventListener("agent", function (m) {
     var ev = JSON.parse(m.data);
@@ -1705,10 +1738,14 @@ function connect() {
     } catch (err) {}
   });
   source.addEventListener("tick", function () {
+    toggle(document.body, "is-replaying", false);
     setClass(link, "dot live");
     text(link, "live");
   });
-  source.onopen = function () { streamDead = false; setClass(link, "dot live"); text(link, "live"); };
+  source.onopen = function () {
+    toggle(document.body, "is-replaying", true);
+    streamDead = false; setClass(link, "dot live"); text(link, "live");
+  };
   source.onerror = function () {
     streamDead = true;
     setClass(link, "dot lost");
@@ -1866,8 +1903,11 @@ document.addEventListener("keydown", function (e) {
    exactly what the operator reported. */
 var setLink = /** @type {HTMLAnchorElement} */ (document.getElementById("setbtn"));
 if (setLink) setLink.href = pageUrl("/settings");
+var mapLink = /** @type {HTMLAnchorElement} */ (document.getElementById("mapbtn"));
+if (mapLink) mapLink.href = pageUrl("/map");       // #407: the map, in the window the desk is in
 
 refresh().then(function () {
+  LOAD.settled = document.body.dataset.skin || "";   // the skin the first refresh settled on (#351)
   connect();
   loadNotifications();
   // The anchor is answered *after* the desk, not beside it: whether a tile is hidden is the
@@ -5299,6 +5339,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "u") { undoWidths(); return; }
   if (e.key === "i") { section("unsorted"); return; }
   if (e.key === "?") { popover("keymap"); return; }
+  if (e.key === "g") { location.href = pageUrl("/map"); return; }   // #407
   if (e.key === "/") { e.preventDefault(); document.getElementById("find").focus(); }
 });
 
@@ -5308,6 +5349,8 @@ document.addEventListener("keydown", function (e) {
    `departed`, the tiles map -- that is declared further down and is `undefined` until the script
    has finished evaluating. The fetch is already in flight either way; this only decides what is
    on the screen while it is. */
+var st = servedTiers();          // #345: the widths the server wrote, before a pane is drawn
+if (st) applyTiers(st);
 restoreCached();
 // Last for the same reason: `say` writes the footer's state, which is only set up once the script
 // has run past it.

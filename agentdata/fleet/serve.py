@@ -43,6 +43,7 @@ import re
 import secrets
 import threading
 import time
+from html import escape as _escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -87,7 +88,14 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 # `ink/ink.js` (#248) is the ink layer's front door, a module beside `app.js`. The rest of the layer
 # -- `ink/layer.js`, `ink/shapes.js`, `ink/pen.js` and the vendored three.js -- is never named in a
 # page: the layer imports it through `q()`, token and all, and only once the gate says on.
-ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.js")
+#
+# `/map` (#405) brings its stylesheet and its one script, `map/map.js`; a scene it draws later
+# (#409) is imported through `q()` like the ink layer's modules, never named here.
+#
+# `picker.js` (#362) is the model picker, a classic script the desk and /settings both load right
+# after `common.js`.
+ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
+          "map.css", "map/map.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
 # because the operator asked for an address they can land on -- and because `app.js` boots a desk
@@ -98,7 +106,15 @@ ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.
 # facts to `/api/probe`. The desk loads three.js only through the ink layer (#248), only when that
 # shell's probe said hardware (or the page was opened with `?ink=on`), and only once a skin draws
 # with ink -- and a test holds it to that.
-PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html"}
+#
+# `/map` (#405) is the fourth: the fleet's structure as an accessible tree (docs/fleet-map.md
+# §The page), read-only, and a page rather than a desk view for the reason settings is one.
+PAGES = {"/": "index.html", "/settings": "settings.html", "/probe": "probe.html",
+         "/map": "map.html"}
+
+#: The pages whose `<body>` carries the ink gate's facts (`_page`): the desk, and the map, whose
+#: scene (#409) is gated by the same probe. The map keeps `ink-off` for its whole life.
+INKED_PAGES = ("index.html", "map.html")
 
 
 def ink_facts(query: dict) -> dict:
@@ -1279,7 +1295,9 @@ def theme_state() -> dict:
         skin_name = skin_info["full"]
 
     t = theme_or_none(default_name)
-    css_vars = T.to_css(t) if t and t.name != "none" else {}
+    # A word in a state colour is chosen against every panel the palette is drawn on (#328), so
+    # the tokens are one set per palette, the same under every skin on it.
+    css_vars = T.to_css(t, panels=skins.panels_on(t.name)) if t and t.name != "none" else {}
     proj_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_map, dict):
         proj_map = {}
@@ -1307,10 +1325,104 @@ def theme_state() -> dict:
         "accents": accents,
         # The widths a pane changes tier at (#235). Here because this is the payload the config
         # file already reaches every window by -- `/api/fleet`, the stream's `theme` frame when the
-        # file changes, and the snapshot a reload draws first -- so the settings page's "in effect
-        # now" is true of them as it is of the palette.
+        # file changes, and the served page itself (`page_theme`, #345) -- so the settings page's
+        # "in effect now" is true of them as it is of the palette.
         "tiers": SET.tiers(cfg),
     }
+
+
+# What `page_theme` lets through from `theme_state()["css"]`: a custom property's name and a hex
+# colour, nothing else, so a hand-edited config cannot put a `;` or a `url()` into the page.
+CSS_TOKEN = re.compile(r"^--[a-z][a-z0-9-]*$")
+CSS_HEX = re.compile(r"^#[0-9A-Fa-f]{3,8}$")
+#: The epic's progressive decision (#291): `ink-off` is served on every skinned page, the desk too,
+#: and ink.js lifts it in the task in which its layer first draws. False serves it on the desk only
+#: where the ink gate is off.
+INK_OFF_UNTIL_DRAWN = True
+
+
+def _px(n) -> str:
+    """A width as `applyTiers` writes it: `rail + "px"`, so 220 is `220px`, never `220.0px`."""
+    return f"{int(n)}px" if float(n) == int(n) else f"{n}px"
+
+
+def ink_gate_on(query: dict, probe_class: str | None = None) -> bool:
+    """ink.js's gate, decided on the server: `?ink=off` is off, `?ink=on` is on, else the shell's
+    probe class is `hardware` (ink.js, "the gate"). `probe_class` is `ink_facts(query)["class"]`
+    when the caller has it already."""
+    asked = ((query.get("ink") or [""])[0] or "").strip().lower()
+    if asked in ("off", "on"):
+        return asked == "on"
+    return (probe_class if probe_class is not None else ink_facts(query)["class"]) == "hardware"
+
+
+#: The pages that time their own load while measuring is on (#351); never `/probe`, which measures
+#: a shell rather than a load.
+MEASURED_PAGES = ("index.html", "settings.html")
+
+
+def measure_attr(name: str) -> str:
+    """` data-measure="loads"` for `<html>` while `fleet.loads.enabled` is on and `name` is a
+    measured page (#351), else nothing -- so with measuring off the markup is byte-identical to what
+    it was. The page reads the attribute at boot and needs no request to find out."""
+    return ' data-measure="loads"' if name in MEASURED_PAGES and LOADS.enabled() else ""
+
+
+def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
+    """The chosen palette, skin and tiers as the served page's own markup (#345), so its first
+    painted frame is the one the operator chose -- not the system palette, and not the snapshot of
+    the skin just replaced. Written exactly as `applyTheme`, `applySkin` and `applyTiers` write
+    them, so the first `/api/fleet` answer finds every value already in place and writes nothing.
+
+    Answers `html` (attributes for `<html lang="en">`), `link` (for `</head>`), `body_class` (a
+    class to append) and `body` (attributes after the class): all empty for no skin, no palette
+    and the default tiers, so that page is byte-identical to the file."""
+    from . import settings as SET
+    decl, attrs = [], ""
+    css = ts.get("css") or {}
+    if css and ts.get("theme") != "none":
+        decl = [f"{k}:{v}" for k, v in css.items() if CSS_TOKEN.match(str(k)) and CSS_HEX.match(str(v))]
+        attrs = ' data-theme="custom"'
+    if desk:
+        tiers = ts.get("tiers") or {}
+        four = {k: tiers.get(k) for k in ("rail", "compact", "full", "slack")}
+        if four != SET.TIER_DEFAULTS:
+            attrs += ' data-tiers="{}"'.format(_escape(" ".join(str(four[k]) for k in four)))
+            if four["rail"] != SET.TIER_DEFAULTS["rail"]:
+                decl.append(f"--rail:{_px(four['rail'])}")
+            if four["compact"] != SET.TIER_DEFAULTS["compact"]:
+                decl.append(f"--compact-from:{_px(four['compact'])}")
+    if decl:
+        attrs += ' style="{}"'.format(_escape(";".join(decl)))
+    # Split as `applySkin` splits it, not by skins.py: a skin it does not know (`example`) is still
+    # the one the page wears.
+    family, _, variant = str(ts.get("skin") or "").partition(":")
+    if family in ("", "none") or not SKIN_FAMILY.match(family):
+        return {"html": attrs, "link": "", "body_class": "", "body": ""}
+    variant = variant if SKIN_FAMILY.match(variant) else ""
+    link = (f'<link rel="stylesheet" data-skin="true" '
+            f'href="/static/skins/{family}/skin.css?t={_escape(token)}">')
+    body = f' data-skin="{family}"' + (f' data-skin-variant="{variant}"' if variant else "")
+    off = not desk or INK_OFF_UNTIL_DRAWN or not gate_on
+    return {"html": attrs, "link": link, "body_class": "ink-off" if off else "", "body": body}
+
+
+#: What `layer.js` imports once the gate is on (layer.js `start`, `VENDOR`), after ink.js imports it.
+INK_LAYER_MODULES = ("ink/layer.js", "ink/shapes.js", "ink/pen.js", "vendor/three/three.module.min.js")
+
+
+def ink_preload(ts: dict, token: str, *, gate_on: bool) -> str:
+    """The desk's `<link rel="modulepreload">`s for what its served skin will import (#349), so the
+    modules are fetched in parallel with the page instead of as a waterfall that starts once ink.js
+    has run: the skin module for an ink skin on every shell (the plain fallback draws its table
+    too), and the layer, its two helpers and three.js only where `gate_on`. Each href is the URL
+    `q()` builds, so the module map dedupes and each module is fetched once. Empty for no skin or
+    a skin that does not draw with ink."""
+    family = str(ts.get("skin") or "").partition(":")[0]
+    if not SKIN_FAMILY.match(family) or family not in ink_skins():
+        return ""
+    paths = [f"ink/skins/{family}.js"] + (list(INK_LAYER_MODULES) if gate_on else [])
+    return "".join(f'<link rel="modulepreload" href="/static/{p}?t={_escape(token)}">' for p in paths)
 
 
 def select(selected=None) -> dict:
@@ -1888,9 +2000,10 @@ def _attach_bytes(body: dict) -> dict:
 #: Actions that change one repository's row. The page patches that row from the answer instead of
 #: fetching the whole fleet again (#219): a `send` cost two round trips, and the second one carried
 #: every tile on the desk to redraw one of them. `arrange` and `window` are not here -- they change
-#: the *arrangement*, which comes back as `desk` and reaches every window down the stream.
+#: the *arrangement*, which comes back as `desk` and reaches every window down the stream. `models`
+#: is not here either: the model list is the fleet's, not a row's (#361).
 ROW_ACTIONS = ("start", "console", "say", "send", "stop", "reset", "answer", "approve", "deny",
-               "adopt", "release", "refresh", "hold", "model", "resume", "attach", "attach-bytes")
+               "adopt", "release", "refresh", "hold", "resume", "attach", "attach-bytes")
 
 
 def act(what: str, body: dict) -> dict:
@@ -2135,56 +2248,85 @@ def act(what: str, body: dict) -> dict:
         from .. import config as C
         from . import settings as SET
 
-        cfg = C.load()
-        try:
-            for item in body.get("set") or []:
-                SET.apply(cfg, str(item.get("key") or ""), item.get("value"))
-            # What only holds between keys, once the whole batch is in: two tier boundaries that
-            # only go together can be written together (#235).
-            SET.check(cfg, [str(item.get("key") or "") for item in body.get("set") or []])
-            for item in body.get("models") or []:
-                SET.set_model(cfg, str(item.get("repo") or ""),
-                              model=item.get("model"), effort=item.get("effort"))
-            if "model" in body or "effort" in body:
-                SET.set_fleet_model(cfg, model=body.get("model"), effort=body.get("effort"))
-        except SET.SettingsError as e:
-            raise ServeError(e.msg, e.hint, code=e.code) from None
-        except LAUNCH.LaunchError as e:
-            # A model value that would become a second flag. The launch-time check would catch it
-            # too, but hours later and as a failed start rather than a refused keystroke.
-            raise ServeError(e.msg, e.hint, code="bad_model") from None
-        try:
-            C.save(cfg)
-        except C.ConfigError as e:
-            # ConfigError carries `hint` but no `msg`, so it must be translated rather than left to
-            # the generic handler, which would report a refusal as a 500.
-            raise ServeError(str(e), e.hint, code="config_refused") from None
+        # Under the config lock (#348): the theme write and the poller's flavour write are the
+        # other in-process writers, and two read-modify-writes at once lose one of them.
+        with C.LOCK:
+            _write_settings(C, SET, body)
+        _config_changed()
         return settings_snapshot()
     if what == "theme":
         from .. import config as C
-        cfg = C.load()
-        cfg.setdefault("theme", {})
-        if "theme" in body:
-            theme_val = str(body["theme"]).strip()
-            cfg["theme"]["default"] = theme_val if theme_val else "none"
-        if "skin" in body:
-            from . import skins
 
-            skin_val = str(body["skin"]).strip()
-            cfg["theme"]["skin"] = skin_val if skin_val else "none"
-            # Choosing a skin chooses its ground with it, and writes that palette to the config the
-            # terminal reads -- so the prompt beside the dashboard moves to Nether too. This is what
-            # "skins drive themes" means in the one file both of them read.
-            chosen = skins.get_skin(cfg["theme"]["skin"]) if skin_val and skin_val != "none" else None
-            if chosen:
-                cfg["theme"]["skin"] = chosen["full"]
-                cfg["theme"]["default"] = chosen["base"]
-        C.save(cfg)
-        return {"theme": cfg["theme"].get("default", "none"), "skin": cfg["theme"].get("skin", "none")}
+        with C.LOCK:
+            _write_theme(C, body)
+        _config_changed()
+        # The stream's own `theme` payload, css and all (#346): the page that posted reconciles
+        # from this answer instead of waiting a tick for the frame to say what it has just chosen.
+        return theme_state()
+    if what == "models":
+        # Ask the Copilot CLI for its model list again (#361), on a thread: the answer goes out at
+        # once, and a list that changed reaches every open page as one `models` frame. An ask while
+        # a refresh runs joins it. The server's `stopping` ends it with the server.
+        from . import models as MODELS
+
+        if body.get("refresh"):
+            started = MODELS.start_refresh(getattr(_SERVING.get("server"), "stopping", None), force=True)
+            return {"refreshing": True, "started": started}
+        return {"refreshing": MODELS.refreshing(), "started": False}
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
-                     "arrange | attach | dismiss | theme | settings | refresh | probe | measure | "
-                     "load")
+                     "arrange | attach | dismiss | theme | settings | models | refresh | probe | "
+                     "measure | load")
+
+
+def _write_settings(C, SET, body: dict) -> None:
+    """`act("settings")`'s read-modify-write of config.json; the caller holds `C.LOCK`."""
+    cfg = C.load()
+    try:
+        for item in body.get("set") or []:
+            SET.apply(cfg, str(item.get("key") or ""), item.get("value"))
+        # What only holds between keys, once the whole batch is in: two tier boundaries that
+        # only go together can be written together (#235).
+        SET.check(cfg, [str(item.get("key") or "") for item in body.get("set") or []])
+        for item in body.get("models") or []:
+            SET.set_model(cfg, str(item.get("repo") or ""),
+                          model=item.get("model"), effort=item.get("effort"))
+        if "model" in body or "effort" in body:
+            SET.set_fleet_model(cfg, model=body.get("model"), effort=body.get("effort"))
+    except SET.SettingsError as e:
+        raise ServeError(e.msg, e.hint, code=e.code) from None
+    except LAUNCH.LaunchError as e:
+        # A model value that would become a second flag. The launch-time check would catch it
+        # too, but hours later and as a failed start rather than a refused keystroke.
+        raise ServeError(e.msg, e.hint, code="bad_model") from None
+    try:
+        C.save(cfg)
+    except C.ConfigError as e:
+        # ConfigError carries `hint` but no `msg`, so it must be translated rather than left to
+        # the generic handler, which would report a refusal as a 500.
+        raise ServeError(str(e), e.hint, code="config_refused") from None
+
+
+def _write_theme(C, body: dict) -> None:
+    """`act("theme")`'s read-modify-write of config.json; the caller holds `C.LOCK`."""
+    cfg = C.load()
+    cfg.setdefault("theme", {})
+    if "theme" in body:
+        theme_val = str(body["theme"]).strip()
+        cfg["theme"]["default"] = theme_val if theme_val else "none"
+    if "skin" in body:
+        from . import skins
+
+        skin_val = str(body["skin"]).strip()
+        cfg["theme"]["skin"] = skin_val if skin_val else "none"
+        # Choosing a skin chooses its ground with it, and writes that palette to the config the
+        # terminal reads -- so the prompt beside the dashboard moves to Nether too. This is what
+        # "skins drive themes" means in the one file both of them read.
+        chosen = skins.get_skin(cfg["theme"]["skin"]) if skin_val and skin_val != "none" else None
+        if chosen:
+            cfg["theme"]["skin"] = chosen["full"]
+            cfg["theme"]["default"] = chosen["base"]
+    C.save(cfg)
 
 
 def _sweep(url: str) -> list[dict]:
@@ -2227,9 +2369,27 @@ def _poll_digests() -> dict[str, str]:
         return {}
 
 
+# A config write this server made wakes every open stream (#348). `_config_gen` counts the writes;
+# a stream remembers the one its last `theme_state()` saw and waits on `_WAKE` for it to move. Writes
+# made elsewhere (`ad-theme set` in a terminal, the poller's flavour write) still arrive by mtime.
+_WAKE = threading.Condition()
+_config_gen = 0
+#: How often a waiting stream looks at `stop`: a server shutting down is not kept a whole tick.
+WAKE_SLICE_S = 0.05
+
+
+def _config_changed() -> None:
+    """Called after every successful `C.save` of `act()`: tell every waiting stream."""
+    global _config_gen
+    with _WAKE:
+        _config_gen += 1
+        _WAKE.notify_all()
+
+
 def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float = HEARTBEAT_S,
                   tick: float = TICK_S, once: bool = False, url: str = "",
-                  notify_every: float = NOTIFY_EVERY_S, polls: bool = True) -> None:
+                  notify_every: float = NOTIFY_EVERY_S, polls: bool = True,
+                  agents: bool = True, sweep: bool = True) -> None:
     """Multiplex every agent's new events onto one SSE connection until the client goes away.
 
     `write` raises when the socket closes, which is how this ends -- a browser tab being shut is
@@ -2254,17 +2414,75 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     connection starts at -1 so every new window is told the current selection immediately -- a
     monitor that joined late and shows a different project than the one beside it is the exact
     failure this frame exists to prevent.
+
+    **A config write wakes it** (#348). Between passes the stream waits on `_WAKE` in slices, not on
+    `stop` for a whole tick; a write through `act()` ends the wait, and the `theme` frame is written
+    at the top of the next pass, before the polls, the fold and the agents' reads. The generation is
+    read before `theme_state()`, so a write landing while the frame is computed is not lost.
+
+    `agents=False` (`?frames=theme`, the settings page) skips only the per-agent reads and their
+    frames: a page that listens for one frame does not download every agent's history.
+
+    `sweep=False` (#356: `?notify=0`, or `?frames=theme`) skips the notification sweep entirely.
+    `notify.sweep` advances ONE shared cursor and hands what it found to whichever stream swept
+    first, so a stream that is not a desk's took the desk's `notify` frames and dropped them. With
+    only such pages open nothing sweeps, as when no window is open; the next desk stream announces
+    what accumulated.
+
+    **The model list** (#361) is looked at the way config.json is: when `models.json` changes on
+    disk, a digest of the ids, whether each is offered, and the efforts is compared with the one
+    this stream last sent, and a `models` frame goes out only when it moved. The first pass records
+    it without a frame: a page fetches `/api/models` itself.
     """
     last_beat = 0.0
     last_sweep = 0.0
     seen_selection = -1
     last_config_mtime = -1.0
     seen_theme_state = None
+    seen_gen = -1
+    woke = False
     from .. import config as C
+    from . import models as MODELS
     cfg_file = C.path()
+    models_file = MODELS.cache_file()
+    models_mark: tuple | None = None
+    seen_models: str | None = None
+
+    def config_mtime() -> float:
+        try:
+            return os.path.getmtime(cfg_file) if os.path.isfile(cfg_file) else 0.0
+        except OSError:
+            return 0.0
+
+    def models_stat() -> tuple:
+        try:
+            st = os.stat(models_file)
+        except OSError:
+            return (0, 0)                     # no cache yet: the shipped list
+        return (st.st_mtime_ns, st.st_size)
+
+    def models_now() -> tuple[str, str]:
+        try:
+            cfg = C.load()
+        except (C.ConfigError, OSError):
+            cfg = {}
+        cat = MODELS.catalogue(cfg, spawn=False, path=models_file)
+        return MODELS.digest(cat), cat["meta"].get("fetched_at", "")
 
     seen_polls: dict[str, str] | None = None
     while not stop.is_set():
+        early = False
+        if woke:
+            # This server wrote the config: the frame goes first, before the pass's other work.
+            woke = False
+            last_config_mtime = config_mtime()
+            gen = _config_gen
+            tstate = theme_state()
+            seen_gen = gen
+            if tstate != seen_theme_state:
+                seen_theme_state = tstate
+                write(f"event: theme\ndata: {json.dumps(tstate, ensure_ascii=False)}\n\n")
+                early = True
         if polls:
             # A cell that changed without an event -- the git cell is the one that never has one
             # (#184) -- would otherwise sit on the tile until some agent said something. One
@@ -2277,7 +2495,7 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
         # Not behind `polls`: a renew queued for a turn's end (#241) is the fleet's own work, and a
         # desk with project polling switched off must still carry it out.
         renew_tick()
-        if time.time() - last_sweep >= notify_every:
+        if sweep and time.time() - last_sweep >= notify_every:
             last_sweep = time.time()
             for item in _sweep(url):
                 write(f"event: notify\ndata: {json.dumps(item, ensure_ascii=False)}\n\n")
@@ -2289,7 +2507,7 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
         except RegistryError:
             repos = []
         fold = fold_due()
-        sent = False
+        sent = early
         for repo in repos:
             name = repo.name
             if fold:
@@ -2297,6 +2515,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
                     E.refresh(name, repo.path, repo_state=repo.state())
                 except (RegistryError, OSError):
                     pass
+            if not agents:
+                continue
             for ev in E.read(name, since=cursors.get(name, 0)):
                 cursors[name] = ev["seq"]
                 write(f"id: {name}:{ev['seq']}\nevent: agent\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n")
@@ -2316,17 +2536,26 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             write(f"event: desk\ndata: {json.dumps(state, ensure_ascii=False)}\n\n")
             sent = True
 
-        try:
-            mtime = os.path.getmtime(cfg_file) if os.path.isfile(cfg_file) else 0.0
-        except OSError:
-            mtime = 0.0
+        mtime = config_mtime()
         if seen_theme_state is None or mtime != last_config_mtime:
             last_config_mtime = mtime
+            gen = _config_gen                 # before the read, so a write after it wakes the wait
             tstate = theme_state()
+            seen_gen = gen
             if seen_theme_state is None or tstate != seen_theme_state:
                 seen_theme_state = tstate
                 write(f"event: theme\ndata: {json.dumps(tstate, ensure_ascii=False)}\n\n")
                 sent = True
+        mark = models_stat()
+        if mark != models_mark:
+            # A refresh rewrote the model list (#361). A rewrite that found the same list is no news.
+            models_mark = mark
+            digest, fetched_at = models_now()
+            if seen_models is not None and digest != seen_models:
+                frame = {"version": digest, "fetched_at": fetched_at}
+                write(f"event: models\ndata: {json.dumps(frame, ensure_ascii=False)}\n\n")
+                sent = True
+            seen_models = digest
         if sent or time.time() - last_beat > heartbeat:
             # The heartbeat is not decoration: a proxy that sees no bytes for a minute closes the
             # connection, and the tiles then quietly stop updating with no error anywhere.
@@ -2334,7 +2563,12 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             last_beat = time.time()
         if once:
             return
-        stop.wait(tick)
+        deadline = time.monotonic() + tick
+        with _WAKE:
+            while (not stop.is_set() and _config_gen == seen_gen
+                   and (left := deadline - time.monotonic()) > 0):
+                _WAKE.wait(min(left, WAKE_SLICE_S))
+            woke = _config_gen != seen_gen
 
 
 # ------------------------------------------------------------------------------------ the server
@@ -2461,19 +2695,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, **fleetmap.graph(snap, branch_rows=rows),
                                "theme": snap["theme"]})
         if route == "/api/themes":
-            from .. import config as C
             from . import skins
 
             # What is *chosen*, beside what there is to choose from. Without it the pickers could
             # only be filled, never set: the page built its options after the stream had already
             # told it the answer, and rebuilding the options threw that answer away -- so the desk
             # always opened reading "system / no skin" over whatever the config actually said.
-            chosen = (C.load().get("theme") or {})
+            # It is the stream's `theme` payload, css included (#346): a `current` without css was
+            # painted as "no palette" and wiped the one the stream had just applied.
             return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins(),
-                               "current": {"theme": chosen.get("default", "none") or "none",
-                                           "skin": chosen.get("skin", "none") or "none"}})
+                               "palette_only": skins.PALETTE_ONLY,
+                               "current": theme_state()})
         if route == "/api/settings":
             return self._json({"ok": True, **settings_snapshot()})
+        if route == "/api/models":
+            return self._json({"ok": True, **models_snapshot()})
         if route == "/api/board":
             from .. import config as C
 
@@ -2629,24 +2865,51 @@ class Handler(BaseHTTPRequestHandler):
         with no second request and nothing drawn first and taken back.
         """
         html = textio.read_text(os.path.join(STATIC, name))
+        # Read once, so the markup and its gzip entry agree about the switch (#351).
+        measured = measure_attr(name)
         for asset in ASSETS:
             html = html.replace(f'"/static/{asset}"', f'"/static/{asset}?t={self.token}"')
         ink: tuple = ()
-        if name == "index.html":
+        desk = name == "index.html"
+        facts, gate_on = "", False
+        if name in INKED_PAGES:
             gate = ink_facts(query or {})
             inked = " ".join(ink_skins())
             ink = (gate["shell"], gate["class"], inked)
             # Words from closed sets (a shell name and a skin family are both `[a-z0-9_-]`, checked
             # before they are written), so nothing here needs escaping.
-            html = html.replace("<body>", f'<body data-ink-shell="{gate["shell"]}" '
-                                          f'data-ink-probe="{gate["class"]}" '
-                                          f'data-ink-skins="{inked}">', 1)
+            facts = (f' data-ink-shell="{gate["shell"]}" data-ink-probe="{gate["class"]}" '
+                     f'data-ink-skins="{inked}"')
+            # The map (#405) is told the facts and never turns ink on: it keeps `ink-off`.
+            gate_on = desk and ink_gate_on(query or {}, gate["class"])
+        themed: tuple = ()
+        # The chosen theme, in the markup (#345): every page but the probe, which measures a shell
+        # and has no business wearing a skin.
+        if name != "probe.html":
+            ts = theme_state()
+            worn = page_theme(ts, self.token, desk=desk, gate_on=gate_on)
+            # The desk alone preloads what its skin will import (#349), ahead of the skin's
+            # stylesheet, which stays the last thing in <head>.
+            preload = ink_preload(ts, self.token, gate_on=gate_on) if desk else ""
+            themed = (worn["html"], worn["link"], worn["body_class"], worn["body"], preload)
+            html = html.replace('<html lang="en">', '<html lang="en"' + worn["html"] + measured + ">", 1)
+            html = html.replace("</head>", preload + worn["link"] + "</head>", 1)
+
+            def dress(m):
+                own = m.group(1) or ""
+                # A page that already wears `ink-off` (/map, #405) is not given it twice.
+                extra = "" if worn["body_class"] in own.split() else worn["body_class"]
+                classes = " ".join(c for c in (own, extra) if c)
+                return ("<body" + (f' class="{classes}"' if classes else "") + worn["body"] + facts + ">")
+            html = re.sub(r'<body(?: class="([^"]*)")?>', dress, html, count=1)
         stamp = os.stat(os.path.join(STATIC, name))
         # `name` leads the cache key rather than the literal it used to be: `gzip_for` requires a
         # key that names everything it was made from, and two pages sharing one entry would serve
-        # whichever was compressed first to both. The desk's shell and its class are in it too.
+        # whichever was compressed first to both. The desk's shell and its class are in it too, and
+        # the theme every page but the probe now wears.
         self._send(200, html.encode("utf-8"), "text/html; charset=utf-8",
-                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) + ink)
+                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) + ink + themed
+                   + (measured,))
 
     def _static(self, name: str) -> None:
         """One file out of the package's `static/` directory, and nothing above or beside it.
@@ -2694,8 +2957,14 @@ class Handler(BaseHTTPRequestHandler):
 
         url = f"http://127.0.0.1:{self.server.server_address[1]}/?t={self.token}"
         try:
+            # `?frames=theme` (#348): the settings page listens for one frame, not the agents' history.
+            frames = (query.get("frames") or [""])[0].split(",")
+            # Only a desk's stream sweeps (#356): the sweep's cursor is shared, so a stream that
+            # does not draw `notify` frames (`?notify=0`, `?frames=theme`) would take the desk's.
+            notify = (query.get("notify") or [""])[0]
             stream_events(cursors, getattr(self.server, "stopping", threading.Event()), write,
-                          url=url)
+                          url=url, agents="theme" not in frames,
+                          sweep=notify != "0" and "theme" not in frames)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass                              # the tab was closed. Not an error.
         self.close_connection = True
@@ -2787,7 +3056,7 @@ def settings_snapshot() -> dict:
     cannot drift from what the code actually does.
     """
     from .. import config as C
-    from . import settings as SET
+    from . import models as MODELS, settings as SET
 
     cfg = C.load()
     try:
@@ -2810,10 +3079,11 @@ def settings_snapshot() -> dict:
         "model": {"fleet": {"model": str(C.get(cfg, "fleet.model") or ""),
                             "effort": str(C.get(cfg, "fleet.effort") or "")},
                   "repos": rows,
-                  # Suggestions, never a closed list: which model names this build accepts has never
-                  # been measured, so the only names offered are ones that really ran here.
+                  # The ids the last turns really ran on, kept for a page that still reads them.
+                  # Which names and efforts the installed CLI accepts is measured now (#360): the
+                  # whole list is `GET /api/models`, and these efforts are that catalogue's.
                   "seen": seen,
-                  "efforts": ["low", "medium", "high"]},
+                  "efforts": MODELS.catalogue(cfg, spawn=False)["efforts"]},
         "editable": SET.describe(cfg),
         "current": SET.current(cfg),
         # What the desk draws with, which is not what `current` says when the file holds a four
@@ -2823,18 +3093,38 @@ def settings_snapshot() -> dict:
     }
 
 
+def models_snapshot() -> dict:
+    """`GET /api/models` (#361): the catalogue a picker offers, read from the cache, else the list
+    shipped with this package marked stale, and whether a refresh is running. Never starts the CLI:
+    that is `POST /api/models {refresh: true}`, or a server starting."""
+    from .. import config as C
+    from . import models as MODELS
+
+    try:
+        cfg = C.load()
+    except (C.ConfigError, OSError):
+        cfg = {}
+    try:
+        repos = Registry().sorted()
+    except (RegistryError, OSError):
+        repos = []
+    return {"refreshing": MODELS.refreshing(),
+            **MODELS.catalogue(cfg, seen=[served_model(r.name) for r in repos], spawn=False)}
+
+
 # ------------------------------------------------------------------------------------- the theme
 
 
 def themes() -> list[dict]:
     """Palettes from agentdata.theme, rendered through theme.to_css()."""
     from .. import theme as T
+    from . import skins
 
     out = []
     for t in T.list_themes():
         if t.name == "none":
             continue
-        c = T.to_css(t)
+        c = T.to_css(t, panels=skins.panels_on(t.name))   # the tokens `theme_state` serves (#328)
         colors = {
             "bg": c.get("--bg", ""),
             "panel": c.get("--panel", ""),

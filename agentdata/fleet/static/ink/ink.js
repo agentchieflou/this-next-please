@@ -58,12 +58,17 @@ const PLAIN = {
   lines: "@tint",
   loop: "outline: 2px solid %c; outline-offset: 3px;",
   ellipse: "outline: 2px solid %c; outline-offset: 4px;",
+  ring: "box-shadow: 0 0 0 2px %c; border-radius: 999px;",
   strike: "text-decoration-line: line-through; text-decoration-color: %c; text-decoration-thickness: 2px;",
   check: "box-shadow: inset 3px 0 0 %c;",
   bang: "box-shadow: inset 3px 0 0 %c;",
+  cross: "box-shadow: inset 3px 0 0 %c;",
   arrow: "text-decoration-line: underline; text-decoration-style: dotted; text-decoration-color: %c;",
   write: "",
 };
+
+/* The shapes whose plain look is a bar in the pane's margin, an inset shadow (#386). */
+const MARGIN = new Set(["check", "bang", "cross"]);
 
 const PLAIN_TINT = 38;           // percent of the ink in a plain highlight
 const SPEED = [0.25, 4];         // the range a table's `speed` is held to
@@ -207,16 +212,23 @@ function normalise(table) {
       tools[tool][k] = v;
     }
   }
+  // The hand (#387): on, off, or a stick of chalk in every hand, the eraser's included.
+  const hand = table.hand === undefined || table.hand;
+  if (hand !== true && hand !== false && hand !== "chalk") {
+    throw new TypeError("ink: `hand` is true, false or 'chalk', not " + JSON.stringify(hand));
+  }
   const speed = Number.isFinite(table.speed) ? Math.min(SPEED[1], Math.max(SPEED[0], table.speed)) : 1;
   return {
     name: String(table.name || "unnamed"),
     paper: typeof table.paper === "string" ? table.paper : "",
-    hand: table.hand !== false,
+    hand,
     speed,
     tools,
     // The page's own trace rows (#257) follow the table, unless the skin plots the hour itself.
     series: table.series !== false,
     marks,
+    // Effects (#370): `{cues, use}`, which has the layer fetch fx.js; none, and it is never asked for.
+    fx: table.fx || null,
   };
 }
 
@@ -243,7 +255,7 @@ function plainCss(t) {
       out.push(sel + " { " + rule + " }");
       // A margin bar is an inset shadow, which would take the selection ring's place on a selected
       // pane: the ring is kept beside it, because a selected pane is still one pane (HIG *Focus*).
-      if (row.shape === "check" || row.shape === "bang") {
+      if (MARGIN.has(row.shape)) {
         out.push("body.ink-off :is(" + row.selector + ").is-selected { box-shadow: inset 3px 0 0 " + c +
                  ", 0 0 0 2px var(--focus, var(--accent)); }");
       }
@@ -346,7 +358,12 @@ function apply(next, hooks, variant) {
   }
   const wanted = table;
   return start().then(running => {
-    if (running && verdict.on && table === wanted) running.setTable(wanted);
+    if (running && verdict.on && table === wanted) {
+      running.setTable(wanted);
+      // The server serves a skinned page `ink-off` (#345): legible until the ink is there. It goes
+      // in the task that puts `#ink[data-skin]` on, the key app.css clears the panes on.
+      if (body && body.classList.contains("ink-off")) body.classList.remove("ink-off");
+    }
     return { drawn: running && verdict.on ? "ink" : "plain", verdict: Object.assign({}, verdict) };
   }, () => ({ drawn: "plain", verdict: Object.assign({}, verdict) }));
 }
@@ -365,7 +382,7 @@ function apply(next, hooks, variant) {
    none, and asks for none. */
 const INKED = new Set(String((body && body.dataset.inkSkins) || "").split(/\s+/).filter(Boolean));
 const FAMILY = /^[a-z0-9][a-z0-9_-]{0,31}$/;
-const HOOKS = ["ground", "paper", "frame", "tick", "dispose"];
+const HOOKS = ["ground", "paper", "frame", "tick", "dispose", "cue"];
 let fromSkin = false;          // the table in force is the page's skin's, not a caller's
 let skinKey = "";
 
@@ -378,7 +395,8 @@ function fromModule(m, family, variant) {
   const o = valueOf(m.options, variant) || {};
   return {
     table: { name: family + (variant ? ":" + variant : ""), paper: o.paper, hand: o.hand, speed: o.speed,
-             tools: o.tools, series: o.series, marks: valueOf(m.marks, variant) || [] },
+             tools: o.tools, series: o.series, marks: valueOf(m.marks, variant) || [],
+             fx: m.cues || o.fx ? { cues: valueOf(m.cues, variant), use: o.fx } : null },
     hooks: m,
   };
 }

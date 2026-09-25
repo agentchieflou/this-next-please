@@ -22,6 +22,23 @@
 var backLink = document.getElementById("backbtn");
 if (backLink) backLink.href = pageUrl("/");
 
+/* The last theme write still in flight (#346). Leaving before it has answered could land on a desk
+   served the old skin, so a plain click waits for the answer -- either answer -- and then goes.
+   `href` is read at click time, so #344's `pageUrl` is what is followed. No timer. */
+var pendingTheme = null;
+/* A `theme` frame heard while a write is in flight is the server's word from before that write (the
+   stream's first frame can land after a pick on a slow start). It is kept, not painted: painted, it
+   put the old theme back over the pick; kept, it is what a refusal goes back to. */
+var heardDuringWrite = null;
+if (backLink) {
+  backLink.addEventListener("click", function (e) {
+    if (!pendingTheme || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    pendingTheme.then(go, go);
+    function go() { location.href = backLink.href; }
+  });
+}
+
 var savedTag = document.getElementById("saved");
 var savedTimer = null;
 
@@ -60,13 +77,16 @@ function loadThemes() {
       if (t.name === "none") return;                 // "system" is already the first option
       var option = document.createElement("option");
       option.value = t.name;
-      text(option, t.name);
-      option.title = t.why || t.title || t.name;
+      // Its title, not its slug (#393). The tooltip adds what is drawn on it, as a supplement only:
+      // it is hover-only, and never seen while a skin has the picker disabled -- `#palette-looks`
+      // under the picker is where that is said.
+      text(option, t.title || t.name);
+      var looks = looksOn(data, t.name), why = (data.palette_only || {})[t.name];
+      attr(option, "title", (t.why || t.title || t.name) + "  ·  " + (looks.length
+        ? "drawn by " + looks.join(", ") : "palette only" + (why ? ": " + why : "")));
       themeSel.appendChild(option);
     });
-    themeSel.addEventListener("change", function () {
-      post("theme", { theme: themeSel.value }).then(function () { saidSaved(); });
-    });
+    themeSel.addEventListener("change", function () { choose(themeSel, { theme: themeSel.value }); });
 
     /* One control, not two. A variant is not independent of its skin -- "Nether" means nothing on
        its own, and a second picker offering it beside Farmstead would be offering a combination
@@ -95,17 +115,139 @@ function loadThemes() {
       });
       skinSel.appendChild(group);
     });
-    skinSel.addEventListener("change", function () {
-      post("theme", { skin: skinSel.value }).then(function () { saidSaved(); });
-    });
+    skinSel.addEventListener("change", function () { choose(skinSel, { skin: skinSel.value }); });
+    themeData = data;
     // What is chosen, now that there is something to choose from. `themeNow` is whatever the
-    // stream said while these options did not exist yet; it wins, because it is the later word.
-    reflectTheme(themeNow || data.current);
-    if (data.current) { applyTheme(data.current.css, data.current.theme); applySkin(data.current.skin); }
+    // stream said while these options did not exist yet; it wins, because it is the later word,
+    // and this answer paints nothing over it. Otherwise `current` is the stream's own payload
+    // (#346), painted only when it carries css: a `current` without css is "not known", never
+    // "no palette" -- read as the latter, it wiped the palette the stream had just applied.
+    if (themeNow) {
+      reflectTheme(themeNow);
+    } else if (data.current) {
+      if (data.current.css || data.current.theme === "none") {
+        applyTheme(data.current.css, data.current.theme);
+        applySkin(data.current.skin);
+      }
+      reflectTheme(data.current);
+    }
   }).catch(function () { /* themes are decoration; the page works without them */ });
 }
 
 var themeNow = null;                  // the last word on what this page is wearing, from either path
+var themeData = null;                 // the `/api/themes` answer: every palette's css, every skin's base
+
+function paletteCss(name) {
+  var found = null;
+  ((themeData && themeData.themes) || []).forEach(function (t) { if (t.name === name) found = t.css; });
+  return found;
+}
+
+function skinBase(full) {
+  var base = null;
+  ((themeData && themeData.skins) || []).forEach(function (k) {
+    if (k.name === full && k.base) base = k.base;
+    (k.variants || []).forEach(function (v) { if (v.full === full) base = v.base; });
+  });
+  return base;
+}
+
+/* The looks drawn on a palette (#393), from an `/api/themes` answer: "Glass · Smoke" for every skin
+   variant whose base it is, in the skin picker's order. None means the palette is the plain page
+   only -- `palette_only` says why -- and it is still an ordinary palette to choose. */
+function looksOn(data, name) {
+  var looks = [];
+  ((data && data.skins) || []).forEach(function (k) {
+    (k.variants || []).forEach(function (v) { if (v.base === name) looks.push(lookName(k, v)); });
+  });
+  return looks;
+}
+
+function lookName(k, v) { return (k.title || k.name) + " · " + (v.title || v.name); }
+
+/* The line under the palette picker: what is drawn on the palette, or, while a skin is on, the look
+   the palette comes from -- words a keyboard, a touch screen and a disabled picker all show, which
+   an option's tooltip is not. */
+function looksLine(skin, palette) {
+  if (skin && skin !== "none") {
+    var from = skin;
+    ((themeData && themeData.skins) || []).forEach(function (k) {
+      (k.variants || []).forEach(function (v) {
+        if (v.full === skin || (k.name === skin && v.name === k.default)) from = lookName(k, v);
+      });
+    });
+    return "from " + from;
+  }
+  var looks = looksOn(themeData, palette);
+  if (looks.length) return "drawn by " + looks.join(", ");
+  var why = ((themeData && themeData.palette_only) || {})[palette];
+  return "palette only: the plain page" + (why ? " — " + why : "");
+}
+
+/* Paint, post, reconcile (#346). A pick is painted in the task that made it, from the css the server
+   already sent with `/api/themes` -- no palette maths here -- and only then posted. The answer is
+   the stream's own payload: equal values write nothing; a refusal puts back what was worn before
+   and says why on the control. */
+function choose(select, body) {
+  var themeSel = document.getElementById("theme");
+  var was = themeNow;
+  var mark;
+  if ("skin" in body) {
+    mark = gesture("theme:skin");
+    var full = body.skin || "none";
+    if (full === "none") {
+      // The palette stays the one the skin brought: the server keeps it as the default.
+      var keep = themeSel ? themeSel.value : "none";
+      applySkin("none");
+      reflectTheme({ theme: keep, skin: "none", css: paletteCss(keep) || {} });
+    } else {
+      var base = skinBase(full);
+      var css = base ? paletteCss(base) : null;
+      if (css) applyTheme(css, base);
+      applySkin(full);
+      reflectTheme({ theme: base || (themeSel && themeSel.value), skin: full, css: css || {} });
+    }
+  } else {
+    mark = gesture("theme:palette");
+    var name = body.theme || "none";
+    var pcss = name === "none" ? null : paletteCss(name);
+    if (pcss) applyTheme(pcss, name); else applyTheme(null, "none");
+    reflectTheme({ theme: pcss ? name : "none", skin: "none", css: pcss || {} });
+  }
+  settle(mark);
+  problem(select, "");
+  heardDuringWrite = null;
+  var write = pendingTheme = post("theme", body).then(function (res) {
+    if (pendingTheme !== write) return;          // a later pick is in flight; its answer decides
+    var heard = heardDuringWrite;
+    heardDuringWrite = null;
+    if (res && res.ok !== false) {
+      if (res.css || res.theme === "none") applyTheme(res.css, res.theme);
+      applySkin(res.skin);
+      reflectTheme(res);
+      problem(select, "");
+      saidSaved();
+      return;
+    }
+    putBack(heard || was);
+    problem(select, ((res && res.error) || "refused") + (res && res.hint ? " — " + res.hint : ""));
+  }, function () {
+    if (pendingTheme !== write) return;
+    var heard = heardDuringWrite;
+    heardDuringWrite = null;
+    putBack(heard || was);
+    problem(select, "the server did not answer — nothing was saved");
+  });
+  write.then(function () { if (pendingTheme === write) pendingTheme = null; });
+  return write;
+}
+
+function putBack(was) {
+  if (!was) return;
+  if (was.css || was.theme === "none") applyTheme(was.css, was.theme);
+  applySkin(was.skin);
+  reflectTheme(was);
+}
 
 /* One place that puts the server's answer into the two controls, so a change made in the terminal
    or in another window shows up here rather than leaving the picker saying something else. */
@@ -130,6 +272,10 @@ function reflectTheme(cur) {
       ? "the palette comes from the skin — choose “no skin” to pick one yourself"
       : "palette — shared with this project's terminal";
   }
+  // What is drawn on it (#393), said here and so on every pick too: `choose` reflects a palette in
+  // the task that picked it. Before `/api/themes` has answered there is nothing to say it from.
+  if (themeData) text(document.getElementById("palette-looks"),
+                      looksLine(cur.skin, themeSel ? themeSel.value : cur.theme));
 }
 
 /* -------------------------------------------------------------------------------------- models */
@@ -350,10 +496,12 @@ function load() {
    the palette it was opened with while the desk beside it wore another. */
 function connectTheme() {
   try {
-    var stream = new EventSource(q("/api/events"));
+    // `frames=theme` (#348): this page listens for one frame, so it is sent no agent history.
+    var stream = new EventSource(q("/api/events", { frames: "theme" }));
     stream.addEventListener("theme", function (m) {
       try {
         var d = JSON.parse(m.data);
+        if (pendingTheme) { heardDuringWrite = d; return; }
         applyTheme(d.css, d.theme);
         applySkin(d.skin);
         reflectTheme(d);
@@ -362,6 +510,14 @@ function connectTheme() {
   } catch (e) { /* no stream is a stale page, not a broken one */ }
 }
 
-loadThemes();
+// The skin the page settles on, for its load record (#351). Harmless when measuring is off.
+loadThemes().then(function () { LOAD.settled = document.body.dataset.skin || ""; });
 load();
 connectTheme();
+// While measuring is on (#351), the note that tells the desk this load came from here: a desk
+// opened from settings and a cold open both read `navigate`, and every page is `no-referrer`.
+if (LOAD.on) {
+  window.addEventListener("pagehide", function () {
+    try { sessionStorage.setItem("fleet.load.from", "settings"); } catch (e) { /* not counted */ }
+  });
+}

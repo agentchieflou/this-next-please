@@ -43,10 +43,12 @@ STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
 INK = os.path.join(STATIC, "ink")
 THREE_PATH = "/static/vendor/three/three.module.min.js"
 MODULES = ("ink.js", "layer.js", "shapes.js", "pen.js")
+#: Ink modules the layer fetches only when a table asks for them: effects (#370), for a skin with them.
+LAZY = ("fx.js",)
 #: Skin modules (docs/desk-ink.md §Writing a skin): the example, and every skin that draws with ink.
 SKINS = tuple(sorted(n for n in os.listdir(os.path.join(INK, "skins")) if n.endswith(".js")))
 #: Every script in `static/ink/`, the skins' included, as paths under it.
-SCRIPTS = MODULES + tuple(f"skins/{n}" for n in SKINS)
+SCRIPTS = MODULES + LAZY + tuple(f"skins/{n}" for n in SKINS)
 
 #: The page's own budget for a gesture it can answer out of what it already has (#219).
 LOCAL_BUDGET_MS = 50.0
@@ -60,6 +62,9 @@ PEN = 900
 #: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF
 #: first (operator decision, #331), so CRLF bytes alone never fail it (`_wire`).
 INK_BUDGET = 44 * 1024
+#: What the lazily fetched effects module (`ink/fx.js`, #370) may weigh over the wire: every
+#: one-shot effect's code (#372-#376) is held to it, outside `INK_BUDGET`.
+FX_BUDGET = 8 * 1024
 #: What one skin's module may weigh over the wire (the legal pad's is 7 KB, #251).
 SKIN_BUDGET = 16 * 1024
 
@@ -259,13 +264,17 @@ def test_a_crlf_checkout_of_the_ink_modules_measures_what_an_lf_one_does():
 def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     """What the layer's own modules cost over the wire, every one of them, as a shell the gate
     turned on fetches them. three.js is 163 KB of its own and is outside the desk's budget, because
-    no desk fetches it unless it draws."""
+    no desk fetches it unless it draws. The lazy modules (`LAZY`: `fx.js`, #370) are fetched only
+    by a table that asks for them, so each has a budget of its own and is not in `INK_BUDGET`."""
     sizes = {n: _wire(open(os.path.join(INK, n), "rb").read()) for n in MODULES}
     print(f"\n  ink modules over the wire: {sum(sizes.values())} bytes gzipped {sizes}")
     assert sum(sizes.values()) < INK_BUDGET, sizes
+    fx = _wire(open(os.path.join(INK, "fx.js"), "rb").read())
+    print(f"  fx.js over the wire: {fx} bytes gzipped")
+    assert fx < FX_BUDGET, fx
     files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
-    assert files == sorted(MODULES), "a module the budget does not count"
-    assert sorted(os.listdir(INK)) == sorted(MODULES + ("skins",))
+    assert files == sorted(MODULES + LAZY), "a module no budget counts"
+    assert sorted(os.listdir(INK)) == sorted(MODULES + LAZY + ("skins",))
     # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost.
     # Every one but the example is a skin skins.py offers (#249-#256 ship them).
     from agentdata.fleet import skins as K
@@ -323,6 +332,11 @@ def test_the_server_writes_the_probe_class_on_the_desk_and_nowhere_else(fleet_ho
         assert S.ink_skins() == sorted(n[:-3] for n in SKINS), S.ink_skins()
         for other in ("settings?x=1", "probe?x=1"):
             assert "data-ink" not in body_of(other), other
+        # The map (#405) is told the same facts, for its scene (#409), and keeps `ink-off`.
+        mapped = body_of("map?w=pycharm")
+        assert 'data-ink-shell="pycharm" data-ink-probe="hardware"' in mapped, mapped
+        assert f'data-ink-skins="{" ".join(S.ink_skins())}"' in mapped, mapped
+        assert mapped.startswith('<body class="ink-off"'), mapped
         # Compressed once per shell and class, not once for every window: two shells, two pages.
         asked = [urllib.request.Request(f"http://127.0.0.1:{port}/?w={w}&t={token}",
                                         headers={"Accept-Encoding": "gzip"})
@@ -520,9 +534,13 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
                 try { Ink.setSkin({ name: 'bad', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}, row] }); bad.push('accepted'); }
                 catch (e) { bad.push(e.message); }
               }
+              // The hand is on, off or a stick of chalk (#387): a table's own option, not a row's.
+              let hand = 'accepted';
+              try { Ink.setSkin({ name: 'bad', hand: 'crayon', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}] }); }
+              catch (e) { hand = e.name + ': ' + e.message; }
               return { keys: Object.keys(Ink).sort(), frozen: Object.isFrozen(Ink),
                        ready: await Ink.ready, enabled: Ink.enabled, tools: Ink.tools, shapes: Ink.shapes,
-                       layerShapes: shapes.SHAPE_NAMES, penTools: Object.keys(pen.TOOLS), bad,
+                       layerShapes: shapes.SHAPE_NAMES, penTools: Object.keys(pen.TOOLS), bad, hand,
                        table: Ink.inspect().table };
             }""")
             assert not errors, errors
@@ -533,14 +551,15 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
                                                     "setSkin", "refresh", "off", "inspect", "sample"])
     assert api["ready"]["on"] is True and api["ready"]["source"] == "override" and api["enabled"]
     assert sorted(api["shapes"]) == sorted(api["layerShapes"]) == sorted(
-        ["outline", "divider", "underline", "lines", "loop", "ellipse", "strike", "check", "bang",
-         "arrow", "write"])
+        ["outline", "divider", "underline", "lines", "loop", "ellipse", "ring", "strike", "check", "bang",
+         "cross", "arrow", "write"])
     assert sorted(api["tools"]) == sorted(["pencil", "pen", "red", "green", "marker", "highlighter"])
     assert set(api["penTools"]) == set(api["tools"]) | {"eraser"}
     assert all(m.startswith("ink: mark 1") for m in api["bad"]), api["bad"]
     assert "crayon" in api["bad"][0] and "star" in api["bad"][1] and "selector" in api["bad"][2]
     assert "eraser" in api["bad"][3] and "`to`" in api["bad"][4] and "no selector" in api["bad"][5]
     assert "crayon" in api["bad"][6] and "`ink`" in api["bad"][6] and "`cap`" in api["bad"][7] and "`cap`" in api["bad"][8]
+    assert api["hand"].startswith("TypeError: ") and "`hand`" in api["hand"] and "crayon" in api["hand"], api["hand"]
     assert api["table"] is None, "a refused table replaced the one in force"
 
 
@@ -873,6 +892,91 @@ def test_reduced_motion_draws_at_once_with_no_travelling_pen(fleet_home, tmp_pat
     assert went["write"] == "", "the handwriting was left covered"
 
 
+#: A long pencil row and a pen row in one pane, drawn slowly, with the page's own traces left out so
+#: that the pane's hand is only ever at these two (#387).
+CHALK = {"name": "chalk", "speed": 0.5, "series": False, "marks": [
+    {"selector": ".tile.ink-pencil .repo", "tool": "pencil", "shape": "underline"},
+    {"selector": ".tile.ink-pen .head", "tool": "pen", "shape": "loop"}]}
+
+#: The model of alpha's hand in a frame where that hand is shown and the mark on `tool` is part
+#: drawn -- read in the one frame, so a hand that swaps tools in the next is not misread.
+HAND_AT = """tool => { const l = Ink.inspect().layer;
+  const m = l.marks.find(m => m.tool === tool && m.lane === 'pane:alpha');
+  return l.lanes['pane:alpha'] && l.lanes['pane:alpha'].hand && m && m.drawn > 0 && m.drawn < 1
+    ? l.handModel : false; }"""
+
+#: `RECORD`'s pattern for a class taken away: every frame until alpha's pencil mark is gone, the
+#: hand's model and whether alpha's hand is shown.
+ERASE = """async () => {
+  document.querySelector('.tile[data-repo="alpha"]').classList.remove('ink-pencil');
+  const frames = [];
+  return await new Promise(done => {
+    const tick = () => {
+      const l = Ink.inspect().layer;
+      frames.push({ model: l.handModel, hand: !!(l.lanes['pane:alpha'] && l.lanes['pane:alpha'].hand),
+                    erased: l.marks.filter(m => m.tool === 'pencil').map(m => m.erased) });
+      if ((frames.length > 3 && !l.busy && !l.marks.some(m => m.tool === 'pencil')) || frames.length > 3000) {
+        return done(frames);
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}"""
+
+
+@pytest.mark.browser
+def test_the_hand_can_be_a_stick_of_chalk(fleet_home, tmp_path):
+    """#387: `hand: 'chalk'` puts a worn stick of chalk in every hand -- the pencil's, the pen's and
+    the eraser's -- and `hand: true` keeps the lit pencil, the pen and the pencil's eraser end. A
+    hand that is none of these is refused, naming `hand`, and the table in force stays."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            for hand, pencil, pen, eraser in (("chalk", "chalk", "chalk", "chalk"),
+                                              (True, "pencil", "pen:pen", "eraser")):
+                page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+                _set(page, dict(CHALK, hand=hand))
+                assert _layer(page)["handModel"] == "", "a hand was shown before a mark was drawn"
+                refused = page.evaluate("""() => { try { Ink.setSkin({ name: 'bad', hand: 'crayon', marks: [] }); return ''; }
+                                                   catch (e) { return e.message; } }""")
+                assert "`hand`" in refused and page.evaluate("() => Ink.inspect().table") == "chalk", refused
+                _mark(page, "alpha", "ink-pencil")
+                _mark(page, "alpha", "ink-pen")
+                drew = [page.wait_for_function(HAND_AT, arg=tool, timeout=20000).json_value()
+                        for tool in ("pencil", "pen")]
+                _rest(page, "Ink.inspect().layer.marks.filter(m => m.drawn === 1).length === 2")
+                frames = page.evaluate(ERASE)
+                assert frames[-1]["erased"] == [], frames[-1]
+                erasing = [f for f in frames if f["hand"] and f["erased"] == [True]]
+                assert erasing, "no frame showed the eraser at the pencil"
+                models = {f["model"] for f in frames}
+                # The render contract holds with the chalk: at rest, nothing written, nothing drawn.
+                count = page.evaluate(IDLE_LOOP)
+                assert not errors, errors
+                page.close()
+                assert drew == [pencil, pen], (hand, drew)
+                # Every sampled frame: the last hand shown is the pen that drew, or the eraser.
+                assert models <= {pen, eraser}, (hand, models)
+                assert {f["model"] for f in erasing} == {eraser}, (hand, erasing[:3])
+                assert count["n"] == 0 and count["renders"] == 0, (hand, count)
+
+            # Reduced motion: the marks are drawn at once, and no hand at all -- chalk or not.
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+            _set(page, dict(CHALK, hand="chalk"))
+            came = page.evaluate(RECORD, [[["alpha", "ink-pencil"], ["alpha", "ink-pen"]]])
+            layer = _layer(page)
+            assert not any(f["hands"] for f in came), "a hand travelled under reduced motion"
+            assert layer["hands"] is False and layer["handModel"] == "", layer["handModel"]
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+
+
 @pytest.mark.browser
 def test_ink_catches_up_in_frames_not_milliseconds(fleet_home, tmp_path):
     """Ground rule 5. CI draws in software, so the ink's own budget is counted in frames: a mark is
@@ -1111,20 +1215,22 @@ def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path):
                 return { outline: head.outlineStyle + ' ' + head.outlineWidth,
                          highlight: name.backgroundColor,
                          underline: under.textDecorationLine,
-                         margin: getComputedStyle(b.querySelector('.head')).boxShadow };
+                         margin: getComputedStyle(b.querySelector('.head')).boxShadow,
+                         ring: getComputedStyle(a.querySelector('.head .n')).boxShadow,
+                         cross: getComputedStyle(b).boxShadow };
               };
               const bare = look();
-              a.classList.add('ink-loop', 'ink-pencil');
-              b.classList.add('ink-hl', 'ink-done');
+              a.classList.add('ink-loop', 'ink-pencil', 'ink-o');
+              b.classList.add('ink-hl', 'ink-done', 'ink-x');
               const marked = look();
-              a.classList.remove('ink-loop', 'ink-pencil');
-              b.classList.remove('ink-hl', 'ink-done');
+              a.classList.remove('ink-loop', 'ink-pencil', 'ink-o');
+              b.classList.remove('ink-hl', 'ink-done', 'ink-x');
               const gone = look();
               await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
               obs.disconnect();
               return { drawn, bare, marked, gone, writes: n, rules: document.adoptedStyleSheets
                          .flatMap(s => [...s.cssRules].map(r => r.cssText)).join('\\n') };
-            }""", TABLE)
+            }""", dict(TABLE, marks=TABLE["marks"] + OX["marks"]))
             assert not errors, errors
             browser.close()
     finally:
@@ -1135,6 +1241,9 @@ def test_the_fallback_draws_the_same_table_as_plain_css(fleet_home, tmp_path):
     assert out["marked"]["highlight"] != out["bare"]["highlight"], out
     assert out["marked"]["underline"] == "underline", out["marked"]
     assert "inset" in out["marked"]["margin"] or "3px 0px 0px" in out["marked"]["margin"], out
+    # #386: the O is a rounded 2px ring round the number, the X a bar in the pane's margin.
+    assert out["marked"]["ring"].endswith("0px 0px 0px 2px") and out["bare"]["ring"] == "none", out
+    assert "3px 0px 0px 0px inset" in out["marked"]["cross"], out
     assert out["writes"] == 0, "the fallback wrote to the page"
     assert "body.ink-off :is(.tile.ink-loop .head)" in out["rules"], out["rules"]
     assert not [u for u in asked if "/static/ink/layer.js" in u or "vendor/three" in u]
@@ -1446,6 +1555,308 @@ def test_a_row_borrows_an_ink_and_an_underline_ends_in_a_cap(fleet_home, tmp_pat
                                             for m in f["marks"])]
             assert whole and came.index(whole[0]) <= 1, f"not drawn at once: {[f['marks'] for f in came[:4]]}"
             assert not any(f["hands"] for f in came), "a pen travelled under reduced motion"
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+
+
+#: #386: a tight O round a pane's number, and an X in a pane's margin.
+OX = {"name": "ox", "speed": 4, "marks": [
+    {"selector": ".tile.ink-o .head .n", "tool": "pencil", "shape": "ring"},
+    {"selector": ".tile.ink-x", "tool": "red", "shape": "cross"}]}
+
+#: The ring's mark on alpha with its strokes' bounds, `.n`'s box and `.repo`'s text rects, read at once.
+RING = """() => {
+  const a = document.querySelector('.tile[data-repo="alpha"]');
+  const n = a.querySelector('.head .n').getBoundingClientRect();
+  const rg = document.createRange(); rg.selectNodeContents(a.querySelector('.head .repo'));
+  const text = [...rg.getClientRects()].filter(r => r.width > 0)
+    .map(r => ({ x: r.left, y: r.top, r: r.right, b: r.bottom }));
+  const m = Ink.inspect().layer.marks.find(k => k.shape === 'ring' && k.lane === 'pane:alpha');
+  return { n: { x: n.left, y: n.top, r: n.right, b: n.bottom, w: n.width },
+           digits: a.querySelector('.head .n').textContent, text, mark: m || null };
+}"""
+
+
+def _union(bounds):
+    return {"x": min(b["x"] for b in bounds), "y": min(b["y"] for b in bounds),
+            "r": max(b["r"] for b in bounds), "b": max(b["b"] for b in bounds)}
+
+
+def _hugs(got):
+    """The ring's strokes enclose `.n`'s box and cross none of `.repo`'s words."""
+    m = got["mark"]
+    assert m and m["state"] == "drawn" and m["drawn"] == 1 and m["bounds"], got
+    u, n = _union(m["bounds"]), got["n"]
+    assert u["x"] <= n["x"] and u["r"] >= n["r"] and u["y"] <= n["y"] and u["b"] >= n["b"], (u, n)
+    assert got["text"], got
+    for t in got["text"]:
+        for b in m["bounds"]:
+            apart = b["r"] <= t["x"] or t["r"] <= b["x"] or b["b"] <= t["y"] or t["b"] <= b["y"]
+            assert apart, ("the O crosses the name", b, t, n)
+
+
+@pytest.mark.browser
+def test_the_o_and_the_x(fleet_home, tmp_path):
+    """#386. `ring` is a tight O round a small box (a pane's number), close enough that it never
+    crosses the name 8px away, for a one-digit and a two-digit number; `cross` is an X in the pane's
+    margin, down the middle of a rail. Each is drawn when its class comes and leaves by its tool's
+    rule: the pencil's O is erased, the red X struck. Plain, the O is a rounded 2px shadow in its
+    ink and the X a margin bar beside a selected pane's focus ring. Reduced motion draws both at
+    once, and an idle desk writes nothing and draws nothing."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+
+            # Plain: the same two rows as CSS, in their own inks.
+            page, errors, _ = _open(browser, port, token)
+            page.evaluate("""() => { const s = document.documentElement.style;
+              s.setProperty('--ink-pencil', '#0000ff'); s.setProperty('--ink-red', '#ff0000'); }""")
+            plain = page.evaluate("""async (t) => {
+              const drawn = (await Ink.setSkin(t)).drawn;
+              const a = document.querySelector('.tile[data-repo="alpha"]');
+              const b = document.querySelector('.tile[data-repo="beta"]');
+              const n = a.querySelector('.head .n');
+              const bare = [getComputedStyle(n).boxShadow, getComputedStyle(b).boxShadow];
+              a.classList.add('ink-o'); b.classList.add('ink-x');
+              const ns = getComputedStyle(n), o = { shadow: ns.boxShadow, radius: ns.borderTopLeftRadius };
+              const x = getComputedStyle(b).boxShadow;
+              const was = b.classList.contains('is-selected');
+              b.classList.add('is-selected');
+              const sel = getComputedStyle(b).boxShadow;
+              b.classList.toggle('is-selected', was);
+              a.classList.remove('ink-o'); b.classList.remove('ink-x');
+              return { drawn, bare, o, x, sel, shapes: Ink.shapes,
+                       gone: [getComputedStyle(n).boxShadow, getComputedStyle(b).boxShadow] };
+            }""", OX)
+            assert not errors, errors
+            page.close()
+            assert plain["drawn"] == "plain" and {"ring", "cross"} <= set(plain["shapes"]), plain
+            assert plain["o"]["shadow"] == "rgb(0, 0, 255) 0px 0px 0px 2px", plain
+            assert plain["o"]["radius"] == "999px", plain
+            assert plain["x"].startswith("rgb(255, 0, 0) 3px 0px 0px 0px inset"), plain
+            assert "rgb(255, 0, 0) 3px 0px 0px 0px inset" in plain["sel"], plain
+            assert "0px 0px 0px 2px" in plain["sel"], ("the selected pane lost its focus ring", plain)
+            assert plain["gone"] == plain["bare"], plain
+
+            # Drawn: the layer starts with both shapes, and each leaves by its tool's rule.
+            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+            assert {"ring", "cross"} <= set(page.evaluate("() => Ink.shapes"))
+            assert _set(page, OX)["drawn"] == "ink"
+            _mark(page, "alpha", "ink-o")
+            _mark(page, "alpha", "ink-x")
+            _rest(page, "Ink.inspect().layer.marks.filter(m => m.lane === 'pane:alpha'"
+                        " && m.drawn === 1).length === 2")
+            by = {m["shape"]: m for m in _marks(page)}
+            assert (by["ring"]["tool"], by["ring"]["strokes"]) == ("pencil", 1), by
+            assert (by["cross"]["tool"], by["cross"]["strokes"]) == ("red", 2), by
+            _hugs(page.evaluate(RING))
+
+            count = page.evaluate(IDLE_LOOP)
+            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+            assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
+
+            # A two-digit number: the O widens with it and still stays off the name.
+            page.evaluate("""() => {
+              document.querySelector('.tile[data-repo="alpha"] .head .n').textContent = '12';
+              Ink.refresh(); }""")
+            page.wait_for_function(f"""() => {{ const g = ({RING})(); return ({AT_REST})()
+              && g.digits === '12' && !!g.mark && g.mark.drawn === 1
+              && Math.abs(g.mark.box.w - g.n.w) < 0.5; }}""", timeout=20000)
+            _hugs(page.evaluate(RING))
+
+            _mark(page, "alpha", "ink-o", False)
+            _mark(page, "alpha", "ink-x", False)
+            _rest(page, "!Ink.inspect().layer.marks.some(m => m.shape === 'ring')"
+                        " && Ink.inspect().layer.marks.some(m => m.strikeOf)")
+            left = _marks(page)
+            cross = next(m for m in left if m["shape"] == "cross")
+            assert cross["state"] == "struck", left
+            assert [m["strikeOf"] for m in left if m["strikeOf"]] == [cross["id"]], left
+            assert not errors, errors
+            page.close()
+
+            # Reduced motion: both on the paper at once, and no pen travels.
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+            _set(page, OX)
+            came = page.evaluate(RECORD, [[["alpha", "ink-o"], ["alpha", "ink-x"]]])
+            whole = [f for f in came
+                     if sum(1 for m in f["marks"] if m[1] == "pane:alpha" and m[2] == 1) == 2]
+            assert whole and came.index(whole[0]) <= 1, f"not drawn at once: {[f['marks'] for f in came[:4]]}"
+            assert not any(f["hands"] for f in came), "a pen travelled under reduced motion"
+            assert not errors, errors
+            page.close()
+
+            # A rail: only the first pane is open, so beta is 48px wide and the X goes down its middle.
+            S.update_window("main", open="alpha", widths={"alpha": 1})
+            page, errors, _ = _open(browser, port, token, "&ink=on", panes=1)
+            _set(page, OX)
+            rail = page.evaluate("""() => { const r = document.querySelector('.tile[data-repo="beta"]')
+              .getBoundingClientRect(); return { x: r.left, w: r.width }; }""")
+            assert rail["w"] < 90, rail
+            _mark(page, "beta", "ink-x")
+            _rest(page, "Ink.inspect().layer.marks.some(m => m.shape === 'cross' && m.drawn === 1)")
+            [cross] = [m for m in _marks(page) if m["shape"] == "cross"]
+            assert (cross["lane"], cross["strokes"]) == ("pane:beta", 2), cross
+            u = _union(cross["bounds"])
+            assert abs((u["x"] + u["r"]) / 2 - (rail["x"] + rail["w"] / 2)) <= 3, (u, rail)
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+
+
+#: #388: a skin's material drawn with a tool's own stroke. The `frame` hook keeps alpha's pane group,
+#: counts its calls and asks for a frame, so that a group built again is ticked; `tick` draws a
+#: 200px pencil line in the pen's ink into it, 70px down the pane, advancing its head at the pen's
+#: speed (all of it at once under reduced motion), and draws it again whenever its handle is dead.
+#: `hold` stops it. Each tick that advanced the head is `[tick, stroke, head, len, reduced]`.
+MATERIAL = """() => {
+  const s = window.__m = { frames: 0, group: null, h: null, pos: 0, made: 0, calls: 0, ticks: [], hold: false };
+  return Ink.setSkin({ name: 'material', series: false, marks: [] }, {
+    frame({ scene, api }, el) {
+      if (el.dataset.repo !== 'alpha') return;
+      s.frames += 1;
+      s.group = scene;
+      api.request();
+    },
+    tick({ api }, dt) {
+      s.calls += 1;
+      if (!s.group || s.hold) return false;
+      if (!s.h || s.h.dead) {
+        s.h = api.stroke(s.group, { pts: [[20, 70], [220, 70]], nobow: true }, 'pencil', { ink: 'pen', seed: 7 });
+        s.made += 1;
+        s.pos = 0;
+      }
+      if (s.pos >= s.h.len) return false;
+      s.pos = api.reduced ? s.h.len : Math.min(s.h.len, s.pos + 900 * dt);
+      s.h.head(s.pos);
+      s.ticks.push([s.calls, s.made, s.pos, s.h.len, api.reduced]);
+      return s.pos < s.h.len;
+    },
+  }).then(o => o.drawn);
+}"""
+
+#: The material line is on the paper whole, from a live handle.
+DRAWN = "!!__m.h && !__m.h.dead && __m.h.len > 190 && __m.pos >= __m.h.len"
+
+#: `READ`'s box over `w` px of the material line from `x0` px into the pane: its group is at the
+#: pane's top-left, and the line is 70px down it.
+LINE = """([x0, w]) => { const r = document.querySelector('.tile[data-repo="alpha"]').getBoundingClientRect();
+  return [{ x: r.left + x0, y: r.top + 68, w, h: 4,
+            at: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].flatMap(fx => [[fx, 0.25], [fx, 0.5], [fx, 0.75]]) }]; }"""
+
+#: The pen's ink, pure, on <html>, which the layer observes -- and first the pencil's, so a line
+#: drawn in its own tool's ink reads as the wrong colour.
+INK_PEN = """([pen, pencil]) => { const s = document.documentElement.style;
+  s.setProperty('--ink-pen', pen); if (pencil) s.setProperty('--ink-pencil', pencil); }"""
+
+#: A skin that draws nothing and hands the test the renderer from its hook.
+PROBE = """() => Ink.setSkin({ name: 'probe', series: false, marks: [] },
+  { frame({ api }) { window.__r = api.renderer; } }).then(o => o.drawn)"""
+
+#: What `api.stroke` says, from a hook, to a tool and to an ink that are no tool.
+REFUSE = """() => new Promise(done => Ink.setSkin({ name: 'refuse', series: false, marks: [] }, {
+  frame({ scene, api }) {
+    done([['crayon', {}], ['pencil', { ink: 'crayon' }]].map(([tool, opts]) => {
+      try { api.stroke(scene, { pts: [[0, 0], [10, 0]] }, tool, opts); return ''; }
+      catch (e) { return e.name + ': ' + e.message; } }));
+  } }))"""
+
+
+@pytest.mark.browser
+def test_a_skin_draws_a_material_with_a_tools_stroke(fleet_home, tmp_path):
+    """#388. `api.stroke` draws a skin's material with a tool's own stroke -- here the pencil's grain
+    in the pen's ink -- into a group a hook was handed, from head 0: the skin advances the head in
+    `tick`, and the line is on the paper in the pen's ink once complete and nowhere at head 0. At
+    rest the desk writes nothing and draws nothing. The stroke dies with its group: a palette change
+    and a resize build the pane's frame again, the old handle says `dead`, and the skin draws the
+    line again, in the new ink, and the live strokes do not grow. Replacing the skin frees every
+    geometry it made. A tool or an ink that is no tool is refused, naming it. Reduced motion draws
+    the line whole on the first tick."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+            page.evaluate(INK_PEN, ["#ff0000", "#0000ff"])
+
+            # The geometries on the GPU before the skin, read through `api.renderer` from a hook.
+            assert page.evaluate(PROBE) == "ink"
+            _rest(page, "!!window.__r")
+            before = page.evaluate("() => window.__r.info.memory.geometries")
+
+            # Drawn at the pen's speed, then on the paper in the pen's ink, never the pencil's.
+            assert page.evaluate(MATERIAL) == "ink"
+            _rest(page, DRAWN)
+            at = page.evaluate(LINE, [20, 200])
+            page.wait_for_function(PURE, arg=[at, 0], timeout=10000)
+            assert not page.evaluate(PURE, [at, 2]), page.evaluate(READ, at)
+            ticks = page.evaluate("() => __m.ticks")
+            assert ticks[0][2] < ticks[0][3] / 2 and all(t[4] is False for t in ticks), ticks
+            assert _layer(page)["skin"]["strokes"] == 1, _layer(page)["skin"]
+
+            count = page.evaluate(IDLE_LOOP)
+            assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+            assert count["renders"] == 0, f"an idle desk rendered frames: {count}"
+
+            # At head 0 the line is nowhere.
+            page.evaluate("() => { __m.hold = true; __m.h.head(0); }")
+            bare = page.evaluate(READ, at)[0]
+            assert not any(px[3] > 8 for px in bare), bare
+            page.evaluate("() => { __m.h.head(__m.h.len); __m.hold = false; }")
+            page.wait_for_function(PURE, arg=[at, 0], timeout=10000)
+
+            # A palette change empties the group: the old handle is dead, `frame` is called again,
+            # and the line drawn again in the new group reads in the new ink.
+            page.evaluate("() => { window.__old = __m.h; window.__was = __m.frames; }")
+            page.evaluate(INK_PEN, ["#00ff00", None])
+            _rest(page, "__old.dead && __m.frames > __was && __m.h !== __old && " + DRAWN)
+            page.wait_for_function(PURE, arg=[at, 1], timeout=10000)
+            assert not page.evaluate(PURE, [at, 0]), page.evaluate(READ, at)
+
+            # Five resizes of the window, and so of the pane: each builds its frame again, and the
+            # live strokes stay one.
+            live = []
+            for i in range(5):
+                page.evaluate("() => { window.__old = __m.h; window.__was = __m.frames; }")
+                page.set_viewport_size({"width": 1340 - 60 * i, "height": 900})
+                _rest(page, "__old.dead && __m.frames > __was && __m.h !== __old && " + DRAWN)
+                live.append(_layer(page)["skin"]["strokes"])
+            assert live == [1] * 5, live
+            assert _layer(page)["skin"]["errors"] == [], _layer(page)["skin"]
+            during = page.evaluate("() => window.__r.info.memory.geometries")
+            assert during > before, (before, during)
+
+            # Replacing the skin frees every geometry it made.
+            assert page.evaluate(PROBE) == "ink"
+            _rest(page, "Ink.inspect().table === 'probe'")
+            after = page.evaluate("() => window.__r.info.memory.geometries")
+            assert after == before, (before, during, after)
+            assert _layer(page)["skin"]["strokes"] == 0, _layer(page)["skin"]
+
+            # A tool, or an ink, that is no tool is refused, naming the argument.
+            refused = page.evaluate(REFUSE)
+            assert refused[0].startswith("TypeError: ") and "`tool` \"crayon\"" in refused[0], refused
+            assert refused[1].startswith("TypeError: ") and "`ink` \"crayon\"" in refused[1], refused
+            assert not errors, errors
+            page.close()
+
+            # Reduced motion: the whole line on the first tick, and on the paper to its end.
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+            page.evaluate(INK_PEN, ["#ff0000", "#0000ff"])
+            assert page.evaluate(MATERIAL) == "ink"
+            _rest(page, DRAWN)
+            ticks = page.evaluate("() => __m.ticks")
+            assert len(ticks) == 1 and ticks[0][:2] == [1, 1] and ticks[0][2] == ticks[0][3], ticks
+            assert ticks[0][4] is True, ticks
+            page.wait_for_function(PURE, arg=[page.evaluate(LINE, [185, 20]), 0], timeout=10000)
             assert not errors, errors
             browser.close()
     finally:

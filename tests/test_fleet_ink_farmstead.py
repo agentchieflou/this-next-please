@@ -114,7 +114,68 @@ def _band(variant, texel):
     return "#%02X%02X%02X" % tuple(round(_srgb(ci * light * si) * 255) for ci, si in zip(c, sun))
 
 
+#: The art the farm's effects draw with (#380), in the order farmstead.js lists it.
+PROPS = ("produce", "cloud", "hen-a", "hen-b", "cat-sleep", "cat-stretch", "crow")
+
+
+def _sizes():
+    """farmstead.js's `SIZE`: {sprite: (width, height)} in art px, read from the module's text."""
+    table = re.search(r"const SIZE = \{(.*?)\};", _read(MODULE), re.S).group(1)
+    return {k: (int(w), int(h)) for k, w, h in re.findall(r'"?([\w-]+)"?:\s*\[(\d+),\s*(\d+)\]', table)}
+
+
+def _texels(name):
+    """Every pixel of a sprite, as the loader fills it: its rects in document order on its grid."""
+    head, body = re.search(r'<svg id="%s"([^>]*)>(.*?)</svg>' % name, _read(SPRITES), re.S).groups()
+    w, h = (int(re.search(r'\b%s="(\d+)"' % k, head).group(1)) for k in ("width", "height"))
+    grid = [[None] * w for _ in range(h)]
+    for attrs in re.findall(r"<rect\b([^>]*)/?>", body):
+        a = {k: int(v) for k, v in re.findall(r'\b(x|y|width|height)="(\d+)"', attrs)}
+        fill = re.search(r'fill="(#[0-9A-Fa-f]{6})"', attrs).group(1)
+        for y in range(a.get("y", 0), min(h, a.get("y", 0) + a["height"])):
+            for x in range(a.get("x", 0), min(w, a.get("x", 0) + a["width"])):
+                grid[y][x] = fill
+    return [c for row in grid for c in row if c]
+
+
 # ============================================================================ without a browser
+
+
+def test_every_sprite_is_the_size_the_loader_makes_it():
+    """load() makes every texture before the sheet is fetched (#380), so a sprite's size is
+    farmstead.js's `SIZE` table, 16x16 when it is not there -- and the art is held to it here: every
+    nested `<svg id>` in sprites.svg is exactly the size its texture is made."""
+    sizes = _sizes()
+    sheet = _read(SPRITES)
+    nested = {i: (int(w), int(h)) for i, w, h in
+              re.findall(r'<svg id="([\w-]+)"[^>]*?\bwidth="(\d+)" height="(\d+)"', sheet)}
+    module = _read(MODULE)
+    listed = re.findall(r'"([\w-]+)"', module.split("const PROPS", 1)[1].split(";", 1)[0])
+    assert tuple(listed) == PROPS, listed
+    assert set(sizes) <= set(nested) and set(PROPS) <= set(nested), (sorted(sizes), sorted(nested))
+    for sprite, size in nested.items():
+        assert size == sizes.get(sprite, (16, 16)), f"sprites.svg#{sprite} is {size}, the loader makes {sizes.get(sprite, (16, 16))}"
+        assert '"%s"' % sprite in module, f"sprites.svg#{sprite} is not a sprite farmstead.js loads"
+
+
+def test_the_rain_and_the_fireflies_read_on_what_they_are_drawn_over():
+    """The effects' colours are skin.css's, never the module's (#380): `--farm-rain`, a streak on
+    the boards, is set for every weather and keeps 3:1 on the median plank texel of that weather lit
+    as the band shader lights it; `--farm-firefly`, a glow on the cave's soil, keeps 3:1 on it."""
+    plank = _texels("plank")
+    for variant in VARIANTS:
+        props = _props(variant)
+        rain = props["--farm-rain"].strip()
+        assert re.fullmatch(r"#[0-9A-Fa-f]{6}", rain), (variant, rain)
+        lit = sorted((_band(variant, t) for t in plank), key=lambda c: _lum([_lin(v) for v in _rgb(c)]))
+        median = lit[len(lit) // 2]
+        ratio = theme.contrast_ratio(rain, median)
+        assert ratio >= 3, f"farmstead:{variant}: --farm-rain {rain} on the lit plank {median} is {ratio:.2f}:1"
+    cave = _props("cave")
+    firefly, soil = cave["--farm-firefly"].strip(), cave["--farm-soil"].strip()
+    assert soil.upper() == "#46423A", soil
+    ratio = theme.contrast_ratio(firefly, soil)
+    assert ratio >= 3, f"farmstead:cave: --farm-firefly {firefly} on the soil {soil} is {ratio:.2f}:1"
 
 
 def test_the_module_carries_no_colour_of_its_own():
@@ -449,16 +510,20 @@ def test_the_chip_glyph_is_one_sprite_of_the_sheet_and_not_all_of_them(fleet_hom
                 const g = c.getContext('2d');
                 g.imageSmoothingEnabled = false;
                 g.drawImage(img, 0, 0, 16, 16);
-                const d = g.getImageData(0, 0, 16, 16).data, seen = new Set();
+                const d = g.getImageData(0, 0, 16, 16).data, seen = new Set(), extent = [0, 0];
                 for (let i = 0; i < d.length; i += 4) {
-                  if (d[i + 3]) seen.add('#' + [d[i], d[i + 1], d[i + 2]].map(v => v.toString(16)
+                  if (!d[i + 3]) continue;
+                  seen.add('#' + [d[i], d[i + 1], d[i + 2]].map(v => v.toString(16)
                     .padStart(2, '0')).join('').toUpperCase() + (d[i + 3] < 255 ? '~' : ''));
+                  extent[0] = Math.max(extent[0], (i / 4) % 16 + 1);
+                  extent[1] = Math.max(extent[1], Math.floor(i / 64) + 1);
                 }
                 out[id || 'none'] = [...seen].sort();
                 out[(id || 'none') + ':size'] = [img.naturalWidth, img.naturalHeight];
+                out[(id || 'none') + ':extent'] = extent;
               }
               return out;
-            }""", ["crop-seed", "crop-sprout", "crop-sun", "crop-bloom", "crop-wilted", ""])
+            }""", ["crop-seed", "crop-sprout", "crop-sun", "crop-bloom", "crop-wilted", *PROPS, ""])
             glyph = page.evaluate("""() => getComputedStyle(document.querySelector(
               '.tile[data-repo="alpha"] .chip'), '::before').backgroundImage""")
             assert not errors, errors
@@ -469,6 +534,12 @@ def test_the_chip_glyph_is_one_sprite_of_the_sheet_and_not_all_of_them(fleet_hom
     for sprite in ("crop-seed", "crop-sprout", "crop-sun", "crop-bloom", "crop-wilted"):
         assert drawn[sprite] == sorted({c.upper() for c in _sprite(sprite)}), (sprite, drawn[sprite])
         assert drawn[sprite + ":size"] == [16, 16], drawn[sprite + ":size"]
+    # The effects' art (#380): each its own colours only, drawn inside its own size (SIZE) at the
+    # top left of the sheet's box, and nothing past it.
+    for sprite in PROPS:
+        assert drawn[sprite] == sorted({c.upper() for c in _sprite(sprite)}), (sprite, drawn[sprite])
+        extent, own = drawn[sprite + ":extent"], _sizes()[sprite]
+        assert 0 < extent[0] <= own[0] and 0 < extent[1] <= own[1], (sprite, extent, own)
     assert drawn["none"] == [], "the sheet with no fragment draws nothing"
 
 
@@ -502,6 +573,7 @@ def test_the_sprites_are_nearest_neighbour_textures_at_a_whole_number_of_device_
     assert farm["nearest"] and farm["raster"] == 1, farm
     assert farm["sizes"]["plank"] == [16, 8] and all(farm["sizes"][c] == [16, 16] for c in
                                                      ("soil", "crop-seed", "crop-bloom")), farm["sizes"]
+    assert all(farm["sizes"][k] == list(v) for k, v in _sizes().items()), (farm["sizes"], _sizes())
     assert farm["units"] == {"soil": 2, "board": 1, "crop": 2, "dpr": 2}, farm["units"]
     assert crop["size"] == 24 and len(crop_px) == 48 and len(crop_px[0]) == 48, crop
 
@@ -813,7 +885,7 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
     assert live(on, "beta", ".tile.needs-human .head .repo")[0]["tool"] == "highlighter"
     assert live(on, "beta", '.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]')[0]["shape"] == "loop"
     assert live(on, "beta", ".tile .transcript li.friction")[0]["tool"] == "red"
-    assert live(on, "alpha", ".tile.state-error .head")[0]["tool"] == "marker"
+    assert live(on, "alpha", ".tile.state-error")[0]["tool"] == "marker"
     assert live(on, "gamma", ".tile.state-running .head .repo")[0]["tool"] == "pen"
     panes = on["farm"]["panes"]
     assert panes["alpha"]["shown"] == "crop-wilted" and panes["alpha"]["scorched"], panes["alpha"]
@@ -913,9 +985,10 @@ def test_dispose_frees_the_textures_when_the_skin_changes(fleet_home, tmp_path):
             browser.close()
     finally:
         _stop(server)
-    assert day["textures"] == 7 and day["freed"] == 0, day
-    assert rainy["textures"] == 7 and rainy["made"] == 14 and rainy["freed"] == 7, rainy
-    assert gone["textures"] == 0 and gone["freed"] == gone["made"] == 14, gone
+    # Fourteen sprites: the soil, the plank, five crops and the effects' seven (#380).
+    assert day["textures"] == 14 and day["freed"] == 0, day
+    assert rainy["textures"] == 14 and rainy["made"] == 28 and rainy["freed"] == 14, rainy
+    assert gone["textures"] == 0 and gone["freed"] == gone["made"] == 28, gone
     assert gone["panes"] == {} and gone["bands"] == [], gone
     # The GPU holds a texture once it has been drawn with: the soil, the plank and the seed.
     assert gone["gpuTextures"] <= rainy["gpuTextures"] - 3, (rainy["gpuTextures"], gone["gpuTextures"])

@@ -20,9 +20,11 @@
   },
   // Both, because `app.js` is a classic script: it reads `q`, `post`, `text` and the other setters
   // as globals that `common.js` declares, and a global only resolves inside one program.
-  // `settings.js` and `probe.js` are not in it yet.
+  // `picker.js` (#362) sits between them as the pages load it, and a name it shared with `app.js`
+  // would be a duplicate declaration here. `settings.js` and `probe.js` are not in it yet.
   "files": [
     "agentdata/fleet/static/common.js",
+    "agentdata/fleet/static/picker.js",
     "agentdata/fleet/static/app.js"
   ]
 }
