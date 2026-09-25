@@ -139,6 +139,35 @@ def test_the_settings_control_is_a_link_to_its_own_page(fleet_home, tmp_path):
             page.wait_for_url(re.compile(r"/settings"), timeout=10000)
             page.wait_for_selector("#theme", timeout=10000)
             assert page.locator("#skin").is_visible(), "the pickers did not arrive with the page"
+
+            # #407: the map is the same kind of door, and it must keep the window the desk was
+            # opened in -- a map reached from PyCharm's tool window that forgets `shell` reads the
+            # `browser` probe. Folded in here rather than a test of its own: the slow tier is capped.
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&w=pycharm&shell=pycharm",
+                      wait_until="domcontentloaded")
+            page.wait_for_selector(".tile:visible", timeout=15000)
+            assert page.locator("#mapbtn").count() == 1, "the desk has no map control"
+            href = page.locator("#mapbtn").get_attribute("href")
+            assert href and "/map" in href, f"the map control goes nowhere: {href!r}"
+            for part in (f"t={token}", "w=pycharm", "shell=pycharm"):
+                assert part in href, f"the map link lost {part}: {href!r}"
+
+            page.locator("#mapbtn").click()
+            page.wait_for_url(re.compile(r"/map\?"), timeout=10000)
+            page.wait_for_selector("#maptree [data-node]", timeout=10000)
+            assert page.evaluate("document.body.dataset.inkShell") == "pycharm", "the map forgot the shell"
+
+            # `g` typed into the search box is text; `g` on the desk itself is the door.
+            page.go_back(wait_until="domcontentloaded")
+            page.wait_for_selector(".tile:visible", timeout=15000)
+            page.locator("#find").press("g")
+            assert page.locator("#find").input_value() == "g", "g in the search box was not text"
+            assert "/map" not in page.url, "g typed into the search box left the desk"
+            page.locator("#find").blur()
+            page.keyboard.press("g")
+            page.wait_for_url(re.compile(r"/map\?"), timeout=10000)
+            page.wait_for_selector("#maptree [data-node]", timeout=10000)
+            assert "shell=pycharm" in page.url, page.url
             assert not errors, errors
             browser.close()
     finally:
