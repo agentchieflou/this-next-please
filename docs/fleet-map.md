@@ -113,9 +113,9 @@ ul#maptree
 (branches before #403 reads them, the network before #404) is not drawn.
 
 **Classes**, from a closed list: `kind-<kind>`, `state-<state>`, `role-<role>`, `needs-human`, `live`, `stale` (an
-agent); `main`, `worktree`, `dirty` (a checkout); `unmerged`, `is-current` (a non-empty `current_in`), `carrying` (a
-branch); `connected` (a window); `grey` (a source with any cell `ok: false`); `pending` (approvals above 0). A kind,
-state or role that is not a plain word is not written.
+agent); `main`, `worktree`, `dirty` (a checkout); `unmerged`, `is-current` (a non-empty `current_in`), `carrying`,
+`gone` (a branch; #406); `connected` (a window); `grey` (a source with any cell `ok: false`); `pending` (approvals above
+0). A kind, state or role that is not a plain word is not written.
 
 **Expansion.** `aria-expanded` is written only when an item is created: projects, checkouts and `n:network` open,
 `bs:` closed. A redraw never undoes what the operator opened or closed; the choice is held in the DOM, in memory,
@@ -142,7 +142,41 @@ Tests: `tests/test_fleet_map_page.py` (5 browser tests, one Chromium for the mod
 
 ## Staying live
 
-(written by #406)
+The map follows the fleet as it changes (`map/map.js`, #406), on a stream of its own; there is no
+polling loop and nothing new on the server.
+
+**The cursor.** After the first draw the page opens `GET /api/events?since=<graph.cursor>&w=<w>&page=map&notify=0`
+(`shell` too when the page has one). `since` is the graph's `cursor`, so the stream starts after the events the
+graph was folded from: it replays no agent's history, and a map opened on a busy fleet sees its first `agent` frame
+only when something new happens. On a reconnect the cursor is the newest graph's.
+
+**`notify=0`** (#356). The notification sweep's cursor is shared by every stream, so a stream that does not draw
+`notify` frames would take the desk's and drop them. The map's stream never sweeps, and no `notify` frame reaches it.
+
+**The throttle.** `agent`, `polls` and `desk` frames refetch `/api/map`, at most once per 400 ms: the first frame
+arms a timer and later frames never push it back (the desk's `refreshSoon`). A trailing debounce would never fire
+while a busy fleet streams agent frames. Nothing is refetched while `FleetMap.draw` holds the tree (`paused`). An
+answer is drawn only when its `as_of` is newer than the drawn graph's (the same `run` and a larger `n`, or a new
+`run`); an `as_of` of null is always taken. A `theme` frame paints at once (`applyTheme`, `applySkin`), and a graph
+that was in flight when it came does not paint its older theme over it.
+
+**The dot.** `#maplink` (`class="dot"`, after `#mapsays`) says the stream's state the way the desk's `#link` does:
+*live* (`dot live`) on open and on every `tick`, *reconnecting* (`dot lost`) on an error. It is written through the
+setters, so a `tick` on a live map is zero mutations. On an error the page closes the stream, and 2 s later refetches
+the graph and reconnects from its cursor. Its words are `--text`, never `--muted`.
+
+**Deleted branches.** When a graph drops a branch the previous graph had, its `b:<project>:<name>` item stays in the
+`bs:` group, with class `gone` and the words *<name> · deleted*, until a later graph changes that project's branch
+list again; then it goes. This keeps the tree saying what the scene shows (#413 strikes a deleted lane;
+[desk-rendering.md](desk-rendering.md) rule 4). It is the only thing the tree carries from one graph to the next, and
+like expansion it lives in memory and is not persisted. No per-event attribute (`data-seq` or the like) is written
+into the tree.
+
+**`FleetMap.stream`** is `{frames, state}`: the `agent` frames the stream has received, and `live` or `reconnecting`
+(`""` before it first opens). For tests.
+
+Tests: `tests/test_fleet_map_live.py` (2 plain tests, and 1 browser test that walks the cursor, the throttle, the
+dot, expansion across refetches, a deleted branch, a `theme` frame and a stopped server on one page).
 
 ## Layout
 

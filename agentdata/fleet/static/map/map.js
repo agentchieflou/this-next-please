@@ -5,7 +5,8 @@
    (docs/fleet-map.md §The graph) and draws it as a WAI-ARIA tree: projects, their checkouts
    (worktrees marked) and each checkout's agent, then the project's branches, then the network.
    The words are the graph's own `says`; the page adds no sentence of its own but the two group
-   names. The scene (#409) is drawn from this tree later, and #406 keeps it live.
+   names. The scene (#409) is drawn from this tree later. It stays live (#406): its own stream
+   from the graph's cursor, a throttled refetch, a live dot, and deleted branches kept as words.
 
    The render contract holds here as on the desk: every write goes through the setters, so a draw
    with nothing new to say makes zero DOM mutations, and `aria-expanded` is written only when an
@@ -17,6 +18,7 @@
 var mapTree = document.getElementById("maptree");
 var mapSays = document.getElementById("mapsays");
 var mapBack = document.getElementById("mapback");
+var mapLink = document.getElementById("maplink");
 attr(mapBack, "href", pageUrl("/"));
 
 /* The item keeps a `ul` for the ids that hold others; everything else is a leaf. Decided by the
@@ -81,8 +83,11 @@ function mapRows(graph) {
     var kids = (g.checkouts || []).filter(function (c) { return "p:" + c.project === p.id; })
       .map(mapCheckout);
     if (p.branches_says) {
+      var gone = (mapLanes[p.name] || { gone: [] }).gone.map(function (l) {
+        return { id: l.id, say: l.name + " \u00b7 deleted", cls: "gone" };
+      });
       kids.push({ id: "bs:" + p.name, say: p.branches_says, cls: "",
-                  kids: (p.branches || []).map(mapBranch) });
+                  kids: (p.branches || []).map(mapBranch).concat(gone) });
     }
     return { id: p.id, say: p.says, cls: "", data: { name: p.name, "default": p["default"] || "" },
              kids: kids };
@@ -138,7 +143,33 @@ function mapRove() {
   });
 }
 
+/* Deleted branches (#406). A branch the previous graph had and this one lacks keeps its item, as
+   `gone` and *<name> · deleted*, so the scene (#413 strikes its lane) never shows a fact the words
+   lack. It stays until a later graph changes that project's branch list again. This is the only
+   thing the tree carries from one graph to the next; it lives in memory and is not persisted. */
+var mapLanes = {};
+
+function mapKeepGone(graph) {
+  var next = {};
+  ((graph && graph.projects) || []).forEach(function (p) {
+    if (!p.branches_says) return;
+    var head = "b:" + p.name + ":";
+    var lanes = (p.branches || []).map(function (b) {
+      return { id: b.id, name: b.name || String(b.id).slice(head.length) };
+    });
+    var ids = lanes.map(function (l) { return l.id; });
+    var was = mapLanes[p.name];
+    next[p.name] = {
+      sig: ids.join("\n"), lanes: lanes,
+      gone: !was ? [] : was.sig === ids.join("\n") ? was.gone
+        : was.lanes.filter(function (l) { return ids.indexOf(l.id) < 0; })
+    };
+  });
+  mapLanes = next;
+}
+
 function drawMapTree(root, graph) {
+  mapKeepGone(graph);
   mapLevel(root, mapRows(graph));
   mapRove();
 }
@@ -197,7 +228,8 @@ mapTree.addEventListener("click", function (e) {
 
 /* ---------------------------------------------------------------------------- load and handle */
 
-var mapState = { graph: null, paused: false };
+var mapState = { graph: null, paused: false, cursor: null, frames: 0, live: "", themes: 0,
+                 source: null, timer: null };
 var mapReady;
 var mapReadyPromise = new Promise(function (resolve) { mapReady = resolve; });
 
@@ -208,19 +240,86 @@ function mapShow(graph) {
   mapReady();
 }
 
-fetch(q("/api/map")).then(function (r) { return r.json(); }).then(function (graph) {
-  var t = graph && graph.theme;
-  if (t) {
-    applyTheme(t.css, t.theme);
-    applySkin(t.skin);
-  }
-  if (!mapState.paused) mapShow(graph);
-}).catch(function () {
+function mapTheme(t) {
+  if (!t) return;
+  applyTheme(t.css, t.theme);
+  applySkin(t.skin);
+}
+
+/* An answer is kept only when it is newer than the one drawn: the same `run` and a larger `n`, or
+   a new `run` (a restarted server). An `as_of` of null (an empty fleet) is always taken. */
+function mapNewer(next, now) {
+  var a = next && next.as_of, b = now && now.as_of;
+  if (!a || !b) return true;
+  return a.run !== b.run || a.n > b.n;
+}
+
+/* One `/api/map`. Its theme is not painted when a `theme` frame arrived while it was in flight:
+   that frame is newer than the answer. */
+function mapFetch() {
+  var asked = mapState.themes;
+  return fetch(q("/api/map")).then(function (r) { return r.json(); }).then(function (graph) {
+    if (!mapNewer(graph, mapState.graph)) return;
+    if (asked === mapState.themes) mapTheme(graph && graph.theme);
+    if (graph && typeof graph.cursor === "string") mapState.cursor = graph.cursor;
+    if (!mapState.paused) mapShow(graph);
+  });
+}
+
+/* A throttle, like the desk's `refreshSoon`: armed by the first frame and never pushed back by
+   later ones, so a busy fleet still refetches every 400 ms (a trailing debounce would never fire
+   while agents stream). Nothing is refetched while a caller's graph holds the tree. */
+function mapSoon() {
+  if (mapState.timer || mapState.paused) return;
+  mapState.timer = setTimeout(function () {
+    mapState.timer = null;
+    if (!mapState.paused) mapFetch().catch(function () {});
+  }, 400);
+}
+
+function mapLive(state) {
+  mapState.live = state;
+  setClass(mapLink, state === "live" ? "dot live" : "dot lost");
+  text(mapLink, state);
+}
+
+/* The map's own stream, from the graph's cursor so it replays nothing already drawn, and with
+   `notify=0` (#356) so it never takes the desk's notifications. */
+function mapConnect() {
+  if (mapState.source) mapState.source.close();
+  var params = { since: mapState.cursor || "", w: PARAMS.get("w") || "main", page: "map",
+                 notify: "0" };
+  if (PARAMS.get("shell")) params.shell = PARAMS.get("shell");
+  var source = mapState.source = new EventSource(q("/api/events", params));
+  source.addEventListener("agent", function () { mapState.frames++; mapSoon(); });
+  source.addEventListener("polls", mapSoon);
+  source.addEventListener("desk", mapSoon);
+  source.addEventListener("theme", function (m) {
+    mapState.themes++;
+    try { mapTheme(JSON.parse(m.data)); } catch (err) {}
+  });
+  source.addEventListener("tick", function () { mapLive("live"); });
+  source.onopen = function () { mapLive("live"); };
+  source.onerror = function () {
+    mapLive("reconnecting");
+    source.close();
+    if (mapState.source !== source) return;
+    mapState.source = null;
+    // What was drawn in between cannot be trusted: re-read it, then resume from its cursor.
+    setTimeout(function () {
+      var again = function () { if (!mapState.source) mapConnect(); };
+      (mapState.paused ? Promise.resolve() : mapFetch()).then(again, again);
+    }, 2000);
+  };
+}
+
+mapFetch().then(mapConnect, function () {
   if (!mapState.paused) mapShow({ says: "the map could not be read; reload to try again" });
 });
 
-/* What a test, #406's refetch and #409's scene hold on to. `draw` feeds the tree a graph of the
-   caller's and pauses the page's own drawing, so a refetch never overwrites it. */
+/* What a test and #409's scene hold on to. `draw` feeds the tree a graph of the caller's and
+   pauses the page's own drawing, so a refetch never overwrites it. `stream` is the live loop's
+   count of `agent` frames and its state (`live`, `reconnecting`, or "" before it opens). */
 window.FleetMap = Object.freeze({
   ready: mapReadyPromise,
   draw: function (graph) {
@@ -229,5 +328,6 @@ window.FleetMap = Object.freeze({
   },
   get graph() { return mapState.graph; },
   get paused() { return mapState.paused; },
+  get stream() { return { frames: mapState.frames, state: mapState.live }; },
   get scene() { return null; }
 });
