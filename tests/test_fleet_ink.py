@@ -403,7 +403,9 @@ def test_the_desk_with_no_skin_using_ink_is_unchanged(fleet_home, tmp_path):
                 fetched = [u.split("?")[0].split(str(port))[1] for u in asked if "/static/" in u]
                 assert [u for u in fetched if u.startswith("/static/ink/")] == ["/static/ink/ink.js"]
                 assert not [u for u in fetched if "vendor/three" in u], fetched
-                # And idle is idle: the panes test's loop, with the layer's module on the page.
+                # And idle is idle: the panes test's loop, with the layer's module on the page --
+                # and with a *start fresh* button on alpha's head (#489: its session is stale).
+                page.wait_for_selector('.tile[data-repo="alpha"] .freshtoggle:not([hidden])', timeout=10000)
                 count = page.evaluate(IDLE_LOOP)
                 assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
                 assert not errors, errors
@@ -1363,6 +1365,8 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
             for repo, cls in (("alpha", "ink-loop"), ("alpha", "ink-write"), ("beta", "ink-hl")):
                 _mark(page, repo, cls)
             _rest(page, "Ink.inspect().layer.marks.length === 3")
+            # A *start fresh* button is on the glass through every loop below (#489).
+            assert page.is_visible('.tile[data-repo="alpha"] .freshtoggle')
             count = page.evaluate(IDLE_LOOP)
             kept = page.evaluate(f"() => document.querySelector('{RUNS}') === window.__run1")
             in_place = page.evaluate(RUNS_IN_PLACE)

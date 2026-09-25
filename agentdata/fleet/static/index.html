@@ -246,7 +246,7 @@
     </div>
     <div class="keys-group"><strong>sessions</strong>
       <span><kbd>Alt</kbd>+<kbd>[</kbd><kbd>]</kbd> along the strip</span>
-      <span><kbd>Alt</kbd>+<kbd>N</kbd> new session</span>
+      <span><kbd>Alt</kbd>+<kbd>N</kbd> start this pane fresh</span>
     </div>
     <div class="keys-group"><strong>the sidebar</strong>
       <span><kbd>/</kbd> where</span>
@@ -310,6 +310,9 @@
       <span class="chip"><span class="chipword"></span><span class="chipage"></span></span>
       <!-- #240: this session began on skills or a CLI that have since changed. The reason is its title. -->
       <span class="oldsession" hidden></span>
+      <!-- #489: start fresh, on a pane whose session is stale, adopted or began outside the fleet.
+           The same action as the session menu's item, the adopt strip's button and Alt+N. -->
+      <button class="freshtoggle wordbtn" type="button" hidden>start fresh</button>
       <!-- #218: the last hour, a point a minute. `role="img"` with the sentence on it is the text
            twin -- a picture a screen reader cannot read is a picture that is not there. #257: no
            canvas. `drawTrace` writes the series on it for the ink layer, and the SVG inside is the
@@ -364,6 +367,7 @@
           <li class="session-row" hidden>
             <button type="button" class="ss-open" role="menuitem">
               <span class="ss-title"></span>
+              <span class="ss-src"></span>
               <span class="ss-chip"></span>
               <span class="ss-when"></span>
               <span class="ss-cost"></span>
@@ -372,7 +376,7 @@
           </li>
         </ul>
         <button class="sm-new smitem" type="button" role="menuitem"
-                title="a clean session beside this one, resumable either way (Alt+N)">+ new session<span class="sm-model"></span></button>
+                title="a clean session; this one stays under earlier (Alt+N)"><span class="sm-new-label">start fresh</span><span class="sm-model"></span></button>
         <!-- #189: a console the fleet opens. -->
         <button class="sm-console smitem" type="button" role="menuitem"
                 title="your own cmd.exe running Copilot here; this tile shows the same session"><span class="sm-console-label">open in a console</span><span class="sm-model"></span></button>
@@ -387,7 +391,7 @@
       </div>
     </div>
     <!-- A session running in this checkout that the fleet did not start (#2). -->
-    <p class="outside" hidden><span class="outsidewhy"></span><button type="button" class="adopt"></button></p>
+    <p class="outside" hidden><span class="outsidewhy"></span><button type="button" class="fresh-strip" hidden>start fresh</button><button type="button" class="adopt"></button></p>
     <p class="why"></p>
     <!-- #168: what the run edited, against what it was given. -->
     <p class="scopereport enters" hidden></p>
