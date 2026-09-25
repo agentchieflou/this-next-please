@@ -1138,6 +1138,10 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 page.wait_for_selector('#modelcard .mp-effort button[data-effort="high"][aria-pressed="true"]',
                                        timeout=5000)
                 assert "reset" not in page.evaluate(note)
+                # The save's answer drawn (the head says luna), so the card opens on it again.
+                page.wait_for_function(
+                    "() => document.querySelector('.tile[data-repo=\"rdsd.pbi\"] .bm-name')"
+                    ".textContent === 'luna 5.6'", timeout=5000)
                 page.focus('#modelcard button[data-model="gpt-5.6-luna"]')
 
                 # Esc closes it and gives the keyboard back to the rail it came from.
