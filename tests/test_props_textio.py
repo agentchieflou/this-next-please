@@ -76,13 +76,26 @@ def test_the_decoder_never_raises_and_never_gives_up(text):
 @given(text=TEXT)
 @example(text="a\r\nb\r\n")
 @example(text="→ · ≤\n")
+@example(text="\ufeff")          # found by the generator (#519): a lone U+FEFF came back empty
+@example(text="\ufeff\ufeffx")
 def test_write_then_read_round_trips_with_lf(text, tmp_path):
     path = str(tmp_path / "round.txt")
     textio.write_text(path, text)
     assert textio.read_text(path) == text.replace("\r\n", "\n") or textio.read_text(path) == text
     with open(path, "rb") as f:
         raw = f.read()
-    assert not raw.startswith(b"\xef\xbb\xbf"), "our writer never emits a BOM"
+    # Our writer emits a BOM only in front of a text that itself starts with U+FEFF, which every
+    # reader would otherwise take for the file's BOM and drop (#519).
+    assert raw.startswith(b"\xef\xbb\xbf") == text.startswith("\ufeff"), raw[:12]
+    assert raw.startswith(b"\xef\xbb\xbf" * 2) == text.startswith("\ufeff")
+
+
+def test_json_behind_two_boms_still_reads(tmp_path):
+    """read_text keeps a text's own leading U+FEFF now (#519); JSON never starts with one, so
+    read_json still reads a file some tool wrote with a BOM twice."""
+    path = tmp_path / "twice.json"
+    path.write_bytes(b"\xef\xbb\xbf" * 2 + b'{"a": 1}\n')
+    assert textio.read_json(str(path)) == {"a": 1}
 
 
 # Deliberately not `@given`: a function-scoped `monkeypatch` is *not* undone between hypothesis
