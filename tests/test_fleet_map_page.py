@@ -104,7 +104,9 @@ def test_the_tree_lists_the_fleet_and_a_keyboard_walk_opens_a_checkout_on_the_de
             .map(li => ({id: li.dataset.node, cls: li.className, say: li.querySelector('.say').textContent,
                          depth: (() => { let d = 0, u = li; while ((u = u.parentElement.closest('[role=treeitem]'))) d++; return d; })()}))""")
         by = {n["id"]: n for n in tree}
-        assert [n["id"] for n in tree if n["depth"] == 0] == ["p:luna", "p:uat"], tree
+        # The network (#404) is the last root, in the graph's words (docs/fleet-map.md §The page).
+        assert [n["id"] for n in tree if n["depth"] == 0] == ["p:luna", "p:uat", "n:network"], tree
+        assert by["n:network"]["say"] == graph["network"]["says"], by["n:network"]
         assert [n["id"] for n in tree if n["depth"] == 1 and n["id"].startswith("c:")] == \
             ["c:luna", "c:luna-hotfix", "c:uat"], tree
         assert "worktree" in by["c:luna-hotfix"]["cls"].split() and "main" in by["c:luna"]["cls"].split()
