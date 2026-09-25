@@ -234,6 +234,20 @@ def _friction_date(name: str, front: dict) -> str:
     return ""
 
 
+def _friction_stamp(name: str) -> str:
+    """`YYYY-MM-DDTHH:MM` (UTC) from the file name's stamp, the match `_friction_date` reads (#499).
+
+    Empty when the name carries no stamp. The panel compares it with when the session began, so a
+    date alone is not enough: two STOPs of one day sit either side of a fresh session.
+    """
+    m = _STAMP.search(name or "")
+    if not m:
+        return ""
+    if m.group(4) is None or m.group(5) is None:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}T{m.group(4)}:{m.group(5)}"
+
+
 # The only `.agent/state.json` fields that ever leave the repository. One tuple, because there used
 # to be two: `_state_text` rendered these keys and `_build` put the *whole parsed file* in the `data`
 # column, so `looks_like_a_credential` inspected a projection while the original was what got
@@ -375,7 +389,8 @@ def _build(repo_path: str, kind: str, rel: str) -> _Doc:
         front = _front_matter(raw)
         date = _friction_date(name, front)
         kindof = front.get("type", "")
-        data = {"type": kindof, "date": date, "severity": front.get("severity", ""),
+        data = {"type": kindof, "date": date, "stamp": _friction_stamp(name),
+                "severity": front.get("severity", ""),
                 "ticket": front.get("ticket", ""), "skill": front.get("skill_in_use", ""),
                 "unblock": _unblock(raw)}
         header = " · ".join(x for x in (kindof, date, front.get("severity", "")) if x)
@@ -845,6 +860,7 @@ class Catalogue:
             elif doc["kind"] == "friction":
                 friction.append({"path": doc["path"], "title": doc["title"],
                                  "type": data.get("type", ""), "date": data.get("date", ""),
+                                 "stamp": data.get("stamp", ""),
                                  "severity": data.get("severity", ""),
                                  "ticket": data.get("ticket", ""),
                                  "unblock": data.get("unblock", "")})
