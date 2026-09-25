@@ -898,12 +898,36 @@ CHALK = {"name": "chalk", "speed": 0.5, "series": False, "marks": [
     {"selector": ".tile.ink-pencil .repo", "tool": "pencil", "shape": "underline"},
     {"selector": ".tile.ink-pen .head", "tool": "pen", "shape": "loop"}]}
 
-#: The model of alpha's hand in a frame where that hand is shown and the mark on `tool` is part
-#: drawn -- read in the one frame, so a hand that swaps tools in the next is not misread.
-HAND_AT = """tool => { const l = Ink.inspect().layer;
-  const m = l.marks.find(m => m.tool === tool && m.lane === 'pane:alpha');
-  return l.lanes['pane:alpha'] && l.lanes['pane:alpha'].hand && m && m.drawn > 0 && m.drawn < 1
-    ? l.handModel : false; }"""
+#: `RECORD`'s pattern for the hand: each `[tool, class]` is put on alpha, and then, every frame until
+#: those marks are drawn and the paper is at rest, the model of alpha's hand in the first frame where
+#: that hand is shown and the mark on `tool` is part drawn -- read in the one frame, so a hand that
+#: swaps tools in the next is not misread. Recorded in the page: the pencil's short row is drawn in
+#: a fraction of a second, and a `wait_for_function` begun a round trip after the class went on
+#: never saw it part drawn on a loaded machine (a 0.3 s late start failed it every time, #490).
+#: A tool never seen part drawn within the old wait's 20 s is `false`, and the test fails on it.
+HANDS_AT = """async (tools) => {
+  const tile = document.querySelector('.tile[data-repo="alpha"]');
+  for (const [, cls] of tools) tile.classList.add(cls);
+  const seen = {};
+  const t0 = performance.now();
+  let n = 0;
+  return await new Promise(done => {
+    const tick = () => {
+      const l = Ink.inspect().layer;
+      const lane = l.lanes['pane:alpha'];
+      const mark = tool => l.marks.find(m => m.tool === tool && m.lane === 'pane:alpha');
+      for (const [tool] of tools) {
+        const m = mark(tool);
+        if (!(tool in seen) && lane && lane.hand && m && m.drawn > 0 && m.drawn < 1) seen[tool] = l.handModel;
+      }
+      n += 1;
+      const drawn = tools.every(([tool]) => mark(tool) && mark(tool).drawn === 1);
+      if ((n > 3 && drawn && !l.busy) || n > 3000 || performance.now() - t0 > 20000) return done(tools.map(([tool]) => seen[tool] ?? false));
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}"""
 
 #: `RECORD`'s pattern for a class taken away: every frame until alpha's pencil mark is gone, the
 #: hand's model and whether alpha's hand is shown.
@@ -944,10 +968,7 @@ def test_the_hand_can_be_a_stick_of_chalk(fleet_home, tmp_path):
                 refused = page.evaluate("""() => { try { Ink.setSkin({ name: 'bad', hand: 'crayon', marks: [] }); return ''; }
                                                    catch (e) { return e.message; } }""")
                 assert "`hand`" in refused and page.evaluate("() => Ink.inspect().table") == "chalk", refused
-                _mark(page, "alpha", "ink-pencil")
-                _mark(page, "alpha", "ink-pen")
-                drew = [page.wait_for_function(HAND_AT, arg=tool, timeout=20000).json_value()
-                        for tool in ("pencil", "pen")]
+                drew = page.evaluate(HANDS_AT, [["pencil", "ink-pencil"], ["pen", "ink-pen"]])
                 _rest(page, "Ink.inspect().layer.marks.filter(m => m.drawn === 1).length === 2")
                 frames = page.evaluate(ERASE)
                 assert frames[-1]["erased"] == [], frames[-1]
