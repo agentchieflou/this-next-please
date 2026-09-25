@@ -16,13 +16,17 @@ drop is built in page context, and the assertions are on the rendered page and o
 (the `started` events on the checkout), never on the source text.
 """
 from __future__ import annotations
+import datetime as _dt
+import json
+import os
 import threading
 import time
 
 import pytest
 
-from agentdata import proc
-from agentdata.fleet import board as B, events as E, preflight as PF, registry, serve as S, supervisor
+from agentdata import config as C, proc
+from agentdata.fleet import (approval, board as B, events as E, models as M, preflight as PF, registry,
+                             serve as S, supervisor)
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
@@ -89,6 +93,21 @@ def _fleet(tmp_path):
                                             "at": time.time()}}})
 
 
+def _seed_models():
+    """`<fleet_dir>/models.json` as a refresh under Copilot CLI 1.0.88 writes it (#360), so the card
+    offers the CLI's own list and nothing is spawned for it (#368)."""
+    shipped = M.shipped()
+    os.makedirs(os.path.dirname(M.cache_file()), exist_ok=True)
+    now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with open(M.cache_file(), "w", encoding="utf-8") as f:
+        json.dump({"source": "help", "cli_version": "1.0.88", "fetched_at": now,
+                   "models": shipped["models"], "efforts": shipped["efforts"], "why": ""}, f)
+
+
+def _luna_model():
+    return (C.get_leaf(C.load(), "fleet.models", "luna", {}) or {}).get("model", "")
+
+
 def _serve():
     server, token = S.build(0)
     thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
@@ -153,12 +172,23 @@ def _eventually(cond, timeout=5.0):
 
 @pytest.mark.browser
 def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start_starts_it_once(
-        fleet_home, tmp_path, spawns):
+        fleet_home, tmp_path, spawns, monkeypatch):
     """Acceptance criterion. With the board open and the checkout off the glass, a ticket row
     dragged onto a rail chip opens the pre-flight card under the rail with its verdict; *Start*
-    counts exactly one `started` event on that checkout."""
+    counts exactly one `started` event on that checkout.
+
+    And the card says what it will run on (#368): "runs on" and its pills, one of which is the model
+    luna's last turn ran on. A press writes `fleet.models.luna` -- this start and every later one --
+    and the start that follows carries `--model`."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _fleet(tmp_path)
+    _seed_models()
+    E.append("luna", [E.event("luna", "assistant_text", {"text": "done", "model": "claude-opus-5"},
+                              ticket="RDSD-1")])
+    # Every issue read the pre-flight makes: the drop's one, and none for a press (decision 15).
+    fetched: list[str] = []
+    read_issue = PF.fetch_issue
+    monkeypatch.setattr(PF, "fetch_issue", lambda key, **kw: (fetched.append(key), read_issue(key, **kw))[1])
 
     server, token, port = _serve()
     try:
@@ -173,6 +203,29 @@ def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start
             assert "none found" in card.locator(".dispatch-rows").inner_text()
             assert _started("luna") == 0, "the card is the decision, not the launch"
 
+            # #368: the model row, "runs on" and the pills: the inherit pill pressed, the last turn's
+            # model beside it, and `more…`.
+            assert "the CLI chooses · cli-auto" in card.locator(".dispatch-rows").inner_text()
+            assert card.locator(".dispatch-note").get_attribute("role") == "status"
+            assert card.locator(".dispatch-runs").inner_text().strip() == "runs on"
+            page.wait_for_selector('#dispatch .dispatch-model button[data-model="claude-opus-5"]', timeout=5000)
+            pills = page.evaluate("""() => [...document.querySelectorAll('#dispatch .dispatch-model button.pill')]
+                .map(b => [b.dataset.model ?? 'more', b.getAttribute('aria-pressed')])""")
+            assert pills == [["", "true"], ["claude-opus-5", "false"], ["more", None]], pills
+            card.locator('.dispatch-model button[data-model="claude-opus-5"]').click()
+            assert _eventually(lambda: _luna_model() == "claude-opus-5"), "the press wrote nothing"
+            page.wait_for_function(
+                "() => /model set for this and later turns/.test(document.querySelector('#dispatch .dispatch-note').textContent)",
+                timeout=5000)
+            page.wait_for_selector('#dispatch .dispatch-model button[data-model="claude-opus-5"][aria-pressed="true"]',
+                                   timeout=5000)
+            assert _started("luna") == 0, "a press is a setting, not a launch"
+            # The card's own `model` row is current at once, and reading it read no issue.
+            page.wait_for_function(
+                """() => document.querySelector('#dispatch .dispatch-row[data-row="model"] .dr-value')
+                         .textContent === 'opus-5 · fleet.models.luna'""", timeout=5000)
+            assert fetched == ["RDSD-118"], fetched
+
             card.locator(".dispatch-go").click()
             assert _eventually(lambda: _started("luna") == 1), "Start started nothing"
             page.wait_for_selector("#dispatch[hidden]", state="attached", timeout=5000)
@@ -186,6 +239,8 @@ def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start
     assert _started("luna") == 1, "exactly one started, on the checkout the chip named"
     assert _started("mars") == 0
     assert len(spawns["launched"]) == 1
+    argv = spawns["launched"][0]
+    assert "--model" in argv and argv[argv.index("--model") + 1] == "claude-opus-5", argv
 
 
 @pytest.mark.browser
@@ -321,14 +376,39 @@ def test_the_whole_gesture_from_the_keyboard(fleet_home, tmp_path, spawns):
 
 
 @pytest.mark.browser
-def test_a_refusal_on_an_open_tile_lands_on_the_tile_and_the_rail_note_stays_empty(fleet_home, tmp_path, spawns):
+def test_a_refusal_on_an_open_tile_lands_on_the_tile_and_the_rail_note_stays_empty(
+        fleet_home, tmp_path, spawns, monkeypatch):
     """The card is one element with two homes. On a tile that is on the glass -- the grid's every
     tile once, the open one now (#232) -- it draws in the tile that took the drop, exactly where
     #164's tests find it, and a refusal is written on that card -- never under a rail the operator
-    is not looking at."""
+    is not looking at.
+
+    In a pane's slot the card's keys are its own (#368). Here the ticket is written well and luna
+    is set to a model Copilot CLI 1.0.88 no longer lists, so the model is the card's one thin row:
+    its why is the note, the keyboard is on the pressed pill, and `h`, `a` and `j` pressed there
+    hide nothing, approve nothing and walk nowhere. `more…` opens the model card and it stays open;
+    a press there is what the session menu then says a new session starts on."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _fleet(tmp_path)
     S.update_window("main", open="luna")
+    PF.write_cache({"issues": {"RDSD-118": {
+        "description": ("The nightly refresh of the UAT semantic model takes over forty minutes and "
+                        "the team cannot validate it before standup, so every morning starts late. "
+                        "Make it finish inside fifteen minutes.\n"
+                        "Acceptance criteria\n"
+                        "- the refresh completes in under fifteen minutes\n"
+                        "- no partition is dropped\n"),
+        "issuetype": "", "comments": 0, "attachments": 0, "error": "", "at": time.time()}}})
+    _seed_models()
+    cfg = C.load()
+    C.put_leaf(cfg, "fleet.models", "luna", {"model": "claude-opus-4.6"})
+    C.save(cfg)
+    # A write luna is waiting on: `a` from anywhere on the desk would approve it.
+    monkeypatch.setenv(registry.AGENT_ENV, "luna")
+    approval.require("jira-transition", "RDSD-118: To Do -> In Progress", {"key": "RDSD-118"},
+                     ticket="RDSD-118", timeout=0)
+    monkeypatch.delenv(registry.AGENT_ENV)
+    assert [r["repo"] for r in approval.pending()] == ["luna"]
 
     server, token, port = _serve()
     try:
@@ -348,9 +428,67 @@ def test_a_refusal_on_an_open_tile_lands_on_the_tile_and_the_rail_note_stays_emp
             }""")
             page.wait_for_selector(".tile[data-repo='luna'] .dispatch-slot #dispatch:not([hidden])", timeout=5000)
             assert page.evaluate("() => document.getElementById('railnote').hidden")
+
+            # #368: the model is the one thin row; its why is the note, and the keyboard is on the
+            # pressed pill rather than in the brief.
+            page.wait_for_function(
+                "() => document.querySelector('#dispatch .verdict').textContent.trim() !== 'reading…'", timeout=5000)
+            assert page.inner_text("#dispatch .verdict").strip().lower() == "thin"
+            thin = page.evaluate("""() => [...document.querySelectorAll('#dispatch .dispatch-row.r-thin .dr-name')]
+                .map(e => e.textContent)""")
+            assert thin == ["model"], thin
+            page.wait_for_function(
+                """() => document.activeElement.matches('#dispatch .dispatch-model button[aria-pressed="true"]')""",
+                timeout=5000)
+            assert page.evaluate("document.activeElement.dataset.model") == "claude-opus-4.6"
+            assert page.get_attribute("#dispatch .dispatch-note", "role") == "status"
+            note = page.inner_text("#dispatch .dispatch-note")
+            assert note == "not in copilot 1.0.88's list — the turn may fail at start", note
+
+            # A desk key pressed on a dispatch pill is the card's: nothing hidden, nothing approved,
+            # the keyboard where it was and the same pane open.
+            for key in ("h", "a", "j"):
+                page.keyboard.press(key)
+            assert page.evaluate("document.activeElement.dataset.model") == "claude-opus-4.6"
+            assert not page.evaluate("document.querySelector('.tile[data-repo=\"luna\"]').classList.contains('is-hidden')")
+            assert page.is_visible(".tile[data-repo='luna'] .dispatch-slot #dispatch")
+            assert S.desk_state()["arrangement"]["hidden"] == []
+            assert [r["repo"] for r in approval.pending()] == ["luna"], "a key on a pill approved the write"
+            assert page.evaluate("document.querySelector('.tile.is-solo[data-tier=\"full\"]').dataset.repo") == "luna"
+
+            # `more…` opens the model card, and the click that opened it does not close it.
+            page.click("#dispatch .mp-more")
+            page.wait_for_selector("#modelcard:not([hidden])", timeout=5000)
+            page.evaluate("() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))")
+            assert page.is_visible("#modelcard") and page.inner_text("#mc-repo") == "luna"
+            page.wait_for_selector('#modelcard button[data-model="claude-opus-5"]', timeout=5000)
+            page.click('#modelcard button[data-model="claude-opus-5"]')
+            assert _eventually(lambda: _luna_model() == "claude-opus-5"), "the model card's press wrote nothing"
+            # The dispatch card under it says so at once: its `model` row is current and ready, and
+            # with the model the card's one thin row, the card is ready and its button says Start.
+            page.wait_for_function(
+                """() => { const li = document.querySelector('#dispatch .dispatch-row[data-row="model"]');
+                  return li.querySelector('.dr-value').textContent === 'opus-5 · fleet.models.luna'
+                    && li.classList.contains('r-ready') && !li.querySelector('.dr-why'); }""", timeout=5000)
+            assert page.inner_text("#dispatch .verdict").strip().lower() == "ready"
+            assert page.inner_text("#dispatch .dispatch-go").strip() == "Start"
+
+            # The session menu says what a new session and a console start on.
+            page.wait_for_function(
+                """() => document.querySelector('.tile[data-repo="luna"] .sm-new .sm-model').textContent === 'opus-5'""",
+                timeout=5000)
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+            page.click(".tile[data-repo='luna'] .spill")
+            page.wait_for_selector(".tile[data-repo='luna'] .sm-new .sm-model", state="visible", timeout=5000)
+            assert page.inner_text(".tile[data-repo='luna'] .sm-new .sm-model") == "opus-5"
+            assert page.inner_text(".tile[data-repo='luna'] .sm-console .sm-model") == "opus-5"
+            assert page.inner_text(".tile[data-repo='luna'] .sm-console .sm-console-label") == "open in a console"
+            assert "fleet.models.luna" in page.get_attribute(".tile[data-repo='luna'] .sm-new .sm-model", "title")
             assert not errors, errors
             browser.close()
     finally:
         server.stopping.set()
         server.shutdown()
         server.server_close()
+    assert not spawns["launched"], "nothing here is a start"

@@ -82,7 +82,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | notebook skin | the paper (rules, fibre, light) and a margin line per pane, under the marks of plan-ink's state grammar | `static/ink/skins/notebook.js` (its table and its `paper` and `frame` hooks), through the ink layer; the one class it needs, `is-answered` on a question, is set by the question card's Send | `static/skins/notebook/skin.css` (`--paper`, `--rule`, `--margin`, `--ink-<tool>`) | `notebook:light`, `notebook:dark`; `body.ink-off` draws the same table plain on a ruled page ([skin-notebook.md](skin-notebook.md)) | — | `test_fleet_ink_notebook.py` |
 | state chip | word, age | `drawTile` | `.chip` | the five status roles, `stale` | — | `test_fleet_desk_regressions.py` |
 | old-session chip | "old skills" or "renew queued", the reason as its title | `drawOldSession` | `.oldsession` | hidden unless the session began on older skills or CLI | — | `test_fleet_renew.py` |
-| session pill | label, menu | `drawSessionPill` | `.spill`, `.smenu` | `is-reading` | `Alt+[`, `Alt+]`, `Alt+N` | `test_fleet_desk_switcher.py` |
+| session pill | label, menu (its *+ new session* and *open in a console* each name the model they start on, `.sm-model`, #368) | `drawSessionPill` | `.spill`, `.smenu` | `is-reading` | `Alt+[`, `Alt+]`, `Alt+N` | `test_fleet_desk_switcher.py`, `test_fleet_desk_rail.py` |
 | runs list | one row per run | `drawRuns` | `.live-runs`, `.ss-runs` | — | — | `test_fleet_desk_switcher.py` |
 | cells | spend, ticket, pr, refresh, git | `drawCells` | `.cell` | `grey`, `idle`, `warn`, `over` | git cell opens the branches pane | `test_fleet_spend.py`, `test_fleet_branches.py` |
 | spend cell | label, value | `drawSpendCell` | `.cell.spend` | `warn`, `over` | — | `test_fleet_demo_meter.py` |
@@ -92,6 +92,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | undo | one button: the last change of widths, and the press that puts it back | `drawUndo` | `.undo` | hidden unless a change of widths is under twelve seconds old | `u` | `test_fleet_gutters.py` |
 | gone rail | glyph, name; what restores it in the label | `drawGone` | `.gone-rail` | — | — | `test_fleet_desk_hide.py` |
 | agent rail | one chip per checkout | `drawRail` | `.agentrail` | `is-candidate`, `is-dim` | `1`–`9` from a ticket row | `test_fleet_desk_rail.py` |
+| dispatch card (#164, #368) | key and verdict, the pre-flight's rows (`model` among them), *runs on* and the compact model picker, the brief, *Start* and the note (`role=status`) | `dispatchCard`, `drawDispatchModel` | `.dispatch`, `.dispatch-model` | the verdict's `v-*`; a row's `r-*`; in a pane's slot on the glass, else under the agent rail | every key but `Esc` stays in the card; the picker's arrows and `Enter`; `Ctrl+Enter` in the brief; `more…` opens the model card | `test_fleet_desk_rail.py`, `test_fleet_handoff_pickup.py`, `test_fleet_ink.py` |
 | board | search, ticket rows, history | `drawBoard` | `#tickets` | `dragging` | `b` | `test_fleet_desk_rail.py` |
 | inbox | offered rows, refused rows | `drawTray` | `.tray` | — | `i` | `test_fleet_desk_actions.py` |
 | where | hits | `drawHits` | `#hits` | — | `/` | `test_fleet_board_desk.py` |

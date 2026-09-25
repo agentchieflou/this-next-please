@@ -2777,7 +2777,13 @@ class Handler(BaseHTTPRequestHandler):
             key = (query.get("key") or [""])[0]
             if not key:
                 return self._refuse(400, "key required", "pass ?key=<TICKET>")
-            return self._json(PF.preflight(key, (query.get("repo") or [""])[0]))
+            repo_name = (query.get("repo") or [""])[0]
+            if (query.get("row") or [""])[0] == "model":
+                # The one row a press on the card changes (#368, decision 15), read on its own from
+                # the config and `models.json`: current at once, and never a Jira read.
+                return self._json({"ok": True, "key": key.strip().upper(), "repo": repo_name,
+                                   "row": PF.model_row(repo_name)})
+            return self._json(PF.preflight(key, repo_name))
         if route == "/api/branches":
             # Every local branch of one checkout and which never reached the default (#184).
             # Read-only, local, cached for the git cell's interval; on the click, never on the

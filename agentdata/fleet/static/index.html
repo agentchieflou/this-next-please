@@ -105,11 +105,13 @@
     <button type="button" class="dispatch-close" title="cancel (Esc)">×</button>
   </div>
   <ul class="dispatch-rows"></ul>
+  <!-- #368: the model it will start on, and a press to change it (picker.js, compact). -->
+  <div class="dispatch-model"><span class="dispatch-runs" aria-hidden="true">runs on</span></div>
   <label class="dispatch-brieflabel" for="brief">what should it know? (optional)</label>
   <textarea id="brief" class="brief" rows="3" placeholder="the window, the gotcha, the thing the ticket does not say"></textarea>
   <div class="row">
     <button type="button" class="dispatch-go">Start</button>
-    <span class="dispatch-note"></span>
+    <span class="dispatch-note" role="status"></span>
   </div>
 </div>
 </div>
@@ -367,10 +369,10 @@
           </li>
         </ul>
         <button class="sm-new smitem" type="button" role="menuitem"
-                title="a clean session beside this one, resumable either way (Alt+N)">+ new session</button>
+                title="a clean session beside this one, resumable either way (Alt+N)">+ new session<span class="sm-model"></span></button>
         <!-- #189: a console the fleet opens. -->
         <button class="sm-console smitem" type="button" role="menuitem"
-                title="your own cmd.exe running Copilot here; this tile shows the same session">open in a console</button>
+                title="your own cmd.exe running Copilot here; this tile shows the same session"><span class="sm-console-label">open in a console</span><span class="sm-model"></span></button>
         <p class="sm-sibs-label sm-label" hidden>this project, checked out elsewhere</p>
         <ul class="sib-list">
           <!-- One sibling checkout (#175), cloned per checkout. In the markup rather than built by

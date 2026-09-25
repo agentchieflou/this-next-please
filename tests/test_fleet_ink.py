@@ -1341,6 +1341,22 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
                                    timeout=10000)
             carded = page.evaluate(IDLE_LOOP)
             assert page.evaluate("document.activeElement.closest('#modelcard') !== null")
+            # And with the dispatch card open on a pane instead (#368): a ticket dropped on alpha,
+            # its pre-flight read and its model picker drawn.
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+            page.evaluate("""() => {
+              const tile = document.querySelector('.tile[data-repo="alpha"]');
+              const dt = new DataTransfer();
+              dt.setData('application/x-agentdata-ticket', 'RDSD-1');
+              dt.setData('text/plain', 'RDSD-1');
+              tile.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true}));
+            }""")
+            page.wait_for_function("""() => !document.getElementById('dispatch').hidden
+                && document.querySelector('#dispatch .verdict').textContent.trim() !== 'reading…'
+                && !!document.querySelector('#dispatch .dispatch-model button[aria-pressed="true"]')""",
+                                   timeout=10000)
+            dispatched = page.evaluate(IDLE_LOOP)
             assert not errors, errors
             browser.close()
     finally:
@@ -1349,6 +1365,8 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     assert count["renders"] == 0, f"an idle paper was redrawn {count['renders']} times"
     assert carded["n"] == 0, f"an idle desk with the model card open wrote to the page: {carded}"
     assert carded["renders"] == 0, f"an idle paper under the model card was redrawn {carded['renders']} times"
+    assert dispatched["n"] == 0, f"an idle desk with the dispatch card open wrote to the page: {dispatched}"
+    assert dispatched["renders"] == 0, f"an idle paper under the dispatch card was redrawn {dispatched['renders']} times"
 
 
 @pytest.mark.browser

@@ -493,7 +493,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/attach-bytes` | `{repo, name, bytes}` — the one route that carries bytes, on a click |
 | GET | `/api/sessions` | `?repo=` — this checkout's sessions, folded from the stream on the click |
 | GET | `/api/transcript` | `?repo=&session=&limit=&before=` — one session's lines, read-only, paged from the end (#174) |
-| GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164) |
+| GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164); with `&row=model`, the `model` row alone, from the config and the cached model list and never Jira, which the card reads again after a press (#368) |
 | POST | `/api/console` | `{repo, ticket?, resume?, new?}` — open a real console running Copilot in that checkout with a session id the fleet chose; the tile reads the session from Copilot's own file (#188, #189) |
 | POST | `/api/say` | `{repo, message}` — type one line into the console the fleet opened for that checkout, through a helper that attaches by pid; refused for anything that is not a console (#190) |
 | POST | `/api/focus` | `{repo}` — bring that checkout's console window to the front (#190) |
