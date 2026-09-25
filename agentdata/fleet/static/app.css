@@ -407,7 +407,12 @@ body {
    in order, is the model's word, then the ticket, then the state chip -- each of which is a
    detail the tile repeats elsewhere. */
 .head .repo { flex: 0 0 auto; max-width: 40%; }
-.head .bm-name { flex: 0 3 auto; max-width: 68px; }
+/* 124px is the widest shipped label, `mai code 1.1 flash` (#492): 68px cut sol, terra and luna to
+   one letter. The word still gives way first when the head is short of room. */
+.head .bm-name { flex: 0 3 auto; max-width: 124px; }
+/* #492: a model chosen for the next turn, not yet run. Not a colour: a dotted underline and a
+   slant, and the title says which turn it waits for. */
+.bm-name.next { font-style: italic; text-decoration: underline dotted; text-underline-offset: 2px; }
 .head .ticket { flex: 0 2 auto; }
 .head .chip { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .head button, .head .grip, .head .n, .head .badge { flex: 0 0 auto; }
@@ -459,6 +464,9 @@ body {
   color: var(--text); font: inherit; padding: 3px 6px; min-height: 28px; cursor: pointer;
 }
 .smitem:hover { background: var(--select); border-color: var(--line); }
+/* #368: the model a new session or a console starts on, in the item's own words colour. */
+.sm-model { margin-left: .5em; }
+.sm-model::before { content: "· "; }
 .sm-label {
   margin: 4px 0 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
   color: var(--muted);
@@ -1002,10 +1010,13 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .head .modeltoggle { min-width: auto; }
 
 /* The card behind the model button. Fixed, because it is one card for the page and it is moved to
-   whichever button opened it -- the same "moved, never copied" rule the dispatch card follows. */
+   whichever button opened it -- the same "moved, never copied" rule the dispatch card follows. It
+   scrolls inside itself (#366): the picker's pills are taller than a short window, and the arrows
+   and the wheel have to reach the effort toolbar at the bottom of it. */
 .modelcard {
   position: fixed; z-index: 40; display: flex; flex-direction: column; gap: 8px;
-  min-width: 280px; max-width: min(380px, 92vw); padding: 10px 12px;
+  min-width: 280px; max-width: min(440px, 92vw); max-height: calc(100vh - 16px); overflow: auto;
+  padding: 10px 12px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, .18); font-size: 12px;
 }
@@ -1021,11 +1032,6 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .mc-facts .mc-k { color: var(--muted); }
 .mc-facts .mc-v { overflow-wrap: anywhere; }
 .mc-facts .mc-src { color: var(--muted); text-align: right; }
-.mc-edit { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.mc-edit input {
-  flex: 1 1 8rem; min-width: 0; background: var(--bg); color: var(--text);
-  border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; font: inherit;
-}
 .mc-note { margin: 0; color: var(--muted); font-size: 11px; }
 .mc-all { align-self: flex-start; font-size: 11px; }
 
@@ -1163,6 +1169,11 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   border: 1px solid var(--line); border-radius: 4px; padding: 4px; font: inherit;
 }
 .dispatch-note { color: var(--muted); align-self: center; }
+/* #368: "runs on" and the compact picker. Under an ink skin the card goes clear, so the picker
+   keeps a ground of its own and its pills stay legible; pressed still reads without the fill. */
+.dispatch-model { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+.dispatch-runs { color: var(--text); }
+.dispatch-model .mpick { background: var(--panel); }
 
 /* ------------------------------------------------------------ the question card (#165)
    The approval card's shape again: the tile is asking you something before anything irreversible
@@ -1379,6 +1390,20 @@ body.settings-page .settable input {
   background: var(--bg); color: var(--text); border: 1px solid var(--line);
   border-radius: 5px; padding: 2px 6px; font: inherit; width: 150px;
 }
+/* The model block (#367): the fleet-wide picker beside its label, the line saying where the list
+   came from beside its refresh button, and a row's expansion under its compact picker, in the same
+   cell. The pills are the picker's own (#362); a row's words sit level with its first pills. */
+body.settings-page .setrow > .setlabel {
+  flex: 0 0 190px; align-self: flex-start; font-size: 12px; color: var(--text);
+}
+body.settings-page #fleetpicker { flex: 1 1 320px; min-width: 0; }
+body.settings-page .modelsource { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+body.settings-page .modelsource .why { flex: 1 1 240px; }
+body.settings-page #modeltable th { white-space: nowrap; }
+body.settings-page #modeltable td { vertical-align: top; }
+body.settings-page #modeltable td:not(.modelcell) { padding-top: 10px; }
+body.settings-page #modeltable td.modelcell { width: 100%; }
+body.settings-page .mp-expand { margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
 
 body.settings-page .twocol { display: flex; gap: 22px; flex-wrap: wrap; }
 body.settings-page .twocol > div { flex: 1 1 300px; min-width: 260px; }

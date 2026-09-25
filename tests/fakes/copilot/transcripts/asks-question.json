@@ -26,7 +26,7 @@
         "type": "assistant.message",
         "data": {
           "content": "The ticket does not say which workspace.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }
@@ -39,7 +39,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Which workspace should I use, UAT or PROD?",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }
@@ -67,7 +67,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Thank you -- using UAT.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }
@@ -80,7 +80,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Continuing.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }

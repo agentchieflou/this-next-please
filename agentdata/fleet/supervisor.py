@@ -371,6 +371,9 @@ def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = F
                                 {"pid": lock.get("pid"), "prompt": (lock.get("prompt") or "")[:400],
                                  "summary": lock.get("summary", ""),
                                  "resumed": resumed, "new": new, "session": lock.get("session", ""),
+                                 # What this turn was launched with (#492): the desk's chip says
+                                 # "next turn" until a `started` carries the model just chosen.
+                                 "model": lock.get("model", "") or "", "effort": lock.get("effort", "") or "",
                                  **stamp,
                                  **({"console": True} if console else {})},
                                 ticket=lock.get("ticket", ""))])
@@ -417,6 +420,30 @@ def check_ticket(repo: Repo, key: str, *, cross_project: bool = False, board_row
     return str(row.get("summary") or "")
 
 
+def theirs(name: str, lock: dict) -> SupervisorError:
+    """The refusal every control meets on an adopted pane (#487): the operator's own chat.
+
+    The fleet did not start it and never ends it, whatever it knows about its pid (SESS-D3), and the
+    hint names only what works: closing it where it runs, or no longer following it. It never names
+    `send` or `stop`, which refuse it too.
+    """
+    pid = int(lock.get("pid") or 0)
+    how = str(lock.get("how") or "adopted")
+    said = f"{name} is your own Copilot chat ({how}{f', pid {pid}' if pid else ''}) — the fleet did not " \
+           f"start it and does not end it"
+    if not pid:
+        said += ", and this machine will not say which process it is"
+    return SupervisorError(said, f"close it in its own window, or `ad-fleet release {name}` to stop "
+                                 f"following it", code="external_session")
+
+
+def foreign(name: str, seen: dict, hint: str) -> SupervisorError:
+    """Something the fleet did not start is working in this checkout, named by pid, in the adopt
+    strip's words: the claim is the same one, about the same process."""
+    return SupervisorError(f"something is working in {name} that the fleet did not start "
+                           f"(pid {seen['pid']}, {seen['how']})", hint, code="foreign_session")
+
+
 def start(name: str, *, key: str | None = None, prompt: str | None = None, force: bool = False,
           cfg: dict | None = None, registry: Registry | None = None, exe: str | None = None,
           cross_project: bool = False, board_rows=None, summary: str = "",
@@ -429,11 +456,18 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
                                           board_rows=board_rows, force=force)
 
     lock = live(name)
+    if lock.get("external"):
+        # The operator's own chat (#487). `--force` replaces a live *fleet* agent, never this one:
+        # replacing means stopping, and the fleet does not end a chat it did not start.
+        raise theirs(name, lock)
     if lock:
         if not force:
             raise SupervisorError(
                 f"{name} already has a live agent (pid {lock.get('pid')}, ticket "
                 f"{lock.get('ticket') or 'none'})",
+                # A console is typed into, and `send` refuses one: its hint names its window.
+                (f"one agent per working tree. Type in its window (`ad-fleet say {name} \"…\"`), or "
+                 f"close that window first") if lock.get("kind") == "console" else
                 f"one agent per working tree. Use `ad-fleet send {name} \"…\"` to talk to it, or "
                 f"`ad-fleet stop {name}` first",
                 code="live_agent")
@@ -446,33 +480,26 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
                 "stop it by hand, then start again",
                 code="live_agent")
 
-    # Resuming into a checkout that something else is already working in would put two agents in
-    # one working tree -- the thing the lock exists to prevent, except that this one has no lock to
-    # catch it, because the console window that owns it never took one (#174). Only where a real
-    # process can be *named* in this checkout: "the folder was written to recently" is evidence of
-    # somebody saving a file, and refusing a resume on that would refuse most of them. The words
-    # are the adopt strip's own, because it is the same claim about the same process.
-    if resume and not lock:
-        from . import adopt as A
+    # Starting in a checkout that something else is already working in would put two agents in one
+    # working tree -- the thing the lock exists to prevent, except that this one has no lock to
+    # catch it: a console window the fleet never opened, or a chat handed back (#174, #487). Every
+    # start asks, not only a resume, and only a process *named* by pid refuses: "the folder was
+    # written to recently" is evidence of somebody saving a file, and a session file alone is #488's
+    # to decide (SESS-D2). The words are the adopt strip's own.
+    #
+    # A *fresh* listing where the listing can place a process, and always for a resume. The cached
+    # one is right for drawing and wrong for refusing: stopping a console and resuming within its
+    # ten seconds was refused on a process that had already gone. On Windows the listing names no
+    # working directory, so a new start reads the cached one without waiting: a fresh one could name
+    # nothing, and would cost a PowerShell per start.
+    from . import adopt as A
 
-        try:
-            # A *fresh* listing, not the cached one. `agent_processes` memoises for ten seconds so
-            # that drawing a dashboard does not walk `/proc` on every poll -- which is right for
-            # drawing, and wrong for refusing. Stopping a console and resuming within those ten
-            # seconds was refused on the strength of a process that had already gone: the fleet
-            # told the operator something was working in their checkout, naming a pid that no
-            # longer existed. A refusal is the one answer that has to be current.
-            foreign = [c for c in A.candidates(reg, processes=A.agent_processes(max_age=0))
-                       if c["repo"] == name and c.get("pid")]
-        except Exception:                    # noqa: BLE001 - a process listing must never block a start
-            foreign = []
-        if foreign:
-            raise SupervisorError(
-                f"something is working in {name} that the fleet did not start "
-                f"(pid {foreign[0]['pid']}, {foreign[0]['how']})",
-                f"close that window, or `ad-fleet adopt {name}` and then resume it — two agents in "
-                f"one working tree is what this refuses",
-                code="foreign_session")
+    fresh = bool(resume) or A.listing_places()
+    seen = A.outside(name, registry=reg, fresh_listing=fresh, wait=fresh)
+    if seen.get("pid"):
+        raise foreign(name, seen,
+                      f"close that window, or `ad-fleet adopt {name}` and then resume it — two "
+                      f"agents in one working tree is what this refuses")
 
     repo_state = repo.state()
     active, phase = repo_state.get("active_ticket", ""), repo_state.get("phase", "")
@@ -707,7 +734,10 @@ def restart(name: str, *, cfg: dict | None = None, registry: Registry | None = N
     lock = read_lock(name) or {}
     lifecycle.reap(name)
 
-    if live(name):
+    running = live(name)
+    if running.get("external"):
+        raise theirs(name, running)       # resuming beside the operator's own chat is a second agent
+    if running:
         raise SupervisorError(f"{name} is already running (pid {read_lock(name).get('pid')})",
                               f"`ad-fleet stop {name}` first if it is stuck",
                               code="live_agent")
@@ -763,8 +793,10 @@ def console(name: str, *, key: str | None = None, resume: str | None = None, new
     repo = reg.get(name)
     summary = check_ticket(repo, key, cross_project=cross_project, board_rows=board_rows) if key else ""
     lock = live(name)
+    if lock.get("external"):
+        raise theirs(name, lock)          # the operator's own chat (#487): its window, not a second one
     if lock:
-        if resume and lock.get("kind") != "console" and not lock.get("external"):
+        if resume and lock.get("kind") != "console":
             # Moving a session to a console happens *between* turns (#191). A headless `-p` run
             # ends at the turn boundary by itself, so this is a wait and not a kill: stopping it
             # here would leave the working tree wherever the thought had got to, and the premium
@@ -780,16 +812,10 @@ def console(name: str, *, key: str | None = None, resume: str | None = None, new
             code="live_agent")
     from . import adopt as A
 
-    try:
-        foreign = [c for c in A.candidates(reg) if c["repo"] == name and c.get("pid")]
-    except Exception:                        # noqa: BLE001 - a process listing must never block this
-        foreign = []
-    if foreign:
-        raise SupervisorError(
-            f"something is working in {name} that the fleet did not start "
-            f"(pid {foreign[0]['pid']}, {foreign[0]['how']})",
-            f"close that window, or `ad-fleet adopt {name}` — two agents in one working tree is what "
-            f"this refuses", code="foreign_session")
+    seen = A.outside(name, registry=reg)
+    if seen.get("pid"):
+        raise foreign(name, seen, f"close that window, or `ad-fleet adopt {name}` — two agents in one "
+                                  f"working tree is what this refuses")
 
     session = str(resume or "").strip() or uuid.uuid4().hex
     directory = agent_dir(name)
@@ -886,14 +912,13 @@ def stop(name: str, *, wait: float = 10.0, registry: Registry | None = None) -> 
             f"{name} is a console the fleet opened (pid {pid}, session {lock.get('session') or 'none'})",
             "close that window; the fleet opened it and does not close it",
             code="console_window")
-    if lock.get("external") and not pid:
-        # Adopted from the evidence of a checkout being written to, on a platform that would not say
-        # which process was doing it. There is nothing here to kill, and `kill_tree(0)` means "this
-        # process group" -- which is the fleet, and on a CI runner was once the test suite above it.
-        raise SupervisorError(
-            f"{name} is running a session the fleet did not start, and this machine will not say "
-            f"which process it is",
-            "close that window yourself. `ad-fleet release` then hands the repository back")
+    if lock.get("external"):
+        # The operator's own chat, whatever the fleet knows about its pid (#487, SESS-D3). With a
+        # pid this used to reach `kill_tree`: the chat died of SIGKILL with no confirmation, and the
+        # pane went on saying it was driving the repo. Without one, `kill_tree(0)` means "this
+        # process group" -- the fleet, and on a CI runner once the test suite above it. `reset`
+        # inherits the refusal before `restart` runs.
+        raise theirs(name, lock)
     proc.kill_tree(pid)
 
     deadline = time.time() + wait

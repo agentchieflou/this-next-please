@@ -153,14 +153,19 @@ both*, and a control that exists in one place and not the other is the thing thi
   ```
   configured   claude-opus-5           fleet.models.rdsd-pbi-reporting
   last turn    claude-haiku-4.5        the tenant pinned it
-  [ claude-opus-5        ▾ ] [ high ▾ ]   save        all models · settings
-  takes effect on the agent's next turn
+  Copilot    (inherit)  (auto)
+  Anthropic  (✓ opus-5)  (sonnet-5)  (haiku-4.5) …        other…
+  effort     (default)  (low)  (medium)  (✓ high) …
+  saved — reaches the agent on its next turn               all models · settings
   ```
 
-  *save* posts the `settings` action with `models: [{repo, model, effort}]` — the key the settings page writes
-  (`settings.set_model`), with the same refusals (`bad_model`, `no_repo`) in the same words; the names offered are
-  the ones the stream has reported (`settings_snapshot().model.seen`), because which names this build accepts has
-  never been measured (`launch.py:133–138`). *all models · settings* is `q("/settings")` anchored at the row. The card
+  Since #366 the model and the effort are each **one press** on the shared picker (`picker.js`, #362) over the
+  list the installed CLI offers (`/api/models`, #361): no text box but `other…`, and no save button. A press posts
+  the `settings` action with `models: [{repo, model, effort}]` — the key the settings page writes
+  (`settings.set_model`), with the same refusals (`bad_model`, `no_repo`) in the same words. `inherit` removes the
+  whole entry; an effort pressed while inheriting pins the inherited model and says so; a name the CLI does not
+  offer is saved with a warning. `m` opens it from a rail, every key but `Esc` stays in the card, and `Esc` gives
+  the keyboard back to where it was. *all models · settings* is `q("/settings")` anchored at the row. The card
   needs `model`, `effort`, `model_source` and `actual` on the `/api/fleet` row, which [plan-meter.md](plan-meter.md)
   slice C adds; §Build order says which lands first.
 
@@ -293,7 +298,8 @@ only. [plan-meter.md](plan-meter.md) C puts `model`, `effort`, `model_source` an
    with a `title`, an `aria-label` and a 28 px hit target.
 3. The model card: configured (with its source), last turn's model, a field over the `seen` datalist, an effort
    select, *save* → `settings {models: [...]}`, *all models · settings* → `q("/settings")#model-<repo>`; the card
-   says *takes effect on the agent's next turn*. Refusals are the settings page's, in its words.
+   says *takes effect on the agent's next turn*. Refusals are the settings page's, in its words. (Built so; #366
+   replaced the field, the select and *save* with the one-press picker, §The buttons.)
 4. If meter C has not landed, this slice adds the four fields to the row (they are `LAUNCH.model_for` and
    `served_model`, already written) and meter C becomes the ledger only.
 

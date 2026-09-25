@@ -133,24 +133,28 @@ def test_the_fleet_default_is_written_and_resolves_for_a_repo_with_no_entry(flee
     assert spawns == []
 
 
-def test_effort_alone_pins_the_fleet_model_it_inherits(fleet_home, capsys, spawns):
+def test_effort_alone_keeps_inheriting_the_fleet_model(fleet_home, capsys, spawns):
+    """Decision 15 (#493): model and effort inherit separately, so `--effort` alone writes the
+    effort alone and the repository keeps following `fleet.model`. (It used to pin that model.)"""
     _seed()
     C.save({"fleet": {"model": "claude-sonnet-5"}})
     code, meta, _rows, _ = _run(capsys, "alpha", "--effort", "high")
     assert code == 0
-    assert C.get_leaf(C.load(), "fleet.models", "alpha") == {"model": "claude-sonnet-5", "effort": "high"}
-    assert meta["pinned_model"] == "claude-sonnet-5"
-    assert "warning" not in meta
+    assert C.get_leaf(C.load(), "fleet.models", "alpha") == {"effort": "high"}
+    assert L.model_for("alpha", C.load()) == ("claude-sonnet-5", "high", "fleet.model")
+    assert (meta["source"], meta["effort_source"]) == ("fleet.model", "fleet.models.alpha")
+    assert "pinned_model" not in meta and "warning" not in meta
 
 
-def test_effort_alone_with_nothing_to_pin_warns_that_no_model_is_passed(fleet_home, capsys, spawns):
+def test_effort_alone_with_no_model_anywhere_sets_only_the_effort(fleet_home, capsys, spawns):
+    """With no model anywhere there is nothing to lose: the CLI still chooses, with that effort.
+    (It used to warn that the fleet's model no longer applied, which is no longer true.)"""
     _seed()
     code, meta, _rows, _ = _run(capsys, "alpha", "--effort", "high")
     assert code == 0 and meta["ok"] == "true"
     assert C.get_leaf(C.load(), "fleet.models", "alpha") == {"effort": "high"}
-    assert "pinned_model" not in meta
-    assert meta["warning"] == ("alpha now passes no --model; fleet.model no longer applies to it — "
-                               "pass a model too to keep one")
+    assert L.model_for("alpha", C.load()) == ("", "high", "cli-auto")
+    assert "pinned_model" not in meta and "warning" not in meta
 
 
 def test_effort_alone_on_a_repo_with_its_own_model_changes_only_the_effort(fleet_home, capsys, spawns):

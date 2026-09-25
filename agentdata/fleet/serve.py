@@ -435,10 +435,15 @@ def _model_cells(name: str, cfg: dict) -> dict:
     """
     try:
         model, effort, source = LAUNCH.model_for(name, cfg)
+        effort_source = LAUNCH.effort_source(name, cfg)
     except Exception:                    # noqa: BLE001 - a tile never fails to draw over a setting
-        model, effort, source = "", "", "cli-auto"
-    return {"model": model, "effort": effort, "model_source": source,
-            "actual": served_model(name)}
+        model, effort, source, effort_source = "", "", "cli-auto", "cli-auto"
+    actual, launched, turn = models_in_stream(name)
+    # What the fleet would give each half (#493): the words of a card's `inherit` pills.
+    fleet = (cfg or {}).get("fleet") if isinstance((cfg or {}).get("fleet"), dict) else {}
+    return {"model": model, "effort": effort, "model_source": source, "effort_source": effort_source,
+            "fleet_model": str(fleet.get("model") or ""), "fleet_effort": str(fleet.get("effort") or ""),
+            "actual": actual, "launched": launched, "turn_model": turn}
 
 
 # Which of two rows the server read first (#235). A row reaches the page by two roads -- an action's
@@ -2254,7 +2259,13 @@ def act(what: str, body: dict) -> dict:
         with C.LOCK:
             _write_settings(C, SET, body)
         _config_changed()
-        return settings_snapshot()
+        answer = settings_snapshot()
+        named = {str(item.get("repo") or "") for item in body.get("models") or []}
+        if named:
+            # The rows a model write changed, as `/api/fleet` would send them (#492): the desk
+            # draws them from this answer, so its chip says the switch within a frame of the save.
+            answer["rows"] = [row for row in fleet_snapshot().get("repos", []) if row.get("repo") in named]
+        return answer
     if what == "theme":
         from .. import config as C
 
@@ -2370,6 +2381,27 @@ def _poll_digests() -> dict[str, str]:
         return {}
 
 
+def _model_digests() -> dict[str, str]:
+    """What each checkout's next turn will be launched with, as `LAUNCH.model_for` resolves it
+    (#492). A model set elsewhere -- `ad-fleet model` in a terminal, /settings in another tab -- is
+    a row change no event announces, so the stream compares these when config.json moves and says
+    `polls` for the ones that changed. Never raises."""
+    from .. import config as C
+
+    try:
+        cfg = C.load()
+        names = list(Registry().repos)
+    except (RegistryError, OSError, ValueError, C.ConfigError):
+        return {}
+    out = {}
+    for name in names:
+        try:
+            out[name] = json.dumps(LAUNCH.model_for(name, cfg))
+        except Exception:                 # noqa: BLE001 - one bad value never stops the stream
+            out[name] = ""
+    return out
+
+
 # A config write this server made wakes every open stream (#348). `_config_gen` counts the writes;
 # a stream remembers the one its last `theme_state()` saw and waits on `_WAKE` for it to move. Writes
 # made elsewhere (`ad-theme set` in a terminal, the poller's flavour write) still arrive by mtime.
@@ -2440,6 +2472,7 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     seen_selection = -1
     last_config_mtime = -1.0
     seen_theme_state = None
+    seen_model_cfg: dict | None = None
     seen_gen = -1
     woke = False
     from .. import config as C
@@ -2470,6 +2503,18 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
         cat = MODELS.catalogue(cfg, spawn=False, path=models_file)
         return MODELS.digest(cat), cat["meta"].get("fetched_at", "")
 
+    def model_rows() -> bool:
+        """A model set elsewhere (#492): `polls` for each row whose next turn changed. The first
+        look only records; a stream's first snapshot already carries every model."""
+        nonlocal seen_model_cfg
+        digests, said = _model_digests(), False
+        for name, digest in digests.items():
+            if seen_model_cfg is not None and seen_model_cfg.get(name) != digest:
+                write(f"event: polls\ndata: {json.dumps({'repo': name})}\n\n")
+                said = True
+        seen_model_cfg = digests
+        return said
+
     seen_polls: dict[str, str] | None = None
     while not stop.is_set():
         early = False
@@ -2483,6 +2528,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             if tstate != seen_theme_state:
                 seen_theme_state = tstate
                 write(f"event: theme\ndata: {json.dumps(tstate, ensure_ascii=False)}\n\n")
+                early = True
+            if polls and model_rows():
                 early = True
         if polls:
             # A cell that changed without an event -- the git cell is the one that never has one
@@ -2546,6 +2593,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
             if seen_theme_state is None or tstate != seen_theme_state:
                 seen_theme_state = tstate
                 write(f"event: theme\ndata: {json.dumps(tstate, ensure_ascii=False)}\n\n")
+                sent = True
+            if polls and model_rows():
                 sent = True
         mark = models_stat()
         if mark != models_mark:
@@ -2778,7 +2827,13 @@ class Handler(BaseHTTPRequestHandler):
             key = (query.get("key") or [""])[0]
             if not key:
                 return self._refuse(400, "key required", "pass ?key=<TICKET>")
-            return self._json(PF.preflight(key, (query.get("repo") or [""])[0]))
+            repo_name = (query.get("repo") or [""])[0]
+            if (query.get("row") or [""])[0] == "model":
+                # The one row a press on the card changes (#368, decision 15), read on its own from
+                # the config and `models.json`: current at once, and never a Jira read.
+                return self._json({"ok": True, "key": key.strip().upper(), "repo": repo_name,
+                                   "row": PF.model_row(repo_name)})
+            return self._json(PF.preflight(key, repo_name))
         if route == "/api/branches":
             # Every local branch of one checkout and which never reached the default (#184).
             # Read-only, local, cached for the git cell's interval; on the click, never on the
@@ -3038,15 +3093,37 @@ def served_model(name: str) -> str:
     page that reported only what was configured would show a value that is not what ran, which is
     the failure mode the whole Power BI sign-in epic was about in another guise.
     """
+    return models_in_stream(name)[0]
+
+
+def models_in_stream(name: str) -> tuple[str, str | None, str]:
+    """`(actual, launched, turn)` from one read of the stream's newest events (#492).
+
+    `actual` is `served_model`'s: the model the newest reply ran on. `launched` is the `--model` the
+    newest turn was started with, from its `started` event (`""` for no flag), or None when that
+    event predates the field or there is none -- then the desk cannot tell a switch waiting for the
+    next turn from a pinned tenant, and does not try. `turn` is what that newest turn has reported
+    so far, `""` before its first reply: a reply from the turn before it is not this turn's news.
+    """
     try:
-        rows = E.read(name, kinds=("assistant_text",), limit=MODEL_LOOKBACK)
+        rows = E.read(name, kinds=("assistant_text", "started"), limit=MODEL_LOOKBACK)
     except (OSError, ValueError):
-        return ""
+        return "", None, ""
+    actual, launched, turn, started = "", None, "", False
     for ev in reversed(rows):
-        model = ((ev.get("data") or {}).get("model") or "").strip()
-        if model:
-            return model
-    return ""
+        data = ev.get("data") or {}
+        if ev.get("kind") == "started":
+            if not started:
+                started = True
+                if "model" in data:
+                    launched = str(data.get("model") or "").strip()
+        elif not actual:
+            actual = str(data.get("model") or "").strip()
+            if actual and not started:
+                turn = actual
+        if actual and started:
+            break
+    return actual, launched, turn
 
 
 def settings_snapshot() -> dict:
@@ -3075,6 +3152,7 @@ def settings_snapshot() -> dict:
                      "model": str(entry.get("model") or ""),
                      "effort": str(entry.get("effort") or ""),
                      "resolved": model, "resolved_effort": effort, "source": source,
+                     "effort_source": LAUNCH.effort_source(repo.name, cfg),
                      "actual": actual})
     return {
         "model": {"fleet": {"model": str(C.get(cfg, "fleet.model") or ""),

@@ -27,7 +27,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Starting.",
-          "model": "claude-haiku-4.5"
+          "model": "{model}"
         }
       }
     },
@@ -52,7 +52,7 @@
         "type": "assistant.message",
         "data": {
           "content": "I was interrupted after reading the ticket. Continuing from there.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }

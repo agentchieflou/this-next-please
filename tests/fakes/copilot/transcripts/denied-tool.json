@@ -26,7 +26,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Pushing the branch.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }
@@ -39,7 +39,7 @@
         "type": "assistant.message",
         "data": {
           "content": "I could not push; that tool is not permitted.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }

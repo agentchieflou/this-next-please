@@ -72,7 +72,7 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 
 | On a tile | What it shows |
 | --- | --- |
-| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, maximise |
+| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, maximise. The model button names the next turn's model, name first (`luna 5.6`, `sonnet 5`; the full id in its title): marked *next turn* (slanted, dotted underline) from the moment a switch is saved until a turn launches with it, and the model a tenant served in its place when it pinned another (#492) |
 | Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
 | Session pill | which **session** this transcript is — `session · running · 6d` — and the one menu that changes which one it is: this session, the earlier ones with how each ended and what it cost, `+ new session`, the console, and the project's other checkouts (#206) |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
@@ -357,9 +357,14 @@ cost an adopted session never had, and liveness is the file's own quiet, not the
 
 Adoption **supersedes; it does not supervise.** The fleet did not start that process, has no pipe to
 its stdin and may not know its pid, so Send and Start are disabled and say where to type instead of
-being offered and quietly doing nothing. One checkout still holds one agent: a repo the fleet is
-already running an agent in cannot adopt a second. *Hand it back* releases it, and only ever removes
-a lock the fleet did not create.
+being offered and quietly doing nothing. Stop and Reset refuse it too, with `external_session`, even
+when the fleet knows its pid: the fleet never ends the operator's own chat, and the refusal says to
+close it in its own window or `ad-fleet release` it (#487). One checkout still holds one agent: a
+repo the fleet is already running an agent in cannot adopt a second. *Hand it back* releases it, and
+only ever removes a lock the fleet did not create. No start of any kind runs beside a Copilot the
+fleet can name by pid in the checkout: a new session, a ticket and a resume all refuse
+`foreign_session` in the adopt strip's words, and the fleet's own agent, still exiting after its
+turn, is never taken for one.
 
 The page has one arrangement, the row above, and each window's widths over it. `ad-fleet serve` still accepts
 `--layout` for one release and ignores it, with a `note` saying so; how the four arrangements of
@@ -387,7 +392,7 @@ red everywhere or the colour stops being information:
 | `=` | *all*: every pane on the glass an even share |
 | `u` | take the last change of widths back |
 | `r` | re-read the agent the keyboard is on — a rail as well — now; spends no premium request |
-| `m` | which model that agent runs, and which one its last turn actually ran on |
+| `m` | which model that agent runs, and which one its last turn actually ran on; a press there shows on the pane at once, and applies from the next turn (#492) |
 | `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
@@ -488,7 +493,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/attach-bytes` | `{repo, name, bytes}` — the one route that carries bytes, on a click |
 | GET | `/api/sessions` | `?repo=` — this checkout's sessions, folded from the stream on the click |
 | GET | `/api/transcript` | `?repo=&session=&limit=&before=` — one session's lines, read-only, paged from the end (#174) |
-| GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164) |
+| GET | `/api/preflight` | `?key=&repo=` — the dispatch card's rows and verdict (#164); with `&row=model`, the `model` row alone, from the config and the cached model list and never Jira, which the card reads again after a press (#368) |
 | POST | `/api/console` | `{repo, ticket?, resume?, new?}` — open a real console running Copilot in that checkout with a session id the fleet chose; the tile reads the session from Copilot's own file (#188, #189) |
 | POST | `/api/say` | `{repo, message}` — type one line into the console the fleet opened for that checkout, through a helper that attaches by pid; refused for anything that is not a console (#190) |
 | POST | `/api/focus` | `{repo}` — bring that checkout's console window to the front (#190) |
