@@ -22,7 +22,7 @@ import re
 
 import pytest
 
-from test_fleet_ink import _serve, _stop, fleet_home, _own_desk_globals  # noqa: F401
+from test_fleet_ink import _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_theme_switch import (SETTLED, _desk, _farmstead_bg, _frames, _page, _setup,  # noqa: F401
                                      _wrong, browser)
 

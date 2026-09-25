@@ -30,7 +30,7 @@ import pytest
 
 from agentdata.fleet import adopt as A, serve as S
 
-from test_fleet_column import _own_desk_globals, _repos, fleet_home  # noqa: F401 - fixtures
+from test_fleet_column import _repos, fleet_home  # noqa: F401 - fixtures
 
 
 @pytest.fixture()

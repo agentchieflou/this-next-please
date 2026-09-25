@@ -28,7 +28,6 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_events import fleet_home  # noqa: F401 - fixture
-from test_fleet_ink import _own_desk_globals  # noqa: F401 - autouse fixture
 from test_fleet_skin_guard import rules
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

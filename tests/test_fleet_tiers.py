@@ -28,7 +28,6 @@ from agentdata.fleet import registry, serve as S, settings as SET
 from test_fleet_column import _until
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_gutters import _drag_gutter, _page, _read_settled, _repos, _serve, _stop
-from test_fleet_gutters import _own_desk_globals  # noqa: F401 - the desk's globals, autouse
 from test_fleet_probe import cli, table
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

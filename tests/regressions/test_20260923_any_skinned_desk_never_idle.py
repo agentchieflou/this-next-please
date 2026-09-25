@@ -24,7 +24,7 @@ from __future__ import annotations
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import (IDLE_LOOP, _desk_of, _open, _own_desk_globals, _serve, _stop,  # noqa: F401
+from test_fleet_ink import (IDLE_LOOP, _desk_of, _open, _serve, _stop,  # noqa: F401
                             fleet_home)
 
 

@@ -44,20 +44,6 @@ def fleet_home(tmp_path, monkeypatch):
     return tmp_path / "fleet"
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    """The module-level desk state, reset per test. CI runs this suite under two shuffle seeds, so
-    a test that inherits another's selection fails in one order and not the other."""
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-
-
 def _repos(tmp_path, *names):
     for name in names:
         path = make_project(tmp_path / name, ticket="RDSD-1")

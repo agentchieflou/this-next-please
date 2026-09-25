@@ -24,8 +24,7 @@ from agentdata.fleet import events as E
 from agentdata.fleet import poll as P
 from agentdata.fleet import serve as S
 
-from test_fleet_ink import (_desk_of, _serve, _stop, fleet_home,  # noqa: F401
-                            _own_desk_globals)
+from test_fleet_ink import (_desk_of, _serve, _stop, fleet_home)  # noqa: F401
 
 
 class Frames:

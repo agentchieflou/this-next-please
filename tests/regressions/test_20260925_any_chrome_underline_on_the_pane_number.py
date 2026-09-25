@@ -24,7 +24,7 @@ from __future__ import annotations
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import _open, _own_desk_globals, _serve, _stop, fleet_home  # noqa: F401 - fixtures
+from test_fleet_ink import _open, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 from test_fleet_ink_bounds import MEASURE, NAMES, RUNS, FIN, TOOL_W, bounds_desk, choose, desk_states, problems
 from test_fleet_ink_notebook import alive, finished  # noqa: F401 - fixtures are used by name
 

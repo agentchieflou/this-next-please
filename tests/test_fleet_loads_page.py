@@ -29,7 +29,7 @@ from agentdata.fleet import loads as L
 from agentdata.fleet import serve as S
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import _desk_of, _serve, _stop, fleet_home, _own_desk_globals  # noqa: F401
+from test_fleet_ink import _desk_of, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_loads import cli, table
 
 SKIN = "voxel"

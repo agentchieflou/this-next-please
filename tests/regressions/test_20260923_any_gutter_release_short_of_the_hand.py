@@ -23,7 +23,7 @@ import pytest
 from agentdata.fleet import serve as S
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_gutters import (_gutter_point, _near, _own_desk_globals, _page,  # noqa: F401
+from test_fleet_gutters import (_gutter_point, _near, _page,  # noqa: F401
                                 _read_settled, _repos, _serve, _stop, _widths_posts,
                                 fleet_home)
 

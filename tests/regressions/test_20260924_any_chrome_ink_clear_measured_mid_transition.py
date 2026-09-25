@@ -28,7 +28,7 @@ from __future__ import annotations
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import _choose, _open, _own_desk_globals, _serve, _stop, fleet_home  # noqa: F401
+from test_fleet_ink import _choose, _open, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until, alive, finished  # noqa: F401
 from test_fleet_ink_clear import CLEAR_AT_REST, PROBE, drawn, opaque
 from test_fleet_ink_margin import OPEN, desk_states, margin_desk
