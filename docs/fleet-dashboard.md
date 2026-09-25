@@ -74,20 +74,41 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 | --- | --- |
 | Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, maximise. The model button names the next turn's model, name first (`luna 5.6`, `sonnet 5`; the full id in its title): marked *next turn* (slanted, dotted underline) from the moment a switch is saved until a turn launches with it, and the model a tenant served in its place when it pinned another (#492) |
 | Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
-| Session pill | which **session** this transcript is — `session · running · 6d` — and the one menu that changes which one it is: this session, the earlier ones with how each ended and what it cost, `+ new session`, the console, and the project's other checkouts (#206) |
+| Session pill | which **session** this transcript is — `session · running · 6d` — and the one menu that changes which one it is: this session, the earlier ones with how each ended and what it cost (each says where it ran -- `your chat`, `console` -- and `left · <when>` once a fresh start left it), **start fresh** (#489), the console, and the project's other checkouts (#206) |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
 | Cells | the **project's** own state, polled read-only: ticket, PR, refresh, git — each with its age; the git cell counts the branches and opens the inspector's branches pane (#184). Beside them, **spend**: what this agent has cost, against its budget, with the model the last turn ran on (#211) |
 | Approval card | appears when that agent is waiting; the **dry-run payload in full**, Approve / Deny |
 | Transcript | assistant text, tool calls, denials, phase changes — the current run only |
 | Earlier runs | folded under their session in the pill's menu — one *earlier*, not two adjacent ones (#206) |
-| Outside strip | a session in this checkout the fleet did not start: what it is, how sure we are, and *adopt it* |
+| Outside strip | a session in this checkout the fleet did not start: what it is, how sure we are, and *adopt it*; once adopted, **start fresh** first and the quieter *stop following it* (#489) |
 | Bottom row | reply box (→ `send`), Start (a ticket key in the same box), **Reset**, Stop. Over budget, *Send* re-arms as **Send anyway**: one more turn, on a second and deliberate press (#213) |
 
 The **sidebar** sits beside the glass and holds five sections, one open at a time: the Jira **board**
 (`b`), the Downloads **inbox** (`i`), **alerts** (`n`), **where** (`/`, `ad-fleet where` over the
-catalogue), and **project** — the selected project's link rail, verify pane, facts, open friction
-and offered files. Every window on this server agrees on which project is selected, so clicking a
-tile on the left monitor changes the inspector on the centre one.
+catalogue), and **project**. Every window on this server agrees on which project is selected, so
+clicking a tile on the left monitor changes the inspector on the centre one.
+
+The **project** section fits one screen (#504). Top to bottom: the link rail with *copy path*, the
+friction that needs you now, one line of spend (*spend N all time · N today · N this session*, with
+*· of B* against a budget; the turns, the mean and `ad-fleet spend` are its tooltip), the branches,
+and one closed **more**. *More*'s summary names what it holds (*more — facts · 3 earlier friction ·
+verify · 2 offered*): the facts (without the project, path and branch, which the drawer head, *copy
+path* and the git cell already say), the missing-keys line, *earlier friction (n)*, the newest verify
+and the files Downloads offers for this project. The desk's tick redraws the panel only when
+something it shows changed, so an idle desk writes nothing to it, and a redraw keeps every fold as
+the operator left it.
+
+The rail ends with **wrap up** (#510), and `w` on a pane or rail does the same: the project section
+opens on that agent with the wrap-up sheet above its details, set to *end of project* (the pairing for
+one agent; *end of day* is the other half of its toggle, and pressing it previews again). The sheet
+reads *reading push · pr · page · comment · transition…* while #503's job runs every adapter's
+dry-run, then shows one row per write with a tick as the preset says; a row that is not `ok` is
+disabled with its code and hint (the pr and page rows read `not_pinned` until #506 and #507), and a
+ticked row that waits on another says *after push*. A transition row offers Jira's own names, a page or
+PR description someone edited offers *replace*, and the comment row offers *edit* — each of those is a
+second preview, never a write (WRAP-D8). **Write n** posts exactly the ticked ids; each row then reads
+*written* (with its link), *failed* (with *preview again*), *changed* or *skipped*, in words and a
+glyph, and the footer says one line. A merge is never offered. `Esc` or *cancel* closes the sheet.
 
 **Open friction** (#499) is decided by the server, not the page. A STOP is *open* when the operator
 has not dismissed it, it is on the active ticket (or names none), and either its unblock sentence is
@@ -134,6 +155,9 @@ default first and marked, then the last twenty commits of the current branch. A 
 carries the tile's active ticket is that ticket's; a second one with the same key is the smell the
 operator asked to see, and the pane says so in one line: *two branches carry RDSD-22490; only one
 can merge*. The pane is read on the click and cached for the git cell's interval, never on the poll.
+Its *read* button says what it reads in its tooltip. Once read, the summary and the carry line stay
+in sight; the rows (one line each, the full detail in the row's tooltip) and the commits sit in a fold
+that is open when the count warns or the git cell asked for it, and otherwise as the operator left it.
 On the tile, the git cell is the button that opens it and carries the count on its second line:
 `7 branches · 3 never reached main`, amber at `fleet.branches.warn` (default 6), grey with the error
 when git cannot be asked, and never a toast. `ad-fleet branches <repo>` prints the same rows.
@@ -237,8 +261,14 @@ Under the run line there is a **tab strip**:
   been working leaves behind — it is the supervisor's own refusal and its own hint, and the button
   becomes the two-press *Stop and resume* or *Resume anyway*, the way *Reset anyway* is a second,
   deliberate press. Never two agents in one working tree, and never a silent force.
-* **+ new** is `start --new`: a clean session in this checkout, the previous one still listed and
-  still resumable.
+* **start fresh** (#489) posts `fresh` -- `ad-fleet fresh <repo>` (#488): a clean session in this
+  checkout on its active ticket and the configured model, the previous one still listed, marked
+  `left`, and still resumable. The same action is the head's *start fresh* on a stale, adopted or
+  began-outside pane (full and compact alike), the adopt strip's first button, and `Alt`+`N` -- from a
+  rail too, whose answer is said in the footer. When the operator's own chat may still be open the
+  first press is refused with the server's sentence and the pressed button reads *start fresh — it
+  is closed*; the next press is that deliberate second one. The footer then says *{repo}: left
+  {session} — it is under earlier (n)*.
 * The **console** tab is one button and three verbs (#189–#191). With no console here it opens one
   and hands it *this tile's session*, so a session the fleet started headless carries on in the
   operator's own window under the same id — the transcript continues because `--resume` is
@@ -249,7 +279,7 @@ Under the run line there is a **tab strip**:
   brings the session back headless. Each row in *earlier* names the surfaces its session has been
   held by, in order (`console → fleet`), and the read-only pane says *the console still owns this*
   only while this checkout's console is actually alive.
-* `Alt`+`[` / `Alt`+`]` walk the strip and `Alt`+`N` is *new*. Every tab is a real button, so the
+* `Alt`+`[` / `Alt`+`]` walk the strip and `Alt`+`N` is *start fresh*. Every tab is a real button, so the
   strip is reachable by Tab as well.
 
 A session is **not** a contiguous slice of the stream — `--resume` opens a new run on the same
@@ -372,9 +402,14 @@ Adoption **supersedes; it does not supervise.** The fleet did not start that pro
 its stdin and may not know its pid, so Send and Start are disabled and say where to type instead of
 being offered and quietly doing nothing. Stop and Reset refuse it too, with `external_session`, even
 when the fleet knows its pid: the fleet never ends the operator's own chat, and the refusal says to
-close it in its own window or `ad-fleet release` it (#487). One checkout still holds one agent: a
-repo the fleet is already running an agent in cannot adopt a second. *Hand it back* releases it, and
-only ever removes a lock the fleet did not create. No start of any kind runs beside a Copilot the
+close it in its own window or `ad-fleet release` it (#487). On the pane they are disabled, titled
+*your own Copilot chat — close it in its window; start fresh leaves it* (#489). The strip's first
+button is **start fresh**, which leaves the chat for a clean session (a second press once it is
+closed, when the fleet cannot name its pid), and the pane's model button names both models: what
+your chat ran, and what start fresh starts on. One checkout still holds one agent: a repo the fleet
+is already running an agent in cannot adopt a second. *Stop following it* (it was *hand it back*)
+releases it -- the pane goes back to the fleet's own last run, and the chat is untouched -- and only
+ever removes a lock the fleet did not create. No start of any kind runs beside a Copilot the
 fleet can name by pid in the checkout: a new session, a ticket and a resume all refuse
 `foreign_session` in the adopt strip's words, and the fleet's own agent, still exiting after its
 turn, is never taken for one.
@@ -406,10 +441,11 @@ red everywhere or the colour stops being information:
 | `u` | take the last change of widths back |
 | `r` | re-read the agent the keyboard is on — a rail as well — now; spends no premium request |
 | `m` | which model that agent runs, and which one its last turn actually ran on; a press there shows on the pane at once, and applies from the next turn (#492) |
+| `w` | wrap up the agent the keyboard is on — a rail as well: the project panel's sheet previews every Jira, Bitbucket and Confluence write, and nothing is written until *write n* (#510) |
 | `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
-| `Alt`+`N` | a clean session in this checkout, beside the one it is on |
+| `Alt`+`N` | start this pane fresh: a clean session on its ticket, the one it is on kept under *earlier* (#489) |
 | `/` | the search box — `where` over the catalogue |
 | `i` | the sidebar's inbox |
 | `a` | approve the open agent's pending write |
@@ -491,6 +527,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/inbox` | the tray: what Downloads is offering, and what is listed but not offered |
 | GET | `/api/where` | the catalogue search behind the header's box |
 | POST | `/api/start` | `{repo, ticket?, prompt?, force?}` |
+| POST | `/api/fresh` | `{repo, closed?, dry_run?}` — leave this checkout's session for a clean one (#488): `dry_run` answers the plan (`verdict`, `code`, `why`, `leaves`, `starts`); a start answers the row. `chat_open` answers 409 with `second_press: true`, and `closed: true` is that deliberate second press; every other refusal is 409 with its code |
 | POST | `/api/send` | `{repo, message}` |
 | POST | `/api/stop` | `{repo}` |
 | POST | `/api/reset` | `{repo, force?}` — stop, then resume the same session |

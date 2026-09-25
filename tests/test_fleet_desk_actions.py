@@ -769,7 +769,8 @@ def outside_desk(fleet_home, tmp_path):                         # noqa: F811
 
 
 @pytest.mark.browser
-def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_desk):
+def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_desk, no_copilot_home,  # noqa: F811
+                                                                    launches, tmp_path):
     """#2, from the operator's side.
 
     They have a `copilot` going in a `cmd.exe` window; the tile for that repository was showing the
@@ -800,14 +801,24 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
 
         after = page.inner_text('.tile[data-repo="busy"] .outside')
         assert "is driving this repo" in after, after
-        assert page.inner_text('.tile[data-repo="busy"] .adopt').strip() == "hand it back"
+        assert page.inner_text('.tile[data-repo="busy"] .adopt').strip() == "stop following it"
         # Nothing on the tile may still claim the repository is unsupervised.
         assert "nothing is supervised" not in page.inner_text('.tile[data-repo="busy"] .why')
         # And the controls that cannot reach somebody else's stdin say so instead of lying.
         assert page.get_attribute('.tile[data-repo="busy"] .send', "disabled") is not None
+        # #489: *start fresh* on the head and first in the strip; Stop and Reset are not offered
+        # on the operator's own chat, and say why. Send and Start keep their own words.
+        assert page.is_visible('.tile[data-repo="busy"] .freshtoggle')
+        assert page.is_visible('.tile[data-repo="busy"] .outside .fresh-strip')
+        assert page.eval_on_selector('.tile[data-repo="busy"] .outside', "o => o.querySelector('button:not([hidden])').className") == "fresh-strip"
+        for control in ("stop", "reset"):
+            assert page.get_attribute(f'.tile[data-repo="busy"] .{control}', "disabled") is not None, control
+            assert "start fresh leaves it" in page.get_attribute(f'.tile[data-repo="busy"] .{control}', "title")
+        assert "not the fleet's to drive" in page.get_attribute('.tile[data-repo="busy"] .start', "title")
         # Stop is refused for it (#487): the operator's own chat is theirs to close, and the page
-        # reads the supervisor's own words and hint, not a button that seemed to do nothing.
-        page.click('.tile[data-repo="busy"] .stop')
+        # reads the supervisor's own words and hint, not a button that seemed to do nothing. The
+        # button is not offered any more (#489), so the page's own action asks what it would have.
+        page.evaluate("""() => action(document.querySelector('.tile[data-repo="busy"]'), 'stop', { repo: 'busy' })""")
         page.wait_for_function(
             """() => /your own Copilot chat/.test(
                    document.querySelector('.tile[data-repo="busy"] .err').textContent)""",
@@ -822,6 +833,60 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
                    document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
             timeout=15000)
         assert "the fleet did not start" in page.inner_text('.tile[data-repo="busy"] .outside')
+
+        # #489: start fresh from the adopted pane. The chat is known by its session file (pid 0),
+        # so the first press is refused `chat_open` and relabels the button; the second releases
+        # the adoption and launches one clean agent on the ticket, never a `--resume`.
+        busy = Registry().get("busy").path
+        _session_file(no_copilot_home, "native-busy", busy)
+        page.click('.tile[data-repo="busy"] .adopt')
+        page.wait_for_function(
+            """() => /is driving this repo/.test(
+                   document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
+            timeout=15000)
+        page.wait_for_selector('.tile[data-repo="busy"] .freshtoggle:not([hidden])', timeout=15000)
+        page.click('.tile[data-repo="busy"] .freshtoggle')
+        page.wait_for_function(
+            """() => /may still be open/.test(document.querySelector('.tile[data-repo="busy"] .err').textContent)""",
+            timeout=15000)
+        assert page.is_visible('.tile[data-repo="busy"] .err')
+        assert page.inner_text('.tile[data-repo="busy"] .freshtoggle') == "start fresh — it is closed"
+        assert launches == [], "the first press launches nothing"
+        page.click('.tile[data-repo="busy"] .freshtoggle')
+        deadline = time.time() + 15
+        while not launches and time.time() < deadline:
+            time.sleep(0.05)
+        assert len(launches) == 1 and "--resume" not in launches[0], launches
+        assert "RDSD-3" in launches[0][launches[0].index("-p") + 1]
+        page.wait_for_function("() => /busy: left/.test(document.getElementById('notice').textContent)",
+                               timeout=15000)
+        # *Earlier (n)*: the chat that was left reads `your chat` and `left`, without a hover.
+        page.click('.tile[data-repo="busy"] .spill')
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('.tile[data-repo="busy"] .sessions .session-row:not([hidden])')]
+                      .some(li => li.querySelector('.ss-src').textContent === 'your chat'
+                                  && /^left · /.test(li.querySelector('.ss-chip').textContent))""",
+            timeout=15000)
+        page.keyboard.press("Escape")
+
+        # A compact pane (#489): `=` puts five panes on the glass at once, and a stale one's head
+        # still carries *start fresh*, which works from there.
+        for name in ("c1", "c2", "c3", "c4"):
+            Registry().add(make_project(tmp_path / name, ticket="RDSD-4"), name=name)
+            E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-4"),
+                            E.event(name, "turn_ended", {"turn": "0"}, ticket="RDSD-4")])
+        page.evaluate("() => refresh()")
+        page.wait_for_selector('.tile[data-repo="c4"]', state="attached", timeout=15000)
+        page.evaluate("() => document.activeElement && document.activeElement.blur()")
+        page.keyboard.press("=")
+        page.wait_for_selector('.tile[data-repo="c1"][data-tier="compact"]', timeout=15000)
+        page.wait_for_selector('.tile[data-repo="c1"] .freshtoggle:not([hidden])', timeout=15000)
+        assert page.is_visible('.tile[data-repo="c1"] .freshtoggle')
+        page.click('.tile[data-repo="c1"] .freshtoggle')
+        deadline = time.time() + 15
+        while len(launches) < 2 and time.time() < deadline:
+            time.sleep(0.05)
+        assert len(launches) == 2 and "--resume" not in launches[1], launches
         assert not errors, errors
 
 

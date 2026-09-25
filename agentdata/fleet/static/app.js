@@ -505,9 +505,17 @@ function makeTile(row, index) {
     closeMenu(el);
     if (viewing(el)) backToLive(el);
   });
-  el.querySelector(".sm-new").addEventListener("click", function () {
+  /** @type {HTMLElement} */
+  var smNew = el.querySelector(".sm-new");
+  smNew.addEventListener("click", function () {
     closeMenu(el);
-    newSession(el, row.repo);
+    startFresh(el, row.repo, smNew);
+  });
+  // #489: the head's and the adopt strip's *start fresh*: the same action as the menu item's.
+  ["freshtoggle", "fresh-strip"].forEach(function (cls) {
+    /** @type {HTMLElement} */
+    var b = el.querySelector("." + cls);
+    if (b) b.addEventListener("click", function (e) { e.stopPropagation(); startFresh(el, row.repo, b); });
   });
   el.querySelector(".sm-console").addEventListener("click", function () {
     closeMenu(el);
@@ -533,10 +541,11 @@ function makeTile(row, index) {
     else if (e.key === "Home") { toggleTilePin(row.repo); e.preventDefault(); }
     // The double-click on this pane's right-hand gutter: the two beside it, evened out (#234).
     else if (e.key === "Enter") { evenGutter(el); e.preventDefault(); }
-    // The strip, without a mouse. `[` and `]` walk it; `N` is a clean session beside this one.
+    // The strip, without a mouse. `[` and `]` walk it; `N` starts this pane fresh (#489), from a
+    // rail as from a pane.
     else if (e.key === "[") { stepMenu(el, row.repo, -1); e.preventDefault(); }
     else if (e.key === "]") { stepMenu(el, row.repo, 1); e.preventDefault(); }
-    else if (e.key === "n" || e.key === "N") { newSession(el, row.repo); e.preventDefault(); }
+    else if (e.key === "n" || e.key === "N") { startFresh(el, row.repo, null); e.preventDefault(); }
   });
 
   var pinBtn = el.querySelector(".pintoggle");
@@ -934,6 +943,7 @@ function drawTile(el, row, approvals) {
   attr(chip, "title", "state from the fold" + (ac.text ? ", last event " + ac.text + " ago" : ""));
   text(el.querySelector(".ticket"), row.ticket || row.jira_project || "");
   drawOldSession(el, row);
+  drawFresh(el, row);
 
   text(el.querySelector(".why"), cold ? row.not_supervised_sentence : (row.why || ""));
 
@@ -952,9 +962,11 @@ function drawTile(el, row, approvals) {
            "a session outside the fleet is driving this repo" +
            (row.pid ? " (pid " + row.pid + ")" : "") +
            (row.external_how ? " — " + row.external_how : ""));
-      text(adoptBtn, "hand it back");
+      // #489 (SESS-D1): *start fresh* first; following it no more is the quieter second button.
+      text(adoptBtn, "stop following it");
       setData(adoptBtn, "what", "release");
-      attr(adoptBtn, "title", "stop treating that session as this repo's current one");
+      toggle(adoptBtn, "quiet", true);
+      attr(adoptBtn, "title", "the pane goes back to the fleet's own last run; your terminal chat is untouched");
     } else if (offer) {
       hide(outside, false);
       toggle(outside, "mine", false);
@@ -964,6 +976,7 @@ function drawTile(el, row, approvals) {
            " — last wrote " + age(offer.active_age_s) + " ago, " + offer.how);
       text(adoptBtn, "adopt it");
       setData(adoptBtn, "what", "adopt");
+      toggle(adoptBtn, "quiet", false);
       setData(adoptBtn, "pid", String(offer.pid || 0));
       attr(adoptBtn, "title", "make that session this repo's current one, instead of the last run the fleet started");
     } else {
@@ -979,6 +992,17 @@ function drawTile(el, row, approvals) {
     if (!btn) return;
     disable(btn, !!row.external);
     attr(btn, "title", row.external ? "type in that window — this session is not the fleet's to drive" : "");
+  });
+  // Stop and Reset on the operator's own chat (#487, #489): the server refuses both, so the page
+  // does not offer them. A console the fleet opened is not `external`, and keeps its buttons.
+  ["stop", "reset"].forEach(function (cls) {
+    /** @type {HTMLButtonElement} */
+    var btn = el.querySelector("." + cls);
+    if (!btn) return;
+    var was = btn.disabled;
+    disable(btn, !!row.external);
+    if (row.external) attr(btn, "title", "your own Copilot chat — close it in its window; start fresh leaves it");
+    else if (was) attr(btn, "title", cls === "reset" ? "unblock it: end the stuck process and resume the same session" : null);
   });
 
   // Which run this transcript belongs to. Without it, a two-day-old run reads as live.
@@ -1194,7 +1218,10 @@ function loadSessions(el, repo) {
         var li = pattern.cloneNode(true);
         hide(li, false);
         text(li.querySelector(".ss-title"), r.title || r.ticket || r.id.slice(0, 8));
-        text(li.querySelector(".ss-chip"), r.ended || "");
+        // Where it ran, in words, and whether a fresh start left it (#489): two rows that both
+        // read `RDSD-118 · idle` are told apart without hovering.
+        text(li.querySelector(".ss-src"), SESSION_SOURCE[r.source] || "");
+        text(li.querySelector(".ss-chip"), r.left ? "left · " + whenIso(r.left) : (r.ended || ""));
         text(li.querySelector(".ss-when"), whenIso(r.last_seen));
         text(li.querySelector(".ss-cost"), r.cost ? Number(r.cost).toFixed(2) + " premium" : "");
         var button = li.querySelector(".ss-open");
@@ -1314,14 +1341,80 @@ function openConsole(el, row) {
   return action(el, "console", body).then(function (r) { if (r && r.ok) refresh(); return r; });
 }
 
-function newSession(el, repo) {
-  var note = el.querySelector(".ro-note");
-  post("start", { repo: repo, "new": true }).then(function (r) {
-    if (r && r.ok) { backToLive(el); refresh(); return; }
-    var said = [r && r.error, r && r.hint].filter(Boolean).join(" — ");
-    if (!el.querySelector(".readonly").hidden) text(note, said);
-    else { text(el.querySelector(".err"), said); hide(el.querySelector(".err"), false); }
-  });
+/* ------------------------------------------------------------------ start fresh (#488, #489)
+
+   One action, one word (SESS-D1): the session menu's item, the head's button, the adopt strip's
+   button and `Alt+N` all call this, and it posts the verb `ad-fleet fresh` calls. The server decides
+   (`row.fresh`); the page only says what it said. A chat that may still be open answers `chat_open`
+   with `second_press`: the pressed button then reads *start fresh — it is closed*, and the next
+   press says so (SESS-D2). Any other refusal arms nothing. */
+var SESSION_SOURCE = { adopted: "your chat", console: "console" };
+
+/** Does this pane's head offer *start fresh*? One condition, for #509 to widen (SESS-D6). */
+function freshShown(row) {
+  return !!(row && row.fresh && row.fresh.offer);
+}
+
+/** What pressing it would do, in words: the ticket and model it starts on, and what it leaves. */
+function freshWords(row) {
+  var f = (row && row.fresh) || {};
+  var st = f.starts || {};
+  var on = (st.ticket ? "on " + st.ticket : "with no ticket") + " on " +
+           (st.model_label || "the CLI's own choice") + " (" + (st.model_source || "cli-auto") + ")";
+  return "a clean session " + on + "; this one stays under earlier (" + ((row.sessions_n || 0) + 1) + ")";
+}
+
+function drawFresh(el, row) {
+  var f = row.fresh || {};
+  var head = el.querySelector(".freshtoggle");
+  hide(head, !freshShown(row));
+  attr(head, "title", f.verdict && f.verdict !== "now" ? f.why : freshWords(row) + " — Alt+N");
+  var strip = el.querySelector(".fresh-strip");
+  hide(strip, !row.external);
+  attr(strip, "title", freshWords(row));
+  attr(el.querySelector(".sm-new"), "title", freshWords(row) + " (Alt+N)");
+  // An armed press lasts only as long as the verdict it answered, as *Reset anyway* does.
+  if (el.dataset.freshArmed && el.dataset.freshArmed !== (f.verdict || "")) disarmFresh(el);
+}
+
+function disarmFresh(el) {
+  setData(el, "freshArmed", "");
+  [".freshtoggle", ".fresh-strip"].forEach(function (sel) { text(el.querySelector(sel), "start fresh"); });
+  text(el.querySelector(".sm-new-label"), "start fresh");
+}
+
+/** @param {HTMLElement} el  @param {string} repo  @param {HTMLElement|null} button */
+function startFresh(el, repo, button) {
+  var closed = !!el.dataset.freshArmed;
+  var rail = !paneShows(el).wide;
+  var tell = function (words) {
+    // A rail has no visible `.err`: its answer goes in the footer. Every other width shows it.
+    if (rail) say(repo + ": " + words);
+    else fail(el, words);
+  };
+  fail(el, "");
+  return post("fresh", closed ? { repo: repo, closed: true } : { repo: repo }).then(function (r) {
+    if (r && r.ok) {
+      disarmFresh(el);
+      if (viewing(el)) backToLive(el);
+      if (r.row) { patchRow(r.row); place(); } else refresh();
+      var left = (r.leaves || {});
+      var n = ((r.row && r.row.sessions_n) || 0);
+      say(repo + ": " + (left.session ? "left " + (left.title || left.session) +
+                                        " — it is under earlier (" + n + ")" : "started fresh"));
+      return r;
+    }
+    var words = [r && r.error, r && r.hint].filter(Boolean).join(" — ");
+    if (r && r.second_press) {
+      var entry = tiles.get(repo);
+      setData(el, "freshArmed", ((entry && entry.row && entry.row.fresh) || {}).verdict || "second_press");
+      if (button) text(button.querySelector(".sm-new-label") || button, "start fresh — it is closed");
+      tell(rail ? words + " — press Alt+N again once it is closed" : words);
+    } else {
+      tell(words);
+    }
+    return r;
+  }).catch(function (e) { tell(String(e)); });
 }
 
 /* ------------------------------------------------------------------------------- the whole page */
@@ -1763,6 +1856,13 @@ function connect() {
       loadModelCatalogue().then(function () { drawModelCard(); drawDispatchModel(); });
     }
   });
+  // A wrap-up job moved (#503, #510): read it only when the sheet shows that repo.
+  source.addEventListener("wrapup", function (m) {
+    try {
+      var d = JSON.parse(m.data);
+      if (wrapOpen() && d.repo === wrap.repo && (!wrap.job || d.job === wrap.job)) loadWrap();
+    } catch (err) {}
+  });
   source.addEventListener("tick", function () {
     toggle(document.body, "is-replaying", false);
     setClass(link, "dot live");
@@ -1848,6 +1948,7 @@ document.addEventListener("keydown", function (e) {
     if (closePopovers()) { e.stopImmediatePropagation(); return; }
     var card = document.getElementById("dispatch");
     if (card && !card.hidden) { closeDispatch(); e.stopImmediatePropagation(); return; }
+    if (closeWrapup()) { e.stopImmediatePropagation(); return; }
     if (typing) /** @type {HTMLElement} */ (document.activeElement).blur();
     // There is no zoom to leave, so `Esc` is "show me the last one again" -- which is the other
     // half of the glance the swap is for.
@@ -1880,6 +1981,18 @@ document.addEventListener("keydown", function (e) {
     var at = document.activeElement;
     if (e.shiftKey || (at && at !== document.body && !(at.closest && at.closest("#grid")))) return;
     stepRow(e.key === "ArrowRight" ? 1 : -1);
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "w") {
+    // #510: wrap up the pane the keyboard is on, rail or wide, as `r` and `m` act on it: the project
+    // panel opens with the sheet, and the preview starts. Nothing is written until *write n*.
+    /** @type {HTMLElement} */
+    var onPane = document.activeElement && document.activeElement.closest
+      ? document.activeElement.closest(".tile") : null;
+    var wrapName = onPane ? onPane.dataset.repo : openName();
+    if (!wrapName) return;
+    openWrapup(wrapName);
     e.preventDefault();
     return;
   }
@@ -2941,6 +3054,8 @@ function mk(tag, cls, str) {
   return n;
 }
 
+/* #504: the summary and the carry line stay in sight; the list and the commits sit in a fold that is
+   open when the answer warns or the git cell asked for it, and otherwise as the operator left it. */
 function branchesPane(name) {
   var answer = branchesFor[name];
   var box = mk("div", "branches");
@@ -2948,13 +3063,11 @@ function branchesPane(name) {
   head.appendChild(mk("strong", "", "branches"));
   var read = mk("button", "branches-read", "read");
   read.type = "button";
+  attr(read, "title", "every local branch, and which never reached the default");
   read.addEventListener("click", function () { loadBranches(name, true); });
   head.appendChild(read);
   box.appendChild(head);
-  if (!answer) {
-    box.appendChild(mk("p", "muted", "every local branch, and which never reached the default: click the git cell, or read."));
-    return box;
-  }
+  if (!answer) return box;
   if (answer.reading) { box.appendChild(mk("p", "muted branches-note", "reading…")); return box; }
   if (!answer.ok) {
     box.appendChild(mk("p", "branches-note err", (answer.error || "git could not be asked") + (answer.hint ? " — " + answer.hint : "")));
@@ -2968,6 +3081,12 @@ function branchesPane(name) {
     (current && current.unmerged && current.ahead != null ? " (+" + current.ahead + " ahead of " + answer.default + ")" : "") +
     (answer.cached ? " · read " + age(Math.round(answer.age_s)) + " ago" : "")));
   if (answer.carry_line) box.appendChild(mk("p", "branches-carry", answer.carry_line));
+  var asked = branchesWanted === name;
+  if (asked) branchesWanted = "";
+  var fold = inspectorFold(name, "branches-list", answer.warn);
+  if (asked) fold.open = true;
+  fold.appendChild(mk("summary", "muted", (answer.branches || []).length + " listed" +
+                                           ((answer.commits || []).length ? " · the last commits" : "")));
   var list = mk("ol", "branchlist");
   (answer.branches || []).forEach(function (b) {
     var li = mk("li", "branchrow" + (b.unmerged ? " unmerged" : "") + (b.current ? " current" : "") +
@@ -2978,15 +3097,18 @@ function branchesPane(name) {
     bits.push(b.upstream ? b.upstream + (b.track ? " " + b.track : "") : "none pushed");
     if (b.ticket) bits.push(b.ticket);
     if (b.current) bits.push("current");
-    li.appendChild(mk("span", "bmeta", bits.filter(Boolean).join("  ·  ")));
+    var meta = mk("span", "bmeta", bits.filter(Boolean).join("  ·  "));
+    attr(meta, "title", meta.textContent);
+    li.appendChild(meta);
     list.appendChild(li);
   });
-  box.appendChild(list);
-  if (answer.more) box.appendChild(mk("p", "muted branches-note", "and more: the count stops at twenty unmerged branches, which is the finding"));
+  fold.appendChild(list);
+  if (answer.more) fold.appendChild(mk("p", "muted branches-note", "and more: the count stops at twenty unmerged branches, which is the finding"));
   if ((answer.commits || []).length) {
-    box.appendChild(mk("div", "muted", "the last " + answer.commits.length + " commits on " + answer.current));
-    box.appendChild(mk("pre", "commits", answer.commits.join("\n")));
+    fold.appendChild(mk("div", "muted", "the last " + answer.commits.length + " commits on " + answer.current));
+    fold.appendChild(mk("pre", "commits", answer.commits.join("\n")));
   }
+  box.appendChild(fold);
   return box;
 }
 
@@ -2999,23 +3121,16 @@ function spendPane(name) {
   var s = row.spend;
   if (!s || (!s.total && !s.budget)) return null;
 
-  var box = mk("div", "branches spendpane");
-  var head = mk("div", "branches-head", "");
-  head.appendChild(mk("strong", "", "spend"));
-  head.appendChild(mk("span", "muted", "premium requests"));
-  box.appendChild(head);
-
-  var line = s.total + " all time · " + s.today + " today · " + s.session + " this session";
+  // One line (#504); the turns, the mean and the CLI that prints the same ledger are its title.
+  var line = "spend " + s.total + " all time · " + s.today + " today · " + s.session + " this session";
   if (s.budget) line += " · of " + s.budget;
-  var sum = mk("p", "branches-sum" + (s.budget && s.total >= s.budget ? " warn" : ""), line);
-  box.appendChild(sum);
-  box.appendChild(mk("p", "muted",
+  var sum = mk("p", "spendline" + (s.budget && s.total >= s.budget ? " warn" : ""), line);
+  attr(sum, "title", "premium requests · " +
     s.turns + (s.turns === 1 ? " turn" : " turns") +
     (s.rate ? ", a mean of " + s.rate + " a turn — a mean, not a forecast" : "") +
-    (s.sessions > 1 ? " · " + s.sessions + " sessions" : "")));
-  box.appendChild(mk("p", "muted", "`ad-fleet spend " + name +
-                                   "` prints this, and `--rebuild` checks it against every log"));
-  return box;
+    (s.sessions > 1 ? " · " + s.sessions + " sessions" : "") +
+    "\n`ad-fleet spend " + name + "` prints this, and `--rebuild` checks it against every log");
+  return sum;
 }
 
 function clip(value) {
@@ -3229,59 +3344,91 @@ function choose(name) {
 
 /* The selected project's own detail, in one place instead of repeated inside every tile: a tile is
    the AGENT, the inspector is the PROJECT (#148). Visibility belongs to the sidebar, not here --
-   this only draws, so a redraw can never reopen a panel the operator just closed. */
+   this only draws, so a redraw can never reopen a panel the operator just closed.
+
+   #504: it fits one screen. The rail, the friction that needs you now, one line of spend and the
+   branches come first; the facts, the missing keys, earlier friction, verify and the offered files
+   fold under one *more*. The desk's tick calls this every 15 seconds, so an unchanged project
+   returns before touching the DOM, and a rebuild keeps every fold as the operator left it. */
+var inspectorDrawn = "";                                 // the signature the panel was last drawn from
+var inspectorFolds = {};                                 // repo -> {fold class: open}, as the operator left them
+
+/** What the panel draws of a project, and nothing else: the project also carries the tile's poller
+    cells, whose ages move on every tick, and those must not rebuild a panel that does not show them.
+    The verify line's age is its words, so it redraws when the words change and not every second. */
+function inspectorSees(p) {
+  var latest = ((p.verify || {}).latest) || {};
+  return [p.links, p.path, p.facts, p.jira_project, p.indexed, p.last_indexed, p.missing_keys,
+          p.friction_open, p.friction, p.friction_earlier,
+          latest.name ? [latest.tool, latest.name, latest.excerpt,
+                         latest.age_s != null ? age(Math.round(latest.age_s)) : null] : null];
+}
+
+/** A fold on the panel that remembers being opened or closed, across rebuilds and repos. */
+function inspectorFold(name, cls, openByDefault) {
+  var folds = inspectorFolds[name] || (inspectorFolds[name] = {});
+  var d = mk("details", cls);
+  d.open = folds[cls] !== undefined ? folds[cls] : !!openByDefault;
+  d.addEventListener("toggle", function () { folds[cls] = d.open; });
+  return d;
+}
+
 function drawInspector(name) {
   var el = document.getElementById("inspector");
   if (!el) return;
+  if (wrap && wrap.repo && name !== wrap.repo) closeWrapup();  // the sheet is one repo's (#510)
   var body0 = document.getElementById("inspectordetails");
   if (!name || !tiles.has(name)) {
+    inspectorDrawn = "";
     text(document.getElementById("inspectorrepo"), "");
     while (body0.firstChild) body0.removeChild(body0.firstChild);
     return;
   }
+  var entry = tiles.get(name);
+  var drawn = JSON.stringify([name, inspectorSees(desk.projects[name] || {}), ((entry && entry.row) || {}).spend || null,
+                              branchesFor[name] || null, (desk.offers || {})[name] || null]);
+  if (drawn === inspectorDrawn && body0.firstChild) return;
+  inspectorDrawn = drawn;
   text(document.getElementById("inspectorrepo"), name);
   var body = document.getElementById("inspectordetails");
   while (body.firstChild) body.removeChild(body.firstChild);
 
   var p = desk.projects[name] || {};
-  var facts = document.createElement("div");
-  setClass(facts, "facts");
-  /* The ONE place on this page that renders a fact block, and it stays one on purpose.
-     `serve.tile_facts()` narrows `catalogue.LINK_FACTS` before any of it leaves the server,
-     because a fact block is hand-edited prose and a real one carries a warehouse hostname, a
-     `\\share\dpm\runs` path and a service account beside the Jira keys. A second loop over some
-     other payload's facts is how that filter gets bypassed by a change that looks like a feature.
-     If a panel ever needs a fact this loop does not show, widen `LINK_FACTS`; do not add a loop. */
-  var pairs = [
-    ["project", name],
-    ["path", p.path || "—"],
-    ["branch", p.branch || "—"],
-    ["jira", p.jira_project || "—"]
-  ];
-  var factsFromCatalogue = p.facts || {};
-  Object.keys(factsFromCatalogue).forEach(function (k) {
-    if (k !== "jira_project") pairs.push([k, factsFromCatalogue[k]]);
-  });
-  pairs.push(["indexed", p.indexed ? (p.last_indexed || "yes") : "not yet"]);
-  pairs.forEach(function (row) {
-    var k = document.createElement("span");
-    setClass(k, "k");
-    text(k, row[0]);
-    var v = document.createElement("span");
-    setClass(v, "v");
-    text(v, row[1]);
-    facts.appendChild(k);
-    facts.appendChild(v);
-  });
-  body.appendChild(facts);
 
-  // What is missing is named, so the operator knows which AGENTS.md key would fill the rail.
-  var missing = p.missing_keys || [];
-  if (missing.length) {
-    var gap = document.createElement("p");
-    setClass(gap, "muted");
-    text(gap, "add to AGENTS.md for the rest of the rail: " + missing.join(", "));
-    body.appendChild(gap);
+  // Where this project lives -- the link rail, so a tab is opened to act and never to check.
+  var links = (p.links || []);
+  if (links.length || p.path) {
+    var rail = document.createElement("div");
+    setClass(rail, "rail");
+    links.forEach(function (row) {
+      if (!row.url) return;
+      var a = document.createElement("a");
+      setClass(a, row.kind);
+      a.href = row.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      attr(a, "title", row.url);
+      text(a, row.name);
+      rail.appendChild(a);
+    });
+    if (p.path) {
+      var copy = document.createElement("button");
+      text(copy, "copy path");
+      attr(copy, "title", p.path);
+      copy.addEventListener("click", function () {
+        clip(p.path);
+        text(copy, "copied");
+        setTimeout(function () { text(copy, "copy path"); }, 1200);
+      });
+      rail.appendChild(copy);
+    }
+    // #510: the rail's last button previews every write for this agent; `w` on its pane does the same.
+    var wrapBtn = mk("button", "wrapup", "wrap up");
+    attr(wrapBtn, "type", "button");
+    attr(wrapBtn, "title", "preview what would be written to Jira, Bitbucket and Confluence (w)");
+    wrapBtn.addEventListener("click", function () { openWrapup(name); });
+    rail.appendChild(wrapBtn);
+    body.appendChild(rail);
   }
 
   // Friction (#499): the server decides what needs you now (open) and what folds under *earlier*;
@@ -3319,9 +3466,63 @@ function drawInspector(name) {
     return li;
   };
   frictionOpen.forEach(function (f) { body.appendChild(frictionRow(f)); });
+
+  // What this agent has cost (#212), as one line; the turns and the CLI that prints it are its title.
+  // The same ledger `ad-fleet spend` prints, so the page and the CLI cannot disagree.
+  var spent = spendPane(name);
+  if (spent) body.appendChild(spent);
+
+  // The checkout's branches (#184): drawn from the last read, read on the click.
+  body.appendChild(branchesPane(name));
+
+  // Everything else folds under one *more*, closed until the operator opens it.
+  var more = inspectorFold(name, "more", false);
+  var summaryBits = ["facts"];
+  var moreSummary = mk("summary", "", "");
+  more.appendChild(moreSummary);
+
+  var facts = document.createElement("div");
+  setClass(facts, "facts");
+  /* The ONE place on this page that renders a fact block, and it stays one on purpose.
+     `serve.tile_facts()` narrows `catalogue.LINK_FACTS` before any of it leaves the server,
+     because a fact block is hand-edited prose and a real one carries a warehouse hostname, a
+     `\\share\dpm\runs` path and a service account beside the Jira keys. A second loop over some
+     other payload's facts is how that filter gets bypassed by a change that looks like a feature.
+     If a panel ever needs a fact this loop does not show, widen `LINK_FACTS`; do not add a loop.
+     The project, its path and its branch are not repeated here: the drawer head, copy path's title
+     and the tile's git cell already say them (#504). */
+  var pairs = [
+    ["jira", p.jira_project || "—"]
+  ];
+  var factsFromCatalogue = p.facts || {};
+  Object.keys(factsFromCatalogue).forEach(function (k) {
+    if (k !== "jira_project") pairs.push([k, factsFromCatalogue[k]]);
+  });
+  pairs.push(["indexed", p.indexed ? (p.last_indexed || "yes") : "not yet"]);
+  pairs.forEach(function (row) {
+    var k = document.createElement("span");
+    setClass(k, "k");
+    text(k, row[0]);
+    var v = document.createElement("span");
+    setClass(v, "v");
+    text(v, row[1]);
+    facts.appendChild(k);
+    facts.appendChild(v);
+  });
+  more.appendChild(facts);
+
+  // What is missing is named, so the operator knows which AGENTS.md key would fill the rail.
+  var missing = p.missing_keys || [];
+  if (missing.length) {
+    var gapLine = "add to AGENTS.md for the rest of the rail: " + missing.join(", ");
+    var gap = mk("p", "muted missing", gapLine);
+    attr(gap, "title", gapLine);
+    more.appendChild(gap);
+  }
+
   if (frictionEarlier.length) {
-    var fold = document.createElement("details");
-    setClass(fold, "friction-earlier");
+    summaryBits.push(frictionEarlier.length + " earlier friction");
+    var fold = inspectorFold(name, "friction-earlier", false);
     var summary = document.createElement("summary");
     text(summary, "earlier friction (" + frictionEarlier.length + ")");
     fold.appendChild(summary);
@@ -3331,50 +3532,13 @@ function drawInspector(name) {
     all.addEventListener("click", function () { dismissFriction({ repo: name, earlier: true }); });
     fold.appendChild(all);
     frictionEarlier.forEach(function (f) { fold.appendChild(frictionRow(f)); });
-    body.appendChild(fold);
+    more.appendChild(fold);
   }
-
-  // Where this project lives -- the link rail, so a tab is opened to act and never to check.
-  var links = (p.links || []);
-  if (links.length || p.path) {
-    var rail = document.createElement("div");
-    setClass(rail, "rail");
-    links.forEach(function (row) {
-      if (!row.url) return;
-      var a = document.createElement("a");
-      setClass(a, row.kind);
-      a.href = row.url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      attr(a, "title", row.url);
-      text(a, row.name);
-      rail.appendChild(a);
-    });
-    if (p.path) {
-      var copy = document.createElement("button");
-      text(copy, "copy path");
-      attr(copy, "title", p.path);
-      copy.addEventListener("click", function () {
-        clip(p.path);
-        text(copy, "copied");
-        setTimeout(function () { text(copy, "copy path"); }, 1200);
-      });
-      rail.appendChild(copy);
-    }
-    body.appendChild(rail);
-  }
-
-  // What this agent has cost (#212): its sessions, its days, and the budget it is against. The
-  // same ledger `ad-fleet spend` prints, so the page and the CLI cannot disagree.
-  var spent = spendPane(name);
-  if (spent) body.appendChild(spent);
-
-  // The checkout's branches (#184): drawn from the last read, read on the click.
-  body.appendChild(branchesPane(name));
 
   // The newest thing the project's own agent verified, beside the report link.
   var latest = ((p.verify || {}).latest) || {};
   if (latest.name) {
+    summaryBits.push("verify");
     var h = document.createElement("div");
     setClass(h, "muted");
     text(h, "verify · " + (latest.tool || "") + " · " + latest.name +
@@ -3382,26 +3546,341 @@ function drawInspector(name) {
     var pre = document.createElement("pre");
     setClass(pre, "verifybody");
     text(pre, latest.excerpt || "");
-    body.appendChild(h);
-    body.appendChild(pre);
+    more.appendChild(h);
+    more.appendChild(pre);
   }
 
   var offers = (desk.offers || {})[name] || [];
   if (offers.length) {
+    summaryBits.push(offers.length + " offered");
     var head = document.createElement("div");
     setClass(head, "muted");
     text(head, "Downloads is offering " + offers.length + " file" + (offers.length === 1 ? "" : "s"));
     var list = document.createElement("ol");
     setClass(list, "tray");
     offers.forEach(function (row) { list.appendChild(offerRow(row, name)); });
-    body.appendChild(head);
-    body.appendChild(list);
+    more.appendChild(head);
+    more.appendChild(list);
   }
+  text(moreSummary, "more — " + summaryBits.join(" · "));
+  body.appendChild(more);
 }
 
 document.getElementById("closeinspector").addEventListener("click", function () {
   section("inspector", false);
 });
+
+/* ------------------------------------------------------------------- wrapping up an agent (#510)
+
+   The project panel's sheet: every write #503 plans for this agent, previewed by its adapter's own
+   dry-run, a tick per write, and one press -- *write n* -- that writes exactly the ticked ones
+   (WRAP-D4). The sheet is static markup, so the panel's rebuilds never touch it, and it is drawn
+   only from an answer or a `wrapup` frame: an idle desk with it open writes nothing.
+
+   The page posts `wrapup` from four places and no others: the sheet's open, its mode toggle, a
+   deliberate re-preview (a transition's name, *replace*, an edited comment, *preview again*) and
+   *write n*. Nothing is written that the sheet has not shown, a merge is never offered, and the
+   comment is a template (WRAP-D2) -- no model turn. */
+
+var WRAP_STEPS = "push · pr · page · comment · transition";
+var WRAP_GLYPH = { written: "✓", failed: "✗", changed: "↻", skipped: "–" };
+var wrap = { repo: "", mode: "project", job: "", state: "", rows: [], results: {}, ticks: {}, comment: null,
+             editing: false, extra: {} };
+
+var wrapGo = new WeakMap();                             // a row's action button -> what it does now
+
+function wrapSheet() { return /** @type {HTMLElement} */ (document.querySelector("#inspector .wrapsheet")); }
+
+function wrapOpen() { var s = wrapSheet(); return !!s && !s.hidden; }
+
+/** The step a row writes, as its id's slot: `push`, `pr`, …, `transition-review`. */
+function wrapSlot(row) { return String(row.id || row.step || "").split(":")[0]; }
+
+/** What a result's `done` reads as one word: written, failed, changed or skipped. */
+function wrapDone(result) {
+  var d = String((result && result.done) || "");
+  return d.indexOf("skipped") === 0 ? "skipped" : d;
+}
+
+/* One step's cell -- tick, glyph, step, summary, hint -- on an element cloned from `li.wrap-pattern`.
+   The sheet draws its rows with it, and the fleet sweep (#512) draws its cells with it too. A
+   result is words and a glyph, never a state colour: the agent's colours stay the agent's (#339). */
+function wrapCell(el, row, ticked, result, locked) {
+  var box = /** @type {HTMLInputElement} */ (el.querySelector(".wrap-tick"));
+  if (box.checked !== !!ticked) box.checked = !!ticked;
+  disable(box, !row.ok || !!locked);
+  setData(el, "id", row.id);
+  setData(el, "step", row.step);
+  setData(el, "code", row.code || "");
+  var done = wrapDone(result);
+  setData(el, "done", done);
+  text(el.querySelector(".wrap-glyph"), done ? (WRAP_GLYPH[done] || "·") : "");
+  text(el.querySelector(".wrap-step"), row.step);
+  text(el.querySelector(".wrap-sum"), row.summary || "");
+  var hint = "";
+  if (done === "written") hint = "written";
+  else if (done === "failed") hint = "failed — " + [result.error, result.hint].filter(Boolean).join(" — ");
+  else if (done === "changed") hint = "changed — nothing was written; " + (result.hint || "preview again");
+  else if (done === "skipped") hint = String(result.done) + (result.hint ? " — " + result.hint : "");
+  else if (!row.ok) hint = (row.code ? row.code + " — " : "") + (row.hint || "");
+  else hint = [row.needs && row.needs.length && ticked ? "after " + row.needs.join(" · ") : "", row.hint]
+    .filter(Boolean).join(" — ");
+  text(el.querySelector(".wrap-hint"), hint);
+  attr(el.querySelector(".wrap-hint"), "title", hint || null);
+}
+
+function wrapTicked(row) {
+  var slot = wrapSlot(row);
+  return row.ok && (wrap.ticks[slot] !== undefined ? wrap.ticks[slot] : !!row.ticked);
+}
+
+function wrapTickedIds() {
+  return wrap.rows.filter(wrapTicked).map(function (r) { return r.id; });
+}
+
+/* The sheet's actions for one row: a transition's names, *open it* / *replace v<n>* on a page
+   someone edited, *replace the description* on a kept PR, *edit* on the comment, *preview again*
+   on a failed step. Every one that changes a write is a second preview (WRAP-D8), never a write. */
+function wrapActs(el, row, result) {
+  var act = el.querySelector(".wrap-act");
+  var want = [];
+  var done = wrapDone(result);
+  var locked = wrap.state === "reading" || wrap.state === "writing";
+  if (done === "written" && result.url) {
+    want.push({ key: "url", link: result.url, label: "open it" });
+  } else if (done === "failed" || done === "changed") {
+    want.push({ key: "again", label: "preview again", go: function () { previewWrap({}); } });
+  } else if (!done) {
+    var p = row.payload || {};
+    if (row.step === "transition" && (row.available || []).length) {
+      row.available.forEach(function (name) {
+        want.push({ key: "to:" + name, label: name, go: function () { previewWrap({ to: name }); } });
+      });
+    }
+    if (row.step === "page" && (row.code === "page_edited" || row.code === "page_not_ours" || p.edited)) {
+      var live = row.live || p.version;
+      if (p.url) want.push({ key: "open", link: p.url, label: "open it" });
+      if (live) want.push({ key: "replace", label: "replace v" + live,
+                            go: function () { previewWrap({ overwrite: { page: live } }); } });
+    }
+    if (row.step === "pr" && p.description === "kept" && p.live_hash) {
+      want.push({ key: "replace", label: "replace the description",
+                  go: function () { previewWrap({ overwrite: { pr: p.live_hash } }); } });
+    }
+    if (row.step === "comment" && row.ok) {
+      want.push({ key: "edit", label: wrap.editing ? "done" : "edit", go: function () {
+        wrap.editing = !wrap.editing;
+        var box = /** @type {HTMLTextAreaElement} */ (wrapSheet().querySelector(".wrap-comment"));
+        if (wrap.editing && wrap.comment == null) box.value = String(p.body || "");
+        hide(box, !wrap.editing);
+        if (wrap.editing) box.focus();
+        drawWrap();
+      } });
+    }
+  }
+  patchList(act, want, function (w) { return w.key; }, function (w) {
+    var n = w.link ? mk("a", "wrap-link") : mk("button", "wrap-btn");
+    if (w.link) { n.target = "_blank"; n.rel = "noopener noreferrer"; }
+    else { attr(n, "type", "button"); n.addEventListener("click", function () { var go = wrapGo.get(n); if (go) go(); }); }
+    return n;
+  }, function (n, w) {
+    text(n, w.label);
+    if (w.link) { if (n.getAttribute("href") !== w.link) n.setAttribute("href", w.link); }
+    else { wrapGo.set(n, w.go); disable(n, locked); }
+  });
+}
+
+/** The sheet as `wrap` says: the status line, the rows from the pattern row, the button's count. */
+function drawWrap() {
+  var sheet = wrapSheet();
+  if (!sheet) return;
+  sheet.querySelectorAll(".wrap-modes [data-mode]").forEach(function (b) {
+    var on = b.getAttribute("data-mode") === wrap.mode;
+    toggle(b, "active", on);
+    attr(b, "aria-pressed", String(on));
+    disable(b, wrap.state === "reading" || wrap.state === "writing");
+  });
+  var status = wrap.status || "";
+  if (!status) {
+    if (wrap.state === "reading") status = "reading " + WRAP_STEPS + "…";
+    else if (wrap.state === "writing") status = "writing…";
+  }
+  text(sheet.querySelector(".wrap-status"), status);
+  var locked = wrap.state !== "planned";
+  patchList(sheet.querySelector(".wrap-rows"), wrap.rows, wrapSlot, function () {
+    var li = /** @type {HTMLElement} */ (sheet.querySelector(".wrap-pattern").cloneNode(true));
+    li.classList.remove("wrap-pattern");
+    li.hidden = false;
+    var box = /** @type {HTMLInputElement} */ (li.querySelector(".wrap-tick"));
+    box.addEventListener("change", function () {
+      wrap.ticks[li.dataset.rowkey] = box.checked;
+      drawWrap();
+    });
+    return li;
+  }, function (li, row) {
+    var result = wrap.results[wrapSlot(row)];
+    wrapCell(li, row, wrapTicked(row), result, locked);
+    if (row.step === "comment" && wrap.comment != null && !result) {
+      text(li.querySelector(".wrap-hint"), "edited — checked again before it is sent");
+    }
+    wrapActs(li, row, result);
+  });
+  var n = wrapTickedIds().length;
+  var go = /** @type {HTMLButtonElement} */ (sheet.querySelector(".wrap-go"));
+  text(go, "write " + n);
+  attr(go, "title", n ? "write exactly the " + n + " ticked, previewed step" + (n === 1 ? "" : "s") +
+                        " — pressing is the approval for each (WRAP-D4)" : null);
+  disable(go, locked || !n || wrap.editing);
+}
+
+/** A fresh preview: this repo, this mode, and whatever the operator deliberately asked again with. */
+function previewWrap(extra) {
+  if (!wrap.repo) return Promise.resolve(null);
+  wrap.extra = Object.assign({}, wrap.extra, extra || {});
+  wrap.state = "reading";
+  wrap.status = "";
+  wrap.results = {};
+  var body = { repo: wrap.repo, mode: wrap.mode, dry_run: true };
+  if (wrap.extra.to) body.to = wrap.extra.to;
+  if (wrap.extra.overwrite) body.overwrite = wrap.extra.overwrite;
+  if (wrap.comment != null) body.comment = wrap.comment;
+  drawWrap();
+  var repo = wrap.repo;
+  return post("wrapup", body).then(function (r) {
+    if (repo !== wrap.repo) return r;
+    if (!r || !r.ok) {
+      wrap.state = "";
+      wrap.status = (r && r.error ? r.error + (r.hint ? " — " + r.hint : "") : "the preview was refused");
+      drawWrap();
+      return r;
+    }
+    wrap.job = r.job;
+    return loadWrap();
+  });
+}
+
+/** *Write n*: exactly the ticked ids of the preview on the sheet, and the edited comment with them. */
+function writeWrap() {
+  var steps = wrapTickedIds();
+  if (!wrap.job || wrap.state !== "planned" || !steps.length) return Promise.resolve(null);
+  var body = { repo: wrap.repo, job: wrap.job, steps: steps };
+  if (wrap.comment != null) body.comment = wrap.comment;
+  wrap.state = "writing";
+  drawWrap();
+  return post("wrapup", body).then(function (r) {
+    if (!r || !r.ok) {
+      wrap.state = "planned";
+      wrap.status = (r && r.error ? r.error + (r.hint ? " — " + r.hint : "") : "the write was refused");
+      drawWrap();
+      return r;
+    }
+    return loadWrap();
+  });
+}
+
+/** The job as the server has it now, drawn: the frame says it moved, this reads what it is. */
+function loadWrap() {
+  var repo = wrap.repo;
+  if (!repo) return Promise.resolve(null);
+  return fetch(q("/api/wrapup", { repo: repo })).then(function (r) { return r.json(); }).then(function (job) {
+    if (repo !== wrap.repo || !job || !job.ok) return job;
+    acceptWrap(job);
+    return job;
+  }).catch(function () { return null; });
+}
+
+function acceptWrap(job) {
+  var mine = !wrap.job || job.job === wrap.job;
+  if (!mine) return;
+  var before = wrap.state;
+  wrap.state = job.state || "";
+  var plan = job.plan || {};
+  if (plan.rows) wrap.rows = plan.rows;
+  wrap.results = {};
+  (job.results || []).forEach(function (r) { wrap.results[wrapSlot(r)] = r; });
+  wrap.status = "";
+  if (job.error) {
+    wrap.status = job.error + (job.hint ? " — " + job.hint : "");
+  } else if (wrap.state === "planned") {
+    var notes = (plan.notes || []).join(" · ");
+    wrap.status = (wrap.mode === "day" ? "end of day" : "end of project") + " · " + wrap.rows.length +
+                  " step" + (wrap.rows.length === 1 ? "" : "s") + " previewed, nothing written yet" +
+                  (notes ? " · " + notes : "");
+  } else if (wrap.state === "done") {
+    var counts = { written: 0, failed: 0, changed: 0, skipped: 0 };
+    (job.results || []).forEach(function (r) { var d = wrapDone(r); if (d in counts) counts[d]++; });
+    var line = Object.keys(counts).filter(function (k) { return counts[k]; })
+      .map(function (k) { return counts[k] + " " + k; }).join(", ") || "nothing written";
+    wrap.status = line + " · " + String(job.at || "").slice(11, 16);
+    if (before === "writing") say(wrap.repo + " wrap-up: " + line);
+  }
+  drawWrap();
+}
+
+/** `w`, or *wrap up* on the rail: the project panel on this repo, the sheet, and a preview --
+    unless this repo's last job was written from another tab, whose results are drawn first. */
+function openWrapup(name) {
+  if (!name) return;
+  var same = wrap.repo === name && wrapOpen();
+  choose(name);
+  section("inspector", true);
+  hide(wrapSheet(), false);
+  if (same) return;
+  wrap = { repo: name, mode: "project", job: "", state: "", rows: [], results: {}, ticks: {}, comment: null,
+           editing: false, extra: {} };
+  var box = /** @type {HTMLTextAreaElement} */ (wrapSheet().querySelector(".wrap-comment"));
+  box.value = "";
+  hide(box, true);
+  drawWrap();
+  fetch(q("/api/wrapup", { repo: name })).then(function (r) { return r.json(); }).catch(function () { return {}; })
+    .then(function (job) {
+      if (wrap.repo !== name) return;
+      if (job && (job.state === "writing" || job.state === "done") && (job.results || job.state === "writing")) {
+        wrap.job = job.job;
+        wrap.mode = job.mode || wrap.mode;
+        acceptWrap(job);
+        if (wrap.state === "done") wrap.status = "last wrap-up, " + String(job.at || "").replace("T", " ") +
+                                                 ": " + wrap.status.split(" · ")[0] + " · preview again for a new one";
+        drawWrap();
+        return;
+      }
+      previewWrap({});
+    });
+}
+
+function closeWrapup() {
+  if (!wrapOpen()) return false;
+  hide(wrapSheet(), true);
+  wrap.repo = "";
+  return true;
+}
+
+function bindWrapSheet() {
+  var sheet = wrapSheet();
+  if (!sheet) return;
+  sheet.querySelectorAll(".wrap-modes [data-mode]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var mode = b.getAttribute("data-mode") || "project";
+      if (mode === wrap.mode && wrap.state === "planned") return;
+      wrap.mode = mode;
+      wrap.ticks = {};
+      wrap.extra = {};
+      previewWrap({});
+    });
+  });
+  var box = /** @type {HTMLTextAreaElement} */ (sheet.querySelector(".wrap-comment"));
+  box.addEventListener("change", function () {
+    // An edit is checked again before it is sent: the comment's id hashes its text, so the preview
+    // that *write n* confirms has to be the one that read this text.
+    wrap.comment = box.value;
+    wrap.editing = false;
+    hide(box, true);
+    previewWrap({});
+  });
+  sheet.querySelector(".wrap-go").addEventListener("click", function () { writeWrap(); });
+  sheet.querySelector(".wrap-cancel").addEventListener("click", function () { closeWrapup(); });
+}
+bindWrapSheet();
 
 /* The desk's one arrangement (#232) -- and a real object, not a copy of one.
 
@@ -4008,6 +4487,14 @@ function chipModel(row) {
 function modelTitle(row) {
   row = row || {};
   var chip = chipModel(row);
+  // The operator's own chat (SESS-D4, #489): what it ran, and what start fresh would run instead,
+  // so the model button and the fresh button cannot disagree silently.
+  if (row.external || (row.run || {}).origin === "adopted") {
+    var starts = ((row.fresh || {}).starts) || {};
+    return "your chat ran " + (row.actual || "a model this machine was not told") + "; start fresh starts on " +
+           (row.model || "whatever the CLI picks") + " (" + (row.model_source || starts.model_source || "cli-auto") +
+           ") — press m";
+  }
   var why = row.model ? " (" + (row.model_source || "") + ")" : " (no --model flag is passed)";
   // Each half says where it came from when they differ (#493).
   if (row.effort) {
@@ -5287,8 +5774,11 @@ function railLine(row) {
   if (spend.total) bits.push(spend.total + " premium");
   var n = unread.get(row.repo) || 0;
   if (n) bits.push(n + " unread");
+  // #489: why this pane offers *start fresh*, and the key that does it.
+  if (freshShown(row)) bits.push(row.fresh.because);
   var said = row.needs_human ? String(row.why || "") : String(row.last_said || "").slice(0, 160);
-  return row.repo + ": " + bits.join(" · ") + (said ? " — " + said : "");
+  return row.repo + ": " + bits.join(" · ") + (said ? " — " + said : "") +
+         (freshShown(row) ? " — Alt+N starts fresh" : "");
 }
 
 /* The rail's face: the name down its length, the state's glyph in the state's colour, the unread
@@ -5308,7 +5798,9 @@ function drawPaneRail(el, row) {
   var asking = rows.filter(function (r) { return !!r.needs_human; });
   var red = asking.length > 0;
   var state = members ? "group" : shownState(row);
-  setClass(face, "pane-rail st-" + (red ? "needs_human" : state) + (red ? " needs-human" : ""));
+  // A dashed muted ring on the glyph when this pane offers *start fresh* (#489): never a state colour.
+  var fresh = !members && freshShown(row) ? (row.fresh.because === "old skills" ? " is-stale" : " is-outside") : "";
+  setClass(face, "pane-rail st-" + (red ? "needs_human" : state) + (red ? " needs-human" : "") + fresh);
   text(face.querySelector(".pr-glyph"),
        red ? "!" : members ? String(members.length) : (RAIL_GLYPHS[state] || "·"));
   text(face.querySelector(".pr-name"), members ? (row.project || row.repo) : row.repo);
@@ -5435,7 +5927,8 @@ function drawOldSession(el, row) {
   text(old, row.renew_queued ? "renew queued" : "old skills");
   attr(old, "title", sv.stale
     ? (sv.reason || "began on older skills") +
-      (row.renew_queued ? " — renewed when this turn ends" : " — renew stale sessions from the header")
+      (row.renew_queued ? " — renewed when this turn ends"
+                        : " — start fresh (Alt+N), or renew every stale session from the header")
     : "");
 }
 
@@ -5506,7 +5999,7 @@ function drawRenewPlan(p) {
     ? going + " fresh session" + (going === 1 ? "" : "s") + ": " + (p.now || 0) + " now, " +
       (p.at_turn_end || 0) + " when their turn ends — about " + (p.premium_turns || 0) +
       " premium turn" + (p.premium_turns === 1 ? "" : "s") + " between them"
-    : "nothing to renew: every stale session is waiting on you, is a console, or is done");
+    : "nothing to renew: every stale session is waiting on you, is a console, is done, or began outside the fleet");
   var go = /** @type {HTMLButtonElement} */ (document.getElementById("renewgo"));
   go.disabled = going === 0;
   text(go, going ? "renew " + going : "renew");

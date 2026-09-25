@@ -15,24 +15,34 @@ open beside the agent the operator is reading (`sol`), with the checkout the tic
 agent rail.
 """
 from __future__ import annotations
+import os
 import threading
 import time
 
 import pytest
 
-from agentdata.fleet import board as B, events as E, preflight as PF, registry, serve as S, supervisor
+from agentdata.fleet import board as B, events as E, preflight as PF, registry, serve as S, spend as SPEND, supervisor
 from agentdata.fleet.registry import Registry
 
 import fakes
 from test_fleet import make_project
+from test_fleet_board_desk import PHOTO, friction
 from test_fleet_branches import seven_branches
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_handoff_pickup import RICH
+from test_fleet_wrapup import Recorder
 
 pytestmark = [pytest.mark.slow, pytest.mark.browser]
 
 TICKET = "RDSD-7"
 SETTLE_S = 90
+
+# #504: the photo's shape -- nine AGENTS.md facts (every one a link fact, so every one reaches the
+# panel and the rail), three friction files of 2026-09-03 and a spend ledger.
+NINE_FACTS = (("jira_project", "RDSD"), ("jira_url", "https://jira.example.test"), ("jira_board_id", "42"),
+              ("bitbucket_url", "https://bitbucket.example.test"), ("bitbucket_repo", "rdsd/luna"),
+              ("confluence_base", "https://confluence.example.test"), ("confluence_space", "RDSD"),
+              ("report_id", "0f1e2d3c"), ("ws_id", "9a8b7c6d"))
 
 
 @pytest.fixture()
@@ -51,7 +61,15 @@ def desk(tmp_path, monkeypatch):
     fakes.apply(monkeypatch, tmp_path, ["copilot"], npm=True)
     path = make_project(tmp_path / "luna", project="RDSD", phase="triaged")
     seven_branches(path, ticket=TICKET)
+    with open(os.path.join(path, "AGENTS.md"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("# Project\n\n" + "".join(f"- {k}: {v}\n" for k, v in NINE_FACTS))
+    for name, unblock in PHOTO:
+        friction(path, name, unblock, ticket=TICKET)
     Registry().add(path, name="luna")
+    SPEND.write_ledger("luna", {"sessions": {"s-0903": {"premium": 41.5, "turns": 12, "first": "2026-09-03T12:00:00",
+                                                        "last": "2026-09-03T13:04:00", "model": "", "ticket": TICKET,
+                                                        "ended": "2026-09-03T13:05:00"}},
+                                "days": {"2026-09-03": 41.5}, "session": "s-0903", "turn_closed": True})
     Registry().add(make_project(tmp_path / "sol", project="OPS"), name="sol")
     S.update_window("main", open="sol")
     B.write_cache({"jql": B.DEFAULT_JQL, "fetched_at": time.time(), "rows": [
@@ -86,7 +104,7 @@ def _eventually(cond, timeout=10.0):
     return cond()
 
 
-def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_branches(desk):
+def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_branches(desk, tmp_path, monkeypatch):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     server, token, port = _serve()
     try:
@@ -184,6 +202,67 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
                 ["feature/RDSD-7-part-2", "fix/RDSD-9", "feature/RDSD-7-part-1"], rows
             assert grid.locator("#inspector .branches-carry").inner_text() == \
                 "two branches carry RDSD-7 (feature/RDSD-7-part-2, feature/RDSD-7-part-1); only one can merge"
+
+            # 5. The project panel fits one screen (#504): the rail, no open friction, one spend line,
+            #    the branches with their seven rows in sight, and a closed *more* holding the facts.
+            grid.wait_for_selector("#inspectordetails > details.more", state="attached", timeout=10000)
+            shape = grid.evaluate("""() => {
+                const el = document.getElementById('inspector');
+                const body = document.getElementById('inspectordetails');
+                const kids = Array.from(body.children);
+                const at = (sel) => kids.findIndex(k => k.matches(sel));
+                const more = body.querySelector(':scope > details.more');
+                const spend = body.querySelector(':scope > .spendline');
+                const rows = Array.from(body.querySelectorAll('.branches .branchrow'));
+                const cs = spend ? getComputedStyle(spend) : null;
+                const line = cs ? (parseFloat(cs.lineHeight) || 1.5 * parseFloat(cs.fontSize)) : 0;
+                return { scroll: el.scrollHeight, client: el.clientHeight,
+                         rail: at('.rail'), friction: at('.frictionrow'), spend: at('.spendline'),
+                         branches: at('.branches'), more: at('details.more'), last: kids.length - 1,
+                         spendCount: body.querySelectorAll('.spendline').length,
+                         spendOneLine: !!spend && spend.getBoundingClientRect().height < 2 * line,
+                         spendTitle: spend ? spend.title : '',
+                         moreOpen: !!more && more.open, factsInMore: !!(more && more.querySelector('.facts')),
+                         facts: document.querySelectorAll('#inspector .facts').length,
+                         factKeys: more ? Array.from(more.querySelectorAll('.facts .k')).map(k => k.textContent) : [],
+                         summary: more ? more.querySelector(':scope > summary').textContent : '',
+                         rowsVisible: rows.filter(r => r.checkVisibility() && r.getBoundingClientRect().bottom <= el.getBoundingClientRect().bottom).length,
+                         rowHeights: rows.map(r => Math.round(r.getBoundingClientRect().height)) };
+            }""")
+            assert shape["scroll"] <= shape["client"] + 1, shape
+            assert shape["rail"] == 0 and shape["friction"] == -1, shape
+            assert 0 < shape["spend"] < shape["branches"] < shape["more"] == shape["last"], shape
+            assert shape["spendCount"] == 1 and shape["spendOneLine"] and "turn" in shape["spendTitle"], shape
+            assert not shape["moreOpen"] and shape["factsInMore"] and shape["facts"] == 1, shape
+            assert not {"project", "path", "branch"} & set(shape["factKeys"]) and "jira" in shape["factKeys"], shape
+            assert shape["summary"].startswith("more") and "facts" in shape["summary"] and \
+                "3 earlier friction" in shape["summary"], shape
+            assert shape["rowsVisible"] == 7, shape
+
+            # An open *more* stays open across a desk tick, and a tick with nothing changed writes nothing.
+            grid.evaluate("() => { document.querySelector('#inspectordetails > details.more').open = true; }")
+            ticked = grid.evaluate("""async () => {
+                const body = document.getElementById('inspectordetails');
+                const seen = [];
+                const watch = new MutationObserver((records) => { for (const r of records) seen.push(r.type + ':' + (r.target.className || r.target.nodeName)); });
+                watch.observe(body, { subtree: true, childList: true, attributes: true, characterData: true });
+                await loadDesk();
+                await new Promise(requestAnimationFrame);
+                watch.disconnect();
+                return { n: seen.length, seen: seen.slice(0, 8),
+                         open: document.querySelector('#inspectordetails > details.more').open };
+            }""")
+            assert ticked["n"] == 0 and ticked["open"], ticked
+            # A rebuild (a re-read of the branches) keeps both folds as the operator left them.
+            grid.evaluate("() => loadBranches('luna', true)")
+            grid.wait_for_function("""() => document.querySelectorAll('#inspector .branches .branchrow').length === 7
+                && document.querySelector('#inspectordetails > details.more').open
+                && document.querySelector('#inspector details.branches-list').open""", timeout=10000)
+
+            # 6. Wrap up (#510): `w` on luna's pane opens the project panel with the sheet. #503's `RUN`
+            #    is recorded: push is real git against a bare origin, the comment goes to the fake Jira,
+            #    and the pr and page adapters answer as `main` does until #506 and #507 land.
+            wrapped = _wrap_up_from_the_pane(grid, desk, tmp_path, monkeypatch)
             assert not errors, errors
             browser.close()
     finally:
@@ -193,3 +272,78 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
 
     # The fleet wrote nothing in the checkout: the branch it is on is the one the agent chose.
     assert Registry().get("luna").state()["active_ticket"] == TICKET
+
+    # The wrap-up (#510): the preset's rows, one write post with exactly the ticked ids, patched rows.
+    rows, ticked = wrapped["rows"], wrapped["ticked"]
+    assert wrapped["reading"], "the sheet said nothing while the adapters read"
+    assert [r["step"] for r in rows] == ["push", "pr", "page", "comment", "transition", "transition"], rows
+    by = {r["slot"]: r for r in rows}
+    for step in ("pr", "page"):
+        assert "not_pinned" in by[step]["text"] and by[step]["disabled"] and not by[step]["checked"], by[step]
+    assert by["push"]["checked"] and by["comment"]["checked"], rows
+    assert not by["transition-review"]["checked"] and not by["transition-done"]["checked"], rows
+    assert [p.get("dry_run") for p in wrapped["posts"]] == [True, None], wrapped["posts"]
+    assert wrapped["posts"][0]["repo"] == "luna" and wrapped["posts"][0]["mode"] == "project"
+    assert wrapped["posts"][1]["steps"] == ticked == [r["id"] for r in rows if r["checked"]], wrapped
+    assert wrapped["done"] == {r["slot"]: "written" for r in rows if r["checked"]}, wrapped["done"]
+    assert "refs/heads/feature/RDSD-7-part-2" in wrapped["refs"]
+    assert len(wrapped["fake"].comments) == 1
+    assert "wrap-up" in wrapped["said"] and "2 written" in wrapped["said"], wrapped["said"]
+    assert wrapped["closed_shape"]["scroll"] <= wrapped["closed_shape"]["client"] + 1, wrapped["closed_shape"]
+
+
+def _wrap_up_from_the_pane(grid, path, tmp_path, monkeypatch) -> dict:
+    from agentdata import cli_jira
+    from agentdata.fleet import wrapup as WRAP
+    from tests.fakes import jira as FJ
+
+    from test_fleet_branches import git
+
+    bare = tmp_path / "origin.git"
+    git(tmp_path, "init", "-q", "--bare", str(bare))
+    git(path, "remote", "add", "origin", str(bare))
+    git(path, "push", "-q", "origin", "main")
+    git(path, "remote", "set-head", "origin", "main")
+    os.makedirs(os.path.join(path, ".agent", "out"), exist_ok=True)
+    with open(os.path.join(path, ".agent", "out", f"{TICKET}-confluence.md"), "w", encoding="utf-8") as f:
+        f.write("# RDSD-7\n")
+    fake = FJ.FakeJira(issues=8, histories=1)
+    client = fake.client()
+    monkeypatch.setattr(cli_jira, "_client", lambda redetect=False, a=None: ({}, client, {}))
+    rec = Recorder(fake, delay=1.0)                      # the first adapter answers late: *reading…* shows
+    monkeypatch.setattr(WRAP, "RUN", rec)
+
+    # The rail ends with *wrap up*, and the panel still fits one screen with the sheet closed (#504).
+    grid.wait_for_selector("#inspectordetails .rail button.wrapup", timeout=10000)
+    closed_shape = grid.evaluate("""() => { const el = document.getElementById('inspector');
+        return { scroll: el.scrollHeight, client: el.clientHeight,
+                 sheet: document.querySelector('#inspector .wrapsheet').hidden,
+                 title: document.querySelector('#inspectordetails .rail button.wrapup').title }; }""")
+    assert closed_shape["sheet"] and "Jira, Bitbucket and Confluence" in closed_shape["title"], closed_shape
+
+    posts: list = []
+    grid.on("request", lambda r: posts.append(r.post_data_json)
+            if r.method == "POST" and r.url.split("?")[0].endswith("/api/wrapup") else None)
+    grid.focus('.tile[data-repo="luna"]')
+    grid.keyboard.press("w")
+    grid.wait_for_selector("#inspector:not([hidden]) .wrapsheet:not([hidden])", timeout=5000)
+    reading = grid.wait_for_function(
+        "() => /^reading push · pr · page · comment · transition/.test("
+        "document.querySelector('.wrapsheet .wrap-status').textContent)", timeout=5000) is not None
+    grid.wait_for_function("() => document.querySelectorAll('.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)')"
+                           ".length === 6", timeout=20000)
+    rows = grid.eval_on_selector_all(".wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)", """els => els.map(e => ({
+        id: e.dataset.id, slot: e.dataset.rowkey, step: e.querySelector('.wrap-step').textContent,
+        checked: e.querySelector('input.wrap-tick').checked, disabled: e.querySelector('input.wrap-tick').disabled,
+        text: e.textContent }))""")
+    ticked = [r["id"] for r in rows if r["checked"]]
+    assert grid.locator(".wrapsheet .wrap-go").inner_text() == f"write {len(ticked)}"
+    grid.locator(".wrapsheet .wrap-go").click()
+    grid.wait_for_function("""() => [...document.querySelectorAll('.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)')]
+        .filter(e => e.querySelector('input.wrap-tick').checked).every(e => e.dataset.done)""", timeout=20000)
+    done = grid.evaluate("""() => Object.fromEntries([...document.querySelectorAll(
+        '.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)')].filter(e => e.dataset.done)
+        .map(e => [e.dataset.rowkey, e.dataset.done]))""")
+    said = grid.locator("#notice").inner_text()
+    return {"rows": rows, "ticked": ticked, "posts": posts, "done": done, "reading": reading, "said": said,
+            "refs": git(bare, "for-each-ref", "--format=%(refname)"), "fake": fake, "closed_shape": closed_shape}

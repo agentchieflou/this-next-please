@@ -1135,6 +1135,43 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .friction-earlier .frictionrow { border-left-color: var(--muted); color: var(--muted); }
 #inspectordetails .frictionrow button,
 #inspectordetails .frictionrow .frictionasked { display: block; margin-top: 2px; }
+/* #504: the panel fits one screen. Everything but the rail, open friction, spend and the branches
+   folds under one closed *more*; a branch row is one line, its full meta in its title. */
+#inspectordetails details.more > summary,
+#inspectordetails details.branches-list > summary { cursor: pointer; font: 11px var(--ui); color: var(--muted); }
+#inspectordetails details.more[open] { display: flex; flex-direction: column; gap: 8px; }
+#inspectordetails details.more .missing { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#inspectordetails .spendline { margin: 0; font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* #510: the wrap-up sheet, between the drawer head and the panel's details. A step's result is a
+   word and a glyph, never a status colour: the agent's colours stay the agent's (#339). */
+.wrapsheet {
+  display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; padding: 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 11px var(--mono);
+}
+.wrapsheet[hidden] { display: none; }
+.wrapsheet .wrap-status { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.wrapsheet .wrap-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.wrapsheet .wrap-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.wrapsheet .wrap-line { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1 1 auto; }
+.wrapsheet .wrap-glyph { width: 1ch; text-align: center; }
+.wrapsheet .wrap-step { min-width: 8ch; }
+.wrapsheet .wrap-sum { overflow-wrap: anywhere; }
+.wrapsheet .wrap-hint { flex-basis: 100%; padding-left: 3ch; color: var(--muted); overflow-wrap: anywhere; }
+.wrapsheet .wrap-row input:disabled ~ .wrap-sum { color: var(--muted); }
+.wrapsheet .wrap-act { display: inline-flex; flex-wrap: wrap; gap: 4px; padding-left: 3ch; }
+.wrapsheet .wrap-act:empty { display: none; }
+.wrapsheet .wrap-btn, .wrapsheet .wrap-link, .wrapsheet .wrap-actions button {
+  font: 11px var(--ui); padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--accent); text-decoration: none; min-height: 24px; cursor: pointer;
+}
+.wrapsheet .wrap-comment { width: 100%; box-sizing: border-box; font: 11px/1.4 var(--mono); resize: vertical; }
+.wrapsheet .wrap-actions { display: flex; gap: 6px; }
+.wrapsheet .wrap-actions button:disabled { color: var(--muted); cursor: default; }
+#inspectordetails .spendline.warn { color: var(--waiting-text); }
+#inspectordetails details.branches-list .branchrow { flex-wrap: nowrap; white-space: nowrap; min-width: 0; }
+#inspectordetails details.branches-list .branchrow .bname { flex: 0 0 auto; }
+#inspectordetails details.branches-list .branchrow .bmeta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
 
 /* ---------------------------------------------------------- the dispatch card (#164)
    A drop opens this instead of launching, in the approval card's shape: both are "the tile is
@@ -1286,6 +1323,16 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   font-size: 11px; padding: 1px 6px; border-radius: 9px;
   border: 1px dashed var(--muted); color: var(--muted); white-space: nowrap;
 }
+/* #489: start fresh. The head's button is a word button like the model's; the strip's second button
+   (*stop following it*) is the quieter one; a rail that offers it wears a dashed muted ring on its
+   glyph -- a mark, never a state colour (#339). */
+.freshtoggle { white-space: nowrap; }
+.outside .adopt.quiet { background: transparent; color: var(--muted); border-color: var(--line); }
+/* The glyph is the face's one `aria-hidden` part. Not named `.pr-glyph` here: every rule that is
+   names the glyph's colour pair (test_fleet_theme_tokens), and this one only draws a ring round it. */
+.pane-rail:is(.is-stale, .is-outside) > [aria-hidden="true"] { outline: 1px dashed var(--muted); outline-offset: 2px; }
+.ss-src { color: var(--muted); font-size: 11px; }
+.ss-src:empty { display: none; }
 .renew-strip {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
   padding: 8px 16px; border-bottom: 1px solid var(--line);
