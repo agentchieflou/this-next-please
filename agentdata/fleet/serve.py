@@ -2654,6 +2654,7 @@ class Handler(BaseHTTPRequestHandler):
             # It is the stream's `theme` payload, css included (#346): a `current` without css was
             # painted as "no palette" and wiped the one the stream had just applied.
             return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins(),
+                               "palette_only": skins.PALETTE_ONLY,
                                "current": theme_state()})
         if route == "/api/settings":
             return self._json({"ok": True, **settings_snapshot()})

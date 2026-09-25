@@ -83,6 +83,17 @@ def _settings(p, port, token):
     return browser, page, errors
 
 
+def _looks_on(palette):
+    """"Glass · Smoke" for each skin variant drawn on `palette`, in the order the skin picker lists
+    them (#393): what /settings says is drawn on that palette, read from the data, not the page."""
+    return [f"{k['title']} · {v['title']}" for k in K.list_skins() for v in k["variants"]
+            if v["base"] == palette]
+
+
+def _posted_theme(response):
+    return response.request.method == "POST" and response.url.split("?")[0].endswith("/api/theme")
+
+
 # ------------------------------------------------------------------------------------ the page
 
 
@@ -172,14 +183,20 @@ def test_the_pickers_say_what_is_already_worn(fleet_home, tmp_path):
                 """() => document.getElementById('skin').value === 'glass:smoke'""", timeout=10000)
             state = page.evaluate("""() => {
                 const t = document.getElementById('theme'), s = document.getElementById('skin');
+                const looks = document.getElementById('palette-looks');
                 return { palette: t.value, paletteOff: t.disabled, paletteWhy: t.title,
                          skin: s.value, blank: t.selectedIndex < 0 || s.selectedIndex < 0,
-                         painted: document.body.getAttribute('data-skin') };
+                         painted: document.body.getAttribute('data-skin'),
+                         looks: looks && looks.textContent };
             }""")
             assert state["skin"] == "glass:smoke", state
             assert state["palette"] == "dark", state
             assert not state["blank"], "a picker showing nothing at all is the one thing it may not do"
             assert state["paletteOff"] and "comes from the skin" in state["paletteWhy"], state
+            # ...and the line under it, which a disabled control's tooltip cannot be, names the
+            # look the palette comes from (#393).
+            glass = K.SKINS["glass"]
+            assert state["looks"] == f"from {glass['title']} · {glass['variants']['smoke']['title']}", state
             # ...and the page is actually WEARING it, not merely reporting it.
             assert state["painted"] == "glass", state
 
@@ -197,9 +214,23 @@ def test_the_pickers_say_what_is_already_worn(fleet_home, tmp_path):
 @pytest.mark.browser
 def test_the_palette_picker_says_the_skin_is_driving_it(fleet_home, tmp_path):
     """Skins drive palettes, so while one is on the palette picker shows what is being rendered and
-    says why it is not taking instructions -- rather than accepting a choice the server overrides."""
+    says why it is not taking instructions -- rather than accepting a choice the server overrides.
+
+    With no skin on, every palette is offered by its title and says what is drawn on it (#393). A
+    palette no look is drawn on is an ordinary choice, the plain page, and the line under the picker
+    says so: Browns looked gone because nothing on the page said it was there."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    from agentdata import config as C
+
     _repos(tmp_path, "alpha")
+
+    def says(*words):
+        """Wait until the line under the palette picker holds every one of `words`."""
+        page.wait_for_function("""(words) => {
+            const line = document.getElementById('palette-looks');
+            return !!line && words.every(w => line.textContent.indexOf(w) >= 0);
+        }""", arg=list(words), timeout=10000)
+        return page.eval_on_selector("#palette-looks", "el => el.textContent")
 
     server, token, port = _serve()
     try:
@@ -207,20 +238,51 @@ def test_the_palette_picker_says_the_skin_is_driving_it(fleet_home, tmp_path):
             browser, page, errors = _settings(p, port, token)
             assert page.evaluate("() => document.getElementById('theme').disabled") is False
 
+            # Each palette by its title, never its slug; the slug stays the value, and the tooltip
+            # (a supplement: it is hover-only) says what is drawn on it.
+            palettes = S.themes()
+            offered = page.eval_on_selector_all(
+                "#theme option", "os => os.slice(1).map(o => [o.value, o.textContent, o.title])")
+            assert [o[:2] for o in offered] == [[t["name"], t["title"]] for t in palettes], offered
+            for (name, _, tip), t in zip(offered, palettes):
+                looks = _looks_on(name)
+                said = f"drawn by {', '.join(looks)}" if looks else f"palette only: {K.PALETTE_ONLY[name]}"
+                assert tip == f"{t['why']}  ·  {said}", tip
+
+            # A palette-only palette is chosen like any other: posted, saved, worn, and said.
+            for name, reason in K.PALETTE_ONLY.items():
+                with page.expect_response(_posted_theme, timeout=10000):
+                    page.select_option("#theme", name)
+                says("palette only", reason)
+                assert page.evaluate("() => document.getElementById('theme').disabled") is False
+                assert C.load()["theme"]["default"] == name, "the saved config names that palette"
+                wears = page.evaluate("() => document.documentElement.style.getPropertyValue('--bg')")
+                assert wears == next(t for t in palettes if t["name"] == name)["css"]["--bg"], wears
+
+            # A palette with looks names every one of them.
+            page.select_option("#theme", "dark")
+            assert says("drawn by", "Glass · Smoke") == f"drawn by {', '.join(_looks_on('dark'))}"
+
             page.select_option("#skin", "voxel:nether")
             page.wait_for_function(
                 """() => document.getElementById('theme').disabled === true""", timeout=10000)
             picker = page.evaluate("""() => {
                 const t = document.getElementById('theme'), s = document.getElementById('skin');
-                return { theme: t.value, title: t.title, skin: s.value };
+                return { theme: t.value, title: t.title, skin: s.value,
+                         looks: document.getElementById('palette-looks').textContent };
             }""")
             assert picker["theme"] == "reds", "it shows the ground the skin brought"
             assert "comes from the skin" in picker["title"]
             assert picker["skin"] == "voxel:nether", "and the skin picker sits on the variant"
+            voxel = K.SKINS["voxel"]
+            nether = f"{voxel['title']} · {voxel['variants']['nether']['title']}"
+            assert picker["looks"] == f"from {nether}", "the line names the look the palette is from"
 
             page.select_option("#skin", "none")
             page.wait_for_function(
                 """() => document.getElementById('theme').disabled === false""", timeout=10000)
+            reds = _looks_on("reds")
+            assert says("drawn by", *reds) == f"drawn by {', '.join(reds)}", "and hands the line back"
             assert not errors, errors
             browser.close()
     finally:
