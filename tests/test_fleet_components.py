@@ -79,7 +79,7 @@ def test_every_draw_function_is_named_in_the_inventory():
     came to paint the same tile's accent on two different edges."""
     doc = open(INVENTORY, encoding="utf-8").read()
     missing = []
-    for page in ("app.js", "settings.js", "map/map.js"):
+    for page in ("app.js", "settings.js", "map/map.js", "picker.js"):
         js = open(os.path.join(STATIC, page), encoding="utf-8").read()
         for name in sorted(set(re.findall(r"(?m)^function (draw[A-Za-z]*)\(", js))):
             if name not in doc:

@@ -29,10 +29,16 @@ on the first run, before anything was typed, it flagged the same places as 5.9.3
 ## The program: all of both files, typed in part
 
 `tsconfig.json` is dev-only, at the repository root: `allowJs`, `checkJs`, `noEmit`, and `strict`
-off to begin with. It names two files, `common.js` and `app.js`, and nothing else.
+off to begin with. It names three files, `common.js`, `picker.js` and `app.js`, in the order the
+pages load them, and nothing else.
 
 **Why both.** `app.js` is a classic script. It reads `q`, `post`, `text` and the other setters as
 globals that `common.js` declares, and a global resolves only inside one program.
+
+**Why the picker (#362).** `picker.js` is the model picker, a classic script the desk and
+/settings load between the two. It declares `createModelPicker`, `drawModelPicker` and `mpImpl` and
+no other name: in one program a name it shared with `app.js` is a duplicate declaration, and on
+/settings it shares the page with `settings.js`, which is not in the program.
 
 **Why all of them.** The plan asked for the files D and E created and the desk-sync path A touched,
 not all of `app.js`. But D and E created no files: the row, the tiers, the widths and the gutters are
@@ -70,6 +76,7 @@ nothing if a diagnostic could be switched off where it stands.
 | `Tier` | `"rail"`, `"compact"` or `"full"` | `setTier`, the one writer |
 | `Tiers` | the widths the tiers change at: `rail`, `compact`, `full`, `slack`, and `invalid` when the file's four were not drawn | `settings.tiers()`, on the theme payload (#235) |
 | `Pixels`, `WidthsBefore`, `GutterHold` | a measured row, what a change of widths puts back, a gutter under the hand | #234 |
+| `ModelEntry`, `ModelPick`, `ModelPickerOptions`, `ModelPickerState` | a catalogue entry, what a press reports, how a picker is built, and what it draws | `models.catalogue` (#360), `picker.js` (#362) |
 
 The functions that carry them are:
 
