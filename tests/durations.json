@@ -1,0 +1,1472 @@
+{
+ "linux": {
+  "(no file property)": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260903_bash_gh_skill_already_installed.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260903_bash_plugin_command_in_a_terminal.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260903_bash_update_detail_loss.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260908_pwsh_cache_clear_locked_file.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260922_any_answered_questions.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260922_any_chrome_snapback.py": {
+   "browser": 4.2
+  },
+  "tests/regressions/test_20260922_any_session_file_a_tick_ahead.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260923_any_chip_glyph_drew_the_whole_sheet.py": {
+   "browser": 1.0,
+   "default": 0.0
+  },
+  "tests/regressions/test_20260923_any_chrome_check_drawn_on_pane_number.py": {
+   "browser": 7.0
+  },
+  "tests/regressions/test_20260923_any_chrome_farmstead_header_buttons_unreadable.py": {
+   "browser": 6.4
+  },
+  "tests/regressions/test_20260923_any_chrome_graph_outline_through_text.py": {
+   "browser": 25.1
+  },
+  "tests/regressions/test_20260923_any_chrome_growing_line_leaves_struck.py": {
+   "browser": 5.7
+  },
+  "tests/regressions/test_20260923_any_chrome_idle_skin_rewrites_itself.py": {
+   "browser": 6.2
+  },
+  "tests/regressions/test_20260923_any_chrome_late_desk_follows_its_own_anchor.py": {
+   "browser": 2.5
+  },
+  "tests/regressions/test_20260923_any_chrome_settings_round_trip_forgets_the_window.py": {
+   "browser": 1.9
+  },
+  "tests/regressions/test_20260923_any_chrome_stale_desk_opens_the_last_agent.py": {
+   "browser": 3.8
+  },
+  "tests/regressions/test_20260923_any_chrome_tab_title_never_updated.py": {
+   "browser": 1.3
+  },
+  "tests/regressions/test_20260923_any_chrome_unsupervised_done_unmarked.py": {
+   "browser": 5.2
+  },
+  "tests/regressions/test_20260923_any_desk_waits_for_the_process_listing.py": {
+   "default": 0.7
+  },
+  "tests/regressions/test_20260923_any_desk_write_outlives_its_server.py": {
+   "default": 2.1
+  },
+  "tests/regressions/test_20260923_any_doctor_reads_copilot_version_as_updates.py": {
+   "default": 0.4
+  },
+  "tests/regressions/test_20260923_any_escape_drag_opens_rail.py": {
+   "browser": 3.0
+  },
+  "tests/regressions/test_20260923_any_gutter_release_short_of_the_hand.py": {
+   "browser": 1.7
+  },
+  "tests/regressions/test_20260923_any_handed_back_still_adopted.py": {
+   "browser": 3.2,
+   "default": 0.0
+  },
+  "tests/regressions/test_20260923_any_idle_desk_with_a_skin_writes.py": {
+   "browser": 6.0
+  },
+  "tests/regressions/test_20260923_any_idle_skinned_desk_rewrote_its_skin.py": {
+   "browser": 5.9
+  },
+  "tests/regressions/test_20260923_any_idle_skinned_desk_writes.py": {
+   "browser": 3.7
+  },
+  "tests/regressions/test_20260923_any_linux_ci_skipped_every_browser_test.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260923_any_rail_widened_to_the_compact_minimum.py": {
+   "browser": 2.2
+  },
+  "tests/regressions/test_20260923_any_settings_page_cannot_scroll.py": {
+   "browser": 5.7
+  },
+  "tests/regressions/test_20260923_any_skin_chosen_idle_desk_writes.py": {
+   "browser": 8.3
+  },
+  "tests/regressions/test_20260923_any_skinned_desk_never_idle.py": {
+   "browser": 9.5
+  },
+  "tests/regressions/test_20260924_any_chrome_stale_fleet_answer_reverts_the_skin.py": {
+   "browser": 11.3
+  },
+  "tests/regressions/test_20260924_any_desk_waits_on_the_catalogue_open.py": {
+   "default": 0.1
+  },
+  "tests/regressions/test_convention.py": {
+   "default": 0.0
+  },
+  "tests/test_agent_onramp.py": {
+   "default": 0.0
+  },
+  "tests/test_bash_floor.py": {
+   "default": 0.1
+  },
+  "tests/test_bridge.py": {
+   "default": 0.9
+  },
+  "tests/test_brief.py": {
+   "default": 0.5
+  },
+  "tests/test_color.py": {
+   "default": 0.0
+  },
+  "tests/test_completion.py": {
+   "default": 20.1
+  },
+  "tests/test_config.py": {
+   "default": 0.1
+  },
+  "tests/test_confluence.py": {
+   "default": 0.1
+  },
+  "tests/test_connectors_password_gate.py": {
+   "default": 0.1
+  },
+  "tests/test_console_host.py": {
+   "default": 0.2
+  },
+  "tests/test_content_understanding.py": {
+   "default": 0.2
+  },
+  "tests/test_contract.py": {
+   "default": 30.5,
+   "slow": 7.0
+  },
+  "tests/test_deploy_refresh_verify.py": {
+   "default": 3.3
+  },
+  "tests/test_desk_types.py": {
+   "default": 7.8
+  },
+  "tests/test_desktop_dax.py": {
+   "default": 0.2
+  },
+  "tests/test_desktop_session.py": {
+   "default": 0.2
+  },
+  "tests/test_dmv.py": {
+   "default": 1.2
+  },
+  "tests/test_dpm.py": {
+   "default": 0.9
+  },
+  "tests/test_dpm_extract.py": {
+   "default": 0.4
+  },
+  "tests/test_durations_script.py": {
+   "default": 0.3
+  },
+  "tests/test_entrypoints.py": {
+   "default": 0.3
+  },
+  "tests/test_external_tool.py": {
+   "default": 0.2
+  },
+  "tests/test_external_tool_agnostic.py": {
+   "default": 0.1
+  },
+  "tests/test_fake_jira.py": {
+   "default": 0.7
+  },
+  "tests/test_fakes.py": {
+   "default": 1.3
+  },
+  "tests/test_fleet.py": {
+   "default": 0.4
+  },
+  "tests/test_fleet_approval.py": {
+   "default": 6.8
+  },
+  "tests/test_fleet_board.py": {
+   "default": 0.3
+  },
+  "tests/test_fleet_board_desk.py": {
+   "default": 1.8
+  },
+  "tests/test_fleet_branches.py": {
+   "browser": 2.7,
+   "default": 2.4
+  },
+  "tests/test_fleet_catalogue.py": {
+   "default": 3.7,
+   "measured": 0.0
+  },
+  "tests/test_fleet_checkouts.py": {
+   "browser": 2.8,
+   "default": 0.1
+  },
+  "tests/test_fleet_cli_desk.py": {
+   "default": 2.4
+  },
+  "tests/test_fleet_column.py": {
+   "browser": 42.2,
+   "default": 0.3
+  },
+  "tests/test_fleet_components.py": {
+   "browser": 3.3,
+   "default": 0.0
+  },
+  "tests/test_fleet_console.py": {
+   "browser": 4.6,
+   "default": 13.3
+  },
+  "tests/test_fleet_demo_branches.py": {
+   "default": 1.5
+  },
+  "tests/test_fleet_demo_column.py": {
+   "browser": 4.0
+  },
+  "tests/test_fleet_demo_console.py": {
+   "slow": 3.5
+  },
+  "tests/test_fleet_demo_handoff.py": {
+   "slow": 2.5
+  },
+  "tests/test_fleet_demo_meter.py": {
+   "browser": 4.6,
+   "default": 0.2
+  },
+  "tests/test_fleet_demo_ownership.py": {
+   "browser": 11.2
+  },
+  "tests/test_fleet_demo_sessions.py": {
+   "slow": 0.9
+  },
+  "tests/test_fleet_demo_sitting.py": {
+   "browser+slow": 2.6
+  },
+  "tests/test_fleet_desk.py": {
+   "default": 0.2
+  },
+  "tests/test_fleet_desk_actions.py": {
+   "browser": 38.9,
+   "default": 0.2
+  },
+  "tests/test_fleet_desk_browser.py": {
+   "browser": 5.9,
+   "default": 0.0
+  },
+  "tests/test_fleet_desk_glass.py": {
+   "browser": 39.6
+  },
+  "tests/test_fleet_desk_hide.py": {
+   "browser": 12.9,
+   "default": 0.0
+  },
+  "tests/test_fleet_desk_migration.py": {
+   "default": 0.0
+  },
+  "tests/test_fleet_desk_rail.py": {
+   "browser": 11.9
+  },
+  "tests/test_fleet_desk_regressions.py": {
+   "browser": 41.0,
+   "default": 6.3
+  },
+  "tests/test_fleet_desk_rows.py": {
+   "default": 0.2
+  },
+  "tests/test_fleet_desk_scrollbars.py": {
+   "browser": 10.6,
+   "default": 0.0
+  },
+  "tests/test_fleet_desk_sessions_b.py": {
+   "browser": 15.2,
+   "default": 0.3
+  },
+  "tests/test_fleet_desk_switcher.py": {
+   "browser": 6.2,
+   "default": 0.1
+  },
+  "tests/test_fleet_desk_toolbar.py": {
+   "browser": 25.2,
+   "default": 0.0
+  },
+  "tests/test_fleet_e2e.py": {
+   "slow": 5.2
+  },
+  "tests/test_fleet_engines.py": {
+   "browser": 17.0,
+   "default": 0.0
+  },
+  "tests/test_fleet_events.py": {
+   "default": 1.3
+  },
+  "tests/test_fleet_gutters.py": {
+   "browser": 44.5,
+   "browser+measured": 1.9,
+   "default": 0.1
+  },
+  "tests/test_fleet_handoff_ask.py": {
+   "browser": 3.5,
+   "default": 1.0
+  },
+  "tests/test_fleet_handoff_pickup.py": {
+   "browser": 2.2,
+   "default": 0.9
+  },
+  "tests/test_fleet_handoff_scope.py": {
+   "browser": 5.5,
+   "default": 3.4
+  },
+  "tests/test_fleet_ide.py": {
+   "default": 1.0
+  },
+  "tests/test_fleet_inbox.py": {
+   "default": 0.5
+  },
+  "tests/test_fleet_ink.py": {
+   "browser": 80.3,
+   "browser+measured": 1.3,
+   "default": 0.2
+  },
+  "tests/test_fleet_ink_farmstead.py": {
+   "browser": 138.2,
+   "default": 0.1
+  },
+  "tests/test_fleet_ink_glass.py": {
+   "browser": 151.0,
+   "default": 0.0
+  },
+  "tests/test_fleet_ink_graph.py": {
+   "browser": 57.6,
+   "default": 0.0
+  },
+  "tests/test_fleet_ink_legalpad.py": {
+   "browser": 33.4,
+   "default": 0.0
+  },
+  "tests/test_fleet_ink_margin.py": {
+   "browser": 18.7
+  },
+  "tests/test_fleet_ink_notebook.py": {
+   "browser": 33.8,
+   "default": 0.0
+  },
+  "tests/test_fleet_ink_rules.py": {
+   "browser": 23.6
+  },
+  "tests/test_fleet_instant.py": {
+   "browser": 6.7,
+   "browser+measured": 2.1,
+   "default": 0.0
+  },
+  "tests/test_fleet_lifecycle.py": {
+   "default": 0.2
+  },
+  "tests/test_fleet_links.py": {
+   "default": 0.2
+  },
+  "tests/test_fleet_loads.py": {
+   "default": 0.4
+  },
+  "tests/test_fleet_map.py": {
+   "default": 0.2
+  },
+  "tests/test_fleet_map_branches.py": {
+   "default": 0.7
+  },
+  "tests/test_fleet_model_cli.py": {
+   "default": 0.4
+  },
+  "tests/test_fleet_models.py": {
+   "default": 3.3
+  },
+  "tests/test_fleet_models_doctor.py": {
+   "default": 7.0
+  },
+  "tests/test_fleet_motion.py": {
+   "browser": 8.7,
+   "browser+measured": 1.9,
+   "default": 0.1
+  },
+  "tests/test_fleet_napkin.py": {
+   "browser": 131.5,
+   "default": 0.1
+  },
+  "tests/test_fleet_notify.py": {
+   "default": 0.3
+  },
+  "tests/test_fleet_panes.py": {
+   "browser": 26.7,
+   "default": 0.0
+  },
+  "tests/test_fleet_pixel_html.py": {
+   "browser": 7.5
+  },
+  "tests/test_fleet_poll.py": {
+   "default": 2.4
+  },
+  "tests/test_fleet_probe.py": {
+   "browser": 45.2,
+   "default": 1.3,
+   "slow": 2.7
+  },
+  "tests/test_fleet_renew.py": {
+   "browser": 4.4,
+   "default": 0.4
+  },
+  "tests/test_fleet_scan.py": {
+   "default": 0.3
+  },
+  "tests/test_fleet_serve.py": {
+   "default": 2.6
+  },
+  "tests/test_fleet_sessions.py": {
+   "default": 0.1
+  },
+  "tests/test_fleet_settings_api.py": {
+   "default": 0.1
+  },
+  "tests/test_fleet_settings_link.py": {
+   "browser": 8.1
+  },
+  "tests/test_fleet_settings_page.py": {
+   "browser": 14.8,
+   "default": 0.0
+  },
+  "tests/test_fleet_shells.py": {
+   "default": 0.1
+  },
+  "tests/test_fleet_skin_guard.py": {
+   "default": 0.1
+  },
+  "tests/test_fleet_skins.py": {
+   "default": 0.1
+  },
+  "tests/test_fleet_spend.py": {
+   "default": 0.8
+  },
+  "tests/test_fleet_theme_tokens.py": {
+   "browser": 3.7
+  },
+  "tests/test_fleet_tiers.py": {
+   "browser": 6.6,
+   "default": 0.1
+  },
+  "tests/test_fleet_trace.py": {
+   "browser": 33.0,
+   "browser+measured": 9.7,
+   "default": 0.1,
+   "measured+scale": 0.2
+  },
+  "tests/test_fleet_type_size.py": {
+   "browser": 9.1,
+   "default": 0.1
+  },
+  "tests/test_fleet_voxel_ink.py": {
+   "browser": 161.6,
+   "default": 0.1
+  },
+  "tests/test_fleet_window.py": {
+   "browser": 15.0,
+   "default": 0.1
+  },
+  "tests/test_fs_semantics.py": {
+   "default": 10.5
+  },
+  "tests/test_graph.py": {
+   "default": 0.1,
+   "scale": 6.5
+  },
+  "tests/test_graph_explain.py": {
+   "default": 1.0
+  },
+  "tests/test_graph_findings.py": {
+   "default": 1.2,
+   "scale": 18.2
+  },
+  "tests/test_graph_guard.py": {
+   "default": 3.1
+  },
+  "tests/test_graph_query.py": {
+   "default": 0.2,
+   "measured+scale": 6.5
+  },
+  "tests/test_handoff_transports.py": {
+   "default": 0.3
+  },
+  "tests/test_hygiene_checkout.py": {
+   "default": 5.1
+  },
+  "tests/test_hygiene_ci_budgets.py": {
+   "default": 2.7
+  },
+  "tests/test_hygiene_flake_policy.py": {
+   "default": 0.0
+  },
+  "tests/test_hygiene_orphans.py": {
+   "default": 6.3
+  },
+  "tests/test_install.py": {
+   "default": 0.1,
+   "slow": 9.9
+  },
+  "tests/test_jira_api.py": {
+   "default": 0.9
+  },
+  "tests/test_jira_cache.py": {
+   "default": 0.9
+  },
+  "tests/test_jira_cli.py": {
+   "default": 11.0,
+   "scale": 39.5
+  },
+  "tests/test_jira_client.py": {
+   "default": 3.0
+  },
+  "tests/test_jira_create.py": {
+   "default": 0.5
+  },
+  "tests/test_jira_http.py": {
+   "default": 0.4
+  },
+  "tests/test_jira_scale.py": {
+   "default": 27.3,
+   "measured": 0.4
+  },
+  "tests/test_jira_stream.py": {
+   "default": 0.6
+  },
+  "tests/test_jira_workflow.py": {
+   "default": 1.0
+  },
+  "tests/test_lifecycle.py": {
+   "slow": 32.5
+  },
+  "tests/test_metrics.py": {
+   "default": 0.4
+  },
+  "tests/test_model_apply.py": {
+   "default": 0.3
+  },
+  "tests/test_odbc.py": {
+   "default": 0.0
+  },
+  "tests/test_pbi_auth.py": {
+   "default": 0.3
+  },
+  "tests/test_pbi_cli.py": {
+   "default": 2.5
+  },
+  "tests/test_pbi_probe.py": {
+   "default": 0.3
+  },
+  "tests/test_pbip.py": {
+   "default": 0.5
+  },
+  "tests/test_pbip_deneb.py": {
+   "default": 0.4
+  },
+  "tests/test_pbip_features.py": {
+   "default": 0.3
+  },
+  "tests/test_pbip_handoff_cli.py": {
+   "default": 1.6
+  },
+  "tests/test_pbir_author.py": {
+   "default": 0.3
+  },
+  "tests/test_pbir_visual_set.py": {
+   "default": 2.3
+  },
+  "tests/test_pbiviz.py": {
+   "default": 1.1
+  },
+  "tests/test_pbiviz_candidate.py": {
+   "default": 0.2
+  },
+  "tests/test_perf_loop.py": {
+   "default": 6.3,
+   "measured": 12.9
+  },
+  "tests/test_proc.py": {
+   "default": 6.2
+  },
+  "tests/test_progress.py": {
+   "default": 0.2
+  },
+  "tests/test_props_paths.py": {
+   "default": 4.5
+  },
+  "tests/test_props_textio.py": {
+   "default": 3.4
+  },
+  "tests/test_props_tmdl_pbir.py": {
+   "default": 2.7
+  },
+  "tests/test_props_toon.py": {
+   "default": 26.8
+  },
+  "tests/test_refusals.py": {
+   "default": 1.6
+  },
+  "tests/test_screenshot.py": {
+   "default": 0.7
+  },
+  "tests/test_secrets.py": {
+   "default": 0.1
+  },
+  "tests/test_setup.py": {
+   "default": 0.9
+  },
+  "tests/test_setup_powerbi_transport.py": {
+   "default": 0.8
+  },
+  "tests/test_shell.py": {
+   "default": 1.6
+  },
+  "tests/test_shell_argv.py": {
+   "default": 5.9
+  },
+  "tests/test_skill_argv.py": {
+   "default": 7.8
+  },
+  "tests/test_skill_handoffs.py": {
+   "default": 0.8
+  },
+  "tests/test_skills.py": {
+   "default": 0.2
+  },
+  "tests/test_sorting_apply.py": {
+   "default": 0.1
+  },
+  "tests/test_sorting_catalog.py": {
+   "default": 0.3
+  },
+  "tests/test_sorting_cli.py": {
+   "default": 0.5
+  },
+  "tests/test_sorting_dpm.py": {
+   "default": 0.2
+  },
+  "tests/test_sorting_links.py": {
+   "default": 0.1
+  },
+  "tests/test_sorting_plan.py": {
+   "default": 0.2
+  },
+  "tests/test_sorting_rules.py": {
+   "default": 0.3
+  },
+  "tests/test_sprint.py": {
+   "default": 0.3
+  },
+  "tests/test_sqlcheck.py": {
+   "default": 0.3
+  },
+  "tests/test_state.py": {
+   "default": 0.3
+  },
+  "tests/test_suite_hygiene.py": {
+   "default": 16.7,
+   "scale": 5.2
+  },
+  "tests/test_test_cover_refs.py": {
+   "default": 5.4
+  },
+  "tests/test_testing_bench.py": {
+   "default": 21.4,
+   "measured": 11.1
+  },
+  "tests/test_testing_coverage.py": {
+   "default": 14.7
+  },
+  "tests/test_testing_run.py": {
+   "default": 3.2,
+   "measured": 2.0
+  },
+  "tests/test_textio.py": {
+   "default": 0.1
+  },
+  "tests/test_theme.py": {
+   "default": 3.6
+  },
+  "tests/test_theme_omp.py": {
+   "default": 0.1
+  },
+  "tests/test_theme_project.py": {
+   "default": 0.4
+  },
+  "tests/test_theme_signals.py": {
+   "default": 0.1
+  },
+  "tests/test_toon.py": {
+   "default": 0.0
+  },
+  "tests/test_trace.py": {
+   "default": 1.4
+  },
+  "tests/test_uat.py": {
+   "default": 0.2
+  },
+  "tests/test_uat_cross_warehouse.py": {
+   "default": 0.2
+  },
+  "tests/test_uat_jira_vs_source.py": {
+   "default": 0.3
+  },
+  "tests/test_ui.py": {
+   "default": 0.8
+  },
+  "tests/test_update.py": {
+   "default": 0.3
+  },
+  "tests/test_update_windows.py": {
+   "default": 1.3
+  },
+  "tests/test_winui.py": {
+   "default": 0.3
+  }
+ },
+ "windows": {
+  "(no file property)": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260903_bash_gh_skill_already_installed.py": {
+   "default": 1.9
+  },
+  "tests/regressions/test_20260903_bash_plugin_command_in_a_terminal.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260903_bash_update_detail_loss.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260908_pwsh_cache_clear_locked_file.py": {
+   "default": 0.3
+  },
+  "tests/regressions/test_20260922_any_answered_questions.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260922_any_chrome_snapback.py": {
+   "browser": 3.3
+  },
+  "tests/regressions/test_20260922_any_session_file_a_tick_ahead.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260923_any_chip_glyph_drew_the_whole_sheet.py": {
+   "browser": 1.1,
+   "default": 0.0
+  },
+  "tests/regressions/test_20260923_any_chrome_check_drawn_on_pane_number.py": {
+   "browser": 4.6
+  },
+  "tests/regressions/test_20260923_any_chrome_farmstead_header_buttons_unreadable.py": {
+   "browser": 3.1
+  },
+  "tests/regressions/test_20260923_any_chrome_graph_outline_through_text.py": {
+   "browser": 19.8
+  },
+  "tests/regressions/test_20260923_any_chrome_growing_line_leaves_struck.py": {
+   "browser": 3.5
+  },
+  "tests/regressions/test_20260923_any_chrome_idle_skin_rewrites_itself.py": {
+   "browser": 6.6
+  },
+  "tests/regressions/test_20260923_any_chrome_late_desk_follows_its_own_anchor.py": {
+   "browser": 1.5
+  },
+  "tests/regressions/test_20260923_any_chrome_settings_round_trip_forgets_the_window.py": {
+   "browser": 1.4
+  },
+  "tests/regressions/test_20260923_any_chrome_stale_desk_opens_the_last_agent.py": {
+   "browser": 3.2
+  },
+  "tests/regressions/test_20260923_any_chrome_tab_title_never_updated.py": {
+   "browser": 1.1
+  },
+  "tests/regressions/test_20260923_any_chrome_unsupervised_done_unmarked.py": {
+   "browser": 5.7
+  },
+  "tests/regressions/test_20260923_any_desk_waits_for_the_process_listing.py": {
+   "default": 0.9
+  },
+  "tests/regressions/test_20260923_any_desk_write_outlives_its_server.py": {
+   "default": 3.4
+  },
+  "tests/regressions/test_20260923_any_doctor_reads_copilot_version_as_updates.py": {
+   "default": 7.1
+  },
+  "tests/regressions/test_20260923_any_escape_drag_opens_rail.py": {
+   "browser": 9.0
+  },
+  "tests/regressions/test_20260923_any_gutter_release_short_of_the_hand.py": {
+   "browser": 3.6
+  },
+  "tests/regressions/test_20260923_any_handed_back_still_adopted.py": {
+   "browser": 2.5,
+   "default": 0.0
+  },
+  "tests/regressions/test_20260923_any_idle_desk_with_a_skin_writes.py": {
+   "browser": 5.3
+  },
+  "tests/regressions/test_20260923_any_idle_skinned_desk_rewrote_its_skin.py": {
+   "browser": 5.1
+  },
+  "tests/regressions/test_20260923_any_idle_skinned_desk_writes.py": {
+   "browser": 2.5
+  },
+  "tests/regressions/test_20260923_any_linux_ci_skipped_every_browser_test.py": {
+   "default": 0.0
+  },
+  "tests/regressions/test_20260923_any_rail_widened_to_the_compact_minimum.py": {
+   "browser": 1.1
+  },
+  "tests/regressions/test_20260923_any_settings_page_cannot_scroll.py": {
+   "browser": 1.9
+  },
+  "tests/regressions/test_20260923_any_skin_chosen_idle_desk_writes.py": {
+   "browser": 5.2
+  },
+  "tests/regressions/test_20260923_any_skinned_desk_never_idle.py": {
+   "browser": 6.5
+  },
+  "tests/regressions/test_20260924_any_chrome_stale_fleet_answer_reverts_the_skin.py": {
+   "browser": 5.1
+  },
+  "tests/regressions/test_20260924_any_desk_waits_on_the_catalogue_open.py": {
+   "default": 0.1
+  },
+  "tests/regressions/test_convention.py": {
+   "default": 0.0
+  },
+  "tests/test_agent_onramp.py": {
+   "default": 0.0
+  },
+  "tests/test_bash_floor.py": {
+   "default": 0.4
+  },
+  "tests/test_bridge.py": {
+   "default": 5.4
+  },
+  "tests/test_brief.py": {
+   "default": 0.3
+  },
+  "tests/test_color.py": {
+   "default": 0.0
+  },
+  "tests/test_completion.py": {
+   "default": 7.2
+  },
+  "tests/test_config.py": {
+   "default": 0.1
+  },
+  "tests/test_confluence.py": {
+   "default": 0.5
+  },
+  "tests/test_connectors_password_gate.py": {
+   "default": 0.4
+  },
+  "tests/test_console_host.py": {
+   "default": 0.2
+  },
+  "tests/test_content_understanding.py": {
+   "default": 1.1
+  },
+  "tests/test_contract.py": {
+   "default": 36.3,
+   "slow": 17.4
+  },
+  "tests/test_deploy_refresh_verify.py": {
+   "default": 3.2
+  },
+  "tests/test_desk_types.py": {
+   "default": 22.4
+  },
+  "tests/test_desktop_dax.py": {
+   "default": 0.1
+  },
+  "tests/test_desktop_session.py": {
+   "default": 0.2
+  },
+  "tests/test_dmv.py": {
+   "default": 1.1
+  },
+  "tests/test_dpm.py": {
+   "default": 3.5
+  },
+  "tests/test_dpm_extract.py": {
+   "default": 0.4
+  },
+  "tests/test_durations_script.py": {
+   "default": 0.4
+  },
+  "tests/test_entrypoints.py": {
+   "default": 0.2
+  },
+  "tests/test_external_tool.py": {
+   "default": 3.2
+  },
+  "tests/test_external_tool_agnostic.py": {
+   "default": 0.4
+  },
+  "tests/test_fake_jira.py": {
+   "default": 2.6
+  },
+  "tests/test_fakes.py": {
+   "default": 2.4
+  },
+  "tests/test_fleet.py": {
+   "default": 0.5
+  },
+  "tests/test_fleet_approval.py": {
+   "default": 7.1
+  },
+  "tests/test_fleet_board.py": {
+   "default": 0.5
+  },
+  "tests/test_fleet_board_desk.py": {
+   "default": 3.5
+  },
+  "tests/test_fleet_branches.py": {
+   "browser": 4.5,
+   "default": 23.8
+  },
+  "tests/test_fleet_catalogue.py": {
+   "default": 17.0,
+   "measured": 0.3
+  },
+  "tests/test_fleet_checkouts.py": {
+   "browser": 3.4,
+   "default": 0.6
+  },
+  "tests/test_fleet_cli_desk.py": {
+   "default": 5.1
+  },
+  "tests/test_fleet_column.py": {
+   "browser": 28.1,
+   "default": 0.3
+  },
+  "tests/test_fleet_components.py": {
+   "browser": 2.3,
+   "default": 0.0
+  },
+  "tests/test_fleet_console.py": {
+   "browser": 4.3,
+   "default": 11.4
+  },
+  "tests/test_fleet_demo_branches.py": {
+   "default": 2.3
+  },
+  "tests/test_fleet_demo_column.py": {
+   "browser": 2.9
+  },
+  "tests/test_fleet_demo_console.py": {
+   "slow": 4.0
+  },
+  "tests/test_fleet_demo_handoff.py": {
+   "slow": 4.6
+  },
+  "tests/test_fleet_demo_meter.py": {
+   "browser": 3.2,
+   "default": 0.2
+  },
+  "tests/test_fleet_demo_ownership.py": {
+   "browser": 7.9
+  },
+  "tests/test_fleet_demo_sessions.py": {
+   "slow": 2.0
+  },
+  "tests/test_fleet_demo_sitting.py": {
+   "browser+slow": 4.7
+  },
+  "tests/test_fleet_desk.py": {
+   "default": 0.1
+  },
+  "tests/test_fleet_desk_actions.py": {
+   "browser": 34.9,
+   "default": 0.2
+  },
+  "tests/test_fleet_desk_browser.py": {
+   "browser": 9.4,
+   "default": 0.0
+  },
+  "tests/test_fleet_desk_glass.py": {
+   "browser": 27.2
+  },
+  "tests/test_fleet_desk_hide.py": {
+   "browser": 16.7,
+   "default": 0.3
+  },
+  "tests/test_fleet_desk_migration.py": {
+   "default": 0.1
+  },
+  "tests/test_fleet_desk_rail.py": {
+   "browser": 7.4
+  },
+  "tests/test_fleet_desk_regressions.py": {
+   "browser": 28.0,
+   "default": 7.0
+  },
+  "tests/test_fleet_desk_rows.py": {
+   "default": 4.6
+  },
+  "tests/test_fleet_desk_scrollbars.py": {
+   "browser": 9.5,
+   "default": 0.0
+  },
+  "tests/test_fleet_desk_sessions_b.py": {
+   "browser": 9.4,
+   "default": 10.4
+  },
+  "tests/test_fleet_desk_switcher.py": {
+   "browser": 3.9,
+   "default": 0.2
+  },
+  "tests/test_fleet_desk_toolbar.py": {
+   "browser": 20.8,
+   "default": 0.0
+  },
+  "tests/test_fleet_e2e.py": {
+   "slow": 13.1
+  },
+  "tests/test_fleet_engines.py": {
+   "browser": 21.3,
+   "default": 0.1
+  },
+  "tests/test_fleet_events.py": {
+   "default": 2.5
+  },
+  "tests/test_fleet_gutters.py": {
+   "browser": 30.6,
+   "browser+measured": 2.4,
+   "default": 0.2
+  },
+  "tests/test_fleet_handoff_ask.py": {
+   "browser": 1.2,
+   "default": 0.6
+  },
+  "tests/test_fleet_handoff_pickup.py": {
+   "browser": 1.2,
+   "default": 0.9
+  },
+  "tests/test_fleet_handoff_scope.py": {
+   "browser": 3.2,
+   "default": 17.1
+  },
+  "tests/test_fleet_ide.py": {
+   "default": 4.3
+  },
+  "tests/test_fleet_inbox.py": {
+   "default": 2.6
+  },
+  "tests/test_fleet_ink.py": {
+   "browser": 73.6,
+   "browser+measured": 1.6,
+   "default": 0.2
+  },
+  "tests/test_fleet_ink_farmstead.py": {
+   "browser": 74.0,
+   "default": 0.1
+  },
+  "tests/test_fleet_ink_glass.py": {
+   "browser": 68.4,
+   "default": 0.0
+  },
+  "tests/test_fleet_ink_graph.py": {
+   "browser": 50.0,
+   "default": 0.0
+  },
+  "tests/test_fleet_ink_legalpad.py": {
+   "browser": 32.7,
+   "default": 0.0
+  },
+  "tests/test_fleet_ink_margin.py": {
+   "browser": 23.0
+  },
+  "tests/test_fleet_ink_notebook.py": {
+   "browser": 36.3,
+   "default": 0.0
+  },
+  "tests/test_fleet_ink_rules.py": {
+   "browser": 25.7
+  },
+  "tests/test_fleet_instant.py": {
+   "browser": 9.9,
+   "browser+measured": 3.0,
+   "default": 0.1
+  },
+  "tests/test_fleet_lifecycle.py": {
+   "default": 1.5
+  },
+  "tests/test_fleet_links.py": {
+   "default": 0.9
+  },
+  "tests/test_fleet_loads.py": {
+   "default": 0.9
+  },
+  "tests/test_fleet_map.py": {
+   "default": 0.6
+  },
+  "tests/test_fleet_map_branches.py": {
+   "default": 3.7
+  },
+  "tests/test_fleet_model_cli.py": {
+   "default": 0.5
+  },
+  "tests/test_fleet_models.py": {
+   "default": 2.5
+  },
+  "tests/test_fleet_models_doctor.py": {
+   "default": 19.0
+  },
+  "tests/test_fleet_motion.py": {
+   "browser": 5.2,
+   "browser+measured": 2.2,
+   "default": 0.1
+  },
+  "tests/test_fleet_napkin.py": {
+   "browser": 58.4,
+   "default": 0.0
+  },
+  "tests/test_fleet_notify.py": {
+   "default": 1.0
+  },
+  "tests/test_fleet_panes.py": {
+   "browser": 24.7,
+   "default": 0.0
+  },
+  "tests/test_fleet_pixel_html.py": {
+   "browser": 5.2
+  },
+  "tests/test_fleet_poll.py": {
+   "default": 15.5
+  },
+  "tests/test_fleet_probe.py": {
+   "browser": 40.6,
+   "default": 1.7,
+   "slow": 5.7
+  },
+  "tests/test_fleet_renew.py": {
+   "browser": 3.0,
+   "default": 3.7
+  },
+  "tests/test_fleet_scan.py": {
+   "default": 2.3
+  },
+  "tests/test_fleet_serve.py": {
+   "default": 5.5
+  },
+  "tests/test_fleet_sessions.py": {
+   "default": 0.4
+  },
+  "tests/test_fleet_settings_api.py": {
+   "default": 0.3
+  },
+  "tests/test_fleet_settings_link.py": {
+   "browser": 4.8
+  },
+  "tests/test_fleet_settings_page.py": {
+   "browser": 9.5,
+   "default": 0.0
+  },
+  "tests/test_fleet_shells.py": {
+   "default": 0.3
+  },
+  "tests/test_fleet_skin_guard.py": {
+   "default": 0.3
+  },
+  "tests/test_fleet_skins.py": {
+   "default": 0.2
+  },
+  "tests/test_fleet_spend.py": {
+   "default": 2.2
+  },
+  "tests/test_fleet_theme_tokens.py": {
+   "browser": 2.6
+  },
+  "tests/test_fleet_tiers.py": {
+   "browser": 4.5,
+   "default": 0.3
+  },
+  "tests/test_fleet_trace.py": {
+   "browser": 19.0,
+   "browser+measured": 9.4,
+   "default": 0.2,
+   "measured+scale": 0.1
+  },
+  "tests/test_fleet_type_size.py": {
+   "browser": 6.3,
+   "default": 0.1
+  },
+  "tests/test_fleet_voxel_ink.py": {
+   "browser": 48.5,
+   "default": 0.1
+  },
+  "tests/test_fleet_window.py": {
+   "browser": 9.7,
+   "default": 0.1
+  },
+  "tests/test_fs_semantics.py": {
+   "default": 7.7
+  },
+  "tests/test_graph.py": {
+   "default": 0.1,
+   "scale": 6.5
+  },
+  "tests/test_graph_explain.py": {
+   "default": 1.7
+  },
+  "tests/test_graph_findings.py": {
+   "default": 1.2,
+   "scale": 17.4
+  },
+  "tests/test_graph_guard.py": {
+   "default": 24.9
+  },
+  "tests/test_graph_query.py": {
+   "default": 0.2,
+   "measured+scale": 6.5
+  },
+  "tests/test_handoff_transports.py": {
+   "default": 0.7
+  },
+  "tests/test_hygiene_checkout.py": {
+   "default": 1.9
+  },
+  "tests/test_hygiene_ci_budgets.py": {
+   "default": 0.8
+  },
+  "tests/test_hygiene_flake_policy.py": {
+   "default": 0.1
+  },
+  "tests/test_hygiene_orphans.py": {
+   "default": 5.0
+  },
+  "tests/test_install.py": {
+   "default": 0.1,
+   "slow": 29.6
+  },
+  "tests/test_jira_api.py": {
+   "default": 2.4
+  },
+  "tests/test_jira_cache.py": {
+   "default": 4.8
+  },
+  "tests/test_jira_cli.py": {
+   "default": 17.4,
+   "scale": 40.5
+  },
+  "tests/test_jira_client.py": {
+   "default": 6.4
+  },
+  "tests/test_jira_create.py": {
+   "default": 1.6
+  },
+  "tests/test_jira_http.py": {
+   "default": 1.5
+  },
+  "tests/test_jira_scale.py": {
+   "default": 15.3,
+   "measured": 0.5
+  },
+  "tests/test_jira_stream.py": {
+   "default": 0.6
+  },
+  "tests/test_jira_workflow.py": {
+   "default": 2.4
+  },
+  "tests/test_lifecycle.py": {
+   "slow": 56.3
+  },
+  "tests/test_metrics.py": {
+   "default": 0.9
+  },
+  "tests/test_model_apply.py": {
+   "default": 0.7
+  },
+  "tests/test_odbc.py": {
+   "default": 0.3
+  },
+  "tests/test_pbi_auth.py": {
+   "default": 0.7
+  },
+  "tests/test_pbi_cli.py": {
+   "default": 2.9
+  },
+  "tests/test_pbi_probe.py": {
+   "default": 0.6
+  },
+  "tests/test_pbip.py": {
+   "default": 1.1
+  },
+  "tests/test_pbip_deneb.py": {
+   "default": 9.8
+  },
+  "tests/test_pbip_features.py": {
+   "default": 3.4
+  },
+  "tests/test_pbip_handoff_cli.py": {
+   "default": 1.6
+  },
+  "tests/test_pbir_author.py": {
+   "default": 2.8
+  },
+  "tests/test_pbir_visual_set.py": {
+   "default": 11.4
+  },
+  "tests/test_pbiviz.py": {
+   "default": 4.4
+  },
+  "tests/test_pbiviz_candidate.py": {
+   "default": 0.4
+  },
+  "tests/test_perf_loop.py": {
+   "default": 4.4,
+   "measured": 14.2
+  },
+  "tests/test_proc.py": {
+   "default": 5.8
+  },
+  "tests/test_progress.py": {
+   "default": 0.2
+  },
+  "tests/test_props_paths.py": {
+   "default": 3.1
+  },
+  "tests/test_props_textio.py": {
+   "default": 1.6
+  },
+  "tests/test_props_tmdl_pbir.py": {
+   "default": 1.8
+  },
+  "tests/test_props_toon.py": {
+   "default": 11.8
+  },
+  "tests/test_refusals.py": {
+   "default": 1.4
+  },
+  "tests/test_screenshot.py": {
+   "default": 0.7
+  },
+  "tests/test_secrets.py": {
+   "default": 0.1
+  },
+  "tests/test_setup.py": {
+   "default": 2.2
+  },
+  "tests/test_setup_powerbi_transport.py": {
+   "default": 4.4
+  },
+  "tests/test_shell.py": {
+   "default": 1.4
+  },
+  "tests/test_shell_argv.py": {
+   "default": 6.3
+  },
+  "tests/test_skill_argv.py": {
+   "default": 8.4
+  },
+  "tests/test_skill_handoffs.py": {
+   "default": 1.6
+  },
+  "tests/test_skills.py": {
+   "default": 0.3
+  },
+  "tests/test_sorting_apply.py": {
+   "default": 0.4
+  },
+  "tests/test_sorting_catalog.py": {
+   "default": 0.4
+  },
+  "tests/test_sorting_cli.py": {
+   "default": 0.2
+  },
+  "tests/test_sorting_dpm.py": {
+   "default": 0.9
+  },
+  "tests/test_sorting_links.py": {
+   "default": 0.1
+  },
+  "tests/test_sorting_plan.py": {
+   "default": 0.3
+  },
+  "tests/test_sorting_rules.py": {
+   "default": 0.3
+  },
+  "tests/test_sprint.py": {
+   "default": 0.4
+  },
+  "tests/test_sqlcheck.py": {
+   "default": 0.3
+  },
+  "tests/test_state.py": {
+   "default": 0.2
+  },
+  "tests/test_suite_hygiene.py": {
+   "default": 9.7,
+   "scale": 6.1
+  },
+  "tests/test_test_cover_refs.py": {
+   "default": 4.7
+  },
+  "tests/test_testing_bench.py": {
+   "default": 9.5,
+   "measured": 12.9
+  },
+  "tests/test_testing_coverage.py": {
+   "default": 9.5
+  },
+  "tests/test_testing_run.py": {
+   "default": 2.7,
+   "measured": 2.1
+  },
+  "tests/test_textio.py": {
+   "default": 0.1
+  },
+  "tests/test_theme.py": {
+   "default": 1.7
+  },
+  "tests/test_theme_omp.py": {
+   "default": 0.7
+  },
+  "tests/test_theme_project.py": {
+   "default": 1.1
+  },
+  "tests/test_theme_signals.py": {
+   "default": 0.2
+  },
+  "tests/test_toon.py": {
+   "default": 0.3
+  },
+  "tests/test_trace.py": {
+   "default": 0.5
+  },
+  "tests/test_uat.py": {
+   "default": 0.8
+  },
+  "tests/test_uat_cross_warehouse.py": {
+   "default": 1.2
+  },
+  "tests/test_uat_jira_vs_source.py": {
+   "default": 1.3
+  },
+  "tests/test_ui.py": {
+   "default": 1.1
+  },
+  "tests/test_update.py": {
+   "default": 0.4
+  },
+  "tests/test_update_windows.py": {
+   "default": 1.2
+  },
+  "tests/test_winui.py": {
+   "default": 0.4
+  }
+ }
+}

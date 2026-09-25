@@ -105,6 +105,10 @@ ad-pncli jira get <any issue key>   # pncli's confirmed read verb, built for you
 ```
 Pass: `whoami` returns `flavor` (`cloud` or `dc`), `auth`, `api`, `display_name`, `token_source: pncli:<key path>`; `ad-doctor --only pncli` is all `ok`. Paste: the key list the wizard printed (values are masked), the answers you gave, and the `whoami` TOON. If `~/.pncli/config.json` is not JSON or the token is stored indirectly (env var, keychain), say so — that changes `steps/pncli_import.py` and `jira_api.load_credentials`.
 
+| # | What to do | What it must do | Host | Date |
+|---|---|---|---|---|
+| P1 | `ad-pncli capture-help` (#498, WRAP-D6), then read the file it names and attach it to #506 | one file beside the config: a header per `pncli … --help` call with its exit code; your Jira, Confluence and Bitbucket hosts read `<jira-host>`, `<confluence-host>`, `<bitbucket-host>`, other hosts `<host>`, your home `<home>` | _not yet measured_ | — |
+
 ## 3. Jira changelog and sprint replay
 ```powershell
 ad-jira fields --like sprint

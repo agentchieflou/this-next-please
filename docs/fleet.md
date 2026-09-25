@@ -71,6 +71,8 @@ through the same `repo add` a hand-typed path would.
 `ad-fleet index` reads what every registered repository already publishes into one local SQLite
 file. `ad-fleet where "velocity"` then says which project mentions it, and `ad-fleet show <project>`
 prints that project's facts, state, open friction, PBIP models and reports, and its links.
+`ad-fleet friction <repo>` prints the panel's friction: open, earlier, and why (#499); `--dismiss NAME`
+and `--earlier` hide rows on the panel through the same call the page makes, and keep the files.
 
 **What it indexes** — an allow-list of repo-relative *names*, per registered repo:
 

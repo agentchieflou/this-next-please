@@ -8,7 +8,7 @@ cmd.exe. `pncli.exe` in the config (or PNCLI_EXE) pins an explicit path."""
 from __future__ import annotations
 import json, os, re
 from .. import config as C
-from .. import proc
+from .. import proc, textio
 from ..model import AgentTable
 
 NPM_PACKAGE = "@kolatts/pncli"      # laptop diagnosis 2026-09-02; override with the `pncli.npm_package` config key
@@ -57,9 +57,12 @@ def verb(args: list[str]) -> tuple:
 def is_write(args: list[str]) -> bool:
     """Would running this change something on a system of record?
 
-    `--dry-run` is not a write whatever the verb: pncli resolves and prints, and sends nothing.
+    `--dry-run` is not a write whatever the verb: pncli resolves and prints, and sends nothing. Nor is
+    `--help` / `-h`: commander.js prints the help and exits before the action runs.
     """
     if any(a == "--dry-run" for a in args):
+        return False
+    if any(a in ("--help", "-h") for a in args):      # commander.js prints help and exits before any action
         return False
     path = verb(args)
     if not path:
@@ -178,3 +181,133 @@ def jira_search(jql: str, fields: list[str] | None = None, max_results: int = 50
     t.elapsed_s = el
     t.truncated = len(recs) >= max_results
     return t
+
+
+# ------------------------------------------------------------------ capture-help (#498, WRAP-D6)
+
+CAPTURE_PRODUCTS = ("bitbucket", "confluence", "jira")
+CAPTURE_TIMEOUT = 30
+_HEADING = re.compile(r"^(?:[A-Z][\w-]*\s+)*Commands:\s*$")      # `Commands:`, or a group like `Management Commands:`
+_ITEM = re.compile(r"^  (?! )(\S+)")                              # commander.js indents a term by exactly two spaces
+_URL_HOST = re.compile(r"(https?://)([^/\s:'\"<>]+)(:\d+)?", re.I)
+
+
+def help_commands(text: str) -> list[str]:
+    """The verbs a commander.js help lists under its `Commands:` heading(s), `help` left out.
+
+    Option terms are never read: only lines under a `...Commands:` heading count, up to the next blank
+    line or heading. A wrapped description is indented past the term column, so it is never a verb.
+    """
+    verbs: list[str] = []
+    inside = False
+    for line in (text or "").splitlines():
+        if _HEADING.match(line):
+            inside = True
+            continue
+        if not line.strip() or not line.startswith(" "):
+            inside = False
+            continue
+        m = _ITEM.match(line) if inside else None
+        if m:
+            name = m.group(1).split("|")[0]
+            if name != "help" and not name.startswith("-") and name not in verbs:
+                verbs.append(name)
+    return verbs
+
+
+def _host(url) -> str:
+    m = _URL_HOST.match(str(url or "").strip())
+    return m.group(2).lower() if m else ""
+
+
+def redaction_hosts(cfg: dict | None = None) -> dict[str, str]:
+    """{host: placeholder} for the configured Jira, Confluence and Bitbucket bases.
+
+    The bases come from this config (`jira.base_url`, `JIRA_URL`, `confluence.base_url`,
+    `bitbucket.base_url`) and from pncli's own config file, whose URL values are named by product.
+    Every other `http(s)://host` is redacted anyway; this only gives the three their own names.
+    """
+    cfg = C.load() if cfg is None else cfg
+    found: dict[str, str] = {}
+
+    def add(product: str, url) -> None:
+        h = _host(url)
+        if h and h not in found:
+            found[h] = f"<{product}-host>"
+
+    add("jira", os.environ.get("JIRA_URL") or C.get(cfg, "jira.base_url"))
+    for product in ("confluence", "bitbucket"):
+        add(product, C.get(cfg, f"{product}.base_url"))
+    path = C.expand(C.get(cfg, "pncli.config_path") or "~/.pncli/config.json")
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            flat = C.flatten(json.load(f))
+    except (OSError, ValueError):
+        flat = {}
+    for key, value in sorted(flat.items()):
+        for product in CAPTURE_PRODUCTS:
+            if product in key.lower() and isinstance(value, str) and _host(value):
+                add(product, value)
+    return found
+
+
+def redact(text: str, hosts: dict[str, str], home: str) -> tuple[str, dict[str, int]]:
+    """Replace the named hosts, every other URL host, and the home directory. Returns the text and counts."""
+    counts: dict[str, int] = {}
+
+    def bump(what: str, n: int) -> None:
+        if n:
+            counts[what] = counts.get(what, 0) + n
+
+    for host, label in sorted(hosts.items(), key=lambda kv: -len(kv[0])):
+        text, n = re.subn(re.escape(host), label, text, flags=re.I)
+        bump(label, n)
+
+    def other(m: re.Match) -> str:
+        bump("<host>", 1)
+        return m.group(1) + "<host>"
+
+    text = _URL_HOST.sub(lambda m: m.group(0) if m.group(2).startswith("<") else other(m), text)
+    if home and len(home.rstrip("/\\")) > 3:
+        for form in {home.rstrip("/\\"), textio.norm_path(home.rstrip("/\\"))}:
+            text, n = re.subn(re.escape(form), "<home>", text, flags=re.I if os.name == "nt" else 0)
+            bump("<home>", n)
+    return text, counts
+
+
+def capture_help(max_verbs: int = 40, cfg: dict | None = None) -> dict:
+    """Run `pncli --version`, `pncli --help`, each product's `--help` and each listed verb's `--help`.
+
+    Nothing but `--version` and `... --help` is ever run. A call that fails is recorded with its
+    output and the capture carries on. Returns the calls, redacted, and the counts.
+    """
+    cfg = C.load() if cfg is None else cfg
+    hint = install_hint(cfg)
+    calls: list[dict] = []
+
+    def call(args: list[str]) -> dict:
+        rec = {"argv": ["pncli", *args], "rc": None, "ms": 0, "out": ""}
+        try:
+            rc, out, err, el = proc.run(["pncli", *args], exe=exe(cfg), timeout=CAPTURE_TIMEOUT, hint=hint)
+            rec.update(rc=rc, ms=int(el * 1000), out="\n".join(t for t in (out or "", err or "") if t.strip()))
+        except proc.ProcError as e:
+            rec.update(rc=-1, out=f"{e.code}: {e.msg}", error=e.code)
+        calls.append(rec)
+        return rec
+
+    first = call(["--version"])
+    if first.get("error") in ("not_found", "start_failed"):
+        return {"calls": calls, "version": "", "started": False, "hint": hint}
+    call(["--help"])
+    budget, left_out = max_verbs, 0
+    for product in CAPTURE_PRODUCTS:
+        top = call([product, "--help"])
+        for v in help_commands(top["out"]) if top["rc"] == 0 else []:
+            if budget <= 0:
+                left_out += 1
+                continue
+            budget -= 1
+            call([product, v, "--help"])
+    m = re.search(r"\d+(?:\.\d+)+", first["out"] or "") if first["rc"] == 0 else None
+    version = m.group(0) if m else "unknown"
+    return {"calls": calls, "version": version, "started": True, "left_out": left_out}

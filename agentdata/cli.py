@@ -75,7 +75,9 @@ def main_pncli() -> None:
     ap = argparse.ArgumentParser(prog="ad-pncli",
         description="ad-pncli jira search --jql '<JQL>' | ad-pncli jira get <KEY> | "
                     "ad-pncli jira comments <KEY> | "
-                    "ad-pncli raw [--body-file page.html] <pncli args...> | ad-pncli where")
+                    "ad-pncli raw [--body-file page.html] <pncli args...> | ad-pncli where | "
+                    "ad-pncli capture-help [--out FILE] (the operator's: every `pncli --help` the PR and "
+                    "page commands need, redacted, in one file to attach)")
     version.add_version(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
     j = sub.add_parser("jira", help="search issues by JQL, or read one issue (pncli's named options are built here)")
@@ -89,6 +91,12 @@ def main_pncli() -> None:
     r.add_argument("--body-arg", default="--body", help="the option the body belongs to (default --body)")
     r.add_argument("pargs", nargs=argparse.REMAINDER); r.add_argument("--raw", action="store_true", dest="raw_out")
     sub.add_parser("where", help="how pncli resolves on this machine (path, npm shim, node entry, version)")
+    ch = sub.add_parser("capture-help", help="the operator's, in their own terminal: run `pncli --help` for bitbucket, "
+                        "confluence and jira and every verb they list, and write the answers, hosts and home redacted, "
+                        "into one file to read and attach (WRAP-D6). Nothing but --help and --version is run")
+    ch.add_argument("--out", default=None, help="the file to write (default: pncli-help-<version>-<yyyymmdd>.txt "
+                                                "beside the config file)")
+    ch.add_argument("--max", type=int, default=40, help="at most this many verb --help calls (default 40)")
     completion.autocomplete(ap)
     a = ap.parse_args()
     from . import confluence, proc     # deferred: only ad-pncli needs them
@@ -101,6 +109,8 @@ def main_pncli() -> None:
                 meta["hint"] = P.install_hint()
             print(toon.encode({"meta": meta, "tried": info["tried"]}))
             sys.exit(0 if meta["ok"] else 1)
+        if a.cmd == "capture-help":
+            sys.exit(_capture_help(a, P))
         if a.cmd == "jira" and a.verb == "get":
             key = a.key or a.target
             if not key:
@@ -154,6 +164,50 @@ def main_pncli() -> None:
         print(toon.encode({"meta": meta})); sys.exit(1)
     except Exception as e:  # noqa: BLE001
         print(error(str(e)[:300], "run the same pncli command with --dry-run --pretty; `ad-pncli where` checks the launcher", "pncli")); sys.exit(1)
+
+
+def _capture_help(a, P) -> int:
+    """`ad-pncli capture-help` (#498): the laptop's pncli help, redacted, in one file the operator attaches."""
+    import time
+    from . import config as C, textio
+    from .fleet import approval
+    if approval.in_fleet():
+        print(toon.encode({"meta": {"ok": False, "source": "ad-pncli capture-help", "refused": "operator_only",
+                                    "error": "capture-help is the operator's: it writes a file for the operator to read and attach",
+                                    "hint": "run `ad-pncli capture-help` in your own terminal, not from a fleet agent"}}))
+        return 2
+    cfg = load_config()
+    got = P.capture_help(max_verbs=max(0, a.max), cfg=cfg)
+    if not got["started"]:
+        first = got["calls"][0]
+        print(error(f"pncli did not start: {first['out']}", got["hint"], "ad-pncli capture-help"))
+        return 1
+    hosts, home = P.redaction_hosts(cfg), os.path.expanduser("~")
+    counts: dict[str, int] = {}
+    blocks = []
+    for c in got["calls"]:
+        text, n = P.redact(c["out"], hosts, home)
+        for k, v in n.items():
+            counts[k] = counts.get(k, 0) + v
+        blocks.append(f"==== {' '.join(c['argv'])} | exit {c['rc']} | {c['ms']} ms\n{text.rstrip()}\n")
+    captured = sum(1 for c in got["calls"] if c["rc"] == 0)
+    failed = len(got["calls"]) - captured
+    redacted = ", ".join(f"{k} x{v}" for k, v in sorted(counts.items())) or "nothing matched"
+    day = time.strftime("%Y%m%d")
+    out = a.out or os.path.join(os.path.dirname(C.path()), f"pncli-help-{got['version']}-{day}.txt")
+    head = [f"# pncli help capture: pncli {got['version']}, {time.strftime('%Y-%m-%d %H:%M')} (ad-pncli capture-help, #498)",
+            "# redacted: the configured Jira, Confluence and Bitbucket hosts as <jira-host>, <confluence-host> and "
+            "<bitbucket-host>; any other http(s) host as <host>; the home directory as <home>",
+            f"# redacted here: {redacted}",
+            f"# calls: {len(got['calls'])}, exit 0: {captured}, failed: {failed}"
+            + (f", verbs left out by --max: {got['left_out']}" if got.get("left_out") else ""),
+            "# read it before you attach it: this repository is public", ""]
+    textio.write_text(out, "\n".join(head) + "\n" + "\n".join(blocks))
+    meta = {"ok": True, "source": "ad-pncli capture-help", "file": C.display_path(out), "captured": captured,
+            "failed": failed, "redacted": redacted, "left_out": got.get("left_out", 0),
+            "next": "read it, then attach it to the issue for `ad-pncli bitbucket pr` (#506)"}
+    print(toon.encode({"meta": meta}))
+    return 0
 
 
 def main_view() -> None:

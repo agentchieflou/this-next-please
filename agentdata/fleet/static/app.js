@@ -1111,18 +1111,28 @@ function drawSessionPill(el, row) {
   // menu has to read as finished with none of them rather than as a row of missing things.
   var sibs = row.siblings || [];
   var sibList = el.querySelector(".sib-list");
-  var sibPattern = sibList.querySelector(".sib-row");
   hide(el.querySelector(".sm-sibs-label"), !sibs.length);
-  while (sibList.children.length > 1) sibList.removeChild(sibList.lastChild);
-  sibs.forEach(function (sib) {
-    var li = sibPattern.cloneNode(true);
-    hide(li, false);
-    var button = li.querySelector(".sib-open");
-    text(button, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
-    attr(button, "title", "the same project, checked out at " + (sib.path || sib.repo));
-    button.addEventListener("click", function () { closeMenu(el); openAgent(sib.repo); });
-    sibList.appendChild(li);
-  });
+  /* Patched, not rebuilt (#514), as the runs list is (#494): this runs on every row pass, and an
+     idle desk is zero DOM mutations. Keyed by the sibling's repo, which a registry name makes unique.
+     The hidden pattern row stays where it is: it has no `data-rowkey`, and `patchList` neither counts,
+     moves nor removes an unkeyed child. The click is bound once, when the row is made, and reads the
+     repo off the row, so it opens the checkout the row is for now, however often it is drawn. */
+  patchList(sibList, sibs, function (sib) { return sib.repo; },
+    function () {
+      var pattern = sibList.querySelector(".sib-row:not([data-rowkey])");
+      var li = /** @type {HTMLElement} */ (pattern.cloneNode(true));
+      hide(li, false);
+      li.querySelector(".sib-open").addEventListener("click", function () {
+        closeMenu(el);
+        openAgent(li.dataset.rowkey);
+      });
+      return li;
+    },
+    function (li, sib) {
+      var button = li.querySelector(".sib-open");
+      text(button, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
+      attr(button, "title", "the same project, checked out at " + (sib.path || sib.repo));
+    });
 }
 
 /* The runs of one session, newest last, as plain rows. A run is a transcript boundary, not a thing
@@ -3284,13 +3294,55 @@ function drawInspector(name) {
     body.appendChild(gap);
   }
 
-  // Open friction, and the models and reports the catalogue knows about.
-  (p.friction || []).forEach(function (f) {
-    var li = document.createElement("p");
-    setClass(li, "frictionrow");
-    text(li, [f.date, f.type, f.title].filter(Boolean).join("  ·  ") + (f.unblock ? "\n" + f.unblock : ""));
-    body.appendChild(li);
-  });
+  // Friction (#499): the server decides what needs you now (open) and what folds under *earlier*;
+  // the page draws it. An older server sends only `friction`, drawn as open. Dismissing a row never
+  // answers its question -- the pane's question card does that -- and the file itself is kept.
+  var frictionOpen = p.friction_open || p.friction || [];
+  var frictionEarlier = p.friction_earlier || [];
+  var dismissFriction = function (payload) {
+    post("friction", payload).then(function (out) {
+      if (out && out.project) desk.projects[name] = out.project;
+      drawInspector(name);
+    });
+  };
+  var frictionRow = function (f) {
+    var li = document.createElement("div");
+    setClass(li, "frictionrow" + (f.blocking === false ? " quiet" : ""));
+    var what = document.createElement("span");
+    text(what, [f.date, f.type, f.title].filter(Boolean).join("  ·  ") + (f.unblock ? "\n" + f.unblock : ""));
+    li.appendChild(what);
+    if (f.asked) {
+      var still = document.createElement("a");
+      setClass(still, "frictionasked");
+      still.href = "#";
+      text(still, "still asked — answer it on the pane");
+      still.addEventListener("click", function (e) { e.preventDefault(); openPane(name); });
+      li.appendChild(still);
+    }
+    if (f.name) {
+      var drop = document.createElement("button");
+      text(drop, "dismiss");
+      attr(drop, "title", "hide this row on the panel; the file is kept and no question is answered");
+      drop.addEventListener("click", function () { dismissFriction({ repo: name, dismiss: [f.name] }); });
+      li.appendChild(drop);
+    }
+    return li;
+  };
+  frictionOpen.forEach(function (f) { body.appendChild(frictionRow(f)); });
+  if (frictionEarlier.length) {
+    var fold = document.createElement("details");
+    setClass(fold, "friction-earlier");
+    var summary = document.createElement("summary");
+    text(summary, "earlier friction (" + frictionEarlier.length + ")");
+    fold.appendChild(summary);
+    var all = document.createElement("button");
+    text(all, "dismiss all");
+    attr(all, "title", "hide every earlier row; the files are kept");
+    all.addEventListener("click", function () { dismissFriction({ repo: name, earlier: true }); });
+    fold.appendChild(all);
+    frictionEarlier.forEach(function (f) { fold.appendChild(frictionRow(f)); });
+    body.appendChild(fold);
+  }
 
   // Where this project lives -- the link rail, so a tab is opened to act and never to check.
   var links = (p.links || []);
