@@ -21,6 +21,7 @@ import json
 import os
 import re
 import threading
+import urllib.request
 
 import pytest
 
@@ -90,8 +91,37 @@ def _looks_on(palette):
             if v["base"] == palette]
 
 
-def _posted_theme(response):
-    return response.request.method == "POST" and response.url.split("?")[0].endswith("/api/theme")
+def _answered(page, body):
+    """Around a pick: wait for the page's `POST /api/theme` with exactly `body` to be answered. Two
+    picks' writes in flight at once may be applied in either order, so a test that reads what was
+    saved serializes its picks on their answers."""
+    def match(r):
+        return (r.request.method == "POST" and r.url.split("?")[0].endswith("/api/theme")
+                and json.loads(r.request.post_data or "{}") == body)
+    return page.expect_response(match, timeout=10000)
+
+
+_PICKERS = """() => {
+    const t = document.getElementById('theme'), s = document.getElementById('skin');
+    const line = document.getElementById('palette-looks');
+    return { theme: t.value, skin: s.value, disabled: t.disabled, looks: line && line.textContent,
+             bg: document.documentElement.style.getPropertyValue('--bg') };
+}"""
+
+
+def _settled(page, **want):
+    """The pickers, the line under the palette and the painted ground, read at once when they are
+    `want`. A `theme` frame the stream read just before the latest write can repaint the page until
+    the frame that write woke (#348) puts it back, so this waits for the state, not one reading."""
+    from playwright.sync_api import TimeoutError as Late
+
+    try:
+        return page.wait_for_function(
+            "(want) => { const s = (" + _PICKERS + ")();"
+            " return Object.keys(want).every(k => s[k] === want[k]) ? s : false; }",
+            arg=want, timeout=10000).json_value()
+    except Late:
+        raise AssertionError(f"never {want}; the page reads {page.evaluate(_PICKERS)}") from None
 
 
 # ------------------------------------------------------------------------------------ the page
@@ -160,6 +190,27 @@ def test_nothing_hidden_is_visible_or_swallows_a_click(fleet_home, tmp_path):
 # ------------------------------------------------------------------------------------ the theme
 
 
+def test_api_themes_says_which_palettes_no_look_is_drawn_on(fleet_home):
+    """#393, without a page: `/api/themes` carries `palette_only` beside what it always carried, and
+    every palette it offers is either drawn by a variant it lists or in `palette_only` with a reason
+    -- the page's one source for saying which, and never both."""
+    server, token, port = _serve()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/themes?t={token}", timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+    assert {"themes", "skins", "current", "palette_only"} <= set(data), sorted(data)
+    assert data["palette_only"] == K.PALETTE_ONLY
+    drawn = {v["base"] for k in data["skins"] for v in k["variants"]}
+    for t in data["themes"]:
+        listed = t["name"] in data["palette_only"]
+        assert (t["name"] in drawn) != listed, t["name"]
+        assert not listed or data["palette_only"][t["name"]].strip(), t["name"]
+
+
 @pytest.mark.browser
 def test_the_pickers_say_what_is_already_worn(fleet_home, tmp_path):
     """#195, ported. The pickers opened reading *system · no skin* over whatever the config said.
@@ -224,14 +275,6 @@ def test_the_palette_picker_says_the_skin_is_driving_it(fleet_home, tmp_path):
 
     _repos(tmp_path, "alpha")
 
-    def says(*words):
-        """Wait until the line under the palette picker holds every one of `words`."""
-        page.wait_for_function("""(words) => {
-            const line = document.getElementById('palette-looks');
-            return !!line && words.every(w => line.textContent.indexOf(w) >= 0);
-        }""", arg=list(words), timeout=10000)
-        return page.eval_on_selector("#palette-looks", "el => el.textContent")
-
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
@@ -240,37 +283,24 @@ def test_the_palette_picker_says_the_skin_is_driving_it(fleet_home, tmp_path):
 
             # Each palette by its title, never its slug; the slug stays the value, and the tooltip
             # (a supplement: it is hover-only) says what is drawn on it.
-            palettes = S.themes()
+            palettes = {t["name"]: t for t in S.themes()}
             offered = page.eval_on_selector_all(
                 "#theme option", "os => os.slice(1).map(o => [o.value, o.textContent, o.title])")
-            assert [o[:2] for o in offered] == [[t["name"], t["title"]] for t in palettes], offered
-            for (name, _, tip), t in zip(offered, palettes):
+            assert [o[:2] for o in offered] == [[n, t["title"]] for n, t in palettes.items()], offered
+            for name, _, tip in offered:
                 looks = _looks_on(name)
                 said = f"drawn by {', '.join(looks)}" if looks else f"palette only: {K.PALETTE_ONLY[name]}"
-                assert tip == f"{t['why']}  ·  {said}", tip
+                assert tip == f"{palettes[name]['why']}  ·  {said}", tip
 
-            # A palette-only palette is chosen like any other: posted, saved, worn, and said.
-            for name, reason in K.PALETTE_ONLY.items():
-                with page.expect_response(_posted_theme, timeout=10000):
-                    page.select_option("#theme", name)
-                says("palette only", reason)
-                assert page.evaluate("() => document.getElementById('theme').disabled") is False
-                assert C.load()["theme"]["default"] == name, "the saved config names that palette"
-                wears = page.evaluate("() => document.documentElement.style.getPropertyValue('--bg')")
-                assert wears == next(t for t in palettes if t["name"] == name)["css"]["--bg"], wears
-
-            # A palette with looks names every one of them.
-            page.select_option("#theme", "dark")
-            assert says("drawn by", "Glass · Smoke") == f"drawn by {', '.join(_looks_on('dark'))}"
-
-            page.select_option("#skin", "voxel:nether")
-            page.wait_for_function(
-                """() => document.getElementById('theme').disabled === true""", timeout=10000)
-            picker = page.evaluate("""() => {
-                const t = document.getElementById('theme'), s = document.getElementById('skin');
-                return { theme: t.value, title: t.title, skin: s.value,
-                         looks: document.getElementById('palette-looks').textContent };
-            }""")
+            with _answered(page, {"skin": "voxel:nether"}):
+                page.select_option("#skin", "voxel:nether")
+                page.wait_for_function(
+                    """() => document.getElementById('theme').disabled === true""", timeout=10000)
+                picker = page.evaluate("""() => {
+                    const t = document.getElementById('theme'), s = document.getElementById('skin');
+                    return { theme: t.value, title: t.title, skin: s.value,
+                             looks: document.getElementById('palette-looks').textContent };
+                }""")
             assert picker["theme"] == "reds", "it shows the ground the skin brought"
             assert "comes from the skin" in picker["title"]
             assert picker["skin"] == "voxel:nether", "and the skin picker sits on the variant"
@@ -278,11 +308,29 @@ def test_the_palette_picker_says_the_skin_is_driving_it(fleet_home, tmp_path):
             nether = f"{voxel['title']} · {voxel['variants']['nether']['title']}"
             assert picker["looks"] == f"from {nether}", "the line names the look the palette is from"
 
-            page.select_option("#skin", "none")
-            page.wait_for_function(
-                """() => document.getElementById('theme').disabled === false""", timeout=10000)
-            reds = _looks_on("reds")
-            assert says("drawn by", *reds) == f"drawn by {', '.join(reds)}", "and hands the line back"
+            with _answered(page, {"skin": "none"}):
+                page.select_option("#skin", "none")
+                page.wait_for_function(
+                    """() => document.getElementById('theme').disabled === false""", timeout=10000)
+            _settled(page, theme="reds", skin="none", disabled=False,
+                     looks=f"drawn by {', '.join(_looks_on('reds'))}")
+
+            # A palette no look is drawn on is chosen like any other: posted, saved, worn, and said.
+            for name, reason in K.PALETTE_ONLY.items():
+                with _answered(page, {"theme": name}):
+                    page.select_option("#theme", name)
+                assert C.load()["theme"]["default"] == name, "the saved config names that palette"
+                said = _settled(page, theme=name, skin="none", disabled=False,
+                                bg=palettes[name]["css"]["--bg"],
+                                looks=f"palette only: the plain page — {reason}")
+                assert "palette only" in said["looks"], said
+
+            # A palette with looks names every one of them.
+            with _answered(page, {"theme": "dark"}):
+                page.select_option("#theme", "dark")
+            said = _settled(page, theme="dark", disabled=False,
+                            looks=f"drawn by {', '.join(_looks_on('dark'))}")
+            assert "Glass · Smoke" in said["looks"], said
             assert not errors, errors
             browser.close()
     finally:
