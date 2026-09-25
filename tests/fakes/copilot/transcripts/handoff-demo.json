@@ -35,7 +35,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Read the brief and the two files I was given.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }
@@ -54,7 +54,7 @@
         "type": "assistant.message",
         "data": {
           "content": "One question I cannot answer myself, and one thing I assumed and carried on with.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }
@@ -82,7 +82,7 @@
         "type": "assistant.message",
         "data": {
           "content": "UAT it is. Editing the two files I was given and nothing else.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }

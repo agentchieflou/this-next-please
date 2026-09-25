@@ -164,7 +164,8 @@ function applyTheme(cssVars, themeName) {
   var root = document.documentElement;
   var tokens = ["--bg", "--text", "--panel", "--line", "--select", "--muted", "--accent",
                 "--focus", "--running", "--waiting", "--human", "--done", "--idle",
-                "--on-running", "--on-waiting", "--on-human", "--on-done", "--on-idle"];
+                "--on-running", "--on-waiting", "--on-human", "--on-done", "--on-idle",
+                "--running-text", "--waiting-text", "--human-text", "--done-text", "--idle-text"];
   if (cssVars && themeName && themeName !== "none") {
     // Written only where it differs: every refresh applies the theme again, and an idle desk is
     // zero DOM mutations (the render contract) -- a write of the same value is still a mutation,
@@ -248,15 +249,24 @@ function settle(mark) {
    the desk and /settings with `data-measure="loads"` on <html>, and each such document posts ONE
    record of its own load as it goes (`pagehide`), which `ad-fleet engines` prints as the `loads`
    table. With the attribute absent -- the default, and always on /probe -- nothing here registers,
-   observes or touches storage. Everything is read, nothing is written to the page: the paint and
-   long-task times come from PerformanceObserver, and the ink's first frame from the counter the
-   layer already keeps (`Ink.inspect().layer.renders`), because no entry type sees a WebGL frame.
+   observes or touches storage. Everything is read, nothing is written to the page: the paint time
+   comes from the performance timeline and the long tasks from PerformanceObserver, and the ink's
+   first frame from the counter the layer already keeps (`Ink.inspect().layer.renders`), because no
+   entry type sees a WebGL frame.
 
    `from` is the note /settings leaves in sessionStorage as it goes: every page is served
    `Referrer-Policy: no-referrer` and a navigation entry reads `navigate` both for a cold open and
    for settings -> desk, so the page says where it came from. Every read is wrapped: a page that
-   cannot time itself still works. */
-var LOAD = { on: false, page: null, settled: "" };
+   cannot time itself still works.
+
+   A close does not always run `pagehide` (#481). Chrome gives a closing page's unload handlers
+   500 ms (`kUnloadTimeout`, render_frame_host_impl.cc) and closes it without them after that, so a
+   page still busy when it is closed -- the slow load this table exists to see -- would post
+   nothing. Where the engine has `fetchLater` (Chromium 135+), the record is also queued with it,
+   queued again each time a measurement lands, and cancelled once pagehide's beacon is on its way;
+   the browser sends a copy still queued when the document goes. One record either way.
+   `LOAD.queued` is that copy's body, "" where there is none. */
+var LOAD = { on: false, page: null, settled: "", queued: "" };
 
 (function measureLoad() {
   try {
@@ -276,27 +286,51 @@ var LOAD = { on: false, page: null, settled: "" };
     } catch (e) { /* no storage: a cold open, as far as the table can tell */ }
   }
 
+  var sent = false;
+  var later = null;                      // the AbortController of the copy queued with fetchLater
   function ms(n) { return Math.round(n * 10) / 10; }
   function observe(type, each) {
     try {
       var types = PerformanceObserver.supportedEntryTypes || [];
-      if (types.indexOf(type) < 0) return false;
-      new PerformanceObserver(function (list) { list.getEntries().forEach(each); })
-        .observe({ type: type, buffered: true });
-      return true;
-    } catch (e) { return false; }
+      if (types.indexOf(type) < 0) return null;
+      var seen = new PerformanceObserver(function (list) { list.getEntries().forEach(each); });
+      seen.observe({ type: type, buffered: true });
+      return seen;
+    } catch (e) { return null; }
   }
-  observe("paint", function (entry) {
-    if (entry.name === "first-paint") rec.first_paint_ms = ms(entry.startTime);
-  });
+  function isFleet(entry) {
+    try { return new URL(entry.name).pathname === "/api/fleet"; } catch (x) { return false; }
+  }
+  // A cue to queue the record again, no more: the paint is read from the timeline as the record is
+  // written, so one the browser has reported is in it before this callback has had its turn.
+  observe("paint", function (entry) { if (entry.name === "first-paint") queue(); });
   var longest = 0;
-  var tasks = observe("longtask", function (entry) { longest = Math.max(longest, entry.duration); });
+  function task(entry) { longest = Math.max(longest, entry.duration); }
+  var tasks = observe("longtask", function (entry) {
+    var was = longest;
+    task(entry);
+    if (longest > was) queue();
+  });
+  var fleetSeen = !desk;
+  if (desk) observe("resource", function (entry) {
+    if (!fleetSeen && isFleet(entry)) { fleetSeen = true; queue(); }
+  });
   var skinFirst = null;
   try {
     requestAnimationFrame(function () {
       try { skinFirst = document.body.dataset.skin || ""; } catch (e) { skinFirst = ""; }
+      queue();
     });
   } catch (e) { /* no frames, no first skin */ }
+  // The desk and /settings say they have settled by setting `LOAD.settled`: queue again then.
+  var settled = LOAD.settled;
+  try {
+    Object.defineProperty(LOAD, "settled", {
+      enumerable: true,
+      get: function () { return settled; },
+      set: function (value) { settled = value; queue(); }
+    });
+  } catch (e) { /* a plain field: the other measurements still queue it again */ }
 
   /* The ink's first frame: read-only, each frame, until the layer has drawn once. It stops, leaving
      the field out, when the verdict is off or there is no layer, after 10 s, or at pagehide. It
@@ -321,6 +355,7 @@ var LOAD = { on: false, page: null, settled: "" };
         if (seen.layer.renders >= 1) {
           rec.ink_first_frame_ms = ms(performance.now());
           inkDone = true;
+          queue();
           return;
         }
       }
@@ -329,27 +364,58 @@ var LOAD = { on: false, page: null, settled: "" };
   }
   lookForInk();
 
-  var sent = false;
+  /** The record as it stands now, as the body both senders post. */
+  function record() {
+    rec.shell = PARAMS.get("shell") || PARAMS.get("w") || "browser";
+    var nav = /** @type {PerformanceNavigationTiming} */ (performance.getEntriesByType("navigation")[0]);
+    rec.how = nav ? nav.type : "";
+    rec.origin_ms = ms(performance.timeOrigin);
+    // Chromium reports a first paint only once its frame has been presented, which under load is
+    // hundreds of ms after the frame itself; a page gone before then has none to send.
+    var paint = performance.getEntriesByType("paint").filter(function (e) {
+      return e.name === "first-paint";
+    })[0];
+    if (paint) rec.first_paint_ms = ms(paint.startTime);
+    if (tasks) {
+      tasks.takeRecords().forEach(task);   // timed by the browser, not yet handed to the callback
+      rec.longest_task_ms = ms(longest);
+    }
+    if (desk) {
+      var fleet = performance.getEntriesByType("resource").filter(isFleet)[0];
+      if (fleet) rec.fleet_ms = ms(/** @type {PerformanceResourceTiming} */ (fleet).responseEnd);
+    }
+    rec.skin_first = skinFirst === null ? "" : skinFirst;
+    rec.skin_settled = LOAD.settled || "";
+    rec.ua = String(navigator.userAgent || "").slice(0, 200);
+    return JSON.stringify(rec);
+  }
+
+  /** Queue the record as it stands with fetchLater, and cancel the copy queued before it. */
+  function queue() {
+    if (sent || typeof window["fetchLater"] !== "function") return;
+    try {
+      var body = record();
+      var next = new AbortController();
+      window["fetchLater"](q("/api/load"), { method: "POST", body: body, signal: next.signal });
+      if (later) later.abort();
+      later = next;
+      LOAD.queued = body;
+    } catch (e) { /* refused (its quota, a permissions policy): the copy already queued stands */ }
+  }
+
   window.addEventListener("pagehide", function () {
     inkDone = true;
     if (sent) return;
     sent = true;
     try {
-      rec.shell = PARAMS.get("shell") || PARAMS.get("w") || "browser";
-      var nav = /** @type {PerformanceNavigationTiming} */ (performance.getEntriesByType("navigation")[0]);
-      rec.how = nav ? nav.type : "";
-      rec.origin_ms = ms(performance.timeOrigin);
-      if (tasks) rec.longest_task_ms = ms(longest);
-      if (desk) {
-        var fleet = performance.getEntriesByType("resource").filter(function (e) {
-          try { return new URL(e.name).pathname === "/api/fleet"; } catch (x) { return false; }
-        })[0];
-        if (fleet) rec.fleet_ms = ms(/** @type {PerformanceResourceTiming} */ (fleet).responseEnd);
+      var body = record();
+      // The beacon on its way, the queued copy is cancelled and never sent: one record, not two.
+      if (navigator.sendBeacon(q("/api/load"), new Blob([body], { type: "text/plain" })) && later) {
+        later.abort();
+        later = null;
+        LOAD.queued = "";
       }
-      rec.skin_first = skinFirst === null ? "" : skinFirst;
-      rec.skin_settled = LOAD.settled || "";
-      rec.ua = String(navigator.userAgent || "").slice(0, 200);
-      navigator.sendBeacon(q("/api/load"), new Blob([JSON.stringify(rec)], { type: "text/plain" }));
     } catch (e) { /* a load that cannot be sent is a load not counted, never a broken page */ }
   });
+  queue();
 })();

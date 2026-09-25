@@ -83,7 +83,7 @@
         "type": "assistant.message",
         "data": {
           "content": "The review found nothing; the docs sub-agent could not write its page.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }

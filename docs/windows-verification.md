@@ -1104,7 +1104,7 @@ two embedders, at the width the operator actually works at.
 | K3 | Click a band, then press `Esc` | the two swap, and `Esc` returns to the one that was open | _not yet measured_ | — |
 | K4 | Press `r` on a band and on the open tile | both re-read; no premium request is spent (`ad-fleet status` is unchanged) | _not yet measured_ | — |
 | K5 | Press `r` twice inside two seconds | the second is refused with `refresh_busy`, in the footer | _not yet measured_ | — |
-| K6 | Press `m` on a band, set a model, press save | `~/.agentdata/config.json` gains `fleet.models.<repo>`; the settings page reads it back | _not yet measured_ | — |
+| K6 | Press `m` on a band, press a model pill | `~/.agentdata/config.json` gains `fleet.models.<repo>`; the settings page reads it back | _not yet measured_ | — |
 | K7 | `1`–`9` on the bands | the digit opens the band carrying that number | _not yet measured_ | — |
 | K8 | Narrow the window under 900px | the column lies down into a strip above the tile | _not yet measured_ | — |
 | K9 | Press `f` with two agents needing a person | the quiet bands fold to slivers; none of them leaves | _not yet measured_ | — |

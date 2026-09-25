@@ -367,8 +367,10 @@ def test_the_rule_the_skills_and_the_stub_say_the_same_thing():
 def test_the_cell_reads_the_count_is_amber_and_the_click_opens_the_pane(fleet_home, tmp_path):
     """Acceptance criterion. On the rendered page the git cell reads `7 branches · 3 never reached
     main` and is amber; the click opens the inspector on a pane that lists the three unmerged first
-    and says which two carry the ticket. The amber is measured against `--waiting` resolved through
-    the same probe the scrollbar test uses, so the comparison is between two computed colours."""
+    and says which two carry the ticket. The amber border is measured against `--waiting` and the
+    cell's word against `--waiting-text`, the amber a word is written in (#328, decision 12), each
+    resolved through the same probe the scrollbar test uses, so every comparison is between two
+    computed colours."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repo(tmp_path)
     server, token, port = _serve()
@@ -392,11 +394,13 @@ def test_the_cell_reads_the_count_is_amber_and_the_click_opens_the_pane(fleet_ho
                 probe.style.color = 'var(--waiting)';
                 document.body.appendChild(probe);
                 const waiting = getComputedStyle(probe).color;
+                probe.style.color = 'var(--waiting-text)';
+                const waitingText = getComputedStyle(probe).color;
                 probe.remove();
                 const c = getComputedStyle(document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]'));
-                return { waiting, border: c.borderTopColor, color: c.color, warn: document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]').classList.contains('warn') };
+                return { waiting, waitingText, border: c.borderTopColor, color: c.color, warn: document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]').classList.contains('warn') };
             }""")
-            assert got["warn"] and got["border"] == got["waiting"] and got["color"] == got["waiting"], got
+            assert got["warn"] and got["border"] == got["waiting"] and got["color"] == got["waitingText"], got
 
             cell.click()
             page.wait_for_selector("#inspector:not([hidden]) .branches .branchrow", timeout=10000)

@@ -571,7 +571,8 @@ def test_the_themes_come_from_theme_py_and_satisfy_contrast():
     assert plan_tokens == {
         "--bg", "--text", "--panel", "--line", "--select", "--muted",
         "--accent", "--focus", "--running", "--waiting", "--human", "--done", "--idle",
-        "--on-running", "--on-waiting", "--on-human", "--on-done", "--on-idle"
+        "--on-running", "--on-waiting", "--on-human", "--on-done", "--on-idle",
+        "--running-text", "--waiting-text", "--human-text", "--done-text", "--idle-text"
     }
 
     for theme in found:

@@ -33,7 +33,7 @@ class Fold:
 
     __slots__ = ("phase", "ticket", "session", "premium", "turns", "last_text", "denied",
                  "frictions", "questions", "approvals", "errors", "turn_open", "seen", "last_ts",
-                 "asked", "files", "from_state", "subagents")
+                 "asked", "files", "from_state", "subagents", "launch", "replied")
 
     def __init__(self) -> None:
         self.phase = self.ticket = self.session = self.last_text = ""
@@ -55,6 +55,11 @@ class Fold:
         # The sub-agents started and not yet ended, id -> agent name (#402). From the SDK docs, not
         # measured; a count only, which no state and no notification reads.
         self.subagents: dict[str, str] = {}
+        # The newest run's `--model`/`--effort` (#492 records them on `started`) and whether it has
+        # replied: a run that ended before its first reply, launched with an effort, may have been
+        # refused that pair by the CLI (#493).
+        self.launch: dict = {}
+        self.replied = False
 
     def add(self, ev: dict) -> "Fold":
         kind, data = ev.get("kind"), ev.get("data") or {}
@@ -77,6 +82,9 @@ class Fold:
         if kind in ("started", "exited", "error"):
             # A new run, or a process that ended: no sub-agent of it is still running (#402).
             self.subagents = {}
+        if kind == "started":
+            self.launch = {"model": str(data.get("model") or ""), "effort": str(data.get("effort") or "")}
+            self.replied = False
         if kind == "turn_started":
             self.turn_open = True
             # A new turn supersedes what the last one was refused, but not what it asked: a
@@ -87,6 +95,7 @@ class Fold:
             self.turns += 1
         elif kind == "assistant_text":
             self.last_text = str(data.get("text") or "").strip()
+            self.replied = True
         elif kind == "denied":
             self.denied.append(ev)
         elif kind == "friction":
@@ -197,6 +206,12 @@ def classify(f: Fold, *, live: bool = False) -> dict:
     elif f.errors:
         code = str((f.errors[-1].get("data") or {}).get("exit_code", "non-zero exit"))
         state, why = "error", f"the last turn exited {code}"
+        if f.launch.get("effort") and not f.replied:
+            # It never said a word, and it was launched with an effort: the CLI may have refused
+            # that pair (#493, decision 15). Name the effort, and where to change it.
+            why += (f" · ran with effort {f.launch['effort']} on "
+                    f"{f.launch.get('model') or 'the CLI’s own model'} — if the CLI refused that "
+                    "pair, pick another effort (m)")
     elif f.approvals:
         state, why = "waiting_approval", "a write is waiting for one click"
     elif blocking_frictions(f):

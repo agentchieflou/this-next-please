@@ -3,7 +3,9 @@
 * The server serves `data-measure="loads"` on `<html>` for `/` and `/settings` only while
   `fleet.loads.enabled` is on, never on `/probe`, and the flag is in the gzip entry's key.
 * `common.js` reads that attribute at boot; with it absent nothing registers, observes or touches
-  storage. With it on, one `pagehide` beacon per document to `/api/load`.
+  storage. With it on, one record per document to `/api/load`: the `pagehide` beacon, or, when
+  Chrome closes a busy page without running `pagehide`, the copy it keeps queued with `fetchLater`
+  (#481).
 * /settings leaves `fleet.load.from` in sessionStorage as it goes, so the desk it opens files its
   record as `from=settings`; a cold open is `from=""`.
 * The ink's first frame is read from the layer's own counter, never from an ink-module change.
@@ -16,6 +18,7 @@ from __future__ import annotations
 import gzip
 import json
 import re
+import threading
 import time
 import urllib.request
 
@@ -140,6 +143,38 @@ def _settled(page, skin=SKIN):
     page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 
 
+def _recorded(page, *keys):
+    """The page's own record holds `keys` (#481). `_settled` is not enough: Chromium hands a page its
+    first paint only once that frame has been presented, which under load comes hundreds of ms after
+    the frame and after `_settled`, and a page that goes before then has no `first_paint_ms` to send.
+    `LOAD.queued` is the copy of the record the page keeps queued with `fetchLater`."""
+    page.wait_for_function("keys => { const r = JSON.parse(LOAD.queued || '{}');"
+                           " return keys.every(k => k in r); }", arg=list(keys), timeout=15000)
+
+
+def _close_blocked(page, monkeypatch):
+    """Close `page` while its main thread waits on a request the server holds: Chrome gives a closing
+    page's unload handlers 500 ms and closes it without them after that, so `pagehide` never runs.
+    The hold is a condition, not a clock -- the page is known to be blocked before the close."""
+    held, release = threading.Event(), threading.Event()
+    act = S.act
+
+    def holding(what, body):
+        if what != "hold":
+            return act(what, body)
+        held.set()
+        release.wait(10)
+        return {}
+    monkeypatch.setattr(S, "act", holding)
+    page.evaluate("() => { setTimeout(() => { const x = new XMLHttpRequest();"
+                  " x.open('POST', q('/api/hold'), false); try { x.send('{}'); } catch (e) {} }); }")
+    try:
+        assert held.wait(10), "the page never asked for the held request"
+        page.close()
+    finally:
+        release.set()
+
+
 def _desk(page, port, token, extra=""):
     page.goto(f"http://127.0.0.1:{port}/?t={token}{extra}", wait_until="domcontentloaded")
     _settled(page)
@@ -185,7 +220,8 @@ def test_nothing_is_measured_unless_measuring_is_on(fleet_home, tmp_path, browse
         _stop(server)
 
 
-def test_every_page_load_leaves_one_record_when_it_goes(fleet_home, tmp_path, browser, posts):
+def test_every_page_load_leaves_one_record_when_it_goes(fleet_home, tmp_path, browser, posts,
+                                                        monkeypatch):
     _desk_of(tmp_path)
     _switch(True)
     server, token, port = _serve()
@@ -193,6 +229,7 @@ def test_every_page_load_leaves_one_record_when_it_goes(fleet_home, tmp_path, br
     try:
         page = ctx.new_page()
         _desk(page, port, token)
+        _recorded(page, "first_paint_ms", "fleet_ms")
         assert page.evaluate("() => document.documentElement.getAttribute('data-measure')") == "loads"
         assert posts == []                      # nothing is sent before the page goes
         page.close()
@@ -200,7 +237,10 @@ def test_every_page_load_leaves_one_record_when_it_goes(fleet_home, tmp_path, br
         page = ctx.new_page()
         page.goto(f"http://127.0.0.1:{port}/settings?t={token}", wait_until="domcontentloaded")
         _settled(page)
-        page.close()
+        _recorded(page, "first_paint_ms")
+        # A page still busy when it is closed goes without its pagehide, and is recorded all the
+        # same: the browser sends the copy it had queued (#481).
+        _close_blocked(page, monkeypatch)
         kept = _records(2)
         # The control that closes the window on a late second beacon from either document.
         _control(ctx, posts, port, token)

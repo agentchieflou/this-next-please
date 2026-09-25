@@ -11,7 +11,7 @@
   <h1>settings</h1>
   <a id="backbtn" class="linkbtn" title="back to the desk">&larr; the desk</a>
   <span class="spacer"></span>
-  <span id="saved" class="saved" hidden>saved</span>
+  <span id="saved" class="saved" role="status" hidden>saved</span>
 </header>
 
 <main class="settings">
@@ -43,21 +43,22 @@
   <!-- ------------------------------------------------------------------ models -->
   <section class="setblock">
     <h2>Model per agent</h2>
-    <p class="why">What each agent is launched with. Left empty, no <code>--model</code> flag is
-      passed at all and the Copilot CLI picks for itself &mdash; which is the only no-model
-      behaviour anyone has measured, so it is the one this uses. A change takes effect on the
-      agent's <em>next</em> turn: the command line is fixed when the process starts.</p>
+    <p class="why">What each agent is launched with, pressed rather than typed. On <strong>CLI
+      default</strong>, no <code>--model</code> flag is passed at all and the Copilot CLI picks for
+      itself &mdash; which is the only no-model behaviour anyone has measured, so it is the one this
+      uses. A change takes effect on the agent's <em>next</em> turn: the command line is fixed when
+      the process starts.</p>
     <div class="setrow">
-      <label for="fleetmodel">every agent</label>
-      <input id="fleetmodel" type="text" list="modelnames" placeholder="the CLI chooses"
-             title="fleet-wide default model; empty means pass no --model flag">
-      <input id="fleeteffort" type="text" list="effortnames" placeholder="effort"
-             title="fleet-wide default effort; empty means pass no --effort flag">
+      <span class="setlabel" id="fleetmodel-label">every agent</span>
+      <div id="fleetpicker"></div>
     </div>
-    <datalist id="modelnames"></datalist>
-    <datalist id="effortnames"></datalist>
+    <div class="modelsource">
+      <p class="why" id="modellist"></p>
+      <button type="button" id="modelrefresh"
+              title="ask the installed Copilot CLI for the models it takes, again">refresh the list</button>
+    </div>
     <table class="settable" id="modeltable">
-      <thead><tr><th>repository</th><th>model</th><th>effort</th><th>resolved from</th><th>last turn actually used</th></tr></thead>
+      <thead><tr><th>repository</th><th>model</th><th>resolved from</th><th>last turn actually used</th></tr></thead>
       <tbody id="modelrows"></tbody>
     </table>
     <p class="why" id="modelnote"></p>

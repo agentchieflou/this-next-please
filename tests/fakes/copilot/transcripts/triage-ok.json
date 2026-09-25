@@ -37,7 +37,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Reading the ticket.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }
@@ -61,7 +61,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Six measures are unused. Recording the artefact.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }
@@ -82,7 +82,7 @@
         "type": "assistant.message",
         "data": {
           "content": "Done. Nothing needs you.",
-          "model": "claude-haiku-4.5",
+          "model": "{model}",
           "toolRequests": []
         }
       }

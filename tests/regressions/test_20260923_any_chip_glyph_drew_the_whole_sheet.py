@@ -43,7 +43,9 @@ def _named(skin, sheet):
 
 
 def _glyphs():
-    """(skin, sprite, size, the sprite's own colours) for every sprite a skin names."""
+    """(skin, sprite, size, the sprite's own colours, its own [width, height]) for every sprite a
+    skin names. `size` is the sheet's root, the box a fragment is drawn in: a sprite smaller than it
+    (#380: produce, a hen, a crow) sits at its top left and leaves the rest of the box empty."""
     out = []
     for skin in sorted(os.listdir(SKINS_DIR)):
         css_path = os.path.join(SKINS_DIR, skin, "skin.css")
@@ -51,11 +53,12 @@ def _glyphs():
         if not (os.path.isfile(css_path) and os.path.isfile(sheet_path)):
             continue
         sheet = open(sheet_path, encoding="utf-8").read()
+        size = int(re.search(r'<svg\b[^>]*\bwidth="(\d+)"', sheet).group(1))
         for sprite in _named(skin, sheet):
             head, body = re.search(r'<svg id="%s"([^>]*)>(.*?)</svg>' % sprite, sheet, re.S).groups()
-            size = int(re.search(r'width="(\d+)"', head).group(1))
+            own = [int(re.search(r'\b%s="(\d+)"' % k, head).group(1)) for k in ("width", "height")]
             colours = sorted({c.upper() for c in re.findall(r'fill="(#[0-9A-Fa-f]{6})"', body)})
-            out.append((skin, sprite, size, colours))
+            out.append((skin, sprite, size, colours, own))
     return out
 
 
@@ -86,12 +89,16 @@ def test_a_chip_glyph_is_its_one_sprite(fleet_home, tmp_path):
                 const g = c.getContext('2d');
                 g.imageSmoothingEnabled = false;
                 g.drawImage(img, 0, 0, size, size);
-                const d = g.getImageData(0, 0, size, size).data, seen = new Set();
+                const d = g.getImageData(0, 0, size, size).data, seen = new Set(), extent = [0, 0];
                 for (let i = 0; i < d.length; i += 4) {
-                  if (d[i + 3]) seen.add('#' + [d[i], d[i + 1], d[i + 2]].map(v => v.toString(16)
+                  if (!d[i + 3]) continue;
+                  seen.add('#' + [d[i], d[i + 1], d[i + 2]].map(v => v.toString(16)
                     .padStart(2, '0')).join('').toUpperCase() + (d[i + 3] < 255 ? '~' : ''));
+                  const p = i / 4;
+                  extent[0] = Math.max(extent[0], p % size + 1);
+                  extent[1] = Math.max(extent[1], Math.floor(p / size) + 1);
                 }
-                return { colours: [...seen].sort(), size: [img.naturalWidth, img.naturalHeight] };
+                return { colours: [...seen].sort(), size: [img.naturalWidth, img.naturalHeight], extent };
               };
               const out = {};
               for (const [skin, sprite, size] of glyphs) {
@@ -99,13 +106,15 @@ def test_a_chip_glyph_is_its_one_sprite(fleet_home, tmp_path):
                 out[skin + '#'] = await read(skin, '', size);
               }
               return out;
-            }""", [[s, n, z] for s, n, z, _ in GLYPHS])
+            }""", [[s, n, z] for s, n, z, _, _ in GLYPHS])
             assert not errors, errors
             browser.close()
     finally:
         _stop(server)
-    for skin, sprite, size, colours in GLYPHS:
+    for skin, sprite, size, colours, own in GLYPHS:
         got = drawn[f"{skin}#{sprite}"]
         assert got["colours"] == colours, f"{skin}: sprites.svg#{sprite} drew {got['colours']}, not {colours}"
         assert got["size"] == [size, size], (skin, sprite, got["size"])
+        assert all(e <= o for e, o in zip(got["extent"], own)), \
+            f"{skin}: sprites.svg#{sprite} drew out to {got['extent']}, past its own {own}"
         assert drawn[f"{skin}#"]["colours"] == [], f"{skin}: the sheet with no fragment drew something"
