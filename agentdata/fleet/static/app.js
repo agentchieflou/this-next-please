@@ -1908,6 +1908,8 @@ document.addEventListener("keydown", function (e) {
    exactly what the operator reported. */
 var setLink = /** @type {HTMLAnchorElement} */ (document.getElementById("setbtn"));
 if (setLink) setLink.href = pageUrl("/settings");
+var mapLink = /** @type {HTMLAnchorElement} */ (document.getElementById("mapbtn"));
+if (mapLink) mapLink.href = pageUrl("/map");       // #407: the map, in the window the desk is in
 
 refresh().then(function () {
   LOAD.settled = document.body.dataset.skin || "";   // the skin the first refresh settled on (#351)
@@ -5501,6 +5503,7 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "u") { undoWidths(); return; }
   if (e.key === "i") { section("unsorted"); return; }
   if (e.key === "?") { popover("keymap"); return; }
+  if (e.key === "g") { location.href = pageUrl("/map"); return; }   // #407
   if (e.key === "/") { e.preventDefault(); document.getElementById("find").focus(); }
 });
 

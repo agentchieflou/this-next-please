@@ -62,7 +62,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 
 | Component | Parts, in DOM order | Drawn by | Styled in | States | Keys | Tested by |
 | --- | --- | --- | --- | --- | --- | --- |
-| toolbar | brand, live dot, `widths` group (the presets), `see` group, settings link, `alerts` group | — (static) | `.toolbar` | — | — | `test_fleet_desk_toolbar.py` |
+| toolbar | brand, live dot, `widths` group (the presets), `see` group, map link, settings link, `alerts` group | — (static) | `.toolbar` | — | `g` | `test_fleet_desk_toolbar.py` |
 | presets | *one*, *all*, *needs me*: one segmented control, three presses, each one write of this window's widths | — (static); `applyPreset` on the press | `.presets` | — (presses, not modes) | `1`, `=`, `f` | `test_fleet_gutters.py`, `test_fleet_column.py` |
 | away strip | title, one line per repo, dismiss | `checkAway` | `.away-strip` | — | — | `test_fleet_desk_sessions_b.py` |
 | renew strip | the desk's own line, sentence, preview, then one row per stale agent (repo, verdict, why), renew, cancel | `drawRenewStrip`, `drawRenewPlan` | `.renew-strip`, `.renew-row` | hidden when no session is stale; `verdict-now`, `verdict-at-turn-end`, `verdict-skipped` | `Esc` | `test_fleet_renew.py` |
