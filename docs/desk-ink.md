@@ -114,7 +114,7 @@ page does not have.
 Ink.setSkin({
   name: "notebook",
   paper: "--bg",          // optional: a colour, or a custom property, drawn behind the marks
-  hand: true,             // optional: the small lit pencil that travels (default true)
+  hand: true,             // optional: true, false or 'chalk': the small lit hand that travels (default true)
   speed: 1,               // optional: the pen's speed, 0.25x to 4x (default 1)
   marks: [
     { selector: ".tile.needs-human .repo", tool: "highlighter", shape: "lines" },
@@ -219,6 +219,15 @@ shader.
 | `marker` | 4.6 | felt: bleeds outward the longer it has been down, and pools where the nib stopped | `--human` | a strike |
 | `highlighter` | 18 | ragged ends and streaks, **multiplied** into a light paper and **screened** onto a dark one (a translucent swipe where the skin has no paper) | `--waiting` | a strike along each swipe |
 | `eraser` | 14 | a faint scuff where it passed | the pencil's | — |
+
+**A hand is tinted by its ink.** The hand that travels a stroke is a low-poly model of its tool: the lit pencil
+(turned over to its pink end for the eraser), the pen, the marker, the highlighter. Its body is coloured by the
+tool's own ink at paint time, like the stroke. A table's `hand` is `true` (these), `false` (no hand) or `'chalk'`
+(#387): a short worn stick of chalk in **every** hand, the pencil's, the pen's and the eraser's (flipped, as the
+pencil is), coloured by the pencil's ink (`--ink-pencil`) and never by a hex, so a chalkboard's erasing never brings
+the lit pencil back. Anything else is refused, naming `hand`. A new table's hand is taken up at a lane's next stroke.
+`Ink.inspect().layer.handModel` is the model of the last hand shown (`'chalk'`, `'pencil'`, `'pen:pen'`,
+`'eraser'`, ...), or `''` before one has been.
 
 **A palette colours the inks, and a skin chooses the paper.** Colours are read from the page's custom properties at
 paint time, on `body`, so a skin can override `--ink-pen` and a palette change repaints them. They are never carried
@@ -623,8 +632,8 @@ bound, because it renders in software).
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (42,847 bytes gzipped, LF, #386) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
-| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385, 42,557 B at #370 (the effects seam), 42,847 B at #386 (`ring` and `cross`). Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
+| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (43,171 bytes gzipped, LF, #387) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
+| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385, 42,557 B at #370 (the effects seam), 42,847 B at #386 (`ring` and `cross`), 43,171 B at #387 (the chalk hand). Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
 | `FX_BUDGET` | `fx.js`, lazily fetched, measured the same way, under 8 KiB (8,192 B): 1,089 B at #370, the seam alone. Every later effects card (#372, #374-#376) writes `fx.js` only, under it, and none raises `INK_BUDGET` | `test_fleet_ink.py` |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
@@ -660,7 +669,10 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phas
 
 * **Payload:** three.js is fetched from the vendored copy with the token, once, and only when the gate is on and a
   table is set. There is one canvas.
-* **Surface:** `window.Ink` is the whole surface, and a table it cannot draw is refused, naming the row.
+* **Surface:** `window.Ink` is the whole surface, and a table it cannot draw is refused, naming the row (or
+  `hand`).
+* **The hand:** `hand: 'chalk'` is a stick of chalk while a pencil and a pen draw and while the eraser takes the
+  pencil up; `hand: true` is the pencil, the pen and the eraser end as before; no hand under reduced motion.
 * **Marks:** a mark is drawn when its class appears, and erased or struck when it goes.
 * **Lanes:** two panes draw at once, and one pane's marks never interleave.
 * **Following:** marks follow a gutter drag in the frame that moves the panes, with no DOM write from the layer, and

@@ -212,11 +212,16 @@ function normalise(table) {
       tools[tool][k] = v;
     }
   }
+  // The hand (#387): on, off, or a stick of chalk in every hand, the eraser's included.
+  const hand = table.hand === undefined || table.hand;
+  if (hand !== true && hand !== false && hand !== "chalk") {
+    throw new TypeError("ink: `hand` is true, false or 'chalk', not " + JSON.stringify(hand));
+  }
   const speed = Number.isFinite(table.speed) ? Math.min(SPEED[1], Math.max(SPEED[0], table.speed)) : 1;
   return {
     name: String(table.name || "unnamed"),
     paper: typeof table.paper === "string" ? table.paper : "",
-    hand: table.hand !== false,
+    hand,
     speed,
     tools,
     // The page's own trace rows (#257) follow the table, unless the skin plots the hour itself.
