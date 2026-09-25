@@ -75,8 +75,11 @@ def test_a_desk_answer_does_not_wait_for_the_process_listing(fleet_home, tmp_pat
 
 def test_an_explicit_adopt_still_waits_for_a_current_listing(slow_listing):
     release, started = slow_listing
-    threading.Timer(0.3, release.set).start()
+    # The clock starts before the timer (#482). `Timer.start()` returns once the timer's thread
+    # runs, so its 0.3 s is already counting. Read after it, t0 lost however long this thread took
+    # to be scheduled again, 53-145 ms at a load average of 20-34, and a real wait measured short.
     t0 = time.monotonic()
+    threading.Timer(0.3, release.set).start()
     rows = A.agent_processes(max_age=0)
     assert time.monotonic() - t0 >= 0.25, "a refusal has to be current, so this one waits"
     assert rows and rows[0]["pid"] == 4242
