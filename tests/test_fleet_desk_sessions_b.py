@@ -363,29 +363,30 @@ def test_two_named_windows_keep_different_widths_across_restart(fleet_home, tmp_
     p1 = s1.server_address[1]
 
     wide = "() => document.querySelectorAll('#grid .tile.is-solo').length"
-    with sync_playwright() as p:
-        # Window 'main': every agent an even share.
-        b1, page_main, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=main")
-        assert not errs, errs
-        page_main.locator("#preset-all").click()
-        page_main.wait_for_function(f"() => ({wide})() === 2", timeout=8000)
-        # Painted before it is written (#219): the record, not the pixels, is waited on.
-        deadline = time.monotonic() + 10
-        while not (S.desk_state()["windows"].get("main") or {}).get("widths"):
-            assert time.monotonic() < deadline, "the widths never reached the server"
-            time.sleep(0.05)
-        b1.close()
+    try:
+        with sync_playwright() as p:
+            # Window 'main': every agent an even share.
+            b1, page_main, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=main")
+            assert not errs, errs
+            page_main.locator("#preset-all").click()
+            page_main.wait_for_function(f"() => ({wide})() === 2", timeout=8000)
+            # Painted before it is written (#219): the record, not the pixels, is waited on.
+            deadline = time.monotonic() + 10
+            while not (S.desk_state()["windows"].get("main") or {}).get("widths"):
+                assert time.monotonic() < deadline, "the widths never reached the server"
+                time.sleep(0.05)
+            b1.close()
 
-        # Window 'left': never given widths, so one pane is open and the other a rail.
-        b2, page_left, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=left")
-        assert not errs, errs
-        page_left.wait_for_function(f"() => ({wide})() === 1", timeout=8000)
-        b2.close()
-
-    # Shut down server 1 cleanly (Ctrl-C / shutdown)
-    s1.stopping.set()
-    s1.shutdown()
-    s1.server_close()
+            # Window 'left': never given widths, so one pane is open and the other a rail.
+            b2, page_left, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&layout=grid&w=left")
+            assert not errs, errs
+            page_left.wait_for_function(f"() => ({wide})() === 1", timeout=8000)
+            b2.close()
+    finally:
+        # Shut down server 1 cleanly (Ctrl-C / shutdown), also when the browser launch skips.
+        s1.stopping.set()
+        s1.shutdown()
+        s1.server_close()
     S.forget()
     S.drop_handles()
 
@@ -435,20 +436,22 @@ def test_window_reopens_with_same_open_agent_after_restart(fleet_home, tmp_path)
     th1.start()
     p1 = s1.server_address[1]
 
-    with sync_playwright() as p:
-        b, page, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&w=main")
-        assert not errs, errs
-        # Open beta from its rail. Waited for rather than slept through: 300ms is the page's budget
-        # on an idle machine, and under `-n auto` on a Windows runner four browsers share the cores
-        # -- which is the load talking, not the page. The selectors are the assertions.
-        page.locator('.tile[data-repo="beta"] .pane-rail').click()
-        page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
-        page.wait_for_function("() => windowWrites === 0", timeout=15000)
-        b.close()
-
-    s1.stopping.set()
-    s1.shutdown()
-    s1.server_close()
+    try:
+        with sync_playwright() as p:
+            b, page, errs = _page(p, f"http://127.0.0.1:{p1}/?t={t1}&w=main")
+            assert not errs, errs
+            # Open beta from its rail. Waited for rather than slept through: 300ms is the page's budget
+            # on an idle machine, and under `-n auto` on a Windows runner four browsers share the cores
+            # -- which is the load talking, not the page. The selectors are the assertions.
+            page.locator('.tile[data-repo="beta"] .pane-rail').click()
+            page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=15000)
+            page.wait_for_function("() => windowWrites === 0", timeout=15000)
+            b.close()
+    finally:
+        # Also when the browser launch skips: a live s1 thread fails the thread guard.
+        s1.stopping.set()
+        s1.shutdown()
+        s1.server_close()
     S.forget()
     S.drop_handles()
 
