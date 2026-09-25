@@ -608,15 +608,17 @@ def test_a_model_typed_here_reaches_the_command_line(fleet_home, tmp_path):
             assert C.get(cfg, "fleet.model") == "claude-sonnet-5", cfg
             assert L.model_for("beta", cfg) == ("claude-sonnet-5", "", "fleet.model")
 
-            # An effort on beta, which has no entry: an entry is read whole, so the model it
-            # inherits is pinned with the effort, and the saved tag says so.
+            # An effort on beta, which has no entry: the effort alone is written, and the model
+            # keeps following the fleet's (#493, decision 15; it used to be pinned with it). The
+            # row says where each half comes from.
             page.click("#model-beta .mp-more")
             with _posted(page):
                 page.click("#model-beta .mp-expand .mp-effort button.pill[data-effort='high']")
-            page.wait_for_function(f"""() => ({source})('beta') === 'fleet.models.beta'
-                && document.getElementById('saved').textContent
-                   === 'saved — model pinned to sonnet 5 so the effort can apply'""", timeout=10000)
-            assert C.get_leaf(C.load(), "fleet.models", "beta", {}) == {"model": "claude-sonnet-5", "effort": "high"}
+            page.wait_for_function(f"""() => ({source})('beta') === 'fleet.model · effort from fleet.models.beta'
+                && document.getElementById('saved').textContent === 'saved — takes effect on the next turn'""",
+                                   timeout=10000)
+            assert C.get_leaf(C.load(), "fleet.models", "beta", {}) == {"effort": "high"}
+            assert L.model_for("beta", C.load()) == ("claude-sonnet-5", "high", "fleet.model")
 
             # `inherit` in alpha's row, which says what it inherits, pressed from the keyboard.
             inherit = "#model-alpha .mpick[data-variant=compact] button.pill[data-model='']"
@@ -627,10 +629,12 @@ def test_a_model_typed_here_reaches_the_command_line(fleet_home, tmp_path):
                                      window.__row = document.getElementById('model-alpha'); }""")
             with _posted(page):
                 page.keyboard.press("Enter")
-            page.wait_for_function(f"() => ({source})('alpha') === 'fleet.model'", timeout=10000)
+            # The model half alone (#493): alpha keeps its own effort, with the fleet's model.
+            page.wait_for_function(f"() => ({source})('alpha') === 'fleet.model · effort from fleet.models.alpha'",
+                                   timeout=10000)
             cfg = C.load()
-            assert "alpha" not in (C.get(cfg, "fleet.models") or {}), cfg
-            assert L.model_for("alpha", cfg) == ("claude-sonnet-5", "", "fleet.model")
+            assert C.get_leaf(cfg, "fleet.models", "alpha", {}) == {"effort": "high"}, cfg
+            assert L.model_for("alpha", cfg) == ("claude-sonnet-5", "high", "fleet.model")
             assert page.evaluate("""() => [document.activeElement === window.__pill,
                 window.__pill.getAttribute('aria-pressed'),
                 document.getElementById('model-alpha') === window.__row]""") == [True, "true", True]
@@ -645,10 +649,30 @@ def test_a_model_typed_here_reaches_the_command_line(fleet_home, tmp_path):
                           .textContent.indexOf('fleet.models') === 0""", timeout=10000)
 
             cfg = C.load()
-            assert C.get_leaf(cfg, "fleet.models", "alpha", {}) == {"model": "claude-opus-5"}
+            assert C.get_leaf(cfg, "fleet.models", "alpha", {}) == {"model": "claude-opus-5", "effort": "high"}
             argv = L.launch_command("copilot", "/r", "p", log_dir="/l", cfg=cfg,
                                     **dict(zip(("model", "effort"), L.model_for("alpha", cfg)[:2])))
             assert "--model" in argv and argv[argv.index("--model") + 1] == "claude-opus-5"
+
+            # The fleet back to "CLI chooses": beta's effort pills are still pressable, and a press
+            # writes the effort alone (#493). `inherit both` then clears beta's whole entry.
+            with _posted(page):
+                page.click("#fleetpicker .mp-models button.pill[data-model='']")
+            page.wait_for_function(f"() => ({source})('beta').indexOf('cli-auto') === 0", timeout=10000)
+            page.click("#model-beta .mp-more")
+            low = "#model-beta .mp-expand .mp-effort button.pill[data-effort='low']"
+            page.wait_for_selector(low, timeout=10000)
+            assert page.get_attribute(low, "aria-disabled") is None
+            with _posted(page):
+                page.click(low)
+            page.wait_for_function("() => document.getElementById('saved').textContent.indexOf('saved') === 0",
+                                   timeout=10000)
+            assert C.get_leaf(C.load(), "fleet.models", "beta", {}) == {"effort": "low"}
+            assert L.model_for("beta", C.load()) == ("", "low", "cli-auto")
+            with _posted(page):
+                page.click("#model-beta .inherit-both")
+            page.wait_for_function(f"() => ({source})('beta') === 'cli-auto'", timeout=10000)
+            assert "beta" not in (C.get(C.load(), "fleet.models") or {})
             assert not errors, errors
             browser.close()
     finally:

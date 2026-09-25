@@ -215,8 +215,10 @@ def test_the_fleet_wide_default_is_written_and_resolves_under_a_per_repo_one(fle
 
     cfg = C.load()
     assert L.model_for("alpha", cfg) == ("claude-sonnet-5", "medium", "fleet.model")
-    assert L.model_for("beta", cfg)[0] == "claude-opus-5"
-    assert L.model_for("beta", cfg)[2] == "fleet.models.beta"
+    # Decision 15 (#493): each half inherits on its own. beta's own model goes with the fleet's
+    # effort; it used to lose it (`("claude-opus-5", "", …)`).
+    assert L.model_for("beta", cfg) == ("claude-opus-5", "medium", "fleet.models.beta")
+    assert (L.effort_source("alpha", cfg), L.effort_source("beta", cfg)) == ("fleet.effort", "fleet.effort")
 
 
 def test_the_action_is_in_the_vocabulary_an_unknown_one_lists(fleet_home, tmp_path):

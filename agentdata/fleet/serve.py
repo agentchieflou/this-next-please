@@ -434,10 +434,14 @@ def _model_cells(name: str, cfg: dict) -> dict:
     """
     try:
         model, effort, source = LAUNCH.model_for(name, cfg)
+        effort_source = LAUNCH.effort_source(name, cfg)
     except Exception:                    # noqa: BLE001 - a tile never fails to draw over a setting
-        model, effort, source = "", "", "cli-auto"
+        model, effort, source, effort_source = "", "", "cli-auto", "cli-auto"
     actual, launched, turn = models_in_stream(name)
-    return {"model": model, "effort": effort, "model_source": source,
+    # What the fleet would give each half (#493): the words of a card's `inherit` pills.
+    fleet = (cfg or {}).get("fleet") if isinstance((cfg or {}).get("fleet"), dict) else {}
+    return {"model": model, "effort": effort, "model_source": source, "effort_source": effort_source,
+            "fleet_model": str(fleet.get("model") or ""), "fleet_effort": str(fleet.get("effort") or ""),
             "actual": actual, "launched": launched, "turn_model": turn}
 
 
@@ -3147,6 +3151,7 @@ def settings_snapshot() -> dict:
                      "model": str(entry.get("model") or ""),
                      "effort": str(entry.get("effort") or ""),
                      "resolved": model, "resolved_effort": effort, "source": source,
+                     "effort_source": LAUNCH.effort_source(repo.name, cfg),
                      "actual": actual})
     return {
         "model": {"fleet": {"model": str(C.get(cfg, "fleet.model") or ""),

@@ -356,7 +356,8 @@ function renderModels(data) {
   var note = document.getElementById("modelnote");
   if (note) {
     text(note, (modelSnap.repos || []).length
-      ? "“inherit” follows the fleet-wide default above; “CLI default” there passes no flag at all."
+      ? "Model and effort inherit separately: each “inherit” follows the fleet-wide default above " +
+        "for its own half, and “inherit both” clears a row. “CLI default” there passes no flag at all."
       : "No repositories are registered yet — `ad-fleet repo add <path>`.");
   }
 }
@@ -389,10 +390,21 @@ function modelRow(r) {
                if (p.expand && !p.expand.hidden) closeExpansion(p, true); else openExpansion(p, true);
              } };
   p.compact = createModelPicker(p.opts);
+  // Both halves back to the fleet's at once (#493): each toolbar's "" pill clears only its own.
+  p.both = document.createElement("button");
+  p.both.type = "button";
+  p.both.className = "linkbtn inherit-both";
+  p.both.textContent = "inherit both";
+  p.both.title = "clear this repository's model and effort: both follow the fleet's again";
+  p.both.hidden = true;
+  p.both.addEventListener("click", function () {
+    saveModel({ models: [{ repo: p.repo, model: "", effort: "" }] }, "",
+              { model: "", effort: "", toolbar: "both", droppedEffort: "" }, "", p);
+  });
   tr.id = "model-" + r.repo;
   var name = document.createElement("td"), model = document.createElement("td");
   model.className = "modelcell";
-  model.appendChild(p.compact);
+  model.append(p.compact, p.both);
   tr.append(name, model, document.createElement("td"), document.createElement("td"));
   rowPickers.set(tr, p);
   return tr;
@@ -409,11 +421,15 @@ function paintModelRow(tr, r) {
                 quick: [f.model, r.actual || ""] };
   drawModelPicker(p.compact, state);
   if (p.full) drawModelPicker(p.full, state);
+  hide(p.both, !r.model && !r.effort);
   attr(moreOf(p), "aria-expanded", p.expand && !p.expand.hidden ? "true" : "false");
-  text(cells[2], r.source);
+  // Each half says where it came from when the two differ (#493).
+  var effortFrom = r.effort_source && r.effort_source !== r.source && r.resolved_effort
+    ? " · effort from " + r.effort_source : "";
+  text(cells[2], r.source + effortFrom);
   attr(cells[2], "title", r.source === "cli-auto"
-    ? "nothing is configured, so no --model flag is passed and the CLI chooses"
-    : "resolved from " + r.source);
+    ? "no model is configured, so no --model flag is passed and the CLI chooses" + effortFrom
+    : "model resolved from " + r.source + effortFrom);
   /* Configured is not served. The tenant may pin a model, and a page that reported only what was
      asked for would show a setting that is not what ran. This column is what the stream said the
      last turn actually used. */
@@ -492,11 +508,12 @@ function pickFleet(pick) {
   saveModel({ model: pick.model, effort: pick.effort }, pick.model, pick, "", null);
 }
 
+/* A press writes the half its toolbar sets, and only that half (#493, decision 15): the other keeps
+   what the row holds or inherits, and a "" pill clears its own half. */
 function pickRepo(p, pick) {
-  var r = rowOf(p.repo) || {};
-  var entry = { repo: p.repo, model: pick.model, effort: pick.effort }, pinned = "";
-  if (pick.toolbar === "effort" && !r.model && !r.effort) pinned = entry.model = fleetDefault().model;
-  saveModel({ models: [entry] }, entry.model, pick, pinned, p);
+  var entry = pick.toolbar === "effort" ? { repo: p.repo, effort: pick.effort }
+                                        : { repo: p.repo, model: pick.model };
+  saveModel({ models: [entry] }, entry.model || "", pick, "", p);
 }
 
 /* Post, then read the page back (the row is patched), then say what was saved. A pick made in an
@@ -545,11 +562,6 @@ function savedWords(model, pick, pinned) {
   if (m && m.offered === false) {
     var ver = ((modelList && modelList.meta) || {}).cli_version;
     said.push("not offered by copilot" + (ver ? " " + ver : "") + ", the turn may fail at start");
-  }
-  if (pinned) said.push("model pinned to " + modelLabel(pinned) + " so the effort can apply");
-  if (pick.droppedEffort) {
-    said.push("effort reset to default: " + modelLabel(pick.model) + " does not take " +
-              pick.droppedEffort);
   }
   return "saved — " + (said.length ? said.join(" · ") : "takes effect on the next turn");
 }

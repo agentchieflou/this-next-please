@@ -2486,17 +2486,6 @@ var dispatchPicker = null;
 /** @type {ModelPickerOptions} */
 var dispatchPickerOpts = null;
 
-/* The fleet's own default, as the desk can know it: what a repository with no entry of its own
-   starts on. "" when no repository on the desk inherits one. */
-function fleetDefaultModel() {
-  var found = "";
-  tiles.forEach(function (entry) {
-    var row = entry.row || {};
-    if (!found && row.model_source === "fleet.model") found = String(row.model || "");
-  });
-  return found;
-}
-
 function dispatchRepo() {
   var card = document.getElementById("dispatch");
   return card && !card.hidden ? card.dataset.repo || "" : "";
@@ -2512,7 +2501,7 @@ function drawDispatchModel() {
   dispatchPickerOpts.emptyTitle = state.emptyTitle;
   drawModelPicker(dispatchPicker, { catalogue: modelCatalogue, current: state.current,
                                     inherited: state.inherited, actual: row.actual || "",
-                                    quick: [fleetDefaultModel(), row.actual || ""] });
+                                    quick: [row.fleet_model || "", row.actual || ""] });
   return true;
 }
 
@@ -3975,6 +3964,11 @@ function modelTitle(row) {
   row = row || {};
   var chip = chipModel(row);
   var why = row.model ? " (" + (row.model_source || "") + ")" : " (no --model flag is passed)";
+  // Each half says where it came from when they differ (#493).
+  if (row.effort) {
+    why += " · effort " + row.effort + (row.effort_source && row.effort_source !== row.model_source
+                                        ? " (" + row.effort_source + ")" : "");
+  }
   if (chip.next) {
     return "from the next turn: " + (row.model || "whatever the CLI picks") + why +
            " · the last turn ran " + (row.launched || "the CLI's own choice") + " — press m";
@@ -4027,49 +4021,36 @@ function loadModelCatalogue() {
   return modelCatalogueAsk;
 }
 
-/* The inherit rule every surface that sets a model shares (#366). A repository with an entry of its
-   own shows that entry pressed, and its "" pill clears it. One without shows "" pressed, named for
-   what it inherits. An entry holding only an effort (a hand-edited file) passes no --model at all,
-   so its "" pill says that instead: it is the trap `launch.model_for` sets, not an inherit. */
+/* The inherit rule every surface that sets a model shares (#366, #493). Model and effort are two
+   halves, each the repository's own or else the fleet's (decision 15): `current` is what the
+   repository holds of its own ("" for a half it inherits), `inherited` what the fleet would give
+   it, and the "" pill of each toolbar is named for what that half inherits. */
 function modelState(row) {
   row = row || {};
-  var source = String(row.model_source || "cli-auto");
-  var model = String(row.model || ""), effort = String(row.effort || "");
-  if (source.indexOf("fleet.models.") === 0) {
-    return { current: { model: model, effort: effort }, inherited: null,
-             emptyLabel: model ? "inherit" : "no --model · the CLI chooses",
-             emptyTitle: "clear this repository's model and effort: it follows the fleet's default again" };
-  }
-  return { current: { model: "", effort: "" }, inherited: { model: model, effort: effort, source: source },
-           emptyLabel: "inherit · " + (source === "fleet.model" && model ? shortModel(model) : "CLI default"),
-           emptyTitle: source === "fleet.model" ? "no entry of its own: it follows fleet.model"
-                                                : "no entry of its own: no --model is passed and the CLI chooses" };
+  var own = function (source) { return String(source || "").indexOf("fleet.models.") === 0; };
+  var fleetModel = String(row.fleet_model || ""), fleetEffort = String(row.fleet_effort || "");
+  var model = own(row.model_source) ? String(row.model || "") : "";
+  var effort = own(row.effort_source) ? String(row.effort || "") : "";
+  return { current: { model: model, effort: effort },
+           inherited: { model: fleetModel, effort: fleetEffort, source: String(row.model_source || "") },
+           emptyLabel: "inherit · " + (fleetModel ? shortModel(fleetModel) : "CLI default"),
+           emptyTitle: (model ? "clear this repository's model: " : "no model of its own: ") +
+                       (fleetModel ? "it follows fleet.model, " + fleetModel
+                                   : "no --model is passed and the CLI chooses") };
 }
 
-/* What a press writes: `~default` removes the entry (as `ad-fleet model --inherit`), an effort pressed
-   while inheriting pins the inherited model so the effort has something to apply to, and anything
-   else is written as pressed. What was not pressed is the repository's as it is now -- a press
-   made before the last write was answered cannot know it. `pinned` is the model pinned, else "". */
-function modelWrite(repo, pick, state) {
-  if (pick.toolbar === "effort") {
-    if (state.inherited) {
-      return { item: { repo: repo, model: state.inherited.model, effort: pick.effort },
-               pinned: state.inherited.model };
-    }
-    return { item: { repo: repo, model: state.current.model, effort: pick.effort }, pinned: "" };
-  }
-  if (!pick.model) return { item: { repo: repo, model: "", effort: "" }, pinned: "" };
-  return { item: { repo: repo, model: pick.model, effort: pick.droppedEffort ? "" : state.current.effort },
-           pinned: "" };
+/* What a press writes (#493): the half its toolbar sets, and only that half -- the other keeps
+   what the repository holds or inherits. A `""` pill clears its own half; `inherit both` (the
+   model card's) clears the whole entry, as `ad-fleet model --inherit` does. */
+function modelWrite(repo, pick) {
+  if (pick.toolbar === "both") return { item: { repo: repo, model: "", effort: "" } };
+  if (pick.toolbar === "effort") return { item: { repo: repo, effort: pick.effort } };
+  return { item: { repo: repo, model: pick.model } };
 }
 
 /* What the note says after a write the server took. `lead` is the surface's own first words. */
 function modelSaidAfter(lead, pick, write) {
   var said = [lead];
-  if (write.pinned) said.push("model pinned to " + shortModel(write.pinned) + " so the effort can apply");
-  if (pick.droppedEffort) {
-    said.push("effort reset to default: " + shortModel(pick.model) + " does not take " + pick.droppedEffort);
-  }
   var id = write.item.model;
   var listed = id && modelCatalogue ? modelCatalogue.models.filter(function (m) { return m.id === id; })[0] : null;
   if (listed && listed.offered === false) {
@@ -4107,7 +4088,8 @@ function writeModelFacts(repo) {
   var row = (entry && entry.row) || {};
   text(document.getElementById("mc-repo"), repo);
   text(document.getElementById("mc-configured"), row.model ? row.model : "the CLI chooses");
-  text(document.getElementById("mc-source"), row.model_source || "cli-auto");
+  text(document.getElementById("mc-source"), (row.model_source || "cli-auto") +
+       (row.effort ? " · effort " + row.effort + " from " + (row.effort_source || "cli-auto") : ""));
   text(document.getElementById("mc-actual"), row.actual || "no turn has run yet");
   text(document.getElementById("mc-actual-why"),
        row.actual && row.model && row.actual !== row.model ? "the tenant pinned it" : "");
@@ -4123,6 +4105,7 @@ function drawModelCard() {
   modelPickerOpts.emptyTitle = state.emptyTitle;
   drawModelPicker(modelPicker, { catalogue: modelCatalogue, current: state.current,
                                  inherited: state.inherited, actual: row.actual || "" });
+  hide(document.getElementById("mc-inherit"), !state.current.model && !state.current.effort);
   return true;
 }
 
@@ -4241,8 +4224,7 @@ function pickModel(pick) {
    last. `say` puts words in the surface's note; `field` is `other…`'s, when the name was typed. */
 function queueModelWrite(repo, pick, lead, say, field) {
   modelWrites = modelWrites.then(function () {
-    var entry = tiles.get(repo);
-    var write = modelWrite(repo, pick, modelState(entry && entry.row));
+    var write = modelWrite(repo, pick);
     return post("settings", { models: [write.item] }).then(function (r) {
       if (!r || !r.ok) {
         var why = (r && r.error) || "not saved";
@@ -5590,6 +5572,10 @@ document.addEventListener("click", function (/** @type {MouseEvent & {target: El
   modelPickerOpts = { variant: "full", label: "model", onPick: pickModel };
   modelPicker = createModelPicker(modelPickerOpts);
   card.querySelector(".mc-picker").appendChild(modelPicker);
+  // Both halves back to the fleet's at once (#493): the whole entry goes.
+  document.getElementById("mc-inherit").addEventListener("click", function () {
+    pickModel({ model: "", effort: "", toolbar: "both", droppedEffort: "" });
+  });
   document.getElementById("mc-close").addEventListener("click", closeModelCard);
   // Every key but Escape stays in the card (#366): `j` on a pill is not the desk's `j`, and `h` is
   // not a hide. Escape goes on to the document, which closes the nearest open thing -- this card.

@@ -30,7 +30,8 @@
  */
 
 /**
- * What a press reports. `droppedEffort` is the effort the picked model does not take, else "".
+ * What a press reports. `droppedEffort` is always "" since #493: an effort survives a model switch
+ * (decision 15), and a model that lists efforts without it marks that pill ⊘ instead.
  * @typedef {Object} ModelPick
  * @property {string} model
  * @property {string} effort
@@ -150,12 +151,8 @@ var mpImpl = (function () {
 
   /** @return {ModelPick} */
   function pickModel(me, id) {
-    var m = me.byId.get(id), effort = id === "" ? "" : me.cur.effort, dropped = "";
-    if (effort && m && Array.isArray(m.efforts) && m.efforts.indexOf(effort) < 0) {
-      dropped = effort;
-      effort = "";
-    }
-    return { model: id, effort: effort, toolbar: "model", droppedEffort: dropped };
+    // The effort stays (#493, decision 15): a model and an effort are set, and inherited, apart.
+    return { model: id, effort: me.cur.effort, toolbar: "model", droppedEffort: "" };
   }
 
   function fire(me, pick) {
@@ -323,18 +320,23 @@ var mpImpl = (function () {
     });
     attr(me.other, "hidden", me.open ? null : "");
 
-    // The effort: "default", then the model's own levels, else the catalogue's. Inheriting with no
-    // model to inherit there is nothing to pin an effort to, and the page says so.
-    var inheriting = !!inh && me.cur.model === "" && me.cur.effort === "";
+    // The effort, a half of its own (#493, decision 15): "" is no effort of this host's own -- the
+    // inherited one when there is one, named on the pill -- then the catalogue's levels. Settable
+    // whatever the model, "CLI chooses" included. A model that lists its own levels and not one
+    // of these marks that pill ⊘ and says so, rather than dropping the effort.
+    var inhEffort = inh ? String(inh.effort || "") : "";
     var shape = byId.get(me.cur.model || (inh ? String(inh.model || "") : "")) || {};
-    var levels = [""].concat(strings(Array.isArray(shape.efforts) ? shape.efforts : cat.efforts));
-    var pressed = inheriting ? String(inh.effort || "") : me.cur.effort;
-    var off = inheriting && !inh.model;
+    var takes = Array.isArray(shape.efforts) ? shape.efforts : null;
+    var levels = [""].concat(strings(cat.efforts));
     patchList(me.effort, levels, function (e) { return e || "~default"; }, pill, function (b, e) {
-      paint(b, { pressed: e === pressed, off: off, describe: me.why.id, label: e || "default" });
+      var untaken = !!e && !!takes && takes.indexOf(e) < 0;
+      paint(b, { pressed: e === me.cur.effort, unavailable: untaken,
+                 label: e || (inhEffort ? "inherit · " + inhEffort : "default"),
+                 title: untaken ? (shape.label || shape.id) + " does not list " + e +
+                                  "; the CLI may refuse the pair at start" : "" });
       setData(b, "effort", e);
     });
-    attr(me.why, "hidden", off ? null : "");
+    attr(me.why, "hidden", "");
     rove(me.models, null);
     rove(me.effort, null);
   }

@@ -1131,6 +1131,15 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 saved = C.get_leaf(C.load(), "fleet.models", "rdsd.pbi")
                 assert saved == {"model": "claude-opus-5", "effort": "high"}
 
+                # An effort survives a model switch (#493, decision 15): luna pressed on
+                # {opus 5, high} is {luna, high}, and `high` stays pressed.
+                page.click('#modelcard button[data-model="gpt-5.6-luna"]')
+                _until(lambda: entry() == {"model": "gpt-5.6-luna", "effort": "high"})
+                page.wait_for_selector('#modelcard .mp-effort button[data-effort="high"][aria-pressed="true"]',
+                                       timeout=5000)
+                assert "reset" not in page.evaluate(note)
+                page.focus('#modelcard button[data-model="gpt-5.6-luna"]')
+
                 # Esc closes it and gives the keyboard back to the rail it came from.
                 page.keyboard.press("Escape")
                 page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
@@ -1138,30 +1147,37 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 assert where["rail"] and where["tile"] == "rdsd.pbi", where
                 assert page.get_attribute(toggle, "aria-expanded") == "false"
 
-                # `~default` on an entry of its own removes the whole key, model and effort both:
-                # the repo inherits the fleet's model again.
+                # `~default` in the model toolbar clears the model half alone (#493): the repo's
+                # effort goes with the fleet's model. `inherit both` removes the whole key.
                 page.keyboard.press("m")
-                page.wait_for_function("() => document.activeElement.dataset.model === 'claude-opus-5'",
+                page.wait_for_function("() => document.activeElement.dataset.model === 'gpt-5.6-luna'",
                                        timeout=5000)
                 page.keyboard.press("Home")
                 assert page.evaluate(FOCUS)["row"] == "~default", page.evaluate(FOCUS)
-                assert page.evaluate(FOCUS)["label"] == "inherit", page.evaluate(FOCUS)
+                assert page.evaluate(FOCUS)["label"] == "inherit · sonnet 5", page.evaluate(FOCUS)
                 page.keyboard.press("Enter")
+                _until(lambda: entry() == {"effort": "high"})
+                assert LAUNCH.model_for("rdsd.pbi", C.load()) == ("claude-sonnet-5", "high", "fleet.model")
+                page.click("#mc-inherit")
                 _until(lambda: entry() == {})
                 assert "rdsd.pbi" not in (C.get(C.load(), "fleet.models") or {})
                 assert LAUNCH.model_for("rdsd.pbi", C.load()) == ("claude-sonnet-5", "", "fleet.model")
+                page.wait_for_selector("#mc-inherit[hidden]", state="attached", timeout=5000)
                 page.wait_for_function(
                     "() => document.querySelector('#modelcard [data-rowkey=\"~default\"] .pill-label')"
                     ".textContent === 'inherit · sonnet 5'", timeout=5000)
 
-                # An effort pressed while inheriting pins the inherited model, and says so.
+                # An effort pressed while inheriting writes the effort alone: nothing is pinned, and
+                # the model pill still says what it inherits.
+                page.focus('#modelcard [data-rowkey="~default"]')
                 _tab_to_effort(page)
                 _arrow_to(page, "ArrowRight", "effort", "high")
                 page.keyboard.press("Enter")
-                _until(lambda: entry() == {"model": "claude-sonnet-5", "effort": "high"})
-                page.wait_for_function(
-                    "() => /model pinned to sonnet 5 so the effort can apply/.test(" + note + ")",
-                    timeout=5000)
+                _until(lambda: entry() == {"effort": "high"})
+                page.wait_for_function("() => /saved/.test(" + note + ")", timeout=5000)
+                assert "pinned" not in page.evaluate(note)
+                assert page.inner_text('#modelcard [data-rowkey="~default"] .pill-label') == "inherit · sonnet 5"
+                assert page.get_attribute('#modelcard [data-rowkey="~default"]', "aria-pressed") == "true"
                 page.keyboard.press("Escape")
                 page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
 
@@ -1245,7 +1261,7 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 page.set_viewport_size({"width": 1280, "height": 600})
                 page.focus(_rail("rdsd.pbi"))
                 page.keyboard.press("m")
-                page.wait_for_function("() => document.activeElement.dataset.model === 'claude-sonnet-5'",
+                page.wait_for_function("() => document.activeElement.dataset.rowkey === '~default'",
                                        timeout=5000)
                 box = page.evaluate("""() => { const c = document.getElementById('modelcard');
                   const r = c.getBoundingClientRect();
