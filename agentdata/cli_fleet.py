@@ -389,12 +389,18 @@ def cmd_stop(a) -> int:
         try:
             results.append(supervisor.stop(name))
         except (RegistryError, supervisor.SupervisorError) as e:
-            results.append({"repo": name, "stopped": False, "detail": e.msg})
+            if not a.all:
+                # One repository, refused: a refusal, with its hint and code, exit 2 (#487). It used
+                # to print `ok: true, stopped: 0` and drop the hint, which read as done.
+                return _refuse("ad-fleet stop", e)
+            results.append({"repo": name, "stopped": False, "detail": e.msg,
+                            "hint": getattr(e, "hint", "")})
     stopped = sum(1 for r in results if r.get("stopped"))
     print(toon.encode({"meta": {"ok": True, "source": "ad-fleet stop", "stopped": stopped,
                                 "asked": len(results)}}))
-    print(toon.table("agents", ["repo", "stopped", "detail"],
-                     [[r["repo"], r.get("stopped", False), r.get("detail", "")] for r in results]))
+    print(toon.table("agents", ["repo", "stopped", "detail", "hint"],
+                     [[r["repo"], r.get("stopped", False), r.get("detail", ""), r.get("hint", "")]
+                      for r in results]))
     return EXIT_OK
 
 

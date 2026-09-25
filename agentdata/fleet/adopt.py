@@ -23,8 +23,10 @@ did not know the thing the operator was looking at.
 report it as the current run for that repository -- the tile stops showing a stale one -- and that
 is the whole of the promise. The fleet did not start that process, has no pipe to its stdin and, on
 Windows, may not even know its pid, so `send` and `stop` are refused for it rather than offered and
-quietly ignored. One repository still holds one agent: a checkout the fleet is already running an
-agent in cannot adopt a second one, which is the same lock rule, enforced in the same place.
+quietly ignored -- `stop` whatever it knows of the pid, because the fleet never ends a chat it did not
+start (#487). One repository still holds one agent: a checkout the fleet is already running an
+agent in cannot adopt a second one, which is the same lock rule, enforced in the same place, and no
+start runs beside a Copilot `outside` can name by pid.
 """
 from __future__ import annotations
 import json
@@ -291,6 +293,84 @@ def candidates(registry: Registry | None = None, *, processes: list[dict] | None
                     "session_file": session_file["file"] if session_file else "",
                     "session_age_s": session_file["log_age_s"] if session_file else -1.0})
     return out
+
+
+def listing_places() -> bool:
+    """Does this platform's process listing say which checkout a process is working in?
+
+    On POSIX `/proc` gives every process's working directory, so a Copilot that is not listed in a
+    checkout is not in it. On Windows the listing names no directory, and on a POSIX without
+    `/proc` there is no listing at all: there, a session file is the only evidence there is.
+    """
+    return os.name != "nt" and os.path.isdir("/proc")
+
+
+def fleets_own(name: str) -> tuple[set[int], set[str]]:
+    """The pids and session ids this checkout's own stream records as the fleet's (#487).
+
+    A `started` event the fleet wrote for a launch of its own (not `adopted`, not `external`), and
+    every `session_id` -- which only a headless turn's `result` carries. A fleet agent whose process
+    is still exiting, or whose `-p` session file is still fresh, is the fleet's, never somebody
+    else's.
+    """
+    pids: set[int] = set()
+    sessions: set[str] = set()
+    try:
+        for ev in E.read(name, kinds=("started", "session_id")):
+            data = ev.get("data") or {}
+            if ev.get("kind") == "session_id":
+                if data.get("session"):
+                    sessions.add(str(data["session"]))
+                continue
+            if data.get("adopted") or data.get("external"):
+                continue
+            try:
+                pid = int(data.get("pid") or 0)
+            except (TypeError, ValueError):
+                pid = 0
+            if pid:
+                pids.add(pid)
+            if data.get("session"):
+                sessions.add(str(data["session"]))
+    except Exception:                        # noqa: BLE001 - an unreadable stream names nothing as ours
+        pass
+    return pids, sessions
+
+
+def outside(name: str, *, registry: Registry | None = None, fresh_listing: bool = False,
+            wait: bool = True) -> dict:
+    """Is a Copilot the fleet did not start working in this checkout now, and on what evidence?
+
+    `{pid, how, session, session_file, age_s}`, or `{}`. Built on `candidates()`, so it weighs the
+    evidence exactly as the adopt strip does; what it adds is that the fleet's own pid and session
+    (`fleets_own`), and the process asking, are never named as somebody else's. `fresh_listing`
+    takes a listing begun now, which a refusal needs: a cached one can name a pid that has gone.
+    Otherwise the cached listing is read, and `wait=False` never waits for a stale one to refresh.
+
+    Where the listing places processes (`listing_places`) and none of them is in this checkout, a
+    session file or a written state file alone answers `{}` -- the platform can see every process,
+    and none is here. `start`, `console` and the fresh verb (#488) ask this; nothing else grows a
+    listing of its own.
+    """
+    ours, sessions = fleets_own(name)
+    ours.add(os.getpid())
+    try:
+        running = agent_processes(max_age=0) if fresh_listing else agent_processes(wait=wait)
+        running = [p for p in running if int(p.get("pid") or 0) not in ours]
+        found = [c for c in candidates(registry, processes=running) if c["repo"] == name]
+    except Exception:                        # noqa: BLE001 - a listing must never block what asked
+        return {}
+    if not found:
+        return {}
+    seen = found[0]
+    pid = int(seen.get("pid") or 0)
+    session, session_file = str(seen.get("session") or ""), str(seen.get("session_file") or "")
+    if session in sessions:
+        session, session_file = "", ""
+    if not pid and (not session or listing_places()):
+        return {}
+    return {"pid": pid, "how": seen["how"], "session": session, "session_file": session_file,
+            "age_s": (seen.get("session_age_s") if session_file else seen.get("active_age_s"))}
 
 
 def fresh_session_file(repo_path: str, idle_s: int = IDLE_S) -> dict | None:
