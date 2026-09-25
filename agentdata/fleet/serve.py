@@ -545,6 +545,7 @@ def fleet_snapshot() -> dict:
     # What a new session would start on, read once per snapshot (#240). Every row is judged
     # against it, so staleness is checked on every tick of every open desk -- at every turn.
     from . import fingerprint as FP
+    from . import fresh as FRESH
     from . import renew as RENEW
 
     try:
@@ -564,7 +565,8 @@ def fleet_snapshot() -> dict:
         except (RegistryError, OSError):
             pass
         stream = E.read(name)
-        is_live = bool(supervisor.live(name))
+        live_lock = supervisor.live(name)
+        is_live = bool(live_lock)
         curr_run, earlier = split_runs(stream, live=is_live)
         # `state.json` says which questions are open (#231); the stream only says which were asked.
         # A file nobody has written has no say, so a missing or unreadable one reconciles nothing.
@@ -705,6 +707,10 @@ def fleet_snapshot() -> dict:
                      # so that the page could take its length.
                      "run": {**curr_run, "events": None, "events_n": len(curr_run["events"])},
                      "recent": curr_run["events"][-40:] if curr_run["events"] else stream[-40:]})
+        # Start fresh (#488): whether the pane offers it, why, and what it would do -- derived from
+        # what this row already read and the snapshot's one listing, so a tick spawns nothing.
+        rows[-1]["fresh"] = FRESH.row_cell(rows[-1], st=repo_state, stream=stream, lock=live_lock,
+                                           offer=offers.get(name), cfg=cfg)
 
     _add_siblings(rows)
     from .. import config as C
@@ -2153,7 +2159,7 @@ def _act_friction(repo: str, body: dict) -> dict:
 
 
 ROW_ACTIONS = ("start", "console", "say", "send", "stop", "reset", "answer", "approve", "deny",
-               "adopt", "release", "refresh", "hold", "resume", "attach", "attach-bytes")
+               "adopt", "release", "refresh", "hold", "resume", "attach", "attach-bytes", "fresh")
 
 
 def act(what: str, body: dict) -> dict:
@@ -2271,6 +2277,22 @@ def act(what: str, body: dict) -> dict:
             raise ServeError("this desk is not serving", "nothing to stop")
         threading.Thread(target=server.shutdown, daemon=True).start()
         return {"stopping": True, "pid": os.getpid()}
+    if what == "fresh":
+        # Leave this pane's session for a clean one (#488): `ad-fleet fresh`'s two functions. A
+        # `second_press` refusal says so, so the page can arm its button for the deliberate press.
+        from .. import config as C
+        from . import fresh as FRESH
+
+        if not repo:
+            raise ServeError("which repository?", "pass {repo}", code="no_repo")
+        try:
+            if body.get("dry_run"):
+                return {"repo": repo, **FRESH.plan(repo, cfg=C.load())}
+            return {"repo": repo, **FRESH.run(repo, closed=bool(body.get("closed")), cfg=C.load())}
+        except FRESH.FreshRefused as e:
+            refused = ServeError(e.msg, e.hint, code=e.code)
+            refused.second_press = e.second_press
+            raise refused from None
     if what == "renew":
         # Stale only, when idle, previewed first (#241). The page asks with `dry_run` and shows the
         # rows before it asks again without; the CLI verb calls the same two functions.
@@ -2843,10 +2865,14 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, payload: dict, code: int = 200) -> None:
         self._send(code, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
 
-    def _refuse(self, code: int, error: str, hint: str = "", refusal_code: str = "") -> None:
+    def _refuse(self, code: int, error: str, hint: str = "", refusal_code: str = "",
+                second_press: bool = False) -> None:
         payload = {"ok": False, "error": error, "hint": hint}
         if code == 409 or refusal_code:
             payload["code"] = refusal_code or "refused"
+        if second_press:
+            # A refusal a deliberate second press gets past (#488's `chat_open`): the page arms it.
+            payload["second_press"] = True
         self._json(payload, code)
 
     # ---------------------------------------------------------------------- GET
@@ -3255,7 +3281,8 @@ class Handler(BaseHTTPRequestHandler):
                 HO.HandoffError, SCOPE_ERROR, PROBE.ProbeError, LOADS.LoadError) as e:
             # The same refusal the CLI gives, with the same hint. One vocabulary.
             ref_code = getattr(e, "code", "") or "refused"
-            return self._refuse(409, e.msg, getattr(e, "hint", ""), refusal_code=ref_code)
+            return self._refuse(409, e.msg, getattr(e, "hint", ""), refusal_code=ref_code,
+                                second_press=bool(getattr(e, "second_press", False)))
         except Exception as e:               # noqa: BLE001 - a button must never 500 silently
             from ..log import debug_exc
 

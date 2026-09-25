@@ -43,9 +43,31 @@ ad-fleet renew               # stale only, when idle: fresh sessions on the same
 
 A renew starts a fresh session on the repository's active ticket, and `.agent/state.json` says where
 the work stopped. It never renews an agent that is waiting on you. A running agent is renewed when
-its turn ends, by the desk, so keep one open. Consoles and adopted sessions are yours to renew in
-their own windows. Not `restart`: that resumes the same session, and the same session keeps the
-skills it already read.
+its turn ends, by the desk, so keep one open. Not `restart`: that resumes the same session, and the
+same session keeps the skills it already read.
+
+**One pane, fresh (#488).** Renew takes every stale agent and never an adopted one. To leave *one*
+checkout's session -- stale, your own terminal chat the fleet adopted, or one that began outside the
+fleet and went quiet -- for a clean one:
+
+```bash
+ad-fleet fresh luna --dry-run   # what it leaves, what it starts (ticket, model), and whether it can now
+ad-fleet fresh luna             # one call: a clean --new session on the active ticket and the configured model
+ad-fleet fresh luna --closed    # the second press, once your own chat there is closed
+```
+
+It leaves the current session listed, marked `left`, under *earlier (n)* on the pane and in
+`ad-fleet sessions luna`; nothing is deleted, and Copilot's own files are never written. The fresh
+session is never a `--resume`: it runs on `fleet.models.<repo>` / `fleet.model` (what the pane's model
+button names), on the active ticket -- none once the phase is terminal -- with a sentence saying which
+session it left. It refuses `mid_turn` while a fleet turn runs (press again when it ends; nothing is
+queued), `console_window` on a console the fleet opened, `needs_you` while a question is open, and
+`foreign_session` beside a Copilot it can name by pid -- the fleet never ends your chat. When your
+own chat may still be open but has no pid (an adopted lock that is still live, or a session file
+written within `fleet.console.idle_s`), the first call refuses `chat_open`; close the chat, then
+`--closed` stops following it and starts the clean session. `--closed` is not `--force`: on `start`,
+`--force` replaces a live agent. On the desk it is the pane's own **start fresh** (its head, its
+session menu, or `Alt`+`N`), beside the header's renew (#489).
 
 A Copilot CLI update can also drop a model an agent is configured with: see **After a CLI update**
 under "Which model an agent runs" below.
