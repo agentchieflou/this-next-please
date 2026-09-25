@@ -108,10 +108,10 @@ still waits for a current one (#282, #285). A window write no longer waits while
   arrow or bar `cap`, the `ring` and `cross` shapes, and `ink/fx.js` for effects (#370, #385, #386). The layer's
   budget is 44 KiB.
 
-<!-- train-3: the conductor finalises these lines -->
 **Train 3.**
-- **`/settings` shows each palette by title and names the looks drawn on it** (#393). One that no skin uses (NFL
-  Browns, Greens) says *palette only*, and can still be chosen while no skin is on.
+- **`/settings` shows each palette by its title, and a line under the picker names the looks drawn on it** (#393), or,
+  while a skin is on, the look the palette comes from. One that no skin uses (NFL Browns, Greens) says *palette
+  only*, and can still be chosen while no skin is on.
 - **`GET /api/models`** (#361) answers from the cache without waiting on the CLI. `ad-fleet serve` and `quickstart`
   refresh the list in the background as they start, a changed list reaches open pages as one `models` stream frame,
   and the effort suggestions on `/settings` and the model card are the CLI's own.
@@ -123,8 +123,6 @@ still waits for a current one (#282, #285). A window write no longer waits while
   venv with `pywebview`, to measure a native window against Edge `--app`. `ad-fleet open --all` skips it.
 - **For a skin's author:** a chalk hand that draws and erases (`hand: 'chalk'`, #387), and `api.stroke` for a skin's
   own material (#388). A palette change now rebuilds every pane's frame at once, not at the next resize.
-- **Tests:** one fixture resets the desk's process state for every test, and a desk server thread left running fails
-  its test, which removes the cause of #227 (#298). Windows stays serial until #313.
 
 ## 0.15.3
 
