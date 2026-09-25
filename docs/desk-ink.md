@@ -23,7 +23,7 @@ Everything is in `agentdata/fleet/static/ink/`. There is no build step and nothi
 | `layer.js` | the canvas, the lanes, marks derived from the DOM, the geometry, the frame loop, and the page's own trace rows (#257) | only when the gate says on **and** a skin sets a table |
 | `shapes.js` | each shape's paths, computed from a box. Pure arithmetic | with `layer.js` |
 | `pen.js` | each tool's physics, the stroke meshes and their shader, the paper, the hand | with `layer.js` |
-| `fx.js` | one-shot effects (#370, epic #293): one group in the scene at `api.order.fx`, and the helpers a skin reaches as `api.fx`. Imports nothing; handed three.js and the scene by the layer, it writes nothing to the page | by `layer.js`, only for a table with effects: a skin that exports `cues` or `options.fx`. Once a page, whichever tables follow |
+| `fx.js` | one-shot effects (#370, epic #293): one group in the scene at `api.order.fx`, the cues that play into it (#372, §Effects), and the helpers a skin reaches as `api.fx`. Imports nothing; handed three.js and the scene by the layer, it reads the page and writes nothing to it | by `layer.js`, only for a table with effects: a skin that exports `cues` or `options.fx`. Once a page, whichever tables follow |
 | `skins/<name>.js` | a skin's module: its mark table and its materials (§Writing a skin). `skins/example.js` is the pattern, used by the tests | when that skin is chosen, by every shell (the fallback draws its marks too) |
 | `../vendor/three/three.module.min.js` | three.js r160, vendored by #247 and pinned by sha256 | with `layer.js`, and never otherwise |
 
@@ -260,7 +260,8 @@ export function paper({ THREE, scene, camera, tokens, api }) {}     // the stock
 export function frame({ THREE, scene, camera, tokens, api }, el, box) {}   // one pane's frame
 export function tick({ THREE, camera, tokens, api }, dt, now) {}   // per frame; answer true for another
 export function dispose({ THREE, camera, tokens, api }) {}          // the skin is going
-export const cues = [];                      // effects (#372): the layer fetches ink/fx.js for them
+export const cues = [ /* rows: {selector, on: "arrive" | "leave", cue} */ ];      // or a function of the variant
+export function cue({ THREE, scene, camera, tokens, api }, name, el, box, how) {}  // one cue (§Effects)
 ```
 
 | Hook | Called | Its `scene` |
@@ -270,6 +271,7 @@ export const cues = [];                      // effects (#372): the layer fetche
 | `frame` | for each pane (`.tile[data-repo]`) when it appears, whenever its **size** changes, and on a palette change (#388). It is not called for a move: its group is at the pane's top-left and moves with it | that pane's own group; `box` is `{x: 0, y: 0, w, h}`; `el` is the pane, to read and never write. The group is freed when the pane leaves |
 | `tick` | on every frame the layer draws, with the seconds since the last. Answer `true` to be given another. Under reduced motion that answer is not honoured | none |
 | `dispose` | when the skin is replaced or the layer stops | none |
+| `cue` | once for each event a row of `cues` names, in the frame after it, at most four a frame; never under reduced motion (§Effects, #372) | the effects group (`api.order.fx`, -5), under every frame and mark; the skin frees what it adds, in `tick` |
 
 What each hook is handed:
 
@@ -340,7 +342,8 @@ export function tick({ api }, dt) {
    before any transparent one, so effect materials are `transparent: true`, like the skins' own. An effect that must
    sit on a pane's frame goes into that pane's frame group.
 6. **Drawn, never faded** (ground rule 1). A skin animates its materials, never its marks. Under reduced motion,
-   `tick` gets no loop of its own.
+   `tick` gets no loop of its own. A cue's effect ends by moving, shrinking or being covered, never by a fade
+   (§Effects).
 7. **The fallback is the page's.** The marks draw plain by themselves, and under `body.ink-off` every skin is the
    one plain look (§What a skin's stylesheet holds). Where the skin draws, the page stands aside for it by itself:
    `app.css` clears the panes, the header, the footer and the cards once a canvas with a table is on the page.
@@ -602,6 +605,70 @@ written, and only while it is written. The element is covered from the moment it
 then uncovered, then left with no style at all. An erased pencil note is covered again. A table that is taken away, or
 a layer that stops, takes back every clip it wrote.
 
+## Effects (#372)
+
+A skin can play a one-shot effect when something arrives on the desk or leaves it, and is handed the box the element
+last had. It is one table for every skin, and like the marks it comes from the page: `fx.js` matches it with the table,
+on the frame after the page changed, and nothing in `app.js` pushes a cue.
+
+**The table.** A skin exports `cues`, an array or a function of the variant, and the hook that plays them:
+
+```js
+export const cues = [
+  { selector: "#grid > .tile:not(.is-hidden)", on: "leave", cue: "example-leave" },   // a pane hidden or removed
+  { selector: ".tile .transcript li.denied", on: "arrive", cue: "example-line" },     // a refusal, as it happens
+];
+export function cue({ THREE, scene, tokens, api }, name, el, box, how) {}
+```
+
+| Argument | Is |
+| --- | --- |
+| `name` | the row's `cue` |
+| `el` | the element, to read and never write. For a leave it may have left the page |
+| `box` | `{x, y, w, h}` in viewport CSS px: where the element is, for `arrive`; the last non-empty box it had, for `leave` |
+| `how` | `"arrived"`, `"unmatched"` (still on the page, no longer matching) or `"removed"` (gone from the page) |
+| `scene` (in the context) | the effects group at `api.order.fx` (-5): over the ground and the paper, under every pane's frame and every mark (§Writing a skin, rule 5). Its materials are `transparent: true`. An effect on a frame goes in that pane's frame group |
+
+The skin frees what it adds, from `tick`, which answers `true` while an effect plays. `skins/example.js` has three
+rows (the two above and `.tile.ink-cue`, a class only the tests set); its `cue` adds one quad in the palette's accent
+that shrinks away over 20 frames, and its `inspect()` lists every cue it was handed.
+
+**Checks, when the table is set.** At most 16 rows. Each selector parses, `on` is `arrive` or `leave`, `cue` is a name
+(`/^[a-z][a-z0-9-]{0,23}$/`), and every `[attribute]` a selector names is one the layer observes: `class`, `id`,
+`hidden`, `data-tier`, `data-skin`, `data-skin-variant`, `open`, and whatever the table's mark rows name. A cue on any
+other attribute would never be matched when it changed. One bad row refuses the whole cue table, naming the row, as
+`ink: cue 2 (#x): ...` in the console and in `Ink.inspect().layer.fx.refused`. The marks draw on: a module fetched
+lazily cannot throw from `Ink.setSkin`.
+
+**A cue is news, never history.** Nothing is cued:
+
+* on a table's first match: what the page already showed is not an event (nor is anything on a reload);
+* while `body.is-stale` or `body.is-replaying` (#371) is set, nor on the first match after either. `fx.js` reads the
+  body once a frame, which would miss a replay said and unsaid between two frames, so it also observes `<body>`'s
+  `class` with `attributeOldValue` and takes the records' word for it. That observer reads; it writes nothing;
+* for an arrival inside a pane that only just arrived: a pane that arrives already matching cues nothing;
+* without a skin, or under reduced motion (§Reduced motion). Nothing is queued then at all.
+
+**The one-frame box.** The layer measures after it matches, so a hide still finds the box its pane had: `.is-hidden`
+is `display: none` in the click's own task (app.css), and the ResizeObserver's next look sees the pane at 0x0. Each
+time the marks are measured, `fx.js` measures its leave rows' matches again (never its arrive rows'); an empty measure
+keeps the last box and stamps the frame. A box stamped more than one frame ago counts as empty. That matters for
+`.tile.is-grouped`, which is `display: none` and still matches `:not(.is-hidden)`: hidden later, it has been 0x0 for
+frames, so it cues nothing. Skins play nothing for `is-grouped`.
+
+**Caps.** At most 16 cues wait (another is counted in `dropped`), at most 4 are delivered a frame, and the layer is
+asked for another frame while more wait or a piece is still in the effects group. A piece older than 90 frames (1.5 s
+at 60 Hz) is taken out, freed and counted in `reaped`. That is a safety net; no shipped skin relies on it.
+
+**`Ink.inspect().layer.fx`** is `{loaded, rows, delivered, queued, dropped, armed, reaped, zero, children, refused}`:
+`armed` says the next match may cue, `zero` counts leave-row matches whose box is stamped empty, and `children` counts
+the effects group's pieces, none on an idle desk.
+
+**The rule.** A cue is decoration. It never shows a state the page does not have, ends by moving, shrinking or being
+covered and never by an alpha fade, draws nothing under reduced motion, and leaves an idle desk at zero frames. Its
+durations are counted in frames and live in the skin module, under the canvas's ceiling
+([desk-motion.md](desk-motion.md) §Effects on the canvas).
+
 ## Following the page
 
 **The page arrives skinned and `ink-off` (#345).** The server writes the chosen skin on `<body>` (`data-skin`,
@@ -669,9 +736,9 @@ bound, because it renders in software).
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (43,848 bytes gzipped, LF, #388) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
+| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (43,848 bytes gzipped, LF, #388) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 3 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
 | `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385, 42,557 B at #370 (the effects seam), 42,847 B at #386 (`ring` and `cross`), 43,171 B at #387 (the chalk hand), 43,848 B at #388 (`api.stroke`, 626 B of it; 51 B are #332's underline floor). Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
-| `FX_BUDGET` | `fx.js`, lazily fetched, measured the same way, under 8 KiB (8,192 B): 1,089 B at #370, the seam alone. Every later effects card (#372, #374-#376) writes `fx.js` only, under it, and none raises `INK_BUDGET` | `test_fleet_ink.py` |
+| `FX_BUDGET` | `fx.js`, lazily fetched, measured the same way, under 8 KiB (8,192 B): 1,089 B at #370, the seam alone; 3,694 B at #372 (the cues). Every later effects card (#374-#376) writes `fx.js` only, under it, and none raises `INK_BUDGET` | `test_fleet_ink.py` |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
 | an idle desk | zero DOM mutations and zero WebGL frames with ink on the paper | `test_fleet_ink.py` |
@@ -681,7 +748,8 @@ Real-GPU frame times come from the probe on the laptop ([desk-engines.md](desk-e
 ## Reduced motion
 
 `prefers-reduced-motion: reduce` draws every mark at once, erases and strikes at once, and shows no hand. The layer
-reads it on every frame, so changing it takes effect without a reload.
+reads it on every frame, so changing it takes effect without a reload. It plays no effect: `fx.js` queues no cue while
+it holds (§Effects), so the end state is simply the page as it now is.
 
 ## `theme.check`, and ink on paper
 
@@ -731,6 +799,16 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phas
 fetched once with the token for one with it (not again when that table is set twice), leaves nothing attached after
 a table without `fx`, `Ink.setSkin(null)` or `Ink.off()`, and an idle desk with it attached writes nothing and draws
 nothing. The budgets and the listing of `static/ink/` (`MODULES`, `LAZY`) are in `test_fleet_ink.py`.
+
+It also covers the cues (#372), through the real desk with the example skin chosen by the config: nothing on the first
+match; a grouped pane hidden later cues nothing; a hide cues its leave row once, within 1px of the box the pane had
+before the click; a removed pane cues `removed`; an arrival cues once per new match and nothing is written to the page
+while it plays; a pane that arrives already matching, a forced replay and a replay said and unsaid inside one task cue
+nothing; a live refusal cues exactly one; the idle loop after them all writes nothing, draws nothing and delivers
+nothing; a bad row refuses its table while the marks draw on; reduced motion queues nothing; `?ink=off` fetches
+nothing. **Cues stay disarmed until the stream's first pass has been drawn**, which `_open` does not wait for, so a
+cue test calls `_armed(page)` after opening and after every reload: it waits on `ARMED`, `l.fx.armed` and no
+`body.is-replaying`.
 
 `tests/test_fleet_ink_bounds.py` covers where a skin's own marks land: inside their pane and off other elements'
 words, on one look per module at 1400px and 700px, and every pane outline and loop padded inside it (#332).
