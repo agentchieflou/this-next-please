@@ -1117,17 +1117,20 @@ function runsFor(row, session) {
   });
 }
 
+/* Patched, not rebuilt: the session pill draws this on every row pass, and an idle desk is zero DOM
+   mutations (#494). Keyed by run number, which `split_runs` numbers 1..n down one stream, so no two
+   rows of one list share it; a run that arrives is one new row, and a row already there only has
+   its words written, which `text()` skips when they are the same. */
 function drawRuns(list, runs) {
   if (!list) return;
-  while (list.firstChild) list.removeChild(list.firstChild);
   hide(list, !runs.length);
-  runs.forEach(function (r) {
-    var li = document.createElement("li");
-    text(li, "run " + r.n + " · " + (r.ticket ? r.ticket + " · " : "") + r.state +
-             " (" + (r.started ? String(r.started).slice(11, 16) : "") +
-             (r.ended ? "–" + String(r.ended).slice(11, 16) : "") + ")");
-    list.appendChild(li);
-  });
+  patchList(list, runs, function (r) { return r.n; },
+    function () { return document.createElement("li"); },
+    function (li, r) {
+      text(li, "run " + r.n + " · " + (r.ticket ? r.ticket + " · " : "") + r.state +
+               " (" + (r.started ? String(r.started).slice(11, 16) : "") +
+               (r.ended ? "–" + String(r.ended).slice(11, 16) : "") + ")");
+    });
 }
 
 /* The menu: open, closed, and stepped through without a mouse. */
