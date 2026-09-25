@@ -1,4 +1,5 @@
-"""Computed theme tokens in a real browser (Issue #325), and the word on a state colour (#327).
+"""Computed theme tokens in a real browser (Issue #325), the word on a state colour (#327), and a
+word written in a state colour (#328).
 
 Acceptance criteria:
 - Browser, notebook:light and glass:smoke with ?ink=on:
@@ -263,3 +264,194 @@ def test_every_chip_word_and_age_read_at_4_5_on_the_chip(fleet_home, tmp_path, a
                 low.append(f"{c['repo']} ({c['cls']}) {part} {c[part]} on {c['bg']} = {ratio:.2f}")
         assert c["opacity"] == "1", c
     assert not low, (look, ink, low)
+
+
+# ------------------------------------------------------------ #328: a word in a state colour
+
+#: A word written in a bare state colour -- the criterion's own pattern. A border, an outline or a
+#: `text-decoration-color` in one is a mark, held to 3:1, and the lookbehind leaves it alone.
+BARE_WORD = re.compile(r"(?<![\w-])color\s*:\s*var\(--(running|waiting|human|done|idle)\)")
+
+
+def _stylesheets():
+    """app.css and every skin's stylesheet, comments dropped, as (name, css)."""
+    out = [("app.css", _app_css())]
+    skins_dir = os.path.join(STATIC, "skins")
+    for name in sorted(os.listdir(skins_dir)):
+        path = os.path.join(skins_dir, name, "skin.css")
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                out.append((f"skins/{name}/skin.css", re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)))
+    return out
+
+
+def _root_blocks(css: str) -> dict:
+    """The plain page's two palettes as app.css writes them: `:root`, and under the OS dark scheme
+    `:root:not([data-theme])` over it (the state colours are shared, the surfaces are its own)."""
+    root = _root_tokens(css)
+    dark = next(d for s, d in _blocks(css) if s == ":root:not([data-theme])")
+    return {"light": root, "dark": dict(root, **{k: v for k, v in dark.items() if k.startswith("--")})}
+
+
+def test_no_word_is_written_in_a_bare_state_colour():
+    """#328: a word in a state colour is written in its `--<role>-text` token, held to 4.5:1, never
+    in the role colour itself, which is held only to a mark's 3:1 -- in app.css and in every skin's
+    stylesheet. The one place a role colour is the word is on its own `--on-<role>` disc (the
+    needs-you rail's glyph and badge), the pair rule 7 holds."""
+    bad, discs = [], 0
+    for name, css in _stylesheets():
+        for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+            sel, body = " ".join(m.group(1).split()), m.group(2)
+            decls = dict((p.strip().lower(), v.strip()) for p, _, v in
+                         (d.partition(":") for d in re.split(r";(?![^(]*\))", body) if ":" in d))
+            ground = decls.get("background", decls.get("background-color", ""))
+            for word in BARE_WORD.finditer(body):
+                if re.fullmatch(r"var\(--on-%s\)" % word.group(1), ground):
+                    discs += 1
+                else:
+                    bad.append(f"{name}: {sel} {{ {word.group(0)} }}")
+    assert discs >= 2, "the scan found no needs-you disc: it is reading nothing"
+    assert not bad, "\n".join(bad)
+    every = "".join(css for _, css in _stylesheets())
+    for role in ROLES:
+        assert f"var(--{role}-text)" in every, f"no stylesheet writes a word in --{role}-text"
+
+
+def test_the_plain_pages_words_in_a_state_colour_read_at_4_5_light_and_dark():
+    """#328: both app.css `:root` blocks carry the five `-text` tokens -- the dark one its own, as
+    the light block's `--human-text` is 2.89:1 on the dark `--panel` -- each chosen by the rule
+    `to_css` uses (`theme.role_text`) against its own block's `--bg`, `--panel` and `--select`, and
+    each reading at 4.5:1 on all three."""
+    css = _app_css()
+    dark_block = next(d for s, d in _blocks(css) if s == ":root:not([data-theme])")
+    low = []
+    for scheme, tokens in _root_blocks(css).items():
+        grounds = [tokens["--bg"], tokens["--panel"], tokens["--select"]]
+        for role in ROLES:
+            if scheme == "dark":
+                assert f"--{role}-text" in dark_block, f"the dark block leaves --{role}-text to the light one"
+            word = tokens[f"--{role}-text"]
+            chosen = theme.role_text(tokens[f"--{role}"], tokens["--text"], grounds)
+            assert word.lower() == chosen.lower(), f"{scheme} --{role}-text {word}, the rule chooses {chosen}"
+            low += [f"{scheme} --{role}-text {word} on {g} = {theme.contrast_ratio(word, g):.2f}"
+                    for g in grounds if theme.contrast_ratio(word, g) < 4.5]
+    assert not low, low
+
+
+def test_the_plain_page_holds_text_at_4_5_on_the_pressed_ground():
+    """Rule 9 (#328) for the plain page: `--text` on `--select`, where a pressed control writes its
+    word, reads at 4.5:1 in both app.css `:root` blocks (13.34:1 light, 10.81:1 dark)."""
+    for scheme, tokens in _root_blocks(_app_css()).items():
+        ratio = theme.contrast_ratio(tokens["--text"], tokens["--select"])
+        assert ratio >= 4.5, f"{scheme}: --text {tokens['--text']} on --select {tokens['--select']} = {ratio:.2f}"
+
+
+#: The looks the criterion names, ink on; each variant is drawn on its own palette.
+WORD_LOOKS = ("glass:smoke", "graph:blueprint", "voxel:overworld", "farmstead:rainy")
+
+#: Every word the criterion names that is written in `--human`: the error's why line, the
+#: transcript's "exit 2" and the question card's "it asked you:".
+HUMAN_WORDS = {"why": '.tile[data-repo="err"].state-error .why',
+               "exit": '.tile[data-repo="err"] .transcript li.error .v',
+               "asks": '.tile[data-repo="ask"] .asks:not([hidden]) .asks-head'}
+
+PAINTED = """(sel) => Object.fromEntries(Object.entries(sel).map(([k, s]) => {
+  const el = document.querySelector(s);
+  return [k, el ? getComputedStyle(el).color : null];
+}))"""
+SERVED = "() => getComputedStyle(document.documentElement).getPropertyValue('--human-text').trim()"
+
+
+def _words_desk(tmp_path):
+    """Two panes from real events: `err`, whose last turn ended in exit 2 (its why line and its
+    transcript's `li.error`), and `ask`, holding a blocking question (the card's head)."""
+    for name in ("err", "ask"):
+        Registry().add(make_project(tmp_path / name, ticket="RDSD-1"), name=name)
+        E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-1"),
+                        E.event(name, "assistant_text", {"text": "working on " + name}, ticket="RDSD-1"),
+                        E.event(name, "turn_ended", {"turn": "0"}, ticket="RDSD-1")])
+    E.append("err", [E.event("err", "turn_started", {}, ticket="RDSD-1"),
+                     E.event("err", "turn_ended", {"turn": "1"}, ticket="RDSD-1"),
+                     E.event("err", "error", {"exit_code": 2}, ticket="RDSD-1")])
+    E.append("ask", [E.event("ask", "question_opened", {"question": "which window should this land in?",
+                                                        "id": "q1", "blocking": True,
+                                                        "choices": ["left", "right"]}, ticket="RDSD-1")])
+    S.arrange(order=["err", "ask"])
+    S.update_window("main", open="err", widths={"err": 1, "ask": 1})
+
+
+def _choose(fleet_home, theme_json: str):
+    """The look the next page is served: written while no page of this desk is open."""
+    (fleet_home.parent / "cfg.json").write_text('{"theme": %s}' % theme_json, encoding="utf-8")
+
+
+def _until_words(page, sel):
+    """Until the fold has put every word on the page, asking it to look again while it waits."""
+    page.wait_for_function(
+        "(sel) => { if (Object.values(sel).every(s => !!document.querySelector(s))) return true;"
+        " refresh(); return false; }", arg=sel, timeout=15000, polling=250)
+
+
+@pytest.mark.browser
+def test_words_in_a_state_colour_are_painted_in_the_served_text_token(fleet_home, tmp_path):
+    """Browser (#328). Ink on, on glass:smoke, graph:blueprint, voxel:overworld and farmstead:rainy:
+    the error's why line, the transcript's "exit 2" and the question card's head are painted in the
+    `--human-text` the page is served -- the one `to_css(base, panels=panels_on(base))` chose -- and
+    farmstead's clear error chip writes its word in it too. Then the plain page under the OS dark
+    scheme (`none`, Playwright `color_scheme="dark"`): the card's head and the why line are painted in
+    the dark `:root` block's own `--human-text`. One server and one browser; a page per look."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _words_desk(tmp_path)
+    seen = {}
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            for look in WORD_LOOKS:
+                family = look.split(":")[0]
+                _choose(fleet_home, '{"skin": "%s"}' % look)
+                sel = dict(HUMAN_WORDS)
+                if family == "farmstead":
+                    sel["chip"] = '.tile[data-repo="err"] .head .chip.error'
+                page, errors, _ = _open(browser, port, token, "&ink=on", panes=2)
+                _until_words(page, sel)
+                page.wait_for_function(
+                    """([look, family]) => (Ink.inspect().table === look || (refresh(), false))
+                         && document.body.dataset.skin === family && !document.body.classList.contains('ink-off')
+                         && [...document.querySelectorAll('link[data-skin]')].some(l => l.sheet
+                              && l.href.includes('/static/skins/' + family + '/skin.css'))""",
+                    arg=[look, family], timeout=30000, polling=250)
+                seen[look] = (page.evaluate(SERVED), page.evaluate(PAINTED, sel))
+                assert not errors, (look, errors)
+                page.close()
+
+            _choose(fleet_home, "{}")
+            page = browser.new_page(viewport={"width": 1400, "height": 900}, color_scheme="dark")
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            sel = {k: HUMAN_WORDS[k] for k in ("asks", "why")}
+            _until_words(page, sel)
+            page.wait_for_function("() => !document.documentElement.dataset.theme && !document.body.dataset.skin",
+                                   timeout=15000)
+            seen["none (dark)"] = (page.evaluate(SERVED), page.evaluate(PAINTED, sel))
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
+
+    # Every look first, so a page that paints its words in anything but its served token says which.
+    unpainted = {look: (served or "no --human-text served", painted) for look, (served, painted) in seen.items()
+                 if not served or painted != {k: _hex_to_rgb(served) for k in painted}}
+    assert not unpainted, unpainted
+    for look in WORD_LOOKS:
+        served, painted = seen[look]
+        family, variant = look.split(":")
+        base = skins.SKINS[family]["variants"][variant]["base"]
+        want = theme.to_css(theme.get(base), panels=skins.panels_on(base))["--human-text"]
+        assert served.upper() == want, f"{look}: served --human-text {served}, to_css chose {want}"
+        assert want != theme.get(base).status["fail"], f"{look}: the test cannot tell the token from the role"
+    served, painted = seen["none (dark)"]
+    dark_word = _root_blocks(_app_css())["dark"].get("--human-text")
+    assert served and served.lower() == str(dark_word).lower(), (served, dark_word, painted)
+    assert painted == {"asks": _hex_to_rgb(served), "why": _hex_to_rgb(served)}, (served, painted)

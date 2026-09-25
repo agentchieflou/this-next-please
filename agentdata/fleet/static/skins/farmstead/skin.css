@@ -86,7 +86,8 @@ body[data-skin="farmstead"]:not(.ink-off) :is(.renew-strip, .away-strip) { backg
 /* The state as a crop stage, beside the chip's word and colour and never instead of them (#157):
    the chip keeps a 24px box before its word, and the module draws the crop in it at twice the
    art (#336), large enough to be read. The chip itself is clear, so the crop shows, and its word is
-   in the state's own colour. */
+   in the state's colour for words, `--<role>-text` (#328): read on the paper at 4.5:1, where the
+   state itself is held only to a mark's 3:1. */
 body[data-skin="farmstead"]:not(.ink-off) .chip {
   display: inline-flex; align-items: center; gap: 6px;
   background: transparent; box-shadow: none;
@@ -94,11 +95,11 @@ body[data-skin="farmstead"]:not(.ink-off) .chip {
 body[data-skin="farmstead"]:not(.ink-off) .chip::before {
   content: ""; width: 24px; height: 24px; flex: 0 0 24px;
 }
-body[data-skin="farmstead"]:not(.ink-off) .chip.running { color: var(--running); }
-body[data-skin="farmstead"]:not(.ink-off) .chip.waiting_approval { color: var(--waiting); }
-body[data-skin="farmstead"]:not(.ink-off) :is(.chip.needs_human, .chip.blocked, .chip.error) { color: var(--human); }
-body[data-skin="farmstead"]:not(.ink-off) .chip.done { color: var(--done); }
-body[data-skin="farmstead"]:not(.ink-off) :is(.chip.starting, .chip.idle) { color: var(--idle); }
+body[data-skin="farmstead"]:not(.ink-off) .chip.running { color: var(--running-text); }
+body[data-skin="farmstead"]:not(.ink-off) .chip.waiting_approval { color: var(--waiting-text); }
+body[data-skin="farmstead"]:not(.ink-off) :is(.chip.needs_human, .chip.blocked, .chip.error) { color: var(--human-text); }
+body[data-skin="farmstead"]:not(.ink-off) .chip.done { color: var(--done-text); }
+body[data-skin="farmstead"]:not(.ink-off) :is(.chip.starting, .chip.idle) { color: var(--idle-text); }
 body[data-skin="farmstead"]:not(.ink-off) .chip.not-supervised { color: var(--muted); }
 
 /* ------------------------------------------------------------------------- the scrollbar (#181)
