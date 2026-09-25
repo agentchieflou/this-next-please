@@ -64,7 +64,7 @@ Aliases such as `opus` are never flagged, and the doctor rewrites nothing and ne
 ## Steps (`--only <key>` runs one)
 | key | what it does | writes |
 |---|---|---|
-| `console` | checks current shell, host, encoding, and path settings | (read-only) |
+| `console` | checks current shell, host, encoding, and path settings; `launchers` runs `ad-state`, `ad-pncli`, `ad-jira` and `ad-confluence` with `--version` (`fail` when one on PATH does not start, `warn` when one reports another install's version) and `module` says which agentdata `python -m agentdata` would run from the `python` on PATH (#500). The `fleet` step repeats both | (read-only) |
 | `theme` | introduces CLI themes gallery; configures default theme, live recolour, zero-Python directory hooks, Windows Terminal fragment, and Oh My Posh prompt integration | `theme.default`, hooks (`hook.{ps1,sh,lua}`), WT fragment, `.omp.json` |
 | `pncli` | resolves the pncli launcher (PATH + PATHEXT + the npm global prefix) and proves it starts with `--version`; finds `~/.pncli/config.json`, lists its keys (values masked), asks which keys hold the Jira URL / email / token; verifies with `/myself` and detects Cloud (v3, Basic) vs Data Center (v2, Bearer) | `pncli.exe` (the resolved shim), `pncli.config_path`, `pncli.keys.*` (key **names**), `jira.base_url/flavor/auth/api`, `verified.jira` |
 | `sources` | per Teradata / Hive / Impala: environments, native driver or ODBC DSN (lists what this 64-bit Python can see), auth mechanism, user. **Oracle is asked differently** (see below): hostname, port, service name or SID, because there is no ODBC DSN to point at. Then `SELECT 1` and capability probes | `sources.<s>.envs.<env>.*`, `capabilities`, `verified.<s>:<env>`; passwords → `keyring` service `<s>:<env>` |
@@ -286,7 +286,9 @@ pip install "agentdata[content-understanding]"
 ```
 
 An unconfigured optional service is not a broken install. A `fail` row for it would push the rows that matter off the
-reader's screen, which is the same reason `console` never fails the doctor.
+reader's screen, which is the same reason `console` never fails the doctor for the shell. Its one
+`fail` is `launchers` (#500): an `ad-*` on PATH that does not start is a broken install. The hint names
+`sys.executable` and `--force-reinstall --no-deps`, which rewrites the launchers.
 
 **The endpoint is the resource host and nothing else** — `https://<resource>.services.ai.azure.com`. The SDK appends
 its own path, so an endpoint carrying `/contentunderstanding` produces a 404 that reads like a missing analyzer. The
