@@ -1737,6 +1737,11 @@ function connect() {
          so a palette that changes needs nothing drawn again. */
     } catch (err) {}
   });
+  // The model list moved (#361): stale for the next open, and drawn again now only if the card is.
+  source.addEventListener("models", function () {
+    modelCatalogueStale = true;
+    if (modelCardRepo()) loadModelCatalogue().then(drawModelCard);
+  });
   source.addEventListener("tick", function () {
     toggle(document.body, "is-replaying", false);
     setClass(link, "dot live");
@@ -3837,102 +3842,257 @@ function doRefresh(repo, button) {
   });
 }
 
-/* The settings page's `seen` list and its efforts, fetched once and kept: they are suggestions on
-   a free-text field, so a stale one costs nothing and a fetch per click costs a round trip. */
-var modelChoices = null;
+/* The list a picker offers (#361): `/api/models`, which reads the cache and never starts the CLI.
+   Asked for the first time the card opens, and again only once it is stale: a `models` frame says
+   the list moved, or a save named an id the list did not have. */
+var modelCatalogue = null, modelCatalogueStale = true;
+var modelCatalogueAsk = null;
 
-function loadModelChoices() {
-  if (modelChoices) return Promise.resolve(modelChoices);
-  return fetch(q("/api/settings")).then(function (r) { return r.json(); })
+function loadModelCatalogue() {
+  // An ask in flight answers for the list as it was when it was sent; one gone stale since asks again.
+  if (modelCatalogueAsk) return modelCatalogueStale ? modelCatalogueAsk.then(loadModelCatalogue) : modelCatalogueAsk;
+  if (modelCatalogue && !modelCatalogueStale) return Promise.resolve(modelCatalogue);
+  modelCatalogueStale = false;
+  modelCatalogueAsk = fetch(q("/api/models")).then(function (r) { return r.json(); })
     .then(function (data) {
-      modelChoices = (data && data.model) || { seen: [], efforts: [] };
-      return modelChoices;
-    }).catch(function () { return { seen: [], efforts: [] }; });
+      if (data && Array.isArray(data.models)) modelCatalogue = data;
+      else modelCatalogueStale = true;
+    }).catch(function () { modelCatalogueStale = true; })
+    .then(function () { modelCatalogueAsk = null; return modelCatalogue; });
+  return modelCatalogueAsk;
 }
 
-function fillDatalist(id, values) {
-  var list = document.getElementById(id);
-  if (!list) return;
-  while (list.firstChild) list.removeChild(list.firstChild);
-  (values || []).forEach(function (value) {
-    var option = document.createElement("option");
-    option.value = value;
-    list.appendChild(option);
-  });
+/* The inherit rule every surface that sets a model shares (#366). A repository with an entry of its
+   own shows that entry pressed, and its "" pill clears it. One without shows "" pressed, named for
+   what it inherits. An entry holding only an effort (a hand-edited file) passes no --model at all,
+   so its "" pill says that instead: it is the trap `launch.model_for` sets, not an inherit. */
+function modelState(row) {
+  row = row || {};
+  var source = String(row.model_source || "cli-auto");
+  var model = String(row.model || ""), effort = String(row.effort || "");
+  if (source.indexOf("fleet.models.") === 0) {
+    return { current: { model: model, effort: effort }, inherited: null,
+             emptyLabel: model ? "inherit" : "no --model · the CLI chooses",
+             emptyTitle: "clear this repository's model and effort: it follows the fleet's default again" };
+  }
+  return { current: { model: "", effort: "" }, inherited: { model: model, effort: effort, source: source },
+           emptyLabel: "inherit · " + (source === "fleet.model" && model ? shortModel(model) : "CLI default"),
+           emptyTitle: source === "fleet.model" ? "no entry of its own: it follows fleet.model"
+                                                : "no entry of its own: no --model is passed and the CLI chooses" };
+}
+
+/* What a press writes: `~default` removes the entry (as `ad-fleet model --inherit`), an effort pressed
+   while inheriting pins the inherited model so the effort has something to apply to, and anything
+   else is written as pressed. What was not pressed is the repository's as it is now -- a press
+   made before the last write was answered cannot know it. `pinned` is the model pinned, else "". */
+function modelWrite(repo, pick, state) {
+  if (pick.toolbar === "effort") {
+    if (state.inherited) {
+      return { item: { repo: repo, model: state.inherited.model, effort: pick.effort },
+               pinned: state.inherited.model };
+    }
+    return { item: { repo: repo, model: state.current.model, effort: pick.effort }, pinned: "" };
+  }
+  if (!pick.model) return { item: { repo: repo, model: "", effort: "" }, pinned: "" };
+  return { item: { repo: repo, model: pick.model, effort: pick.droppedEffort ? "" : state.current.effort },
+           pinned: "" };
+}
+
+/* What the note says after a write the server took. `lead` is the surface's own first words. */
+function modelSaidAfter(lead, pick, write) {
+  var said = [lead];
+  if (write.pinned) said.push("model pinned to " + shortModel(write.pinned) + " so the effort can apply");
+  if (pick.droppedEffort) {
+    said.push("effort reset to default: " + shortModel(pick.model) + " does not take " + pick.droppedEffort);
+  }
+  var id = write.item.model;
+  var listed = id && modelCatalogue ? modelCatalogue.models.filter(function (m) { return m.id === id; })[0] : null;
+  if (listed && listed.offered === false) {
+    var ver = modelCatalogue.meta && modelCatalogue.meta.cli_version;
+    said.push("not offered by copilot" + (ver ? " " + ver : "") + " — the turn may fail at start");
+  }
+  return said.join(" · ");
+}
+
+/* A refresh that reads the desk as it is now: one already in flight was asked before, so it is
+   waited out and asked again. */
+function refreshAfterNow() {
+  return (pendingRefresh || Promise.resolve()).then(function () { return refresh(); });
+}
+
+/* The card's picker, made once (bindModelCard). Its options are kept because the "" pill's words
+   are the repository's: they are set before each draw. */
+var modelPicker = null;
+/** @type {ModelPickerOptions} */
+var modelPickerOpts = null;
+/** @type {HTMLElement} */
+var modelCardOpener = null;          // where the keyboard was when the card opened, and goes back to
+/** @type {HTMLElement} */
+var modelCardAnchor = null;          // the model button it hangs off, whose aria-expanded says so
+
+function modelCardRepo() {
+  var card = document.getElementById("modelcard");
+  return card && !card.hidden ? card.dataset.repo || "" : "";
 }
 
 /* Configured, and what the last turn actually ran on. Two facts, because a tenant may pin a model
    and a card that showed only what was asked for would be showing a value that is not what ran. */
-function openModelCard(repo, anchor) {
-  var card = document.getElementById("modelcard");
+function writeModelFacts(repo) {
   var entry = tiles.get(repo);
   var row = (entry && entry.row) || {};
-  if (!card) return;
-  setData(card, "repo", repo);
   text(document.getElementById("mc-repo"), repo);
   text(document.getElementById("mc-configured"), row.model ? row.model : "the CLI chooses");
   text(document.getElementById("mc-source"), row.model_source || "cli-auto");
   text(document.getElementById("mc-actual"), row.actual || "no turn has run yet");
   text(document.getElementById("mc-actual-why"),
        row.actual && row.model && row.actual !== row.model ? "the tenant pinned it" : "");
-  /** @type {HTMLInputElement} */ (document.getElementById("mc-model")).value = row.model || "";
-  /** @type {HTMLInputElement} */ (document.getElementById("mc-effort")).value = row.effort || "";
+}
+
+function drawModelCard() {
+  var repo = modelCardRepo();
+  if (!repo || !modelPicker || !modelCatalogue) return false;
+  var entry = tiles.get(repo);
+  var row = (entry && entry.row) || {};
+  var state = modelState(row);
+  modelPickerOpts.emptyLabel = state.emptyLabel;
+  modelPickerOpts.emptyTitle = state.emptyTitle;
+  drawModelPicker(modelPicker, { catalogue: modelCatalogue, current: state.current,
+                                 inherited: state.inherited, actual: row.actual || "" });
+  return true;
+}
+
+function placeModelCard(anchor) {
+  var card = document.getElementById("modelcard");
+  if (!anchor || !anchor.getBoundingClientRect) return;
+  var box = anchor.getBoundingClientRect();
+  // `m` on a rail (#233): its model button is off the glass, so the card hangs off the rail.
+  if (!box.width && anchor.closest && anchor.closest(".tile")) {
+    box = anchor.closest(".tile").getBoundingClientRect();
+  }
+  var width = card.offsetWidth || 280;
+  var height = card.offsetHeight || 240;
+  /* Under the button when it fits; otherwise level with the top of what opened it -- a rail is
+     the height of the window, and hanging the card off its foot put the card's foot below the
+     glass. Taller than the window, it starts 8px down and scrolls inside itself. */
+  var top = box.bottom + 6;
+  if (top + height > window.innerHeight - 8) {
+    top = Math.max(8, Math.min(box.top, window.innerHeight - height - 8));
+  }
+  card.style.top = top + "px";
+  card.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, box.left)) + "px";
+}
+
+/* The pressed model: the first pressed pill, since the model's toolbar comes before the effort's. */
+function focusPressedPill() {
+  var on = modelPicker && modelPicker.querySelector('[aria-pressed="true"]');
+  if (on) /** @type {HTMLElement} */ (on).focus();
+}
+
+/* A refused name that was typed in `other…` is said on its field as well as in the note (#366):
+   `.bad`, and the error as its title, until a write is taken or the card opens again. The field is
+   the one the keyboard was in when the name was entered: the page asks the picker nothing about
+   its own classes. */
+var modelFieldBad = null;
+
+function typedField(picker) {
+  var at = document.activeElement;
+  return at && at.tagName === "INPUT" && picker && picker.contains(at) ? /** @type {HTMLElement} */ (at) : null;
+}
+
+function sayOnModelField(field, why) {
+  if (modelFieldBad && modelFieldBad !== field) {
+    toggle(modelFieldBad, "bad", false);
+    attr(modelFieldBad, "title", null);
+  }
+  modelFieldBad = why ? field : null;
+  if (field) { toggle(field, "bad", !!why); attr(field, "title", why || null); }
+}
+
+function openModelCard(repo, anchor) {
+  var card = document.getElementById("modelcard");
+  if (!card) return;
+  if (!card.contains(document.activeElement)) {
+    modelCardOpener = /** @type {HTMLElement} */ (document.activeElement);
+  }
+  if (modelCardAnchor && modelCardAnchor !== anchor) attr(modelCardAnchor, "aria-expanded", "false");
+  modelCardAnchor = anchor && anchor.classList && anchor.classList.contains("modeltoggle") ? anchor : null;
+  if (modelCardAnchor) attr(modelCardAnchor, "aria-expanded", "true");
+  setData(card, "repo", repo);
+  writeModelFacts(repo);
   text(document.getElementById("mc-note"), "takes effect on the agent's next turn");
+  sayOnModelField(null, "");
   var all = /** @type {HTMLAnchorElement} */ (document.getElementById("mc-all"));
   all.href = pageUrl("/settings") + "#model-" + encodeURIComponent(repo);
 
-  loadModelChoices().then(function (choices) {
-    fillDatalist("mc-models", choices.seen);
-    fillDatalist("mc-efforts", choices.efforts);
-  });
-
   hide(card, false);
-  if (anchor && anchor.getBoundingClientRect) {
-    var box = anchor.getBoundingClientRect();
-    // `m` on a rail (#233): its model button is off the glass, so the card hangs off the rail.
-    if (!box.width && anchor.closest && anchor.closest(".tile")) {
-      box = anchor.closest(".tile").getBoundingClientRect();
-    }
-    var width = card.offsetWidth || 280;
-    var height = card.offsetHeight || 240;
-    /* Under the button when it fits; otherwise level with the top of what opened it -- a rail is
-       the height of the window, and hanging the card off its foot put the card's save button
-       below the glass. */
-    var top = box.bottom + 6;
-    if (top + height > window.innerHeight - 8) {
-      top = Math.max(8, Math.min(box.top, window.innerHeight - height - 8));
-    }
-    card.style.top = top + "px";
-    card.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, box.left)) + "px";
+  // Draw, then place (the pills are most of its height), then the keyboard on the pressed pill.
+  if (drawModelCard()) { placeModelCard(anchor); focusPressedPill(); }
+  if (!modelCatalogue || modelCatalogueStale) {
+    loadModelCatalogue().then(function () {
+      if (modelCardRepo() !== repo || !drawModelCard()) return;
+      placeModelCard(anchor);
+      if (!card.contains(document.activeElement)) focusPressedPill();
+    });
   }
-  document.getElementById("mc-model").focus();
 }
 
+/* Closed, and the keyboard goes back where it was -- to the tile, when the button it was on has no
+   box any more (a pane that became a rail while the card was open). */
 function closeModelCard() {
   var card = document.getElementById("modelcard");
-  if (card && !card.hidden) { hide(card, true); setData(card, "repo", ""); return true; }
-  return false;
+  if (!card || card.hidden) return false;
+  var inside = card.contains(document.activeElement);
+  hide(card, true);
+  setData(card, "repo", "");
+  if (modelCardAnchor) attr(modelCardAnchor, "aria-expanded", "false");
+  var back = modelCardOpener;
+  modelCardOpener = null;
+  modelCardAnchor = null;
+  if (inside && back && back.isConnected && back.focus) {
+    var box = back.getBoundingClientRect();
+    if (!box.width && !box.height && back.closest) back = /** @type {HTMLElement} */ (back.closest(".tile")) || back;
+    back.focus();
+  }
+  return true;
 }
 
 /* One writer for this setting: the same action, the same function and the same refusals the
-   settings page gets, so two ways to set one thing do not become two rules about it. */
-function saveModel() {
-  var card = document.getElementById("modelcard");
-  var repo = card.dataset.repo || "";
-  if (!repo) return;
-  var body = { models: [{ repo: repo,
-                          model: /** @type {HTMLInputElement} */ (
-                            document.getElementById("mc-model")).value.trim(),
-                          effort: /** @type {HTMLInputElement} */ (
-                            document.getElementById("mc-effort")).value.trim() }] };
-  post("settings", body).then(function (r) {
-    if (r && r.ok) {
-      text(document.getElementById("mc-note"), "saved — it reaches the agent on its next turn");
-      refresh();
+   settings page gets, so two ways to set one thing do not become two rules about it. One write at
+   a time, each worked out from the row the last one left: a model and then an effort pressed
+   faster than the desk answers are still that model with that effort. A refusal of what was typed
+   in `other…` is said on the field as well as in the note. */
+var modelWrites = Promise.resolve();
+
+function pickModel(pick) {
+  var repo = modelCardRepo();
+  if (!repo || !pick) return;
+  var field = typedField(modelPicker);
+  modelWrites = modelWrites.then(function () { return writeModelPick(repo, pick, field); });
+}
+
+function writeModelPick(repo, pick, field) {
+  var entry = tiles.get(repo);
+  var write = modelWrite(repo, pick, modelState(entry && entry.row));
+  var note = document.getElementById("mc-note");
+  return post("settings", { models: [write.item] }).then(function (r) {
+    if (!r || !r.ok) {
+      var why = (r && r.error) || "not saved";
+      text(note, why + ((r && r.hint) ? " — " + r.hint : ""));
+      if (field) sayOnModelField(field, why);
       return;
     }
-    text(document.getElementById("mc-note"), (r && r.error) + ((r && r.hint) ? " — " + r.hint : ""));
-  });
+    sayOnModelField(null, "");
+    var id = write.item.model;
+    if (id && !(modelCatalogue && modelCatalogue.models.some(function (m) { return m.id === id; }))) {
+      modelCatalogueStale = true;               // the list learns an id from the config it names
+    }
+    return Promise.all([loadModelCatalogue(), refreshAfterNow()]).then(function () {
+      if (modelCardRepo() !== repo) return;
+      text(note, modelSaidAfter("saved — reaches the agent on its next turn", pick, write));
+      writeModelFacts(repo);
+      drawModelCard();
+    });
+  }).catch(function (e) { text(note, String(e)); });
 }
 
 /* One binder, bound once when the pane is made (#205). */
@@ -5251,10 +5411,14 @@ document.addEventListener("click", function (/** @type {MouseEvent & {target: El
 (function bindModelCard() {
   var card = document.getElementById("modelcard");
   if (!card) return;
+  modelPickerOpts = { variant: "full", label: "model", onPick: pickModel };
+  modelPicker = createModelPicker(modelPickerOpts);
+  card.querySelector(".mc-picker").appendChild(modelPicker);
   document.getElementById("mc-close").addEventListener("click", closeModelCard);
-  document.getElementById("mc-save").addEventListener("click", saveModel);
+  // Every key but Escape stays in the card (#366): `j` on a pill is not the desk's `j`, and `h` is
+  // not a hide. Escape goes on to the document, which closes the nearest open thing -- this card.
   card.addEventListener("keydown", function (e) {
-    if (e.key === "Enter") { saveModel(); e.preventDefault(); }
+    if (e.key !== "Escape") e.stopPropagation();
   });
   // A click anywhere else closes it, the way it closes a popover.
   document.addEventListener("click", function (/** @type {MouseEvent & {target: Element}} */ e) {

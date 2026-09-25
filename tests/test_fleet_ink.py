@@ -1332,12 +1332,23 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
                 _mark(page, repo, cls)
             _rest(page, "Ink.inspect().layer.marks.length === 3")
             count = page.evaluate(IDLE_LOOP)
+            # And with the model card open on it (#366): `m` on a pane, the list drawn, the keyboard
+            # on the pressed pill -- and still nothing written and nothing drawn while it waits.
+            page.focus('.tile[data-repo="alpha"]')
+            page.keyboard.press("m")
+            page.wait_for_function("""() => !document.getElementById('modelcard').hidden
+                && document.activeElement.matches('#modelcard .mp-models button.pill[aria-pressed="true"]')""",
+                                   timeout=10000)
+            carded = page.evaluate(IDLE_LOOP)
+            assert page.evaluate("document.activeElement.closest('#modelcard') !== null")
             assert not errors, errors
             browser.close()
     finally:
         _stop(server)
     assert count["n"] == 0, f"an idle desk with ink on it wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle paper was redrawn {count['renders']} times"
+    assert carded["n"] == 0, f"an idle desk with the model card open wrote to the page: {carded}"
+    assert carded["renders"] == 0, f"an idle paper under the model card was redrawn {carded['renders']} times"
 
 
 @pytest.mark.browser

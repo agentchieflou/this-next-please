@@ -15,6 +15,8 @@ the row:
 The tiers themselves (rail, compact, full) at three window widths are `tests/test_fleet_panes.py`.
 """
 from __future__ import annotations
+import datetime as _dt
+import json
 import os
 import re
 import threading
@@ -941,19 +943,75 @@ def test_the_same_three_controls_are_on_every_pane_and_their_keys_reach_a_rail(f
         server.server_close()
 
 
+def _seed_models():
+    """`<fleet_dir>/models.json` as a refresh under Copilot CLI 1.0.88 writes it (#360), so the card
+    offers the CLI's own list and nothing is spawned to find it."""
+    from agentdata.fleet import models as M
+
+    shipped = M.shipped()
+    os.makedirs(os.path.dirname(M.cache_file()), exist_ok=True)
+    now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with open(M.cache_file(), "w", encoding="utf-8") as f:
+        json.dump({"source": "help", "cli_version": "1.0.88", "fetched_at": now,
+                   "models": shipped["models"], "efforts": shipped["efforts"], "why": ""}, f)
+
+
+#: Where the keyboard is: which pill of which toolbar, or which pane.
+FOCUS = """() => { const a = document.activeElement;
+  return { model: a.dataset.model ?? null, effort: a.dataset.effort ?? null, row: a.dataset.rowkey ?? null,
+           label: (a.querySelector('.pill-label') || {}).textContent ?? null,
+           inCard: !!a.closest('#modelcard'), rail: a.classList.contains('pane-rail'),
+           tile: (a.closest('.tile') || {dataset: {}}).dataset.repo ?? null,
+           other: a.classList.contains('mp-other') }; }"""
+
+
+def _arrow_to(page, key, attr, want, limit=40):
+    """Press `key` until the pill the keyboard is on has `data-<attr>` == `want`: the arrows, never a
+    click, and never more presses than the toolbar has pills."""
+    for _ in range(limit):
+        if page.evaluate(FOCUS)[attr] == want:
+            return
+        page.keyboard.press(key)
+    assert page.evaluate(FOCUS)[attr] == want, page.evaluate(FOCUS)
+
+
+def _tab_to_effort(page):
+    """Tab from the model toolbar to the effort toolbar: one stop per toolbar, and `other…`'s field
+    between them once it has been opened."""
+    for _ in range(3):
+        page.keyboard.press("Tab")
+        if page.evaluate(FOCUS)["effort"] is not None:
+            return
+    assert page.evaluate(FOCUS)["effort"] is not None, page.evaluate(FOCUS)
+
+
 @pytest.mark.browser
 def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it_refuses(
         fleet_home, tmp_path):
     """Two ways to set one thing must not become two rules about it: the card posts the settings
-    action, so `fleet.models.<repo>` is written by one function and refused by one function."""
+    action, so `fleet.models.<repo>` is written by one function and refused by one function.
+
+    And it is pressed, never typed (#366): from a rail, `m`, the arrows and Enter set the model and
+    the effort; a key pressed on a pill stays in the card; `other…` is the one field, and a refusal
+    of it is said in the note; `~default` removes the whole entry, and an effort pressed while
+    inheriting pins the inherited model so the effort has something to apply to. Under `ink=off`,
+    at a window short enough that the card has to scroll inside itself."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata import config as C
+    from agentdata.fleet import launch as LAUNCH
 
     monkey = tmp_path / "cfg.json"
     os.environ["AGENTDATA_CONFIG"] = str(monkey)
     try:
         _repos(tmp_path, "rdsd.pbi", "beta")
         S.arrange(order=["beta", "rdsd.pbi"])
+        _seed_models()
+        cfg = C.load()
+        C.put(cfg, "fleet.model", "claude-sonnet-5")
+        C.save(cfg)
+        entry = lambda: C.get_leaf(C.load(), "fleet.models", "rdsd.pbi", {})  # noqa: E731
+        note = "document.getElementById('mc-note').textContent"
+        open_pane = "() => document.querySelector('.tile.is-solo[data-tier=\"full\"]').dataset.repo"
 
         server, token, port = _serve()
         try:
@@ -962,34 +1020,138 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 page = browser.new_page(viewport={"width": 1280, "height": 900})
                 errors = []
                 page.on("pageerror", lambda e: errors.append(str(e)))
-                _open(page, port, token)
+                _open(page, port, token, "&ink=off")
+                assert page.evaluate("document.body.classList.contains('ink-off')")
+                assert page.get_attribute("#mc-note", "role") == "status"
+                toggle = '.tile[data-repo="rdsd.pbi"] .modeltoggle'
+                assert page.get_attribute(toggle, "aria-haspopup") == "dialog"
+                assert page.get_attribute(toggle, "aria-expanded") == "false"
 
                 # From a rail, which is where the band's model button went (#233): `m` on it.
                 page.focus(_rail("rdsd.pbi"))
                 page.keyboard.press("m")
                 page.wait_for_selector("#modelcard:not([hidden])", timeout=5000)
                 assert page.inner_text("#mc-repo") == "rdsd.pbi"
+                # Drawn, then the keyboard on the pressed pill: inheriting, so `""`, named for what
+                # it inherits.
+                page.wait_for_function("() => document.activeElement.dataset.rowkey === '~default'",
+                                       timeout=5000)
+                assert page.evaluate(FOCUS)["label"] == "inherit · sonnet-5", page.evaluate(FOCUS)
+                assert page.get_attribute(toggle, "aria-expanded") == "true"
+
+                # A desk key pressed on a pill stays in the card: `j` walks no row and `2` opens no
+                # pane.
+                before = page.evaluate(open_pane)
+                page.keyboard.press("j")
+                page.keyboard.press("2")
+                assert page.evaluate(FOCUS)["row"] == "~default", page.evaluate(FOCUS)
+                assert page.evaluate(open_pane) == before == "beta"
+                assert page.is_visible("#modelcard")
 
                 # A value that would become a second argument is refused, in the settings page's
-                # own words, and nothing is written.
-                page.fill("#mc-model", "x --allow-all-tools")
-                page.click("#mc-save")
+                # own words, and nothing is written. `other…` is the last pill of the toolbar.
+                page.keyboard.press("End")
+                assert page.evaluate("document.activeElement.classList.contains('mp-otherbtn')")
+                page.keyboard.press("Enter")
+                page.wait_for_function("() => document.activeElement.classList.contains('mp-other')",
+                                       timeout=5000)
+                page.keyboard.type("x --allow-all-tools")
+                page.keyboard.press("Enter")
                 page.wait_for_function(
                     "() => /one argument|whitespace|dash/.test("
                     "document.getElementById('mc-note').textContent)", timeout=5000)
+                assert page.evaluate("document.querySelector('#modelcard .mp-other').classList"
+                                     ".contains('bad')")
+                assert re.search(r"one argument|whitespace|dash",
+                                 page.get_attribute("#modelcard .mp-other", "title") or "")
                 assert C.get_leaf(C.load(), "fleet.models", "rdsd.pbi", {}) == {}
 
-                page.fill("#mc-model", "claude-opus-5")
-                page.fill("#mc-effort", "high")
-                page.click("#mc-save")
+                # The keyboard alone: back to the toolbar, the arrows to the model, Enter; on to the
+                # effort toolbar, the arrows to `high`, Enter.
+                page.keyboard.press("Shift+Tab")
+                _arrow_to(page, "ArrowLeft", "model", "claude-opus-5")
+                page.keyboard.press("Enter")
+                _tab_to_effort(page)
+                _arrow_to(page, "ArrowRight", "effort", "high")
+                page.keyboard.press("Enter")
+                _until(lambda: entry() == {"model": "claude-opus-5", "effort": "high"})
+                page.wait_for_function("() => /saved/.test(" + note + ")", timeout=5000)
+                # The head says what was pressed, on the next row it draws.
                 page.wait_for_function(
-                    "() => /saved/.test(document.getElementById('mc-note').textContent)",
-                    timeout=5000)
+                    "() => document.querySelector('.tile[data-repo=\"rdsd.pbi\"] .bm-name')"
+                    ".textContent === 'opus-5'", timeout=5000)
                 assert not errors, errors
 
                 # A repo name with a dot in it survives, which is the failure `put_leaf` exists for.
                 saved = C.get_leaf(C.load(), "fleet.models", "rdsd.pbi")
                 assert saved == {"model": "claude-opus-5", "effort": "high"}
+
+                # Esc closes it and gives the keyboard back to the rail it came from.
+                page.keyboard.press("Escape")
+                page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+                where = page.evaluate(FOCUS)
+                assert where["rail"] and where["tile"] == "rdsd.pbi", where
+                assert page.get_attribute(toggle, "aria-expanded") == "false"
+
+                # `~default` on an entry of its own removes the whole key, model and effort both:
+                # the repo inherits the fleet's model again.
+                page.keyboard.press("m")
+                page.wait_for_function("() => document.activeElement.dataset.model === 'claude-opus-5'",
+                                       timeout=5000)
+                page.keyboard.press("Home")
+                assert page.evaluate(FOCUS)["row"] == "~default", page.evaluate(FOCUS)
+                assert page.evaluate(FOCUS)["label"] == "inherit", page.evaluate(FOCUS)
+                page.keyboard.press("Enter")
+                _until(lambda: entry() == {})
+                assert "rdsd.pbi" not in (C.get(C.load(), "fleet.models") or {})
+                assert LAUNCH.model_for("rdsd.pbi", C.load()) == ("claude-sonnet-5", "", "fleet.model")
+                page.wait_for_function(
+                    "() => document.querySelector('#modelcard [data-rowkey=\"~default\"] .pill-label')"
+                    ".textContent === 'inherit · sonnet-5'", timeout=5000)
+
+                # An effort pressed while inheriting pins the inherited model, and says so.
+                _tab_to_effort(page)
+                _arrow_to(page, "ArrowRight", "effort", "high")
+                page.keyboard.press("Enter")
+                _until(lambda: entry() == {"model": "claude-sonnet-5", "effort": "high"})
+                page.wait_for_function(
+                    "() => /model pinned to sonnet-5 so the effort can apply/.test(" + note + ")",
+                    timeout=5000)
+                page.keyboard.press("Escape")
+                page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+
+                # A short window: the card scrolls inside itself. The arrows bring the last pill
+                # into view, and the wheel over the card reaches the effort toolbar.
+                page.set_viewport_size({"width": 1280, "height": 600})
+                page.focus(_rail("rdsd.pbi"))
+                page.keyboard.press("m")
+                page.wait_for_function("() => document.activeElement.dataset.model === 'claude-sonnet-5'",
+                                       timeout=5000)
+                box = page.evaluate("""() => { const c = document.getElementById('modelcard');
+                  const r = c.getBoundingClientRect();
+                  return { top: r.top, bottom: r.bottom, scroll: c.scrollHeight, client: c.clientHeight }; }""")
+                assert box["top"] >= 0 and box["bottom"] <= 600, box
+                assert box["scroll"] > box["client"], f"the card fits a 600px window: nothing to scroll {box}"
+                seen = """(sel) => { const c = document.getElementById('modelcard'), k = c.getBoundingClientRect();
+                  const r = c.querySelector(sel).getBoundingClientRect();
+                  return r.top >= k.top && r.bottom <= k.bottom; }"""
+                last = ".mp-effort > .pill:last-child"
+                page.keyboard.press("Home")
+                page.wait_for_function(f"() => !({seen})('{last}')", timeout=5000)
+                _tab_to_effort(page)
+                page.keyboard.press("End")
+                assert page.evaluate(f"document.activeElement === document.querySelector('#modelcard {last}')")
+                page.wait_for_function(f"() => ({seen})('{last}')", timeout=5000)
+                card = page.locator("#modelcard").bounding_box()
+                page.mouse.move(card["x"] + card["width"] / 2, card["y"] + card["height"] / 2)
+                page.mouse.wheel(0, -2000)
+                page.wait_for_function(f"() => document.getElementById('modelcard').scrollTop === 0"
+                                       f" && !({seen})('.mp-effort')", timeout=5000)
+                page.mouse.wheel(0, 2000)
+                page.wait_for_function(f"() => ({seen})('.mp-effort')", timeout=5000)
+                page.keyboard.press("Escape")
+                page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+                assert not errors, errors
                 browser.close()
         finally:
             server.stopping.set()
