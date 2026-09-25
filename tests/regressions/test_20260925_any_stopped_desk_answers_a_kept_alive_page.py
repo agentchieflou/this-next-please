@@ -37,13 +37,29 @@ from test_fleet_ink import fleet_home  # noqa: F401 - fixtures
 
 
 def test_closing_the_desk_ends_a_connection_a_page_kept_open(fleet_home):
-    server, _token = S.build(0)
+    _kept_connection_ends(*S.build(0))
+
+
+def test_it_ends_where_a_shut_read_side_wakes_no_reader(fleet_home):
+    """Windows: `shutdown(SD_RECEIVE)` does not wake a read already waiting, and train 7's Windows
+    leg failed the test above with this file's message. With the shut read side taken away, the
+    handler's own wait must still see `stopping` and go -- on every OS, so Linux CI guards it too."""
+    server, token = S.build(0)
+    server._end_reads = lambda sockets: None
+    _kept_connection_ends(server, token)
+
+
+def _kept_connection_ends(server, _token):
     threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
     conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
     conn.request("GET", "/api/ping")
     first = conn.getresponse()
     first.read()
     assert first.status == 200 and not first.will_close, "the connection is kept open, as a browser keeps it"
+    conn.request("GET", "/api/ping")
+    again = conn.getresponse()
+    again.read()
+    assert again.status == 200 and not again.will_close, "a running desk answers the kept connection again"
 
     server.stopping.set()
     server.shutdown()
