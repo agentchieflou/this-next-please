@@ -397,6 +397,7 @@ red everywhere or the colour stops being information:
 | `a` | approve the open agent's pending write |
 | `b` | the sidebar's Jira board |
 | `n` | the sidebar's alerts |
+| `g` | the map (`/map`), in the window the desk is in: `w`, `shell` and `ink` kept, as the toolbar's `map` link does (#407) |
 | `Alt`+`←` / `Alt`+`→` | move the focused pane one slot |
 | `Alt`+`Shift`+`←` / `Alt`+`Shift`+`→` | the gutter on the focused pane's right, one step (#234) |
 | `Alt`+`Home` | pin the focused pane first |

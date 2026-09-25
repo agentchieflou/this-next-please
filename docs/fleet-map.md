@@ -140,6 +140,9 @@ and sets `paused`, which the page's own drawing (and #406's refetch) honours; `g
 Tests: `tests/test_fleet_map_page.py` (5 browser tests, one Chromium for the module), plus the budgets and hooks in
 `test_fleet_serve.py`, the gate in `test_fleet_ink.py` and the inventory in `test_fleet_components.py`.
 
+**Getting here.** The desk's toolbar `map` link and its `g` key (#407), both through `pageUrl("/map")` so the
+token, `w`, `shell` and `ink` come along; or `/open?page=map` from outside.
+
 ## Staying live
 
 (written by #406)
