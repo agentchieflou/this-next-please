@@ -51,10 +51,14 @@ def test_settings_page_scrolls_at_every_window_size(fleet_home, tmp_path):
                 page.evaluate("() => window.scrollTo(0, 0)")
 
                 # count focusables in main.settings, and record which of them Tab reaches: the
-                # criterion is about every one of them, not about whatever count+2 presses land on
+                # criterion is about every one of them, not about whatever count+2 presses land on.
+                # A toolbar of model pills (#367) is one tab stop whose pills the arrows walk
+                # (#362), so a pill out of the tab order is reached when its toolbar's one stop is.
                 focusables_count = page.evaluate("""() => {
                     const els = Array.from(document.querySelectorAll('main.settings input, main.settings select, main.settings button, main.settings a[href]'));
-                    window.__focusables = els.filter(el => el.offsetParent !== null || el.getClientRects().length > 0);
+                    const shown = els.filter(el => el.offsetParent !== null || el.getClientRects().length > 0);
+                    window.__focusables = shown.filter(el => el.tabIndex >= 0);
+                    window.__roving = shown.filter(el => el.tabIndex < 0);
                     window.__focused = new Set();
                     document.addEventListener('focusin', e => window.__focused.add(e.target));
                     return window.__focusables.length;
@@ -71,6 +75,11 @@ def test_settings_page_scrolls_at_every_window_size(fleet_home, tmp_path):
                         return r.top >= 0 && r.bottom <= window.innerHeight + 1;
                     }""", timeout=5000)
                 missed = page.evaluate("""() => window.__focusables.filter(el => !window.__focused.has(el))
+                    .concat(window.__roving.filter(el => {
+                        const bar = el.classList.contains('pill') && el.closest('[role=toolbar]');
+                        const stops = bar ? Array.from(bar.querySelectorAll('button.pill')).filter(b => b.tabIndex === 0) : [];
+                        return stops.length !== 1 || !window.__focused.has(stops[0]);
+                    }))
                     .map(el => el.id || `${el.tagName.toLowerCase()}[name=${el.name || ''}]`)""")
                 assert missed == [], f"at {width}x{height}, Tab never reached {missed}"
 

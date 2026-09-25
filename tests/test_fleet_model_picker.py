@@ -3,8 +3,9 @@ keyboard-first, drawn only with theme tokens, and silent when idle.
 
 `static/picker.js` is built on /settings from an in-test catalogue: the 1.0.88 ids `models.catalogue`
 answers before the CLI has been asked, with one id not offered, one the account cannot use, one that
-takes two efforts, and premium multipliers. No host wires it yet (#366-#368), so each test mounts it
-in a `.setblock`, the card /settings will host it in, and drives it with the keyboard.
+takes two efforts, and premium multipliers. Each test mounts its own in a `.setblock`, the card
+/settings hosts it in, and drives it with the keyboard. /settings wires its own pickers too (#367),
+so every selector here is scoped to the mounted ones in `#mphost`.
 
 Every palette and every look is worn in ONE page: `post('theme', …)`, then a wait until the page
 wears it. No flat waits. One Chromium for the module, a context per test, a server per test.
@@ -34,8 +35,8 @@ UNAVAILABLE = "gemini-3.5-flash"   # `available: false`
 UNOFFERED = "kimi-k2.7-code"       # `offered: false`
 WHY = "your organisation has not enabled this model"
 MARKER = "the settings page (/settings)"
-FULL = ".mpick[data-variant=full]"
-COMPACT = ".mpick[data-variant=compact]"
+FULL = "#mphost .mpick[data-variant=full]"
+COMPACT = "#mphost .mpick[data-variant=compact]"
 
 
 @pytest.fixture()
