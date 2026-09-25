@@ -670,9 +670,11 @@ class Layer {
 
   /* Where an underline may go (#331), in the anchor's coordinates: `base` is the foot of the tallest
      of its siblings on its line, and `floor` the top of the next row in its pane (none in the
-     header): the highest of the elements after it that start below it, and of their words, whose
+     header): the highest of the elements beside it that start below it, and of their words, whose
      line box can stand above their element's box. Not the first in the markup: a wrapped header
-     puts the chip first but the taller `.oldsession` higher. Read only, where `sync` already measures. */
+     puts the chip first but the taller `.oldsession` higher. Nor only those after it: the compact
+     tier's `order: -1` puts the name first and the pane number, before it in the markup, under it.
+     Read only, where `sync` already measures. */
   under(m, r, s) {
     let b = r.bottom;
     for (const k of m.el.parentElement ? m.el.parentElement.children : []) {
@@ -683,7 +685,8 @@ class Layer {
     const range = document.createRange();
     for (let a = m.el; m.lane.root && a && a !== m.lane.root; a = a.parentElement) {
       let f = Infinity;
-      for (let n = a.nextElementSibling; n; n = n.nextElementSibling) {
+      for (const n of a.parentElement ? a.parentElement.children : []) {
+        if (n === a) continue;
         const q = n.getBoundingClientRect();
         if (!q.height || q.top <= r.bottom) continue;
         f = Math.min(f, q.top);
