@@ -65,6 +65,15 @@ hash. That is how *which* skills changed can be named later, without carrying fo
 3. **The budget holds.** Renew goes through `start`'s own guards: the lock, the mid-ticket check and the per-agent
    budget. A refusal is reported per agent in the preview's words, never swallowed.
 
+**Leaving one session (#488).** Renew stays *stale only, when idle*, and never takes an adopted session. Fresh is
+the one-pane door the operator presses: `ad-fleet fresh <repo>` (and `POST /api/fresh`) plans, then starts one
+clean `--new` session on the active ticket and the configured model, whatever the pane's session was -- stale, an
+adopted terminal chat, or one that began outside the fleet and went quiet. The session left is marked `left` on its
+row in `sessions.json` (the new one says `after` it), from a `leaves` field on the fresh `started`; nothing is
+deleted. The verdicts, first match wins: `mid_turn`, `console_window`, `needs_you`, `foreign_session` (never
+overridden), `second_press` (`chat_open`: a chat that may still be open, which a deliberate `--closed` gets past),
+then `now`. `row.fresh` carries the same verdict for the pane, judged from the snapshot's own listing.
+
 **The desk itself.** `serve` captures the fingerprint it was *loaded* with at import time. `/api/ping` answers
 `loaded` beside `installed`, and the page shows one line when they differ: *the desk is running 0.13.1 ·
 installed 0.13.2 · restart*. `ad-fleet open` and both IDE shells treat an out-of-date desk like a missing one:

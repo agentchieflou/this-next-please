@@ -1072,6 +1072,7 @@ fact. A row that fails becomes a regression test named for its host.
 | C6 | With two consoles open in different checkouts, compare `session-state` ids to the `copilot` pids in the process table | whether an id can be matched to a pid without native calls. If it can, an adopted console gets a pid and `say` works on it; if not, `say` keeps refusing with *type in that window* | _not yet measured_ | — |
 | C7 | `ad-fleet console` on a checkout whose project has a palette | the window wears that project's colours. It dresses itself — `cmd.exe /k` runs `title`, then `ad-theme apply`, then the session — so this measures whether the recolour lands on conhost and under Windows Terminal, not whether a shell hook fired. `fleet.console.palette: false` turns it off | _not yet measured_ | — |
 | C8 | A second `ad-fleet console` on a checkout that already has one; then open one **yourself** beside a fleet console | the second is refused with `live_agent` and no window opens; and `ad-fleet adopt --list` says what it makes of the one you opened by hand | _not yet measured_ | — |
+| C9 | Close a terminal chat with `/exit`, then `ad-fleet fresh <repo>` at once, and again every 15 s (#488) | how long the fleet goes on treating the closed chat as open (`chat_open`): its session file's quiet against `fleet.console.idle_s` (90 s). If it is the full 90 s every time, the second press (`--closed`) is the common path and the hint should say so | _not yet measured_ | — |
 
 ### The open questions these rows answer
 
