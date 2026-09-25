@@ -104,9 +104,9 @@ def _own_desk_globals(monkeypatch):
     monkeypatch.setattr(S, "_measure_asks", {})
 
 
-def _repos(tmp_path, names):
+def _repos(tmp_path, names, project=None):
     for name in names:
-        Registry().add(make_project(tmp_path / name, ticket="RDSD-1"), name=name)
+        Registry().add(make_project(tmp_path / name, ticket="RDSD-1"), name=name, project=project)
         E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-1"),
                         E.event(name, "assistant_text", {"text": "working on " + name},
                                 ticket="RDSD-1"),
@@ -1324,7 +1324,12 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
 
     Alpha has run more than once, so its row carries `earlier` runs and the session pill's runs list
     is drawn on every row pass: patched, never torn down and rebuilt (#494). A run arriving adds one
-    row and leaves the others' elements alone; an ended run's time is written into its row in place."""
+    row and leaves the others' elements alone; an ended run's time is written into its row in place.
+
+    Beta is a second checkout of alpha's project, so alpha's session menu lists it as a sibling on
+    every row pass too: patched by repo, not emptied and cloned again (#514). `SIBS_IN_PLACE` draws
+    it by hand: the row keeps its element, a state and age that change are written in place, and
+    after several draws one click on it opens beta, through one handler."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata import config as C
 
@@ -1334,7 +1339,7 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
                        E.event("alpha", "assistant_text", {"text": "working on alpha", "model": "claude-sonnet-5"},
                                ticket="RDSD-1"),
                        E.event("alpha", "turn_ended", {"turn": "0"}, ticket="RDSD-1")])
-    _repos(tmp_path, ["beta"])
+    _repos(tmp_path, ["beta"], project="alpha")
     S.arrange(order=["alpha", "beta"])
     S.update_window("main", open="alpha", widths={"alpha": 1, "beta": 1})
     cfg = C.load()
@@ -1351,6 +1356,9 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
             page.wait_for_function(f"() => document.querySelectorAll('{RUNS}').length === 1"
                                    " && !!document.querySelector('.tile[data-repo=\"alpha\"] .spill')"
                                    ".textContent", timeout=15000)
+            page.wait_for_function(f"""() => {{ const s = document.querySelectorAll('{SIBS}');
+              return s.length === 1 && s[0].querySelector('.sib-open').title.indexOf('beta') >= 0; }}""",
+                                   timeout=15000)
             first = page.evaluate(f"""() => {{ window.__run1 = document.querySelector('{RUNS}');
               return {{ words: window.__run1.textContent,
                         hidden: window.__run1.parentElement.hidden }}; }}""")
@@ -1391,6 +1399,8 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
                 && !!document.querySelector('#dispatch .dispatch-model button[aria-pressed="true"]')""",
                                    timeout=10000)
             dispatched = page.evaluate(IDLE_LOOP)
+            # Last, because its click opens beta.
+            sibs = page.evaluate(SIBS_IN_PLACE)
             assert not errors, errors
             browser.close()
     finally:
@@ -1408,10 +1418,41 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     assert kept, "an idle pass re-created a row of the runs list"
     assert in_place == {"kept": True, "equal": 0, "words": "run 1 · done (10:00–10:05)",
                         "added": 1, "empty": True}, in_place
+    assert sibs["kept"] == [True, True, True] and sibs["rows"] == [1, 1, 1], sibs
+    assert "working" in sibs["moved"] and "9s" in sibs["moved"] and sibs["back"] == sibs["was"], sibs
+    assert sibs["opened"] == ["beta"], sibs
 
 
 #: Alpha's runs list, under its session pill.
 RUNS = '.tile[data-repo="alpha"] .live-runs li'
+
+#: Alpha's sibling checkouts, in the same menu: the drawn rows, not the hidden pattern.
+SIBS = '.tile[data-repo="alpha"] .sib-list .sib-row:not([hidden])'
+
+#: Alpha's sibling list drawn by hand (#514): beta turns busy and older, then back. Whether its row
+#: keeps its element on each draw, the words each draw leaves, how many rows are drawn, and which
+#: agents one click on the row opens (`openAgent` is watched, and still called).
+SIBS_IN_PLACE = """() => {
+  const el = document.querySelector('.tile[data-repo="alpha"]');
+  const row = tiles.get('alpha').row;
+  const drawn = () => [...document.querySelectorAll('%s')];
+  const words = () => drawn()[0].querySelector('.sib-open').textContent;
+  const first = drawn()[0];
+  const was = words();
+  const busy = Object.assign({}, row.siblings[0], { state: 'working', age: '9s' });
+  const moved = Object.assign({}, row, { siblings: [busy] });
+  const kept = [], rows = [];
+  drawSessionPill(el, moved); kept.push(drawn()[0] === first); rows.push(drawn().length);
+  const movedWords = words();
+  drawSessionPill(el, moved); kept.push(drawn()[0] === first); rows.push(drawn().length);
+  drawSessionPill(el, row); kept.push(drawn()[0] === first); rows.push(drawn().length);
+  const back = words();
+  const opened = [];
+  const real = window.openAgent;
+  window.openAgent = function (name, skip) { opened.push(name); return real(name, skip); };
+  try { drawn()[0].querySelector('.sib-open').click(); } finally { window.openAgent = real; }
+  return { kept: kept, rows: rows, was: was, moved: movedWords, back: back, opened: opened };
+}""" % SIBS
 
 #: `drawRuns` on a list of its own: an ended run's time is written into the row it already has, an
 #: equal draw writes nothing, a new run adds exactly one row, and no runs hides the list.

@@ -1111,18 +1111,28 @@ function drawSessionPill(el, row) {
   // menu has to read as finished with none of them rather than as a row of missing things.
   var sibs = row.siblings || [];
   var sibList = el.querySelector(".sib-list");
-  var sibPattern = sibList.querySelector(".sib-row");
   hide(el.querySelector(".sm-sibs-label"), !sibs.length);
-  while (sibList.children.length > 1) sibList.removeChild(sibList.lastChild);
-  sibs.forEach(function (sib) {
-    var li = sibPattern.cloneNode(true);
-    hide(li, false);
-    var button = li.querySelector(".sib-open");
-    text(button, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
-    attr(button, "title", "the same project, checked out at " + (sib.path || sib.repo));
-    button.addEventListener("click", function () { closeMenu(el); openAgent(sib.repo); });
-    sibList.appendChild(li);
-  });
+  /* Patched, not rebuilt (#514), as the runs list is (#494): this runs on every row pass, and an
+     idle desk is zero DOM mutations. Keyed by the sibling's repo, which a registry name makes unique.
+     The hidden pattern row stays where it is: it has no `data-rowkey`, and `patchList` neither counts,
+     moves nor removes an unkeyed child. The click is bound once, when the row is made, and reads the
+     repo off the row, so it opens the checkout the row is for now, however often it is drawn. */
+  patchList(sibList, sibs, function (sib) { return sib.repo; },
+    function () {
+      var pattern = sibList.querySelector(".sib-row:not([data-rowkey])");
+      var li = /** @type {HTMLElement} */ (pattern.cloneNode(true));
+      hide(li, false);
+      li.querySelector(".sib-open").addEventListener("click", function () {
+        closeMenu(el);
+        openAgent(li.dataset.rowkey);
+      });
+      return li;
+    },
+    function (li, sib) {
+      var button = li.querySelector(".sib-open");
+      text(button, [sib.branch || sib.repo, sib.state, sib.age].filter(Boolean).join(" · "));
+      attr(button, "title", "the same project, checked out at " + (sib.path || sib.repo));
+    });
 }
 
 /* The runs of one session, newest last, as plain rows. A run is a transcript boundary, not a thing
