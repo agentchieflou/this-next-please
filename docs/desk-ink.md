@@ -267,7 +267,7 @@ export const cues = [];                      // effects (#372): the layer fetche
 | --- | --- | --- |
 | `ground` | when the skin arrives, on a resize, on a palette change | the ground group, drawn first (`api.order.ground`, -30), in the back pass |
 | `paper` | the same | the paper group, over the ground (`api.order.paper`, -20), in the back pass. A skin with a `paper` hook replaces the flat `options.paper` |
-| `frame` | for each pane (`.tile[data-repo]`) when it appears and whenever its **size** changes. It is not called for a move: its group is at the pane's top-left and moves with it | that pane's own group; `box` is `{x: 0, y: 0, w, h}`; `el` is the pane, to read and never write. The group is freed when the pane leaves |
+| `frame` | for each pane (`.tile[data-repo]`) when it appears, whenever its **size** changes, and on a palette change (#388). It is not called for a move: its group is at the pane's top-left and moves with it | that pane's own group; `box` is `{x: 0, y: 0, w, h}`; `el` is the pane, to read and never write. The group is freed when the pane leaves |
 | `tick` | on every frame the layer draws, with the seconds since the last. Answer `true` to be given another. Under reduced motion that answer is not honoured | none |
 | `dispose` | when the skin is replaced or the layer stops | none |
 
@@ -281,9 +281,46 @@ What each hook is handed:
   `inks` (tool → `[r, g, b]`), `dark`, and `css(name)` for any other custom property.
 * **`api`** gives `viewport` (`{w, h, dpr}`), `reduced`, `dark` and `renderer`, and `order` (`{ground: -30, paper:
   -20, frame: -10, fx: -5}`, all under every mark). `api.fx` is `fx.js`'s helpers once a table with effects has it
-  attached, and null otherwise (#375 and #376 fill it). It also gives `panes()` (`[{el, repo, box}]` where the panes are now) and
-  `request()` (draw another frame). With `sampleGround`, `groundTexture` and `groundSize` let a frosted pane read
+  attached, and null otherwise (#375 and #376 fill it). It also gives `panes()` (`[{el, repo, box}]` where the panes are now),
+  `request()` (draw another frame) and `stroke()` (below). With `sampleGround`, `groundTexture` and `groundSize` let a frosted pane read
   what is behind it at `gl_FragCoord.xy / groundSize`.
+
+**A material drawn with a tool's stroke (#388).** `api.stroke(group, path, tool, opts)` draws a skin's own piece
+(goalposts, a ball, a scorch) stroke by stroke with a tool's physics and shader, the ones the marks beside it are
+drawn with, rather than a flat quad of its own:
+
+| Argument | Is |
+| --- | --- |
+| `group` | a group a hook was handed (a pane's `frame` group, the `paper` or the `ground` group), or one the skin added under it |
+| `path` | a `shapes.js` path, `{pts, smooth?, w?, nobow?, wob?}`, in `group`'s coordinates, y down |
+| `tool` | the tool whose width, grain, wobble and taper lay it down: one of `Ink.tools` |
+| `opts` | `{ink?, seed?, tune?, dash?}`: `ink` the tool whose colour it is drawn in, as a row's `ink` (one of `Ink.tools`), `seed` its wobble (default 1), `tune` the tool's numbers for this stroke (as a table's `tools`), `dash` a dashed stroke |
+
+A `tool` or an `ink` that is no tool throws a `TypeError` naming it, which the hook's call reports as the skin's error
+(rule 8). The stroke starts at head 0, and `stroke()` answers a frozen handle: `len` in px, `dead`, `head(px)` (drawn
+that far), `erase(px)` (taken up that far), `done(bool)`, and `dispose()`, which may be called twice. **Nothing ticks
+by itself**: the skin advances `head` in `tick`, answers `true` only while something advances, and under `api.reduced`
+sets `head(len)` at once. A material stroke has no hand, and is never faded: it arrives by `head` and leaves by `erase`
+or with its group.
+
+**It lives as long as its group.** A resize, a palette change or the skin leaving empties every group a hook was
+handed, and every material stroke in it dies there: its handle says `dead: true` and touches nothing freed. The layer
+never recolours one in place. The skin draws it again in its next `ground`, `paper` or `frame` call, in the ink the
+page has then. `Ink.inspect().layer.skin.strokes` is how many are alive. A post drawn down each pane's right edge:
+
+```js
+let posts = [];                                            // what `tick` is still drawing
+export function frame({ scene, api }, el, box) {           // a new pane, a new size or a new palette
+  const h = api.stroke(scene, { pts: [[box.w - 30, 12], [box.w - 30, 60]], nobow: true }, "pencil", { ink: "pen" });
+  posts.push({ h, at: 0 });
+  api.request();                                           // a frame, so that `tick` starts drawing it
+}
+export function tick({ api }, dt) {
+  posts = posts.filter(p => !p.h.dead && p.at < p.h.len); // drawn, or gone with its group
+  for (const p of posts) p.h.head(p.at = api.reduced ? p.h.len : Math.min(p.h.len, p.at + 900 * dt));
+  return posts.some(p => p.at < p.h.len);
+}
+```
 
 **The rules a skin keeps.**
 
@@ -294,8 +331,8 @@ What each hook is handed:
 3. **Colours come from `tokens`, and never from a hex written in the module.** A palette change calls `ground` and
    `paper` again and rebuilds every frame. Inks come from `--ink-<tool>`, which the skin's `skin.css` may set.
 4. **Every call to `ground`, `paper` or `frame` starts with an empty scene.** The layer frees the geometry and the
-   materials that were in it. Keep module-level references only for `tick`, and free anything else in `dispose`, such
-   as a render target or a texture.
+   materials that were in it, and a material stroke in it is dead (#388). Keep module-level references only for
+   `tick`, and free anything else in `dispose`, such as a render target or a texture.
 5. **Put the pieces under the marks**, with `api.order`. A mark is drawn at order 0 and above.
    What `fx: -5` really means: three.js r160 sorts first by the innermost Group's `renderOrder`, and each pane's own
    frame group (`framePanes`) keeps 0. So the effects group draws over the back pass (ground, paper) and under every
@@ -587,7 +624,7 @@ on the page for as long as the layer runs.
 | any of these, in a pane | a mark in a pane's lane is also clipped to the pane's border box, inset 1px, where the other clips are taken: no mark is drawn past its pane, whatever its shape or `pad` says. The header's lane keeps the viewport. It is a safety net; the shapes keep their own geometry inside (#331) |
 | a reorder (FLIP) or any transition | `transitionrun`/`animationstart` follows every frame for 400ms (`--motion-slow` and a margin) |
 | fonts arriving | re-measures, because the text wrapped |
-| the palette or the colour scheme | reads the inks again and repaints |
+| the palette or the colour scheme | reads the inks again and repaints, and a skin's ground, paper and frames are made again (#388) |
 
 **A frame with nothing new draws nothing.** An idle desk with ink on it is still zero DOM mutations and zero WebGL
 frames.
@@ -632,8 +669,8 @@ bound, because it renders in software).
 
 | Budget | Is | Asserted by |
 | --- | --- | --- |
-| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (43,171 bytes gzipped, LF, #387) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
-| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385, 42,557 B at #370 (the effects seam), 42,847 B at #386 (`ring` and `cross`), 43,171 B at #387 (the chalk hand). Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
+| the static payload | 154 KB gzipped for the whole desk, the layer's four modules (43,848 bytes gzipped, LF, #388) included, against 200 KB. three.js (163 KB) is outside it: no desk fetches it unless the layer draws. So is a skin module (the example is 2 KB), which only the desk that chose it fetches | `test_fleet_serve.py`, `test_fleet_ink.py` (the modules alone under `INK_BUDGET`, 44 KiB) |
+| `INK_BUDGET` | the four modules `ink.js`, `layer.js`, `shapes.js`, `pen.js`, gzip level 6 with `mtime=0`: 41,678 B at #331, 41,958 B at #385, 42,557 B at #370 (the effects seam), 42,847 B at #386 (`ring` and `cross`), 43,171 B at #387 (the chalk hand), 43,848 B at #388 (`api.stroke`, 626 B of it; 51 B are #332's underline floor). Raised once, from 40 KiB to 44 KiB, by #331 on the operator's answer in the decisions register (#318); every later card that grows the four fits under it, and one-shot effect code goes to the lazily fetched `ink/fx.js` (#370). The figure is for the modules as git stores them, LF: a checkout with `core.autocrlf=true` (Windows) is measured with its line endings normalised to LF before gzip, so CRLF bytes alone never fail it (operator decision, #331) | `test_fleet_ink.py` |
 | `FX_BUDGET` | `fx.js`, lazily fetched, measured the same way, under 8 KiB (8,192 B): 1,089 B at #370, the seam alone. Every later effects card (#372, #374-#376) writes `fx.js` only, under it, and none raises `INK_BUDGET` | `test_fleet_ink.py` |
 | a gesture | its 50ms, measured while every pane has a long mark drawing. The ink draws after the gesture, never inside it ([desk-instant.md](desk-instant.md)) | `test_fleet_ink.py` (`measured`) |
 | ink's own catch-up | **counted in frames, not milliseconds** (ground rule 5), because CI renders in software. Marks are on the paper within the frames a hand at the pen's speed needs for their length at 60 Hz, plus travel. A slower frame moves the pen further, so it is never more. Under reduced motion it is one frame | `test_fleet_ink.py` |
@@ -684,6 +721,9 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phas
 * **Skins:** a skin module is fetched with the token when the config chooses it. Its marks are drawn per variant,
   in ink or plain, and its ground, paper and frames run. A hook that throws is the skin's own problem, and
   `sampleGround` hands frames the ground as a texture.
+* **Materials:** `api.stroke` draws a skin's material with a tool's stroke in another tool's ink, from head 0 and
+  whole once the skin's `tick` has advanced it; it dies with its group on a palette change and a resize and is drawn
+  again, the live strokes do not grow, replacing the skin frees its geometries, and an idle desk stays idle (#388).
 * **At rest:** the desk with no skin using ink is unchanged, and so is an idle desk with ink on it.
 * **Budgets:** catch-up is counted in frames, and a gesture keeps its budget while the ink draws.
 
