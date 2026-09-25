@@ -241,3 +241,115 @@ function settle(mark) {
     return 0;
   }
 }
+
+/* ------------------------------------------------------------ #351: how long a load took
+
+   While the operator has switched measuring on (`fleet.loads.enabled`, #350), the server serves
+   the desk and /settings with `data-measure="loads"` on <html>, and each such document posts ONE
+   record of its own load as it goes (`pagehide`), which `ad-fleet engines` prints as the `loads`
+   table. With the attribute absent -- the default, and always on /probe -- nothing here registers,
+   observes or touches storage. Everything is read, nothing is written to the page: the paint and
+   long-task times come from PerformanceObserver, and the ink's first frame from the counter the
+   layer already keeps (`Ink.inspect().layer.renders`), because no entry type sees a WebGL frame.
+
+   `from` is the note /settings leaves in sessionStorage as it goes: every page is served
+   `Referrer-Policy: no-referrer` and a navigation entry reads `navigate` both for a cold open and
+   for settings -> desk, so the page says where it came from. Every read is wrapped: a page that
+   cannot time itself still works. */
+var LOAD = { on: false, page: null, settled: "" };
+
+(function measureLoad() {
+  try {
+    LOAD.on = document.documentElement.getAttribute("data-measure") === "loads";
+  } catch (e) { return; }
+  if (!LOAD.on) return;
+  var path = location.pathname.replace(/\/+$/, "") || "/";
+  LOAD.page = path === "/" ? "desk" : path === "/settings" ? "settings" : null;
+  if (!LOAD.page) return;
+
+  var desk = LOAD.page === "desk";
+  var rec = { page: LOAD.page, from: "" };
+  if (desk) {
+    try {
+      if (sessionStorage.getItem("fleet.load.from") !== null) rec.from = "settings";
+      sessionStorage.removeItem("fleet.load.from");
+    } catch (e) { /* no storage: a cold open, as far as the table can tell */ }
+  }
+
+  function ms(n) { return Math.round(n * 10) / 10; }
+  function observe(type, each) {
+    try {
+      var types = PerformanceObserver.supportedEntryTypes || [];
+      if (types.indexOf(type) < 0) return false;
+      new PerformanceObserver(function (list) { list.getEntries().forEach(each); })
+        .observe({ type: type, buffered: true });
+      return true;
+    } catch (e) { return false; }
+  }
+  observe("paint", function (entry) {
+    if (entry.name === "first-paint") rec.first_paint_ms = ms(entry.startTime);
+  });
+  var longest = 0;
+  var tasks = observe("longtask", function (entry) { longest = Math.max(longest, entry.duration); });
+  var skinFirst = null;
+  try {
+    requestAnimationFrame(function () {
+      try { skinFirst = document.body.dataset.skin || ""; } catch (e) { skinFirst = ""; }
+    });
+  } catch (e) { /* no frames, no first skin */ }
+
+  /* The ink's first frame: read-only, each frame, until the layer has drawn once. It stops, leaving
+     the field out, when the verdict is off or there is no layer, after 10 s, or at pagehide. It
+     never writes to the page and never asks the layer to draw. */
+  var inkDone = !desk;
+  var inkFrom = 0;
+  function lookForInk() {
+    if (inkDone) return;
+    try {
+      if (!inkFrom) inkFrom = performance.now();
+      if (performance.now() - inkFrom > 10000) { inkDone = true; return; }
+      // Until ink.js has run, `window.Ink` is Chromium's own `Ink` interface (the delegated ink
+      // trail API), a function with no `inspect`: the layer's front door is the one that has it.
+      var ink = window["Ink"];
+      if (!ink || typeof ink.inspect !== "function") ink = null;
+      if (ink && !ink.enabled) { inkDone = true; return; }
+      // The layer's canvas, which the layer adds (layer.js); it is in no page's markup.
+      var canvas = document.querySelector("#ink");
+      if (ink && canvas && canvas.hasAttribute("data-skin")) {
+        var seen = ink.inspect();
+        if (!seen || !seen.verdict || !seen.verdict.on || !seen.layer) { inkDone = true; return; }
+        if (seen.layer.renders >= 1) {
+          rec.ink_first_frame_ms = ms(performance.now());
+          inkDone = true;
+          return;
+        }
+      }
+      requestAnimationFrame(lookForInk);
+    } catch (e) { inkDone = true; }
+  }
+  lookForInk();
+
+  var sent = false;
+  window.addEventListener("pagehide", function () {
+    inkDone = true;
+    if (sent) return;
+    sent = true;
+    try {
+      rec.shell = PARAMS.get("shell") || PARAMS.get("w") || "browser";
+      var nav = /** @type {PerformanceNavigationTiming} */ (performance.getEntriesByType("navigation")[0]);
+      rec.how = nav ? nav.type : "";
+      rec.origin_ms = ms(performance.timeOrigin);
+      if (tasks) rec.longest_task_ms = ms(longest);
+      if (desk) {
+        var fleet = performance.getEntriesByType("resource").filter(function (e) {
+          try { return new URL(e.name).pathname === "/api/fleet"; } catch (x) { return false; }
+        })[0];
+        if (fleet) rec.fleet_ms = ms(/** @type {PerformanceResourceTiming} */ (fleet).responseEnd);
+      }
+      rec.skin_first = skinFirst === null ? "" : skinFirst;
+      rec.skin_settled = LOAD.settled || "";
+      rec.ua = String(navigator.userAgent || "").slice(0, 200);
+      navigator.sendBeacon(q("/api/load"), new Blob([JSON.stringify(rec)], { type: "text/plain" }));
+    } catch (e) { /* a load that cannot be sent is a load not counted, never a broken page */ }
+  });
+})();

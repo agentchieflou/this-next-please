@@ -1339,6 +1339,18 @@ def ink_gate_on(query: dict, probe_class: str | None = None) -> bool:
     return (probe_class if probe_class is not None else ink_facts(query)["class"]) == "hardware"
 
 
+#: The pages that time their own load while measuring is on (#351); never `/probe`, which measures
+#: a shell rather than a load.
+MEASURED_PAGES = ("index.html", "settings.html")
+
+
+def measure_attr(name: str) -> str:
+    """` data-measure="loads"` for `<html>` while `fleet.loads.enabled` is on and `name` is a
+    measured page (#351), else nothing -- so with measuring off the markup is byte-identical to what
+    it was. The page reads the attribute at boot and needs no request to find out."""
+    return ' data-measure="loads"' if name in MEASURED_PAGES and LOADS.enabled() else ""
+
+
 def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
     """The chosen palette, skin and tiers as the served page's own markup (#345), so its first
     painted frame is the one the operator chose -- not the system palette, and not the snapshot of
@@ -2782,6 +2794,8 @@ class Handler(BaseHTTPRequestHandler):
         with no second request and nothing drawn first and taken back.
         """
         html = textio.read_text(os.path.join(STATIC, name))
+        # Read once, so the markup and its gzip entry agree about the switch (#351).
+        measured = measure_attr(name)
         for asset in ASSETS:
             html = html.replace(f'"/static/{asset}"', f'"/static/{asset}?t={self.token}"')
         ink: tuple = ()
@@ -2806,7 +2820,7 @@ class Handler(BaseHTTPRequestHandler):
             # stylesheet, which stays the last thing in <head>.
             preload = ink_preload(ts, self.token, gate_on=gate_on) if desk else ""
             themed = (worn["html"], worn["link"], worn["body_class"], worn["body"], preload)
-            html = html.replace('<html lang="en">', '<html lang="en"' + worn["html"] + ">", 1)
+            html = html.replace('<html lang="en">', '<html lang="en"' + worn["html"] + measured + ">", 1)
             html = html.replace("</head>", preload + worn["link"] + "</head>", 1)
 
             def dress(m):
@@ -2819,7 +2833,8 @@ class Handler(BaseHTTPRequestHandler):
         # whichever was compressed first to both. The desk's shell and its class are in it too, and
         # the theme every page but the probe now wears.
         self._send(200, html.encode("utf-8"), "text/html; charset=utf-8",
-                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) + ink + themed)
+                   cache_key=(name, stamp.st_mtime_ns, stamp.st_size, self.token) + ink + themed
+                   + (measured,))
 
     def _static(self, name: str) -> None:
         """One file out of the package's `static/` directory, and nothing above or beside it.

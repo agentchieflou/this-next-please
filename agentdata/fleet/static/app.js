@@ -1905,6 +1905,7 @@ var setLink = /** @type {HTMLAnchorElement} */ (document.getElementById("setbtn"
 if (setLink) setLink.href = pageUrl("/settings");
 
 refresh().then(function () {
+  LOAD.settled = document.body.dataset.skin || "";   // the skin the first refresh settled on (#351)
   connect();
   loadNotifications();
   // The anchor is answered *after* the desk, not beside it: whether a tile is hidden is the

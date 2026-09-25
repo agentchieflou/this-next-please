@@ -1280,6 +1280,20 @@ Render Driver) counts as *falls back* however smooth it looks, and a cell is nev
   SwiftShader at 117–150 ms a frame; these are the first numbers from hardware.
 
 
+## Switching (#351): each host's own load, measured
+
+What a theme switch costs in each host, from the host itself ([desk-engines.md](desk-engines.md)
+§Switching, measured in each shell). Nothing is sent anywhere but the local server.
+
+| # | Do this | Expect | Result | Notes |
+| --- | --- | --- | --- | --- |
+| S1 | Set `"fleet": {"loads": {"enabled": true}}` in `~/.agentdata/config.json` | nothing to restart: the next page each host loads is measured | _not yet measured_ | — |
+| S2 | In each host (the Edge app window, PyCharm's tool window, VS Code's view, the native window), do 10 settings round trips: the desk's settings button, then *the desk* | nothing different to see | _not yet measured_ | each round trip files one `settings` record and one desk record `from=settings` |
+| S3 | In each host, 3 cold opens: close the window and open it again | nothing different to see | _not yet measured_ | a cold open is `from=""` |
+| S4 | `ad-fleet engines` | a `loads` table with a `desk` row for both `from` values per host | _not yet measured_ | **paste the whole TOON block back** |
+| S5 | Set `fleet.loads.enabled` back to `false` (or remove it) | pages stop measuring on their next load | _not yet measured_ | — |
+
+
 ## Panes (#235): the engine rows, the gutters and the tier widths, in all four shells
 
 The row of panes leans on three platform features: one `ResizeObserver` for the tiers, container
