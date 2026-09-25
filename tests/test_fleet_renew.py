@@ -321,6 +321,12 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
     _repo(tmp_path, "sent", events=last_night + [started(NOW, resumed=True, session="s-sent"), turn_ended()])
     _repo(tmp_path, "asking", events=last_night, questions=[{"id": "q1", "q": "which workspace?"}])
     _repo(tmp_path, "free", phase="idle", ticket="", events=last_night)
+    # #512: the sweep's adapters, recorded in process; `yday` has a page source, so its page row asks.
+    from agentdata.fleet import wrapup as WRAP
+    sweep_run = SweepRun()
+    monkeypatch.setattr(WRAP, "RUN", sweep_run)
+    os.makedirs(os.path.join(str(tmp_path / "yday"), ".agent", "out"), exist_ok=True)
+    open(os.path.join(str(tmp_path / "yday"), ".agent", "out", "RDSD-1-confluence.md"), "w").close()
     posted = []
     real_act = S.act
     monkeypatch.setattr(S, "act", lambda what, body: posted.append((what, dict(body))) or real_act(what, body))
@@ -412,12 +418,115 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
                 assert "fresh=1" not in page.url and "t=" in page.url, page.url
                 assert [b for w, b in posted[before:] if w == "fresh"] == [{"all": True, "dry_run": True}]
             assert not [b for w, b in posted if "repos" in b], "no address confirms a fresh day"
+
+            # #512: the end-of-day sweep from the *day* menu. #503's `RUN` is recorded; nothing starts.
+            before = len(posted)
+            page.click("#daybtn")
+            page.wait_for_selector("#daymenu:not([hidden])", timeout=5000)
+            page.click("#daywrapday")
+            page.wait_for_function("""() => document.querySelectorAll('#day-strip .day-rows li.sweep-row:not(.day-pattern)').length === 6
+                && !document.getElementById('daygo').disabled""", timeout=20000)
+            swept = {r["repo"]: r for r in page.evaluate(SWEEP_ROWS)}
+            job = WRAP.fleet_job_state()
+            planned = {r["repo"]: [s["id"] for s in r["steps"] if s["ticked"]] for r in job["repos"]}
+            assert {k: [c["id"] for c in r["cells"] if c["ticked"]] for k, r in swept.items()} == planned, swept
+            assert [c["step"] for c in swept["yday"]["cells"]] == ["push", "pr", "page", "comment"], swept["yday"]
+            assert [c["step"] for c in swept["free"]["cells"]] == ["push", "pr"], swept["free"]
+            for repo, row in swept.items():
+                pr = next(c for c in row["cells"] if c["step"] == "pr")
+                assert "not_pinned" in pr["text"] and "capture-help" in pr["text"] and pr["disabled"], (repo, pr)
+            page_cell = next(c for c in swept["yday"]["cells"] if c["step"] == "page")
+            assert "not_pinned" in page_cell["text"], page_cell
+            ticked = sum(len(v) for v in planned.values())
+            assert page.inner_text("#daygo") == (f"write {ticked} — 6 pushes, 0 PRs, 0 pages, 5 comments, "
+                                                 "0 transitions"), page.inner_text("#daygo")
+            assert not any("merge" in c["text"].lower() for r in swept.values() for c in r["cells"])
+            # An idle desk with the table open, and no job running, writes nothing.
+            assert WRAP.wait_all(10)
+            swept_idle = page.evaluate(IDLE_LOOP)
+            assert swept_idle["n"] == 0, f"an idle desk with the sweep open wrote to the page: {swept_idle}"
+            page.click("#daygo")
+            page.wait_for_function("""() => [...document.querySelectorAll('#day-strip .sweep-row:not(.day-pattern) .wrap-row')]
+                .filter(c => c.querySelector('.wrap-tick').checked).every(c => c.dataset.done)""", timeout=20000)
+            wraps = [b for w, b in posted[before:] if w == "wrapup"]
+            assert [b.get("dry_run") for b in wraps] == [True, None], wraps
+            assert wraps[0] == {"all": True, "mode": "day", "dry_run": True}, wraps[0]
+            assert wraps[1]["all"] is True and wraps[1]["job"] == job["job"] and wraps[1]["mode"] == "day"
+            assert wraps[1]["steps"] == {k: v for k, v in planned.items() if v}, wraps[1]
+            done = {r["repo"]: [c["done"] for c in r["cells"] if c["ticked"]] for r in page.evaluate(SWEEP_ROWS)}
+            assert all(d == ["written"] * len(planned[k]) for k, d in done.items()), done
+            assert len(sweep_run.writes) == ticked
+            assert f"sweep: {ticked} written" in page.inner_text("#notice")
             assert not errors, errors
             browser.close()
     finally:
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+class SweepRun:
+    """#503's `RUN` for #512, in process: a push of one commit, the pr and page verbs unknown (argparse's
+    *invalid choice*, as on `main` before #506 and #507), a comment and a transition that answer `ok`."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.calls: list = []
+
+    @property
+    def writes(self):
+        return [a for a, _ in self.calls if "--dry-run" not in a]
+
+    def __call__(self, argv, cwd, env=None):
+        args = list(argv[3:])
+        with self.lock:
+            self.calls.append((args, cwd))
+        dry = "--dry-run" in args
+        if args[0] in ("pncli", "confluence"):
+            return {"code": 2, "meta": {}, "tables": {}, "stderr": f"ad-{args[0]}: error: argument: invalid choice"}
+        if args[0] == "git":
+            meta = {"ok": True, "branch": "feature/x", "remote": "origin", "target": "refs/heads/feature/x", "ahead": 1}
+            return {"code": 0, "meta": meta if dry else {**meta, "pushed": True}, "tables": {}, "stderr": ""}
+        if args[1] == "comment":
+            meta = {"ok": True, "key": args[2], "chars": 40, "first_line": "End of day"}
+            return {"code": 0, "meta": meta if dry else {**meta, "comment_id": "1"}, "tables": {}, "stderr": ""}
+        return {"code": 0, "meta": {"ok": True, "key": args[2], "status": "In Progress", "already": True},
+                "tables": {}, "stderr": ""}
+
+
+#: #512: the sweep's rows, each with its cells as #510's cell function draws them.
+SWEEP_ROWS = """() => [...document.querySelectorAll('#day-strip .day-rows li.sweep-row:not(.day-pattern)')].map(li => ({
+  repo: li.dataset.rowkey, state: li.querySelector('.sweep-state').textContent,
+  cells: [...li.querySelectorAll('.sweep-cells > .wrap-row')].map(c => ({
+    id: c.dataset.id, step: c.dataset.step, done: c.dataset.done, text: c.textContent,
+    ticked: c.querySelector('.wrap-tick').checked, disabled: c.querySelector('.wrap-tick').disabled })) }))"""
+
+
+def test_the_day_menu_holds_the_sweeps_and_only_the_strip_posts_one():
+    """#512: the *day* menu holds three items; the sweep's cells are #510's (`li.wrap-pattern` drawn by
+    `wrapCell`); and app.js posts `wrapup` with `all` only from the strip's preview and its confirm."""
+    import re
+
+    static = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "agentdata", "fleet", "static")
+    js = open(os.path.join(static, "app.js"), encoding="utf-8").read()
+    html = open(os.path.join(static, "index.html"), encoding="utf-8").read()
+    menu = html[html.index('<div id="daymenu"'):]
+    menu = menu[:menu.index("</div>")]
+    items = re.findall(r'<button type="button" role="menuitem" id="(\w+)"', menu)
+    assert items == ["dayfresh", "daywrapday", "daywrapproject"], items
+    assert "end of day…" in menu and "end of project…" in menu
+    strip = html[html.index('<div id="day-strip"'):]
+    assert '<li class="day-pattern sweep-row"' in strip[:strip.index("</ul>")]
+    sweep = js[js.index("function drawSweepRow("):js.index("function countSweep(")]
+    assert 'querySelector("#inspector .wrap-pattern")' in sweep and "wrapCell(" in sweep
+    sites = [m.start() for m in re.finditer(r'post\("wrapup", \{ all: true', js)]
+    assert len(sites) == 2, sites
+    heads = [(m.start(), m.group(1)) for m in re.finditer(r"^function (\w+)\(", js, re.M)]
+    owners = sorted(next(name for at, name in reversed(heads) if at < site) for site in sites)
+    assert owners == ["previewSweep", "writeSweep"], owners
+    assert "all: true" not in js[js.index("function previewWrap("):js.index("function loadWrap(")]
+    assert "merge" not in sweep.lower()
 
 
 #: #511: the fresh day's rows as the strip draws them.

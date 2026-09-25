@@ -182,7 +182,7 @@ rail chip in that position, `Enter` the row's one candidate.
 
 The **toolbar** is three labelled groups and one row: *widths* (the three presets, #234), *see*
 (search, the sidebar, and a *settings* link) and *alerts* (chime, the bell, and the **day** menu: *start
-the day fresh (Shift+N)*, #511; #512 adds the sweeps). A group named *window*
+the day fresh (Shift+N)*, #511; *end of day…* and *end of project…*, #512). A group named *window*
 chose between the arrangements, and went with them (#232); the presets stand where it was. Settings are a **page**, `/settings`, not a popover: the palette was never
 the only one, and the model each agent runs and the flags the Copilot CLI is launched with have no
 business behind a button on a bar that is about the agents. The link's `href` is built at runtime
@@ -454,6 +454,7 @@ red everywhere or the colour stops being information:
 | `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
+| *day* → *end of day…* / *end of project…* | the sweep (#512): the day strip previews every agent's Jira, Bitbucket and Confluence writes (#505) — *reading N agents…*, then one row per agent with a cell per write, drawn as the wrap-up sheet draws a step (tick, summary, hint; `not_pinned` names `ad-pncli capture-help`); an agent with nothing to write, or a busy one, is one muted line saying why. *Edit* on a comment cell opens that agent's text, previewed again when it changes. *Write N — P pushes, R PRs, G pages, C comments, T transitions* posts the ticked ids per agent, and each cell then reads written, failed, changed or skipped. At end of project *done* is unticked, the operator's call; no cell offers a merge. `Esc` closes it |
 | `Shift`+`N` | a fresh day for every pane (preview): the day strip under the toolbar, one row per agent — ticked, tickable (no ticket), or why not, a *needs you* row with its question and *answer* — then *start N fresh — about N premium turns*; `Esc` closes it (#511) |
 | `Alt`+`N` | start this pane fresh: a clean session on its ticket, the one it is on kept under *earlier* (#489) |
 | `/` | the search box — `where` over the catalogue |

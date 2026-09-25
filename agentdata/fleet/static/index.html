@@ -58,6 +58,9 @@
             title="the day: start every agent fresh (Shift+N)">day</button>
     <div id="daymenu" class="popover daymenu" role="menu" aria-label="the day" hidden>
       <button type="button" role="menuitem" id="dayfresh">start the day fresh <kbd>Shift</kbd>+<kbd>N</kbd></button>
+      <!-- #512: the sweeps. Each previews every agent's Jira, Bitbucket and Confluence writes in the strip. -->
+      <button type="button" role="menuitem" id="daywrapday" title="preview every agent's writes: push, a draft or updated PR, a progress comment">end of day…</button>
+      <button type="button" role="menuitem" id="daywrapproject" title="preview every agent's writes: push, a ready PR, the page, a final comment, review">end of project…</button>
     </div>
   </div>
 </header>
@@ -91,6 +94,7 @@
   <p class="day-sum" hidden></p>
   <ul class="day-rows" hidden>
     <li class="day-pattern fresh-row" hidden><input type="checkbox" class="day-tick"><strong class="day-repo"></strong><span class="day-verdict"></span><span class="day-ticket"></span><span class="day-model"></span><span class="day-began"></span><span class="day-why"></span><span class="day-question"></span><button type="button" class="day-answer" hidden>answer</button></li>
+    <li class="day-pattern sweep-row" hidden><strong class="day-repo"></strong><span class="sweep-state"></span><ol class="sweep-cells"></ol><textarea class="sweep-comment" rows="6" aria-label="this agent's Jira comment" hidden></textarea></li>
   </ul>
   <label class="day-keyless" hidden><input type="checkbox" id="daykeyless"> tick every idle agent (no ticket: a keyless session each)</label>
   <div class="day-actions" hidden>

@@ -1930,6 +1930,7 @@ function connect() {
   source.addEventListener("wrapup", function (m) {
     try {
       var d = JSON.parse(m.data);
+      if (d.all) { if (dayOpen && dayKind === "sweep" && d.job === sweep.job) loadSweep(); return; }   // #512
       if (wrapOpen() && d.repo === wrap.repo && (!wrap.job || d.job === wrap.job)) loadWrap();
     } catch (err) {}
   });
@@ -6166,6 +6167,7 @@ function dayGo() { return /** @type {HTMLButtonElement} */ (document.getElementB
 
 /** `#daygo` names what it spends: one premium turn per ticked agent (DAY-D2). */
 function countDay() {
+  if (dayKind === "sweep") { countSweep(); return; }          // #512: the strip holds a sweep
   var strip = dayStrip();
   var n = strip ? strip.querySelectorAll(".day-rows li:not(.day-pattern) .day-tick:checked:not(:disabled)").length : 0;
   var go = dayGo();
@@ -6177,6 +6179,7 @@ function openDay() {
   var strip = dayStrip();
   if (!strip) return Promise.resolve();
   closePopovers();
+  dayHolds("fresh");
   dayOpen = true;
   var sum = strip.querySelector(".day-sum");
   hide(strip, false);
@@ -6191,7 +6194,7 @@ function openDay() {
       text(sum, ((r && r.error) || "the preview could not be read") + (r && r.hint ? " — " + r.hint : ""));
       return;
     }
-    if (dayOpen) drawDayPlan(r);
+    if (dayOpen && dayKind === "fresh") drawDayPlan(r);
   }).catch(function () { text(sum, "the preview could not be read"); });
 }
 
@@ -6266,6 +6269,7 @@ function closeDay() {
 }
 
 function runDay() {
+  if (dayKind !== "fresh") return;                          // #512: `#daygo` on a sweep is `writeSweep`
   var strip = dayStrip();
   var go = dayGo();
   var repos = [];
@@ -6305,6 +6309,249 @@ function runDay() {
   }).catch(function () { countDay(); });
 }
 
+/* ------------------------------------------------------------------ the sweep (#505, #512)
+
+   *End of day…* and *end of project…* on the *day* menu: every agent's Jira, Bitbucket and Confluence
+   writes, previewed by #505's fleet job in the day strip -- one row per agent, one cell per write, each
+   cell drawn by the wrap-up sheet's own `wrapCell` (#510). `#daygo` writes the ticked cells, repo by
+   repo, and each cell then says written, failed, changed or skipped. The strip posts `wrapup` with
+   `all` from two places only: the preview (the menu, or an edited comment checked again) and the
+   confirm. A merge is never offered, and *done* at end of project is the operator's call. */
+var dayKind = "fresh";                                  // what the strip holds: a fresh day or a sweep
+var sweep = { mode: "day", job: "", state: "", repos: [], results: {}, ticks: {}, comments: {}, editing: {},
+              reading: [] };
+var SWEEP_KINDS = [["push", "push", "pushes"], ["pr", "PR", "PRs"], ["page", "page", "pages"],
+                   ["comment", "comment", "comments"], ["transition", "transition", "transitions"]];
+
+/** The strip holds one thing at a time: switching empties its rows, so a key never meets another kind's row. */
+function dayHolds(kind) {
+  var strip = dayStrip();
+  if (!strip || dayKind === kind) return;
+  patchList(strip.querySelector(".day-rows"), [], function (r) { return r.repo; }, function () { return mk("li"); });
+  dayKind = kind;
+}
+
+function sweepTicked(repo, cell) {
+  var key = repo + "|" + wrapSlot(cell);
+  return cell.ok && (sweep.ticks[key] !== undefined ? sweep.ticks[key] : !!cell.ticked);
+}
+
+function sweepResult(repo, cell) {
+  var done = (sweep.results[repo] || {}).results || [];
+  return done.filter(function (r) { return wrapSlot(r) === wrapSlot(cell); })[0];
+}
+
+/** The ticked ids, per repo that has any: what `#daygo` posts. */
+function sweepSteps() {
+  var out = {};
+  sweep.repos.forEach(function (r) {
+    if (r.state !== "planned") return;
+    var ids = (r.steps || []).filter(function (c) { return sweepTicked(r.repo, c); }).map(function (c) { return c.id; });
+    if (ids.length) out[r.repo] = ids;
+  });
+  return out;
+}
+
+/** A cell's actions: *edit* on a comment, the operator's own word on *done*. */
+function sweepActs(el, r, cell, result) {
+  var want = [];
+  if (!result && cell.step === "comment" && cell.ok) {
+    want.push({ key: "edit", label: sweep.editing[r.repo] ? "done" : "edit" });
+  }
+  if (wrapSlot(cell) === "transition-done") want.push({ key: "call", label: "operator's call" });
+  patchList(el.querySelector(".wrap-act"), want, function (w) { return w.key; }, function (w) {
+    if (w.key === "call") return mk("span", "wrap-call");
+    var b = mk("button", "wrap-btn");
+    attr(b, "type", "button");
+    b.addEventListener("click", function () {
+      var li = /** @type {HTMLElement} */ (el.closest(".sweep-row"));
+      var box = /** @type {HTMLTextAreaElement} */ (li.querySelector(".sweep-comment"));
+      var repo = li.dataset.rowkey || "";
+      sweep.editing[repo] = !sweep.editing[repo];
+      if (sweep.editing[repo] && sweep.comments[repo] === undefined) {
+        var row = sweep.repos.filter(function (x) { return x.repo === repo; })[0] || {};
+        var c = (row.steps || []).filter(function (x) { return x.step === "comment"; })[0] || {};
+        box.value = String((c.payload || {}).body || "");
+      }
+      hide(box, !sweep.editing[repo]);
+      if (sweep.editing[repo]) box.focus();
+      drawSweep();
+    });
+    return b;
+  }, function (n, w) { text(n, w.label); });
+}
+
+/** One agent's row: its name, one line of state, and a cell per write -- or one muted line. */
+function drawSweepRow(li, r) {
+  text(li.querySelector(".day-repo"), r.repo);
+  var words = r.state === "planned" ? r.writes + " to write"
+    : r.state === "busy" ? "skipped — " + (r.skipped || "busy") + "; nothing is queued"
+    : r.state === "error" ? "could not be read — " + (r.skipped || "") + (r.hint ? " — " + r.hint : "")
+    : (r.skipped || "nothing to write");
+  var res = sweep.results[r.repo];
+  if (res && res.error) words = "failed — " + res.error;
+  text(li.querySelector(".sweep-state"), words);
+  setClass(li, "sweep-row day-row sweep-" + r.state);
+  var locked = sweep.state !== "planned";
+  var cells = r.state === "planned" ? (r.steps || []) : [];
+  patchList(li.querySelector(".sweep-cells"), cells, wrapSlot, function () {
+    // The wrap-up sheet's own pattern row (#510), so the two draw a step alike.
+    var cell = /** @type {HTMLElement} */ (document.querySelector("#inspector .wrap-pattern").cloneNode(true));
+    cell.classList.remove("wrap-pattern");
+    cell.hidden = false;
+    var box = /** @type {HTMLInputElement} */ (cell.querySelector(".wrap-tick"));
+    box.addEventListener("change", function () {
+      sweep.ticks[(li.dataset.rowkey || "") + "|" + (cell.dataset.rowkey || "")] = box.checked;
+      countSweep();
+    });
+    return cell;
+  }, function (cell, c) {
+    var result = sweepResult(r.repo, c);
+    wrapCell(cell, c, sweepTicked(r.repo, c), result, locked);
+    if (c.step === "comment" && sweep.comments[r.repo] !== undefined && !result) {
+      text(cell.querySelector(".wrap-hint"), "edited — checked again before it is sent");
+    }
+    sweepActs(cell, r, c, result);
+  });
+}
+
+function drawSweep() {
+  var strip = dayStrip();
+  if (!strip || dayKind !== "sweep") return;
+  patchList(strip.querySelector(".day-rows"), sweep.repos, function (r) { return r.repo; }, function () {
+    var li = /** @type {HTMLElement} */ (strip.querySelector(".day-pattern.sweep-row").cloneNode(true));
+    li.classList.remove("day-pattern");
+    li.hidden = false;
+    var box = /** @type {HTMLTextAreaElement} */ (li.querySelector(".sweep-comment"));
+    box.addEventListener("change", function () {
+      // An edit is checked again before it can be sent: the comment's id hashes its text (#503).
+      var repo = li.dataset.rowkey || "";
+      sweep.comments[repo] = box.value;
+      sweep.editing[repo] = false;
+      hide(box, true);
+      previewSweep(sweep.mode);
+    });
+    return li;
+  }, drawSweepRow);
+  var sum = sweep.status || "";
+  if (!sum && sweep.state === "reading") {
+    var n = sweep.reading.length;
+    sum = "reading " + n + " agent" + (n === 1 ? "" : "s") + "…";
+  }
+  if (!sum && sweep.state === "writing") sum = "writing…";
+  text(strip.querySelector(".day-sum"), sum);
+  countSweep();
+}
+
+/** `#daygo` names every write it would make, by kind. */
+function countSweep() {
+  if (dayKind !== "sweep") return;
+  var by = {};
+  var n = 0;
+  sweep.repos.forEach(function (r) {
+    if (r.state !== "planned") return;
+    (r.steps || []).forEach(function (c) {
+      if (!sweepTicked(r.repo, c)) return;
+      by[c.step] = (by[c.step] || 0) + 1;
+      n++;
+    });
+  });
+  var go = dayGo();
+  text(go, "write " + n + " — " + SWEEP_KINDS.map(function (k) {
+    var c = by[k[0]] || 0;
+    return c + " " + (c === 1 ? k[1] : k[2]);
+  }).join(", "));
+  var editing = Object.keys(sweep.editing).some(function (k) { return sweep.editing[k]; });
+  disable(go, sweep.state !== "planned" || n === 0 || editing);
+}
+
+/** The sweep's preview: every agent, this preset, and any comment the operator edited. */
+function previewSweep(mode) {
+  var strip = dayStrip();
+  if (!strip) return Promise.resolve(null);
+  closePopovers();
+  dayHolds("sweep");
+  dayOpen = true;
+  sweep.mode = mode;
+  sweep.state = "reading";
+  sweep.status = "";
+  sweep.results = {};
+  hide(strip, false);
+  hide(strip.querySelector(".day-offer"), true);
+  hide(strip.querySelector(".day-keyless"), true);
+  hide(strip.querySelector(".day-sum"), false);
+  hide(strip.querySelector(".day-rows"), false);
+  hide(strip.querySelector(".day-actions"), false);
+  var edited = Object.keys(sweep.comments).length ? sweep.comments : undefined;
+  drawSweep();
+  return post("wrapup", { all: true, mode: mode, dry_run: true, comments: edited }).then(function (r) {
+    if (!r || r.ok === false) {
+      sweep.state = "";
+      sweep.status = ((r && r.error) || "the sweep could not be previewed") + (r && r.hint ? " — " + r.hint : "");
+      drawSweep();
+      return r;
+    }
+    sweep.job = r.job;
+    sweep.reading = r.reading || [];
+    drawSweep();
+    return loadSweep();
+  });
+}
+
+/** `#daygo` in a sweep: exactly the ticked ids per repo, and the edited comments with them. */
+function writeSweep() {
+  var steps = sweepSteps();
+  if (!sweep.job || sweep.state !== "planned" || !Object.keys(steps).length) return Promise.resolve(null);
+  sweep.state = "writing";
+  drawSweep();
+  return post("wrapup", { all: true, job: sweep.job, mode: sweep.mode, steps: steps,
+                          comments: Object.keys(sweep.comments).length ? sweep.comments : undefined })
+    .then(function (r) {
+      if (!r || r.ok === false) {
+        sweep.state = "planned";
+        sweep.status = ((r && r.error) || "the sweep was refused") + (r && r.hint ? " — " + r.hint : "");
+        drawSweep();
+        return r;
+      }
+      return loadSweep();
+    });
+}
+
+function loadSweep() {
+  return fetch(q("/api/wrapup", { all: 1 })).then(function (r) { return r.json(); }).then(function (job) {
+    if (job && job.ok && job.job === sweep.job && dayOpen && dayKind === "sweep") acceptSweep(job);
+    return job;
+  }).catch(function () { return null; });
+}
+
+function acceptSweep(job) {
+  var before = sweep.state;
+  sweep.state = job.state || "";
+  sweep.repos = job.repos || [];
+  sweep.reading = job.reading || [];
+  sweep.results = job.results || {};
+  sweep.status = "";
+  var label = sweep.mode === "project" ? "end of project" : "end of day";
+  if (job.error) {
+    sweep.status = job.error + (job.hint ? " — " + job.hint : "");
+  } else if (sweep.state === "planned") {
+    var t = job.totals || {};
+    sweep.status = label + " · " + sweep.repos.length + " agent" + (sweep.repos.length === 1 ? "" : "s") + ", " +
+                   (job.writes || 0) + " write" + (job.writes === 1 ? "" : "s") + " previewed, nothing written yet" +
+                   (t.not_pinned ? " · " + t.not_pinned + " not pinned: run `ad-pncli capture-help` (WRAP-D6)" : "");
+  } else if (sweep.state === "done") {
+    var counts = { written: 0, failed: 0, changed: 0, skipped: 0 };
+    Object.keys(sweep.results).forEach(function (repo) {
+      (sweep.results[repo].results || []).forEach(function (r) { var d = wrapDone(r); if (d in counts) counts[d]++; });
+    });
+    var line = Object.keys(counts).filter(function (k) { return counts[k]; })
+      .map(function (k) { return counts[k] + " " + k; }).join(", ") || "nothing written";
+    sweep.status = label + " sweep: " + line;
+    if (before === "writing") say(label + " sweep: " + line, 12);
+  }
+  drawSweep();
+}
+
 /* `?fresh=1` (`ad-fleet serve --open --fresh`, `open --fresh`): the preview, once, and the parameter
    comes off the address so a reload does not open it again. It posts the preview and nothing else. */
 function previewFromAddress() {
@@ -6331,6 +6578,13 @@ function previewFromAddress() {
     hide(strip, !dayOpen);
   });
   dayGo().addEventListener("click", runDay);
+  dayGo().addEventListener("click", function () { if (dayKind === "sweep") writeSweep(); });
+  var wrapDay = document.getElementById("daywrapday");
+  if (wrapDay) wrapDay.addEventListener("click", function () { sweep.comments = {}; sweep.ticks = {}; previewSweep("day"); });
+  var wrapProject = document.getElementById("daywrapproject");
+  if (wrapProject) wrapProject.addEventListener("click", function () {
+    sweep.comments = {}; sweep.ticks = {}; previewSweep("project");
+  });
   var cancel = document.getElementById("daycancel");
   if (cancel) cancel.addEventListener("click", closeDay);
   var all = /** @type {HTMLInputElement} */ (document.getElementById("daykeyless"));
