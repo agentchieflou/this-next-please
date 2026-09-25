@@ -24,6 +24,7 @@ import time
 
 import pytest
 
+import fakes
 from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
@@ -965,6 +966,28 @@ FOCUS = """() => { const a = document.activeElement;
            other: a.classList.contains('mp-other') }; }"""
 
 
+#: beta's head chip, and what it reads: its words and whether it is marked for the next turn.
+CHIP = '.tile[data-repo="beta"] .head .bm-name'
+CHIP_READS = """([text, next]) => { const b = document.querySelector('%s');
+  return !!b && b.textContent === text && b.classList.contains('next') === next; }""" % CHIP
+
+#: The chip as it is in the first frame after the settings write answers (#492).
+WATCH_SAVE = """() => {
+  const real = window.fetch;
+  window.__atSave = null;
+  window.fetch = function (url, opts) {
+    const answer = real.apply(this, arguments);
+    if (String(url).indexOf('/api/settings') >= 0 && opts && opts.method === 'POST' && window.__atSave === null) {
+      answer.then(r => r.clone().json()).then(() => requestAnimationFrame(() => {
+        const b = document.querySelector('%s');
+        window.__atSave = { text: b.textContent, next: b.classList.contains('next'), title: b.title };
+      }));
+    }
+    return answer;
+  };
+}""" % CHIP
+
+
 def _arrow_to(page, key, attr, want, limit=40):
     """Press `key` until the pill the keyboard is on has `data-<attr>` == `want`: the arrows, never a
     click, and never more presses than the toolbar has pills."""
@@ -987,7 +1010,7 @@ def _tab_to_effort(page):
 
 @pytest.mark.browser
 def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it_refuses(
-        fleet_home, tmp_path):
+        fleet_home, tmp_path, monkeypatch):
     """Two ways to set one thing must not become two rules about it: the card posts the settings
     action, so `fleet.models.<repo>` is written by one function and refused by one function.
 
@@ -995,7 +1018,15 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
     the effort; a key pressed on a pill stays in the card; `other…` is the one field, and a refusal
     of it is said in the note; `~default` removes the whole entry, and an effort pressed while
     inheriting pins the inherited model so the effort has something to apply to. Under `ink=off`,
-    at a window short enough that the card has to scroll inside itself."""
+    at a window short enough that the card has to scroll inside itself.
+
+    And the pane's chip says a switch the moment it is saved (#492, decision 15): a turn runs on
+    sonnet 5 through the fake copilot, luna is pressed, and the chip reads `luna 5.6` marked *next
+    turn* in the first frame after the save -- then, once a turn has run on it, `luna 5.6` alone. A
+    model set by `ad-fleet model` or by /settings in another tab reaches it as a row; a re-read draws
+    the row it read before the snapshot after it lands; a tenant that serves its own model is shown
+    as served, and said to have pinned it. Every label is the name first, the page's and the
+    catalogue's alike."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata import config as C
     from agentdata.fleet import launch as LAUNCH
@@ -1008,8 +1039,22 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
         _seed_models()
         cfg = C.load()
         C.put(cfg, "fleet.model", "claude-sonnet-5")
+        C.put(cfg, "fleet.notify.toast", False)
         C.save(cfg)
         entry = lambda: C.get_leaf(C.load(), "fleet.models", "rdsd.pbi", {})  # noqa: E731
+        # #492: beta, the open pane, runs one real turn on the fleet's sonnet 5 through the fake
+        # copilot, which reports the `--model` it was launched with.
+        from agentdata import cli_fleet
+        from agentdata.fleet import models as M, supervisor
+
+        fakes.apply(monkeypatch, tmp_path, ["copilot"], case="triage-ok")
+        monkeypatch.delenv("AGENTDATA_FAKE_SERVED_MODEL", raising=False)
+        beta_path = Registry().get("beta").path
+        supervisor.start("beta", prompt="look at the tree", cfg=C.load())
+        _until(lambda: not supervisor.live("beta"), 60)
+        E.refresh("beta", beta_path)
+        cells = lambda: S._model_cells("beta", C.load())  # noqa: E731
+        assert (cells()["launched"], cells()["turn_model"]) == ("claude-sonnet-5", "claude-sonnet-5")
         note = "document.getElementById('mc-note').textContent"
         open_pane = "() => document.querySelector('.tile.is-solo[data-tier=\"full\"]').dataset.repo"
 
@@ -1036,7 +1081,7 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 # it inherits.
                 page.wait_for_function("() => document.activeElement.dataset.rowkey === '~default'",
                                        timeout=5000)
-                assert page.evaluate(FOCUS)["label"] == "inherit · sonnet-5", page.evaluate(FOCUS)
+                assert page.evaluate(FOCUS)["label"] == "inherit · sonnet 5", page.evaluate(FOCUS)
                 assert page.get_attribute(toggle, "aria-expanded") == "true"
 
                 # A desk key pressed on a pill stays in the card: `j` walks no row and `2` opens no
@@ -1079,7 +1124,7 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 # The head says what was pressed, on the next row it draws.
                 page.wait_for_function(
                     "() => document.querySelector('.tile[data-repo=\"rdsd.pbi\"] .bm-name')"
-                    ".textContent === 'opus-5'", timeout=5000)
+                    ".textContent === 'opus 5'", timeout=5000)
                 assert not errors, errors
 
                 # A repo name with a dot in it survives, which is the failure `put_leaf` exists for.
@@ -1107,7 +1152,7 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 assert LAUNCH.model_for("rdsd.pbi", C.load()) == ("claude-sonnet-5", "", "fleet.model")
                 page.wait_for_function(
                     "() => document.querySelector('#modelcard [data-rowkey=\"~default\"] .pill-label')"
-                    ".textContent === 'inherit · sonnet-5'", timeout=5000)
+                    ".textContent === 'inherit · sonnet 5'", timeout=5000)
 
                 # An effort pressed while inheriting pins the inherited model, and says so.
                 _tab_to_effort(page)
@@ -1115,10 +1160,85 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                 page.keyboard.press("Enter")
                 _until(lambda: entry() == {"model": "claude-sonnet-5", "effort": "high"})
                 page.wait_for_function(
-                    "() => /model pinned to sonnet-5 so the effort can apply/.test(" + note + ")",
+                    "() => /model pinned to sonnet 5 so the effort can apply/.test(" + note + ")",
                     timeout=5000)
                 page.keyboard.press("Escape")
                 page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+
+                # ---- #492: the pane's chip. The labels first: the page's and the catalogue's agree
+                # on every shipped id, and the pills say them.
+                shipped = M.shipped()["models"]
+                assert page.evaluate("ids => ids.map(shortModel)", shipped) == [M.label(i) for i in shipped]
+                page.wait_for_function(CHIP_READS, arg=["sonnet 5", False], timeout=10000)
+                # The operator's scenario: luna pressed on the pane's own card, and the chip says it
+                # in the first frame after the save answered -- no reload, no re-read, and with every
+                # snapshot held, so what drew it is the save's own answer.
+                page.evaluate(WATCH_SAVE)
+                page.click('.tile[data-repo="beta"] .head .modeltoggle')
+                luna = '#modelcard button[data-model="gpt-5.6-luna"]'
+                page.wait_for_selector(luna, timeout=5000)
+                assert page.inner_text(luna + " .pill-label") == "luna 5.6"
+                held = []
+                page.route("**/api/fleet*", lambda route: held.append(route))
+                page.click(luna)
+                page.wait_for_function("() => window.__atSave !== null", timeout=5000)
+                at = page.evaluate("window.__atSave")
+                assert at["text"] == "luna 5.6" and at["next"], at
+                assert "from the next turn" in at["title"] and "claude-sonnet-5" in at["title"], at
+                assert "from the next turn" in page.get_attribute('.tile[data-repo="beta"] .modeltoggle', "title")
+                for route in list(held):
+                    route.continue_()
+                page.unroute("**/api/fleet*")
+                page.keyboard.press("Escape")
+                page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+
+                # One turn on it: the chip is luna, not marked, and not cut.
+                tile = page.locator('.tile[data-repo="beta"]')
+                tile.locator(".say").fill("carry on")
+                tile.locator(".send").click()
+                _until(lambda: cells()["turn_model"] == "gpt-5.6-luna", 60)
+                page.wait_for_function(CHIP_READS, arg=["luna 5.6", False], timeout=15000)
+                assert page.evaluate(f"(b => b.scrollWidth <= b.clientWidth)(document.querySelector('{CHIP}'))")
+                sent = [a for a in fakes.calls(dict(os.environ), "copilot") if "-p" in a]
+                assert sent[-1][sent[-1].index("--model") + 1] == "gpt-5.6-luna", sent[-1]
+                _until(lambda: not supervisor.live("beta"), 60)
+
+                # A tenant that serves its own model: launched with luna, answered by haiku. The chip
+                # says what served, without `next`, and its title says the tenant pinned it.
+                monkeypatch.setenv("AGENTDATA_FAKE_SERVED_MODEL", "claude-haiku-4.5")
+                tile.locator(".say").fill("and the rest")
+                tile.locator(".send").click()
+                _until(lambda: cells()["turn_model"] == "claude-haiku-4.5", 60)
+                page.wait_for_function(CHIP_READS, arg=["haiku 4.5", False], timeout=15000)
+                assert "pinned" in page.get_attribute('.tile[data-repo="beta"] .modeltoggle', "title")
+                monkeypatch.delenv("AGENTDATA_FAKE_SERVED_MODEL")
+                _until(lambda: not supervisor.live("beta"), 60)
+
+                # Set in a terminal, and in /settings in another tab: each reaches the chip as a row.
+                assert cli_fleet.main(["model", "beta", "gpt-5.6-sol"]) == 0
+                page.wait_for_function(CHIP_READS, arg=["sol 5.6", True], timeout=10000)
+                other = browser.new_page(viewport={"width": 1280, "height": 900})
+                other.goto(f"http://127.0.0.1:{port}/settings?t={token}", wait_until="domcontentloaded")
+                other.click("#model-beta .mp-more")
+                terra = "#model-beta .mp-expand button[data-model='gpt-5.6-terra']"
+                other.wait_for_selector(terra, timeout=10000)
+                assert other.inner_text(terra + " .pill-label") == "terra 5.6"
+                other.click(terra)
+                page.wait_for_function(CHIP_READS, arg=["terra 5.6", True], timeout=10000)
+                other.close()
+
+                # Re-read draws the row it read: with every snapshot held, a switch written behind
+                # the page's back reaches the chip by the re-read's own answer.
+                held = []
+                page.route("**/api/fleet*", lambda route: held.append(route))
+                cfg = C.load()
+                C.put_leaf(cfg, "fleet.models", "beta", {"model": "claude-opus-5"})
+                C.save(cfg)
+                page.click('.tile[data-repo="beta"] .head .refreshtoggle')
+                page.wait_for_function(CHIP_READS, arg=["opus 5", True], timeout=10000)
+                for route in list(held):
+                    route.continue_()
+                page.unroute("**/api/fleet*")
 
                 # A short window: the card scrolls inside itself. The arrows bring the last pill
                 # into view, and the wheel over the card reaches the effort toolbar.
@@ -1136,6 +1256,12 @@ def test_the_model_card_writes_what_the_settings_page_writes_and_refuses_what_it
                   const r = c.querySelector(sel).getBoundingClientRect();
                   return r.top >= k.top && r.bottom <= k.bottom; }"""
                 last = ".mp-effort > .pill:last-child"
+                # Name-first labels (#492) made the pills narrower and the card shorter: at 600px
+                # only the note is left below the fold. The arrows and the wheel are checked where
+                # the effort toolbar is below it too, 80px shorter.
+                page.set_viewport_size({"width": 1280, "height": 520})
+                page.wait_for_function("() => document.getElementById('modelcard').getBoundingClientRect()"
+                                       ".bottom <= 520", timeout=5000)
                 page.keyboard.press("Home")
                 page.wait_for_function(f"() => !({seen})('{last}')", timeout=5000)
                 _tab_to_effort(page)

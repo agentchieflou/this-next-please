@@ -407,7 +407,12 @@ body {
    in order, is the model's word, then the ticket, then the state chip -- each of which is a
    detail the tile repeats elsewhere. */
 .head .repo { flex: 0 0 auto; max-width: 40%; }
-.head .bm-name { flex: 0 3 auto; max-width: 68px; }
+/* 124px is the widest shipped label, `mai code 1.1 flash` (#492): 68px cut sol, terra and luna to
+   one letter. The word still gives way first when the head is short of room. */
+.head .bm-name { flex: 0 3 auto; max-width: 124px; }
+/* #492: a model chosen for the next turn, not yet run. Not a colour: a dotted underline and a
+   slant, and the title says which turn it waits for. */
+.bm-name.next { font-style: italic; text-decoration: underline dotted; text-underline-offset: 2px; }
 .head .ticket { flex: 0 2 auto; }
 .head .chip { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .head button, .head .grip, .head .n, .head .badge { flex: 0 0 auto; }

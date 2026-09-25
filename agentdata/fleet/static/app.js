@@ -913,7 +913,15 @@ function drawTile(el, row, approvals) {
   tabbable(el, shows.wide ? 0 : -1);
   // Every state carries its own age, in the chip, because a verdict with no date is the bug.
   var modelBtn = el.querySelector(".modeltoggle .bm-name");
-  if (modelBtn) text(modelBtn, shortModel(row.actual || row.model));
+  if (modelBtn) {
+    // #492: what the next turn runs, marked `next` until a turn launches with it; never the last
+    // reply's model over a switch the operator has just made.
+    var runs = chipModel(row);
+    text(modelBtn, shortModel(runs.id));
+    setClass(modelBtn, runs.next ? "bm-name next" : "bm-name");
+    attr(modelBtn, "title", runs.next ? "from the next turn · the last turn ran " +
+         (row.launched || "the CLI's own choice") : null);
+  }
   var modelHost = el.querySelector(".modeltoggle");
   if (modelHost) attr(modelHost, "title", modelTitle(row));
   var ac = ageChip(row.last_event_age_s);
@@ -2881,7 +2889,7 @@ function drawSpendCell(cell, row) {
   var bits = [s.total + " premium"];
   if (s.budget) bits.push("of " + s.budget);
   if (s.turns) bits.push(s.turns + (s.turns === 1 ? " turn" : " turns"));
-  var model = shortModel(row.actual || row.model);
+  var model = shortModel(chipModel(row).id);
   if (model) bits.push(model);
 
   setClass(cell, "cell spend");
@@ -3925,21 +3933,57 @@ function toggleTilePin(repo) {
    this slice was asked to stop. A pane with a head carries them as buttons; a rail, which has no
    room for a head, keeps the keys (#233). */
 
-/* The model name, short enough for a 28px button. Never a closed list -- which names this build
-   accepts has never been measured -- so this only shortens what it is given. */
+/* The model's name, first, then its version (decision 15, #492): `gpt-5.6-luna` is `luna 5.6` and
+   `claude-sonnet-5` is `sonnet 5`, where the old tail-first form cut sol, terra and luna to one
+   clipped letter. An id with no word of its own (`gpt-5.5`) is left as it is. Never a closed list,
+   so it only reorders what it is given. `models.label` is the same rule, and a test holds the two
+   to the same answers. */
 function shortModel(name) {
-  var value = String(name || "").trim();
-  if (!value) return "auto";
-  return value.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+  var whole = String(name || "").trim().replace(/-\d{8}$/, "");
+  if (!whole) return "auto";
+  var parts = whole.replace(/^(claude|gpt|gemini)-/, "").split("-");
+  var version = /^k?\d+(\.\d+)*$/;
+  var at = -1;
+  for (var i = 0; i < parts.length && at < 0; i++) if (version.test(parts[i])) at = i;
+  var words = parts.filter(function (p) { return p && !version.test(p); });
+  if (at < 0 || !words.length) return whole.replace(/^claude-/, "");
+  if (at === 0) return [parts[1]].concat(parts.slice(0, 1), parts.slice(2)).join(" ");
+  return parts.join(" ");
 }
 
-/* What the model button says when you hover it: what this agent is actually running, and what it
-   was configured to run. Written once, and the model card reads the same two facts. */
+/* Which model the pane names (#492, decision 15). The configured one as soon as it differs from
+   the one the newest turn was launched with -- marked `next`, because a running turn is never
+   interrupted and the switch applies from the next one. Otherwise what that turn reports: when it
+   is not what it was launched with, the tenant pinned it. A row from before `started` carried its
+   model (`launched` null) cannot tell those apart, and names the configured model. */
+function chipModel(row) {
+  row = row || {};
+  var model = String(row.model || ""), actual = String(row.actual || "");
+  var turn = String(row.turn_model || "");
+  if (row.launched === null || row.launched === undefined) {
+    return { id: model || actual, next: false, pinned: false };
+  }
+  var launched = String(row.launched);
+  if (model !== launched) return { id: model, next: true, pinned: false };
+  if (turn && launched && turn !== launched) return { id: turn, next: false, pinned: true };
+  return { id: turn || model || actual, next: false, pinned: false };
+}
+
+/* What the model button says when you hover it: the full ids, what runs and why. Written once, and
+   the model card reads the same facts. */
 function modelTitle(row) {
   row = row || {};
-  return "runs " + (row.actual || row.model || "whatever the CLI picks") +
-         (row.model ? " · configured " + row.model + " (" + (row.model_source || "") + ")"
-                    : " · no --model flag is passed") + " — press m";
+  var chip = chipModel(row);
+  var why = row.model ? " (" + (row.model_source || "") + ")" : " (no --model flag is passed)";
+  if (chip.next) {
+    return "from the next turn: " + (row.model || "whatever the CLI picks") + why +
+           " · the last turn ran " + (row.launched || "the CLI's own choice") + " — press m";
+  }
+  if (chip.pinned) {
+    return "runs " + chip.id + " · the tenant pinned it: configured " + row.model + why + " — press m";
+  }
+  return "runs " + (chip.id || "whatever the CLI picks") +
+         (row.model ? " · configured " + row.model + why : " · no --model flag is passed") + " — press m";
 }
 
 /* Read what the next tick would read, now. It spends NO premium request: nothing is sent to the
@@ -3950,7 +3994,12 @@ function doRefresh(repo, button) {
   if (button) { disable(button, true); attr(button, "aria-busy", "true"); }
   return post("refresh", { repo: repo }).then(function (r) {
     if (r && !r.ok) say(r.error + (r.hint ? " — " + r.hint : ""));
-    else refresh();
+    else {
+      // What it read, drawn now (#492): the row path `/api/fleet` takes, `as_of` and all, so a
+      // snapshot begun before the re-read cannot draw over it.
+      if (r && r.row) { patchRow(r.row); place(); }
+      refresh();
+    }
     return r;
   }).catch(function (e) { say(String(e)); }).then(function (r) {
     if (button) { disable(button, false); button.removeAttribute("aria-busy"); }
@@ -4202,6 +4251,10 @@ function queueModelWrite(repo, pick, lead, say, field) {
         return;
       }
       sayOnModelField(null, "");
+      // The rows the write changed came back with it (#492): drawn now, so the pane's chip says
+      // the new model within a frame of the save, before any refresh.
+      (r.rows || []).forEach(function (row) { patchRow(row); });
+      if (r.rows && r.rows.length) place();
       var id = write.item.model;
       if (id && !(modelCatalogue && modelCatalogue.models.some(function (m) { return m.id === id; }))) {
         modelCatalogueStale = true;             // the list learns an id from the config it names

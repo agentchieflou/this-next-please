@@ -107,7 +107,7 @@ def test_a_repos_own_model_is_its_label_and_where_it_comes_from(fleet_home, tmp_
     _luna(tmp_path)
     _seed()
     row = _model(_card("claude-opus-5"))
-    assert row["value"] == "opus-5 · fleet.models.luna", row
+    assert row["value"] == "opus 5 · fleet.models.luna", row
     assert row["verdict"] == PF.READY and row["why"] == "", row
     # The row on its own, as a press on the card reads it again (decision 15): the same row.
     assert PF.model_row("luna", {"fleet": {"models": {"luna": {"model": "claude-opus-5"}}}}) == row
@@ -120,7 +120,7 @@ def test_a_model_the_cache_marks_not_offered_is_thin_and_says_the_turn_may_fail(
     _seed()
     card = _card("claude-opus-4.6")
     row = _model(card)
-    assert row["value"] == "opus-4.6 · fleet.models.luna", row
+    assert row["value"] == "opus 4.6 · fleet.models.luna", row
     assert row["verdict"] == PF.THIN, row
     assert row["why"] == "not in copilot 1.0.88's list — the turn may fail at start", row
     assert "may fail at start" in row["why"]

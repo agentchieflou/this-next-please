@@ -1319,14 +1319,32 @@ def test_a_shell_that_will_not_give_a_webgl_context_falls_back_without_fetching_
 @pytest.mark.browser
 def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fleet_home, tmp_path):
     """The render contract with the layer running: once the marks are drawn, an idle desk is still
-    zero DOM mutations -- and zero WebGL frames, because a paper with nothing new is not redrawn."""
+    zero DOM mutations -- and zero WebGL frames, because a paper with nothing new is not redrawn.
+    With a pane's model chip waiting for the next turn on it, too (#492)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    _desk_of(tmp_path)
+    from agentdata import config as C
+
+    # `_desk_of`, with alpha's one run launched on sonnet 5 and luna set for its next turn: `next`.
+    # One run, not a second `started`: a pane with earlier runs redraws its runs list on every
+    # pass, which is its own bug and not this card's.
+    Registry().add(make_project(tmp_path / "alpha", ticket="RDSD-1"), name="alpha")
+    E.append("alpha", [E.event("alpha", "started", {"pid": 1, "model": "claude-sonnet-5"}, ticket="RDSD-1"),
+                       E.event("alpha", "assistant_text", {"text": "working on alpha", "model": "claude-sonnet-5"},
+                               ticket="RDSD-1"),
+                       E.event("alpha", "turn_ended", {"turn": "0"}, ticket="RDSD-1")])
+    _repos(tmp_path, ["beta"])
+    S.arrange(order=["alpha", "beta"])
+    S.update_window("main", open="alpha", widths={"alpha": 1, "beta": 1})
+    cfg = C.load()
+    C.put_leaf(cfg, "fleet.models", "alpha", {"model": "gpt-5.6-luna"})
+    C.save(cfg)
     server, token, port = _serve()
     try:
         with sync_playwright() as p:
             browser = launch_chromium(p)
             page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+            page.wait_for_function("""() => { const b = document.querySelector('.tile[data-repo="alpha"] .bm-name');
+                return b.textContent === 'luna 5.6' && b.classList.contains('next'); }""", timeout=10000)
             _set(page, dict(TABLE, speed=4))
             for repo, cls in (("alpha", "ink-loop"), ("alpha", "ink-write"), ("beta", "ink-hl")):
                 _mark(page, repo, cls)

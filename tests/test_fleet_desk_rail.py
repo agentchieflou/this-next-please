@@ -223,7 +223,7 @@ def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start
             # The card's own `model` row is current at once, and reading it read no issue.
             page.wait_for_function(
                 """() => document.querySelector('#dispatch .dispatch-row[data-row="model"] .dr-value')
-                         .textContent === 'opus-5 · fleet.models.luna'""", timeout=5000)
+                         .textContent === 'opus 5 · fleet.models.luna'""", timeout=5000)
             assert fetched == ["RDSD-118"], fetched
 
             card.locator(".dispatch-go").click()
@@ -468,21 +468,21 @@ def test_a_refusal_on_an_open_tile_lands_on_the_tile_and_the_rail_note_stays_emp
             # with the model the card's one thin row, the card is ready and its button says Start.
             page.wait_for_function(
                 """() => { const li = document.querySelector('#dispatch .dispatch-row[data-row="model"]');
-                  return li.querySelector('.dr-value').textContent === 'opus-5 · fleet.models.luna'
+                  return li.querySelector('.dr-value').textContent === 'opus 5 · fleet.models.luna'
                     && li.classList.contains('r-ready') && !li.querySelector('.dr-why'); }""", timeout=5000)
             assert page.inner_text("#dispatch .verdict").strip().lower() == "ready"
             assert page.inner_text("#dispatch .dispatch-go").strip() == "Start"
 
             # The session menu says what a new session and a console start on.
             page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="luna"] .sm-new .sm-model').textContent === 'opus-5'""",
+                """() => document.querySelector('.tile[data-repo="luna"] .sm-new .sm-model').textContent === 'opus 5'""",
                 timeout=5000)
             page.keyboard.press("Escape")
             page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
             page.click(".tile[data-repo='luna'] .spill")
             page.wait_for_selector(".tile[data-repo='luna'] .sm-new .sm-model", state="visible", timeout=5000)
-            assert page.inner_text(".tile[data-repo='luna'] .sm-new .sm-model") == "opus-5"
-            assert page.inner_text(".tile[data-repo='luna'] .sm-console .sm-model") == "opus-5"
+            assert page.inner_text(".tile[data-repo='luna'] .sm-new .sm-model") == "opus 5"
+            assert page.inner_text(".tile[data-repo='luna'] .sm-console .sm-model") == "opus 5"
             assert page.inner_text(".tile[data-repo='luna'] .sm-console .sm-console-label") == "open in a console"
             assert "fleet.models.luna" in page.get_attribute(".tile[data-repo='luna'] .sm-new .sm-model", "title")
             assert not errors, errors
