@@ -1080,7 +1080,15 @@ function drawSessionPill(el, row) {
                     : (run.session ? "session " + run.session : "this checkout's live session"));
   toggle(pill, "is-reading", !!open);
 
-  text(el.querySelector(".sm-console"), row.console ? "show console" : "open in a console");
+  text(el.querySelector(".sm-console-label"), row.console ? "show console" : "open in a console");
+  // #368: what a new session or a console starts on (`LAUNCH.model_for`), and why, beside each.
+  var startsOn = row.model ? shortModel(row.model) : "the CLI chooses";
+  var startsWhy = "starts on " + (row.model || "whatever the CLI picks") + " (" +
+                  (row.model_source || "cli-auto") + ")";
+  Array.prototype.forEach.call(el.querySelectorAll(".sm-model"), function (m) {
+    text(m, startsOn);
+    attr(m, "title", startsWhy);
+  });
 
   var n = row.sessions_n || 0;
   var label = el.querySelector(".sm-earlier-label");
@@ -1740,7 +1748,9 @@ function connect() {
   // The model list moved (#361): stale for the next open, and drawn again now only if the card is.
   source.addEventListener("models", function () {
     modelCatalogueStale = true;
-    if (modelCardRepo()) loadModelCatalogue().then(drawModelCard);
+    if (modelCardRepo() || dispatchRepo()) {
+      loadModelCatalogue().then(function () { drawModelCard(); drawDispatchModel(); });
+    }
   });
   source.addEventListener("tick", function () {
     toggle(document.body, "is-replaying", false);
@@ -2383,6 +2393,7 @@ function dispatchCard(key, repo) {
   hide(card, false);
   setData(card, "key", key);
   setData(card, "repo", repo);
+  dispatchModelDrawn();
 
   fetch(q("/api/preflight", { key: key, repo: repo })).then(function (r) {
     return r.json();
@@ -2406,16 +2417,80 @@ function dispatchCard(key, repo) {
     // give in its own words and the operator may hold an override the card does not know about.
     var go = card.querySelector(".dispatch-go");
     text(go, verdict === "ready" ? "Start" : "Start anyway");
+    // A card thin on the model alone (#368) asks for a model, not a brief: its why is the note,
+    // and the keyboard goes to the pressed pill.
+    var thin = (card_data.rows || []).filter(function (r) { return r.verdict === "thin"; });
+    var modelOnly = verdict === "thin" && thin.length === 1 && thin[0].row === "model";
     text(card.querySelector(".dispatch-note"),
-         verdict === "thin" ? "thin — a brief is what makes this worth a turn"
+         modelOnly ? thin[0].why
+         : verdict === "thin" ? "thin — a brief is what makes this worth a turn"
          : verdict === "unknown" ? "some rows could not be read; Start still works"
          : "");
-    if (verdict === "thin" || verdict === "blocked") brief.focus();
+    if (modelOnly) {
+      dispatchModelDrawn().then(function () {
+        var on = card.dataset.key === key && dispatchPicker.querySelector('[aria-pressed="true"]');
+        if (on) /** @type {HTMLElement} */ (on).focus();
+      });
+    } else if (verdict === "thin" || verdict === "blocked") brief.focus();
   }).catch(function () {
     if (card.dataset.key !== key) return;
     text(card.querySelector(".verdict"), "unknown");
     text(card.querySelector(".dispatch-note"), "the pre-flight could not be read; Start still works");
   });
+}
+
+/* Which model the agent will start on (#368): the dispatch card's compact picker, made once
+   (bindDispatchCard) and drawn with the card's repository under the model card's rule (#366). A
+   press writes that repository's model -- this start and every later one, through the one writer
+   -- and `more…` is the model card, for what the compact picker leaves out. */
+var dispatchPicker = null;
+/** @type {ModelPickerOptions} */
+var dispatchPickerOpts = null;
+
+/* The fleet's own default, as the desk can know it: what a repository with no entry of its own
+   starts on. "" when no repository on the desk inherits one. */
+function fleetDefaultModel() {
+  var found = "";
+  tiles.forEach(function (entry) {
+    var row = entry.row || {};
+    if (!found && row.model_source === "fleet.model") found = String(row.model || "");
+  });
+  return found;
+}
+
+function dispatchRepo() {
+  var card = document.getElementById("dispatch");
+  return card && !card.hidden ? card.dataset.repo || "" : "";
+}
+
+function drawDispatchModel() {
+  var repo = dispatchRepo();
+  if (!repo || !dispatchPicker || !modelCatalogue) return false;
+  var entry = tiles.get(repo);
+  var row = (entry && entry.row) || {};
+  var state = modelState(row);
+  dispatchPickerOpts.emptyLabel = state.emptyLabel;
+  dispatchPickerOpts.emptyTitle = state.emptyTitle;
+  drawModelPicker(dispatchPicker, { catalogue: modelCatalogue, current: state.current,
+                                    inherited: state.inherited, actual: row.actual || "",
+                                    quick: [fleetDefaultModel(), row.actual || ""] });
+  return true;
+}
+
+/* Drawn now with the list the page has, and again once a list it lacked or that went stale is in. */
+function dispatchModelDrawn() {
+  var drawn = drawDispatchModel();
+  if (modelCatalogue && !modelCatalogueStale) return Promise.resolve(drawn);
+  return loadModelCatalogue().then(drawDispatchModel);
+}
+
+function pickDispatchModel(pick) {
+  var repo = dispatchRepo();
+  if (!repo || !pick) return;
+  var note = document.getElementById("dispatch").querySelector(".dispatch-note");
+  queueModelWrite(repo, pick, "model set for this and later turns", function (words) {
+    if (dispatchRepo() === repo) text(note, words);
+  }, null);
 }
 
 function closeDispatch() {
@@ -2465,6 +2540,16 @@ function dispatch(key, repo, brief) {
 (function bindDispatchCard() {
   var card = document.getElementById("dispatch");
   if (!card) return;
+  dispatchPickerOpts = { variant: "compact", label: "runs on", onPick: pickDispatchModel,
+                         onMore: function () { openModelCard(card.dataset.repo || "", card); } };
+  dispatchPicker = createModelPicker(dispatchPickerOpts);
+  card.querySelector(".dispatch-model").appendChild(dispatchPicker);
+  // Every key but Escape stays in the card (#368), as in the model card (#366): on the glass it
+  // sits in a pane's slot, where `h` would hide that pane, `a` approve its write and `j` walk the
+  // row. Escape goes on to the document, which closes the nearest open thing.
+  card.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") e.stopPropagation();
+  });
   card.querySelector(".dispatch-close").addEventListener("click", function () { closeDispatch(); });
   card.querySelector(".dispatch-go").addEventListener("click", function () {
     dispatch(card.dataset.key || "", card.dataset.repo || "",
@@ -4066,33 +4151,39 @@ var modelWrites = Promise.resolve();
 function pickModel(pick) {
   var repo = modelCardRepo();
   if (!repo || !pick) return;
-  var field = typedField(modelPicker);
-  modelWrites = modelWrites.then(function () { return writeModelPick(repo, pick, field); });
+  var note = document.getElementById("mc-note");
+  queueModelWrite(repo, pick, "saved — reaches the agent on its next turn", function (words) {
+    if (modelCardRepo() === repo) text(note, words);
+  }, typedField(modelPicker));
 }
 
-function writeModelPick(repo, pick, field) {
-  var entry = tiles.get(repo);
-  var write = modelWrite(repo, pick, modelState(entry && entry.row));
-  var note = document.getElementById("mc-note");
-  return post("settings", { models: [write.item] }).then(function (r) {
-    if (!r || !r.ok) {
-      var why = (r && r.error) || "not saved";
-      text(note, why + ((r && r.hint) ? " — " + r.hint : ""));
-      if (field) sayOnModelField(field, why);
-      return;
-    }
-    sayOnModelField(null, "");
-    var id = write.item.model;
-    if (id && !(modelCatalogue && modelCatalogue.models.some(function (m) { return m.id === id; }))) {
-      modelCatalogueStale = true;               // the list learns an id from the config it names
-    }
-    return Promise.all([loadModelCatalogue(), refreshAfterNow()]).then(function () {
-      if (modelCardRepo() !== repo) return;
-      text(note, modelSaidAfter("saved — reaches the agent on its next turn", pick, write));
-      writeModelFacts(repo);
-      drawModelCard();
-    });
-  }).catch(function (e) { text(note, String(e)); });
+/* The one write every surface's press makes (the model card, the dispatch card), queued behind the
+   last. `say` puts words in the surface's note; `field` is `other…`'s, when the name was typed. */
+function queueModelWrite(repo, pick, lead, say, field) {
+  modelWrites = modelWrites.then(function () {
+    var entry = tiles.get(repo);
+    var write = modelWrite(repo, pick, modelState(entry && entry.row));
+    return post("settings", { models: [write.item] }).then(function (r) {
+      if (!r || !r.ok) {
+        var why = (r && r.error) || "not saved";
+        say(why + ((r && r.hint) ? " — " + r.hint : ""));
+        if (field) sayOnModelField(field, why);
+        return;
+      }
+      sayOnModelField(null, "");
+      var id = write.item.model;
+      if (id && !(modelCatalogue && modelCatalogue.models.some(function (m) { return m.id === id; }))) {
+        modelCatalogueStale = true;             // the list learns an id from the config it names
+      }
+      return Promise.all([loadModelCatalogue(), refreshAfterNow()]).then(function () {
+        say(modelSaidAfter(lead, pick, write));
+        // Every surface open on the repository draws what is now true of it.
+        if (modelCardRepo() === repo) writeModelFacts(repo);
+        drawModelCard();
+        drawDispatchModel();
+      });
+    }).catch(function (e) { say(String(e)); });
+  });
 }
 
 /* One binder, bound once when the pane is made (#205). */
@@ -5425,6 +5516,8 @@ document.addEventListener("click", function (/** @type {MouseEvent & {target: El
     if (card.hidden) return;
     if (card.contains(e.target)) return;
     if (e.target.closest && e.target.closest('[data-tool="model"]')) return;
+    // `more…` on the dispatch card opens this card, and its click must not close it again (#368).
+    if (e.target.closest && e.target.closest(".mp-more")) return;
     closeModelCard();
   });
 })();

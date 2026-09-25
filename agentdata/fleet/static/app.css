@@ -445,6 +445,9 @@ body {
   color: var(--text); font: inherit; padding: 3px 6px; min-height: 28px; cursor: pointer;
 }
 .smitem:hover { background: var(--select); border-color: var(--line); }
+/* #368: the model a new session or a console starts on, in the item's own words colour. */
+.sm-model { margin-left: .5em; }
+.sm-model::before { content: "· "; }
 .sm-label {
   margin: 4px 0 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
   color: var(--muted);
@@ -1147,6 +1150,11 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
   border: 1px solid var(--line); border-radius: 4px; padding: 4px; font: inherit;
 }
 .dispatch-note { color: var(--muted); align-self: center; }
+/* #368: "runs on" and the compact picker. Under an ink skin the card goes clear, so the picker
+   keeps a ground of its own and its pills stay legible; pressed still reads without the fill. */
+.dispatch-model { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+.dispatch-runs { color: var(--text); }
+.dispatch-model .mpick { background: var(--panel); }
 
 /* ------------------------------------------------------------ the question card (#165)
    The approval card's shape again: the tile is asking you something before anything irreversible
