@@ -534,9 +534,13 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
                 try { Ink.setSkin({ name: 'bad', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}, row] }); bad.push('accepted'); }
                 catch (e) { bad.push(e.message); }
               }
+              // The hand is on, off or a stick of chalk (#387): a table's own option, not a row's.
+              let hand = 'accepted';
+              try { Ink.setSkin({ name: 'bad', hand: 'crayon', marks: [{selector: '.x', tool: 'pen', shape: 'loop'}] }); }
+              catch (e) { hand = e.name + ': ' + e.message; }
               return { keys: Object.keys(Ink).sort(), frozen: Object.isFrozen(Ink),
                        ready: await Ink.ready, enabled: Ink.enabled, tools: Ink.tools, shapes: Ink.shapes,
-                       layerShapes: shapes.SHAPE_NAMES, penTools: Object.keys(pen.TOOLS), bad,
+                       layerShapes: shapes.SHAPE_NAMES, penTools: Object.keys(pen.TOOLS), bad, hand,
                        table: Ink.inspect().table };
             }""")
             assert not errors, errors
@@ -555,6 +559,7 @@ def test_window_ink_is_the_only_surface_and_refuses_a_table_it_cannot_draw(fleet
     assert "crayon" in api["bad"][0] and "star" in api["bad"][1] and "selector" in api["bad"][2]
     assert "eraser" in api["bad"][3] and "`to`" in api["bad"][4] and "no selector" in api["bad"][5]
     assert "crayon" in api["bad"][6] and "`ink`" in api["bad"][6] and "`cap`" in api["bad"][7] and "`cap`" in api["bad"][8]
+    assert api["hand"].startswith("TypeError: ") and "`hand`" in api["hand"] and "crayon" in api["hand"], api["hand"]
     assert api["table"] is None, "a refused table replaced the one in force"
 
 
@@ -885,6 +890,91 @@ def test_reduced_motion_draws_at_once_with_no_travelling_pen(fleet_home, tmp_pat
     assert [m for m in went["marks"] if m[0] == ".tile.ink-pencil .repo"] == [], went
     assert any(m[1] == "struck" for m in went["marks"]) and any(m[2] for m in went["marks"]), went
     assert went["write"] == "", "the handwriting was left covered"
+
+
+#: A long pencil row and a pen row in one pane, drawn slowly, with the page's own traces left out so
+#: that the pane's hand is only ever at these two (#387).
+CHALK = {"name": "chalk", "speed": 0.5, "series": False, "marks": [
+    {"selector": ".tile.ink-pencil .repo", "tool": "pencil", "shape": "underline"},
+    {"selector": ".tile.ink-pen .head", "tool": "pen", "shape": "loop"}]}
+
+#: The model of alpha's hand in a frame where that hand is shown and the mark on `tool` is part
+#: drawn -- read in the one frame, so a hand that swaps tools in the next is not misread.
+HAND_AT = """tool => { const l = Ink.inspect().layer;
+  const m = l.marks.find(m => m.tool === tool && m.lane === 'pane:alpha');
+  return l.lanes['pane:alpha'] && l.lanes['pane:alpha'].hand && m && m.drawn > 0 && m.drawn < 1
+    ? l.handModel : false; }"""
+
+#: `RECORD`'s pattern for a class taken away: every frame until alpha's pencil mark is gone, the
+#: hand's model and whether alpha's hand is shown.
+ERASE = """async () => {
+  document.querySelector('.tile[data-repo="alpha"]').classList.remove('ink-pencil');
+  const frames = [];
+  return await new Promise(done => {
+    const tick = () => {
+      const l = Ink.inspect().layer;
+      frames.push({ model: l.handModel, hand: !!(l.lanes['pane:alpha'] && l.lanes['pane:alpha'].hand),
+                    erased: l.marks.filter(m => m.tool === 'pencil').map(m => m.erased) });
+      if ((frames.length > 3 && !l.busy && !l.marks.some(m => m.tool === 'pencil')) || frames.length > 3000) {
+        return done(frames);
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}"""
+
+
+@pytest.mark.browser
+def test_the_hand_can_be_a_stick_of_chalk(fleet_home, tmp_path):
+    """#387: `hand: 'chalk'` puts a worn stick of chalk in every hand -- the pencil's, the pen's and
+    the eraser's -- and `hand: true` keeps the lit pencil, the pen and the pencil's eraser end. A
+    hand that is none of these is refused, naming `hand`, and the table in force stays."""
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    _desk_of(tmp_path)
+    server, token, port = _serve()
+    try:
+        with sync_playwright() as p:
+            browser = launch_chromium(p)
+            for hand, pencil, pen, eraser in (("chalk", "chalk", "chalk", "chalk"),
+                                              (True, "pencil", "pen:pen", "eraser")):
+                page, errors, _ = _open(browser, port, token, "&ink=on", count=True)
+                _set(page, dict(CHALK, hand=hand))
+                assert _layer(page)["handModel"] == "", "a hand was shown before a mark was drawn"
+                refused = page.evaluate("""() => { try { Ink.setSkin({ name: 'bad', hand: 'crayon', marks: [] }); return ''; }
+                                                   catch (e) { return e.message; } }""")
+                assert "`hand`" in refused and page.evaluate("() => Ink.inspect().table") == "chalk", refused
+                _mark(page, "alpha", "ink-pencil")
+                _mark(page, "alpha", "ink-pen")
+                drew = [page.wait_for_function(HAND_AT, arg=tool, timeout=20000).json_value()
+                        for tool in ("pencil", "pen")]
+                _rest(page, "Ink.inspect().layer.marks.filter(m => m.drawn === 1).length === 2")
+                frames = page.evaluate(ERASE)
+                assert frames[-1]["erased"] == [], frames[-1]
+                erasing = [f for f in frames if f["hand"] and f["erased"] == [True]]
+                assert erasing, "no frame showed the eraser at the pencil"
+                models = {f["model"] for f in frames}
+                # The render contract holds with the chalk: at rest, nothing written, nothing drawn.
+                count = page.evaluate(IDLE_LOOP)
+                assert not errors, errors
+                page.close()
+                assert drew == [pencil, pen], (hand, drew)
+                # Every sampled frame: the last hand shown is the pen that drew, or the eraser.
+                assert models <= {pen, eraser}, (hand, models)
+                assert {f["model"] for f in erasing} == {eraser}, (hand, erasing[:3])
+                assert count["n"] == 0 and count["renders"] == 0, (hand, count)
+
+            # Reduced motion: the marks are drawn at once, and no hand at all -- chalk or not.
+            page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
+            _set(page, dict(CHALK, hand="chalk"))
+            came = page.evaluate(RECORD, [[["alpha", "ink-pencil"], ["alpha", "ink-pen"]]])
+            layer = _layer(page)
+            assert not any(f["hands"] for f in came), "a hand travelled under reduced motion"
+            assert layer["hands"] is False and layer["handModel"] == "", layer["handModel"]
+            assert not errors, errors
+            browser.close()
+    finally:
+        _stop(server)
 
 
 @pytest.mark.browser

@@ -121,6 +121,7 @@ class Layer {
     this.mode = 0;                     // the highlighter's blend: 0 over nothing, 1 multiply, 2 screen
     this.frames = 0;
     this.renders = 0;
+    this.handModel = "";               // the model key of the last hand shown (#387)
     this.raf = 0;
     this.last = 0;
     this.followUntil = 0;
@@ -915,6 +916,8 @@ class Layer {
       L.hand = new this.pen.Hand(this.toolScene, this.scene, this.inks);
       L.hand.dark = this.dark;
     }
+    // A stick of chalk (#387) is taken up at the hand's next model, so a new table changes it there.
+    L.hand.chalk = this.table.hand === "chalk";
     return L.hand;
   }
 
@@ -1253,6 +1256,7 @@ class Layer {
     for (const L of this.lanes.values()) {
       if (L.hand && L.hand.vis) {
         L.hand.update(dt, now);
+        this.handModel = L.hand.key;
         this.stale = true;
         if (L.hand.vis) lifting = true;
       }
@@ -1349,7 +1353,7 @@ class Layer {
       sampleGround: !!this.groundRT, errors: Object.keys(s.err),
     } : null;
     return { lanes, marks, series, skin, fx: this.fx && this.fx.inspect(), frames: this.frames, renders: this.renders, busy: this.busy(),
-             hands: this.hands(), reduced: this.instant(), canvas: this.canvas.isConnected,
+             hands: this.hands(), handModel: this.handModel, reduced: this.instant(), canvas: this.canvas.isConnected,
              webgl2: !!this.renderer.capabilities.isWebGL2, mode: this.mode, dark: this.dark };
   }
 
