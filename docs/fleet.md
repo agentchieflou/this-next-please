@@ -171,6 +171,15 @@ Copilot, OpenAI, Anthropic, Google, Other. `ad-fleet models [--refresh]` prints 
 TOON (`models` with `id,group,label,via,offered`, and `efforts`); a page request never starts the
 CLI.
 
+**When it refreshes** (#361). When `ad-fleet serve` or `ad-fleet quickstart` starts a server, the
+CLI is asked once, on a thread of its own: the cache is kept while it is fresh and from the
+installed `--version`, and asked again otherwise. On demand, `POST /api/models {refresh: true}`
+asks again whatever the cache says. Either way the page is answered at once and never waits on the
+CLI; one refresh runs at a time, and an ask during one joins it. A refresh ends with its server:
+once the server is stopping it starts no process and writes nothing. A list that changed reaches
+every open page as one `models` stream frame ([fleet-dashboard.md](fleet-dashboard.md) §The
+stream), and `/settings` offers the catalogue's efforts.
+
 **From the terminal** (#363). `ad-fleet model <repo>` prints the repository's model, effort, the
 source it resolved from and the model its last turn actually ran on, then the catalogue as a
 `models` table (`id,group,label,offered,pressed`) with `*` on the configured id, or on the CLI

@@ -4,6 +4,126 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.16.0
+
+**On update:** the two standard commands. There is no new dependency, no `ad-setup --patch`, no config to migrate and
+no changed skill; the IDE extensions are unchanged, and every new setting has a default. The next `ad-fleet open`
+replaces a desk still running the old code (#242). Then, once:
+- **Measure each shell you open the desk in, or its skin stays plain.** Ink draws only where a shell's `/probe`
+  record says `hardware`. Anywhere else (not yet measured, a software renderer, no WebGL) every skin, glass, voxel
+  and farmstead included, is its palette with its marks drawn as plain CSS, because a skin's stylesheet no longer
+  paints (#257). Run `ad-fleet probe --open pycharm`, `vscode`, `edge` or `browser` for each shell you use (PyCharm
+  and VS Code with the fleet window open), then `ad-fleet engines`. With no skin chosen there is nothing to measure.
+- **Run `ad-doctor`.** Its new `models` row warns about each configured `fleet.model` or `fleet.models.<repo>` that
+  the installed Copilot CLI no longer offers, which fails that agent's next start (#365). The fix it names is
+  `ad-fleet model <repo> --inherit`, or another pick on `/settings`.
+
+Developing this repo: nothing new to install; the desk's type check (the one `network` test) skips without `npx`.
+
+**Every skin is drawn in ink (#246).** A skin is now drawn on one canvas behind the page, by the copy of three.js the
+wheel has shipped since #247. Its marks are keyed on classes the page already sets and drawn on the fly in pencil,
+pen, marker or highlighter, never faded: pencil is erased and ink is struck through. The words and controls stay
+page text. An idle desk writes nothing, reduced motion draws at once, and `?ink=off` in a window's address keeps
+that window plain.
+- **Four new skins** on `/settings`: **Notebook** (and **Night notebook**), **Legal pad**, **Graph paper** (each
+  agent's last hour plotted on the grid) and **Napkin notes** (a coffee ring under a pane left idle a long time).
+- **Glass, voxel and farmstead are redrawn:** glass's panes blur a lit mesh that drifts, voxel is lit slabs with a
+  stack of status blocks, and farmstead's crop grows a stage per phase and wilts when the agent needs you.
+- **The same states on every skin, each in its own hand** (`docs/skin-*.md`). On the notebook: a highlighter when an
+  agent needs you, a pen underline growing while it runs, the question struck and the choice circled once answered,
+  and a green check when done, supervised or not (#333). Checks and bangs sit in the pane's margin, marks keep inside
+  their pane and off its words, and the notebook's and legal pad's rules never cross a line of text (#330-#332, #338).
+- **The activity trace** (#218) is drawn in ink, or as a plain SVG line; nothing on the desk draws on a 2D canvas any
+  more. Only a desk that draws fetches the layer and three.js, preloaded with the page (#349).
+
+**The desk keeps what you did.** A session handed back no longer reappears adopted when an older fleet answer lands
+late: every answer is numbered, and an older one never replaces a newer row (#285). A reopened desk resumes each
+agent's stream rather than replaying every event (#347).
+
+**You size the panes (#234, #235).** Every agent has been a pane drawn by its width since #233. Now:
+- **A gutter between every two panes** moves width between those two only. Under 120px a pane becomes a 48px rail,
+  and the compact and full widths and an even share snap within 8px. `Esc` mid-drag writes nothing, a double click
+  evens the pair, and the footer offers *undo* (`u`) for 12 seconds.
+- **Widths belong to the window** (`?w=`), so a laptop panel and a monitor keep their own over the same agents, in
+  `desk.json` with no schema change.
+- **Three presets replace the picker:** *one* (`1`: your pane wide, the rest rails), *all* (`=`: an even share) and
+  *needs me* (`f`: every agent that needs you wide). *needs me* replaces the needs-only filter and hides nothing, and
+  the toolbar's chime and bell are now *alerts*.
+- **Keys to re-learn:** the digits open panes from `2`. `Alt+Shift+←`/`→` moves the pane's right gutter 40px,
+  `Alt+Enter` evens it with its neighbour, and Shift with a click or `Enter` opens a rail beside your pane. The old
+  edge resize and `Alt+Shift+↑`/`↓` are gone.
+- **The tier widths are settings** under *Appearance*: `fleet.tiers.rail_px`, `compact_px`, `full_px` and `slack_px`
+  (48, 160, 360 and 8). Four that do not fit together are refused, and a change redraws every open desk.
+
+**Themes and settings.**
+- **Pages are served in your palette, skin and widths** (#345), so the first frame is never the system palette or the
+  skin you left, and a fleet answer in flight during a switch no longer puts the old skin back (#437).
+- **A change reaches every open desk at once** (#348), and the pages' and the Jira poller's writes to `config.json`
+  take one lock, so two at once no longer lose one.
+- **`/settings`** paints a skin as you pick it, puts the old one back with the reason on a refusal, and no longer
+  wipes the palette (#346). It scrolls at every window size again (#357), its links keep the window and shell
+  (#344), and it no longer swallows the desk's notifications (#356).
+- **Secondary text reads at 4.5:1** on every palette and skin paper, so the ticket, pane number and footer counts are
+  stronger (#325); the terminal is unchanged. The word on a chip, badge or rail reads at 4.5:1 on its state colour
+  (#327), and no desk or settings text is under 11px (#326).
+
+**The fleet map (#295).** `/map` is a read-only, keyboard-first tree: each project's main checkout and worktrees,
+each checkout on its branch, and its agent with its state and who started it (#401, #403, #405). Enter on an agent
+opens it on the desk. Nothing links to it yet: open `http://127.0.0.1:8765/open?page=map`, or your `fleet.port`.
+Copilot sub-agents are folded (#402): the transcript says *sub-agent … started* and *finished*, and the map counts
+live ones as *not yet measured*, because those events come from the SDK's documentation, not from the CLI.
+
+**Models come from the installed CLI (#292).**
+- **`ad-fleet models [--refresh]`** (#360) lists the model ids and efforts the Copilot CLI accepts, read from
+  `copilot help config` and `--help` (no login, no premium request). They are cached in the fleet directory's
+  `models.json` for `fleet.model_list.max_age_h` hours (24), or until the CLI's version changes; with no CLI and no
+  cache, the list shipped with this version is shown, marked stale. An id the CLI does not list is a warning, never
+  a refusal.
+- **`ad-fleet model <repo> [<name>] [--effort <level>] [--inherit]`**, or `--fleet` (#363), shows and sets a model
+  through the settings page's writer and refusals, without starting copilot. `--effort` alone on a repository with
+  no model of its own pins the one it resolves today, since an effort alone passes no `--model`.
+
+**`ad-fleet` and the doctor.**
+- **`ad-doctor`'s `models` row** (#365) names the list's source, CLI version and age. The `copilot` row reads CLI
+  1.0.88's two-line `--version`, where it showed *updates.* (#358).
+- **`ad-fleet engines`** adds `features` (each row of `docs/desk-engines.md`, as `/probe` found it per shell), `tiers`
+  and `loads` tables (#235, #350).
+- **Page-load records, off by default** (#350, #351): with `fleet.loads.enabled` set to `true` in `config.json`, each
+  desk and settings load keeps its first paint, first fleet answer, first ink frame and longest task in
+  `~/.agentdata/fleet/loads.json`, sent nowhere. Turn it off once the numbers are taken.
+
+**Windows.** A desk no longer waits for the process listing behind the adopt offers, a PowerShell CIM query that
+every open desk paid for every ten seconds: one background thread runs it for every caller, and `ad-fleet adopt`
+still waits for a current one (#282, #285). A window write no longer waits while the sqlite catalogue opens (#439).
+
+**For developers of this repo.**
+- **Types without a build:** JSDoc on the desk's records, and a pinned `tsc --noEmit` in CI (#236).
+- **The suite:** browser tests run on Linux too, and a skip in a job that installed Chromium fails (#296). A missing
+  declared dependency stops the session, subprocesses import the checkout (#297), no test leaves a child process
+  (#317), and a timing verdict is a `measured` test, which counts only when run serially (#314, #473). A red check
+  gets a flake issue and a reproduction before any re-run (#316). The Windows 3.14 job's cap is 40 minutes (#286).
+- **The agent relay** (#287, #289): `docs/developing-with-agents.md`, the brief for epics #288-#295, lanes checked by
+  `.github/scripts/agent_pr_check.py` (#324), and merge trains (#477, #478).
+- **For a skin's author** (`docs/desk-ink.md`): the row fields `grow`, `tip` and `rewrite`, a borrowed `ink`, an
+  arrow or bar `cap`, the `ring` and `cross` shapes, and `ink/fx.js` for effects (#370, #385, #386). The layer's
+  budget is 44 KiB.
+
+**Train 3.**
+- **`/settings` shows each palette by its title, and a line under the picker names the looks drawn on it** (#393), or,
+  while a skin is on, the look the palette comes from. One that no skin uses (NFL Browns, Greens) says *palette
+  only*, and can still be chosen while no skin is on.
+- **`GET /api/models`** (#361) answers from the cache without waiting on the CLI. `ad-fleet serve` and `quickstart`
+  refresh the list in the background as they start, a changed list reaches open pages as one `models` stream frame,
+  and the effort suggestions on `/settings` and the model card are the CLI's own.
+- **One model picker** (#362): provider-grouped pills, pressed rather than typed, keyboard-first. The desk and
+  `/settings` load it, and nothing shows it yet.
+- **The map's layout** (#408): `static/map/layout.js` places every node from names and structure alone, so the scene
+  to come never reshuffles on a state change. Nothing draws it yet.
+- **A WebView2 desktop window** (#353), `ide/desktop/fleet_window.py`: a spike outside the wheel, run from its own
+  venv with `pywebview`, to measure a native window against Edge `--app`. `ad-fleet open --all` skips it.
+- **For a skin's author:** a chalk hand that draws and erases (`hand: 'chalk'`, #387), and `api.stroke` for a skin's
+  own material (#388). A palette change now rebuilds every pane's frame at once, not at the next resize.
+
 ## 0.15.3
 
 **`ad-pbip visual set` writes formatting where, and as, Power BI Desktop saves it.** It wrote every property into

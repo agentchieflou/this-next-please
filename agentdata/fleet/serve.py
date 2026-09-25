@@ -91,7 +91,10 @@ MAX_TRAY = 60                # rows in the unsorted tray; a year of Downloads is
 #
 # `/map` (#405) brings its stylesheet and its one script, `map/map.js`; a scene it draws later
 # (#409) is imported through `q()` like the ink layer's modules, never named here.
-ASSETS = ("app.css", "common.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
+#
+# `picker.js` (#362) is the model picker, a classic script the desk and /settings both load right
+# after `common.js`.
+ASSETS = ("app.css", "common.js", "picker.js", "app.js", "settings.js", "probe.js", "ink/ink.js",
           "map.css", "map/map.js")
 
 # The pages this server serves, and the file each one is. A second page rather than a view swap
@@ -1997,9 +2000,10 @@ def _attach_bytes(body: dict) -> dict:
 #: Actions that change one repository's row. The page patches that row from the answer instead of
 #: fetching the whole fleet again (#219): a `send` cost two round trips, and the second one carried
 #: every tile on the desk to redraw one of them. `arrange` and `window` are not here -- they change
-#: the *arrangement*, which comes back as `desk` and reaches every window down the stream.
+#: the *arrangement*, which comes back as `desk` and reaches every window down the stream. `models`
+#: is not here either: the model list is the fleet's, not a row's (#361).
 ROW_ACTIONS = ("start", "console", "say", "send", "stop", "reset", "answer", "approve", "deny",
-               "adopt", "release", "refresh", "hold", "model", "resume", "attach", "attach-bytes")
+               "adopt", "release", "refresh", "hold", "resume", "attach", "attach-bytes")
 
 
 def act(what: str, body: dict) -> dict:
@@ -2259,10 +2263,20 @@ def act(what: str, body: dict) -> dict:
         # The stream's own `theme` payload, css and all (#346): the page that posted reconciles
         # from this answer instead of waiting a tick for the frame to say what it has just chosen.
         return theme_state()
+    if what == "models":
+        # Ask the Copilot CLI for its model list again (#361), on a thread: the answer goes out at
+        # once, and a list that changed reaches every open page as one `models` frame. An ask while
+        # a refresh runs joins it. The server's `stopping` ends it with the server.
+        from . import models as MODELS
+
+        if body.get("refresh"):
+            started = MODELS.start_refresh(getattr(_SERVING.get("server"), "stopping", None), force=True)
+            return {"refreshing": True, "started": started}
+        return {"refreshing": MODELS.refreshing(), "started": False}
     raise ServeError(f"unknown action {what!r}",
                      "start | send | stop | reset | adopt | release | approve | deny | select | "
-                     "arrange | attach | dismiss | theme | settings | refresh | probe | measure | "
-                     "load")
+                     "arrange | attach | dismiss | theme | settings | models | refresh | probe | "
+                     "measure | load")
 
 
 def _write_settings(C, SET, body: dict) -> None:
@@ -2414,6 +2428,11 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     first, so a stream that is not a desk's took the desk's `notify` frames and dropped them. With
     only such pages open nothing sweeps, as when no window is open; the next desk stream announces
     what accumulated.
+
+    **The model list** (#361) is looked at the way config.json is: when `models.json` changes on
+    disk, a digest of the ids, whether each is offered, and the efforts is compared with the one
+    this stream last sent, and a `models` frame goes out only when it moved. The first pass records
+    it without a frame: a page fetches `/api/models` itself.
     """
     last_beat = 0.0
     last_sweep = 0.0
@@ -2423,13 +2442,32 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     seen_gen = -1
     woke = False
     from .. import config as C
+    from . import models as MODELS
     cfg_file = C.path()
+    models_file = MODELS.cache_file()
+    models_mark: tuple | None = None
+    seen_models: str | None = None
 
     def config_mtime() -> float:
         try:
             return os.path.getmtime(cfg_file) if os.path.isfile(cfg_file) else 0.0
         except OSError:
             return 0.0
+
+    def models_stat() -> tuple:
+        try:
+            st = os.stat(models_file)
+        except OSError:
+            return (0, 0)                     # no cache yet: the shipped list
+        return (st.st_mtime_ns, st.st_size)
+
+    def models_now() -> tuple[str, str]:
+        try:
+            cfg = C.load()
+        except (C.ConfigError, OSError):
+            cfg = {}
+        cat = MODELS.catalogue(cfg, spawn=False, path=models_file)
+        return MODELS.digest(cat), cat["meta"].get("fetched_at", "")
 
     seen_polls: dict[str, str] | None = None
     while not stop.is_set():
@@ -2508,6 +2546,16 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
                 seen_theme_state = tstate
                 write(f"event: theme\ndata: {json.dumps(tstate, ensure_ascii=False)}\n\n")
                 sent = True
+        mark = models_stat()
+        if mark != models_mark:
+            # A refresh rewrote the model list (#361). A rewrite that found the same list is no news.
+            models_mark = mark
+            digest, fetched_at = models_now()
+            if seen_models is not None and digest != seen_models:
+                frame = {"version": digest, "fetched_at": fetched_at}
+                write(f"event: models\ndata: {json.dumps(frame, ensure_ascii=False)}\n\n")
+                sent = True
+            seen_models = digest
         if sent or time.time() - last_beat > heartbeat:
             # The heartbeat is not decoration: a proxy that sees no bytes for a minute closes the
             # connection, and the tiles then quietly stop updating with no error anywhere.
@@ -2656,9 +2704,12 @@ class Handler(BaseHTTPRequestHandler):
             # It is the stream's `theme` payload, css included (#346): a `current` without css was
             # painted as "no palette" and wiped the one the stream had just applied.
             return self._json({"ok": True, "themes": themes(), "skins": skins.list_skins(),
+                               "palette_only": skins.PALETTE_ONLY,
                                "current": theme_state()})
         if route == "/api/settings":
             return self._json({"ok": True, **settings_snapshot()})
+        if route == "/api/models":
+            return self._json({"ok": True, **models_snapshot()})
         if route == "/api/board":
             from .. import config as C
 
@@ -3005,7 +3056,7 @@ def settings_snapshot() -> dict:
     cannot drift from what the code actually does.
     """
     from .. import config as C
-    from . import settings as SET
+    from . import models as MODELS, settings as SET
 
     cfg = C.load()
     try:
@@ -3028,10 +3079,11 @@ def settings_snapshot() -> dict:
         "model": {"fleet": {"model": str(C.get(cfg, "fleet.model") or ""),
                             "effort": str(C.get(cfg, "fleet.effort") or "")},
                   "repos": rows,
-                  # Suggestions, never a closed list: which model names this build accepts has never
-                  # been measured, so the only names offered are ones that really ran here.
+                  # The ids the last turns really ran on, kept for a page that still reads them.
+                  # Which names and efforts the installed CLI accepts is measured now (#360): the
+                  # whole list is `GET /api/models`, and these efforts are that catalogue's.
                   "seen": seen,
-                  "efforts": ["low", "medium", "high"]},
+                  "efforts": MODELS.catalogue(cfg, spawn=False)["efforts"]},
         "editable": SET.describe(cfg),
         "current": SET.current(cfg),
         # What the desk draws with, which is not what `current` says when the file holds a four
@@ -3039,6 +3091,25 @@ def settings_snapshot() -> dict:
         "tiers": SET.tiers(cfg),
         "tools": SET.tools(cfg),
     }
+
+
+def models_snapshot() -> dict:
+    """`GET /api/models` (#361): the catalogue a picker offers, read from the cache, else the list
+    shipped with this package marked stale, and whether a refresh is running. Never starts the CLI:
+    that is `POST /api/models {refresh: true}`, or a server starting."""
+    from .. import config as C
+    from . import models as MODELS
+
+    try:
+        cfg = C.load()
+    except (C.ConfigError, OSError):
+        cfg = {}
+    try:
+        repos = Registry().sorted()
+    except (RegistryError, OSError):
+        repos = []
+    return {"refreshing": MODELS.refreshing(),
+            **MODELS.catalogue(cfg, seen=[served_model(r.name) for r in repos], spawn=False)}
 
 
 # ------------------------------------------------------------------------------------- the theme

@@ -115,6 +115,14 @@ Scaling one picture to the other's size stretches the words, which is the giveaw
 the screen is a photograph of a tile rather than the tile. Pinned to their own size at the top left,
 what moves is the box and what cross-fades is text at the size it was written.
 
+## The model picker's press (#362)
+
+A pill fades its fill for `--motion-fast` (`background-color` only) when it is pressed, and when a
+palette changes under it. The transition is declared inside
+`@media (prefers-reduced-motion: no-preference)`, so under `reduce` there is none to zero: the
+pill changes at once. `tests/test_fleet_model_picker.py` reads it back off a pill: `0.12s`, and at
+most `0.00001s` under `reduce`.
+
 ## Reduced motion
 
 The universal block has been there since the beginning:

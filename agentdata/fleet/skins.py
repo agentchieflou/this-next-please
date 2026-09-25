@@ -205,6 +205,16 @@ SKINS = {
 }
 
 
+# The palettes no variant above is drawn on yet, each with the reason (#393). Every built-in palette
+# but `none` is a variant's `base` or is listed here, never both (`tests/test_fleet_skins.py`), so
+# /settings can say of every palette which looks are drawn on it -- or that it is the plain page
+# only, and still one to choose. It empties as the skins land: #389 removes `nfl-browns`, #396 `greens`.
+PALETTE_ONLY: dict[str, str] = {
+    "nfl-browns": "the playbook is planned",
+    "greens": "the circuit board is planned",
+}
+
+
 # Glass's inks (#254): the palette token each tool of its mark table (`static/ink/skins/glass.js`)
 # is drawn in, unless a variant's `ink_tokens` names another -- which its skin.css says again as
 # `--ink-<tool>`. Resolved against the variant's own palette, so `theme.check` holds every mark on

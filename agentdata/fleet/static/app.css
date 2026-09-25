@@ -1281,6 +1281,36 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .renew-row.verdict-now .renew-verdict, .renew-row.verdict-at-turn-end .renew-verdict { font-weight: 600; }
 .renew-actions { display: flex; gap: 8px; }
 
+/* ---- the model picker (#362)
+   `picker.js`, on the model card, /settings and the dispatch card. Tokens only, every selector under
+   `.mpick`, and no word in `--muted`, which is under 4.5:1 in nine palettes. Pressed is `--text` on
+   `--select` with a 2px `--accent` ring and a ✓: accent text on `--select` is 2.84:1 in sand, and the
+   ring is read against the card around the pill. A skin that clears button fills (the notebook)
+   leaves the ✓ and the ring, which is why they are there. */
+.mpick { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mpick .mp-models { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mpick .mp-group, .mpick .mp-effort, .mpick[data-variant="compact"] .mp-models {
+  display: flex; flex-flow: row wrap; align-items: center; gap: 4px; min-width: 0;
+}
+.mpick .mp-glabel { flex: 0 0 100%; font-size: 11px; font-weight: 400; color: var(--text); }
+.mpick .pill {
+  display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%;
+  min-height: 28px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel); color: var(--text); font-size: 12px; font-weight: 500; line-height: 1.2;
+}
+.mpick .pill[aria-pressed="true"] { padding: 2px 8px; border: 2px solid var(--accent); background: var(--select); }
+.mpick .pill[aria-disabled="true"] { border-style: dashed; cursor: default; }
+.mpick .pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mpick .pill-mark { letter-spacing: 2px; }
+.mpick .pill-mark:empty, .mpick .pill-note:empty { display: none; }
+.mpick .pill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mpick .pill-note { font-size: 11px; font-weight: 400; color: var(--text); }
+.mpick .mp-other { font: 12px var(--mono); background: var(--panel); color: var(--text); max-width: 100%; }
+.mpick .mp-effort-why { font-size: 11px; color: var(--text); }
+@media (prefers-reduced-motion: no-preference) {
+  .mpick .pill { transition: background-color var(--motion-fast) var(--ease-out); }
+}
+
 /* ------------------------------------------------------------------- the settings page (/settings) */
 
 /* One stylesheet for both pages, so a palette and a skin reach the settings page for free -- the

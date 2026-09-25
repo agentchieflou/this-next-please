@@ -183,6 +183,25 @@ def test_a_variant_names_a_palette_that_exists():
         assert spec["base"] in known, f"{skin_name}:{variant} names an unknown palette {spec['base']!r}"
 
 
+def test_every_palette_has_a_look_or_says_why_it_has_none():
+    """#393. Every built-in palette but `none` is the base of a skin variant, or is listed in
+    `skins.PALETTE_ONLY` with the reason no look is drawn on it yet -- never both. A palette with
+    neither is how Browns "dropped off": still a palette, drawn by no skin, and nothing on the page
+    said so. One listed after its look has landed would tell /settings it is palette-only."""
+    drawn = {spec["base"] for _, _, spec in skins.every_variant()}
+    for name in theme.BUILTINS:
+        if name == "none":
+            continue
+        listed = name in skins.PALETTE_ONLY
+        assert (name in drawn) != listed, (
+            f"{name}: drawn by a variant and listed in PALETTE_ONLY; take it out of PALETTE_ONLY"
+            if listed else f"{name}: no variant is drawn on it; list it in PALETTE_ONLY with a reason")
+        if listed:
+            assert str(skins.PALETTE_ONLY[name]).strip(), f"{name} is palette-only with no reason"
+    assert set(skins.PALETTE_ONLY) <= set(theme.BUILTINS) - {"none"}, (
+        f"PALETTE_ONLY names what is not a built-in palette: {sorted(skins.PALETTE_ONLY)}")
+
+
 def test_a_skins_default_variant_is_one_of_its_variants():
     for name, skin in skins.SKINS.items():
         assert skin["default"] in skin["variants"], name
