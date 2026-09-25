@@ -100,6 +100,19 @@ could never have seen it. It is a backstop for the common shape and it says so: 
 its own list of over-budget gestures and asserts the list is empty has no clock and no ceiling for
 any pattern to find, and carries the marker because its author put it there.
 
+**A `measured` result means something only when the test ran serially** (#473, operator ruling
+(a)). `test_a_gesture_keeps_its_budget_while_the_ink_draws` went over its 50 ms budget under
+`-n auto` on two branches, and a diagnostic ran its six gestures with the ink drawing, at rest and
+off (`?ink=off`) beside six concurrent `test_fleet_ink_glass.py` runs. The ink made no difference:
+it breached with the ink drawing (114 ms) and with it off alike (126 and 81 ms). Every breach was
+`arrange:move`, the gesture with the most layout, and it came from other Chromium renderers
+competing for the cores, which six plain CPU spinners did not reproduce. The ink draws in `requestAnimationFrame`, after the
+synchronous task a gesture's mark closes in, so it cannot land inside a mark. CI runs the tier in
+its own step after the bulk, `python -m pytest -q -rs -m "(measured or scale) and not slow"`, with
+no `-n`. So read a breach under `-n` or next to another browser as contention, not as evidence
+against a branch, and re-run the test on its own before calling it a regression. The budget stays
+at 50 ms.
+
 A verdict on real timings counts as a duration too. `row["verdict"] == "faster"` has no clock and no
 ceiling on its line, but when the row came from `bench_node(` it judges two measured runs, and on a
 busy runner it judges the contention: the perf loop saw 8.3 ms against 1.2 ms called `same` (#314).
