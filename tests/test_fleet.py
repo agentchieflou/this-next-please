@@ -112,7 +112,11 @@ def test_the_allow_list_never_grants_the_agent_the_fleet_itself():
 def test_a_deny_prefix_cannot_rescue_a_loose_allow_so_the_allow_is_tight():
     """A deny is a prefix too, not a substring: `shell(git push --force)` does not match
     `git push -u origin HEAD --force`. So the allow-list has to stop before the dangerous
-    continuation can be appended -- there is no push allow at all, and commit stops at `-m`."""
+    continuation can be appended -- there is no `git push` allow at all, and commit stops at `-m`.
+
+    The one push an agent may make is `shell(ad-git push)` (#502), allowed right after `git commit -m`:
+    that command refuses a force, a refspec, a protected branch and an unknown remote itself, and waits
+    on the approval gate. `shell(git push)` stays on the deny floor."""
     argv = launch.launch_command("copilot", "C:/repo", "x", log_dir="C:/logs")
     allowed, denied = _patterns(argv, "--allow-tool"), _patterns(argv, "--deny-tool")
 

@@ -262,7 +262,9 @@ stops at [the approval gate](fleet-approvals.md) and shows you the dry-run paylo
 
 **The agent may run what it was allowed to run, and nothing else** — an enumerated whitelist, not a
 deny-list. The spike measured Copilot's own permission classifier refusing three spellings of a
-file write and allowing the fourth, which is why the boundary lives in our commands.
+file write and allowing the fourth, which is why the boundary lives in our commands. Git stops at
+`git commit -m`; the one push is `shell(ad-git push)`, which refuses a force, a refspec, a protected
+branch and an unconfigured remote itself and waits on the gate. `shell(git push)` stays denied.
 
 **Nothing is announced twice, and nothing routine is announced at all.** Four agents working
 normally produce zero notifications; see [fleet-notifications.md](fleet-notifications.md).
