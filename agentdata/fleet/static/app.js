@@ -1856,6 +1856,13 @@ function connect() {
       loadModelCatalogue().then(function () { drawModelCard(); drawDispatchModel(); });
     }
   });
+  // A wrap-up job moved (#503, #510): read it only when the sheet shows that repo.
+  source.addEventListener("wrapup", function (m) {
+    try {
+      var d = JSON.parse(m.data);
+      if (wrapOpen() && d.repo === wrap.repo && (!wrap.job || d.job === wrap.job)) loadWrap();
+    } catch (err) {}
+  });
   source.addEventListener("tick", function () {
     toggle(document.body, "is-replaying", false);
     setClass(link, "dot live");
@@ -1941,6 +1948,7 @@ document.addEventListener("keydown", function (e) {
     if (closePopovers()) { e.stopImmediatePropagation(); return; }
     var card = document.getElementById("dispatch");
     if (card && !card.hidden) { closeDispatch(); e.stopImmediatePropagation(); return; }
+    if (closeWrapup()) { e.stopImmediatePropagation(); return; }
     if (typing) /** @type {HTMLElement} */ (document.activeElement).blur();
     // There is no zoom to leave, so `Esc` is "show me the last one again" -- which is the other
     // half of the glance the swap is for.
@@ -1973,6 +1981,18 @@ document.addEventListener("keydown", function (e) {
     var at = document.activeElement;
     if (e.shiftKey || (at && at !== document.body && !(at.closest && at.closest("#grid")))) return;
     stepRow(e.key === "ArrowRight" ? 1 : -1);
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "w") {
+    // #510: wrap up the pane the keyboard is on, rail or wide, as `r` and `m` act on it: the project
+    // panel opens with the sheet, and the preview starts. Nothing is written until *write n*.
+    /** @type {HTMLElement} */
+    var onPane = document.activeElement && document.activeElement.closest
+      ? document.activeElement.closest(".tile") : null;
+    var wrapName = onPane ? onPane.dataset.repo : openName();
+    if (!wrapName) return;
+    openWrapup(wrapName);
     e.preventDefault();
     return;
   }
@@ -3356,6 +3376,7 @@ function inspectorFold(name, cls, openByDefault) {
 function drawInspector(name) {
   var el = document.getElementById("inspector");
   if (!el) return;
+  if (wrap && wrap.repo && name !== wrap.repo) closeWrapup();  // the sheet is one repo's (#510)
   var body0 = document.getElementById("inspectordetails");
   if (!name || !tiles.has(name)) {
     inspectorDrawn = "";
@@ -3401,6 +3422,12 @@ function drawInspector(name) {
       });
       rail.appendChild(copy);
     }
+    // #510: the rail's last button previews every write for this agent; `w` on its pane does the same.
+    var wrapBtn = mk("button", "wrapup", "wrap up");
+    attr(wrapBtn, "type", "button");
+    attr(wrapBtn, "title", "preview what would be written to Jira, Bitbucket and Confluence (w)");
+    wrapBtn.addEventListener("click", function () { openWrapup(name); });
+    rail.appendChild(wrapBtn);
     body.appendChild(rail);
   }
 
@@ -3542,6 +3569,318 @@ function drawInspector(name) {
 document.getElementById("closeinspector").addEventListener("click", function () {
   section("inspector", false);
 });
+
+/* ------------------------------------------------------------------- wrapping up an agent (#510)
+
+   The project panel's sheet: every write #503 plans for this agent, previewed by its adapter's own
+   dry-run, a tick per write, and one press -- *write n* -- that writes exactly the ticked ones
+   (WRAP-D4). The sheet is static markup, so the panel's rebuilds never touch it, and it is drawn
+   only from an answer or a `wrapup` frame: an idle desk with it open writes nothing.
+
+   The page posts `wrapup` from four places and no others: the sheet's open, its mode toggle, a
+   deliberate re-preview (a transition's name, *replace*, an edited comment, *preview again*) and
+   *write n*. Nothing is written that the sheet has not shown, a merge is never offered, and the
+   comment is a template (WRAP-D2) -- no model turn. */
+
+var WRAP_STEPS = "push · pr · page · comment · transition";
+var WRAP_GLYPH = { written: "✓", failed: "✗", changed: "↻", skipped: "–" };
+var wrap = { repo: "", mode: "project", job: "", state: "", rows: [], results: {}, ticks: {}, comment: null,
+             editing: false, extra: {} };
+
+var wrapGo = new WeakMap();                             // a row's action button -> what it does now
+
+function wrapSheet() { return /** @type {HTMLElement} */ (document.querySelector("#inspector .wrapsheet")); }
+
+function wrapOpen() { var s = wrapSheet(); return !!s && !s.hidden; }
+
+/** The step a row writes, as its id's slot: `push`, `pr`, …, `transition-review`. */
+function wrapSlot(row) { return String(row.id || row.step || "").split(":")[0]; }
+
+/** What a result's `done` reads as one word: written, failed, changed or skipped. */
+function wrapDone(result) {
+  var d = String((result && result.done) || "");
+  return d.indexOf("skipped") === 0 ? "skipped" : d;
+}
+
+/* One step's cell -- tick, glyph, step, summary, hint -- on an element cloned from `li.wrap-pattern`.
+   The sheet draws its rows with it, and the fleet sweep (#512) draws its cells with it too. A
+   result is words and a glyph, never a state colour: the agent's colours stay the agent's (#339). */
+function wrapCell(el, row, ticked, result, locked) {
+  var box = /** @type {HTMLInputElement} */ (el.querySelector(".wrap-tick"));
+  if (box.checked !== !!ticked) box.checked = !!ticked;
+  disable(box, !row.ok || !!locked);
+  setData(el, "id", row.id);
+  setData(el, "step", row.step);
+  setData(el, "code", row.code || "");
+  var done = wrapDone(result);
+  setData(el, "done", done);
+  text(el.querySelector(".wrap-glyph"), done ? (WRAP_GLYPH[done] || "·") : "");
+  text(el.querySelector(".wrap-step"), row.step);
+  text(el.querySelector(".wrap-sum"), row.summary || "");
+  var hint = "";
+  if (done === "written") hint = "written";
+  else if (done === "failed") hint = "failed — " + [result.error, result.hint].filter(Boolean).join(" — ");
+  else if (done === "changed") hint = "changed — nothing was written; " + (result.hint || "preview again");
+  else if (done === "skipped") hint = String(result.done) + (result.hint ? " — " + result.hint : "");
+  else if (!row.ok) hint = (row.code ? row.code + " — " : "") + (row.hint || "");
+  else hint = [row.needs && row.needs.length && ticked ? "after " + row.needs.join(" · ") : "", row.hint]
+    .filter(Boolean).join(" — ");
+  text(el.querySelector(".wrap-hint"), hint);
+  attr(el.querySelector(".wrap-hint"), "title", hint || null);
+}
+
+function wrapTicked(row) {
+  var slot = wrapSlot(row);
+  return row.ok && (wrap.ticks[slot] !== undefined ? wrap.ticks[slot] : !!row.ticked);
+}
+
+function wrapTickedIds() {
+  return wrap.rows.filter(wrapTicked).map(function (r) { return r.id; });
+}
+
+/* The sheet's actions for one row: a transition's names, *open it* / *replace v<n>* on a page
+   someone edited, *replace the description* on a kept PR, *edit* on the comment, *preview again*
+   on a failed step. Every one that changes a write is a second preview (WRAP-D8), never a write. */
+function wrapActs(el, row, result) {
+  var act = el.querySelector(".wrap-act");
+  var want = [];
+  var done = wrapDone(result);
+  var locked = wrap.state === "reading" || wrap.state === "writing";
+  if (done === "written" && result.url) {
+    want.push({ key: "url", link: result.url, label: "open it" });
+  } else if (done === "failed" || done === "changed") {
+    want.push({ key: "again", label: "preview again", go: function () { previewWrap({}); } });
+  } else if (!done) {
+    var p = row.payload || {};
+    if (row.step === "transition" && (row.available || []).length) {
+      row.available.forEach(function (name) {
+        want.push({ key: "to:" + name, label: name, go: function () { previewWrap({ to: name }); } });
+      });
+    }
+    if (row.step === "page" && (row.code === "page_edited" || row.code === "page_not_ours" || p.edited)) {
+      var live = row.live || p.version;
+      if (p.url) want.push({ key: "open", link: p.url, label: "open it" });
+      if (live) want.push({ key: "replace", label: "replace v" + live,
+                            go: function () { previewWrap({ overwrite: { page: live } }); } });
+    }
+    if (row.step === "pr" && p.description === "kept" && p.live_hash) {
+      want.push({ key: "replace", label: "replace the description",
+                  go: function () { previewWrap({ overwrite: { pr: p.live_hash } }); } });
+    }
+    if (row.step === "comment" && row.ok) {
+      want.push({ key: "edit", label: wrap.editing ? "done" : "edit", go: function () {
+        wrap.editing = !wrap.editing;
+        var box = /** @type {HTMLTextAreaElement} */ (wrapSheet().querySelector(".wrap-comment"));
+        if (wrap.editing && wrap.comment == null) box.value = String(p.body || "");
+        hide(box, !wrap.editing);
+        if (wrap.editing) box.focus();
+        drawWrap();
+      } });
+    }
+  }
+  patchList(act, want, function (w) { return w.key; }, function (w) {
+    var n = w.link ? mk("a", "wrap-link") : mk("button", "wrap-btn");
+    if (w.link) { n.target = "_blank"; n.rel = "noopener noreferrer"; }
+    else { attr(n, "type", "button"); n.addEventListener("click", function () { var go = wrapGo.get(n); if (go) go(); }); }
+    return n;
+  }, function (n, w) {
+    text(n, w.label);
+    if (w.link) { if (n.getAttribute("href") !== w.link) n.setAttribute("href", w.link); }
+    else { wrapGo.set(n, w.go); disable(n, locked); }
+  });
+}
+
+/** The sheet as `wrap` says: the status line, the rows from the pattern row, the button's count. */
+function drawWrap() {
+  var sheet = wrapSheet();
+  if (!sheet) return;
+  sheet.querySelectorAll(".wrap-modes [data-mode]").forEach(function (b) {
+    var on = b.getAttribute("data-mode") === wrap.mode;
+    toggle(b, "active", on);
+    attr(b, "aria-pressed", String(on));
+    disable(b, wrap.state === "reading" || wrap.state === "writing");
+  });
+  var status = wrap.status || "";
+  if (!status) {
+    if (wrap.state === "reading") status = "reading " + WRAP_STEPS + "…";
+    else if (wrap.state === "writing") status = "writing…";
+  }
+  text(sheet.querySelector(".wrap-status"), status);
+  var locked = wrap.state !== "planned";
+  patchList(sheet.querySelector(".wrap-rows"), wrap.rows, wrapSlot, function () {
+    var li = /** @type {HTMLElement} */ (sheet.querySelector(".wrap-pattern").cloneNode(true));
+    li.classList.remove("wrap-pattern");
+    li.hidden = false;
+    var box = /** @type {HTMLInputElement} */ (li.querySelector(".wrap-tick"));
+    box.addEventListener("change", function () {
+      wrap.ticks[li.dataset.rowkey] = box.checked;
+      drawWrap();
+    });
+    return li;
+  }, function (li, row) {
+    var result = wrap.results[wrapSlot(row)];
+    wrapCell(li, row, wrapTicked(row), result, locked);
+    if (row.step === "comment" && wrap.comment != null && !result) {
+      text(li.querySelector(".wrap-hint"), "edited — checked again before it is sent");
+    }
+    wrapActs(li, row, result);
+  });
+  var n = wrapTickedIds().length;
+  var go = /** @type {HTMLButtonElement} */ (sheet.querySelector(".wrap-go"));
+  text(go, "write " + n);
+  attr(go, "title", n ? "write exactly the " + n + " ticked, previewed step" + (n === 1 ? "" : "s") +
+                        " — pressing is the approval for each (WRAP-D4)" : null);
+  disable(go, locked || !n || wrap.editing);
+}
+
+/** A fresh preview: this repo, this mode, and whatever the operator deliberately asked again with. */
+function previewWrap(extra) {
+  if (!wrap.repo) return Promise.resolve(null);
+  wrap.extra = Object.assign({}, wrap.extra, extra || {});
+  wrap.state = "reading";
+  wrap.status = "";
+  wrap.results = {};
+  var body = { repo: wrap.repo, mode: wrap.mode, dry_run: true };
+  if (wrap.extra.to) body.to = wrap.extra.to;
+  if (wrap.extra.overwrite) body.overwrite = wrap.extra.overwrite;
+  if (wrap.comment != null) body.comment = wrap.comment;
+  drawWrap();
+  var repo = wrap.repo;
+  return post("wrapup", body).then(function (r) {
+    if (repo !== wrap.repo) return r;
+    if (!r || !r.ok) {
+      wrap.state = "";
+      wrap.status = (r && r.error ? r.error + (r.hint ? " — " + r.hint : "") : "the preview was refused");
+      drawWrap();
+      return r;
+    }
+    wrap.job = r.job;
+    return loadWrap();
+  });
+}
+
+/** *Write n*: exactly the ticked ids of the preview on the sheet, and the edited comment with them. */
+function writeWrap() {
+  var steps = wrapTickedIds();
+  if (!wrap.job || wrap.state !== "planned" || !steps.length) return Promise.resolve(null);
+  var body = { repo: wrap.repo, job: wrap.job, steps: steps };
+  if (wrap.comment != null) body.comment = wrap.comment;
+  wrap.state = "writing";
+  drawWrap();
+  return post("wrapup", body).then(function (r) {
+    if (!r || !r.ok) {
+      wrap.state = "planned";
+      wrap.status = (r && r.error ? r.error + (r.hint ? " — " + r.hint : "") : "the write was refused");
+      drawWrap();
+      return r;
+    }
+    return loadWrap();
+  });
+}
+
+/** The job as the server has it now, drawn: the frame says it moved, this reads what it is. */
+function loadWrap() {
+  var repo = wrap.repo;
+  if (!repo) return Promise.resolve(null);
+  return fetch(q("/api/wrapup", { repo: repo })).then(function (r) { return r.json(); }).then(function (job) {
+    if (repo !== wrap.repo || !job || !job.ok) return job;
+    acceptWrap(job);
+    return job;
+  }).catch(function () { return null; });
+}
+
+function acceptWrap(job) {
+  var mine = !wrap.job || job.job === wrap.job;
+  if (!mine) return;
+  var before = wrap.state;
+  wrap.state = job.state || "";
+  var plan = job.plan || {};
+  if (plan.rows) wrap.rows = plan.rows;
+  wrap.results = {};
+  (job.results || []).forEach(function (r) { wrap.results[wrapSlot(r)] = r; });
+  wrap.status = "";
+  if (job.error) {
+    wrap.status = job.error + (job.hint ? " — " + job.hint : "");
+  } else if (wrap.state === "planned") {
+    var notes = (plan.notes || []).join(" · ");
+    wrap.status = (wrap.mode === "day" ? "end of day" : "end of project") + " · " + wrap.rows.length +
+                  " step" + (wrap.rows.length === 1 ? "" : "s") + " previewed, nothing written yet" +
+                  (notes ? " · " + notes : "");
+  } else if (wrap.state === "done") {
+    var counts = { written: 0, failed: 0, changed: 0, skipped: 0 };
+    (job.results || []).forEach(function (r) { var d = wrapDone(r); if (d in counts) counts[d]++; });
+    var line = Object.keys(counts).filter(function (k) { return counts[k]; })
+      .map(function (k) { return counts[k] + " " + k; }).join(", ") || "nothing written";
+    wrap.status = line + " · " + String(job.at || "").slice(11, 16);
+    if (before === "writing") say(wrap.repo + " wrap-up: " + line);
+  }
+  drawWrap();
+}
+
+/** `w`, or *wrap up* on the rail: the project panel on this repo, the sheet, and a preview --
+    unless this repo's last job was written from another tab, whose results are drawn first. */
+function openWrapup(name) {
+  if (!name) return;
+  var same = wrap.repo === name && wrapOpen();
+  choose(name);
+  section("inspector", true);
+  hide(wrapSheet(), false);
+  if (same) return;
+  wrap = { repo: name, mode: "project", job: "", state: "", rows: [], results: {}, ticks: {}, comment: null,
+           editing: false, extra: {} };
+  var box = /** @type {HTMLTextAreaElement} */ (wrapSheet().querySelector(".wrap-comment"));
+  box.value = "";
+  hide(box, true);
+  drawWrap();
+  fetch(q("/api/wrapup", { repo: name })).then(function (r) { return r.json(); }).catch(function () { return {}; })
+    .then(function (job) {
+      if (wrap.repo !== name) return;
+      if (job && (job.state === "writing" || job.state === "done") && (job.results || job.state === "writing")) {
+        wrap.job = job.job;
+        wrap.mode = job.mode || wrap.mode;
+        acceptWrap(job);
+        if (wrap.state === "done") wrap.status = "last wrap-up, " + String(job.at || "").replace("T", " ") +
+                                                 ": " + wrap.status.split(" · ")[0] + " · preview again for a new one";
+        drawWrap();
+        return;
+      }
+      previewWrap({});
+    });
+}
+
+function closeWrapup() {
+  if (!wrapOpen()) return false;
+  hide(wrapSheet(), true);
+  wrap.repo = "";
+  return true;
+}
+
+function bindWrapSheet() {
+  var sheet = wrapSheet();
+  if (!sheet) return;
+  sheet.querySelectorAll(".wrap-modes [data-mode]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var mode = b.getAttribute("data-mode") || "project";
+      if (mode === wrap.mode && wrap.state === "planned") return;
+      wrap.mode = mode;
+      wrap.ticks = {};
+      wrap.extra = {};
+      previewWrap({});
+    });
+  });
+  var box = /** @type {HTMLTextAreaElement} */ (sheet.querySelector(".wrap-comment"));
+  box.addEventListener("change", function () {
+    // An edit is checked again before it is sent: the comment's id hashes its text, so the preview
+    // that *write n* confirms has to be the one that read this text.
+    wrap.comment = box.value;
+    wrap.editing = false;
+    hide(box, true);
+    previewWrap({});
+  });
+  sheet.querySelector(".wrap-go").addEventListener("click", function () { writeWrap(); });
+  sheet.querySelector(".wrap-cancel").addEventListener("click", function () { closeWrapup(); });
+}
+bindWrapSheet();
 
 /* The desk's one arrangement (#232) -- and a real object, not a copy of one.
 

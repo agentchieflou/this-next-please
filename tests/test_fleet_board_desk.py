@@ -863,6 +863,44 @@ def test_no_body_class_names_an_arrangement():
         assert f"body.{name}" not in css, f"app.css still styles body.{name}"
 
 
+def _enclosing_functions(js: str, needle: str) -> list[str]:
+    """The top-level `function name(` each occurrence of `needle` in app.js sits in."""
+    import re
+
+    heads = [(m.start(), m.group(1)) for m in re.finditer(r"^(?:async )?function (\w+)\(", js, re.M)]
+    out = []
+    for m in re.finditer(re.escape(needle), js):
+        before = [name for at, name in heads if at < m.start()]
+        out.append(before[-1] if before else "")
+    return out
+
+
+def test_the_wrap_up_sheet_is_static_markup_and_posts_only_from_its_own_paths():
+    """#510: the sheet and its pattern row are in index.html, so the panel's rebuilds never touch
+    them; the key map lists `w`; and the page posts `wrapup` only from the sheet's open, its mode
+    toggle, a deliberate re-preview and *write n* -- never from a tick, a frame or a page load."""
+    js = open(APP_JS, encoding="utf-8").read()
+    html = open(INDEX, encoding="utf-8").read()
+    inspector = html[html.index('<aside id="inspector"'):html.index("</aside>", html.index('<aside id="inspector"'))]
+    sheet = inspector[inspector.index('class="wrapsheet"'):]
+    assert inspector.index('class="drawer-head"') < inspector.index('class="wrapsheet"') \
+        < inspector.index('id="inspectordetails"'), "the sheet sits between the drawer head and the details"
+    for part in ('class="segmented', 'data-mode="day"', 'data-mode="project"', 'class="wrap-status"',
+                 'class="wrap-rows"', 'class="wrap-pattern wrap-row"', 'class="wrap-tick"', 'class="wrap-step"',
+                 'class="wrap-sum"', 'class="wrap-hint"', 'class="wrap-act"', 'class="wrap-comment"',
+                 'class="wrap-go"', 'class="wrap-cancel"'):
+        assert part in sheet, part
+    panes = html[html.index("<strong>panes</strong>"):]
+    panes = panes[:panes.index("</div>")]
+    assert "<kbd>w</kbd> wrap up (preview first)" in panes
+    posts = _enclosing_functions(js, 'post("wrapup"')
+    assert sorted(posts) == ["previewWrap", "writeWrap"], posts
+    assert set(_enclosing_functions(js, "previewWrap(")) <= {"previewWrap", "openWrapup", "bindWrapSheet",
+                                                             "wrapActs"}, _enclosing_functions(js, "previewWrap(")
+    assert set(_enclosing_functions(js, "writeWrap(")) <= {"writeWrap", "bindWrapSheet"}
+    assert "wrap up" in js and "preview what would be written to Jira, Bitbucket and Confluence (w)" in js
+
+
 def test_the_rows_rules_are_the_pages_rules():
     """The column was the one arrangement whose class moved things: the glass one tile tall, the
     bands beside it. Its rules became unconditional when it was the only one (#232), and the row

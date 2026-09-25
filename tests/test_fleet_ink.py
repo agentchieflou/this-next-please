@@ -1319,16 +1319,25 @@ def test_a_shell_that_will_not_give_a_webgl_context_falls_back_without_fetching_
 
 
 @pytest.mark.browser
-def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fleet_home, tmp_path):
+def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fleet_home, tmp_path, monkeypatch):
     """The render contract with the layer running: once the marks are drawn, an idle desk is still
     zero DOM mutations -- and zero WebGL frames, because a paper with nothing new is not redrawn.
     With a pane's model chip waiting for the next turn on it, too (#492).
 
     Alpha has run more than once, so its row carries `earlier` runs and the session pill's runs list
     is drawn on every row pass: patched, never torn down and rebuilt (#494). A run arriving adds one
-    row and leaves the others' elements alone; an ended run's time is written into its row in place."""
+    row and leaves the others' elements alone; an ended run's time is written into its row in place.
+    And with the wrap-up sheet open on the project panel, its rows drawn and no job running (#510)."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata import config as C
+    from agentdata.fleet import wrapup as WRAP
+
+    # The wrap-up's adapters answer at once, in process: no child starts, and no job is left running.
+    monkeypatch.setattr(WRAP, "RUN", lambda argv, cwd, env=None: {
+        "code": 0, "meta": {"ok": True, "branch": "feature/RDSD-1", "remote": "origin", "ahead": 1,
+                            "action": "update", "key": "RDSD-1", "chars": 10, "first_line": "End of project",
+                            "status": "In Progress", "to": "In Review", "transition": "31 In Review"},
+        "tables": {}, "stderr": ""})
 
     # `_desk_of`, with alpha's runs launched on sonnet 5 and luna set for its next turn: `next`.
     Registry().add(make_project(tmp_path / "alpha", ticket="RDSD-1"), name="alpha")
@@ -1395,6 +1404,18 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
                 && !!document.querySelector('#dispatch .dispatch-model button[aria-pressed="true"]')""",
                                    timeout=10000)
             dispatched = page.evaluate(IDLE_LOOP)
+            # And with the wrap-up sheet open (#510): `w` on the pane, the rows drawn, nothing running.
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#dispatch[hidden]", state="attached", timeout=5000)
+            page.focus('.tile[data-repo="alpha"]')
+            page.keyboard.press("w")
+            page.wait_for_function("""() => !document.querySelector('#inspector .wrapsheet').hidden
+                && document.querySelectorAll('.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)').length > 0""",
+                                   timeout=15000)
+            assert WRAP.wait("alpha", 10) and WRAP.job_state("alpha")["state"] == "planned"
+            page.wait_for_function("() => !/reading/.test(document.querySelector('.wrapsheet .wrap-status').textContent)",
+                                   timeout=5000)
+            wrapping = page.evaluate(IDLE_LOOP)
             assert not errors, errors
             browser.close()
     finally:
@@ -1405,6 +1426,8 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     assert carded["renders"] == 0, f"an idle paper under the model card was redrawn {carded['renders']} times"
     assert dispatched["n"] == 0, f"an idle desk with the dispatch card open wrote to the page: {dispatched}"
     assert dispatched["renders"] == 0, f"an idle paper under the dispatch card was redrawn {dispatched['renders']} times"
+    assert wrapping["n"] == 0, f"an idle desk with the wrap-up sheet open wrote to the page: {wrapping}"
+    assert wrapping["renders"] == 0, f"an idle paper beside the wrap-up sheet was redrawn {wrapping['renders']} times"
     assert re.fullmatch(r"run 1 · RDSD-1 · [\w-]+ \(\d\d:\d\d–\d\d:\d\d\)", first["words"]), first
     assert first["hidden"] is False, first
     assert arrived["kept"], f"a run arriving re-created the rows already there: {arrived}"

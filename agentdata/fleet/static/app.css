@@ -1142,6 +1142,32 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 #inspectordetails details.more[open] { display: flex; flex-direction: column; gap: 8px; }
 #inspectordetails details.more .missing { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #inspectordetails .spendline { margin: 0; font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* #510: the wrap-up sheet, between the drawer head and the panel's details. A step's result is a
+   word and a glyph, never a status colour: the agent's colours stay the agent's (#339). */
+.wrapsheet {
+  display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; padding: 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 11px var(--mono);
+}
+.wrapsheet[hidden] { display: none; }
+.wrapsheet .wrap-status { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.wrapsheet .wrap-rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.wrapsheet .wrap-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.wrapsheet .wrap-line { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1 1 auto; }
+.wrapsheet .wrap-glyph { width: 1ch; text-align: center; }
+.wrapsheet .wrap-step { min-width: 8ch; }
+.wrapsheet .wrap-sum { overflow-wrap: anywhere; }
+.wrapsheet .wrap-hint { flex-basis: 100%; padding-left: 3ch; color: var(--muted); overflow-wrap: anywhere; }
+.wrapsheet .wrap-row input:disabled ~ .wrap-sum { color: var(--muted); }
+.wrapsheet .wrap-act { display: inline-flex; flex-wrap: wrap; gap: 4px; padding-left: 3ch; }
+.wrapsheet .wrap-act:empty { display: none; }
+.wrapsheet .wrap-btn, .wrapsheet .wrap-link, .wrapsheet .wrap-actions button {
+  font: 11px var(--ui); padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--accent); text-decoration: none; min-height: 24px; cursor: pointer;
+}
+.wrapsheet .wrap-comment { width: 100%; box-sizing: border-box; font: 11px/1.4 var(--mono); resize: vertical; }
+.wrapsheet .wrap-actions { display: flex; gap: 6px; }
+.wrapsheet .wrap-actions button:disabled { color: var(--muted); cursor: default; }
 #inspectordetails .spendline.warn { color: var(--waiting-text); }
 #inspectordetails details.branches-list .branchrow { flex-wrap: nowrap; white-space: nowrap; min-width: 0; }
 #inspectordetails details.branches-list .branchrow .bname { flex: 0 0 auto; }

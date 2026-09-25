@@ -110,6 +110,12 @@ rows read `not_pinned`. The confirm is the approval: each written step leaves on
 `by: operator`, `via: wrapup` (see [fleet-approvals.md](fleet-approvals.md)), and one line in
 `<fleet dir>/agents/<repo>/wrapup.jsonl`. The fleet never writes the checkout.
 
+**On the desk** (#510): `w` on the agent's pane, or *wrap up* at the end of its project panel's rail,
+opens the same preview as a sheet on the panel, set to end of project. Each write is a row with a
+tick; *write n* writes exactly the ticked ones, and each row then says *written*, *failed*, *changed*
+or *skipped*. *Edit* on the comment row shows the template's text; an edit is previewed again before
+it can be sent. The desk never waits on Jira or Bitbucket: the rows arrive as the job reads them.
+
 ## More than one project: the desk
 
 Everything above is per repository. The desk (#122) is the same fleet pointed at the folder every
