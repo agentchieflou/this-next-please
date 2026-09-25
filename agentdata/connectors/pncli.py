@@ -59,9 +59,10 @@ def verb(args: list[str]) -> tuple:
 _NO_VALUE = frozenset({"--help", "-h", "--dry-run", "--version"})
 
 
-def asks_for_help(args: list[str]) -> bool:
-    """Is `--help` / `-h` a flag in its own position? Not the value of the option before it (`--title -h`),
-    and not after `--`. Without pncli's verb table, any option not in `_NO_VALUE` is taken to take a value."""
+def has_flag(args: list[str], *names: str) -> bool:
+    """Is one of `names` a flag in its own position? Not the value of the option before it
+    (`--title -h`, `--title --dry-run`), and not after `--`. Without pncli's verb table, any option not
+    in `_NO_VALUE` is taken to take a value. Shared by help (#524) and dry run (#525)."""
     value_next = False
     for a in args:
         if a == "--":
@@ -69,23 +70,32 @@ def asks_for_help(args: list[str]) -> bool:
         if value_next:
             value_next = False
             continue
-        if a in ("--help", "-h"):
+        if a in names:
             return True
         if a.startswith("-"):
             value_next = "=" not in a and a not in _NO_VALUE
     return False
 
 
+def asks_for_help(args: list[str]) -> bool:
+    """`--help` / `-h` as a flag of its own (#524)."""
+    return has_flag(args, "--help", "-h")
+
+
+def is_dry_run(args: list[str]) -> bool:
+    """`--dry-run` as a flag of its own (#525): as an option's value pncli sends the real write."""
+    return has_flag(args, "--dry-run")
+
+
 def is_write(args: list[str]) -> bool:
     """Would running this change something on a system of record?
 
     `--dry-run` is not a write whatever the verb: pncli resolves and prints, and sends nothing. Nor is
-    `--help` / `-h` in its own position (`asks_for_help`): commander.js prints the help and exits before
-    the action runs. As an option's value it is not help, and the verb still runs (#524).
+    `--help` / `-h`: commander.js prints the help and exits before the action runs. Each counts only
+    as a flag of its own (`has_flag`); as an option's value, or after `--`, it is not, and the verb
+    still runs (#524, #525).
     """
-    if any(a == "--dry-run" for a in args):
-        return False
-    if asks_for_help(args):
+    if is_dry_run(args) or asks_for_help(args):
         return False
     path = verb(args)
     if not path:

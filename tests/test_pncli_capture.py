@@ -61,6 +61,16 @@ def test_a_help_token_that_is_an_option_value_is_still_a_write():
     assert P.is_write(["bitbucket", "create-pr", "--title=-h", "--help"]) is False  # `=` carries its own value
 
 
+def test_a_dry_run_token_that_is_an_option_value_is_still_a_write():
+    """#525: `--title --dry-run` is a title, and pncli sends the real write. Same rule as help."""
+    assert P.is_write(["bitbucket", "create-pr", "--title", "--dry-run"]) is True
+    assert P.is_write(["bitbucket", "create-pr", "--title", "x", "--", "--dry-run"]) is True
+    assert P.is_write(["bitbucket", "create-pr", "--draft", "--dry-run"]) is True   # not known to be boolean
+    assert P.is_write(["bitbucket", "create-pr", "--dry-run", "--title", "x"]) is False
+    assert P.is_write(["bitbucket", "create-pr", "--title", "x", "--dry-run"]) is False
+    assert P.is_write(["bitbucket", "create-pr", "--title=--dry-run", "--dry-run"]) is False
+
+
 # commander.js's own README, the Quick Start's `string-util` example:
 # https://github.com/tj/commander.js/blob/master/Readme.md#quick-start (example file:
 # https://github.com/tj/commander.js/blob/master/examples/string-util.js). The README shows the subcommand's

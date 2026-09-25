@@ -60,7 +60,7 @@ command, where a refusal is a return value rather than a guess about a command s
 | --- | --- | --- |
 | `ad-jira transition <KEY> --to <intent>` | run without `--dry-run` | `--dry-run`; `ad-jira transitions`, `changelog`, and every other read |
 | `ad-jira create --summary …` | run without `--dry-run`; the operator approves the exact `POST /issue` body | `--dry-run` (resolves every field, posts nothing) |
-| `ad-pncli raw <product> <verb> …` | the verb is not in the read allow-list below | any command carrying `--dry-run`; `--help`/`-h` as a flag of its own (as an option's value, `--title -h`, or after `--`, it is not help and the verb is gated, #524); every verb in the list |
+| `ad-pncli raw <product> <verb> …` | the verb is not in the read allow-list below | `--dry-run`, `--help` or `-h` as a flag of its own (as an option's value, `--title --dry-run` or `--title -h`, or after `--`, it is neither and the verb is gated, #524, #525); every verb in the list |
 | `ad-pncli jira search` / `ad-pncli jira get` | never | these are reads by construction — they do not go through `raw` |
 
 The pncli read allow-list is `agentdata/connectors/pncli.READ_VERBS`:
