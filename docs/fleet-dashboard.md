@@ -455,7 +455,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/fleet` | every repo's state, its model and the one its last turn ran on, the recent events, and the pending approvals. A row's `run` is its current run without its events (`n`, `started`, `session`, `ticket`, `events_n`, …) and `run.origin`, who started it: `console`, `adopted`, `fleet`, or `""` before any `started` event (#401) |
 | GET | `/api/map` | the fleet as one graph (#401): projects, the checkouts that hang from them, and each checkout's agent with its kind (`console`, `adopted`, `headless`, `adoptable`, `none`), each with a sentence. Read-only; schema 1 in [fleet-map.md](fleet-map.md) §The graph |
 | POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
-| GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent; `?frames=theme` sends no agent frames (the settings page, #348) |
+| GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent; `?frames=theme` sends no agent frames (the settings page, #348); `?notify=0` runs no notification sweep, and neither does `?frames=theme` (#356, §The stream) |
 | GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195), as the stream's `theme` payload with its css (#346) |
 | GET | `/api/settings` | the editable keys with their type, default and effect-scope; what each is set to; the model per repository; the resolved tool lists |
 | POST | `/api/settings` | write an enumerated key, a per-repo model, or the fleet-wide default |
@@ -513,6 +513,13 @@ frame goes out at the top of the next pass, ahead of the polls, the fold and the
 write made elsewhere (`ad-theme set` in a terminal) arrives on the next tick, by the file's mtime.
 The in-process writers share one lock, `config.LOCK`, so two at once lose nothing. `?frames=theme`
 is the same stream without the agent backlog: the settings page listens for this one frame.
+
+A `notify` event is a notification the sweep found (#97). **Only a desk's stream sweeps** (#356).
+`notify.sweep` advances one shared cursor and hands what it found to whichever stream swept first,
+so a stream that does not draw `notify` frames -- `?notify=0` (the fleet map's), or `?frames=theme`
+(the settings page's) -- would take the desk's bell and chime and drop them. Those two skip the
+sweep entirely. With only a map or a settings window open, nothing sweeps, as when no window is
+open; the next desk stream announces what accumulated, dedupe and cooldown applying.
 
 A `tick` event goes out at least every 15 seconds. It is not decoration: a proxy that sees no bytes
 for a minute closes the connection, and the tiles then stop updating with nothing anywhere saying

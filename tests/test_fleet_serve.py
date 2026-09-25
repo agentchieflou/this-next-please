@@ -270,6 +270,89 @@ def test_a_live_stream_delivers_a_new_event_within_a_second(running, tmp_path):
         stream.close()
 
 
+# ------------------------------------------------------------------ who sweeps for notifications (#356)
+
+
+def _read_until(stream, marker: str, deadline_s: float = 10.0) -> str:
+    """What a live stream said up to and including the first line holding `marker`."""
+    deadline, seen = time.time() + deadline_s, ""
+    while time.time() < deadline:
+        line = stream.readline().decode("utf-8")
+        seen += line
+        if marker in line:
+            return seen
+    raise AssertionError(f"no {marker!r} within {deadline_s}s; the stream said:\n{seen}")
+
+
+def _a_notification_waiting(tmp_path) -> list[dict]:
+    """An agent whose last turn was denied, after a sweep has seen it once: the next sweep announces
+    one `needs_human`. Answers what that sweep will say (a dry run moves nothing)."""
+    from agentdata.fleet import notify as N
+
+    a_repo(tmp_path, "luna")
+    E.append("luna", [E.event("luna", "started", {"prompt": "work RDSD-1"}, ticket="RDSD-1")])
+    N.sweep(cfg={})                                              # first sight; nothing said
+    E.append("luna", [E.event("luna", "denied", {"message": "no `git push`"}, ticket="RDSD-1"),
+                      E.event("luna", "turn_ended", {}, ticket="RDSD-1")])
+    would = N.sweep(cfg={}, dry_run=True)
+    assert [i["state"] for i in would] == ["needs_human"]
+    return would
+
+
+def _notify_frames(text: str) -> list[dict]:
+    return [json.loads(block.split("data: ", 1)[1]) for block in text.split("\n\n")
+            if block.startswith("event: notify\n")]
+
+
+@pytest.mark.parametrize("quiet", ["notify=0", "frames=theme"])
+def test_a_stream_that_is_not_a_desk_leaves_the_notifications_to_the_desk(running, tmp_path, quiet):
+    """The sweep's cursor is shared and its finds go to whichever stream swept first. A settings
+    page (`frames=theme`) or a map (`notify=0`) that swept first took the desk's bell and dropped it.
+
+    The quiet stream is opened first and read through its first pass (the sweep runs before the
+    `desk` frame in a pass); the desk's stream, opened after, gets the notification -- the same one
+    a sweep said it would before either stream was open."""
+    base, token, _ = running
+    would = _a_notification_waiting(tmp_path)
+    other = urllib.request.urlopen(f"{base}/api/events?t={token}&since=&{quiet}", timeout=15)
+    try:
+        first_pass = _read_until(other, "event: desk")
+        assert _notify_frames(first_pass) == [], f"the {quiet} stream swept"
+        desk = urllib.request.urlopen(f"{base}/api/events?t={token}&since=", timeout=15)
+        try:
+            said = _read_until(desk, "event: notify") + desk.readline().decode("utf-8")
+            heard = _notify_frames(said + "\n")
+        finally:
+            desk.close()
+    finally:
+        other.close()
+    assert [(i["repo"], i["state"], i["title"]) for i in heard] == \
+        [(i["repo"], i["state"], i["title"]) for i in would]
+
+
+def test_a_stream_told_not_to_sweep_never_sweeps(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    """`sweep=False` skips the sweep block whole, over several passes that would each sweep."""
+    a_repo(tmp_path, "luna")
+    calls = []
+    monkeypatch.setattr(S, "_sweep", lambda url: calls.append(url) or [])
+
+    def passes(n: int, **kw) -> int:
+        stop, ticks = threading.Event(), []
+
+        def write(frame: str) -> None:
+            if frame.startswith("event: tick"):
+                ticks.append(frame)
+                if len(ticks) >= n:
+                    stop.set()
+        S.stream_events({}, stop, write, tick=0.01, heartbeat=0.0, notify_every=0.0, **kw)
+        return len(ticks)
+
+    assert passes(5, sweep=False) == 5
+    assert calls == []
+    passes(5)                                    # the desk's stream, as before: every pass sweeps
+    assert len(calls) == 5
+
+
 # -------------------------------------------------------------------------------- the page itself
 
 

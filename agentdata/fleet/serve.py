@@ -2361,7 +2361,7 @@ def _config_changed() -> None:
 def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float = HEARTBEAT_S,
                   tick: float = TICK_S, once: bool = False, url: str = "",
                   notify_every: float = NOTIFY_EVERY_S, polls: bool = True,
-                  agents: bool = True) -> None:
+                  agents: bool = True, sweep: bool = True) -> None:
     """Multiplex every agent's new events onto one SSE connection until the client goes away.
 
     `write` raises when the socket closes, which is how this ends -- a browser tab being shut is
@@ -2394,6 +2394,12 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
 
     `agents=False` (`?frames=theme`, the settings page) skips only the per-agent reads and their
     frames: a page that listens for one frame does not download every agent's history.
+
+    `sweep=False` (#356: `?notify=0`, or `?frames=theme`) skips the notification sweep entirely.
+    `notify.sweep` advances ONE shared cursor and hands what it found to whichever stream swept
+    first, so a stream that is not a desk's took the desk's `notify` frames and dropped them. With
+    only such pages open nothing sweeps, as when no window is open; the next desk stream announces
+    what accumulated.
     """
     last_beat = 0.0
     last_sweep = 0.0
@@ -2437,7 +2443,7 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
         # Not behind `polls`: a renew queued for a turn's end (#241) is the fleet's own work, and a
         # desk with project polling switched off must still carry it out.
         renew_tick()
-        if time.time() - last_sweep >= notify_every:
+        if sweep and time.time() - last_sweep >= notify_every:
             last_sweep = time.time()
             for item in _sweep(url):
                 write(f"event: notify\ndata: {json.dumps(item, ensure_ascii=False)}\n\n")
@@ -2884,8 +2890,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             # `?frames=theme` (#348): the settings page listens for one frame, not the agents' history.
             frames = (query.get("frames") or [""])[0].split(",")
+            # Only a desk's stream sweeps (#356): the sweep's cursor is shared, so a stream that
+            # does not draw `notify` frames (`?notify=0`, `?frames=theme`) would take the desk's.
+            notify = (query.get("notify") or [""])[0]
             stream_events(cursors, getattr(self.server, "stopping", threading.Event()), write,
-                          url=url, agents="theme" not in frames)
+                          url=url, agents="theme" not in frames,
+                          sweep=notify != "0" and "theme" not in frames)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass                              # the tab was closed. Not an error.
         self.close_connection = True
