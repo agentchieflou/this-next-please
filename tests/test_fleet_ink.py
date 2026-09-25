@@ -406,6 +406,8 @@ def test_the_desk_with_no_skin_using_ink_is_unchanged(fleet_home, tmp_path):
                 # And idle is idle: the panes test's loop, with the layer's module on the page --
                 # and with a *start fresh* button on alpha's head (#489: its session is stale).
                 page.wait_for_selector('.tile[data-repo="alpha"] .freshtoggle:not([hidden])', timeout=10000)
+                # And the bottom row's *Start fresh* on every full pane with an empty box (#509).
+                page.wait_for_function(FULL_PANE_STARTS_FRESH, timeout=10000)
                 count = page.evaluate(IDLE_LOOP)
                 assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
                 assert not errors, errors
@@ -413,6 +415,15 @@ def test_the_desk_with_no_skin_using_ink_is_unchanged(fleet_home, tmp_path):
             browser.close()
     finally:
         _stop(server)
+
+
+#: #509: every visible bottom-row Start on a pane with an empty reply box reads *Start fresh*, and
+#: there is at least one.
+FULL_PANE_STARTS_FRESH = """() => {
+  const starts = [...document.querySelectorAll('.tile .bottom .start')].filter(b => b.offsetParent !== null
+      && !b.closest('.tile').querySelector('.say').value);
+  return starts.length > 0 && starts.every(b => b.textContent === 'Start fresh');
+}"""
 
 
 #: Every fetch the page makes, counted while it is in flight -- so the idle loop below starts only
@@ -1367,6 +1378,7 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
             _rest(page, "Ink.inspect().layer.marks.length === 3")
             # A *start fresh* button is on the glass through every loop below (#489).
             assert page.is_visible('.tile[data-repo="alpha"] .freshtoggle')
+            assert page.evaluate(FULL_PANE_STARTS_FRESH), "#509: a full pane's empty box reads Start fresh"
             count = page.evaluate(IDLE_LOOP)
             kept = page.evaluate(f"() => document.querySelector('{RUNS}') === window.__run1")
             in_place = page.evaluate(RUNS_IN_PLACE)

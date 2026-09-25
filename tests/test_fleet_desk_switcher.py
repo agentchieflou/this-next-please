@@ -9,14 +9,16 @@ checkouts, this checkout's earlier sessions, and a clean one. Reading a session 
 nothing else; making one live again is a second, deliberate press.
 """
 from __future__ import annotations
+import json
 import os
 import re
 import threading
+import time
 
 import pytest
 
-from agentdata import proc
-from agentdata.fleet import events as E, registry, serve as S, supervisor
+from agentdata import cli_fleet, proc
+from agentdata.fleet import adopt as A, events as E, fingerprint as FP, registry, serve as S, supervisor
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
@@ -144,6 +146,73 @@ def test_start_fresh_is_one_action_under_one_word():
     for rule in rings:
         for state in ("--running", "--waiting", "--human", "--done", "--idle"):
             assert state not in rule, rule
+
+
+def test_the_start_button_posts_fresh_only_when_the_box_is_empty():
+    """#509: with the reply box empty, the bottom row's Start is *Start fresh* and calls #489's
+    `startFresh` (which posts `fresh`); with text in it, it posts `start` with that text as the
+    ticket, as it always did. One handler, one condition, and the label follows the box."""
+    static = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "agentdata", "fleet", "static")
+    js = open(os.path.join(static, "app.js"), encoding="utf-8").read()
+    css = open(os.path.join(static, "app.css"), encoding="utf-8").read()
+    handler = js[js.index('el.querySelector(".start")'):]
+    handler = handler[:handler.index("});") + 3]
+    assert re.search(r"if \(!say\.value\.trim\(\)\) startFresh\(el, row\.repo, startBtn\);", handler), handler
+    assert 'action(el, "start", { repo: row.repo, ticket: say.value.trim() })' in handler, handler
+    assert js.count('post("fresh"') == 1, "the only post of `fresh` is still startFresh's"
+    assert re.search(r'say\.addEventListener\("input", function \(\) \{ drawStart\(', js)
+    assert 'var label = empty ? "Start fresh" : "Start";' in js
+    # Compact panes show the head's *start fresh* whatever `offer` says; a full pane keeps #489's rule.
+    assert '.tile:not([data-tier="compact"]) .head .freshtoggle:not(.is-offer) { display: none; }' in css
+
+
+def test_start_refuses_text_that_is_not_a_ticket_key(fleet_home, tmp_path, capsys, spawns):
+    """#509: text in the reply box that is not a ticket key used to start an agent on it
+    (`Ticket hello.`) on a pane with no ticket, and to be refused `mid_ticket` on any other. It is
+    refused `not_a_ticket` on every pane, before anything else is asked, through all three doors."""
+    Registry().add(make_project(tmp_path / "mid", phase="querying", ticket="RDSD-1"), name="mid")
+    Registry().add(make_project(tmp_path / "free"), name="free")
+    for name in ("mid", "free"):
+        with pytest.raises(supervisor.SupervisorError) as e:
+            supervisor.start(name, key="hello")
+        assert e.value.code == "not_a_ticket" and e.value.msg == "hello is not a ticket key", e.value.msg
+        assert "RDSD-123" in e.value.hint and "Start fresh" in e.value.hint and "Send" in e.value.hint
+        with pytest.raises(supervisor.SupervisorError) as e:
+            S.act("start", {"repo": name, "ticket": "hello"})
+        assert e.value.code == "not_a_ticket"
+        assert cli_fleet.main(["start", name, "hello"]) == 2
+        out = capsys.readouterr().out
+        assert "code: not_a_ticket" in out and "hello is not a ticket key" in out
+    assert spawns["launched"] == [], "nothing launches on text that is not a ticket key"
+    # A key typed in lower case is still a key; the pattern is not loosened, and not tightened.
+    supervisor.start("free", key="rdsd-7")
+    assert len(spawns["launched"]) == 1
+
+
+#: What is installed now, for a checkout whose session is on current skills (not stale).
+INSTALLED = {"version": "0.13.2", "commit": "bbbbbbbbbbbb", "skills": "222222222222"}
+
+
+def _yesterdays(tmp_path, name, *, ticket="RDSD-1", phase="querying", questions=None):
+    """A checkout idle on a fleet session that began yesterday, on current skills (#509): the pane
+    `ad-fleet serve` shows the morning after, marked *before this session*."""
+    path = make_project(tmp_path / name, phase=phase, ticket=ticket)
+    if questions is not None:
+        state_path = os.path.join(path, ".agent", "state.json")
+        st = json.load(open(state_path, encoding="utf-8"))
+        st["open_questions"] = questions
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+    Registry().add(path, name=name)
+    yday = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 86400))
+    E.append(name, [
+        E.event(name, "started", {"pid": 1, "resumed": False, "new": True, "session": "",
+                                  "install": dict(INSTALLED)}, ticket=ticket, ts=yday),
+        E.event(name, "session_id", {"session": f"s-{name}"}, ticket=ticket, ts=yday),
+        E.event(name, "turn_ended", {"turn": "0"}, ticket=ticket, ts=yday),
+    ])
+    return path
 
 
 # --------------------------------------------------------------------------------- the server
@@ -387,7 +456,7 @@ def test_resume_here_is_refused_while_an_agent_is_live_and_the_second_press_take
 
 
 @pytest.mark.browser
-def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spawns):
+def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spawns, monkeypatch):
     """Acceptance criterion: end to end from the keyboard. `Alt+[` / `Alt+]` walk the menu and
     `Alt+N` is a clean session — an item that cannot be reached by hand is a window somebody
     loses. The menu opens on the first step rather than needing a click first (#206)."""
@@ -451,6 +520,128 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
                 "() => /^alpha: a session changes between turns/.test(document.getElementById('notice').textContent)",
                 timeout=10000)
             assert page.is_visible("#notice")
+            assert len(spawns["launched"]) == 1, "Alt+N started exactly one clean session"
+            assert "--resume" not in spawns["launched"][0], "clean means clean"
+
+            # #509: start fresh is one visible press on every pane. The operator's morning: a pane
+            # mid-ticket on current skills, in a fleet session that began yesterday, idle.
+            monkeypatch.setattr(FP, "current", lambda: dict(INSTALLED))
+            _yesterdays(tmp_path, "gamma")                    # the full pane
+            _yesterdays(tmp_path, "eps")                      # its twin, for the compact pane
+            _yesterdays(tmp_path, "delta", ticket="", phase="idle")
+            _yesterdays(tmp_path, "asking", ticket="RDSD-4",
+                        questions=[{"id": "q1", "q": "which workspace?"}])
+            posts: list[tuple[str, dict]] = []
+            page.on("request", lambda r: posts.append((r.url.split("?")[0].rsplit("/", 1)[-1],
+                                                       json.loads(r.post_data or "{}")))
+                    if r.method == "POST" else None)
+
+            def open_pane(name, tier="full"):
+                page.evaluate("() => refresh()")
+                page.wait_for_selector(f'.tile[data-repo="{name}"]', state="attached", timeout=10000)
+                page.evaluate(f"() => openAgent('{name}')")
+                page.wait_for_selector(f'.tile[data-repo="{name}"][data-tier="{tier}"]', timeout=10000)
+                return page.locator(f'.tile[data-repo="{name}"]')
+
+            def launches(n):
+                assert _eventually(lambda: len(spawns["launched"]) == n), spawns["launched"]
+                return spawns["launched"][-1]
+
+            def prompt_of(argv):
+                return argv[argv.index("-p") + 1]
+
+            gamma = open_pane("gamma")
+            start, box = gamma.locator(".bottom .start"), gamma.locator(".say")
+            page.wait_for_function(
+                """() => /before this session/.test(document.querySelector('.tile[data-repo="gamma"] .runline').textContent)
+                      && document.querySelector('.tile[data-repo="gamma"] .bottom .start').textContent === 'Start fresh'""",
+                timeout=10000)
+            title = start.get_attribute("title")
+            assert "RDSD-1" in title and "the CLI's own choice" in title and "began yesterday" in title, title
+            assert not gamma.locator(".head .freshtoggle").is_visible(), "a full pane keeps #489's head rule"
+            # Text that is not a ticket key is refused, never launched: on a mid-ticket pane ...
+            box.fill("hello")
+            assert start.inner_text() == "Start"
+            start.click()
+            page.wait_for_function(
+                """() => /hello is not a ticket key/.test(document.querySelector('.tile[data-repo="gamma"] .err').textContent)""",
+                timeout=10000)
+            assert posts[-1] == ("start", {"repo": "gamma", "ticket": "hello"}), posts
+            # ... and the empty box's one press leaves yesterday's session for a clean one.
+            box.fill("")
+            assert start.inner_text() == "Start fresh"
+            start.click()
+            argv = launches(2)
+            assert posts[-1] == ("fresh", {"repo": "gamma"}), posts
+            assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-gamma" in prompt_of(argv)
+            began = [e["data"] for e in E.read("gamma") if e["kind"] == "started"][-1]
+            assert began["new"] is True and began["leaves"]["session"] == "s-gamma", began
+            # A ticket key in the box is today's *Start {ticket}*: it posts `start`, and the live agent
+            # the press just began refuses it -- nothing more is launched.
+            box.fill("RDSD-1")
+            assert start.inner_text() == "Start"
+            start.click()
+            page.wait_for_function(
+                """() => /already has a live agent/.test(document.querySelector('.tile[data-repo="gamma"] .err').textContent)""",
+                timeout=10000)
+            assert posts[-1] == ("start", {"repo": "gamma", "ticket": "RDSD-1"}), posts
+            assert len(spawns["launched"]) == 2
+
+            # No ticket: `hello` is refused here too, and *Start fresh* is one keyless session.
+            delta = open_pane("delta")
+            start, box = delta.locator(".bottom .start"), delta.locator(".say")
+            box.fill("hello")
+            start.click()
+            page.wait_for_function(
+                """() => /hello is not a ticket key/.test(document.querySelector('.tile[data-repo="delta"] .err').textContent)""",
+                timeout=10000)
+            assert len(spawns["launched"]) == 2, "`hello` on a pane with no ticket launches nothing"
+            box.fill("")
+            assert "no ticket — session-bootstrap, then router" in start.get_attribute("title")
+            start.click()
+            argv = launches(3)
+            assert "Ticket ." not in prompt_of(argv) and "session-bootstrap" in prompt_of(argv)
+
+            # Refusals keep their words: a pane that needs you says so in `.err`, and launches nothing.
+            asking = open_pane("asking")
+            asking.locator(".bottom .start").click()
+            page.wait_for_function(
+                """() => /answer it first/.test(document.querySelector('.tile[data-repo="asking"] .err').textContent)""",
+                timeout=10000)
+            assert len(spawns["launched"]) == 3
+
+            # A chat that may still be open (a session file and no pid, the Windows shape): the pressed
+            # Start arms *start fresh — it is closed*, as #489's head button does.
+            monkeypatch.setenv("COPILOT_SESSION_STATE", str(tmp_path / "session-state"))
+            places = A.listing_places
+            monkeypatch.setattr(A, "listing_places", lambda: False)
+            win = _yesterdays(tmp_path, "win")
+            os.makedirs(tmp_path / "session-state" / "native-win")
+            (tmp_path / "session-state" / "native-win" / "workspace.yaml").write_text(
+                f"id: native-win\ncwd: '{win}'\n", encoding="utf-8")
+            (tmp_path / "session-state" / "native-win" / "events.jsonl").write_text(
+                json.dumps({"type": "assistant.turn_start", "data": {"turnId": "0"}}) + "\n", encoding="utf-8")
+            pane = open_pane("win")
+            pane.locator(".bottom .start").click()
+            page.wait_for_function(
+                """() => document.querySelector('.tile[data-repo="win"] .bottom .start').textContent === 'start fresh — it is closed'
+                      && /may still be open/.test(document.querySelector('.tile[data-repo="win"] .err').textContent)""",
+                timeout=10000)
+            assert len(spawns["launched"]) == 3
+            monkeypatch.setattr(A, "listing_places", places)
+
+            # A compact pane hides the bottom row's Start: its head's *start fresh* shows on every
+            # compact pane, and one press does the same.
+            S.act("settings", {"set": [{"key": "fleet.tiers.full_px", "value": 1600}]})
+            eps = open_pane("eps", tier="compact")
+            head = eps.locator(".head .freshtoggle")
+            page.wait_for_function(
+                """() => document.querySelector('.tile[data-repo="eps"] .head .freshtoggle').offsetParent !== null""",
+                timeout=10000)
+            assert not eps.locator(".bottom .start").is_visible()
+            head.click()
+            argv = launches(4)
+            assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-eps" in prompt_of(argv)
             assert not errors, errors
             browser.close()
     finally:
@@ -458,5 +649,4 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
         server.shutdown()
         server.server_close()
 
-    assert len(spawns["launched"]) == 1, "Alt+N started exactly one clean session"
-    assert "--resume" not in spawns["launched"][0], "clean means clean"
+    assert len(spawns["launched"]) == 4, "one launch per press, and none for a refusal"

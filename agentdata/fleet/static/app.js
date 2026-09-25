@@ -587,7 +587,7 @@ function makeTile(row, index) {
     action(el, el.dataset.console ? "say" : "send",
            { repo: row.repo, message: say.value, force: forcing })
       .then(function (r) {
-        if (r && r.ok) { say.value = ""; disarmSend(sendBtn); return; }
+        if (r && r.ok) { say.value = ""; disarmSend(sendBtn); drawStart(el, rowOf(row)); return; }
         /* The budget refusal reaches the operator at last (#213). It was enforced in `send` and
            the desk called `send` with no `force` at all, so an over-budget agent was simply
            unreachable from the page and `ad-fleet send --force` in a terminal was the only door.
@@ -604,9 +604,16 @@ function makeTile(row, index) {
   say.addEventListener("keydown", function (e) {
     if (e.key === "Enter") /** @type {HTMLElement} */ (el.querySelector(".send")).click();
   });
-  el.querySelector(".start").addEventListener("click", function () {
-    action(el, "start", { repo: row.repo, ticket: say.value.trim() || null });
+  /* #509: with the box empty, Start is *Start fresh* -- #489's `startFresh`, arming this button on
+     `chat_open` -- so leaving yesterday's session is one visible press on every full pane. With text
+     in the box it is today's Start {ticket}; text that is not a key is the server's to refuse. */
+  /** @type {HTMLButtonElement} */
+  var startBtn = el.querySelector(".start");
+  startBtn.addEventListener("click", function () {
+    if (!say.value.trim()) startFresh(el, row.repo, startBtn);
+    else action(el, "start", { repo: row.repo, ticket: say.value.trim() });
   });
+  say.addEventListener("input", function () { drawStart(el, rowOf(row)); });
   el.querySelector(".stop").addEventListener("click", function () {
     action(el, "stop", { repo: row.repo });
   });
@@ -738,6 +745,7 @@ function drawAsks(el, row) {
       li.querySelector(".overturn").addEventListener("click", function () {
         var say = el.querySelector(".say");
         say.value = "That assumption is wrong: " + (q.assume || q.q) + ". ";
+        drawStart(el, (tiles.get(el.dataset.repo || "") || {}).row);
         say.focus();
       });
       strip.appendChild(li);
@@ -944,6 +952,7 @@ function drawTile(el, row, approvals) {
   text(el.querySelector(".ticket"), row.ticket || row.jira_project || "");
   drawOldSession(el, row);
   drawFresh(el, row);
+  drawStart(el, row);
 
   text(el.querySelector(".why"), cold ? row.not_supervised_sentence : (row.why || ""));
 
@@ -991,7 +1000,8 @@ function drawTile(el, row, approvals) {
     var btn = el.querySelector("." + cls);
     if (!btn) return;
     disable(btn, !!row.external);
-    attr(btn, "title", row.external ? "type in that window — this session is not the fleet's to drive" : "");
+    // Start's label and title are `drawStart`'s (#509), written once per draw, not twice.
+    if (cls === "send") attr(btn, "title", row.external ? EXTERNAL_TITLE : "");
   });
   // Stop and Reset on the operator's own chat (#487, #489): the server refuses both, so the page
   // does not offer them. A console the fleet opened is not `external`, and keeps its buttons.
@@ -1350,7 +1360,8 @@ function openConsole(el, row) {
    press says so (SESS-D2). Any other refusal arms nothing. */
 var SESSION_SOURCE = { adopted: "your chat", console: "console" };
 
-/** Does this pane's head offer *start fresh*? One condition, for #509 to widen (SESS-D6). */
+/** Does this pane offer *start fresh* on a full pane's head and mark its rail? #509 (SESS-D6: every
+    pane) widens only the head's button, and only on compact panes: `drawFresh` below. */
 function freshShown(row) {
   return !!(row && row.fresh && row.fresh.offer);
 }
@@ -1367,7 +1378,11 @@ function freshWords(row) {
 function drawFresh(el, row) {
   var f = row.fresh || {};
   var head = el.querySelector(".freshtoggle");
-  hide(head, !freshShown(row));
+  // #509: drawn whenever the row can say what a fresh start would do; `is-offer` is #489's rule, and
+  // app.css hides a button without it on every pane but a compact one, where the bottom row's Start
+  // is hidden. A change of tier costs no script.
+  hide(head, !row.fresh);
+  toggle(head, "is-offer", freshShown(row));
   attr(head, "title", f.verdict && f.verdict !== "now" ? f.why : freshWords(row) + " — Alt+N");
   var strip = el.querySelector(".fresh-strip");
   hide(strip, !row.external);
@@ -1375,6 +1390,60 @@ function drawFresh(el, row) {
   attr(el.querySelector(".sm-new"), "title", freshWords(row) + " (Alt+N)");
   // An armed press lasts only as long as the verdict it answered, as *Reset anyway* does.
   if (el.dataset.freshArmed && el.dataset.freshArmed !== (f.verdict || "")) disarmFresh(el);
+}
+
+var EXTERNAL_TITLE = "type in that window — this session is not the fleet's to drive";
+
+/** This pane's newest row, for a handler bound when the pane was built. */
+function rowOf(row) {
+  var entry = tiles.get(row.repo);
+  return (entry && entry.row) || row;
+}
+
+/** When a session began, in the operator's day: `today 08:02`, `yesterday 17:40`, or a date. */
+function beganWords(ts) {
+  if (!ts) return "";
+  var s = String(ts);
+  var d = new Date(/(Z|[+-]\d\d:?\d\d)$/.test(s) ? s : s + "Z");   // the stream's clock is UTC
+  if (isNaN(d.getTime())) return "";
+  var hm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  var now = new Date();
+  var yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return "today " + hm;
+  if (d.toDateString() === yesterday.toDateString()) return "yesterday " + hm;
+  return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2) + " " + hm;
+}
+
+/** What the bottom row's *Start fresh* would do (#509): the ticket, the model, and the session left. */
+function startFreshWords(row) {
+  var f = (row && row.fresh) || {};
+  var st = f.starts || {};
+  var run = (row && row.run) || {};
+  var on = "a clean session on " + (st.ticket || "no ticket — session-bootstrap, then router") + " on " +
+           (st.model_label || "the CLI's own choice");
+  if (!(f.leaves && f.leaves.session)) return on;
+  // #499's `session_began` where the row carries it; the current run's start otherwise.
+  var began = beganWords(run.session_began || run.started);
+  return on + "; this one" + (began ? " (began " + began + ")" : "") + " stays under earlier (" +
+         (((row && row.sessions_n) || 0) + 1) + ")";
+}
+
+/* The bottom row's Start (#509). An empty box makes it *Start fresh*, titled with what that does, or
+   with why not; text makes it today's Start. Written on a draw and on the box's `input`, and only
+   when it changes, so an idle pane writes nothing. */
+function drawStart(el, row) {
+  var start = el.querySelector(".bottom .start");
+  /** @type {HTMLInputElement} */
+  var box = el.querySelector(".say");
+  if (!start || !box || !row) return;
+  var empty = !box.value.trim();
+  var label = empty ? "Start fresh" : "Start";
+  // A press armed on `chat_open` (#489) says so on every door until the verdict changes.
+  if (empty && el.dataset.freshArmed) label = "start fresh — it is closed";
+  text(start, label);
+  var f = row.fresh || {};
+  attr(start, "title", row.external ? EXTERNAL_TITLE : !empty ? "" :
+       f.verdict && f.verdict !== "now" ? f.why : startFreshWords(row));
 }
 
 function disarmFresh(el) {
