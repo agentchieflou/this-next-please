@@ -12,6 +12,7 @@ COMMANDS = {
     "doctor": ("agentdata.cli_setup", "main_doctor", "offline health check"),
     "sql-check": ("agentdata.cli_sqlcheck", "main", "lint SQL for a dialect"),
     "jira": ("agentdata.cli_jira", "main", "Jira changelog and sprint replay"),
+    "git": ("agentdata.cli_git", "main", "push the current branch to its own name, gated; never forced"),
     "pbip": ("agentdata.cli_pbip", "main", "PBIP projection, validation, TMDL edits"),
     "pbi": ("agentdata.cli_pbi", "main", "Fabric REST item-definition transport (reports, models)"),
     "uat": ("agentdata.cli_uat", "main", "expected values, UAT plan, reconciliation"),

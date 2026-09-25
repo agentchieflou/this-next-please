@@ -262,8 +262,10 @@ stops at [the approval gate](fleet-approvals.md) and shows you the dry-run paylo
 
 **The agent may run what it was allowed to run, and nothing else** — an enumerated whitelist, not a
 deny-list. The spike measured Copilot's own permission classifier refusing three spellings of a
-file write and allowing the fourth, which is why the boundary lives in our commands.
-Two module forms are on it, `python -m agentdata state` and `python -m agentdata doctor` (#500), so an
+file write and allowing the fourth, which is why the boundary lives in our commands. Git stops at
+`git commit -m`; the one push is `shell(ad-git push)`, which refuses a force, a refspec, a protected
+branch and an unconfigured remote itself and waits on the gate. `shell(git push)` stays denied.
+Two module forms are on the list, `python -m agentdata state` and `python -m agentdata doctor` (#500), so an
 agent whose launcher will not start can still record that it is stuck. The write adapters (jira,
 pncli, confluence, git) have none: the `python` on PATH may be another install, one without the
 approval gate. `fleet`, `update` and `setup` stay denied.

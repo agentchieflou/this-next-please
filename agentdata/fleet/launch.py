@@ -70,6 +70,10 @@ DEFAULT_ALLOW = [
     # `-m` deliberately: `shell(git commit)` would also permit `git commit --no-verify`, and this
     # repo's own pre-commit hook (agentdata/graph/guard.py) is what --no-verify skips.
     "shell(git commit -m)",
+    # The one push (#502): `ad-git push` refuses a force, a refspec, a protected branch and an
+    # unconfigured remote itself, and waits on the approval gate. `shell(git push)` stays denied
+    # below -- a prefix allow on it would also allow every dangerous continuation.
+    "shell(ad-git push)",
     "skill",                         # the skill tool itself; without it the router cannot run
 ]
 
@@ -84,7 +88,7 @@ DEFAULT_DENY = [
     "shell(python -m agentdata setup)",
     # History it must not rewrite. Each spelling is listed because a deny is a PREFIX: blocking
     # `git push --force` does nothing about `git push -u origin HEAD --force`, which is why the
-    # allow-list above stops at `git commit -m` and does not offer a push at all.
+    # allow-list above stops at `git commit -m` and offers no raw push: the push is `ad-git push`.
     "shell(git push)",
     "shell(git merge)",
     "shell(git rebase)",
