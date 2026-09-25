@@ -47,7 +47,7 @@ moving it, still takes the view transition — see `docs/desk-motion.md`.
 
 ## One round trip, not two
 
-`ROW_ACTIONS` in `serve.py` names the seventeen actions that change one repository's row. The
+`ROW_ACTIONS` in `serve.py` names the sixteen actions that change one repository's row. The
 endpoint answers each of them with that row:
 
 ```json

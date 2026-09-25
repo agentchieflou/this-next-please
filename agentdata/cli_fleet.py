@@ -1147,6 +1147,7 @@ def cmd_quickstart(a) -> int:
             server, token = S.build(a.port)
         except S.ServeError as e:
             return _refuse("ad-fleet quickstart", e)
+        _refresh_models(server)
         url = S.url_for(server, token)
         S.record(server, token)
 
@@ -1689,6 +1690,15 @@ def _serve_url() -> str:
         return ""
 
 
+def _refresh_models(server) -> None:
+    """Ask the Copilot CLI for its model list once per server start, on a thread that ends with the
+    server (#361). Here and in `quickstart`, never in `S.build`: every browser test builds a server,
+    and none of them may start copilot."""
+    from .fleet import models as M
+
+    M.start_refresh(server.stopping)
+
+
 def cmd_serve(a) -> int:
     """The multi-viewer. Blocks until Ctrl-C; everything it shows comes from #94's stream."""
     # An older desk on the port is replaced, not collided with (#242). This is where the IDE shells
@@ -1705,6 +1715,7 @@ def cmd_serve(a) -> int:
         server, token = S.build(a.port)
     except S.ServeError as e:
         return _refuse("ad-fleet serve", e)
+    _refresh_models(server)
     url = S.url_for(server, token)
     S.record(server, token)
     _emit("ad-fleet serve", {"url": url, "port": server.server_address[1],
