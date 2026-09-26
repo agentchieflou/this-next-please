@@ -1,6 +1,6 @@
 import builtins, json, os, sys
 import pytest
-from agentdata import config as C
+from agentdata import config as C, textio
 from agentdata.setup import wizard as W
 from agentdata.setup.steps import pncli_import, powerbi, project, sources
 
@@ -1023,3 +1023,92 @@ def test_setup_asks_the_two_sign_in_settings_and_patch_reaches_them(cfg_path, ca
     rc = W.run_setup(["--non-interactive", "--offline", "--only", "powerbi", "--set", "powerbi.use=true",
                       "--set", "powerbi.auth_mode=nonsense", "--set", "powerbi.workspaces.configure=false"], det)
     assert json.loads(cfg_path.read_text())["powerbi"]["auth"]["mode"] == "interactive"   # a typo keeps the old value
+
+
+# ------------------------------------------------ launchers that start, and the module form (#500)
+
+LAUNCHERS = ("ad-state", "ad-pncli", "ad-jira", "ad-confluence")
+
+
+def _stub(bin_dir, name, *, out="", err="", code=0, exec_python=False):
+    """A launcher in both shapes tests/fakes materialises: an `sh` script, and a `.cmd` on Windows.
+
+    `exec_python` runs this interpreter with the stub's arguments and waits for it. Not `os.execv`:
+    on Windows that starts the new process and exits 0 at once (python/cpython#63323), so the caller
+    sees an empty stdout and the module row reads "would run nothing" (#500, train 8b)."""
+    import fakes
+
+    py = os.path.join(str(bin_dir), f"stub_{name.replace('-', '_')}.py")
+    with open(py, "w", encoding="utf-8") as f:
+        if exec_python:
+            f.write("import subprocess, sys\nsys.exit(subprocess.call(sys.argv[1:]))\n")
+        else:
+            f.write(f"import sys\nsys.stdout.write({out!r})\nsys.stderr.write({err!r})\nsys.exit({code})\n")
+    tail = f' "{sys.executable}"' if exec_python else ""
+    fakes._write_executable(os.path.join(str(bin_dir), name),
+                            f'#!/bin/sh\nexec "{sys.executable}" "{py}"{tail} "$@"\n', crlf=False)
+    if fakes.WINDOWS:
+        fakes._write_executable(os.path.join(str(bin_dir), f"{name}.cmd"),
+                                f'@ECHO OFF\r\n"{sys.executable}" "{py}"{tail} %*\r\n', crlf=True)
+
+
+def _console_rows(monkeypatch, bin_dir):
+    from agentdata.setup.steps.console import ConsoleStep
+
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
+    ctx = W.Context(cfg={}, det=W.Detectors(), ask=W.AnswerPrompter({}))
+    step = ConsoleStep()
+    step.check(ctx, step.detect(ctx))
+    return {c.name: c for c in ctx.checks if c.step == "console"}
+
+
+def _launchers(bin_dir, **odd):
+    from agentdata import update as U
+
+    for name in LAUNCHERS:
+        _stub(bin_dir, name, **odd.get(name, {"out": f"agentdata {U.version()} (checkout)\n"}))
+
+
+def test_a_launcher_that_does_not_start_fails_the_doctor_and_names_the_fix(tmp_path, monkeypatch):
+    """The newest STOP in the operator's photo: `ad-state` would not start, and nothing noticed."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _launchers(bin_dir)
+    _stub(bin_dir, "python", exec_python=True)
+    rows = _console_rows(monkeypatch, bin_dir)
+    assert rows["launchers"].status == "ok", rows["launchers"]
+    assert "scripts" in rows                                          # the old row stays
+
+    _launchers(bin_dir, **{"ad-state": {"err": "Unable to create process using 'C:\\old\\python.exe'\n", "code": 101}})
+    row = _console_rows(monkeypatch, bin_dir)["launchers"]
+    assert row.status == "fail" and "ad-state" in row.detail and "Unable to create process" in row.detail
+    # The rows print paths through textio.norm_path (forward slashes); on Windows sys.executable has backslashes.
+    assert textio.norm_path(sys.executable) in row.hint and "--force-reinstall" in row.hint
+
+
+def test_a_launcher_from_another_install_warns(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _launchers(bin_dir, **{"ad-jira": {"out": "agentdata 0.0.1 (abc123)\n"}})
+    _stub(bin_dir, "python", exec_python=True)
+    row = _console_rows(monkeypatch, bin_dir)["launchers"]
+    assert row.status == "warn" and "ad-jira" in row.detail and "0.0.1" in row.detail
+
+
+def test_the_module_row_says_which_python_the_fallback_would_run(tmp_path, monkeypatch):
+    """`python -m agentdata state` runs whatever `python` is first on PATH, which after a moved venv
+    can be another install -- one without the approval gate."""
+    from agentdata import update as U
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _launchers(bin_dir)
+    _stub(bin_dir, "python", out="agentdata 0.0.1 (abc123)\n")
+    row = _console_rows(monkeypatch, bin_dir)["module"]
+    assert row.status == "warn" and "0.0.1" in row.detail and textio.norm_path(str(bin_dir)) in row.detail
+    assert textio.norm_path(sys.executable) in row.hint
+
+    _stub(bin_dir, "python", exec_python=True)                         # the python on PATH is this one
+    row = _console_rows(monkeypatch, bin_dir)["module"]
+    assert row.status == "ok", row
+    assert U.version() in row.detail

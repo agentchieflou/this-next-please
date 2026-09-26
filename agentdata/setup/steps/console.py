@@ -1,7 +1,10 @@
 """The `console` step: which shell and code page this command is running under.
 
-It never fails the doctor. An unsupported shell is something for the user to change, not a broken
-install, and a `fail` here would stop them seeing the rows that say what else is wrong.
+It never fails the doctor for the shell. An unsupported shell is something for the user to change,
+not a broken install, and a `fail` here would stop them seeing the rows that say what else is wrong.
+The one exception is `launchers` (#500): a launcher that is on PATH and does not start *is* a broken
+install -- every `ad-*` the ticket flow runs fails with it -- and a doctor row must prove a tool
+starts, not that a file exists.
 """
 from __future__ import annotations
 import sys
@@ -26,7 +29,8 @@ class ConsoleStep(Step):
                 "long_paths": textio.long_paths_enabled(),
                 "completion": completion.where_installed(),
                 "scripts_dir": textio.norm_path(U.scripts_dir()),
-                "scripts_on_path": U.scripts_on_path()}
+                "scripts_on_path": U.scripts_on_path(),
+                **dict(zip(("launchers", "module"), U.launcher_probe(ctx)))}
 
     def check(self, ctx: Context, found: dict) -> None:
         row = found["shell"]
@@ -52,6 +56,12 @@ class ConsoleStep(Step):
             ctx.add(self.key, "scripts", "warn", f"{found['scripts_dir']} is not on PATH",
                     "add it, or use `python -m agentdata <command>`, which always works. The path comes from "
                     "python -c \"import sysconfig;print(sysconfig.get_path('scripts','nt_user'))\"")
+
+        # The launchers the ticket flow uses, run with --version, and what the module form would run
+        # (#500). `scripts` says a file is there; these say it starts.
+        from ... import update as U
+        for name, status, detail, hint in U.launcher_rows(found["launchers"], found["module"]):
+            ctx.add(self.key, name, status, detail, hint)
 
         # Probed, never assumed: the row reports the startup files that actually carry the line,
         # and says nothing about whether the *current* shell has sourced it -- a child process
