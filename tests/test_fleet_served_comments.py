@@ -260,7 +260,12 @@ def test_the_server_sends_every_script_and_stylesheet_without_a_comment():
 #: The parsers the proof below uses, exactly, fetched by `npx` as the type check's compiler is.
 ACORN, CSS_TREE = "acorn@8.15.0", "css-tree@3.1.0"
 _SAME = r"""
-const fs = require("fs"), acorn = require("acorn"), csstree = require("css-tree");
+const fs = require("fs"), path = require("path");
+// npx puts its packages' bin directory on PATH, on every OS; the packages sit beside it.
+const bin = (process.env.PATH || process.env.Path || "").split(path.delimiter).find((d) =>
+  fs.existsSync(path.join(d, "..", "acorn", "package.json")) && fs.existsSync(path.join(d, "..", "css-tree", "package.json")));
+if (!bin) throw new Error("npx did not put acorn and css-tree on PATH");
+const acorn = require(path.join(bin, "..", "acorn")), csstree = require(path.join(bin, "..", "css-tree"));
 const pairs = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const bare = (n) => JSON.stringify(n, (k, v) => (k === "start" || k === "end") ? undefined : v);
 function program(t, type) { return acorn.parse(t, { ecmaVersion: "latest", sourceType: type, allowHashBang: true }); }
@@ -300,21 +305,46 @@ def test_every_served_file_is_its_source_without_the_comments(tmp_path):
     npx = shutil.which("npx")
     if not npx:
         pytest.skip("no npx on this machine: the proof needs Node")
-    pairs = [[rel, _source(rel), S.static_body(rel).decode("utf-8")] for rel in served()]
+    pairs = []
+    for rel in served():
+        # As this checkout holds it, and in the other line ending: a Windows checkout
+        # (`core.autocrlf`) serves CRLF, and both must strip to the same program.
+        src = _source(rel)
+        other = src.replace("\r\n", "\n") if "\r\n" in src else src.replace("\n", "\r\n")
+        for text in (src, other):
+            pairs.append([rel, text, S.strip_asset(rel, text.encode("utf-8")).decode("utf-8")])
+    assert S.static_body(served()[0]) == pairs[0][2].encode("utf-8")
     manifest = tmp_path / "pairs.json"
     manifest.write_text(json.dumps(pairs), encoding="utf-8")
     script = tmp_path / "same.js"
     script.write_text(_SAME, encoding="utf-8")
-    # Both packages land in one npx directory; the script finds them next to acorn's own bin.
-    run = f'NODE_PATH="$(dirname "$(dirname "$(command -v acorn)")")" node "{script}" "{manifest}"'
-    p = subprocess.run([npx, "--yes", "-p", ACORN, "-p", CSS_TREE, "-c", run], cwd=tmp_path,
-                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+    # No shell in between: `npx -c` wants a POSIX shell, and on Windows it got cmd.exe and skipped.
+    p = subprocess.run([npx, "--yes", "-p", ACORN, "-p", CSS_TREE, "node", str(script), str(manifest)],
+                       cwd=tmp_path, capture_output=True, text=True, encoding="utf-8", errors="replace",
                        timeout=240, stdin=subprocess.DEVNULL)
     out = (p.stdout or "") + (p.stderr or "")
-    if p.returncode != 0 and re.search(r"npm (ERR|error)|command not found|not recognized", out):
-        # npx never got as far as the script (no registry, no proxy, no POSIX shell for `-c`):
-        # a machine without the tool, not a stripper that changed a program.
+    if p.returncode != 0 and re.search(r"npm (ERR|error)", out):
+        # npx never got as far as the script (no registry, no proxy): a machine without the tool,
+        # not a stripper that changed a program.
         pytest.skip(f"{ACORN} and {CSS_TREE} could not be fetched or run: {out.strip()[-300:]}")
     assert p.returncode == 0, out[-2000:]
     result = json.loads(out.strip().splitlines()[-1])
     assert result == {"checked": len(pairs), "differ": []}, result
+    assert len(pairs) == 2 * len(served())
+
+
+def test_a_crlf_checkout_strips_to_the_lf_checkout_in_its_own_line_endings():
+    """The Windows desk (`core.autocrlf`) serves CRLF files, and each one strips to exactly what its
+    LF twin strips to, line break for line break. So the program proof above, on either checkout,
+    holds for both -- and a served module can never lose a line on one OS and keep it on the other
+    (train 10: `Ink.setSkin is not a function` on Windows, #523). No Node needed."""
+    for rel in served():
+        lf = _source(rel).replace("\r\n", "\n")
+        crlf = lf.replace("\n", "\r\n")
+        want = S.strip_asset(rel, lf.encode("utf-8")).decode("utf-8")
+        got = S.strip_asset(rel, crlf.encode("utf-8")).decode("utf-8")
+        assert got == want.replace("\n", "\r\n"), rel
+    # And the page's one door to the ink layer keeps every door it has.
+    served_ink = S.strip_asset("ink/ink.js", _source("ink/ink.js").replace("\n", "\r\n").encode()).decode()
+    for member in ("setSkin: setSkin", "refresh()", "off(reason)", "inspect()", "sample(box)"):
+        assert member in served_ink, member
