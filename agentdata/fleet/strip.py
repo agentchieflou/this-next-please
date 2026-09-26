@@ -10,7 +10,8 @@ a regular expression or a template literal, and `url(/*x*/)` in a stylesheet are
 opens a regular expression is decided by the token before it, as a parser does: after a value (a
 name, a number, a string, `)` or `]`) it divides, after anything else it opens one.
 
-What replaces a comment keeps the program the program it was:
+What replaces a comment keeps the program the program it was, and the file's own line endings: a
+checkout with CRLF (Windows, `core.autocrlf`) is served with CRLF, as every other static file is.
 * a comment alone on its lines goes with its lines;
 * a comment at the end of a line goes with the spaces before it;
 * anywhere else, in a script, it becomes a space, or a line break when it held one (a line break is
@@ -153,6 +154,17 @@ def css_comments(src: str) -> list[tuple[int, int]]:
     return out
 
 
+def _ends_blank(out: list[str]) -> bool:
+    """Whether what is written so far ends in a blank line, in either line ending: a file checked
+    out on Windows (`core.autocrlf`) is served with its CRLFs, as it sits on the disk."""
+    tail = ""
+    for piece in reversed(out):
+        tail = piece + tail
+        if len(tail) >= 3:
+            break
+    return tail.endswith(("\n\n", "\n\r\n"))
+
+
 def _strip(src: str, spans: list[tuple[int, int]], script: bool) -> str:
     out: list[str] = []
     at = 0                                     # everything before `at` is decided
@@ -175,9 +187,7 @@ def _strip(src: str, spans: list[tuple[int, int]], script: bool) -> str:
             at = line_end + 1 if line_end < len(src) else line_end
             # Between two blank lines, one stays. The line after a comment's own line starts
             # outside any string or template, so a blank one there is only spacing.
-            tail = next((piece for piece in reversed(out) if piece), "")
-            if (tail.endswith("\n\n") or tail == "\n" and len(out) > 1 and "".join(out).endswith("\n\n")) \
-                    and src.startswith(("\n", "\r\n"), at):
+            if _ends_blank(out) and src.startswith(("\n", "\r\n"), at):
                 at = src.index("\n", at) + 1
         elif at_end:
             a = s
@@ -187,8 +197,9 @@ def _strip(src: str, spans: list[tuple[int, int]], script: bool) -> str:
             at = e
         else:
             out.append(src[at:s])
-            if script and any(c in _LINE_ENDS for c in src[s:e]):
-                out.append("\n")
+            breaks = re.search(r"\r\n|[\n\r\u2028\u2029]", src[s:e]) if script else None
+            if breaks:
+                out.append(breaks.group())         # the comment's own line break, CRLF or LF
             elif script and src[s - 1] not in " \t" and src[e] not in " \t":
                 out.append(" ")                # `a/**/b` stays two names
             at = e
