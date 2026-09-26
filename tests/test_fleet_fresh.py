@@ -20,7 +20,7 @@ from agentdata.fleet import adopt as A, events as E, fingerprint as FP, fresh as
 from agentdata.fleet import serve as S, sessions as SESS, supervisor
 from agentdata.fleet.registry import Registry, fleet_dir
 
-from test_fleet_desk_switcher import _own_desk_globals, _serve, spawns  # noqa: F401 - fixtures
+from test_fleet_desk_switcher import _serve, spawns  # noqa: F401 - fixtures
 from test_fleet_renew import NOW, OLD, _repo, fleet_home, started, turn_ended  # noqa: F401 - fixtures
 
 CHAT_PID = 26846

@@ -41,23 +41,6 @@ def fleet_home(tmp_path, monkeypatch):
     return tmp_path / "fleet"
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    """The desk module's globals are process-wide, which is right for a server and wrong for a suite
-    that gives every test a fresh fleet directory."""
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-    # The hand-refresh floor is per process and per repository, which is right for a server and
-    # wrong for a suite where every test has its own fleet directory and reuses the same names.
-    monkeypatch.setattr(S, "_refreshed_at", {})
-
-
 def _repos(tmp_path, *names, needs=()):
     for name in names:
         path = make_project(tmp_path / name, ticket="RDSD-1")

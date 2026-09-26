@@ -31,23 +31,6 @@ def fleet_home(tmp_path, monkeypatch):
     FP.forget()
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0,
-                                         last_renew=0.0))
-    monkeypatch.setattr(S, "_refreshed_at", {})
-
-
 def started(install=..., *, resumed=False, session="", **extra):
     """A `started` event; `install=...` leaves the key out, as every start before #239 did."""
     data = {"pid": 1, "resumed": resumed, "new": not resumed, "session": session, **extra}

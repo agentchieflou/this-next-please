@@ -3,7 +3,8 @@
 TOON here is **encode-only** -- nothing in this repo parses it back, so `decode(encode(t)) == t` is
 not a property that exists. What replaces it is a validator: `toon.validate()` is the reader, and
 "everything the encoder emits is something the validator accepts" is the round trip we actually
-have. TSV carries the real round trip, through `AgentTable.read_tsv`.
+have. TSV carries the real round trip, through `AgentTable.read_tsv`. The one reader is per cell:
+`toon.read_cell` undoes the quoting and the control-character escape (#522).
 
 The generator found four defects on its first run; each is a named test below.
 """
@@ -49,6 +50,7 @@ TABLES = st.builds(
 
 
 @given(table=TABLES)
+@example(table=(["0"], [["\x1b["]]))   # found by the generator (#522): a raw ESC read as an ANSI sequence
 def test_encoded_toon_is_always_valid(table):
     columns, rows = table
     text = toon.table("t", columns, rows)
@@ -67,6 +69,23 @@ def test_encoded_toon_is_always_valid(table):
 def test_a_cell_containing_a_delimiter_survives_encoding(cell):
     text = toon.table("t", ["only"], [[cell]])
     assert not toon.validate(text), f"{cell!r} produced invalid TOON: {toon.validate(text)}"
+
+
+@given(cell=st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=40))
+@example(cell="\x1b[31mred\x1b[0m")
+@example(cell="csi\x9b2J")
+@example(cell="bell\x07 and del\x7f")
+@example(cell="\\u{1b}")          # the escape's own spelling, as literal text
+@example(cell="\\\x1b")           # a backslash right before an escaped character
+@example(cell="C:\\users\\x")
+def test_a_control_character_is_escaped_and_reads_back(cell):
+    """#522: TOON goes to terminals and an agent's context, where a raw ESC can inject a terminal
+    sequence. The encoder spells control characters `\\u{..}`, and `read_cell` gives the cell back."""
+    text = toon.table("t", ["only"], [[cell]])
+    assert not toon.validate(text), f"{cell!r} produced invalid TOON: {toon.validate(text)}"
+    body = text.split("\n", 1)[1][2:]
+    assert not any(ch in toon.CONTROLS for ch in body), repr(body)
+    assert toon.read_cell(body) == cell
 
 
 @given(mapping=st.dictionaries(NAME, st.one_of(st.integers(), st.booleans(), st.text(max_size=20)),

@@ -20,8 +20,7 @@ from agentdata.fleet import probe as PR
 from agentdata.fleet import serve as S
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import (_desk_of, _facts, _serve, _stop, fleet_home,  # noqa: F401
-                            _own_desk_globals)
+from test_fleet_ink import (_desk_of, _facts, _serve, _stop, fleet_home)  # noqa: F401
 
 SAMPLER = """
 (() => {

@@ -214,21 +214,6 @@ def fleet_home(tmp_path, monkeypatch):
     return tmp_path / "fleet"
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    """The desk module's globals are process-wide; each test gets a fresh fleet directory."""
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-    monkeypatch.setattr(S, "_refreshed_at", {})
-    monkeypatch.setattr(S, "_measure_asks", {})
-
-
 def _ms(value) -> str:
     return "n/a" if value is None else f"{value:.1f} ms"
 

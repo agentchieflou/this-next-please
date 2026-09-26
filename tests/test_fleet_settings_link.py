@@ -7,7 +7,7 @@ import pytest
 from agentdata.fleet import probe as PR
 from agentdata.fleet import serve as S
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import (_desk_of, _facts, _open, _own_desk_globals, _serve,  # noqa: F401
+from test_fleet_ink import (_desk_of, _facts, _open, _serve,  # noqa: F401
                             _stop, fleet_home)  # noqa: F401
 
 

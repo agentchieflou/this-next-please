@@ -813,10 +813,10 @@ def test_a_directory_beside_static_is_not_served_because_its_name_starts_with_st
     root = tmp_path / "pkg"
     (root / "static").mkdir(parents=True)
     with open(root / "static" / "app.js", "w", encoding="utf-8", newline="\n") as f:
-        f.write("/* the real one */\n")
+        f.write('var which = "the real one";\n')       # code: a comment is stripped on the way out
     (root / "static_backup").mkdir()
     with open(root / "static_backup" / "app.js", "w", encoding="utf-8", newline="\n") as f:
-        f.write("/* NOT SERVED */\n")
+        f.write('var which = "NOT SERVED";\n')
     monkeypatch.setattr(S, "STATIC", str(root / "static"))
     base, token = running
 
@@ -1014,11 +1014,13 @@ def test_the_page_has_exactly_one_place_that_renders_a_fact_block():
     safe: a fact block is hand-edited prose and a real one carries a warehouse hostname, a share
     path and a service account beside the Jira keys. A second loop over some other payload's facts
     is how that filter gets bypassed by a change that looks like a feature, so the count is the
-    test. One binding, one loop, and the narrowing named beside it."""
+    test. One binding, one loop, and the narrowing named beside it -- in the page's tagalong,
+    `app.js.md`, where its reasoning lives since #523."""
     js = open(APP_JS, encoding="utf-8").read()
     assert len(re.findall(r"\bfactsFromCatalogue\s*=", js)) == 1, "more than one fact source"
     assert len(re.findall(r"Object\.keys\(factsFromCatalogue\)", js)) == 1, "more than one fact loop"
-    assert "serve.tile_facts()" in js, "the page must say where the narrowing happens"
+    notes = open(APP_JS + ".md", encoding="utf-8").read()
+    assert "serve.tile_facts()" in notes, "the page must say where the narrowing happens"
 
 
 def test_the_panel_draws_the_rail_first_and_folds_the_facts_under_more():

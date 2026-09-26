@@ -34,7 +34,9 @@ INHERITED = "claude-sonnet-5"      # what a repository inherits, in the criteria
 UNAVAILABLE = "gemini-3.5-flash"   # `available: false`
 UNOFFERED = "kimi-k2.7-code"       # `offered: false`
 WHY = "your organisation has not enabled this model"
-MARKER = "the settings page (/settings)"
+#: Where app.css's settings block starts: its first rule. The banner comment that used to open it is
+#: a heading in `app.css.md` since #523 (decision 18), and the stylesheet carries rules only.
+MARKER = "\n.linkbtn {"
 FULL = "#mphost .mpick[data-variant=full]"
 COMPACT = "#mphost .mpick[data-variant=compact]"
 
@@ -44,19 +46,6 @@ def fleet_home(tmp_path, monkeypatch):
     monkeypatch.setenv(registry.FLEET_DIR_ENV, str(tmp_path / "fleet"))
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
     return tmp_path / "fleet"
-
-
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-    monkeypatch.setattr(S, "_refreshed_at", {})
 
 
 @pytest.fixture(scope="module")
@@ -563,10 +552,12 @@ def _no_comments(css: str) -> str:
 
 
 def test_the_picker_stylesheet_is_tokens_only_and_every_rule_is_under_mpick():
-    """Between `/* ---- the model picker` and the settings marker: no colour literal, no `--muted`,
-    and every selector starts `.mpick`, so the picker can restyle nothing else on either page."""
+    """From the picker's first rule, `.mpick {`, to the settings block's (the section `app.css.md`
+    heads *the model picker (#362)*): no colour literal, no `--muted`, and every selector starts
+    `.mpick`, so the picker can restyle nothing else on either page."""
     css = open(os.path.join(STATIC, "app.css"), encoding="utf-8").read()
-    start = css.index("/* ---- the model picker")
+    assert css.count("\n.mpick {") == 1 and css.count(MARKER) == 1
+    start = css.index("\n.mpick {")
     section = _no_comments(css[start:css.index(MARKER)])
     assert section.count("{") > 10, "the section is where the picker's rules are"
     for bad in (r"#[0-9a-fA-F]{3,8}\b", r"\brgba?\(", r"\bhsla?\(", r"--muted"):

@@ -31,21 +31,6 @@ def fleet_home(tmp_path, monkeypatch):
     return tmp_path / "fleet"
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    """The desk module's globals are process-wide, which is right for a server and wrong for a
-    suite that gives every test a fresh fleet directory. Same reasoning as
-    `tests/test_fleet_desk_sessions_b.py`."""
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-
-
 def _started(name, session="", **data):
     return E.event(name, "started", {"session": session, **data}, ticket="RDSD-1")
 

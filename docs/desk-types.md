@@ -5,7 +5,17 @@ and load in JCEF and Simple Browser behind a corporate proxy ([fleet-dashboard.m
 §Why a web page). What TypeScript adds here is **checking**, and checking needs no build
 ([plan-panes.md](plan-panes.md) §Where this plan pushes back, item 1). So `tsc` reads JSDoc in the
 page's own comments against the page's own code, emits nothing, and runs in CI. The page is still
-the bytes in `agentdata/fleet/static/` (#236).
+the bytes in `agentdata/fleet/static/` (#236), less their comments.
+
+**Types in the source, nothing on the wire (#523, decisions 18 and 19 on #429).** The comments a
+desk script keeps are its JSDoc **type tags** and nothing else: `@typedef`, `@param`, `@returns`,
+`@property` and `@type`, with their types and names and no description. Why a record or a function is
+the way it is lives in the tagalong `<file>.md` beside the script. A tag with a sentence after it is
+prose, and `tests/test_fleet_served_comments.py` fails on it. The server strips every comment,
+these included, from what it serves (`agentdata/fleet/strip.py`, `serve.static_body`), so the types
+cost the page nothing. They stay where `tsc` can hold a function to them: a `@param` on the function
+checks both its callers and its body, which a declaration in a separate `.d.ts` could not
+(`saveWindow({zoomed: 1})` passed with one; #523's handover shows it).
 
 ## Running it
 

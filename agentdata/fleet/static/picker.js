@@ -1,23 +1,6 @@
-/* The model picker (#362): the one component every place that sets a model or an effort adopts --
-   the model card, `m` on a rail, /settings and the dispatch card (#366-#368).
-
-   Provider-grouped pills that are pressed, never typed: `other…` is the one escape hatch, for a new
-   or BYOK name. A toolbar for the model and, in the full picker, one for the effort, each a single
-   tab stop that the arrows walk. Nothing is said by colour alone: pressed is a ✓ and a 2px ring as
-   well as `--select`, because `--accent` text on `--select` reads 2.84:1 in sand; a pill the account
-   cannot use carries ⊘ and a dashed edge and tells a screen reader why.
-
-   It never posts. `onPick` hands the host `{model, effort, toolbar, droppedEffort}` and the host
-   applies the inherit rule (#366). A draw writes only through common.js's `patchList`, `text`,
-   `attr`, `setClass` and `setData`, so a draw with nothing new to say changes nothing and an idle
-   card is an idle page (docs/desk-components.md). A classic script loaded after `common.js`: it
-   declares the two functions at the bottom and `mpImpl`, and no other name, because every global
-   here is shared with `app.js` and `settings.js`. */
-
 "use strict";
 
 /**
- * One entry of `/api/models` (`models.catalogue`).
  * @typedef {Object} ModelEntry
  * @property {string} id
  * @property {string} [label]
@@ -30,8 +13,6 @@
  */
 
 /**
- * What a press reports. `droppedEffort` is always "" since #493: an effort survives a model switch
- * (decision 15), and a model that lists efforts without it marks that pill ⊘ instead.
  * @typedef {Object} ModelPick
  * @property {string} model
  * @property {string} effort
@@ -51,8 +32,7 @@
 
 /**
  * @typedef {Object} ModelPickerState
- * @property {{models?: ModelEntry[], groups?: {key: string, title: string}[], efforts?: string[],
- *             meta?: {cli_version?: string}}} catalogue
+ * @property {{models?: ModelEntry[], groups?: {key: string, title: string}[], efforts?: string[], meta?: {cli_version?: string}}} catalogue
  * @property {{model: string, effort: string}} current
  * @property {{model: string, effort: string, source?: string} | null} [inherited]
  * @property {string} [actual]
@@ -60,9 +40,8 @@
  */
 
 var mpImpl = (function () {
-  var seq = 0;                       // ids for what the groups and pills point at
-  /** @type {WeakMap<HTMLElement, any>} */
-  var own = new WeakMap();
+  var seq = 0;
+  var own = /** @type {WeakMap<HTMLElement, any>} */ (new WeakMap());
 
   /** @return {HTMLElement} */
   function make(tag, cls, words) {
@@ -91,8 +70,6 @@ var mpImpl = (function () {
     return out;
   }
 
-  // The mark, the label, the note, what only a screen reader hears, and the reason a pill that
-  // cannot be picked points `aria-describedby` at (hidden from the name, which it would repeat).
   function pill() {
     var b = button("pill"), why = make("span", "sr pill-why");
     var mark = make("span", "pill-mark");
@@ -139,7 +116,6 @@ var mpImpl = (function () {
     return Array.prototype.slice.call(bar.querySelectorAll("button.pill"));
   }
 
-  // One tab stop per toolbar: the pill the keyboard is on, else the pressed one, else the first.
   function rove(bar, to) {
     var pills = pillsOf(bar);
     if (!to) {
@@ -151,7 +127,6 @@ var mpImpl = (function () {
 
   /** @return {ModelPick} */
   function pickModel(me, id) {
-    // The effort stays (#493, decision 15): a model and an effort are set, and inherited, apart.
     return { model: id, effort: me.cur.effort, toolbar: "model", droppedEffort: "" };
   }
 
@@ -188,7 +163,7 @@ var mpImpl = (function () {
     }
     own.set(root, me);
 
-    root.addEventListener("keydown", function (/** @type {KeyboardEvent} */ e) {
+    root.addEventListener("keydown", /** @type {(e: KeyboardEvent) => void} */ (function (e) {
       var t = /** @type {HTMLElement} */ (e.target);
       if (t.tagName === "INPUT") {
         var id = t === me.other ? me.other.value.trim() : "";
@@ -202,7 +177,7 @@ var mpImpl = (function () {
       var bar = t.classList.contains("pill") ? t.closest("[role=toolbar]") : null;
       if (!bar || e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.key === "Enter" || e.key === " ") {
-        e.stopPropagation();           // the button's own click picks, once
+        e.stopPropagation();
         return;
       }
       var pills = pillsOf(bar), i = pills.indexOf(t), n = pills.length;
@@ -211,14 +186,14 @@ var mpImpl = (function () {
         case "ArrowLeft": case "ArrowUp": i -= 1; break;
         case "Home": i = 0; break;
         case "End": i = n - 1; break;
-        default: return;               // Escape among them: it is the host's
+        default: return;
       }
       e.preventDefault();
       e.stopPropagation();
       var to = pills[(i + n) % n];
       rove(bar, to);
       to.focus();
-    });
+    }));
 
     root.addEventListener("focusin", function (e) {
       var t = /** @type {HTMLElement} */ (e.target);
@@ -260,8 +235,6 @@ var mpImpl = (function () {
     me.actual = String(s.actual || "");
     me.ver = String(cat.meta && cat.meta.cli_version || "");
 
-    // Every id once, `""` (inherit) always there, and a current id the catalogue lacks shown in
-    // the last group rather than lost.
     var byId = me.byId = new Map();
     byId.set("", { id: "" });
     (Array.isArray(cat.models) ? cat.models : []).forEach(function (m) {
@@ -320,10 +293,6 @@ var mpImpl = (function () {
     });
     attr(me.other, "hidden", me.open ? null : "");
 
-    // The effort, a half of its own (#493, decision 15): "" is no effort of this host's own -- the
-    // inherited one when there is one, named on the pill -- then the catalogue's levels. Settable
-    // whatever the model, "CLI chooses" included. A model that lists its own levels and not one
-    // of these marks that pill ⊘ and says so, rather than dropping the effort.
     var inhEffort = inh ? String(inh.effort || "") : "";
     var shape = byId.get(me.cur.model || (inh ? String(inh.model || "") : "")) || {};
     var takes = Array.isArray(shape.efforts) ? shape.efforts : null;
@@ -345,7 +314,6 @@ var mpImpl = (function () {
 })();
 
 /**
- * One picker, built once and bound once.
  * @param {ModelPickerOptions} opts
  * @return {HTMLElement}
  */
@@ -354,7 +322,6 @@ function createModelPicker(opts) {
 }
 
 /**
- * Draw `state` into a picker. An equal state makes no mutation.
  * @param {HTMLElement} el
  * @param {ModelPickerState} state
  */

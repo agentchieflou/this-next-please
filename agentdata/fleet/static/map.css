@@ -1,10 +1,3 @@
-/* /map (#405): the fleet as an accessible tree, and the map's whole plain look.
-
-   Tokens only, no colour literals: the palette and the skin reach this page as they reach the
-   desk. The tree IS the page; `#mapstage` is where the scene (#409) will draw, and it is not shown
-   until `body.map-scene` says there is one. No word here is in `--muted`: secondary words are
-   `--text` at weight 400 and at least 12px, so every sentence reads at 4.5:1 on every palette. */
-
 body { overflow: auto; }
 #mapsays { margin: 0; font-size: 12px; color: var(--text); }
 #maplink { font-size: 12px; color: var(--text); }
@@ -27,18 +20,15 @@ body { overflow: auto; }
 #maptree .needs-human > .say { font-weight: 600; }
 #maptree .pending > .say { font-weight: 600; }
 
-/* Focus is the outline on the words, never a state colour (the `app.css` `#tickets li` precedent). */
 #maptree [role="treeitem"]:focus-visible { outline: none; }
 #maptree [role="treeitem"]:focus-visible > .say {
   outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px;
 }
 
-/* With a scene (#409 sets `map-scene`): the tree is a 320px column and the stage the rest. */
 body.map-scene #map { flex-direction: row; }
 body.map-scene #map > nav { flex: 0 0 320px; border-right: 1px solid var(--line); }
 body.map-scene #mapstage { display: block; flex: 1 1 auto; min-width: 0; }
 
-/* PyCharm's tool window and VS Code's view (app.css's 900px breakpoint): the tree above the stage. */
 @media (max-width: 900px) {
   body.map-scene #map { flex-direction: column; }
   body.map-scene #map > nav { flex: 0 0 auto; border-right: 0; border-bottom: 1px solid var(--line); }

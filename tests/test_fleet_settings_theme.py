@@ -23,8 +23,7 @@ from agentdata import theme as T
 from agentdata.fleet import probe as PR
 from agentdata.fleet import serve as S
 
-from test_fleet_ink import (_desk_of, _facts, _serve, _stop, fleet_home,  # noqa: F401
-                            _own_desk_globals)
+from test_fleet_ink import (_desk_of, _facts, _serve, _stop, fleet_home)  # noqa: F401
 from test_fleet_theme_switch import (SAMPLER, SETTLED, _desk, _frames, _rgb, _wrong,  # noqa: F401
                                      browser)
 

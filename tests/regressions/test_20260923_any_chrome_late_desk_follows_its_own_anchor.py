@@ -27,7 +27,7 @@ import pytest
 from agentdata.fleet import serve as S
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_gutters import (_own_desk_globals, _repos, _serve, _stop,  # noqa: F401 - fixtures
+from test_fleet_gutters import (_repos, _serve, _stop,  # noqa: F401 - fixtures
                                 _window_posts, fleet_home)
 
 # `/api/desk` held until the test lets it go, and counted when it lands.

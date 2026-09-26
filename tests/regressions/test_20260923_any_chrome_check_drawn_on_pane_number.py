@@ -20,7 +20,7 @@ from __future__ import annotations
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import _open, _own_desk_globals, _serve, _stop, fleet_home  # noqa: F401 - fixtures
+from test_fleet_ink import _open, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 from test_fleet_ink_margin import (OPEN, SUPERVISED, alive, check_on, choose_on, desk_states,  # noqa: F401
                                    finished, margin_desk, measure_on)
 

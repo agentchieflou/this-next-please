@@ -33,7 +33,7 @@ from agentdata.fleet import agentstate, events as E, serve as S, skins, supervis
 # The ink layer's own fixtures and helpers: the fleet directory, the desk's globals (autouse), the
 # desk and the page, and what the layer shows of itself.
 from test_fleet_ink import (  # noqa: F401 - fixtures are used by name
-    COUNT_FETCHES, IDLE_LOOP, PEN, _layer, _marks, _open, _own_desk_globals, _repos, _rest, _serve,
+    COUNT_FETCHES, IDLE_LOOP, PEN, _layer, _marks, _open, _repos, _rest, _serve,
     _stop, fleet_home)
 from test_fleet_desk_browser import launch_chromium
 

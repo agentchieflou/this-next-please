@@ -45,7 +45,11 @@ That is also what the payload budget measures now. It used to count bytes on dis
 comment in the page cost against a number that exists to keep the page quick to open — and the page
 is mostly prose, because the comments are where this project keeps its design record. The number an
 operator waits on is what crosses the wire, so that is the number the test asserts (200 kB), with
-the on-disk figure reported beside it so a file that doubles is still visible. On loopback the
+the on-disk figure reported beside it so a file that doubles is still visible. Since #523 (decisions
+18 and 19 on #429) the prose is not in the page at all: a source file keeps code and its JSDoc
+types, its reasoning is in `<file>.md` beside it, which the server never serves, and the server
+strips every comment from what it sends. The desk went from 202,333 bytes gzipped to 117,055
+([desk-components.md](desk-components.md) §Where a component's reasoning lives). On loopback the
 saving is nothing and the CPU is real, which is why the API's JSON is *not* compressed: the desk
 polls it four times a second, and nobody waits on that. The page is for the case where the server
 is not loopback — a forwarded port, a phone on the LAN, a remote desktop.
@@ -523,7 +527,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/map` | the fleet as one graph (#401): projects, the checkouts that hang from them, and each checkout's agent with its kind (`console`, `adopted`, `headless`, `adoptable`, `none`), each with a sentence. Read-only; schema 1 in [fleet-map.md](fleet-map.md) §The graph |
 | POST | `/api/friction` | `{repo, dismiss: [names]}` or `{repo, earlier: true}` (#499): records the dismissals in the fleet directory, never the checkout, and answers `{repo, dismissed, project}` with the fresh panel. `409 no_repo`, or `not_friction` for a name not in `.agent/friction/` |
 | POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
-| GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent; `?frames=theme` sends no agent frames (the settings page, #348); `?notify=0` runs no notification sweep, and neither does `?frames=theme` (#356, §The stream) |
+| GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent; `?frames=theme` sends no agent frames (the settings page, #348); `?notify=0` runs no notification sweep, and neither does `?frames=theme` (#356, §The stream); `?w=left&shell=pycharm&page=map` say which window is listening (#404, the desk sends `w` and its `shell`): `w` and `page` are kept when they match `^[a-z0-9][a-z0-9_-]{0,31}$`, else `main` and `settings` (for `frames=theme`) or `desk`; `shell` is `shell=`, else `w=`. Kept in memory while the stream is open, never on disk, and read by `/api/map`'s `network.windows` ([fleet-map.md](fleet-map.md) §The network) |
 | GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195), as the stream's `theme` payload with its css (#346) |
 | GET | `/api/settings` | the editable keys with their type, default and effect-scope; what each is set to; the model per repository; the resolved tool lists |
 | POST | `/api/settings` | write an enumerated key, a per-repo model, or the fleet-wide default |

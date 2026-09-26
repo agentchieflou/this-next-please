@@ -6,7 +6,8 @@ teams, from older scripts, and from Windows PowerShell 5.1, which wrote a UTF-8 
 file came from, not about which shell you type in: under the supported shells -- pwsh 7, Git Bash,
 cmd -- every ordinary write already produces UTF-8, and `docs/shells.md` §Files says so.
 
-**Writing** is UTF-8 without BOM, LF, atomic. Three Windows-only hazards are handled here so no
+**Writing** is UTF-8 without BOM (except in front of a text that itself starts with U+FEFF, so that
+character survives a read), LF, atomic. Three Windows-only hazards are handled here so no
 caller has to think about them:
 
 * a **locked target** (PyCharm, Power BI Desktop or an antivirus holding the file) makes
@@ -156,14 +157,16 @@ def collides_case_insensitively(directory: str, name: str) -> str:
 
 
 def read_text(path: str) -> str:
+    """The file's text. `decode` drops the file's BOM, and only that one: a U+FEFF after it is the
+    text's own, which `write_text` put a BOM in front of so it would survive (#519)."""
     with open(longpath(path), "rb") as f:
-        return decode(f.read()).lstrip("﻿")
+        return decode(f.read())
 
 
 def read_json(path: str, what: str = "file"):
     """JSON from any encoding another tool produced. Raises ValueError with the path on bad JSON."""
     try:
-        return json.loads(read_text(path))
+        return json.loads(read_text(path).lstrip("\ufeff"))   # JSON never starts with one; a doubled BOM does
     except json.JSONDecodeError as e:
         raise ValueError(f"{what} is not valid JSON: {path} ({e.msg}, line {e.lineno})") from None
 
@@ -216,7 +219,8 @@ def _replace_with_retry(tmp: str, path: str) -> str:
 
 
 def write_text(path: str, text: str, *, report: dict | None = None) -> str:
-    """UTF-8 without BOM, LF, atomic where the OS allows it. Returns the path with forward slashes.
+    """UTF-8 without BOM (unless the text starts with U+FEFF), LF, atomic where the OS allows it.
+    Returns the path with forward slashes.
 
     `report`, when given, receives `{"how": "atomic"|"in-place"}` so a caller that wants to warn
     about a locked file can, without every caller having to care.
@@ -230,8 +234,11 @@ def write_text(path: str, text: str, *, report: dict | None = None) -> str:
     # FileNotFoundError on Linux and a PermissionError on Windows, from code that looked atomic.
     # The rename itself is still the atomic step; only the staging file needed to be unshared.
     tmp = f"{path}.{os.getpid()}.{threading.get_ident():x}.tmp"
+    # A text that itself starts with U+FEFF gets a BOM in front, the one exception to "no BOM": every
+    # reader, ours included, takes a file's first U+FEFF for its BOM and drops it (#519).
+    bom = "\ufeff" if text.startswith("\ufeff") else ""
     with open(longpath(tmp), "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
+        f.write(bom + text)
     how = _replace_with_retry(tmp, path)
     if report is not None:
         report["how"] = how
