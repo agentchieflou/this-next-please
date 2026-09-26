@@ -29,14 +29,14 @@ The rest are Luna's. `GEMINI.md` at the root says the same in eight lines.
 - Resolve a conflict hunk by hunk. Never resolve one by taking a whole file (commit 869d9cd dropped `main`'s text that
   way). After every merge of `main`, re-run the doc guards: `tests/test_entrypoints.py`, `tests/test_fleet_components.py`,
   `tests/test_suite_hygiene.py`.
-- **Reasoning goes in the tagalong `.md`, not in the source** (decision 18 on #429, #523). A script or stylesheet
-  the desk serves (`agentdata/fleet/static/`, `vendor/` aside) carries code only: write why in `<file>.md` beside
-  it, under the `###` heading of the function, declaration, rule or selector it explains (add one if it is new), in
-  the same commit as the code. The one comment a served file keeps is the inline cast `tsc` needs,
-  `/** @type {X} */ (expr)`; a type for a record or a function goes in `<file>.d.ts` (docs/desk-types.md).
-  `tests/test_fleet_served_comments.py` fails on any other comment and on a served file without its `.md`. A branch
-  from before #523 that merges `main` in resolves a comment-only hunk by dropping the comment and moving its words
-  to the `.md`.
+- **Reasoning goes in the tagalong `.md`, not in the source** (decisions 18 and 19 on #429, #523). A script or
+  stylesheet the desk serves (`agentdata/fleet/static/`, `vendor/` aside) carries code, and a script its JSDoc type
+  tags (`@typedef`, `@param`, `@returns`, `@property`, `@type`: types and names, no descriptions), and nothing else.
+  Write why in `<file>.md` beside it, under the `###` heading of the function, declaration, rule or selector it
+  explains (add one if it is new), in the same commit as the code. The server strips every comment from what it
+  serves, so a type costs the page nothing. `tests/test_fleet_served_comments.py` fails on any prose comment and
+  on a served file without its `.md`. A branch from before #523 that merges `main` in resolves a comment-only hunk
+  by keeping the type tags and moving the words to the `.md`.
 - A bug you find in a shared file that your issue does not own is its own issue: search `tests/regressions/` and the
   open PRs for the symptom first (the same idle-desk bug was fixed in five parallel branches during the ink epic).
 
