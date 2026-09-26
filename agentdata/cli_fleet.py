@@ -309,6 +309,20 @@ def cmd_fresh(a) -> int:
     from .fleet import fresh as FRESH
 
     source = "ad-fleet fresh"
+    names = list(a.repo or [])
+    if a.all or len(names) > 1:
+        return _fresh_day(a, names)
+    if a.confirm or a.keyless:
+        return _refuse(source, FRESH.FreshRefused({
+            "why": "--confirm and --keyless belong to a fresh day",
+            "hint": "`ad-fleet fresh --all --dry-run`, or two or more repositories", "code": "not_a_sweep"}))
+    if not names:
+        # A typo never sweeps the fleet: `cmd_stop`'s words.
+        print(toon.encode({"meta": {"ok": False, "source": source, "error": "name a repo, or pass --all",
+                                    "hint": "ad-fleet fresh <repo>   |   ad-fleet fresh --all --dry-run",
+                                    "refused": "no_repo", "code": "no_repo"}}))
+        return EXIT_REFUSED
+    a.repo = names[0]
     try:
         out = (FRESH.plan(a.repo, cfg=C.load()) if a.dry_run
                else FRESH.run(a.repo, closed=bool(a.closed), cfg=C.load()))
@@ -331,6 +345,93 @@ def cmd_fresh(a) -> int:
     print(toon.encode({"meta": {"ok": True, "source": source, **meta}}))
     print(toon.table("fresh", ["verdict", "leaves", "origin", "stays", "ticket", "model", "model_source",
                                "effort"], [row]))
+    return EXIT_OK
+
+
+FRESH_DAY_COLUMNS = ["repo", "verdict", "code", "ticked", "ticket", "model", "model_source", "leaves",
+                     "began", "why"]
+
+
+def _fresh_day_rows(rows: list[dict], *, done: bool = False) -> list[list]:
+    out = []
+    for r in rows:
+        starts, leaves = r.get("starts") or {}, r.get("leaves") or {}
+        why = r.get("why") or "-"
+        if (r.get("question") or {}).get("q"):
+            why = f"{why}: {r['question']['q']}"
+        cells = [r["repo"], r.get("verdict", "-"), r.get("code") or "-", "yes" if r.get("ticked") else "no",
+                 starts.get("ticket") or "-", starts.get("model") or "the CLI chooses",
+                 starts.get("model_source") or "-", leaves.get("session") or "-", r.get("began") or "-", why]
+        if done:
+            cells.insert(1, r.get("done", "-"))
+        out.append(cells)
+    return out
+
+
+def _fresh_day(a, names: list[str]) -> int:
+    """A fresh day (#508): #488's `fresh` over the fleet, or over two or more named repositories.
+
+    Without `--confirm` it prints the plan and launches nothing: `--dry-run` exits 0, anything else
+    exits 2 naming the plan's id. `--confirm <plan_id>` runs the ticked rows, and only when a plan
+    taken now has the same id.
+    """
+    from .fleet import fresh as FRESH
+
+    source = "ad-fleet fresh"
+    if a.closed:
+        return _refuse(source, FRESH.FreshRefused({
+            "why": "--closed is a second press on one pane, over your own chat there; a fresh day never "
+                   "acts on your own chat",
+            "hint": "close your own chat, then `ad-fleet fresh <repo> --closed`", "code": "closed_is_per_pane"}))
+    try:
+        planned = FRESH.plan_all(names or None, keyless=bool(a.keyless), cfg=C.load())
+    except (RegistryError, OSError) as e:
+        return _refuse(source, e)
+    if planned["unknown_repos"]:
+        print(toon.encode({"meta": {"ok": False, "source": source,
+                                    "error": "no registered repository named " + ", ".join(planned["unknown_repos"]),
+                                    "hint": "`ad-fleet repo list` names the registered ones",
+                                    "refused": "unknown_repo", "code": "unknown_repo"}}))
+        return EXIT_REFUSED
+    meta = {"plan_id": planned["plan_id"], "now": planned["now"], "ticked": planned["ticked"],
+            "keyless": planned["keyless"], "premium_turns": planned["premium_turns"],
+            "skipped": ", ".join(f"{k} {v}" for k, v in sorted(planned["skipped"].items())) or "-"}
+    table = toon.table("fresh", FRESH_DAY_COLUMNS, _fresh_day_rows(planned["rows"]))
+    if a.confirm and a.confirm != planned["plan_id"]:
+        print(toon.encode({"meta": {"ok": False, "source": source, "refused": "plan_changed",
+                                    "code": "plan_changed",
+                                    "error": f"the fleet changed since plan {a.confirm}: this is plan "
+                                             f"{planned['plan_id']}",
+                                    "hint": f"read the table again, then `--confirm {planned['plan_id']}`",
+                                    **meta}}))
+        print(table)
+        return EXIT_REFUSED
+    if not a.confirm:
+        dry = bool(a.dry_run)
+        head = {"ok": dry, "source": source, "dry_run": dry, **meta}
+        if not dry:
+            head.update({"refused": "preview_first", "code": "preview_first",
+                         "error": f"a fresh day starts {planned['ticked']} agents, about "
+                                  f"{planned['premium_turns']} premium turns",
+                         "hint": f"confirm with `--confirm {planned['plan_id']}`"})
+        else:
+            head["next"] = f"ad-fleet fresh {'--all' if a.all else ' '.join(names)}" + \
+                           (" --keyless" if a.keyless else "") + f" --confirm {planned['plan_id']}"
+        print(toon.encode({"meta": head}))
+        print(table)
+        return EXIT_OK if dry else EXIT_REFUSED
+    ticked = [r["repo"] for r in planned["rows"] if r["ticked"]]
+    try:
+        out = FRESH.run_all(expect=ticked, cfg=C.load())
+    except FRESH.FreshRefused as e:
+        return _refuse(source, e)
+    except (RegistryError, OSError) as e:
+        return _refuse(source, e)
+    print(toon.encode({"meta": {"ok": True, "source": source, "plan_id": planned["plan_id"],
+                                "started": out["started"], "changed": out["changed"],
+                                "premium_turns": out["premium_turns"]}}))
+    print(toon.table("fresh", FRESH_DAY_COLUMNS[:1] + ["done"] + FRESH_DAY_COLUMNS[1:],
+                     _fresh_day_rows(out["rows"], done=True)))
     return EXIT_OK
 
 
@@ -1981,9 +2082,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     clean = sub.add_parser("fresh", help="leave this checkout's session for a clean one, on the same "
                                          "ticket and the configured model")
-    clean.add_argument("repo")
-    clean.add_argument("--dry-run", action="store_true",
-                       help="show what it would leave and start, and whether it can now; change nothing")
+    clean.add_argument("repo", nargs="*",
+                       help="one repository; two or more (or --all) are a fresh day, previewed and confirmed")
+    clean.add_argument("--all", action="store_true",
+                       help="a fresh day: every registered agent, previewed, then `--confirm <plan_id>` (#508)")
+    clean.add_argument("--keyless", action="store_true",
+                       help="a fresh day ticks idle agents with no ticket too (one premium turn each)")
+    how = clean.add_mutually_exclusive_group()
+    how.add_argument("--dry-run", action="store_true",
+                     help="show what it would leave and start, and whether it can now; change nothing")
+    how.add_argument("--confirm", metavar="PLAN_ID", default="",
+                     help="a fresh day: run the ticked rows of the plan with this id, if the fleet still agrees")
     clean.add_argument("--closed", action="store_true",
                        help="my own Copilot chat there is closed: the second press over `chat_open`")
     clean.set_defaults(fn=cmd_fresh)
