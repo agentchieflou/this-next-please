@@ -124,7 +124,8 @@ def test_start_fresh_is_one_action_under_one_word():
     assert re.search(r'class="sm-new[^>]*>\s*<span class="sm-new-label">start fresh</span><span class="sm-model">', html)
     assert "<kbd>Alt</kbd>+<kbd>N</kbd> start this pane fresh" in html
     assert re.search(r'class="fresh-strip"[^>]*>start fresh</button><button type="button" class="adopt">', html)
-    assert js.count('post("fresh"') == 1 and "function newSession" not in js
+    # #511's fresh day posts `fresh {all: true, …}` twice; the one pane's door is still one call.
+    assert js.count('post("fresh"') - js.count('post("fresh", { all: true') == 1 and "function newSession" not in js
     assert '"new": true' not in js, "no door posts `start {new: true}` any more"
     rings = re.findall(r"\.pane-rail:is\(\.is-stale, \.is-outside\)[^{]*\{([^}]*)\}", css)
     assert rings and all("var(--muted)" in r for r in rings), rings
@@ -145,7 +146,8 @@ def test_the_start_button_posts_fresh_only_when_the_box_is_empty():
     handler = handler[:handler.index("});") + 3]
     assert re.search(r"if \(!say\.value\.trim\(\)\) startFresh\(el, row\.repo, startBtn\);", handler), handler
     assert 'action(el, "start", { repo: row.repo, ticket: say.value.trim() })' in handler, handler
-    assert js.count('post("fresh"') == 1, "the only post of `fresh` is still startFresh's"
+    assert js.count('post("fresh"') - js.count('post("fresh", { all: true') == 1, \
+        "the only post of `fresh` for one pane is still startFresh's (#511's fresh day posts `all`)"
     assert re.search(r'say\.addEventListener\("input", function \(\) \{ drawStart\(', js)
     assert 'var label = empty ? "Start fresh" : "Start";' in js
     # Compact panes show the head's *start fresh* whatever `offer` says; a full pane keeps #489's rule.

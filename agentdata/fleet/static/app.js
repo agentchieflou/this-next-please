@@ -1834,6 +1834,7 @@ function refresh() {
     });
     var need = data.repos.filter(function (r) { return r.needs_human; }).length;
     drawRenewStrip(data.repos, data.server);
+    drawDayOffer(data.repos);
     var fleetSpend = data.spend || {};
     var counts = document.getElementById("counts");
     text(counts,
@@ -3113,6 +3114,8 @@ function mk(tag, cls, str) {
   return n;
 }
 
+/* #504: the summary and the carry line stay in sight; the list and the commits sit in a fold that is
+   open when the answer warns or the git cell asked for it, and otherwise as the operator left it. */
 function branchesPane(name) {
   var answer = branchesFor[name];
   var box = mk("div", "branches");
@@ -3120,13 +3123,11 @@ function branchesPane(name) {
   head.appendChild(mk("strong", "", "branches"));
   var read = mk("button", "branches-read", "read");
   read.type = "button";
+  attr(read, "title", "every local branch, and which never reached the default");
   read.addEventListener("click", function () { loadBranches(name, true); });
   head.appendChild(read);
   box.appendChild(head);
-  if (!answer) {
-    box.appendChild(mk("p", "muted", "every local branch, and which never reached the default: click the git cell, or read."));
-    return box;
-  }
+  if (!answer) return box;
   if (answer.reading) { box.appendChild(mk("p", "muted branches-note", "reading…")); return box; }
   if (!answer.ok) {
     box.appendChild(mk("p", "branches-note err", (answer.error || "git could not be asked") + (answer.hint ? " — " + answer.hint : "")));
@@ -3140,6 +3141,12 @@ function branchesPane(name) {
     (current && current.unmerged && current.ahead != null ? " (+" + current.ahead + " ahead of " + answer.default + ")" : "") +
     (answer.cached ? " · read " + age(Math.round(answer.age_s)) + " ago" : "")));
   if (answer.carry_line) box.appendChild(mk("p", "branches-carry", answer.carry_line));
+  var asked = branchesWanted === name;
+  if (asked) branchesWanted = "";
+  var fold = inspectorFold(name, "branches-list", answer.warn);
+  if (asked) fold.open = true;
+  fold.appendChild(mk("summary", "muted", (answer.branches || []).length + " listed" +
+                                           ((answer.commits || []).length ? " · the last commits" : "")));
   var list = mk("ol", "branchlist");
   (answer.branches || []).forEach(function (b) {
     var li = mk("li", "branchrow" + (b.unmerged ? " unmerged" : "") + (b.current ? " current" : "") +
@@ -3150,15 +3157,18 @@ function branchesPane(name) {
     bits.push(b.upstream ? b.upstream + (b.track ? " " + b.track : "") : "none pushed");
     if (b.ticket) bits.push(b.ticket);
     if (b.current) bits.push("current");
-    li.appendChild(mk("span", "bmeta", bits.filter(Boolean).join("  ·  ")));
+    var meta = mk("span", "bmeta", bits.filter(Boolean).join("  ·  "));
+    attr(meta, "title", meta.textContent);
+    li.appendChild(meta);
     list.appendChild(li);
   });
-  box.appendChild(list);
-  if (answer.more) box.appendChild(mk("p", "muted branches-note", "and more: the count stops at twenty unmerged branches, which is the finding"));
+  fold.appendChild(list);
+  if (answer.more) fold.appendChild(mk("p", "muted branches-note", "and more: the count stops at twenty unmerged branches, which is the finding"));
   if ((answer.commits || []).length) {
-    box.appendChild(mk("div", "muted", "the last " + answer.commits.length + " commits on " + answer.current));
-    box.appendChild(mk("pre", "commits", answer.commits.join("\n")));
+    fold.appendChild(mk("div", "muted", "the last " + answer.commits.length + " commits on " + answer.current));
+    fold.appendChild(mk("pre", "commits", answer.commits.join("\n")));
   }
+  box.appendChild(fold);
   return box;
 }
 
@@ -3171,23 +3181,16 @@ function spendPane(name) {
   var s = row.spend;
   if (!s || (!s.total && !s.budget)) return null;
 
-  var box = mk("div", "branches spendpane");
-  var head = mk("div", "branches-head", "");
-  head.appendChild(mk("strong", "", "spend"));
-  head.appendChild(mk("span", "muted", "premium requests"));
-  box.appendChild(head);
-
-  var line = s.total + " all time · " + s.today + " today · " + s.session + " this session";
+  // One line (#504); the turns, the mean and the CLI that prints the same ledger are its title.
+  var line = "spend " + s.total + " all time · " + s.today + " today · " + s.session + " this session";
   if (s.budget) line += " · of " + s.budget;
-  var sum = mk("p", "branches-sum" + (s.budget && s.total >= s.budget ? " warn" : ""), line);
-  box.appendChild(sum);
-  box.appendChild(mk("p", "muted",
+  var sum = mk("p", "spendline" + (s.budget && s.total >= s.budget ? " warn" : ""), line);
+  attr(sum, "title", "premium requests · " +
     s.turns + (s.turns === 1 ? " turn" : " turns") +
     (s.rate ? ", a mean of " + s.rate + " a turn — a mean, not a forecast" : "") +
-    (s.sessions > 1 ? " · " + s.sessions + " sessions" : "")));
-  box.appendChild(mk("p", "muted", "`ad-fleet spend " + name +
-                                   "` prints this, and `--rebuild` checks it against every log"));
-  return box;
+    (s.sessions > 1 ? " · " + s.sessions + " sessions" : "") +
+    "\n`ad-fleet spend " + name + "` prints this, and `--rebuild` checks it against every log");
+  return sum;
 }
 
 function clip(value) {
@@ -3401,59 +3404,84 @@ function choose(name) {
 
 /* The selected project's own detail, in one place instead of repeated inside every tile: a tile is
    the AGENT, the inspector is the PROJECT (#148). Visibility belongs to the sidebar, not here --
-   this only draws, so a redraw can never reopen a panel the operator just closed. */
+   this only draws, so a redraw can never reopen a panel the operator just closed.
+
+   #504: it fits one screen. The rail, the friction that needs you now, one line of spend and the
+   branches come first; the facts, the missing keys, earlier friction, verify and the offered files
+   fold under one *more*. The desk's tick calls this every 15 seconds, so an unchanged project
+   returns before touching the DOM, and a rebuild keeps every fold as the operator left it. */
+var inspectorDrawn = "";                                 // the signature the panel was last drawn from
+var inspectorFolds = {};                                 // repo -> {fold class: open}, as the operator left them
+
+/** What the panel draws of a project, and nothing else: the project also carries the tile's poller
+    cells, whose ages move on every tick, and those must not rebuild a panel that does not show them.
+    The verify line's age is its words, so it redraws when the words change and not every second. */
+function inspectorSees(p) {
+  var latest = ((p.verify || {}).latest) || {};
+  return [p.links, p.path, p.facts, p.jira_project, p.indexed, p.last_indexed, p.missing_keys,
+          p.friction_open, p.friction, p.friction_earlier,
+          latest.name ? [latest.tool, latest.name, latest.excerpt,
+                         latest.age_s != null ? age(Math.round(latest.age_s)) : null] : null];
+}
+
+/** A fold on the panel that remembers being opened or closed, across rebuilds and repos. */
+function inspectorFold(name, cls, openByDefault) {
+  var folds = inspectorFolds[name] || (inspectorFolds[name] = {});
+  var d = mk("details", cls);
+  d.open = folds[cls] !== undefined ? folds[cls] : !!openByDefault;
+  d.addEventListener("toggle", function () { folds[cls] = d.open; });
+  return d;
+}
+
 function drawInspector(name) {
   var el = document.getElementById("inspector");
   if (!el) return;
   var body0 = document.getElementById("inspectordetails");
   if (!name || !tiles.has(name)) {
+    inspectorDrawn = "";
     text(document.getElementById("inspectorrepo"), "");
     while (body0.firstChild) body0.removeChild(body0.firstChild);
     return;
   }
+  var entry = tiles.get(name);
+  var drawn = JSON.stringify([name, inspectorSees(desk.projects[name] || {}), ((entry && entry.row) || {}).spend || null,
+                              branchesFor[name] || null, (desk.offers || {})[name] || null]);
+  if (drawn === inspectorDrawn && body0.firstChild) return;
+  inspectorDrawn = drawn;
   text(document.getElementById("inspectorrepo"), name);
   var body = document.getElementById("inspectordetails");
   while (body.firstChild) body.removeChild(body.firstChild);
 
   var p = desk.projects[name] || {};
-  var facts = document.createElement("div");
-  setClass(facts, "facts");
-  /* The ONE place on this page that renders a fact block, and it stays one on purpose.
-     `serve.tile_facts()` narrows `catalogue.LINK_FACTS` before any of it leaves the server,
-     because a fact block is hand-edited prose and a real one carries a warehouse hostname, a
-     `\\share\dpm\runs` path and a service account beside the Jira keys. A second loop over some
-     other payload's facts is how that filter gets bypassed by a change that looks like a feature.
-     If a panel ever needs a fact this loop does not show, widen `LINK_FACTS`; do not add a loop. */
-  var pairs = [
-    ["project", name],
-    ["path", p.path || "—"],
-    ["branch", p.branch || "—"],
-    ["jira", p.jira_project || "—"]
-  ];
-  var factsFromCatalogue = p.facts || {};
-  Object.keys(factsFromCatalogue).forEach(function (k) {
-    if (k !== "jira_project") pairs.push([k, factsFromCatalogue[k]]);
-  });
-  pairs.push(["indexed", p.indexed ? (p.last_indexed || "yes") : "not yet"]);
-  pairs.forEach(function (row) {
-    var k = document.createElement("span");
-    setClass(k, "k");
-    text(k, row[0]);
-    var v = document.createElement("span");
-    setClass(v, "v");
-    text(v, row[1]);
-    facts.appendChild(k);
-    facts.appendChild(v);
-  });
-  body.appendChild(facts);
 
-  // What is missing is named, so the operator knows which AGENTS.md key would fill the rail.
-  var missing = p.missing_keys || [];
-  if (missing.length) {
-    var gap = document.createElement("p");
-    setClass(gap, "muted");
-    text(gap, "add to AGENTS.md for the rest of the rail: " + missing.join(", "));
-    body.appendChild(gap);
+  // Where this project lives -- the link rail, so a tab is opened to act and never to check.
+  var links = (p.links || []);
+  if (links.length || p.path) {
+    var rail = document.createElement("div");
+    setClass(rail, "rail");
+    links.forEach(function (row) {
+      if (!row.url) return;
+      var a = document.createElement("a");
+      setClass(a, row.kind);
+      a.href = row.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      attr(a, "title", row.url);
+      text(a, row.name);
+      rail.appendChild(a);
+    });
+    if (p.path) {
+      var copy = document.createElement("button");
+      text(copy, "copy path");
+      attr(copy, "title", p.path);
+      copy.addEventListener("click", function () {
+        clip(p.path);
+        text(copy, "copied");
+        setTimeout(function () { text(copy, "copy path"); }, 1200);
+      });
+      rail.appendChild(copy);
+    }
+    body.appendChild(rail);
   }
 
   // Friction (#499): the server decides what needs you now (open) and what folds under *earlier*;
@@ -3491,9 +3519,63 @@ function drawInspector(name) {
     return li;
   };
   frictionOpen.forEach(function (f) { body.appendChild(frictionRow(f)); });
+
+  // What this agent has cost (#212), as one line; the turns and the CLI that prints it are its title.
+  // The same ledger `ad-fleet spend` prints, so the page and the CLI cannot disagree.
+  var spent = spendPane(name);
+  if (spent) body.appendChild(spent);
+
+  // The checkout's branches (#184): drawn from the last read, read on the click.
+  body.appendChild(branchesPane(name));
+
+  // Everything else folds under one *more*, closed until the operator opens it.
+  var more = inspectorFold(name, "more", false);
+  var summaryBits = ["facts"];
+  var moreSummary = mk("summary", "", "");
+  more.appendChild(moreSummary);
+
+  var facts = document.createElement("div");
+  setClass(facts, "facts");
+  /* The ONE place on this page that renders a fact block, and it stays one on purpose.
+     `serve.tile_facts()` narrows `catalogue.LINK_FACTS` before any of it leaves the server,
+     because a fact block is hand-edited prose and a real one carries a warehouse hostname, a
+     `\\share\dpm\runs` path and a service account beside the Jira keys. A second loop over some
+     other payload's facts is how that filter gets bypassed by a change that looks like a feature.
+     If a panel ever needs a fact this loop does not show, widen `LINK_FACTS`; do not add a loop.
+     The project, its path and its branch are not repeated here: the drawer head, copy path's title
+     and the tile's git cell already say them (#504). */
+  var pairs = [
+    ["jira", p.jira_project || "—"]
+  ];
+  var factsFromCatalogue = p.facts || {};
+  Object.keys(factsFromCatalogue).forEach(function (k) {
+    if (k !== "jira_project") pairs.push([k, factsFromCatalogue[k]]);
+  });
+  pairs.push(["indexed", p.indexed ? (p.last_indexed || "yes") : "not yet"]);
+  pairs.forEach(function (row) {
+    var k = document.createElement("span");
+    setClass(k, "k");
+    text(k, row[0]);
+    var v = document.createElement("span");
+    setClass(v, "v");
+    text(v, row[1]);
+    facts.appendChild(k);
+    facts.appendChild(v);
+  });
+  more.appendChild(facts);
+
+  // What is missing is named, so the operator knows which AGENTS.md key would fill the rail.
+  var missing = p.missing_keys || [];
+  if (missing.length) {
+    var gapLine = "add to AGENTS.md for the rest of the rail: " + missing.join(", ");
+    var gap = mk("p", "muted missing", gapLine);
+    attr(gap, "title", gapLine);
+    more.appendChild(gap);
+  }
+
   if (frictionEarlier.length) {
-    var fold = document.createElement("details");
-    setClass(fold, "friction-earlier");
+    summaryBits.push(frictionEarlier.length + " earlier friction");
+    var fold = inspectorFold(name, "friction-earlier", false);
     var summary = document.createElement("summary");
     text(summary, "earlier friction (" + frictionEarlier.length + ")");
     fold.appendChild(summary);
@@ -3503,50 +3585,13 @@ function drawInspector(name) {
     all.addEventListener("click", function () { dismissFriction({ repo: name, earlier: true }); });
     fold.appendChild(all);
     frictionEarlier.forEach(function (f) { fold.appendChild(frictionRow(f)); });
-    body.appendChild(fold);
+    more.appendChild(fold);
   }
-
-  // Where this project lives -- the link rail, so a tab is opened to act and never to check.
-  var links = (p.links || []);
-  if (links.length || p.path) {
-    var rail = document.createElement("div");
-    setClass(rail, "rail");
-    links.forEach(function (row) {
-      if (!row.url) return;
-      var a = document.createElement("a");
-      setClass(a, row.kind);
-      a.href = row.url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      attr(a, "title", row.url);
-      text(a, row.name);
-      rail.appendChild(a);
-    });
-    if (p.path) {
-      var copy = document.createElement("button");
-      text(copy, "copy path");
-      attr(copy, "title", p.path);
-      copy.addEventListener("click", function () {
-        clip(p.path);
-        text(copy, "copied");
-        setTimeout(function () { text(copy, "copy path"); }, 1200);
-      });
-      rail.appendChild(copy);
-    }
-    body.appendChild(rail);
-  }
-
-  // What this agent has cost (#212): its sessions, its days, and the budget it is against. The
-  // same ledger `ad-fleet spend` prints, so the page and the CLI cannot disagree.
-  var spent = spendPane(name);
-  if (spent) body.appendChild(spent);
-
-  // The checkout's branches (#184): drawn from the last read, read on the click.
-  body.appendChild(branchesPane(name));
 
   // The newest thing the project's own agent verified, beside the report link.
   var latest = ((p.verify || {}).latest) || {};
   if (latest.name) {
+    summaryBits.push("verify");
     var h = document.createElement("div");
     setClass(h, "muted");
     text(h, "verify · " + (latest.tool || "") + " · " + latest.name +
@@ -3554,21 +3599,24 @@ function drawInspector(name) {
     var pre = document.createElement("pre");
     setClass(pre, "verifybody");
     text(pre, latest.excerpt || "");
-    body.appendChild(h);
-    body.appendChild(pre);
+    more.appendChild(h);
+    more.appendChild(pre);
   }
 
   var offers = (desk.offers || {})[name] || [];
   if (offers.length) {
+    summaryBits.push(offers.length + " offered");
     var head = document.createElement("div");
     setClass(head, "muted");
     text(head, "Downloads is offering " + offers.length + " file" + (offers.length === 1 ? "" : "s"));
     var list = document.createElement("ol");
     setClass(list, "tray");
     offers.forEach(function (row) { list.appendChild(offerRow(row, name)); });
-    body.appendChild(head);
-    body.appendChild(list);
+    more.appendChild(head);
+    more.appendChild(list);
   }
+  text(moreSummary, "more — " + summaryBits.join(" · "));
+  body.appendChild(more);
 }
 
 document.getElementById("closeinspector").addEventListener("click", function () {
@@ -5740,6 +5788,235 @@ function runRenew() {
   });
 })();
 
+/* ------------------------------------------------------------------ a fresh day (#508, #511)
+
+   The morning: one line while idle panes with a ticket are on sessions that began before today, and
+   the preview of `ad-fleet fresh --all` behind it, `Shift+N` or the *day* menu. The preview is the
+   only thing any of them posts (`{all: true, dry_run: true}`), and `?fresh=1` is one more way to ask
+   for it -- an address can come from anywhere, so it never confirms anything (DAY-D4). Only `daygo`
+   posts `repos`: the ones ticked here. */
+function dayStrip() { return document.getElementById("day-strip"); }
+var dayOpen = false;
+var dayOfferN = -1;
+var DAY_NOT_TODAY = "fleet.day.not-today";
+
+function localDay() {
+  var d = new Date();
+  return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+}
+
+function dayDismissed() {
+  try { return localStorage.getItem(DAY_NOT_TODAY) === localDay(); } catch (e) { return false; }
+}
+
+/** Idle panes with a ticket in progress, on sessions that began before today: what the line counts. */
+function morningPanes(rows) {
+  return (rows || []).filter(function (r) {
+    var f = r.fresh || {};
+    var run = r.run || {};
+    return run.before_today === true && f.verdict === "now" && !!(f.starts || {}).ticket &&
+           !r.external && run.origin !== "adopted";
+  }).length;
+}
+
+/** The one-line offer, drawn only when its count changes: an idle desk writes nothing. */
+function drawDayOffer(rows) {
+  var strip = dayStrip();
+  if (!strip) return;
+  var n = dayDismissed() ? 0 : morningPanes(rows);
+  if (n === dayOfferN) return;
+  dayOfferN = n;
+  text(strip.querySelector(".day-offer-words"), n === 1
+    ? "1 pane is on a session that began before today —"
+    : n + " panes are on sessions that began before today —");
+  hide(strip.querySelector(".day-offer"), n === 0 || dayOpen);
+  hide(strip, n === 0 && !dayOpen);
+}
+
+function dayGo() { return /** @type {HTMLButtonElement} */ (document.getElementById("daygo")); }
+
+/** `#daygo` names what it spends: one premium turn per ticked agent (DAY-D2). */
+function countDay() {
+  var strip = dayStrip();
+  var n = strip ? strip.querySelectorAll(".day-rows li:not(.day-pattern) .day-tick:checked:not(:disabled)").length : 0;
+  var go = dayGo();
+  disable(go, n === 0);
+  text(go, "start " + n + " fresh — about " + n + " premium turn" + (n === 1 ? "" : "s"));
+}
+
+function openDay() {
+  var strip = dayStrip();
+  if (!strip) return Promise.resolve();
+  closePopovers();
+  dayOpen = true;
+  var sum = strip.querySelector(".day-sum");
+  hide(strip, false);
+  hide(strip.querySelector(".day-offer"), true);
+  hide(sum, false);
+  text(sum, "checking every agent…");
+  disable(dayGo(), true);
+  hide(strip.querySelector(".day-rows"), false);
+  hide(strip.querySelector(".day-actions"), false);
+  return post("fresh", { all: true, dry_run: true }).then(function (r) {
+    if (!r || r.ok === false) {
+      text(sum, ((r && r.error) || "the preview could not be read") + (r && r.hint ? " — " + r.hint : ""));
+      return;
+    }
+    if (dayOpen) drawDayPlan(r);
+  }).catch(function () { text(sum, "the preview could not be read"); });
+}
+
+/** The model column in `modelTitle`'s words: the label, and where each half came from (#493). */
+function dayModelTitle(st) {
+  return (st.model ? "configured " + st.model + " (" + (st.model_source || "") + ")"
+                   : "no --model flag is passed (" + (st.model_source || "cli-auto") + ")") +
+         (st.effort ? " · effort " + st.effort + (st.effort_source && st.effort_source !== st.model_source
+                                                 ? " (" + st.effort_source + ")" : "") : "");
+}
+
+function drawDayPlan(p) {
+  var strip = dayStrip();
+  var list = strip.querySelector(".day-rows");
+  var plan = String(p.plan_id || "");
+  patchList(list, p.rows || [], function (r) { return r.repo; },
+    function () {
+      // Cloned from the markup's pattern row, so the two cannot disagree about the parts.
+      var li = /** @type {HTMLElement} */ (strip.querySelector(".day-pattern").cloneNode(true));
+      li.classList.remove("day-pattern");
+      li.hidden = false;
+      li.querySelector(".day-answer").addEventListener("click", function () {
+        var name = li.dataset.rowkey || "";
+        openPane(name);
+        var entry = tiles.get(name);
+        /** @type {HTMLElement} */
+        var ask = entry && entry.el.querySelector(".asks:not([hidden]) textarea, .asks:not([hidden]) input, .asks:not([hidden]) button");
+        if (ask) ask.focus();
+      });
+      return li;
+    },
+    function (li, r) {
+      var st = r.starts || {};
+      /** @type {HTMLInputElement} */
+      var box = li.querySelector(".day-tick");
+      var tickable = r.verdict === "now";
+      disable(box, !tickable);
+      // Ticked as the plan says, once per plan: a redraw never undoes the operator's own tick.
+      if (li.dataset.plan !== plan) { box.checked = tickable && !!r.ticked; setData(li, "plan", plan); }
+      attr(box, "aria-label", "start " + r.repo + " fresh");
+      setData(li, "keyless", r.keyless ? "1" : "");
+      text(li.querySelector(".day-repo"), r.repo);
+      text(li.querySelector(".day-verdict"), r.code || r.verdict);
+      text(li.querySelector(".day-ticket"), st.ticket || "no ticket");
+      var model = li.querySelector(".day-model");
+      text(model, shortModel(st.model) + " · " + (st.model_source || "cli-auto"));
+      attr(model, "title", dayModelTitle(st));
+      text(li.querySelector(".day-began"), r.began ? "began " + beganWords(r.began) : "");
+      text(li.querySelector(".day-why"), r.why || "");
+      var q = (r.question || {}).q || "";
+      text(li.querySelector(".day-question"), q ? "“" + q + "”" : "");
+      hide(li.querySelector(".day-answer"), r.code !== "needs_you");
+      setClass(li, "fresh-row day-row verdict-" + String(r.code || r.verdict).replace(/_/g, "-"));
+    });
+  hide(strip.querySelector(".day-keyless"), !(p.keyless > 0));
+  text(strip.querySelector(".day-sum"), (p.ticked || 0) + " of " + (p.rows || []).length +
+       " agents would start on a clean session — the others say why" +
+       (p.keyless ? "; " + p.keyless + " with no ticket can be ticked" : ""));
+  countDay();
+}
+
+function closeDay() {
+  var strip = dayStrip();
+  if (!strip) return;
+  dayOpen = false;
+  hide(strip.querySelector(".day-sum"), true);
+  hide(strip.querySelector(".day-rows"), true);
+  hide(strip.querySelector(".day-keyless"), true);
+  hide(strip.querySelector(".day-actions"), true);
+  dayOfferN = -1;
+  drawDayOffer(lastFleet ? lastFleet.repos : []);
+}
+
+function runDay() {
+  var strip = dayStrip();
+  var go = dayGo();
+  var repos = [];
+  strip.querySelectorAll(".day-rows li:not(.day-pattern)").forEach(function (/** @type {HTMLElement} */ li) {
+    var box = /** @type {HTMLInputElement} */ (li.querySelector(".day-tick"));
+    if (box.checked && !box.disabled) repos.push(li.dataset.rowkey);
+  });
+  if (!repos.length) return;
+  disable(go, true);
+  var sum = strip.querySelector(".day-sum");
+  post("fresh", { all: true, repos: repos }).then(function (r) {
+    if (!r || r.ok === false) {
+      text(sum, ((r && r.error) || "the fresh day could not be started") + (r && r.hint ? " — " + r.hint : ""));
+      countDay();
+      return;
+    }
+    var said = [];
+    (r.rows || []).forEach(function (x) {
+      var li = strip.querySelector('.day-rows li[data-rowkey="' + x.repo + '"]');
+      if (li && x.done !== "skipped") {
+        text(li.querySelector(".day-verdict"), x.done === "started" ? "started" : x.done + ": " + (x.code || x.verdict));
+        if (x.done !== "started") text(li.querySelector(".day-why"), x.why || "");
+        disable(li.querySelector(".day-tick"), true);
+        setClass(li, "fresh-row day-row done-" + x.done);
+      }
+      if (x.row && x.row.repo) patchRow(x.row);
+      if (x.done === "started") {
+        var left = (x.leaves || {}).session;
+        said.push(x.repo + ": started fresh on " + ((x.starts || {}).ticket || "no ticket") +
+                  (left ? ", left " + ((x.leaves || {}).title || left) : ""));
+      }
+    });
+    place();
+    text(sum, (r.started || 0) + " started" + (r.changed ? ", " + r.changed + " changed since the preview" : ""));
+    if (said.length) say(said.join(" · "), 12);
+    countDay();
+  }).catch(function () { countDay(); });
+}
+
+/* `?fresh=1` (`ad-fleet serve --open --fresh`, `open --fresh`): the preview, once, and the parameter
+   comes off the address so a reload does not open it again. It posts the preview and nothing else. */
+function previewFromAddress() {
+  if (PARAMS.get("fresh") !== "1") return;
+  var u = new URLSearchParams(location.search);
+  u.delete("fresh");
+  var qs = u.toString();
+  history.replaceState(history.state, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
+  openDay();
+}
+
+(function bindDay() {
+  var strip = dayStrip();
+  if (!strip) return;
+  var fresh = document.getElementById("dayfresh");
+  if (fresh) fresh.addEventListener("click", function () { openDay(); });
+  var offer = document.getElementById("dayoffer");
+  if (offer) offer.addEventListener("click", function () { openDay(); });
+  var nope = document.getElementById("daynottoday");
+  if (nope) nope.addEventListener("click", function () {
+    try { localStorage.setItem(DAY_NOT_TODAY, localDay()); } catch (e) { /* a private window: just this page */ }
+    dayOfferN = -1;
+    hide(strip.querySelector(".day-offer"), true);
+    hide(strip, !dayOpen);
+  });
+  dayGo().addEventListener("click", runDay);
+  var cancel = document.getElementById("daycancel");
+  if (cancel) cancel.addEventListener("click", closeDay);
+  var all = /** @type {HTMLInputElement} */ (document.getElementById("daykeyless"));
+  if (all) all.addEventListener("change", function () {
+    strip.querySelectorAll('.day-rows li[data-keyless="1"] .day-tick').forEach(function (b) {
+      /** @type {HTMLInputElement} */ (b).checked = all.checked;
+    });
+    countDay();
+  });
+  strip.querySelector(".day-rows").addEventListener("change", countDay);
+  strip.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { e.stopPropagation(); closeDay(); }
+  });
+})();
+
 /* An address that still chooses an arrangement (#232): a bookmark, an older launcher, or a shell
    built before there was only one. The desk opens as it always does, the footer says once that
    the parameters meant nothing, and they come off the address -- so a reload does not say it a
@@ -5838,7 +6115,7 @@ document.getElementById("hiddencount").addEventListener("click", showEverything)
 /* ---- the popovers: the key map behind `?`. The pickers that used to sit beside it are a page of
    their own now (`/settings`), so this map has one entry -- and keeps its shape, because "one open
    at a time" is the rule whatever is open. */
-var POPOVERS = { keymap: "keysbtn" };
+var POPOVERS = { keymap: "keysbtn", daymenu: "daybtn" };
 
 function popover(id, open) {
   var box = document.getElementById(id);
@@ -5889,8 +6166,9 @@ document.addEventListener("click", function (/** @type {MouseEvent & {target: El
 
 document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-  if (e.key === "Escape" && !typing) { closeSide(); return; }
+  if (e.key === "Escape" && !typing) { if (dayOpen) { closeDay(); return; } closeSide(); return; }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "N" && e.shiftKey) { openDay(); return; }      // #511: a fresh day, previewed
   // The three presets (#234), and the footer's undo of whichever widths changed last.
   if (e.key === "1") { applyPreset("one"); return; }
   if (e.key === "=") { applyPreset("all"); return; }
@@ -5914,3 +6192,4 @@ restoreCached();
 // Last for the same reason: `say` writes the footer's state, which is only set up once the script
 // has run past it.
 forgetRetiredParams();
+previewFromAddress();

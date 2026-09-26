@@ -62,6 +62,13 @@ The token is deliberately **not** a cookie. A cookie would be sent automatically
 browser, which is exactly what makes a local server on a known port drivable from a hostile tab;
 a query parameter has to be known to be used.
 
+**`fresh=1` only previews** (#511). `ad-fleet serve --open --fresh` and `ad-fleet open --fresh` add it,
+and `/open?fresh=1` forwards it: the page opens the fresh day's preview (`POST /api/fresh {all: true,
+dry_run: true}`), which is the only thing the parameter ever posts, and takes it off the address so a
+reload does not open it again. No parameter confirms anything: only the strip's *start N fresh* posts
+the ticked `repos`, and `/open` needs no token, so an address from anywhere may open a preview and no
+more (DAY-D4).
+
 This is loopback security, not authentication. It is the right size for a tool that runs on the
 operator's own machine and is never reachable from another one. Remote access is out of scope.
 
@@ -85,9 +92,18 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 
 The **sidebar** sits beside the glass and holds five sections, one open at a time: the Jira **board**
 (`b`), the Downloads **inbox** (`i`), **alerts** (`n`), **where** (`/`, `ad-fleet where` over the
-catalogue), and **project** — the selected project's link rail, verify pane, facts, open friction
-and offered files. Every window on this server agrees on which project is selected, so clicking a
-tile on the left monitor changes the inspector on the centre one.
+catalogue), and **project**. Every window on this server agrees on which project is selected, so
+clicking a tile on the left monitor changes the inspector on the centre one.
+
+The **project** section fits one screen (#504). Top to bottom: the link rail with *copy path*, the
+friction that needs you now, one line of spend (*spend N all time · N today · N this session*, with
+*· of B* against a budget; the turns, the mean and `ad-fleet spend` are its tooltip), the branches,
+and one closed **more**. *More*'s summary names what it holds (*more — facts · 3 earlier friction ·
+verify · 2 offered*): the facts (without the project, path and branch, which the drawer head, *copy
+path* and the git cell already say), the missing-keys line, *earlier friction (n)*, the newest verify
+and the files Downloads offers for this project. The desk's tick redraws the panel only when
+something it shows changed, so an idle desk writes nothing to it, and a redraw keeps every fold as
+the operator left it.
 
 **Open friction** (#499) is decided by the server, not the page. A STOP is *open* when the operator
 has not dismissed it, it is on the active ticket (or names none), and either its unblock sentence is
@@ -134,6 +150,9 @@ default first and marked, then the last twenty commits of the current branch. A 
 carries the tile's active ticket is that ticket's; a second one with the same key is the smell the
 operator asked to see, and the pane says so in one line: *two branches carry RDSD-22490; only one
 can merge*. The pane is read on the click and cached for the git cell's interval, never on the poll.
+Its *read* button says what it reads in its tooltip. Once read, the summary and the carry line stay
+in sight; the rows (one line each, the full detail in the row's tooltip) and the commits sit in a fold
+that is open when the count warns or the git cell asked for it, and otherwise as the operator left it.
 On the tile, the git cell is the button that opens it and carries the count on its second line:
 `7 branches · 3 never reached main`, amber at `fleet.branches.warn` (default 6), grey with the error
 when git cannot be asked, and never a toast. `ad-fleet branches <repo>` prints the same rows.
@@ -150,7 +169,8 @@ skipped its pre-flight. A ticket row takes the keyboard: `1`–`9` picks the
 rail chip in that position, `Enter` the row's one candidate.
 
 The **toolbar** is three labelled groups and one row: *widths* (the three presets, #234), *see*
-(search, the sidebar, and a *settings* link) and *alerts* (chime, the bell). A group named *window*
+(search, the sidebar, and a *settings* link) and *alerts* (chime, the bell, and the **day** menu: *start
+the day fresh (Shift+N)*, #511; #512 adds the sweeps). A group named *window*
 chose between the arrangements, and went with them (#232); the presets stand where it was. Settings are a **page**, `/settings`, not a popover: the palette was never
 the only one, and the model each agent runs and the flags the Copilot CLI is launched with have no
 business behind a button on a bar that is about the agents. The link's `href` is built at runtime
@@ -421,6 +441,7 @@ red everywhere or the colour stops being information:
 | `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
+| `Shift`+`N` | a fresh day for every pane (preview): the day strip under the toolbar, one row per agent — ticked, tickable (no ticket), or why not, a *needs you* row with its question and *answer* — then *start N fresh — about N premium turns*; `Esc` closes it (#511) |
 | `Alt`+`N` | start this pane fresh: a clean session on its ticket, the one it is on kept under *earlier* (#489) |
 | `/` | the search box — `where` over the catalogue |
 | `i` | the sidebar's inbox |
@@ -504,6 +525,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/where` | the catalogue search behind the header's box |
 | POST | `/api/start` | `{repo, ticket?, prompt?, force?}` |
 | POST | `/api/fresh` | `{repo, closed?, dry_run?}` — leave this checkout's session for a clean one (#488): `dry_run` answers the plan (`verdict`, `code`, `why`, `leaves`, `starts`); a start answers the row. `chat_open` answers 409 with `second_press: true`, and `closed: true` is that deliberate second press; every other refusal is 409 with its code |
+| POST | `/api/fresh` | `{all: true, dry_run: true, keyless?}` — a fresh day's preview (#508): `rows` (each with `ticked`, `keyless`, `began`, and a `needs_you` row's `question`), `plan_id`, `ticked`, `premium_turns`, `skipped` by code. `{all: true, repos: [..]}` starts the ticked repos that are still `now`: `rows` with `done` (`started`, `skipped`, `changed`) and each pane's new `row`; an unknown repo is listed in `unknown_repos`. `{all: true}` alone is 409 `preview_first`; nothing else launches |
 | POST | `/api/send` | `{repo, message}` |
 | POST | `/api/stop` | `{repo}` |
 | POST | `/api/reset` | `{repo, force?}` — stop, then resume the same session |

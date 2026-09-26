@@ -53,6 +53,12 @@
     <span class="glabel">alerts</span>
     <button id="chime" aria-pressed="false" title="sound on a notification">chime off</button>
     <button id="bell" title="notifications"><span id="bellcount">0</span> new</button>
+    <!-- #511: the fleet day (DAY-D5). One menu, opened through `POPOVERS`; #512 adds the sweeps. -->
+    <button id="daybtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="daymenu"
+            title="the day: start every agent fresh (Shift+N)">day</button>
+    <div id="daymenu" class="popover daymenu" role="menu" aria-label="the day" hidden>
+      <button type="button" role="menuitem" id="dayfresh">start the day fresh <kbd>Shift</kbd>+<kbd>N</kbd></button>
+    </div>
   </div>
 </header>
 
@@ -71,6 +77,25 @@
   <div class="renew-actions" hidden>
     <button type="button" id="renewgo">renew</button>
     <button type="button" id="renewcancel">cancel <kbd>Esc</kbd></button>
+  </div>
+</div>
+
+<!-- A fresh day (#508, #511): its own strip, so renew's stays as it is. One line in the morning while
+     panes are on sessions that began before today; the preview (`POST /api/fresh {all: true,
+     dry_run: true}`) only when asked -- `Shift+N`, the *day* menu, the line's button, or `?fresh=1`,
+     which only ever previews. Nothing runs until `daygo`, which posts the repos ticked here. -->
+<div id="day-strip" class="day-strip enters" role="region" aria-label="a fresh day" hidden>
+  <p class="day-offer" hidden><span class="day-offer-words"></span>
+    <button type="button" id="dayoffer">preview a fresh day <kbd>Shift</kbd>+<kbd>N</kbd></button>
+    <button type="button" id="daynottoday" title="hide this line until tomorrow">not today</button></p>
+  <p class="day-sum" hidden></p>
+  <ul class="day-rows" hidden>
+    <li class="day-pattern fresh-row" hidden><input type="checkbox" class="day-tick"><strong class="day-repo"></strong><span class="day-verdict"></span><span class="day-ticket"></span><span class="day-model"></span><span class="day-began"></span><span class="day-why"></span><span class="day-question"></span><button type="button" class="day-answer" hidden>answer</button></li>
+  </ul>
+  <label class="day-keyless" hidden><input type="checkbox" id="daykeyless"> tick every idle agent (no ticket: a keyless session each)</label>
+  <div class="day-actions" hidden>
+    <button type="button" id="daygo" disabled>start 0 fresh</button>
+    <button type="button" id="daycancel">cancel <kbd>Esc</kbd></button>
   </div>
 </div>
 
@@ -256,6 +281,7 @@
     </div>
     <div class="keys-group"><strong>this page</strong>
       <span><kbd>g</kbd> the map</span>
+      <span><kbd>Shift</kbd>+<kbd>N</kbd> a fresh day for every pane (preview)</span>
       <span><kbd>?</kbd> these keys</span>
       <span><kbd>Esc</kbd> the last one, or close what is open</span>
     </div>

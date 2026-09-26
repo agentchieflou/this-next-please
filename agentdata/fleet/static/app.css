@@ -1139,6 +1139,17 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .friction-earlier .frictionrow { border-left-color: var(--muted); color: var(--muted); }
 #inspectordetails .frictionrow button,
 #inspectordetails .frictionrow .frictionasked { display: block; margin-top: 2px; }
+/* #504: the panel fits one screen. Everything but the rail, open friction, spend and the branches
+   folds under one closed *more*; a branch row is one line, its full meta in its title. */
+#inspectordetails details.more > summary,
+#inspectordetails details.branches-list > summary { cursor: pointer; font: 11px var(--ui); color: var(--muted); }
+#inspectordetails details.more[open] { display: flex; flex-direction: column; gap: 8px; }
+#inspectordetails details.more .missing { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#inspectordetails .spendline { margin: 0; font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#inspectordetails .spendline.warn { color: var(--waiting-text); }
+#inspectordetails details.branches-list .branchrow { flex-wrap: nowrap; white-space: nowrap; min-width: 0; }
+#inspectordetails details.branches-list .branchrow .bname { flex: 0 0 auto; }
+#inspectordetails details.branches-list .branchrow .bmeta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
 
 /* ---------------------------------------------------------- the dispatch card (#164)
    A drop opens this instead of launching, in the approval card's shape: both are "the tile is
@@ -1311,6 +1322,27 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .renew-row .renew-why { color: var(--muted); overflow-wrap: anywhere; }
 .renew-row.verdict-now .renew-verdict, .renew-row.verdict-at-turn-end .renew-verdict { font-weight: 600; }
 .renew-actions { display: flex; gap: 8px; }
+
+/* A fresh day (#511): the renew strip's shape, in a strip of its own. A row is a checkbox, then the
+   repo, verdict, ticket, model, began, why and -- for one waiting on you -- its question and *answer*.
+   Words in `--text`; the why in `--muted` as renew's is, with the question beside it in `--text`. */
+.day-strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  padding: 8px 16px; border-bottom: 1px solid var(--line);
+  background: var(--panel); font: 12px/1.4 var(--ui);
+}
+.day-strip .day-offer, .day-strip .day-sum { margin: 0; flex: 1 1 100%; }
+.day-rows { list-style: none; margin: 0; padding: 0; flex: 1 1 100%; display: grid; gap: 2px; }
+.day-row {
+  display: grid; align-items: baseline; gap: 12px; font-size: 12px;
+  grid-template-columns: auto minmax(8em, max-content) 9em 7em 10em 9em minmax(0, 1fr) auto auto;
+}
+.day-row .day-why { color: var(--muted); overflow-wrap: anywhere; }
+.day-row .day-question { color: var(--text); overflow-wrap: anywhere; }
+.day-row .day-tick:disabled + .day-repo { font-weight: 400; }
+.day-row.done-started .day-verdict { font-weight: 600; }
+.day-actions { display: flex; gap: 8px; }
+#daymenu { min-width: 200px; }
 
 /* ---- the model picker (#362)
    `picker.js`, on the model card, /settings and the dispatch card. Tokens only, every selector under
