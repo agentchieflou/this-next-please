@@ -45,7 +45,11 @@ That is also what the payload budget measures now. It used to count bytes on dis
 comment in the page cost against a number that exists to keep the page quick to open — and the page
 is mostly prose, because the comments are where this project keeps its design record. The number an
 operator waits on is what crosses the wire, so that is the number the test asserts (200 kB), with
-the on-disk figure reported beside it so a file that doubles is still visible. On loopback the
+the on-disk figure reported beside it so a file that doubles is still visible. Since #523 (decisions
+18 and 19 on #429) the prose is not in the page at all: a source file keeps code and its JSDoc
+types, its reasoning is in `<file>.md` beside it, which the server never serves, and the server
+strips every comment from what it sends. The desk went from 202,333 bytes gzipped to 117,055
+([desk-components.md](desk-components.md) §Where a component's reasoning lives). On loopback the
 saving is nothing and the CPU is real, which is why the API's JSON is *not* compressed: the desk
 polls it four times a second, and nobody waits on that. The page is for the case where the server
 is not loopback — a forwarded port, a phone on the LAN, a remote desktop.

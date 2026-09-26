@@ -234,6 +234,13 @@ def _wire(body: bytes) -> int:
     return len(gzip.compress(body.replace(b"\r\n", b"\n"), 6, mtime=0))
 
 
+def _served(name: str) -> bytes:
+    """An ink module as the server sends it -- without its comments (`serve.strip_asset`) -- from
+    the bytes git stores, LF, as `_wire` measures them."""
+    lf = open(os.path.join(INK, name), "rb").read().replace(b"\r\n", b"\n")
+    return S.strip_asset(f"ink/{name}", lf)
+
+
 def test_a_crlf_checkout_of_the_ink_modules_measures_what_an_lf_one_does():
     """A Windows checkout with `core.autocrlf=true` holds the modules with CRLF endings, about 190
     bytes more gzipped than LF. The budget measures what git stores, so the two are one figure
@@ -250,15 +257,21 @@ def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     turned on fetches them. three.js is 163 KB of its own and is outside the desk's budget, because
     no desk fetches it unless it draws. The lazy modules (`LAZY`: `fx.js`, #370) are fetched only
     by a table that asks for them, so each has a budget of its own and is not in `INK_BUDGET`."""
-    sizes = {n: _wire(open(os.path.join(INK, n), "rb").read()) for n in MODULES}
+    # What the server sends of each (#523, decision 19): the module without its comments.
+    sizes = {n: _wire(_served(n)) for n in MODULES}
     print(f"\n  ink modules over the wire: {sum(sizes.values())} bytes gzipped {sizes}")
     assert sum(sizes.values()) < INK_BUDGET, sizes
-    fx = _wire(open(os.path.join(INK, "fx.js"), "rb").read())
+    fx = _wire(_served("fx.js"))
     print(f"  fx.js over the wire: {fx} bytes gzipped")
     assert fx < FX_BUDGET, fx
-    files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
+    # Beside each module, its tagalong reasoning (`<file>.md`, #523), which is never served.
+    files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n))
+                   and not n.endswith(S.UNSERVED))
     assert files == sorted(MODULES + LAZY), "a module no budget counts"
-    assert sorted(os.listdir(INK)) == sorted(MODULES + LAZY + ("skins",))
+    assert sorted(n for n in os.listdir(INK) if not n.endswith(S.UNSERVED)) \
+        == sorted(MODULES + LAZY + ("skins",))
+    assert sorted(n for n in os.listdir(INK) if n.endswith(S.UNSERVED)) \
+        == sorted(n + ".md" for n in MODULES + LAZY)
     # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost.
     # Every one but the example is a skin skins.py offers (#249-#256 ship them).
     from agentdata.fleet import skins as K
