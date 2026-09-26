@@ -29,6 +29,14 @@ The rest are Luna's. `GEMINI.md` at the root says the same in eight lines.
 - Resolve a conflict hunk by hunk. Never resolve one by taking a whole file (commit 869d9cd dropped `main`'s text that
   way). After every merge of `main`, re-run the doc guards: `tests/test_entrypoints.py`, `tests/test_fleet_components.py`,
   `tests/test_suite_hygiene.py`.
+- **Reasoning goes in the tagalong `.md`, not in the source** (decision 18 on #429, #523). A script or stylesheet
+  the desk serves (`agentdata/fleet/static/`, `vendor/` aside) carries code only: write why in `<file>.md` beside
+  it, under the `###` heading of the function, declaration, rule or selector it explains (add one if it is new), in
+  the same commit as the code. The one comment a served file keeps is the inline cast `tsc` needs,
+  `/** @type {X} */ (expr)`; a type for a record or a function goes in `<file>.d.ts` (docs/desk-types.md).
+  `tests/test_fleet_served_comments.py` fails on any other comment and on a served file without its `.md`. A branch
+  from before #523 that merges `main` in resolves a comment-only hunk by dropping the comment and moving its words
+  to the `.md`.
 - A bug you find in a shared file that your issue does not own is its own issue: search `tests/regressions/` and the
   open PRs for the symptom first (the same idle-desk bug was fixed in five parallel branches during the ink epic).
 
@@ -147,14 +155,16 @@ Gemini's usable memory is about 140-150k tokens before a lossy summary (antigrav
 
 | File | Tokens, read whole |
 |---|---|
-| `agentdata/fleet/static/app.js` | ~61k: **never read it whole** |
+| `agentdata/fleet/static/app.js` | ~37k since #523, code only: **never read it whole** |
+| `agentdata/fleet/static/app.js.md` | ~29k: its reasoning; **grep the `###` heading you need** |
 | `agentdata/fleet/serve.py` | ~36k: **never read it whole** |
-| `agentdata/fleet/static/app.css` | ~17k |
+| `agentdata/fleet/static/app.css` | ~11k |
 | `tests/test_fleet_ink.py` | ~16k |
-| `agentdata/fleet/static/ink/layer.js` | ~15k |
+| `agentdata/fleet/static/ink/layer.js` | ~11k |
 | `docs/desk-ink.md` | ~11k |
 
-Find a symbol with `grep -n` and read about 80 lines around it. Every issue's **Read first** section names the ranges.
+Find a symbol with `grep -n` and read about 80 lines around it, and its notes with
+``grep -n '### `function <name>`' <file>.md``. Every issue's **Read first** section names the ranges.
 
 ## 7. Lanes
 

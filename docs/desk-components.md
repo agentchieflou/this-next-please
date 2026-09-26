@@ -44,6 +44,24 @@ Seven rules. They are not style; each one is a bug that happened.
    makes rule 1 cheap rather than careful.
 7. **`place()` is idempotent.** A pass with nothing to change touches nothing.
 
+## Where a component's reasoning lives (#523)
+
+The files the desk serves carry code and nothing else (decision 18 on #429): no comment in a served
+script or stylesheet but the inline type cast `tsc` needs, `/** @type {X} */ (expr)`. Why a
+component is the way it is lives beside its file, in the tagalong `<file>.md` (`app.js.md`,
+`app.css.md`, `common.js.md`, `ink/layer.js.md`, `skins/<name>/skin.css.md`, and so on):
+
+* a `##` heading is a section of the file, named by the banner comment that used to open it;
+* a `###` heading is a function, a declaration or a statement in `app.js`, or a rule's selector or
+  at-rule in `app.css`, in source order: `### \`function drawTile\``, `### \`.tile .pane-rail\``;
+* each note says which line of code it sat beside, and keeps the words it had.
+
+The inventory below says what each component is and who draws it; the `.md` says why. The types a
+draw function takes are in `app.js.d.ts` ([desk-types.md](desk-types.md)). A change to a component
+changes its note in the same commit, and `tests/test_fleet_served_comments.py` fails on a comment in
+a served file or on a served file without its `.md`. The server refuses to serve either (`UNSERVED`),
+so the reasoning costs a page load nothing.
+
 ## The setters
 
 All in `common.js`, all guarded, all no-ops when the value is already right:

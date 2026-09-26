@@ -3,9 +3,18 @@
 The desk is JavaScript with no build step, and it stays that way: the files ship as package data
 and load in JCEF and Simple Browser behind a corporate proxy ([fleet-dashboard.md](fleet-dashboard.md)
 §Why a web page). What TypeScript adds here is **checking**, and checking needs no build
-([plan-panes.md](plan-panes.md) §Where this plan pushes back, item 1). So `tsc` reads JSDoc in the
-page's own comments against the page's own code, emits nothing, and runs in CI. The page is still
-the bytes in `agentdata/fleet/static/` (#236).
+([plan-panes.md](plan-panes.md) §Where this plan pushes back, item 1). So `tsc` reads the page's
+declarations against the page's own code, emits nothing, and runs in CI. The page is still the bytes
+in `agentdata/fleet/static/` (#236).
+
+**Where the types are (#523, decision 18 on #429).** A served file carries no comments, so the types
+that used to be JSDoc in `app.js` and `picker.js` are in `app.js.d.ts` and `picker.js.d.ts` beside
+them: every `@typedef` is a `type`, and every function that had `@param` or `@returns` is a
+`declare function` with the same signature. The one comment left in a served script is the inline
+cast, `/** @type {X} */ (expr)`. A declaration's own `@type` became a cast of its value
+(`var tiles = /** @type {Map<string, Pane>} */ (new Map())`), and a parameter's became a cast of the
+function it belongs to (`/** @type {(e: MouseEvent & {target: Element}) => void} */ (function (e) {...})`).
+The server refuses to serve a `.d.ts` (`UNSERVED` in serve.py) and the wheel leaves it out.
 
 ## Running it
 
@@ -29,8 +38,9 @@ on the first run, before anything was typed, it flagged the same places as 5.9.3
 ## The program: all of both files, typed in part
 
 `tsconfig.json` is dev-only, at the repository root: `allowJs`, `checkJs`, `noEmit`, and `strict`
-off to begin with. It names three files, `common.js`, `picker.js` and `app.js`, in the order the
-pages load them, and nothing else.
+off to begin with. It names three scripts, `common.js`, `picker.js` and `app.js`, in the order the
+pages load them, each typed one after its declarations (`picker.js.d.ts`, `app.js.d.ts`), and
+nothing else.
 
 **Why both.** `app.js` is a classic script. It reads `q`, `post`, `text` and the other setters as
 globals that `common.js` declares, and a global resolves only inside one program.
@@ -46,8 +56,8 @@ sections of `app.js`, beside everything else. `// @ts-check` and `checkJs` switc
 off, and nothing in between. So the checker reads all of both files, and the plan's limit is kept by
 what is **typed**:
 
-* **The typed part** carries JSDoc: the records below, and the functions that move them. That is
-  where the checker knows what a value is.
+* **The typed part** is declared in the `.d.ts`: the records below, and the functions that move them.
+  That is where the checker knows what a value is.
 * **The rest** carries only what the checker needed to read it without error. That is the kind of
   element a lookup returns, said at the lookup: `querySelector` answers `Element`, and the page means
   an input, a button or a canvas. With `strict` off, an unannotated parameter is `any`, so the rest is
@@ -93,6 +103,21 @@ snap-back (ground rule 2), so writing `zoomed`, or the retired `focus`, is a typ
 a bug on the glass. `Row` is open because the rest of the page reads many more of its fields, untyped.
 A field the list does not name reads as `any`, not as an error, and closing it is the widening's job.
 
+**What a `declare function` checks, and what it does not (#523).** The declaration and the
+script's own function are two signatures of one function to the checker: the declared one, then the
+script's, whose parameters are untyped. A call is checked against the first that fits, so:
+
+* what a typed function **returns** still reaches its callers: `acceptDesk(d) + 1` is an error,
+  because `acceptDesk` returns a `boolean`;
+* what it **takes** is no longer checked. A call the declaration refuses fits the script's own
+  signature, so `saveWindow({zoomed: 1})` and `paneTier("x")` pass, and inside the function its
+  parameters are `any`. With JSDoc on the function both were errors; the experiment in #523's
+  handover shows the three calls before and after.
+
+So `WindowWrite` is a type error for a retired field wherever a value is cast to it, and no longer
+at a call to `saveWindow`. Getting the arguments back needs a type on the function itself, which is
+a comment in the served file; that is the operator's call, and #523 did not make it.
+
 **The types are held to the server.** Types that describe a record are only true while they name what
 the server sends. `tests/test_desk_types.py` compares:
 
@@ -102,7 +127,8 @@ the server sends. `tests/test_desk_types.py` compares:
 * `WindowWrite` with the record, of which it must stay a strict part;
 * `Tiers` with the keys of `settings.tiers()` (#235).
 
-A field added to serve.py fails there until the page says what it is.
+A field added to serve.py fails there until the page says what it is. The test reads the records
+out of `app.js.d.ts`.
 
 ## What the check found
 
