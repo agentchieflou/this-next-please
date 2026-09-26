@@ -16,6 +16,7 @@ not on the source text and not on the mechanism.
 from __future__ import annotations
 import json
 import os
+import re
 import threading
 import time
 
@@ -148,6 +149,24 @@ def _page(p, url):
     page.wait_for_selector(".tile.is-solo", timeout=15000)
     page.wait_for_timeout(900)
     return browser, page, errors
+
+
+# The two lines above the grid (#530). Each one's coming or going moves every pane, and a line that
+# goes is animated out (`.enters`, app.css): it keeps its height for `--motion-base` and then takes
+# it away at once, so the grid is still for the whole transition and jumps at its end.
+_LINES = """() => ['renew-strip', 'day-strip'].every(id => {
+                 const line = document.getElementById(id);
+                 return !line || line.getAnimations().length === 0; })"""
+
+
+def _press(page, selector: str) -> None:
+    """Click `selector` once the lines above the grid are at rest (#530).
+
+    Playwright waits for the button itself to hold still over two frames, and it does: a line leaving
+    moves nothing until its transition ends. A press between that check and the jump landed on the
+    pane under where the button had been, and the pane selected itself instead."""
+    page.wait_for_function(_LINES, timeout=15000)
+    page.click(selector)
 
 
 def _visible(page, repo: str) -> bool:
@@ -790,7 +809,24 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
         assert "the fleet did not start" in offer, offer
         assert "inferred from recent activity" in offer, "it says how strong the claim is"
 
-        page.click('.tile[data-repo="busy"] .adopt')
+        # #530: `busy` is idle on a fleet run two days old, with a ticket, so the day line above the
+        # grid counts it. A snapshot is read now and handed over only after the adopt's answer.
+        page.wait_for_selector("#day-strip:not([hidden])", timeout=15000)
+        held, released = [], []
+
+        def hold(route):
+            if released:
+                route.continue_()
+            else:
+                held.append((route, route.fetch()))     # read by the server now, handed over later
+        page.route(re.compile(r"/api/fleet\?"), hold)
+        page.evaluate("() => { refresh(); }")
+        deadline = time.time() + 15
+        while not held and time.time() < deadline:
+            page.wait_for_timeout(20)
+        assert held, "the snapshot before the adopt was never asked for"
+
+        _press(page, '.tile[data-repo="busy"] .adopt')
         # Waited for, not slept through (#227): the tile changes on the adopt's answer, and on the
         # Windows 3.14 leg of #269 that answer took over 3 s (the adoption's first write, into a
         # fleet directory the antivirus was still looking at). 900 ms was a guess at a clock.
@@ -798,6 +834,24 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
             """() => /is driving this repo/.test(
                    document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
             timeout=15000)
+        # The line goes with the answer, not a snapshot later: the grid moves once, and no press that
+        # follows lands on the pane under where its button was (#530).
+        assert page.evaluate("() => document.getElementById('day-strip').hidden"), \
+            "the answer's own row takes its pane off the day line"
+        page.wait_for_function(_LINES, timeout=15000)
+        where = "t => t.getBoundingClientRect().top"
+        at_answer = page.eval_on_selector('.tile[data-repo="busy"]', where)
+        # The held snapshot, read before the adopt, looked at the moment it is drawn and before anything
+        # newer can be; then one read after the adopt. Neither counts the pane back or moves the grid.
+        drawn = "() => refresh().then(() => document.getElementById('day-strip').hidden)"
+        page.evaluate(f"() => {{ window.olderDrawn = ({drawn})(); }}")
+        released.append(True)
+        for route, response in held:
+            route.fulfill(response=response)
+        assert page.evaluate("() => window.olderDrawn"), "an older snapshot counted the pane back"
+        assert page.evaluate(drawn)
+        page.wait_for_function(_LINES, timeout=15000)
+        assert page.eval_on_selector('.tile[data-repo="busy"]', where) == at_answer
 
         after = page.inner_text('.tile[data-repo="busy"] .outside')
         assert "is driving this repo" in after, after
@@ -827,7 +881,7 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
         assert "close it in its own window" in refused and "ad-fleet release busy" in refused, refused
         assert page.is_visible('.tile[data-repo="busy"] .err'), "the refusal is on the screen"
 
-        page.click('.tile[data-repo="busy"] .adopt')            # hand it back
+        _press(page, '.tile[data-repo="busy"] .adopt')            # hand it back
         page.wait_for_function(
             """() => /the fleet did not start/.test(
                    document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
@@ -839,20 +893,20 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
         # the adoption and launches one clean agent on the ticket, never a `--resume`.
         busy = Registry().get("busy").path
         _session_file(no_copilot_home, "native-busy", busy)
-        page.click('.tile[data-repo="busy"] .adopt')
+        _press(page, '.tile[data-repo="busy"] .adopt')
         page.wait_for_function(
             """() => /is driving this repo/.test(
                    document.querySelector('.tile[data-repo="busy"] .outside').textContent)""",
             timeout=15000)
         page.wait_for_selector('.tile[data-repo="busy"] .freshtoggle:not([hidden])', timeout=15000)
-        page.click('.tile[data-repo="busy"] .freshtoggle')
+        _press(page, '.tile[data-repo="busy"] .freshtoggle')
         page.wait_for_function(
             """() => /may still be open/.test(document.querySelector('.tile[data-repo="busy"] .err').textContent)""",
             timeout=15000)
         assert page.is_visible('.tile[data-repo="busy"] .err')
         assert page.inner_text('.tile[data-repo="busy"] .freshtoggle') == "start fresh — it is closed"
         assert launches == [], "the first press launches nothing"
-        page.click('.tile[data-repo="busy"] .freshtoggle')
+        _press(page, '.tile[data-repo="busy"] .freshtoggle')
         deadline = time.time() + 15
         while not launches and time.time() < deadline:
             time.sleep(0.05)
@@ -861,7 +915,7 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
         page.wait_for_function("() => /busy: left/.test(document.getElementById('notice').textContent)",
                                timeout=15000)
         # *Earlier (n)*: the chat that was left reads `your chat` and `left`, without a hover.
-        page.click('.tile[data-repo="busy"] .spill')
+        _press(page, '.tile[data-repo="busy"] .spill')
         page.wait_for_function(
             """() => [...document.querySelectorAll('.tile[data-repo="busy"] .sessions .session-row:not([hidden])')]
                       .some(li => li.querySelector('.ss-src').textContent === 'your chat'
@@ -882,7 +936,7 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
         page.wait_for_selector('.tile[data-repo="c1"][data-tier="compact"]', timeout=15000)
         page.wait_for_selector('.tile[data-repo="c1"] .freshtoggle:not([hidden])', timeout=15000)
         assert page.is_visible('.tile[data-repo="c1"] .freshtoggle')
-        page.click('.tile[data-repo="c1"] .freshtoggle')
+        _press(page, '.tile[data-repo="c1"] .freshtoggle')
         deadline = time.time() + 15
         while len(launches) < 2 and time.time() < deadline:
             time.sleep(0.05)
