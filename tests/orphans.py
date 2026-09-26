@@ -134,8 +134,75 @@ def _windows_children(pid: int) -> list[dict]:
     if rows is None:
         return _cim_children(pid)
     for row in rows:
-        row["cmdline"] = _cim_cmdline(row["pid"]) or row["name"]
+        row["cmdline"], row["cmdline_from"] = _windows_cmdline(row["pid"], row["name"])
     return rows
+
+
+def _windows_cmdline(pid: int, name: str) -> tuple[str, str]:
+    """(command line, which reader gave it) for one child, asking the process itself first (#520).
+
+    The snapshot names the image only (`python.exe`). The command line used to come from CIM alone,
+    a `powershell` per child: a 60 s cold start away, and on a loaded runner it can time out, fail
+    on a WMI error it prints to stderr, or print nothing. The guard then fell back to the image name,
+    and read a live `python -c ... time.sleep(300)` as bare `python.exe` (windows 3.12, train 7 and
+    train 8b). The native read asks the kernel for the command line `CreateProcess` stored, with the
+    same handle right the snapshot's creation-time check already uses. CIM stays as the second
+    reader. When both fail, the image name is returned with each reader's reason, so a red says why.
+    """
+    why = []
+    for label, reader in (("_native_cmdline", _native_cmdline), ("_cim_cmdline", _cim_cmdline)):
+        try:
+            text = reader(pid)
+        except Exception as e:                      # noqa: BLE001 - recorded, then the next reader
+            why.append(f"{label}: {type(e).__name__}: {e}")
+            continue
+        if text:
+            return text, label
+        why.append(f"{label}: empty")
+    return name, "the image name, because " + "; ".join(why)
+
+
+def _native_cmdline(pid: int) -> str:
+    """The command line of `pid` from `NtQueryInformationProcess(ProcessCommandLineInformation)`.
+
+    Windows 8.1 and later. It needs only PROCESS_QUERY_LIMITED_INFORMATION, which a process has on a
+    child it started as the same user, and it reads the kernel's copy of the command line, so it
+    involves no second process, no WMI and no timeout. Raises OSError on a refusal, with the code.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    ntdll = ctypes.WinDLL("ntdll")
+
+    class UNICODE_STRING(ctypes.Structure):
+        _fields_ = [("Length", wintypes.USHORT), ("MaximumLength", wintypes.USHORT),
+                    ("Buffer", ctypes.c_void_p)]
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    ProcessCommandLineInformation = 60
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    ntdll.NtQueryInformationProcess.argtypes = [wintypes.HANDLE, wintypes.ULONG, ctypes.c_void_p,
+                                                wintypes.ULONG, ctypes.POINTER(wintypes.ULONG)]
+    ntdll.NtQueryInformationProcess.restype = ctypes.c_long          # NTSTATUS: negative is an error
+    h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        raise OSError(ctypes.get_last_error(), f"OpenProcess({pid}) refused")
+    try:
+        need = wintypes.ULONG(0)
+        ntdll.NtQueryInformationProcess(h, ProcessCommandLineInformation, None, 0, ctypes.byref(need))
+        size = max(need.value, ctypes.sizeof(UNICODE_STRING)) or 0x10000
+        buf = ctypes.create_string_buffer(size)
+        status = ntdll.NtQueryInformationProcess(h, ProcessCommandLineInformation, buf, size,
+                                                 ctypes.byref(need))
+        if status < 0:
+            raise OSError(f"NtQueryInformationProcess({pid}) gave NTSTATUS 0x{status & 0xFFFFFFFF:08X}")
+        text = UNICODE_STRING.from_buffer(buf)      # its Buffer points into `buf`, just past it
+        return ctypes.wstring_at(text.Buffer, text.Length // 2) if text.Buffer and text.Length else ""
+    finally:
+        k32.CloseHandle(h)
 
 
 def _toolhelp_children(pid: int) -> list[dict] | None:
@@ -213,20 +280,26 @@ def _cim_children(pid: int) -> list[dict]:
     for line in out.splitlines():
         parts = line.split("\t", 2)
         if len(parts) >= 2 and parts[0].strip().isdigit():
-            rows.append({"pid": int(parts[0]), "name": parts[1],
-                         "cmdline": parts[2] if len(parts) > 2 else parts[1]})
+            text = parts[2].strip() if len(parts) > 2 else ""
+            rows.append({"pid": int(parts[0]), "name": parts[1], "cmdline": text or parts[1],
+                         "cmdline_from": "_cim_children" if text else
+                         "the image name, because _cim_children: no CommandLine"})
     return rows
 
 
 def _cim_cmdline(pid: int) -> str:
-    """The command line of one process. Only asked for a child already found, so only on a failure."""
+    """The command line of one process from CIM: the second reader, after `_native_cmdline`.
+
+    Raises with powershell's exit code and the head of its stderr when it answers nothing, so
+    `_windows_cmdline` can say why; a timeout or a missing powershell raises as it is.
+    """
     script = f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"
-    try:
-        return subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                              capture_output=True, text=True, timeout=60,
-                              stdin=subprocess.DEVNULL).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return ""
+    done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                          capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    text = (done.stdout or "").strip()
+    if not text and (done.returncode or (done.stderr or "").strip()):
+        raise OSError(f"powershell exit {done.returncode}: {(done.stderr or '').strip()[:200]}")
+    return text
 
 
 # -- the guard -----------------------------------------------------------------------------------
@@ -255,7 +328,9 @@ def describe(rows: list[dict]) -> str:
     lines = [f"{len(rows)} child process(es) of {where} (pid {os.getpid()}) outlived the tests "
              "that started them (#317). Its owner must kill it and wait on it at teardown, "
              "even when the test fails (agentdata.proc.kill_tree, then a bounded wait):"]
-    lines += [f"  pid {r['pid']}  {r['name']}  {_clip(r['cmdline'])}" for r in rows]
+    lines += [f"  pid {r['pid']}  {r['name']}  {_clip(r['cmdline'])}"
+              + (f"  [{r['cmdline_from']}]" if r.get("cmdline_from", "").startswith("the image") else "")
+              for r in rows]
     return "\n".join(lines)
 
 
