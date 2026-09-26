@@ -4595,9 +4595,6 @@ function shownRows() {
   return rows;
 }
 
-/* The renew and day lines, from the rows the panes show, with every row that lands (#530). Drawn
-   only from a snapshot, the day line went a beat after an adopt's answer and moved the grid under
-   the next press; and a snapshot that `readBefore` kept off its pane still counted that pane. */
 function drawRowLines(server) {
   var rows = shownRows();
   drawRenewStrip(rows, server);

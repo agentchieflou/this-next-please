@@ -3314,6 +3314,14 @@ session on the old text. The server judges each row against what is installed no
 snapshot; the page only says so -- a chip on the tile, and a header button that previews what a
 renew would do before anything runs.
 
+### `function drawRowLines`
+
+Above `function drawRowLines(server) {`:
+
+The renew and day lines, from the rows the panes show, with every row that lands (#530). Drawn
+only from a snapshot, the day line went a beat after an adopt's answer and moved the grid under
+the next press; and a snapshot that `readBefore` kept off its pane still counted that pane.
+
 ### `function drawRenewStrip`
 
 Above `function drawRenewStrip(rows, server) {`:
