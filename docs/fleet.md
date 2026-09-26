@@ -31,7 +31,9 @@ ad-fleet status
    needs you, green when it is done. A toast arrives for the first two.
 4. **Answer.** Approve the write from the tile; type a reply to the agent that asked a question;
    read the unblock sentence from the one that stopped.
-5. **`ad-fleet history`** at the end of the day: what was dispatched, how it ended, what it cost.
+5. **End the day:** `ad-fleet wrapup --all --day --dry-run`, then `--confirm <plan_id>` — every
+   agent's Jira, Bitbucket and Confluence writes in one table, written on one confirm (#505).
+   `ad-fleet history` says what was dispatched, how it ended, and what it cost.
 
 Everything in that loop is also a command, because a fleet you can only drive through a page is a
 fleet you cannot script: `approvals`, `approve`, `deny`, `send`, `restart`, `renew`, `stop`, `board`,
@@ -117,6 +119,24 @@ gets every row skipped, and nothing is queued. Until #506 and #507 pin the PR an
 rows read `not_pinned`. The confirm is the approval: each written step leaves one record
 `by: operator`, `via: wrapup` (see [fleet-approvals.md](fleet-approvals.md)), and one line in
 `<fleet dir>/agents/<repo>/wrapup.jsonl`. The fleet never writes the checkout.
+
+**The sweep** (#505) is the same preview for every registered agent, or for the ones you name:
+
+```bash
+ad-fleet wrapup --all --dry-run                 # end of day across the fleet: one table, totals, a plan_id
+ad-fleet wrapup --all --project --dry-run       # end of project across the fleet
+ad-fleet wrapup luna sol --dry-run              # just those
+ad-fleet wrapup --all --confirm <plan_id>       # write every ticked ok step, repo by repo
+```
+
+End of day is the sweep's default (the operator's pairing: *clean sweep* with *end of day*), and
+`--project` must be named. The preview reads three agents at a time, each agent's steps one after
+another, and prints one row per agent (`planned`, `busy` with its hint, or *nothing to write*), one row
+per step, and the totals by kind — pushes, PRs, pages, comments, transitions — with `not_pinned`
+counted apart. The confirm needs the fleet `plan_id`, which hashes every agent's own; a fleet that
+changed since the preview is refused `plan_changed`. Each agent is then written through the same
+path as one agent's wrap-up, so its fresh dry-runs, ids, order and records all hold, and one
+agent's failure never stops another's. A busy agent is skipped with a hint and never queued (DAY-D3).
 
 ## More than one project: the desk
 

@@ -465,3 +465,240 @@ def test_no_dry_run_wrote_to_the_remote_or_to_jira(luna):
     rows = _rows(WRAP.plan("luna", "project"))
     assert not rows["transition-review"]["ok"] and "Done" in rows["transition-review"]["available"], \
         "a transition the workflow does not have carries Jira's own names"
+
+
+# ------------------------------------------------------------------------------------------ the sweep (#505)
+
+
+def _checkout(tmp_path, name, *, ticket="", branch="", commits=("feat: one",), phase="building"):
+    """A registered checkout with a bare `origin` holding `main`; on `branch` with `commits` unpushed."""
+    bare = tmp_path / f"{name}.git"
+    git(tmp_path, "init", "-q", "--bare", str(bare))
+    path = make_project(tmp_path / name, phase=phase, ticket=ticket)
+    git(path, "init", "-q")
+    git(path, "remote", "add", "origin", str(bare))
+    git(path, "add", "AGENTS.md")
+    git(path, "commit", "-q", "-m", "chore: start")
+    git(path, "push", "-q", "origin", "main")
+    git(path, "remote", "set-head", "origin", "main")
+    if branch:
+        git(path, "checkout", "-q", "-b", branch)
+    for s in commits:
+        commit(path, s)
+    Registry().add(path, name=name)
+    return path, bare
+
+
+@pytest.fixture()
+def fleet4(luna, tmp_path):
+    """#505's four fixtures: `luna` (ticketed, three unpushed commits), `sol` (untracked, with commits),
+    `terra` (ticketed, on its default branch) and `vega` (ticketed, mid-turn)."""
+    sol, _ = _checkout(tmp_path, "sol", branch="feature/tidy", commits=("chore: tidy",))
+    terra, _ = _checkout(tmp_path, "terra", ticket="RDSD-2", commits=("fix: on main",))
+    vega, _ = _checkout(tmp_path, "vega", ticket="RDSD-3", branch="feature/RDSD-3-x")
+    supervisor.write_lock("vega", {"pid": os.getpid(), "ticket": "RDSD-3"})
+    return {**luna, "paths": {"luna": luna["path"], "sol": sol, "terra": terra, "vega": vega}}
+
+
+def _repos(swept) -> dict:
+    return {r["repo"]: r for r in swept["repos"]}
+
+
+def _slots(row) -> dict:
+    return {s["id"].split(":", 1)[0]: s for s in row["steps"]}
+
+
+PR_DRY = {"dry": {"ok": True, "action": "create", "pr_id": None, "title": "RDSD-1: thing", "draft": True,
+                  "source": "feature/RDSD-1-thing", "target": "main", "description": "replaced", "live_hash": ""},
+          "real": {"ok": True, "action": "create", "pr_id": 7, "url": "https://bitbucket.example/pull-requests/7"}}
+PAGE_DRY = {"dry": {"ok": True, "action": "update", "page_id": 5, "title": "RDSD-1", "space": "RDSD", "parent": "1",
+                    "version": 3, "current_chars": 10, "new_chars": 12, "edited": False},
+            "real": {"ok": True, "page_id": 5, "version": 4, "url": "https://wiki.example/pages/5"}}
+
+
+def test_plan_all_writes_nothing_outside_the_fleet_dir_and_its_totals_match_its_rows(fleet4, fleet_home):
+    before = {n: _tree(p) for n, p in fleet4["paths"].items()}
+    refs = _refs(fleet4["bare"])
+    swept = WRAP.plan_all("day")
+    assert {n: _tree(p) for n, p in fleet4["paths"].items()} == before, "the sweep wrote inside a checkout"
+    assert _refs(fleet4["bare"]) == refs and fleet4["rec"].writes == []
+    assert [r for r in fleet4["fake"].requests if r.method == "POST"] == []
+    assert swept["mode"] == "day" and [r["repo"] for r in swept["repos"]] == ["luna", "sol", "terra", "vega"]
+    kinds = {"push": "pushes", "pr": "prs", "page": "pages", "comment": "comments", "transition": "transitions"}
+    want = {k: 0 for k in kinds.values()}
+    pinned = 0
+    for row in swept["repos"]:
+        for s in row["steps"]:
+            want[kinds[s["step"]]] += bool(s["ticked"])
+            pinned += s["code"] == "not_pinned"
+    assert swept["totals"] == {**want, "not_pinned": pinned}, swept["totals"]
+    assert swept["writes"] == sum(want.values()) and len(swept["plan_id"]) == 12
+    assert WRAP.plan_all("day")["plan_id"] == swept["plan_id"], "an unchanged fleet previews alike"
+
+
+def test_the_day_sweep_before_506_and_507_land(fleet4):
+    """The recorder answers as `main` does before #506 and #507: the pr and page adapters are unknown."""
+    os.makedirs(os.path.join(fleet4["path"], ".agent", "out"), exist_ok=True)
+    open(os.path.join(fleet4["path"], ".agent", "out", "RDSD-1-confluence.md"), "w").close()
+    repos = _repos(WRAP.plan_all("day"))
+    luna = _slots(repos["luna"])
+    assert luna["push"]["ok"] and luna["push"]["ticked"] and luna["comment"]["ticked"]
+    for step in ("pr", "page"):
+        assert luna[step]["code"] == "not_pinned" and "ad-pncli capture-help" in luna[step]["hint"], luna[step]
+    sol = repos["sol"]
+    assert [s["step"] for s in sol["steps"]] == ["push", "pr"] and _slots(sol)["push"]["ticked"]
+    assert _slots(sol)["pr"]["code"] == "not_pinned"
+    assert any("untracked" in n for n in sol["notes"]) and not sol["ticket"]
+    terra = _slots(repos["terra"])
+    for step in ("push", "pr"):
+        assert not terra[step]["ok"] and "not on a branch" in terra[step]["hint"], terra[step]
+    vega = repos["vega"]
+    assert vega["state"] == "busy" and vega["steps"]
+    assert all(s["code"] == "busy" and not s["ticked"] for s in vega["steps"])
+    assert not any(s["step"] == "merge" for r in repos.values() for s in r["steps"])
+
+
+def test_the_sweep_with_the_pr_and_page_shapes_506_and_507_will_print(fleet4):
+    os.makedirs(os.path.join(fleet4["path"], ".agent", "out"), exist_ok=True)
+    open(os.path.join(fleet4["path"], ".agent", "out", "RDSD-1-confluence.md"), "w").close()
+    rec = fleet4["rec"]
+    rec.canned.update(pr=PR_DRY, page=PAGE_DRY)
+    luna = _slots(_repos(WRAP.plan_all("day"))["luna"])
+    assert luna["push"]["ticked"] and luna["comment"]["ticked"]
+    assert luna["pr"]["ok"] and luna["pr"]["ticked"] and luna["pr"]["payload"]["draft"] is True
+    assert "draft" in luna["pr"]["summary"]
+    project = _repos(WRAP.plan_all("project"))
+    luna = _slots(project["luna"])
+    assert luna["transition-review"]["ticked"] and not luna["transition-done"]["ticked"]
+    rec.canned.pop("pr")
+    luna = _slots(_repos(WRAP.plan_all("project"))["luna"])
+    assert luna["pr"]["code"] == "not_pinned" and not luna["transition-review"]["ticked"]
+    for mode in ("day", "project"):
+        assert not any(s["step"] == "merge" or "merge" in s["summary"].lower()
+                       for r in WRAP.plan_all(mode)["repos"] for s in r["steps"])
+
+
+def test_run_all_writes_each_repos_ticked_steps_in_order_and_one_failure_leaves_the_others(fleet4):
+    rec = fleet4["rec"]
+    real_answer = rec._answer
+
+    def luna_push_fails(args, cwd):
+        if args[0] == "git" and "--dry-run" not in args and os.path.samefile(cwd, fleet4["path"]):
+            return {"code": 1, "meta": {"ok": False, "refused": "push_failed", "error": "rejected",
+                                        "hint": "fetch and look"}, "tables": {}, "stderr": ""}
+        return real_answer(args, cwd)
+
+    rec._answer = luna_push_fails
+    swept = WRAP.plan_all("day")
+    steps = {r["repo"]: [s["id"] for s in r["steps"] if s["ticked"]] for r in swept["repos"]}
+    assert steps["luna"] and steps["sol"] and not steps["vega"]
+    steps.pop("terra")                               # the operator unticked terra's comment and transition
+    rec.calls.clear()
+    done = WRAP.run_all("day", steps)
+    by = {r["repo"]: {x["step"]: x["done"] for x in r["results"]} for r in done["repos"]}
+    assert by["luna"] == {"push": "failed", "comment": "written", "transition": "written"}, by["luna"]
+    assert by["sol"] == {"push": "written"}, "one repo's failure never stops another's"
+    assert [(a[3], os.path.basename(c)) for a, c, _ in rec.calls if "--dry-run" not in a] == \
+        [("git", "luna"), ("jira", "luna"), ("jira", "luna"), ("git", "sol")], "repo by repo, in #503's order"
+    assert done["written"] == 3
+    history = approval.history(limit=0)
+    assert len(history) == 4 and all(h["by"] == "operator" and h["via"] == "wrapup" for h in history)
+    assert WRAP.results("sol")[-1]["step"] == "push" and WRAP.results("sol")[-1]["ok"]
+
+
+class Concurrent:
+    """`RUN` that answers `ok` after a pause, counting how many repos are being read at once."""
+
+    def __init__(self, pause=0.05):
+        self.pause, self.lock = pause, threading.Lock()
+        self.inflight: dict = {}
+        self.most = 0
+
+    def __call__(self, argv, cwd, env=None):
+        with self.lock:
+            self.inflight[cwd] = self.inflight.get(cwd, 0) + 1
+            self.most = max(self.most, len([c for c, n in self.inflight.items() if n]))
+        time.sleep(self.pause)
+        with self.lock:
+            self.inflight[cwd] -= 1
+        return {"code": 0, "meta": {"ok": True, "ahead": 0}, "tables": {}, "stderr": ""}
+
+
+def test_the_fleet_job_answers_at_once_and_never_reads_more_than_three_repos(fleet_home, tmp_path, monkeypatch):
+    for n in ("a1", "a2", "a3", "a4", "a5", "a6"):
+        Registry().add(make_project(tmp_path / n), name=n)
+    run = Concurrent()
+    monkeypatch.setattr(WRAP, "RUN", run)
+    t0 = time.monotonic()
+    ans = S.act("wrapup", {"all": True, "mode": "day", "dry_run": True})
+    assert time.monotonic() - t0 < 0.2, "the desk waited on the sweep"
+    assert ans["reading"] == ["a1", "a2", "a3", "a4", "a5", "a6"] and ans["job"]
+    server, token = S.build(0)
+    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/api/wrapup?all=1&t={token}"
+        deadline, got = time.time() + 20, {}
+        while time.time() < deadline:
+            t1 = time.monotonic()
+            with urllib.request.urlopen(url, timeout=10) as r:
+                got = json.loads(r.read())
+            assert time.monotonic() - t1 < 0.2
+            if got.get("state") == "planned":
+                break
+            time.sleep(0.05)
+        assert got["state"] == "planned" and got["job"] == ans["job"] and got["all"] is True
+        assert [r["repo"] for r in got["repos"]] == ["a1", "a2", "a3", "a4", "a5", "a6"]
+        assert got["reading"] == [] and got["plan_id"] and "totals" in got
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()
+    assert 1 < run.most <= 3, f"{run.most} repos were read at once"
+
+
+def test_the_stream_sends_a_wrapup_frame_when_the_fleet_job_moves(fleet_home):
+    frames: list[str] = []
+    stop = threading.Event()
+    t = threading.Thread(target=S.stream_events, args=({}, stop, frames.append),
+                         kwargs={"tick": 0.05, "polls": False, "sweep": False, "agents": False}, daemon=True)
+    t.start()
+    try:
+        deadline = time.time() + 10
+        while not any("event: tick" in f for f in frames) and time.time() < deadline:
+            time.sleep(0.02)
+        WRAP._write_fleet_job({"job": "fleet-abc", "all": True, "state": "reading", "reading": ["luna"]})
+        while not any("event: wrapup" in f for f in frames) and time.time() < deadline:
+            time.sleep(0.02)
+        frame = json.loads(next(f for f in frames if "event: wrapup" in f).split("data: ", 1)[1])
+        assert frame == {"all": True, "job": "fleet-abc", "state": "reading", "reading": ["luna"]}
+    finally:
+        stop.set()
+        t.join(5)
+
+
+def test_the_sweep_cli_and_api_answer_in_the_same_words_and_codes(fleet4, capsys):
+    rc, out = _cli(capsys)
+    assert rc == 2 and "name a repo, or pass --all" in out and "refused: no_repo" in out
+    with pytest.raises(S.ServeError) as e:
+        S.act("wrapup", {"mode": "day", "dry_run": True})
+    assert e.value.code == "no_repo" and str(e.value) == "name a repo, or pass --all"
+
+    rc, out = _cli(capsys, "--all", "--dry-run")
+    assert rc == 0 and "dry_run: true" in out and "mode: day" in out and "repos[4]" in out, out
+    plan_id = out.split("plan_id: ", 1)[1].split()[0]
+    rc, out = _cli(capsys, "--all")
+    assert rc == 2 and "refused: confirm_required" in out and f"--confirm {plan_id}" in out
+    commit(fleet4["path"], "feat: later")
+    rc, out = _cli(capsys, "--all", "--confirm", plan_id)
+    assert rc == 2 and "refused: plan_changed" in out and fleet4["rec"].writes == []
+    with pytest.raises(S.ServeError) as e:
+        S.act("wrapup", {"all": True, "job": "fleet-00000000", "steps": {}})
+    assert e.value.code == "plan_changed"
+
+    rc, out = _cli(capsys, "luna", "sol", "--project", "--dry-run")
+    assert rc == 0 and "mode: project" in out and "repos[2]" in out
+    rc, out = _cli(capsys, "--all", "--dry-run")
+    plan_id = out.split("plan_id: ", 1)[1].split()[0]
+    rc, out = _cli(capsys, "--all", "--confirm", plan_id)
+    assert rc == 0 and "written: 6" in out, out      # luna: push, comment, transition; sol: push; terra's Jira two
+    assert [a[3] for a in fleet4["rec"].writes] == ["git", "jira", "jira", "git", "jira", "jira"]

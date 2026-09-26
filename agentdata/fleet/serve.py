@@ -2533,6 +2533,17 @@ def act(what: str, body: dict) -> dict:
         # is five adapter runs, three of them round trips to Jira or Bitbucket, and no request thread
         # waits on that. The answer goes out at once; the rows arrive as `wrapup` frames.
         try:
+            if body.get("all"):
+                # The sweep (#505): every registered agent, three at a time, one fleet job.
+                if body.get("dry_run"):
+                    return WRAP.start_plan_all(str(body.get("mode") or "day"), list(body.get("repos") or []) or None)
+                steps = body.get("steps") or {}
+                if not isinstance(steps, dict):
+                    raise ServeError("steps is {repo: [ids]} for the sweep", "post the ids per repo",
+                                     code="bad_request")
+                return WRAP.start_run_all(str(body.get("job") or ""), steps, comments=body.get("comments") or None)
+            if not repo and not body.get("job"):
+                raise WRAP.WrapupError("name a repo, or pass --all", WRAP.NO_REPO_HINT, code="no_repo")
             if body.get("dry_run"):
                 return WRAP.start_plan(repo, str(body.get("mode") or "day"), comment=body.get("comment"),
                                        to=body.get("to") or None, overwrite=body.get("overwrite") or None)
@@ -2878,6 +2889,19 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
                 write(f"event: wrapup\ndata: {json.dumps(frame, ensure_ascii=False)}\n\n")
                 sent = True
             wrapup_marks[repo.name] = mark
+        # The sweep's job (#505): one frame per move, carrying which repos are still being read.
+        try:
+            st = os.stat(WRAP.fleet_job_path())
+            mark = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            mark = None
+        if wrapup_primed and wrapup_marks.get("*") != mark and mark is not None:
+            job = WRAP.fleet_job_state()
+            frame = {"all": True, "job": job.get("job", ""), "state": job.get("state", ""),
+                     "reading": job.get("reading") or []}
+            write(f"event: wrapup\ndata: {json.dumps(frame, ensure_ascii=False)}\n\n")
+            sent = True
+        wrapup_marks["*"] = mark
         wrapup_primed = True
         if sent or time.time() - last_beat > heartbeat:
             # The heartbeat is not decoration: a proxy that sees no bytes for a minute closes the
@@ -3185,9 +3209,12 @@ class Handler(BaseHTTPRequestHandler):
                                            "`git status` there says why", "branches": []})
         if route == "/api/wrapup":
             # The wrap-up job's state (#503): reading, planned (with the rows), writing, or done.
+            # `?all=1` is the sweep's (#505), with each repo's rows as that repo finishes.
+            if (query.get("all") or [""])[0] in ("1", "true"):
+                return self._json({"ok": True, "all": True, **WRAP.fleet_job_state()})
             repo_name = (query.get("repo") or [""])[0]
             if not repo_name:
-                return self._refuse(400, "repo required", "pass ?repo=<name>")
+                return self._refuse(400, "name a repo, or pass --all", "pass ?repo=<name> or ?all=1")
             try:
                 Registry().get(repo_name)
             except RegistryError as e:

@@ -549,6 +549,8 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/branches` | `?repo=&refresh=` — every local branch of one checkout, which never reached the default, the last twenty commits; read on the click, cached for the git interval (#184) |
 | POST | `/api/dismiss` | `{id}` — stop offering that file until it is downloaded again |
 | POST | `/api/wrapup` | `{repo, mode, dry_run: true, to?, overwrite?, comment?}` — preview one agent's wrap-up on a thread; answers at once `{job, repo, reading: true}`, and a second ask while one reads joins it. `{job, steps: [ids], comment?, to?, overwrite?}` writes those steps of that preview on a thread, `{job, writing: true}`; a job that is not the repo's latest preview is refused `plan_changed` (#503) |
+| POST | `/api/wrapup` (the sweep) | `{all: true, mode, dry_run: true, repos?}` — preview every registered agent's wrap-up (or those `repos`) on one thread, three at a time; answers at once `{job, all: true, reading: [repos]}`, and each repo's rows land in the job as it finishes. `{all: true, job, steps: {repo: [ids]}, comments?: {repo: text}}` writes those steps repo by repo, `{job, all: true, writing: [repos]}`; a job that is not the latest sweep is refused `plan_changed`. Without `repo` or `all`, it is refused `no_repo` (#505) |
+| GET | `/api/wrapup` | `?all=1` — the sweep's job: `reading` (with `reading`, the repos still being read, and the rows of those done), `planned` (with `plan_id`, `totals` and every repo's rows), `writing` or `done` (with `results` per repo) (#505) |
 | GET | `/api/wrapup` | `?repo=` — the wrap-up job: `reading`, `planned` (with the rows), `writing`, or `done` (with the results) (#503) |
 
 `select` and `dismiss` change nothing on disk inside a repository. `attach` is the single exception
@@ -584,6 +586,7 @@ carried inside another frame, and no frame goes out on a tick where nothing chan
 A `wrapup` event (#503) is `{repo, job, state}`: that checkout's wrap-up job moved (`reading`,
 `planned`, `writing`, `done`), and a page showing it fetches `GET /api/wrapup?repo=`. The stream looks
 at `<fleet dir>/agents/<repo>/wrapup/job.json` by its mtime; a new stream records it without a frame.
+The sweep's job (#505), `<fleet dir>/wrapup/job.json`, moves as `{all: true, job, state, reading}`.
 
 A `notify` event is a notification the sweep found (#97). **Only a desk's stream sweeps** (#356).
 `notify.sweep` advances one shared cursor and hands what it found to whichever stream swept first,

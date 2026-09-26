@@ -728,3 +728,222 @@ def wait(name: str, timeout: float = 30.0) -> bool:
         return True
     t.join(timeout)
     return not t.is_alive()
+
+
+# ------------------------------------------------------------------------------------------ the sweep (#505)
+#
+# The operator's *clean sweep*: this module's `plan` and `run` over the registry, the way `renew.plan` is its
+# verdict over it. The same presets, dry-runs, ids, order and records as one agent's wrap-up; the only new
+# things are the fleet `plan_id`, the totals, and three repos read at a time (at most three adapter processes
+# at once on a four-core laptop). A busy agent is skipped with a hint and never queued (DAY-D3).
+
+PARALLEL = 3
+TOTALS = {"push": "pushes", "pr": "prs", "page": "pages", "comment": "comments", "transition": "transitions"}
+# A row that could never write anything the operator should hear about: its verb is not pinned yet, there is
+# no page source, or end of day will not create a page. A repo whose rows are all these, or no-ops, has
+# *nothing to write*.
+QUIET = ("not_pinned", "no_source", "day_never_creates")
+NOTHING = "nothing to write"
+NO_REPO_HINT = "ad-fleet wrapup <repo> [<repo> …] | --all [--day | --project]; `ad-fleet repo list` names them"
+
+
+def _noop(row: dict) -> bool:
+    if not row["ok"]:
+        return row["code"] in QUIET
+    if row["ticked"]:
+        return False
+    return (row["step"] == "push" and not (row["payload"] or {}).get("ahead")) or row["hint"] == "nothing to move"
+
+
+def repo_row(name: str, planned: dict) -> dict:
+    """One repo's line in the sweep: its rows as `plan` gives them, and what state the repo is in."""
+    rows = planned["rows"]
+    if rows and all(r["code"] == "busy" for r in rows):
+        state, skipped = "busy", rows[0]["hint"]
+    elif all(_noop(r) for r in rows):
+        state, skipped = "nothing", NOTHING
+    else:
+        state, skipped = "planned", ""
+    out = {"repo": name, "ticket": planned["ticket"], "state": state, "plan_id": planned["plan_id"],
+           "writes": planned["writes"], "notes": planned["notes"], "steps": rows}
+    if skipped:
+        out["skipped"] = skipped
+    return out
+
+
+def _names(names, registry: Registry | None) -> list[str]:
+    reg = registry or Registry()
+    if names:
+        return [reg.get(n).name for n in names]              # an unknown name is refused before anything runs
+    return [r.name for r in reg.sorted()]
+
+
+def totals(repos: list[dict]) -> dict:
+    out = {v: 0 for v in TOTALS.values()}
+    pinned = 0
+    for row in repos:
+        for s in row.get("steps") or []:
+            out[TOTALS[s["step"]]] += bool(s["ticked"])
+            pinned += s["code"] == "not_pinned"
+    return {**out, "not_pinned": pinned}
+
+
+def _summary(mode: str, rows: list[dict]) -> dict:
+    return {"mode": mode, "plan_id": _sha([[r["repo"], r.get("plan_id", "")] for r in rows])[:12], "repos": rows,
+            "totals": totals(rows), "writes": sum(r.get("writes", 0) for r in rows)}
+
+
+def plan_all(mode: str = "day", names: list[str] | None = None, *, registry: Registry | None = None,
+             on_repo=None) -> dict:
+    """Every registered agent's wrap-up, previewed: up to three repos at a time, each repo's steps one after
+    another. Writes to no system; the only files it writes are the comment texts under the fleet directory.
+    `on_repo(row)` hears each repo as it finishes, for the desk's job."""
+    if mode not in MODES:
+        raise WrapupError(f"{mode!r} is not a preset", "day | project", code="bad_mode")
+    order = _names(names, registry)
+    rows: list[tuple[int, dict]] = []
+    lock = threading.Lock()
+
+    def one(i: int, name: str) -> None:
+        try:
+            row = repo_row(name, plan(name, mode, registry=registry))
+        except Exception as e:  # noqa: BLE001 - one repo's trouble is its own row, never the sweep's end
+            row = {"repo": name, "ticket": "", "state": "error", "plan_id": "", "writes": 0, "notes": [],
+                   "steps": [], "skipped": str(getattr(e, "msg", e))[:300], "hint": getattr(e, "hint", "")}
+        with lock:
+            rows.append((i, row))
+        if on_repo:
+            on_repo(row)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=PARALLEL, thread_name_prefix="wrapup-all") as pool:
+        for f in [pool.submit(one, i, n) for i, n in enumerate(order)]:
+            f.result()
+    return _summary(mode, [row for _, row in sorted(rows, key=lambda pair: pair[0])])
+
+
+def run_all(mode: str, steps: dict, *, comments: dict | None = None, registry: Registry | None = None,
+            on_repo=None) -> dict:
+    """Write each repo's asked steps through `run` -- its fresh dry-runs, id checks, order, dependencies and
+    records -- repo by repo in the registry's order. One repo's failure never stops another's."""
+    if mode not in MODES:
+        raise WrapupError(f"{mode!r} is not a preset", "day | project", code="bad_mode")
+    comments = dict(comments or {})
+    asked = {str(k): list(v or []) for k, v in (steps or {}).items()}
+    known = _names(None, registry)
+    order = [n for n in known if n in asked] + [n for n in asked if n not in known]   # an unknown one: its own row
+    out = []
+    for name in order:
+        if not asked[name]:
+            continue
+        try:
+            done = run(name, mode, asked[name], comment=comments.get(name), registry=registry)
+            row = {"repo": name, "results": done["results"], "written": done["written"]}
+        except Exception as e:  # noqa: BLE001
+            row = {"repo": name, "results": [], "written": 0, "error": str(getattr(e, "msg", e))[:300],
+                   "hint": getattr(e, "hint", "")}
+        out.append(row)
+        if on_repo:
+            on_repo(row)
+    return {"mode": mode, "repos": out, "written": sum(r["written"] for r in out)}
+
+
+def fleet_job_path() -> str:
+    from .registry import fleet_dir
+
+    return os.path.join(fleet_dir(), "wrapup", JOB)
+
+
+def fleet_job_state() -> dict:
+    try:
+        return textio.read_json(fleet_job_path(), JOB)
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_fleet_job(data: dict) -> None:
+    textio.write_json(fleet_job_path(), {**data, "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+
+
+_FLEET = "*"                                             # the sweep's key in `_THREADS`
+
+
+def start_plan_all(mode: str, names: list[str] | None = None) -> dict:
+    """The sweep's preview on a thread; answers at once with the repos it is reading. Each repo's rows land in
+    the job as that repo finishes, so the page can draw them as they arrive."""
+    if mode not in MODES:
+        raise WrapupError(f"{mode!r} is not a preset", "day | project", code="bad_mode")
+    order = _names(names, None)
+    with _JOB_LOCK:
+        running = _THREADS.get(_FLEET)
+        now = fleet_job_state()
+        if running and running.is_alive() and now.get("state") == "reading":
+            return {"job": now.get("job"), "all": True, "reading": now.get("reading") or [], "joined": True}
+        job = f"fleet-{secrets.token_hex(4)}"
+        base = {"job": job, "all": True, "mode": mode, "names": list(names or [])}
+        _write_fleet_job({**base, "state": "reading", "reading": order, "repos": []})
+        seen: list[dict] = []
+        lock = threading.Lock()
+
+        def arrived(row: dict) -> None:
+            with lock:
+                seen.append(row)
+                rows = sorted(seen, key=lambda r: order.index(r["repo"]))
+                _write_fleet_job({**base, "state": "reading", "reading": [n for n in order if n not in
+                                                                          {r["repo"] for r in rows}],
+                                  "repos": rows})
+
+        def work():
+            try:
+                swept = plan_all(mode, names or None, on_repo=arrived)
+                _write_fleet_job({**base, **swept, "state": "planned", "reading": []})
+            except Exception as e:  # noqa: BLE001 - the page must hear why, not wait forever
+                _write_fleet_job({**base, "state": "done", "reading": [], "repos": [],
+                                  "error": str(getattr(e, "msg", e))[:300], "hint": getattr(e, "hint", "")})
+
+        t = threading.Thread(target=work, name="wrapup-all", daemon=True)
+        _THREADS[_FLEET] = t
+        t.start()
+    return {"job": job, "all": True, "reading": order}
+
+
+def start_run_all(job: str, steps: dict, *, comments: dict | None = None) -> dict:
+    """Write the ticked steps of the sweep's latest preview, repo by repo, on a thread."""
+    with _JOB_LOCK:
+        now = fleet_job_state()
+        if not now or now.get("job") != job or now.get("state") != "planned":
+            raise WrapupError("that sweep is not the latest preview", "preview again, then confirm what it shows",
+                              code="plan_changed")
+        mode = now.get("mode") or "day"
+        asked = {str(k): list(v or []) for k, v in (steps or {}).items() if v}
+        unknown = [n for n in asked if n not in {r["repo"] for r in now.get("repos") or []}]
+        if unknown:
+            raise WrapupError(f"{', '.join(unknown)} was not in the preview", "preview again, then confirm what it shows",
+                              code="plan_changed")
+        _write_fleet_job({**now, "state": "writing", "results": {}})
+        written: dict = {}
+        lock = threading.Lock()
+
+        def arrived(row: dict) -> None:
+            with lock:
+                written[row["repo"]] = row
+                _write_fleet_job({**now, "state": "writing", "results": dict(written)})
+
+        def work():
+            try:
+                done = run_all(mode, asked, comments=comments, on_repo=arrived)
+                _write_fleet_job({**now, "state": "done", "results": {r["repo"]: r for r in done["repos"]},
+                                  "written": done["written"]})
+            except Exception as e:  # noqa: BLE001
+                _write_fleet_job({**now, "state": "done", "results": dict(written),
+                                  "error": str(getattr(e, "msg", e))[:300], "hint": getattr(e, "hint", "")})
+
+        t = threading.Thread(target=work, name="wrapup-all", daemon=True)
+        _THREADS[_FLEET] = t
+        t.start()
+    return {"job": job, "all": True, "writing": sorted(asked)}
+
+
+def wait_all(timeout: float = 30.0) -> bool:
+    return wait(_FLEET, timeout)
