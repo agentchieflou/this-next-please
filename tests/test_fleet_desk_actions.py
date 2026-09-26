@@ -812,6 +812,22 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
         # #530: `busy` is idle on a fleet run two days old, with a ticket, so the day line above the
         # grid counts it. A snapshot is read now and handed over only after the adopt's answer.
         page.wait_for_selector("#day-strip:not([hidden])", timeout=15000)
+        # #534: a poll of the page's own (the stream's `refreshSoon`) can be in flight when the hold
+        # goes in, and `refresh()` hands back that poll instead of asking again. One is parked here
+        # so that it always is, and the snapshot held below is asked for after it.
+        parked = []
+
+        def park(route):
+            if parked:
+                route.continue_()
+            else:
+                parked.append(route)
+        page.route(re.compile(r"/api/fleet\?"), park)
+        page.evaluate("() => { refresh(); }")
+        deadline = time.time() + 15
+        while not parked and time.time() < deadline:
+            page.wait_for_timeout(20)
+        assert parked, "the poll already in flight was never asked for"
         held, released = [], []
 
         def hold(route):
@@ -820,7 +836,8 @@ def test_the_page_offers_the_session_it_did_not_start_and_takes_it_on(outside_de
             else:
                 held.append((route, route.fetch()))     # read by the server now, handed over later
         page.route(re.compile(r"/api/fleet\?"), hold)
-        page.evaluate("() => { refresh(); }")
+        page.evaluate("() => { refreshAfterNow(); }")
+        parked[0].continue_()
         deadline = time.time() + 15
         while not held and time.time() < deadline:
             page.wait_for_timeout(20)
