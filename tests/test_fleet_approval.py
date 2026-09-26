@@ -387,6 +387,35 @@ def test_ad_pncli_gates_a_write_and_leaves_a_read_alone(as_agent, monkeypatch, t
     assert "refused: approval_denied" in out and "publish to DATAENG" in out
 
 
+def test_a_help_token_in_a_value_position_waits_for_the_click(as_agent, monkeypatch, capsys):
+    """#524: `--title -h` is the PR's title, not a help request, so `ad-pncli raw` writes an approval
+    request and runs nothing until the operator answers."""
+    from agentdata import cli
+
+    ran = []
+    monkeypatch.setattr(P, "run", lambda args, *a, **k: ran.append(list(args)) or ({}, 0.0))
+    result = {}
+
+    def agent():
+        monkeypatch.setattr("sys.argv", ["ad-pncli", "raw", "bitbucket", "create-pr", "--title", "-h"])
+        try:
+            cli.main_pncli()
+            result["code"] = 0
+        except SystemExit as exit:
+            result["code"] = exit.code
+
+    t = threading.Thread(target=agent)
+    t.start()
+    id = _wait_for_request()
+    assert "bitbucket create-pr --title -h" in approval.read_request(id)["summary"]
+    assert ran == [], "pncli ran before the operator answered"
+    _answer(id, approval.DENIED, reason="not this title")
+    t.join(timeout=15)
+
+    assert result["code"] == 2 and ran == []
+    assert "refused: approval_denied" in capsys.readouterr().out
+
+
 def test_the_gate_is_wired_into_exactly_the_commands_the_doc_names():
     """A doc that names a gated command the code does not gate is worse than no doc."""
     for module in ("cli_jira.py", "cli.py"):

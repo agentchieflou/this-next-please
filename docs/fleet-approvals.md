@@ -62,7 +62,7 @@ command, where a refusal is a return value rather than a guess about a command s
 | `ad-jira comment <KEY> --body …` | run without `--dry-run`; the operator approves the exact body (`kind: jira-comment`) | `--dry-run` (reads the issue, prints `chars`, `lines` and `first_line`, posts nothing) |
 | `ad-jira create --summary …` | run without `--dry-run`; the operator approves the exact `POST /issue` body | `--dry-run` (resolves every field, posts nothing) |
 | `ad-git push [--remote NAME]` | run without `--dry-run` and with commits ahead; the operator approves the plan (`kind: git-push`: branch, remote, target, ahead, subjects) | `--dry-run` (local refs only, contacts no remote); nothing ahead |
-| `ad-pncli raw <product> <verb> …` | the verb is not in the read allow-list below | any command carrying `--dry-run`; every verb in the list |
+| `ad-pncli raw <product> <verb> …` | the verb is not in the read allow-list below | any command carrying `--dry-run`; `--help`/`-h` as a flag of its own (as an option's value, `--title -h`, or after `--`, it is not help and the verb is gated, #524); every verb in the list |
 | `ad-pncli jira search` / `ad-pncli jira get` | never | these are reads by construction — they do not go through `raw` |
 
 The pncli read allow-list is `agentdata/connectors/pncli.READ_VERBS`:
