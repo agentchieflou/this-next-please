@@ -52,7 +52,10 @@ def served() -> list[str]:
 
 
 def _source(rel: str) -> str:
-    return open(os.path.join(STATIC, rel), encoding="utf-8").read()
+    """The file as it sits on the disk, line endings and all: a Windows checkout (`core.autocrlf`)
+    holds CRLF, and the server strips and serves those bytes, not a normalised copy of them."""
+    with open(os.path.join(STATIC, rel), encoding="utf-8", newline="") as f:
+        return f.read()
 
 
 _TAG = re.compile(r"@(typedef|param|returns?|property|type|template|callback)\b")
@@ -158,6 +161,10 @@ def test_the_stripper_leaves_the_program_and_takes_only_the_comments():
            '.c { background: url(x/*y*/.png); /* mid */ margin: 0; }\n\n/* one */\n\n.d {}\n')
     assert strip_css(css) == ('\n.a.b { color: red; }\n'
                               '.c { background: url(x/*y*/.png);  margin: 0; }\n\n.d {}\n')
+    # A CRLF checkout (Windows, `core.autocrlf`) strips to the same thing, in its own line endings.
+    crlf = lambda text: text.replace("\n", "\r\n")                    # noqa: E731
+    assert strip_js(crlf(js)) == crlf(strip_js(js))
+    assert strip_css(crlf(css)) == crlf(strip_css(css))
 
 
 def test_a_type_doc_is_the_one_comment_a_source_may_carry():
