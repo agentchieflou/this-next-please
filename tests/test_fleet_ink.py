@@ -256,9 +256,14 @@ def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     fx = _wire(open(os.path.join(INK, "fx.js"), "rb").read())
     print(f"  fx.js over the wire: {fx} bytes gzipped")
     assert fx < FX_BUDGET, fx
-    files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
+    # Beside each module, its tagalong reasoning (`<file>.md`, #523), which is never served.
+    files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n))
+                   and not n.endswith(S.UNSERVED))
     assert files == sorted(MODULES + LAZY), "a module no budget counts"
-    assert sorted(os.listdir(INK)) == sorted(MODULES + LAZY + ("skins",))
+    assert sorted(n for n in os.listdir(INK) if not n.endswith(S.UNSERVED)) \
+        == sorted(MODULES + LAZY + ("skins",))
+    assert sorted(n for n in os.listdir(INK) if n.endswith(S.UNSERVED)) \
+        == sorted(n + ".md" for n in MODULES + LAZY)
     # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost.
     # Every one but the example is a skin skins.py offers (#249-#256 ship them).
     from agentdata.fleet import skins as K

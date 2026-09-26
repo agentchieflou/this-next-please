@@ -296,3 +296,30 @@ def test_every_served_script_and_stylesheet_has_its_tagalong_md():
                 if rel[:-3] not in names:
                     orphans.append(rel)
     assert not orphans, f"a tagalong whose file is gone: {orphans}"
+
+
+def test_a_tagalong_and_a_declarations_file_are_never_served():
+    """They sit beside the page's files and are refused by the server that serves those (`UNSERVED`):
+    the prose and the types are for whoever reads the source, and never cost a page load."""
+    import threading
+    import urllib.error
+    import urllib.request
+
+    server, token = S.build(0)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/static/app.js?t={token}", timeout=10) as r:
+            assert r.status == 200
+        for rel in ("app.js.md", "app.css.md", "ink/layer.js.md", "app.js.d.ts"):
+            assert os.path.isfile(os.path.join(STATIC, rel)), rel
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/static/{rel}?t={token}", timeout=10)
+                raise AssertionError(f"/static/{rel} was served")
+            except urllib.error.HTTPError as refused:
+                assert refused.code == 404, (rel, refused.code)
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()

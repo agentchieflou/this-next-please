@@ -744,6 +744,10 @@ def test_a_model_that_would_become_a_second_flag_is_refused_in_the_page(fleet_ho
 # ------------------------------------------------------------------------------- the stylesheet
 
 
+#: Where the settings block starts in app.css: its first rule, `.linkbtn`. The banner comment that
+#: used to open it, *the settings page (/settings)*, is a heading in `app.css.md` since #523.
+SETTINGS_BLOCK = "\n.linkbtn {"
+
 # The one rule in the settings block that is deliberately global: it styles the control on the
 # DESK's toolbar, which is the whole point of it.
 GLOBAL_IN_SETTINGS_BLOCK = (".linkbtn",)
@@ -758,8 +762,8 @@ def test_the_settings_rules_cannot_restyle_the_desk():
     prefix, and this is what keeps it on.
     """
     css = open(os.path.join(STATIC, "app.css"), encoding="utf-8").read()
-    marker = "the settings page (/settings)"
-    assert marker in css, "the settings block is not in the stylesheet"
+    marker = SETTINGS_BLOCK
+    assert css.count(marker) == 1, "the settings block is not in the stylesheet"
     block = css[css.index(marker):]
 
     leaked = []
@@ -783,8 +787,8 @@ def test_the_desk_layout_cannot_reach_the_settings_page():
     """The desk and the settings page share app.css. Bare element selectors in the desk portion
     must not set layout properties that clamp or clip pages that also use those elements (like main)."""
     css = open(os.path.join(STATIC, "app.css"), encoding="utf-8").read()
-    marker = "the settings page (/settings)"
-    assert marker in css
+    marker = SETTINGS_BLOCK
+    assert css.count(marker) == 1
     desk_css = css[:css.index(marker)]
     desk_clean = re.sub(r"/\*.*?\*/", "", desk_css, flags=re.DOTALL)
     matches = re.findall(r"([^{}]+)\{([^{}]+)\}", desk_clean)
@@ -807,7 +811,7 @@ def test_the_desk_keeps_its_own_why_and_scope():
     """The two names that collided, asserted from the other side: the desk's rules are still there
     and still first, so a tile's explanation and the file-drop panel look as they did."""
     css = open(os.path.join(STATIC, "app.css"), encoding="utf-8").read()
-    settings_at = css.index("the settings page (/settings)")
+    settings_at = css.index(SETTINGS_BLOCK)
     desk = css[:settings_at]
     assert ".why { margin: 6px 0 0; color: var(--muted); }" in desk
     assert ".scope {" in desk and "border: 1px dashed var(--focus)" in desk

@@ -22,9 +22,13 @@
   // as globals that `common.js` declares, and a global only resolves inside one program.
   // `picker.js` (#362) sits between them as the pages load it, and a name it shared with `app.js`
   // would be a duplicate declaration here. `settings.js` and `probe.js` are not in it yet.
+  // Each typed script's types sit beside it in `<file>.d.ts` (#523, decision 18): the served file
+  // keeps only its inline casts, and the declarations are read with it, in one program.
   "files": [
     "agentdata/fleet/static/common.js",
+    "agentdata/fleet/static/picker.js.d.ts",
     "agentdata/fleet/static/picker.js",
+    "agentdata/fleet/static/app.js.d.ts",
     "agentdata/fleet/static/app.js"
   ]
 }

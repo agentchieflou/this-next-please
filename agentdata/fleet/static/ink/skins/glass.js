@@ -1,124 +1,58 @@
-/* Glass on three.js (#254, slice H of the ink epic #246): a lit mesh ground, frosted panes that
-   sample it through a blur, lit glints and shadows, and the state grammar glass never had.
-
-   The CSS skin (`static/skins/glass/skin.css`) painted glass with `backdrop-filter` over three
-   radial gradients. That stylesheet stays, for layout and typography and for `body.ink-off`, where
-   it is still the whole look. With ink on, this module draws the material instead:
-
-   * THE GROUND is a mesh: a plane of a few hundred vertices whose height drifts on slow waves, lit
-     from the top left like the pane's glint. The colour on it is the stylesheet's own mesh -- the
-     same three blobs, the same places, the same falloff (`--glass-mesh-1..3`, read at paint time)
-     -- so the frost composites to what skins.py declared. It drifts only when motion is allowed,
-     at a rate the desk can afford (`GROUND_FPS`, backing off when a frame is dear), never faster
-     than a wave you would notice from the corner of your eye.
-   * THE PANE is frosted: each `.tile` gets one mesh that reads the layer's ground texture
-     (`sampleGround`) through a blur in its own fragment shader -- a gaussian disc of taps, the
-     CSS `blur(18px)` -- saturated the way `saturate(140%)` is, and the variant's `--glass-fill`
-     laid over it. Its edge, its top glint (brighter where the light is) and its shadow are drawn in
-     the same pass. The page's `.tile` goes transparent (skin.css, ink on only), so what three.js
-     drew is what the text is read on, and the contrast test reads it back from the frame.
-   * THE STATES. Glass has no paper, so it has no pencil. Its marks are the palette's inks on the
-     frost -- a highlighter, a pen, a marker, the red and green pens -- from the mark table below,
-     drawn and struck by the layer like every skin's. The pane itself answers too: its rim lights up
-     in the state's colour, drawn round the pane from the top, and runs back the way it came when
-     the state goes -- drawn, never faded, even for a material. A running agent's top glint travels.
-     docs/skin-glass.md has the grammar as a table.
-
-   The rules this keeps (docs/desk-ink.md §Writing a skin): no static import; no class set and
-   nothing written to the page -- a pane's classes are read in `tick` and never decided here; every
-   colour from `tokens` and custom properties, none in this file; everything under `api.order`. */
-
-/* The mesh's geometry: where skin.css puts each blob, in viewport fractions, and its ellipse's
-   radii. The same three places in every variant (skin.css says so, and a test holds the two
-   together). A blob's colour stop is at 0% and it is gone at the end of its ray, as in the CSS: the
-   width #218's drawn ground always showed, which #257 made the stylesheet's own. */
 export const MESH = [
   { at: [0.16, 0.10], r: [0.60, 0.55] },
   { at: [0.84, 0.82], r: [0.55, 0.50] },
   { at: [0.58, 0.42], r: [0.45, 0.40] },
 ];
 const BLOB_END = 1.0;
-/* How far a blob's centre drifts, in viewport fractions, and how long one lap takes (s). Slow
-   enough that the ground is never the thing on the screen that moves. */
 const DRIFT = 0.035;
 const LAPS = [97, 131, 113];
-/* The ground's waves: height in CSS px and wavelength. The slope they make is what the light
-   reads, so these set how lit the mesh looks -- and how far a pane's colour can move with it. */
 const WAVE_H = 9;
 const WAVE_L = [760, 540, 980];
 const WAVE_T = [41, 53, 67];
-/* How much of the light's shading reaches the colour: a mesh you can see, a range that holds. */
 const LIGHT = 0.3;
-/* The frame rate the ground drifts at when motion is allowed, and the most it backs off to. A
-   frame that took long (software rendering, a busy page) stretches the gap to several times its
-   own cost, so the ground never takes more than a fraction of the page's time. */
 const GROUND_FPS = 30;
 const GROUND_MAX_MS = 500;
-/* The pane: its CSS blur (a gaussian's sigma, px), saturation, and how far past its box the mesh
-   reaches for its shadow and its rim (px). CSS's `0 12px 32px` shadow. */
 const BLUR = 18;
 const SATURATE = 1.4;
 const MARGIN = 44;
 const SHADOW_Y = 12;
 const SHADOW_BLUR = 32;
-/* A rim is drawn round the pane in this long (s), and runs back in this long. */
 const RIM_IN = 0.6;
 const RIM_OUT = 0.45;
-/* A running agent's glint: one lap of the top edge in this long (s). */
 const RUN_LAP = 4.5;
 
-/* The mark table. Only classes and attributes app.js already sets (ground rule 2); docs/skin-glass.md
-   is the same table in prose. No pencil: graphite needs a paper's tooth, and glass has none. */
 export function marks() {
   return [
-    // needs you: the name, and every open question, under the highlighter
     { selector: ".tile.needs-human .repo", tool: "highlighter", shape: "lines" },
     { selector: ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q", tool: "highlighter", shape: "lines" },
-    // answered: the choice picked, circled in pen (struck if another is picked)
     { selector: ".tile .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "loop", pad: 3 },
-    // running: the chip underlined in pen
     { selector: ".tile.state-running .chip", tool: "pen", shape: "underline" },
-    // error (and blocked, which the page colours alike): a bang in the margin in marker
     { selector: ".tile.state-error", tool: "marker", shape: "bang" },
     { selector: ".tile.state-blocked", tool: "marker", shape: "bang" },
-    // done: a green tick in the margin. `is-done` is the fold's word for a finished agent nothing
-    // supervises, whose chip says idle (#253, #333); the paper skins key on both.
     { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
-    // stale (#240): no mark. The note's own words say it; a dashed outline round it, even at pad 0,
-    // ran over the chip's age above it in a compact pane (#332), and the words come first.
-    // a finding: edits outside the scope it was given (#168), ringed in red
     { selector: ".tile .scopereport.outside:not([hidden])", tool: "red", shape: "ellipse", pad: 2 },
   ];
 }
 
-/* No lit pencil travels over glass: nothing here is written by hand. */
 export const options = { hand: false, speed: 1 };
 
-/* Frames get the ground as a texture: the frost is what is behind it, blurred. */
 export const sampleGround = true;
 
-/* ------------------------------------------------------------------------------ the state */
-
-/* What `tick` animates, and what the tests read (`inspect`). Kept in the module for `tick` only
-   (rule 4), and let go in `dispose`. */
-let mesh = null;                // {u}: the ground's uniforms
-const panes = new Map();        // .tile -> {el, u, rim, want, k}
-let timer = 0;                  // the ground's next frame, when motion is allowed
-let gap = 1000 / GROUND_FPS;    // ms until it
-let asked = 0;                  // when that frame was asked for
-let clock = 0;                  // the ground's time (s): it moves only when motion is allowed
+let mesh = null;
+const panes = new Map();
+let timer = 0;
+let gap = 1000 / GROUND_FPS;
+let asked = 0;
+let clock = 0;
 let lastNow = 0;
-let painted = "";               // the custom properties the uniforms were last painted from
-let frames = 0;                 // frames the ground was drawn on
-let requestFrame = null;        // api.request, for the timer
-let renderer = null;            // api.renderer, for `inspect` alone
+let painted = "";
+let frames = 0;
+let requestFrame = null;
+let renderer = null;
 
-/* The glass custom properties this module reads, per variant (skin.css). */
 const PROPS = ["--glass-mesh-1", "--glass-mesh-2", "--glass-mesh-3", "--glass-fill", "--glass-edge",
                "--glass-glint", "--glass-shadow"];
 
-/* A CSS colour as [r, g, b, a] in 0-1: `rgb()`/`rgba()` with commas or spaces, or a hex. What a
-   custom property holds is the text it was given (with any var() resolved), so this is enough. */
 export function rgba(text, fallback) {
   const s = String(text || "").trim();
   let m = s.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+)(%?))?\s*\)$/i);
@@ -143,8 +77,6 @@ function read(tokens) {
   return out;
 }
 
-/* Every uniform that carries a colour, from the page as it is now. Called when a mesh is made and
-   whenever the properties change under it -- the stylesheet can arrive after the module does. */
 function paint(tokens) {
   const v = read(tokens);
   painted = PROPS.map(n => v[n]).join("|") + "|" + tokens.bg.join(",");
@@ -165,8 +97,6 @@ function paint(tokens) {
     u.uRun.value.set(...tokens.running);
   }
 }
-
-/* ----------------------------------------------------------------------------- the ground */
 
 const GROUND_VS = `
 uniform vec2 uView;
@@ -230,7 +160,6 @@ void main() {
   gl_FragColor = vec4(c, 1.0);
 }`;
 
-/* Where each blob is at time `t`: its skin.css place, drifting on its own slow lap. */
 function drift(u, t) {
   MESH.forEach((b, i) => {
     const a = 6.2831853 * t / LAPS[i] + i * 2.1;
@@ -270,14 +199,9 @@ export function ground({ THREE, scene, tokens, api }) {
   requestFrame = api.request;
   renderer = api.renderer;
   paint(tokens);
-  // The skin's stylesheet and this module are fetched at once, and either can land first. Until
-  // the stylesheet has, there is no mesh to paint; when it does, one frame repaints (`tick` sees
-  // the properties change). Nothing else would ask for that frame under reduced motion.
   const link = document.head.querySelector("link[data-skin]");
   if (link && !tokens.css("--glass-mesh-1")) link.addEventListener("load", () => api.request(), { once: true });
 }
-
-/* ------------------------------------------------------------------------------- the pane */
 
 const PANE_VS = `
 uniform vec2 uSize;
@@ -377,8 +301,6 @@ void main() {
   gl_FragColor = o;
 }`;
 
-/* One pane's glass: frost, edge, glint, shadow and rim, in one mesh that reaches past the pane
-   for its shadow. Made again when the pane changes size; the rim's progress is the pane's, kept. */
 export function frame({ THREE, scene, tokens, api }, el, box) {
   const radius = parseFloat(getComputedStyle(el).borderTopRightRadius) || 0;
   const u = {
@@ -416,8 +338,6 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   settle(panes.get(el), tokens, api.reduced, 0);
 }
 
-/* The state a pane's rim answers, read from the classes app.js set: needs you and error in the
-   human colour, done in green. Nothing else lights it. */
 function rimOf(el) {
   const c = el.classList;
   if (c.contains("needs-human") || c.contains("state-error") || c.contains("state-blocked")) return "human";
@@ -425,8 +345,6 @@ function rimOf(el) {
   return null;
 }
 
-/* One pane's rim, advanced by `dt`: drawn in towards the state it should show, run back out of a
-   state it no longer has before the next is drawn. Answers whether it is still moving. */
 function settle(p, tokens, reduced, dt) {
   const want = rimOf(p.el);
   if (reduced) {
@@ -444,11 +362,8 @@ function settle(p, tokens, reduced, dt) {
   return p.rim !== want || (!!want && p.k < 1);
 }
 
-/* ------------------------------------------------------------------------------- the frame */
-
 export function tick({ tokens, api }, dt, now) {
   const reduced = api.reduced;
-  // The ground's clock runs on the page's, and stands still under reduced motion.
   if (!reduced && lastNow) clock += Math.min(1, Math.max(0, (now - lastNow) / 1000));
   lastNow = now;
   frames += 1;
@@ -456,7 +371,6 @@ export function tick({ tokens, api }, dt, now) {
     mesh.u.uTime.value = clock;
     drift(mesh.u, clock);
   }
-  // The stylesheet can land after the module: the colours follow it here, not on a reload.
   const sig = PROPS.map(n => tokens.css(n)).join("|") + "|" + tokens.bg.join(",");
   if (sig !== painted) paint(tokens);
   let moving = false;
@@ -469,15 +383,12 @@ export function tick({ tokens, api }, dt, now) {
     const phase = (el.dataset.repo || "").length * 0.137;
     p.u.uRunX.value = reduced ? -1 : ((clock / RUN_LAP + phase) % 1) * 1.2 - 0.1;
   }
-  // The ground drifts on a timer of its own, at the rate the page can afford: a frame that was
-  // late by more than the gap it was given stretches the next gap to four times that cost.
   if (!reduced && !timer) {
     const late = asked ? Math.max(0, now - asked - gap) : 0;
     gap = Math.min(GROUND_MAX_MS, Math.max(1000 / GROUND_FPS, 4 * late));
     asked = now;
     timer = setTimeout(() => { timer = 0; if (requestFrame) requestFrame(); }, gap);
   }
-  // A rim being drawn wants every frame; the drift does not.
   return moving;
 }
 
@@ -494,8 +405,6 @@ export function dispose() {
   renderer = null;
 }
 
-/* What the tests (and a curious console) read: the ground's clock and each pane's rim. The module
-   is the one `ink.js` imported, because the page imports it by the same URL. */
 export function inspect() {
   return {
     ground: !!mesh, clock, frames, timer: !!timer, gap,

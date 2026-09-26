@@ -397,13 +397,17 @@ def test_the_static_payload_is_small_enough_to_load_over_anything():
     fetches them. three.js is not: it is 163 KB gzipped of its own, fetched by `/probe` and by an
     ink layer that is drawing, never by a desk that is not. Nor is a skin module
     (`static/ink/skins/`): a desk fetches the one it chose, like a skin's stylesheet.
+
+    Nor is a file's tagalong reasoning, `<file>.md`, or a typed script's `<file>.d.ts` (#523,
+    decision 18): the server refuses both (`UNSERVED`), so no page can fetch them. That is where
+    the comments went, so that the prose stops costing against this number at all.
     """
     import gzip as gz
 
     def files_in(rel):
         where = os.path.join(STATIC, rel)
         return [os.path.join(rel, n) if rel else n for n in sorted(os.listdir(where))
-                if os.path.isfile(os.path.join(where, n))]
+                if os.path.isfile(os.path.join(where, n)) and not n.endswith(S.UNSERVED)]
 
     files = files_in("") + files_in("ink")
     raw = {n: open(os.path.join(STATIC, n), "rb").read() for n in files}

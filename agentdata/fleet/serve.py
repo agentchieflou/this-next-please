@@ -1501,6 +1501,12 @@ def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
     return {"html": attrs, "link": link, "body_class": "ink-off" if off else "", "body": body}
 
 
+#: What sits beside the served files and is never served (#523, decision 18 on #429): a script's
+#: or a stylesheet's reasoning, its tagalong `<file>.md`, and a typed script's declarations,
+#: `<file>.d.ts`. They are for whoever reads and checks the source; a page that fetched one would
+#: pay for prose the budget exists to keep off the wire.
+UNSERVED = (".md", ".d.ts")
+
 #: What `layer.js` imports once the gate is on (layer.js `start`, `VENDOR`), after ink.js imports it.
 INK_LAYER_MODULES = ("ink/layer.js", "ink/shapes.js", "ink/pen.js", "vendor/three/three.module.min.js")
 
@@ -3275,7 +3281,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         root = os.path.join(STATIC, "")      # the directory, with its trailing separator
         path = os.path.normpath(os.path.join(STATIC, name))
-        if not path.startswith(root) or not os.path.isfile(path):
+        if not path.startswith(root) or not os.path.isfile(path) or path.endswith(UNSERVED):
             return self._refuse(404, f"no file {name}")
         stamp = os.stat(path)
         with open(path, "rb") as f:
