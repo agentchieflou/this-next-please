@@ -100,6 +100,19 @@ STILL = """(repo) => new Promise(done => {
 })"""
 
 
+#: The desk's first poll has landed (#527): every full pane shows its ticket and git cells -- this
+#: desk's checkouts have no Jira and no repository, so both come back greyed. The cells are a row
+#: above the transcript, and they arrive with the poller's first tick, not with the page: until
+#: then the transcript is 28px taller. On the Windows 3.14 leg that tick (a `git` process, a Jira
+#: client) can land after the pane has been still for three frames, between `MEASURE` and the
+#: screenshot of its rules, and the screenshot then reads the cells and the transcript's own top
+#: border, drawn where the old box's first line was, as rules through it. The layer builds the
+#: frame again for the new box (its signature carries the transcript's top), so the page is
+#: right and the test read too early. A compact pane draws no cells.
+POLLED = """() => [...document.querySelectorAll('#grid .tile[data-tier="full"]')].every(t =>
+  !!t.querySelector('.cells > .cell[data-cell="ticket"]') && !!t.querySelector('.cells > .cell[data-cell="git"]'))"""
+
+
 def _desk(tmp_path):
     """Two panes: a long transcript that overflows -- one-line tool calls, and the agent's words,
     whose `assistant text` label wraps to a second line -- and a short one of two rows."""
@@ -115,8 +128,8 @@ def _desk(tmp_path):
 
 
 def _look(page, look):
-    """Choose a look and wait, on conditions, for its table, its rows at 28px and the paper at rest,
-    with the long transcript at its bottom, as the live desk keeps it."""
+    """Choose a look and wait, on conditions, for its table, its rows at 28px, the desk's first
+    poll and the paper at rest, with the long transcript at its bottom, as the live desk keeps it."""
     _choose(page, look)
     skin = look.split(":")[0]
     page.wait_for_function(f"""() => Ink.inspect().table === '{look}'
@@ -124,6 +137,7 @@ def _look(page, look):
       && getComputedStyle(document.querySelector('.transcript > li')).lineHeight === '28px'
       && ({AT_REST})()""", timeout=30000, polling=100)
     page.evaluate(IMPORT, skin)
+    page.wait_for_function(POLLED, timeout=30000, polling=100)
     page.evaluate(f"() => {{ const l = document.querySelector('.tile[data-repo=\"{LONG}\"] .transcript');"
                   " l.scrollTop = l.scrollHeight; }")
     page.evaluate(SETTLE, LONG)
