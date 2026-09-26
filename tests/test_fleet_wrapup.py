@@ -702,3 +702,15 @@ def test_the_sweep_cli_and_api_answer_in_the_same_words_and_codes(fleet4, capsys
     rc, out = _cli(capsys, "--all", "--confirm", plan_id)
     assert rc == 0 and "written: 6" in out, out      # luna: push, comment, transition; sol: push; terra's Jira two
     assert [a[3] for a in fleet4["rec"].writes] == ["git", "jira", "jira", "git", "jira", "jira"]
+
+
+def test_an_edited_sweep_comment_is_previewed_and_then_written_as_checked(luna):
+    """#512: the desk's *edit* on a sweep's comment cell previews the sweep again with that text, so the
+    confirm's id is the id of the text the operator read -- not `changed`."""
+    plain = _slots(WRAP.plan_all("day")["repos"][0])["comment"]
+    edited = WRAP.plan_all("day", comments={"luna": "my own words\n"})
+    cell = _slots(edited["repos"][0])["comment"]
+    assert cell["payload"]["body"] == "my own words\n" and cell["id"] != plain["id"]
+    done = WRAP.run_all("day", {"luna": [cell["id"]]}, comments={"luna": "my own words\n"})
+    assert [r["done"] for r in done["repos"][0]["results"]] == ["written"]
+    assert luna["fake"].comments and "my own words" in json.dumps(luna["fake"].comments[-1])

@@ -875,6 +875,21 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .wrapsheet .wrap-comment { width: 100%; box-sizing: border-box; font: 11px/1.4 var(--mono); resize: vertical; }
 .wrapsheet .wrap-actions { display: flex; gap: 6px; }
 .wrapsheet .wrap-actions button:disabled { color: var(--muted); cursor: default; }
+
+.day-rows .sweep-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.day-rows .sweep-row .sweep-state { color: var(--muted); }
+.day-rows .sweep-row.sweep-nothing, .day-rows .sweep-row.sweep-busy { color: var(--muted); }
+.day-rows .sweep-cells { flex-basis: 100%; margin: 0; padding: 0 0 0 2ch; list-style: none;
+  display: flex; flex-direction: column; gap: 2px; font: 11px var(--mono); }
+.day-rows .sweep-cells .wrap-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.day-rows .sweep-cells .wrap-line { display: inline-flex; align-items: baseline; gap: 6px; }
+.day-rows .sweep-cells .wrap-glyph { width: 1ch; text-align: center; }
+.day-rows .sweep-cells .wrap-step { min-width: 8ch; }
+.day-rows .sweep-cells .wrap-hint { color: var(--muted); overflow-wrap: anywhere; }
+.day-rows .sweep-cells .wrap-call { color: var(--muted); font-style: italic; }
+.day-rows .sweep-cells .wrap-btn { font: 11px var(--ui); padding: 1px 6px; border: 1px solid var(--line);
+  border-radius: 4px; background: var(--panel); color: var(--accent); cursor: pointer; }
+.day-rows .sweep-comment { flex-basis: 100%; box-sizing: border-box; font: 11px/1.4 var(--mono); }
 #inspectordetails .spendline.warn { color: var(--waiting-text); }
 #inspectordetails details.branches-list .branchrow { flex-wrap: nowrap; white-space: nowrap; min-width: 0; }
 #inspectordetails details.branches-list .branchrow .bname { flex: 0 0 auto; }

@@ -1203,6 +1203,10 @@ Above `source.addEventListener("wrapup", function (m) {`:
 
 A wrap-up job moved (#503, #510): read it only when the sheet shows that repo.
 
+Beside `if (d.all) { if (dayOpen && dayKind === "sweep" && d.job === sweep.job) loadSweep(); return; }`:
+
+#512
+
 In `source.onerror`, above `setTimeout(function () { refresh().then(connect); }, 2000);`:
 
 EventSource reconnects on its own, but the page must not trust what it drew in between.
@@ -3467,6 +3471,10 @@ Above `function countDay() {`:
 
 `#daygo` names what it spends: one premium turn per ticked agent (DAY-D2).
 
+Beside `if (dayKind === "sweep") { countSweep(); return; }`:
+
+#512: the strip holds a sweep
+
 ### `function dayModelTitle`
 
 Above `function dayModelTitle(st) {`:
@@ -3482,6 +3490,77 @@ Cloned from the markup's pattern row, so the two cannot disagree about the parts
 Above `if (li.dataset.plan !== plan) { box.checked = tickable && !!r.ticked; setData(li, "plan" …`:
 
 Ticked as the plan says, once per plan: a redraw never undoes the operator's own tick.
+
+### `function runDay`
+
+Beside `if (dayKind !== "fresh") return;`:
+
+#512: `#daygo` on a sweep is `writeSweep`
+
+## the sweep (#505, #512)
+
+*End of day…* and *end of project…* on the *day* menu: every agent's Jira, Bitbucket and Confluence
+writes, previewed by #505's fleet job in the day strip -- one row per agent, one cell per write, each
+cell drawn by the wrap-up sheet's own `wrapCell` (#510). `#daygo` writes the ticked cells, repo by
+repo, and each cell then says written, failed, changed or skipped. The strip posts `wrapup` with
+`all` from two places only: the preview (the menu, or an edited comment checked again) and the
+confirm. A merge is never offered, and *done* at end of project is the operator's call.
+
+### `var dayKind`
+
+Beside `var dayKind = "fresh";`:
+
+what the strip holds: a fresh day or a sweep
+
+### `function dayHolds`
+
+Above `function dayHolds(kind) {`:
+
+The strip holds one thing at a time: switching empties its rows, so a key never meets another kind's row.
+
+### `function sweepSteps`
+
+Above `function sweepSteps() {`:
+
+The ticked ids, per repo that has any: what `#daygo` posts.
+
+### `function sweepActs`
+
+Above `function sweepActs(el, r, cell, result) {`:
+
+A cell's actions: *edit* on a comment, the operator's own word on *done*.
+
+### `function drawSweepRow`
+
+Above `function drawSweepRow(li, r) {`:
+
+One agent's row: its name, one line of state, and a cell per write -- or one muted line.
+
+Above `var cell = /** @type {HTMLElement} */ (document.querySelector("#inspector .wrap-pattern").cl …`:
+
+The wrap-up sheet's own pattern row (#510), so the two draw a step alike.
+
+Above `var repo = li.dataset.rowkey || "";`:
+
+An edit is checked again before it can be sent: the comment's id hashes its text (#503).
+
+### `function countSweep`
+
+Above `function countSweep() {`:
+
+`#daygo` names every write it would make, by kind.
+
+### `function previewSweep`
+
+Above `function previewSweep(mode) {`:
+
+The sweep's preview: every agent, this preset, and any comment the operator edited.
+
+### `function writeSweep`
+
+Above `function writeSweep() {`:
+
+`#daygo` in a sweep: exactly the ticked ids per repo, and the edited comments with them.
 
 ### `function previewFromAddress`
 

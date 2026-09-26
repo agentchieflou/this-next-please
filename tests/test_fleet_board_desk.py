@@ -894,7 +894,9 @@ def test_the_wrap_up_sheet_is_static_markup_and_posts_only_from_its_own_paths():
     panes = panes[:panes.index("</div>")]
     assert "<kbd>w</kbd> wrap up (preview first)" in panes
     posts = _enclosing_functions(js, 'post("wrapup"')
-    assert sorted(posts) == ["previewWrap", "writeWrap"], posts
+    # #512's sweep posts from the day strip (`previewSweep`, `writeSweep`), checked in test_fleet_renew.py.
+    assert sorted(p for p in posts if not p.endswith("Sweep")) == ["previewWrap", "writeWrap"], posts
+    assert set(posts) <= {"previewWrap", "writeWrap", "previewSweep", "writeSweep"}, posts
     assert set(_enclosing_functions(js, "previewWrap(")) <= {"previewWrap", "openWrapup", "bindWrapSheet",
                                                              "wrapActs"}, _enclosing_functions(js, "previewWrap(")
     assert set(_enclosing_functions(js, "writeWrap(")) <= {"writeWrap", "bindWrapSheet"}

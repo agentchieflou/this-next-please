@@ -691,6 +691,13 @@ Above `.wrapsheet {`:
 #510: the wrap-up sheet, between the drawer head and the panel's details. A step's result is a
 word and a glyph, never a status colour: the agent's colours stay the agent's (#339).
 
+### `.day-rows .sweep-row`
+
+Above `.day-rows .sweep-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }`:
+
+#512: the sweep in the day strip -- one row per agent, a cell per write drawn by the sheet's own
+`wrapCell`. A repo with nothing to write, or a busy one, is one muted line.
+
 ## the dispatch card (#164)
 
 A drop opens this instead of launching, in the approval card's shape: both are "the tile is

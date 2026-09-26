@@ -2582,7 +2582,8 @@ def act(what: str, body: dict) -> dict:
             if body.get("all"):
                 # The sweep (#505): every registered agent, three at a time, one fleet job.
                 if body.get("dry_run"):
-                    return WRAP.start_plan_all(str(body.get("mode") or "day"), list(body.get("repos") or []) or None)
+                    return WRAP.start_plan_all(str(body.get("mode") or "day"), list(body.get("repos") or []) or None,
+                                               comments=body.get("comments") or None)
                 steps = body.get("steps") or {}
                 if not isinstance(steps, dict):
                     raise ServeError("steps is {repo: [ids]} for the sweep", "post the ids per repo",

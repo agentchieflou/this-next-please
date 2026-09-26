@@ -33,7 +33,9 @@ ad-fleet status
    read the unblock sentence from the one that stopped.
 5. **End the day:** `ad-fleet wrapup --all --day --dry-run`, then `--confirm <plan_id>` — every
    agent's Jira, Bitbucket and Confluence writes in one table, written on one confirm (#505).
-   `ad-fleet history` says what was dispatched, how it ended, and what it cost.
+   On the desk (#512): the *day* menu's *end of day…* opens the same table in the day strip, and
+   *write N* confirms the ticked cells. `ad-fleet history` says what was dispatched, how it ended,
+   and what it cost.
 
 Everything in that loop is also a command, because a fleet you can only drive through a page is a
 fleet you cannot script: `approvals`, `approve`, `deny`, `send`, `restart`, `renew`, `stop`, `board`,
