@@ -5,12 +5,15 @@ Scalar:    key: value
 List:      key[N]: a,b,c
 Nested:    key:\n  sub: value
 Values containing , : " or a line break are double-quoted with "" escaping, and so are keys,
-column names and table names that would otherwise change the shape of the line.
+column names and table names that would otherwise change the shape of the line. Any other control
+character (ESC among them) is spelled `\\u{1b}`, and `read_cell` reads a cell back.
 """
 from __future__ import annotations
 import re
 import sys
 from typing import Any
+
+from . import color
 
 # Every code point str.splitlines() breaks on. A vertical tab, a form feed and the C1/Unicode
 # separators end a line exactly as a newline does, so a value carrying one is two lines to any
@@ -22,6 +25,40 @@ _NEEDS_QUOTE = set(',:"') | set(LINE_BREAKS)
 # A name additionally has to survive the [count] and {columns} punctuation around it.
 _NAME_NEEDS_QUOTE = _NEEDS_QUOTE | set("[]{}")
 
+# The C0 and C1 controls and DEL, less the tab and the line breaks (which quoting already carries).
+# TOON goes to terminals and an agent's context, where a raw ESC (or C1's CSI, 0x9b) starts a
+# terminal sequence, so each is spelled `\u{<hex>}` instead (#522). A literal `\u{<hex>}` in the
+# text gets its backslash spelled `\u{5c}`, so `read_cell` can always tell the two apart; every
+# other backslash, a Windows path's included, is left alone. The one exception is colour: on a
+# human's terminal (`color.enabled()`), an SGR sequence such as `color.paint` adds stays as it is.
+# Piped, colour is off and nothing is kept, so no escape byte reaches an agent or a log.
+CONTROLS = "".join(chr(c) for c in (*range(0x20), 0x7F, *range(0x80, 0xA0))
+                   if chr(c) != "\t" and chr(c) not in LINE_BREAKS)
+_CONTROL = re.compile(f"[{re.escape(CONTROLS)}]")
+_CONTROL_OR_SGR = re.compile(f"(\x1b\\[[0-9;]*m)|[{re.escape(CONTROLS)}]")
+_SPELLED = re.compile(r"\\u\{([0-9a-f]{1,6})\}")
+
+
+def _spell(m: re.Match) -> str:
+    return m.group(0) if m.lastindex else "\\u{%x}" % ord(m.group(0))
+
+
+def _escape(s: str) -> str:
+    if "\\" in s:
+        s = _SPELLED.sub(lambda m: "\\u{5c}" + m.group(0)[1:], s)
+    if not _CONTROL.search(s):
+        return s
+    return (_CONTROL_OR_SGR if color.enabled() else _CONTROL).sub(_spell, s)
+
+
+def read_cell(field: str) -> str:
+    r"""One encoded cell or list item, read back to the string that was encoded: the quotes and
+    their `""` undone, then every `\u{<hex>}`. (A number, a boolean or a null comes back as its text.)"""
+    if len(field) >= 2 and field[0] == field[-1] == '"':
+        field = field[1:-1].replace('""', '"')
+    return _SPELLED.sub(lambda m: chr(int(m.group(1), 16)) if int(m.group(1), 16) <= 0x10FFFF else m.group(0),
+                        field)
+
 
 def _v(x: Any) -> str:
     if x is None:
@@ -30,7 +67,7 @@ def _v(x: Any) -> str:
         return "true" if x else "false"
     if isinstance(x, (int, float)):
         return repr(x) if isinstance(x, float) else str(x)
-    s = str(x)
+    s = _escape(str(x))
     if not s or s != s.strip() or any(ch in _NEEDS_QUOTE for ch in s):
         return '"' + s.replace('"', '""') + '"'
     return s
@@ -42,7 +79,7 @@ def _name(x: Any) -> str:
     Ordinary names are identifiers and come back unchanged; a key of `:` or a column of `"` does
     not, and that is the whole point -- unquoted, either one silently re-parses as something else.
     """
-    s = str(x)
+    s = _escape(str(x))
     if not s or s != s.strip() or any(ch in _NAME_NEEDS_QUOTE for ch in s):
         return '"' + s.replace('"', '""') + '"'
     return s
