@@ -80,7 +80,7 @@ phone, not in CI, and record what they saw.
 | 0 | #543 · #544 · #545 | the seven digest tests and the scrubber's leak test green; the sidebar trap reproduced, then fixed |
 | 1 | #546 · then #547 and #548 | the fail-closed matrix green; a matching decision releases `require()` |
 | 2 | #549 · #550 · #551 | a transition reaches the outbox exactly once under two streams and the bridge; `S.build()` starts no thread |
-| 3 | #552 · #553 · #554 · #559 · on the tenant: #555 · #556 · #557 · #558 | `ad-fleet mobile apply --dry-run` accepts a file `FleetDecide` wrote; every `mobile_*` code has its row |
+| 3 | #552 · #553 · #554 · #559 · on the tenant: #555 · #556 · #557 · #558 | the dry run of `ad-fleet mobile apply` (#552) accepts a file `FleetDecide` wrote; every `mobile_*` code has its row |
 | 4 | #560 · #561 · #562 · #563 to #569 · #570 · #571 · #572 | the phone and tablet passes recorded; the runbook rows written |
 | desk (after #523 on `main`) | #573 → #574 → #575 → #576 → #577 → #578 · #579 (budget-neutral, may go earlier) · #580 · then #581 | the served payload reported on every CAR line; +0 browser tests |
 | last | #582 | no runbook row reads *not yet measured*; `expire_s` and the heartbeat confirmed or changed with the number |
