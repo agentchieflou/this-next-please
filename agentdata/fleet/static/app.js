@@ -505,9 +505,17 @@ function makeTile(row, index) {
     closeMenu(el);
     if (viewing(el)) backToLive(el);
   });
-  el.querySelector(".sm-new").addEventListener("click", function () {
+  /** @type {HTMLElement} */
+  var smNew = el.querySelector(".sm-new");
+  smNew.addEventListener("click", function () {
     closeMenu(el);
-    newSession(el, row.repo);
+    startFresh(el, row.repo, smNew);
+  });
+  // #489: the head's and the adopt strip's *start fresh*: the same action as the menu item's.
+  ["freshtoggle", "fresh-strip"].forEach(function (cls) {
+    /** @type {HTMLElement} */
+    var b = el.querySelector("." + cls);
+    if (b) b.addEventListener("click", function (e) { e.stopPropagation(); startFresh(el, row.repo, b); });
   });
   el.querySelector(".sm-console").addEventListener("click", function () {
     closeMenu(el);
@@ -533,10 +541,11 @@ function makeTile(row, index) {
     else if (e.key === "Home") { toggleTilePin(row.repo); e.preventDefault(); }
     // The double-click on this pane's right-hand gutter: the two beside it, evened out (#234).
     else if (e.key === "Enter") { evenGutter(el); e.preventDefault(); }
-    // The strip, without a mouse. `[` and `]` walk it; `N` is a clean session beside this one.
+    // The strip, without a mouse. `[` and `]` walk it; `N` starts this pane fresh (#489), from a
+    // rail as from a pane.
     else if (e.key === "[") { stepMenu(el, row.repo, -1); e.preventDefault(); }
     else if (e.key === "]") { stepMenu(el, row.repo, 1); e.preventDefault(); }
-    else if (e.key === "n" || e.key === "N") { newSession(el, row.repo); e.preventDefault(); }
+    else if (e.key === "n" || e.key === "N") { startFresh(el, row.repo, null); e.preventDefault(); }
   });
 
   var pinBtn = el.querySelector(".pintoggle");
@@ -578,7 +587,7 @@ function makeTile(row, index) {
     action(el, el.dataset.console ? "say" : "send",
            { repo: row.repo, message: say.value, force: forcing })
       .then(function (r) {
-        if (r && r.ok) { say.value = ""; disarmSend(sendBtn); return; }
+        if (r && r.ok) { say.value = ""; disarmSend(sendBtn); drawStart(el, rowOf(row)); return; }
         /* The budget refusal reaches the operator at last (#213). It was enforced in `send` and
            the desk called `send` with no `force` at all, so an over-budget agent was simply
            unreachable from the page and `ad-fleet send --force` in a terminal was the only door.
@@ -595,9 +604,16 @@ function makeTile(row, index) {
   say.addEventListener("keydown", function (e) {
     if (e.key === "Enter") /** @type {HTMLElement} */ (el.querySelector(".send")).click();
   });
-  el.querySelector(".start").addEventListener("click", function () {
-    action(el, "start", { repo: row.repo, ticket: say.value.trim() || null });
+  /* #509: with the box empty, Start is *Start fresh* -- #489's `startFresh`, arming this button on
+     `chat_open` -- so leaving yesterday's session is one visible press on every full pane. With text
+     in the box it is today's Start {ticket}; text that is not a key is the server's to refuse. */
+  /** @type {HTMLButtonElement} */
+  var startBtn = el.querySelector(".start");
+  startBtn.addEventListener("click", function () {
+    if (!say.value.trim()) startFresh(el, row.repo, startBtn);
+    else action(el, "start", { repo: row.repo, ticket: say.value.trim() });
   });
+  say.addEventListener("input", function () { drawStart(el, rowOf(row)); });
   el.querySelector(".stop").addEventListener("click", function () {
     action(el, "stop", { repo: row.repo });
   });
@@ -729,6 +745,7 @@ function drawAsks(el, row) {
       li.querySelector(".overturn").addEventListener("click", function () {
         var say = el.querySelector(".say");
         say.value = "That assumption is wrong: " + (q.assume || q.q) + ". ";
+        drawStart(el, (tiles.get(el.dataset.repo || "") || {}).row);
         say.focus();
       });
       strip.appendChild(li);
@@ -934,6 +951,8 @@ function drawTile(el, row, approvals) {
   attr(chip, "title", "state from the fold" + (ac.text ? ", last event " + ac.text + " ago" : ""));
   text(el.querySelector(".ticket"), row.ticket || row.jira_project || "");
   drawOldSession(el, row);
+  drawFresh(el, row);
+  drawStart(el, row);
 
   text(el.querySelector(".why"), cold ? row.not_supervised_sentence : (row.why || ""));
 
@@ -952,9 +971,11 @@ function drawTile(el, row, approvals) {
            "a session outside the fleet is driving this repo" +
            (row.pid ? " (pid " + row.pid + ")" : "") +
            (row.external_how ? " — " + row.external_how : ""));
-      text(adoptBtn, "hand it back");
+      // #489 (SESS-D1): *start fresh* first; following it no more is the quieter second button.
+      text(adoptBtn, "stop following it");
       setData(adoptBtn, "what", "release");
-      attr(adoptBtn, "title", "stop treating that session as this repo's current one");
+      toggle(adoptBtn, "quiet", true);
+      attr(adoptBtn, "title", "the pane goes back to the fleet's own last run; your terminal chat is untouched");
     } else if (offer) {
       hide(outside, false);
       toggle(outside, "mine", false);
@@ -964,6 +985,7 @@ function drawTile(el, row, approvals) {
            " — last wrote " + age(offer.active_age_s) + " ago, " + offer.how);
       text(adoptBtn, "adopt it");
       setData(adoptBtn, "what", "adopt");
+      toggle(adoptBtn, "quiet", false);
       setData(adoptBtn, "pid", String(offer.pid || 0));
       attr(adoptBtn, "title", "make that session this repo's current one, instead of the last run the fleet started");
     } else {
@@ -978,7 +1000,19 @@ function drawTile(el, row, approvals) {
     var btn = el.querySelector("." + cls);
     if (!btn) return;
     disable(btn, !!row.external);
-    attr(btn, "title", row.external ? "type in that window — this session is not the fleet's to drive" : "");
+    // Start's label and title are `drawStart`'s (#509), written once per draw, not twice.
+    if (cls === "send") attr(btn, "title", row.external ? EXTERNAL_TITLE : "");
+  });
+  // Stop and Reset on the operator's own chat (#487, #489): the server refuses both, so the page
+  // does not offer them. A console the fleet opened is not `external`, and keeps its buttons.
+  ["stop", "reset"].forEach(function (cls) {
+    /** @type {HTMLButtonElement} */
+    var btn = el.querySelector("." + cls);
+    if (!btn) return;
+    var was = btn.disabled;
+    disable(btn, !!row.external);
+    if (row.external) attr(btn, "title", "your own Copilot chat — close it in its window; start fresh leaves it");
+    else if (was) attr(btn, "title", cls === "reset" ? "unblock it: end the stuck process and resume the same session" : null);
   });
 
   // Which run this transcript belongs to. Without it, a two-day-old run reads as live.
@@ -1204,7 +1238,10 @@ function loadSessions(el, repo) {
         var li = pattern.cloneNode(true);
         hide(li, false);
         text(li.querySelector(".ss-title"), r.title || r.ticket || r.id.slice(0, 8));
-        text(li.querySelector(".ss-chip"), r.ended || "");
+        // Where it ran, in words, and whether a fresh start left it (#489): two rows that both
+        // read `RDSD-118 · idle` are told apart without hovering.
+        text(li.querySelector(".ss-src"), SESSION_SOURCE[r.source] || "");
+        text(li.querySelector(".ss-chip"), r.left ? "left · " + whenIso(r.left) : (r.ended || ""));
         text(li.querySelector(".ss-when"), whenIso(r.last_seen));
         text(li.querySelector(".ss-cost"), r.cost ? Number(r.cost).toFixed(2) + " premium" : "");
         var button = li.querySelector(".ss-open");
@@ -1324,14 +1361,139 @@ function openConsole(el, row) {
   return action(el, "console", body).then(function (r) { if (r && r.ok) refresh(); return r; });
 }
 
-function newSession(el, repo) {
-  var note = el.querySelector(".ro-note");
-  post("start", { repo: repo, "new": true }).then(function (r) {
-    if (r && r.ok) { backToLive(el); refresh(); return; }
-    var said = [r && r.error, r && r.hint].filter(Boolean).join(" — ");
-    if (!el.querySelector(".readonly").hidden) text(note, said);
-    else { text(el.querySelector(".err"), said); hide(el.querySelector(".err"), false); }
-  });
+/* ------------------------------------------------------------------ start fresh (#488, #489)
+
+   One action, one word (SESS-D1): the session menu's item, the head's button, the adopt strip's
+   button and `Alt+N` all call this, and it posts the verb `ad-fleet fresh` calls. The server decides
+   (`row.fresh`); the page only says what it said. A chat that may still be open answers `chat_open`
+   with `second_press`: the pressed button then reads *start fresh — it is closed*, and the next
+   press says so (SESS-D2). Any other refusal arms nothing. */
+var SESSION_SOURCE = { adopted: "your chat", console: "console" };
+
+/** Does this pane offer *start fresh* on a full pane's head and mark its rail? #509 (SESS-D6: every
+    pane) widens only the head's button, and only on compact panes: `drawFresh` below. */
+function freshShown(row) {
+  return !!(row && row.fresh && row.fresh.offer);
+}
+
+/** What pressing it would do, in words: the ticket and model it starts on, and what it leaves. */
+function freshWords(row) {
+  var f = (row && row.fresh) || {};
+  var st = f.starts || {};
+  var on = (st.ticket ? "on " + st.ticket : "with no ticket") + " on " +
+           (st.model_label || "the CLI's own choice") + " (" + (st.model_source || "cli-auto") + ")";
+  return "a clean session " + on + "; this one stays under earlier (" + ((row.sessions_n || 0) + 1) + ")";
+}
+
+function drawFresh(el, row) {
+  var f = row.fresh || {};
+  var head = el.querySelector(".freshtoggle");
+  // #509: drawn whenever the row can say what a fresh start would do; `is-offer` is #489's rule, and
+  // app.css hides a button without it on every pane but a compact one, where the bottom row's Start
+  // is hidden. A change of tier costs no script.
+  hide(head, !row.fresh);
+  toggle(head, "is-offer", freshShown(row));
+  attr(head, "title", f.verdict && f.verdict !== "now" ? f.why : freshWords(row) + " — Alt+N");
+  var strip = el.querySelector(".fresh-strip");
+  hide(strip, !row.external);
+  attr(strip, "title", freshWords(row));
+  attr(el.querySelector(".sm-new"), "title", freshWords(row) + " (Alt+N)");
+  // An armed press lasts only as long as the verdict it answered, as *Reset anyway* does.
+  if (el.dataset.freshArmed && el.dataset.freshArmed !== (f.verdict || "")) disarmFresh(el);
+}
+
+var EXTERNAL_TITLE = "type in that window — this session is not the fleet's to drive";
+
+/** This pane's newest row, for a handler bound when the pane was built. */
+function rowOf(row) {
+  var entry = tiles.get(row.repo);
+  return (entry && entry.row) || row;
+}
+
+/** When a session began, in the operator's day: `today 08:02`, `yesterday 17:40`, or a date. */
+function beganWords(ts) {
+  if (!ts) return "";
+  var s = String(ts);
+  var d = new Date(/(Z|[+-]\d\d:?\d\d)$/.test(s) ? s : s + "Z");   // the stream's clock is UTC
+  if (isNaN(d.getTime())) return "";
+  var hm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  var now = new Date();
+  var yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return "today " + hm;
+  if (d.toDateString() === yesterday.toDateString()) return "yesterday " + hm;
+  return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2) + " " + hm;
+}
+
+/** What the bottom row's *Start fresh* would do (#509): the ticket, the model, and the session left. */
+function startFreshWords(row) {
+  var f = (row && row.fresh) || {};
+  var st = f.starts || {};
+  var run = (row && row.run) || {};
+  var on = "a clean session on " + (st.ticket || "no ticket — session-bootstrap, then router") + " on " +
+           (st.model_label || "the CLI's own choice");
+  if (!(f.leaves && f.leaves.session)) return on;
+  // #499's `session_began` where the row carries it; the current run's start otherwise.
+  var began = beganWords(run.session_began || run.started);
+  return on + "; this one" + (began ? " (began " + began + ")" : "") + " stays under earlier (" +
+         (((row && row.sessions_n) || 0) + 1) + ")";
+}
+
+/* The bottom row's Start (#509). An empty box makes it *Start fresh*, titled with what that does, or
+   with why not; text makes it today's Start. Written on a draw and on the box's `input`, and only
+   when it changes, so an idle pane writes nothing. */
+function drawStart(el, row) {
+  var start = el.querySelector(".bottom .start");
+  /** @type {HTMLInputElement} */
+  var box = el.querySelector(".say");
+  if (!start || !box || !row) return;
+  var empty = !box.value.trim();
+  var label = empty ? "Start fresh" : "Start";
+  // A press armed on `chat_open` (#489) says so on every door until the verdict changes.
+  if (empty && el.dataset.freshArmed) label = "start fresh — it is closed";
+  text(start, label);
+  var f = row.fresh || {};
+  attr(start, "title", row.external ? EXTERNAL_TITLE : !empty ? "" :
+       f.verdict && f.verdict !== "now" ? f.why : startFreshWords(row));
+}
+
+function disarmFresh(el) {
+  setData(el, "freshArmed", "");
+  [".freshtoggle", ".fresh-strip"].forEach(function (sel) { text(el.querySelector(sel), "start fresh"); });
+  text(el.querySelector(".sm-new-label"), "start fresh");
+}
+
+/** @param {HTMLElement} el  @param {string} repo  @param {HTMLElement|null} button */
+function startFresh(el, repo, button) {
+  var closed = !!el.dataset.freshArmed;
+  var rail = !paneShows(el).wide;
+  var tell = function (words) {
+    // A rail has no visible `.err`: its answer goes in the footer. Every other width shows it.
+    if (rail) say(repo + ": " + words);
+    else fail(el, words);
+  };
+  fail(el, "");
+  return post("fresh", closed ? { repo: repo, closed: true } : { repo: repo }).then(function (r) {
+    if (r && r.ok) {
+      disarmFresh(el);
+      if (viewing(el)) backToLive(el);
+      if (r.row) { patchRow(r.row); place(); } else refresh();
+      var left = (r.leaves || {});
+      var n = ((r.row && r.row.sessions_n) || 0);
+      say(repo + ": " + (left.session ? "left " + (left.title || left.session) +
+                                        " — it is under earlier (" + n + ")" : "started fresh"));
+      return r;
+    }
+    var words = [r && r.error, r && r.hint].filter(Boolean).join(" — ");
+    if (r && r.second_press) {
+      var entry = tiles.get(repo);
+      setData(el, "freshArmed", ((entry && entry.row && entry.row.fresh) || {}).verdict || "second_press");
+      if (button) text(button.querySelector(".sm-new-label") || button, "start fresh — it is closed");
+      tell(rail ? words + " — press Alt+N again once it is closed" : words);
+    } else {
+      tell(words);
+    }
+    return r;
+  }).catch(function (e) { tell(String(e)); });
 }
 
 /* ------------------------------------------------------------------------------- the whole page */
@@ -1731,7 +1893,7 @@ function connect() {
   if (source) source.close();
   var link = document.getElementById("link");
   toggle(document.body, "is-replaying", true);
-  source = new EventSource(q("/api/events", { since: cursors() }));
+  source = new EventSource(q("/api/events", { since: cursors(), w: W_NAME, shell: PARAMS.get("shell") || "" }));
   source.addEventListener("agent", function (m) {
     var ev = JSON.parse(m.data);
     var entry = tiles.get(ev.repo);
@@ -4018,6 +4180,14 @@ function chipModel(row) {
 function modelTitle(row) {
   row = row || {};
   var chip = chipModel(row);
+  // The operator's own chat (SESS-D4, #489): what it ran, and what start fresh would run instead,
+  // so the model button and the fresh button cannot disagree silently.
+  if (row.external || (row.run || {}).origin === "adopted") {
+    var starts = ((row.fresh || {}).starts) || {};
+    return "your chat ran " + (row.actual || "a model this machine was not told") + "; start fresh starts on " +
+           (row.model || "whatever the CLI picks") + " (" + (row.model_source || starts.model_source || "cli-auto") +
+           ") — press m";
+  }
   var why = row.model ? " (" + (row.model_source || "") + ")" : " (no --model flag is passed)";
   // Each half says where it came from when they differ (#493).
   if (row.effort) {
@@ -5297,8 +5467,11 @@ function railLine(row) {
   if (spend.total) bits.push(spend.total + " premium");
   var n = unread.get(row.repo) || 0;
   if (n) bits.push(n + " unread");
+  // #489: why this pane offers *start fresh*, and the key that does it.
+  if (freshShown(row)) bits.push(row.fresh.because);
   var said = row.needs_human ? String(row.why || "") : String(row.last_said || "").slice(0, 160);
-  return row.repo + ": " + bits.join(" · ") + (said ? " — " + said : "");
+  return row.repo + ": " + bits.join(" · ") + (said ? " — " + said : "") +
+         (freshShown(row) ? " — Alt+N starts fresh" : "");
 }
 
 /* The rail's face: the name down its length, the state's glyph in the state's colour, the unread
@@ -5318,7 +5491,9 @@ function drawPaneRail(el, row) {
   var asking = rows.filter(function (r) { return !!r.needs_human; });
   var red = asking.length > 0;
   var state = members ? "group" : shownState(row);
-  setClass(face, "pane-rail st-" + (red ? "needs_human" : state) + (red ? " needs-human" : ""));
+  // A dashed muted ring on the glyph when this pane offers *start fresh* (#489): never a state colour.
+  var fresh = !members && freshShown(row) ? (row.fresh.because === "old skills" ? " is-stale" : " is-outside") : "";
+  setClass(face, "pane-rail st-" + (red ? "needs_human" : state) + (red ? " needs-human" : "") + fresh);
   text(face.querySelector(".pr-glyph"),
        red ? "!" : members ? String(members.length) : (RAIL_GLYPHS[state] || "·"));
   text(face.querySelector(".pr-name"), members ? (row.project || row.repo) : row.repo);
@@ -5445,7 +5620,8 @@ function drawOldSession(el, row) {
   text(old, row.renew_queued ? "renew queued" : "old skills");
   attr(old, "title", sv.stale
     ? (sv.reason || "began on older skills") +
-      (row.renew_queued ? " — renewed when this turn ends" : " — renew stale sessions from the header")
+      (row.renew_queued ? " — renewed when this turn ends"
+                        : " — start fresh (Alt+N), or renew every stale session from the header")
     : "");
 }
 
@@ -5516,7 +5692,7 @@ function drawRenewPlan(p) {
     ? going + " fresh session" + (going === 1 ? "" : "s") + ": " + (p.now || 0) + " now, " +
       (p.at_turn_end || 0) + " when their turn ends — about " + (p.premium_turns || 0) +
       " premium turn" + (p.premium_turns === 1 ? "" : "s") + " between them"
-    : "nothing to renew: every stale session is waiting on you, is a console, or is done");
+    : "nothing to renew: every stale session is waiting on you, is a console, is done, or began outside the fleet");
   var go = /** @type {HTMLButtonElement} */ (document.getElementById("renewgo"));
   go.disabled = going === 0;
   text(go, going ? "renew " + going : "renew");

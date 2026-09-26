@@ -21,7 +21,7 @@ import pytest
 
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import (IDLE_LOOP, _desk_of, _open, _serve, _stop,  # noqa: F401 - fixtures
-                            fleet_home, _own_desk_globals)
+                            fleet_home)
 
 
 @pytest.mark.browser

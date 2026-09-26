@@ -28,7 +28,7 @@ from agentdata.fleet.registry import Registry
 from test_fleet_desk_browser import launch_chromium
 # The ink layer's own fixtures and helpers: the fleet directory, the desk's globals (autouse), the
 # page, and the paper at rest; the notebook's supervised agents and its waits on the fold.
-from test_fleet_ink import AT_REST, _choose, _open, _own_desk_globals, _serve, _stop, fleet_home  # noqa: F401
+from test_fleet_ink import AT_REST, _choose, _open, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until, alive, finished  # noqa: F401 - fixtures are used by name
 from test_fleet import make_project
 

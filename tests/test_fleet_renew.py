@@ -30,23 +30,6 @@ def fleet_home(tmp_path, monkeypatch):
     FP.forget()
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "selected": "", "screens": [], "version": 0, "at": "",
-        "arrangement": {"column": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "grid": {"order": [], "size": {}, "pinned": [], "hidden": []},
-                        "roles": {"order": [], "hidden": []},
-                        "screens": {"order": [], "hidden": []}},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0,
-                                         last_renew=0.0))
-    monkeypatch.setattr(S, "_refreshed_at", {})
-
-
 def started(install=..., *, resumed=False, session="", **extra):
     """A `started` event; `install=...` leaves the key out, as every start before #239 did."""
     data = {"pid": 1, "resumed": resumed, "new": not resumed, "session": session, **extra}
@@ -202,6 +185,7 @@ def test_every_verdict(fleet_home, tmp_path, monkeypatch):
     assert got["untracked"][0] == "skipped" and "no ticket" in got["untracked"][1]
     assert got["current"] == ("skipped", "not stale")
     assert got["adopted"][0] == "skipped" and got["adopted"][1].startswith("adopted")
+    assert "`ad-fleet fresh adopted`" in got["adopted"][1], "the skip names the verb that takes it (#488)"
     plan = RENEW.plan()
     assert (plan["now"], plan["at_turn_end"], plan["premium_turns"]) == (1, 1, 2)
 
@@ -332,6 +316,18 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
             assert page.get_attribute('.tile[data-repo="fresh"] .oldsession', "hidden") is not None
             assert "0.13.1" in page.get_attribute('.tile[data-repo="old"] .oldsession', "title")
             assert "1 session began" in page.inner_text("#renew-strip .renew-sum")
+            # #489: the stale pane's own door, on its head: what it starts, on which model. Only
+            # presence and title here -- this test fails any start.
+            fresh = '.tile[data-repo="old"] .freshtoggle'
+            page.wait_for_selector(fresh + ":not([hidden])", timeout=10000)
+            title = page.get_attribute(fresh, "title")
+            assert "on RDSD-1" in title and "cli-auto" in title and "Alt+N" in title, title
+            # #509: the button is drawn on every pane with a verdict, and offered (`is-offer`) only
+            # where #489 offers it; off a compact pane, one that is not offered is not shown.
+            assert page.evaluate("""() => { const b = document.querySelector('.tile[data-repo="fresh"] .freshtoggle');
+                return !b.classList.contains('is-offer') && (b.closest('.tile').dataset.tier === 'compact'
+                       || getComputedStyle(b).display === 'none'); }""")
+            assert "start fresh (Alt+N)" in page.get_attribute('.tile[data-repo="old"] .oldsession', "title")
 
             page.click("#renew")
             page.wait_for_selector('#renew-strip .renew-row[data-rowkey="old"]', timeout=5000)

@@ -64,6 +64,10 @@ DEFAULT_ALLOW = [
     # `-m` deliberately: `shell(git commit)` would also permit `git commit --no-verify`, and this
     # repo's own pre-commit hook (agentdata/graph/guard.py) is what --no-verify skips.
     "shell(git commit -m)",
+    # The one push (#502): `ad-git push` refuses a force, a refspec, a protected branch and an
+    # unconfigured remote itself, and waits on the approval gate. `shell(git push)` stays denied
+    # below -- a prefix allow on it would also allow every dangerous continuation.
+    "shell(ad-git push)",
     "skill",                         # the skill tool itself; without it the router cannot run
 ]
 
@@ -78,7 +82,7 @@ DEFAULT_DENY = [
     "shell(python -m agentdata setup)",
     # History it must not rewrite. Each spelling is listed because a deny is a PREFIX: blocking
     # `git push --force` does nothing about `git push -u origin HEAD --force`, which is why the
-    # allow-list above stops at `git commit -m` and does not offer a push at all.
+    # allow-list above stops at `git commit -m` and offers no raw push: the push is `ad-git push`.
     "shell(git push)",
     "shell(git merge)",
     "shell(git rebase)",
@@ -117,6 +121,8 @@ FORBIDDEN_FLAGS = ("--allow-all", "--allow-all-tools", "--allow-all-paths", "--a
 # never the content, for the same reason -- a prompt carrying the brief would be a copy of it for
 # the agent to trust instead of a file for the agent to read.
 DEFAULT_PROMPT = "Ticket {key}{summary}.{handoff} Invoke skill session-bootstrap, then router."
+# The default with no ticket (#488): `Ticket .` was the prompt a keyless start used to launch with.
+KEYLESS_PROMPT = "{handoff} Invoke skill session-bootstrap, then router."
 
 
 class _Blanks(dict):
@@ -267,17 +273,20 @@ def prompt_for(key: str | None, prompt: str | None, cfg: dict | None = None,
     """The one turn's prompt. An explicit `--prompt` always wins; otherwise the template."""
     if prompt:
         return prompt
-    template = C.get(cfg or {}, "fleet.prompt_template") or DEFAULT_PROMPT
+    configured = C.get(cfg or {}, "fleet.prompt_template")
+    # A configured template is the operator's words and is left as it is; the default drops its
+    # `Ticket {key}.` clause when there is no key rather than launching with `Ticket .`.
+    template = configured or (DEFAULT_PROMPT if key else KEYLESS_PROMPT)
     tidy = " ".join((summary or "").split())[:200]
     fields = _Blanks(key=key or "", summary=f": {tidy}" if tidy else "",
                      handoff=handoff or "")
     try:
-        return template.format_map(fields)
+        return template.format_map(fields) if configured else template.format_map(fields).strip()
     except (IndexError, ValueError):
         # A positional `{}` or a malformed brace in a configured template. Falling back to the
         # default keeps the agent starting: refusing to launch over a config file somebody wrote
         # three months ago is a much larger harm than losing their wording for one turn.
-        return DEFAULT_PROMPT.format_map(fields)
+        return (DEFAULT_PROMPT if key else KEYLESS_PROMPT).format_map(fields).strip()
 
 
 def launch_command(copilot: str, repo_path: str, prompt: str, *, log_dir: str,

@@ -347,7 +347,7 @@ def _spawn(repo: Repo, name: str, argv, exe: str | None = None) -> subprocess.Po
 
 
 def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = False,
-                  console: bool = False) -> None:
+                  console: bool = False, leaves: dict | None = None) -> None:
     """Put the launch itself into the normalized stream.
 
     Without this the stream begins mid-narrative -- the first thing anyone downstream sees is the
@@ -375,12 +375,33 @@ def _emit_started(name: str, lock: dict, *, resumed: bool = False, new: bool = F
                                  # "next turn" until a `started` carries the model just chosen.
                                  "model": lock.get("model", "") or "", "effort": lock.get("effort", "") or "",
                                  **stamp,
-                                 **({"console": True} if console else {})},
+                                 **({"console": True} if console else {}),
+                                 # The session a fresh start left (#488): `sessions` marks it `left`.
+                                 **({"leaves": {"session": str(leaves.get("session") or ""),
+                                                "origin": str(leaves.get("origin") or "")}}
+                                    if leaves else {})},
                                 ticket=lock.get("ticket", ""))])
     except Exception:  # noqa: BLE001 - a missing breadcrumb must never fail a launch
         from ..log import debug_exc
 
         debug_exc("fleet started event")
+
+
+def not_a_ticket(key: str) -> None:
+    """Refuse text that is not a ticket key (#509), before anything else is asked.
+
+    The reply box's placeholder says *reply, or a ticket key to start*, and Start took whatever was
+    in it as the ticket: `hello` started an agent on `Ticket hello.` on a pane with no ticket, and
+    was refused `mid_ticket` on any other. A key is what `board.KEY` matches, as typed or in capitals.
+    """
+    from .board import KEY
+
+    if not KEY.match((key or "").strip().upper()):
+        raise SupervisorError(
+            f"{key} is not a ticket key",
+            "type a key such as RDSD-123, or empty the box and press Start fresh; Send sends text to "
+            "the agent",
+            code="not_a_ticket")
 
 
 def check_ticket(repo: Repo, key: str, *, cross_project: bool = False, board_rows=None,
@@ -434,7 +455,8 @@ def theirs(name: str, lock: dict) -> SupervisorError:
     if not pid:
         said += ", and this machine will not say which process it is"
     return SupervisorError(said, f"close it in its own window, or `ad-fleet release {name}` to stop "
-                                 f"following it", code="external_session")
+                                 f"following it; `ad-fleet fresh {name}` leaves it for a clean session",
+                           code="external_session")
 
 
 def foreign(name: str, seen: dict, hint: str) -> SupervisorError:
@@ -448,10 +470,11 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
           cfg: dict | None = None, registry: Registry | None = None, exe: str | None = None,
           cross_project: bool = False, board_rows=None, summary: str = "",
           resume: str | None = None, new: bool = False, brief: str | None = None,
-          brief_by: str = "operator") -> dict:
+          brief_by: str = "operator", leaves: dict | None = None) -> dict:
     reg = registry or Registry()
     repo = reg.get(name)
     if key:
+        not_a_ticket(key)
         summary = summary or check_ticket(repo, key, cross_project=cross_project,
                                           board_rows=board_rows, force=force)
 
@@ -535,7 +558,7 @@ def start(name: str, *, key: str | None = None, prompt: str | None = None, force
             # what an agent is running on would otherwise have to parse an argv.
             "model": model, "effort": effort, "model_source": model_source}
     write_lock(name, lock)
-    _emit_started(name, lock, resumed=bool(resume), new=bool(new or not resume))
+    _emit_started(name, lock, resumed=bool(resume), new=bool(new or not resume), leaves=leaves)
     return lock
 
 
@@ -550,8 +573,9 @@ def send(name: str, message: str, *, cfg: dict | None = None, registry: Registry
         # sent here would go nowhere -- and a Send button that silently does nothing is worse than
         # one that refuses and says where to type instead.
         raise SupervisorError(f"{name} is running a session the fleet did not start",
-                              "type in that window. `ad-fleet release` hands it back, and then the "
-                              "fleet can drive this repository again",
+                              f"type in that window, or `ad-fleet fresh {name}` to leave it for a clean "
+                              f"session. `ad-fleet release` hands it back, and then the fleet can drive "
+                              f"this repository again",
                               code="external_session")
     if current:
         raise SupervisorError(f"{name} is mid-turn",

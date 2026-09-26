@@ -23,7 +23,7 @@ import pytest
 
 from agentdata.fleet import serve as S
 
-from test_fleet_column import (_open, _own_desk_globals, _rail, _repos, _serve, _until,  # noqa: F401
+from test_fleet_column import (_open, _rail, _repos, _serve, _until,  # noqa: F401
                                fleet_home)
 from test_fleet_desk_browser import launch_chromium
 

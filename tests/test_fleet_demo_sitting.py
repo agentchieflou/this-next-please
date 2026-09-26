@@ -39,14 +39,6 @@ SETTLE_S = 90
 def desk(tmp_path, monkeypatch):
     monkeypatch.setenv(registry.FLEET_DIR_ENV, str(tmp_path / "fleet"))
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
     monkeypatch.setenv("AGENTDATA_FAKE_CASE", "branches-caution")
     fakes.apply(monkeypatch, tmp_path, ["copilot"], npm=True)
     path = make_project(tmp_path / "luna", project="RDSD", phase="triaged")

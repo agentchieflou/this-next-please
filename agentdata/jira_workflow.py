@@ -150,8 +150,21 @@ def already_there(status: str, want: str) -> bool:
 
 
 def adf(text: str) -> dict:
-    """Cloud's REST v3 rejects a plain string comment body; Data Center's v2 rejects this. Flavor decides."""
-    return {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}]}
+    """Cloud's REST v3 rejects a plain string comment body; Data Center's v2 rejects this. Flavor decides.
+
+    A blank line starts a new paragraph and a single newline is a `hardBreak`, so a multi-line note reads on Cloud
+    the way it reads on Data Center. One line is one paragraph with one text node, exactly as before.
+    """
+    paragraphs = []
+    for block in re.split(r"\n[ \t]*\n+", text.strip("\n")) if "\n" in text else [text]:
+        content: list[dict] = []
+        for n, line in enumerate(block.split("\n")):
+            if n:
+                content.append({"type": "hardBreak"})
+            if line:
+                content.append({"type": "text", "text": line})
+        paragraphs.append({"type": "paragraph", "content": content})
+    return {"type": "doc", "version": 1, "content": paragraphs}
 
 
 def field_value(raw: str) -> Any:

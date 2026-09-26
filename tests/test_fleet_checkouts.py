@@ -26,22 +26,6 @@ def fleet_home(tmp_path, monkeypatch):
     return tmp_path / "fleet"
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    """The desk module's globals are process-wide, which is right for a server and wrong for a
-    suite that gives every test a fresh fleet directory. CI shuffles the order twice on purpose,
-    so a fixture that borrows these has to give them back. Same reasoning as
-    `tests/test_fleet_desk_sessions_b.py`."""
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-
-
 def _worktree(tmp_path, main_path, folder="luna-hotfix", ticket="RDSD-2"):
     """A checkout whose `.git` is a file pointing back into the main checkout, as git writes it."""
     os.makedirs(os.path.join(main_path, ".git", "worktrees", "hotfix"), exist_ok=True)
