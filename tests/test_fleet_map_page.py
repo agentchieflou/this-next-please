@@ -18,7 +18,7 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import _serve, _stop
-from test_fleet_map import _own_desk_globals, _worktree, fleet_home, row, snap  # noqa: F401
+from test_fleet_map import _worktree, fleet_home, row, snap  # noqa: F401
 
 READY = "() => !!window.FleetMap && FleetMap.graph !== null"
 
@@ -98,13 +98,20 @@ def test_the_tree_lists_the_fleet_and_a_keyboard_walk_opens_a_checkout_on_the_de
     S.update_window("side", open="luna")
     server, token, port = _serve()
     try:
-        graph = json.loads(_get(port, "/api/map", token))
         page, errors = _open(browser, port, token, "&w=side")
+        # The map's own stream is a window on its network (#404, #406): the refetch that follows the
+        # first `desk` and `polls` frames adds it, and the first poll pass, to the words. The copy to
+        # compare with is read once the page has drawn its own window as connected, not before.
+        page.wait_for_function("""() => !!document.querySelector('#maptree [data-node="w:side"].connected')""",
+                               timeout=15000)
+        graph = json.loads(_get(port, "/api/map", token))
         tree = page.evaluate("""() => [...document.querySelectorAll('#maptree [role=treeitem]')]
             .map(li => ({id: li.dataset.node, cls: li.className, say: li.querySelector('.say').textContent,
                          depth: (() => { let d = 0, u = li; while ((u = u.parentElement.closest('[role=treeitem]'))) d++; return d; })()}))""")
         by = {n["id"]: n for n in tree}
-        assert [n["id"] for n in tree if n["depth"] == 0] == ["p:luna", "p:uat"], tree
+        # The network (#404) is the last root, in the graph's words (docs/fleet-map.md §The page).
+        assert [n["id"] for n in tree if n["depth"] == 0] == ["p:luna", "p:uat", "n:network"], tree
+        assert by["n:network"]["say"] == graph["network"]["says"], by["n:network"]
         assert [n["id"] for n in tree if n["depth"] == 1 and n["id"].startswith("c:")] == \
             ["c:luna", "c:luna-hotfix", "c:uat"], tree
         assert "worktree" in by["c:luna-hotfix"]["cls"].split() and "main" in by["c:luna"]["cls"].split()

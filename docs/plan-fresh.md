@@ -74,6 +74,15 @@ deleted. The verdicts, first match wins: `mid_turn`, `console_window`, `needs_yo
 overridden), `second_press` (`chat_open`: a chat that may still be open, which a deliberate `--closed` gets past),
 then `now`. `row.fresh` carries the same verdict for the pane, judged from the snapshot's own listing.
 
+**A fresh day (#508).** A fresh day is `fresh` over the fleet: `ad-fleet fresh --all` (or two or more names, or
+`POST /api/fresh {all: true}`) previews every agent from one process listing, and `--confirm <plan_id>` starts
+exactly the ticked rows that are still `now`, each re-planned just before its launch. Renew stays stale-only. Three
+checks only a sweep makes: `your_own_chat` first (an adopted or external session is never acted on, not even one
+that went quiet), `fresh_today` after a `now` (the session began after today's local midnight and has a session
+id), and `keyless` (no ticket in progress: tickable, unticked unless `--keyless`). The day boundary is when the
+*session* began -- the `started` that is not a resume, or is `new` or adopted -- never when the current run did,
+so a Send this morning on yesterday's session leaves it yesterday's. `split_runs` derives `before_today` from it.
+
 **The desk itself.** `serve` captures the fingerprint it was *loaded* with at import time. `/api/ping` answers
 `loaded` beside `installed`, and the page shows one line when they differ: *the desk is running 0.13.1 ·
 installed 0.13.2 · restart*. `ad-fleet open` and both IDE shells treat an out-of-date desk like a missing one:

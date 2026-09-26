@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_column import _own_desk_globals, _repos, _serve, fleet_home  # noqa: F401 - fixtures
+from test_fleet_column import _repos, _serve, fleet_home  # noqa: F401 - fixtures
 from test_fleet_desk_browser import launch_chromium
 
 

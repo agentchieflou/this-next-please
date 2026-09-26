@@ -26,7 +26,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_instant import _own_desk_globals, _serve, fleet_home  # noqa: F401 - fixtures
+from test_fleet_instant import _serve, fleet_home  # noqa: F401 - fixtures
 
 REPOS = ("proj0", "proj1", "proj2")
 EVENTS = 150

@@ -45,7 +45,11 @@ That is also what the payload budget measures now. It used to count bytes on dis
 comment in the page cost against a number that exists to keep the page quick to open — and the page
 is mostly prose, because the comments are where this project keeps its design record. The number an
 operator waits on is what crosses the wire, so that is the number the test asserts (200 kB), with
-the on-disk figure reported beside it so a file that doubles is still visible. On loopback the
+the on-disk figure reported beside it so a file that doubles is still visible. Since #523 (decisions
+18 and 19 on #429) the prose is not in the page at all: a source file keeps code and its JSDoc
+types, its reasoning is in `<file>.md` beside it, which the server never serves, and the server
+strips every comment from what it sends. The desk went from 202,333 bytes gzipped to 117,055
+([desk-components.md](desk-components.md) §Where a component's reasoning lives). On loopback the
 saving is nothing and the CPU is real, which is why the API's JSON is *not* compressed: the desk
 polls it four times a second, and nobody waits on that. The page is for the case where the server
 is not loopback — a forwarded port, a phone on the LAN, a remote desktop.
@@ -62,6 +66,13 @@ The token is deliberately **not** a cookie. A cookie would be sent automatically
 browser, which is exactly what makes a local server on a known port drivable from a hostile tab;
 a query parameter has to be known to be used.
 
+**`fresh=1` only previews** (#511). `ad-fleet serve --open --fresh` and `ad-fleet open --fresh` add it,
+and `/open?fresh=1` forwards it: the page opens the fresh day's preview (`POST /api/fresh {all: true,
+dry_run: true}`), which is the only thing the parameter ever posts, and takes it off the address so a
+reload does not open it again. No parameter confirms anything: only the strip's *start N fresh* posts
+the ticked `repos`, and `/open` needs no token, so an address from anywhere may open a preview and no
+more (DAY-D4).
+
 This is loopback security, not authentication. It is the right size for a tool that runs on the
 operator's own machine and is never reachable from another one. Remote access is out of scope.
 
@@ -72,7 +83,7 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 
 | On a tile | What it shows |
 | --- | --- |
-| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, maximise. The model button names the next turn's model, name first (`luna 5.6`, `sonnet 5`; the full id in its title): marked *next turn* (slanted, dotted underline) from the moment a switch is saved until a turn launches with it, and the model a tenant served in its place when it pinned another (#492) |
+| Header | drag handle, number, repo name, **state chip with its age**, ticket, pin, **hide, refresh, model**, maximise, and **start fresh** on a stale, adopted or began-outside pane — and on every compact pane, which hides the bottom row's Start (#509). The model button names the next turn's model, name first (`luna 5.6`, `sonnet 5`; the full id in its title): marked *next turn* (slanted, dotted underline) from the moment a switch is saved until a turn launches with it, and the model a tenant served in its place when it pinned another (#492) |
 | Run line | which run this transcript belongs to: `run 3 · started 14:02 · resumed · session 7f3a · 41 events · live` |
 | Session pill | which **session** this transcript is — `session · running · 6d` — and the one menu that changes which one it is: this session, the earlier ones with how each ended and what it cost (each says where it ran -- `your chat`, `console` -- and `left · <when>` once a fresh start left it), **start fresh** (#489), the console, and the project's other checkouts (#206) |
 | Why line | the one sentence from the fold — the unblock sentence, the refused tool, the question |
@@ -81,7 +92,7 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 | Transcript | assistant text, tool calls, denials, phase changes — the current run only |
 | Earlier runs | folded under their session in the pill's menu — one *earlier*, not two adjacent ones (#206) |
 | Outside strip | a session in this checkout the fleet did not start: what it is, how sure we are, and *adopt it*; once adopted, **start fresh** first and the quieter *stop following it* (#489) |
-| Bottom row | reply box (→ `send`), Start (a ticket key in the same box), **Reset**, Stop. Over budget, *Send* re-arms as **Send anyway**: one more turn, on a second and deliberate press (#213) |
+| Bottom row | reply box (→ `send`), Start (a ticket key in the same box; with the box empty it reads **Start fresh** and is *start fresh*, titled with the ticket, the model and when the session it leaves began, #509 — text that is not a ticket key is refused `not_a_ticket`), **Reset**, Stop. Over budget, *Send* re-arms as **Send anyway**: one more turn, on a second and deliberate press (#213) |
 
 The **sidebar** sits beside the glass and holds five sections, one open at a time: the Jira **board**
 (`b`), the Downloads **inbox** (`i`), **alerts** (`n`), **where** (`/`, `ad-fleet where` over the
@@ -174,7 +185,8 @@ skipped its pre-flight. A ticket row takes the keyboard: `1`–`9` picks the
 rail chip in that position, `Enter` the row's one candidate.
 
 The **toolbar** is three labelled groups and one row: *widths* (the three presets, #234), *see*
-(search, the sidebar, and a *settings* link) and *alerts* (chime, the bell). A group named *window*
+(search, the sidebar, and a *settings* link) and *alerts* (chime, the bell, and the **day** menu: *start
+the day fresh (Shift+N)*, #511; #512 adds the sweeps). A group named *window*
 chose between the arrangements, and went with them (#232); the presets stand where it was. Settings are a **page**, `/settings`, not a popover: the palette was never
 the only one, and the model each agent runs and the flags the Copilot CLI is launched with have no
 business behind a button on a bar that is about the agents. The link's `href` is built at runtime
@@ -264,7 +276,8 @@ Under the run line there is a **tab strip**:
 * **start fresh** (#489) posts `fresh` -- `ad-fleet fresh <repo>` (#488): a clean session in this
   checkout on its active ticket and the configured model, the previous one still listed, marked
   `left`, and still resumable. The same action is the head's *start fresh* on a stale, adopted or
-  began-outside pane (full and compact alike), the adopt strip's first button, and `Alt`+`N` -- from a
+  began-outside pane (full and compact alike) and on every compact pane, the bottom row's *Start
+  fresh* on a full pane whose reply box is empty (#509), the adopt strip's first button, and `Alt`+`N` -- from a
   rail too, whose answer is said in the footer. When the operator's own chat may still be open the
   first press is refused with the server's sentence and the pressed button reads *start fresh — it
   is closed*; the next press is that deliberate second one. The footer then says *{repo}: left
@@ -445,6 +458,7 @@ red everywhere or the colour stops being information:
 | `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
+| `Shift`+`N` | a fresh day for every pane (preview): the day strip under the toolbar, one row per agent — ticked, tickable (no ticket), or why not, a *needs you* row with its question and *answer* — then *start N fresh — about N premium turns*; `Esc` closes it (#511) |
 | `Alt`+`N` | start this pane fresh: a clean session on its ticket, the one it is on kept under *earlier* (#489) |
 | `/` | the search box — `where` over the catalogue |
 | `i` | the sidebar's inbox |
@@ -512,7 +526,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/map` | the fleet as one graph (#401): projects, the checkouts that hang from them, and each checkout's agent with its kind (`console`, `adopted`, `headless`, `adoptable`, `none`), each with a sentence. Read-only; schema 1 in [fleet-map.md](fleet-map.md) §The graph |
 | POST | `/api/friction` | `{repo, dismiss: [names]}` or `{repo, earlier: true}` (#499): records the dismissals in the fleet directory, never the checkout, and answers `{repo, dismissed, project}` with the fresh panel. `409 no_repo`, or `not_friction` for a name not in `.agent/friction/` |
 | POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
-| GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent; `?frames=theme` sends no agent frames (the settings page, #348); `?notify=0` runs no notification sweep, and neither does `?frames=theme` (#356, §The stream) |
+| GET | `/api/events` | SSE; `?since=luna:12,other:4` resumes per agent; `?frames=theme` sends no agent frames (the settings page, #348); `?notify=0` runs no notification sweep, and neither does `?frames=theme` (#356, §The stream); `?w=left&shell=pycharm&page=map` say which window is listening (#404, the desk sends `w` and its `shell`): `w` and `page` are kept when they match `^[a-z0-9][a-z0-9_-]{0,31}$`, else `main` and `settings` (for `frames=theme`) or `desk`; `shell` is `shell=`, else `w=`. Kept in memory while the stream is open, never on disk, and read by `/api/map`'s `network.windows` ([fleet-map.md](fleet-map.md) §The network) |
 | GET | `/api/themes` | the `.icls` palettes, the skins, and `current` — which palette and skin the desk is wearing now (#195), as the stream's `theme` payload with its css (#346) |
 | GET | `/api/settings` | the editable keys with their type, default and effect-scope; what each is set to; the model per repository; the resolved tool lists |
 | POST | `/api/settings` | write an enumerated key, a per-repo model, or the fleet-wide default |
@@ -528,6 +542,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/where` | the catalogue search behind the header's box |
 | POST | `/api/start` | `{repo, ticket?, prompt?, force?}` |
 | POST | `/api/fresh` | `{repo, closed?, dry_run?}` — leave this checkout's session for a clean one (#488): `dry_run` answers the plan (`verdict`, `code`, `why`, `leaves`, `starts`); a start answers the row. `chat_open` answers 409 with `second_press: true`, and `closed: true` is that deliberate second press; every other refusal is 409 with its code |
+| POST | `/api/fresh` | `{all: true, dry_run: true, keyless?}` — a fresh day's preview (#508): `rows` (each with `ticked`, `keyless`, `began`, and a `needs_you` row's `question`), `plan_id`, `ticked`, `premium_turns`, `skipped` by code. `{all: true, repos: [..]}` starts the ticked repos that are still `now`: `rows` with `done` (`started`, `skipped`, `changed`) and each pane's new `row`; an unknown repo is listed in `unknown_repos`. `{all: true}` alone is 409 `preview_first`; nothing else launches |
 | POST | `/api/send` | `{repo, message}` |
 | POST | `/api/stop` | `{repo}` |
 | POST | `/api/reset` | `{repo, force?}` — stop, then resume the same session |

@@ -54,15 +54,48 @@ def verb(args: list[str]) -> tuple:
     return tuple(a for a in args if not a.startswith("-"))[:2]
 
 
+# Options known to take no value, so the token after one is not its value (#524). Anything else that
+# starts with `-` and carries no `=` is assumed to take the next token: in doubt, that is a write.
+_NO_VALUE = frozenset({"--help", "-h", "--dry-run", "--version"})
+
+
+def has_flag(args: list[str], *names: str) -> bool:
+    """Is one of `names` a flag in its own position? Not the value of the option before it
+    (`--title -h`, `--title --dry-run`), and not after `--`. Without pncli's verb table, any option not
+    in `_NO_VALUE` is taken to take a value. Shared by help (#524) and dry run (#525)."""
+    value_next = False
+    for a in args:
+        if a == "--":
+            return False
+        if value_next:
+            value_next = False
+            continue
+        if a in names:
+            return True
+        if a.startswith("-"):
+            value_next = "=" not in a and a not in _NO_VALUE
+    return False
+
+
+def asks_for_help(args: list[str]) -> bool:
+    """`--help` / `-h` as a flag of its own (#524)."""
+    return has_flag(args, "--help", "-h")
+
+
+def is_dry_run(args: list[str]) -> bool:
+    """`--dry-run` as a flag of its own (#525): as an option's value pncli sends the real write."""
+    return has_flag(args, "--dry-run")
+
+
 def is_write(args: list[str]) -> bool:
     """Would running this change something on a system of record?
 
     `--dry-run` is not a write whatever the verb: pncli resolves and prints, and sends nothing. Nor is
-    `--help` / `-h`: commander.js prints the help and exits before the action runs.
+    `--help` / `-h`: commander.js prints the help and exits before the action runs. Each counts only
+    as a flag of its own (`has_flag`); as an option's value, or after `--`, it is not, and the verb
+    still runs (#524, #525).
     """
-    if any(a == "--dry-run" for a in args):
-        return False
-    if any(a in ("--help", "-h") for a in args):      # commander.js prints help and exits before any action
+    if is_dry_run(args) or asks_for_help(args):
         return False
     path = verb(args)
     if not path:

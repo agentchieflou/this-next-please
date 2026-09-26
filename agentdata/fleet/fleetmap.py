@@ -11,6 +11,7 @@ event text (the transcript belongs to the desk).
 from __future__ import annotations
 
 import os
+import re
 
 from .. import textio
 from . import poll as P
@@ -262,13 +263,167 @@ def _project(name: str, mine: list[dict], root: dict | None, cache: dict,
             "branches_says": said, "carry_lines": lines, "branches": branches}
 
 
-def graph(snapshot: dict, *, now: float | None = None, branch_rows=None) -> dict:
+# ------------------------------------------------------------------------------- the network (#404)
+
+#: A poll source's name on the map, in `poll.SOURCES` order.
+SOURCE_NAMES = {"jira": "Jira", "pr": "pull requests", "powerbi": "Power BI", "git": "git"}
+
+#: What a window's name may be: `serve.SKIN_FAMILY`, restated so this fold imports no server.
+WINDOW_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+def _n(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def windows_open_says(n: int) -> str:
+    return "no windows open" if not n else _count(n, "window open", "windows open")
+
+
+def approvals_says(n: int) -> str:
+    return "no approvals waiting" if not n else _count(n, "approval waiting", "approvals waiting")
+
+
+def unreachable_says(name: str, grey: int) -> str:
+    """*Power BI unreachable for 2 checkouts*."""
+    return f"{name} unreachable for " + _count(grey, "checkout", "checkouts")
+
+
+def network_says(open_n: int, sources_on: int, pending: int) -> str:
+    """*the desk server, 2 windows open, 4 sources, 1 approval waiting*. Sources are those on."""
+    sources = "no sources" if not sources_on else _count(sources_on, "source", "sources")
+    return f"the desk server, {windows_open_says(open_n)}, {sources}, {approvals_says(pending)}"
+
+
+def source_says(s: dict) -> str:
+    """*Power BI · unreachable for 2 checkouts · 14 requests today · 2 errors*."""
+    bits = [s["name"]]
+    grey = sum(1 for c in s["cells"] if not c["ok"])
+    if not s["on"]:
+        bits.append("off")
+    elif not s["cells"]:
+        bits.append("not polled yet")
+    elif grey:
+        bits.append("unreachable for " + _count(grey, "checkout", "checkouts"))
+    else:
+        bits.append(_count(len(s["cells"]), "checkout", "checkouts") + " answering")
+    bits.append(_count(s["requests"], "request", "requests") + " today")
+    if s["errors"]:
+        bits.append(_count(s["errors"], "error", "errors"))
+    if s["stood_down"]:
+        bits.append(_count(s["stood_down"], "stand-down", "stand-downs"))
+    return " · ".join(bits)
+
+
+def window_says(w: dict) -> str:
+    """*window left · pycharm · open on desk, map*, or *window right · not open*."""
+    bits = [f"window {w['name']}"]
+    if w["shell"] and w["shell"] != w["name"]:
+        bits.append(w["shell"])
+    bits.append("open on " + ", ".join(w["pages"]) if w["connected"] else "not open")
+    return " · ".join(bits)
+
+
+def window_name(raw) -> str:
+    """A window's name as the map says it: `raw` when it is a name (`WINDOW_NAME`), else `main` --
+    the rule `serve.live_entry` applies to a stream's `w`. `desk.json` keeps whatever `?w=` a page
+    posted, and the map carries no text that is not a name."""
+    raw = str(raw or "")
+    return raw if WINDOW_NAME.match(raw) else "main"
+
+
+def _windows(snapshot: dict, live: list[dict]) -> list[dict]:
+    """The union of the desk's window records and the open streams, by name. Names only: a record's
+    widths and reads are the desk's business."""
+    names = {window_name(k) for k in ((snapshot.get("desk") or {}).get("windows") or {})}
+    by: dict[str, list[dict]] = {}
+    for entry in live:
+        name = window_name(entry.get("w"))
+        names.add(name)
+        by.setdefault(name, []).append(entry)
+    out = []
+    for name in sorted(names):
+        mine = by.get(name, [])
+        w = {"id": f"w:{name}", "name": name,
+             "shell": next((str(e["shell"]) for e in mine if e.get("shell")), ""),
+             "pages": sorted({str(e.get("page") or "desk") for e in mine}),
+             "connected": bool(mine),
+             "since": min((str(e.get("since") or "") for e in mine), default="")}
+        w["says"] = window_says(w)
+        out.append(w)
+    return out
+
+
+def _sources(rows: list[dict], counts: dict | None, settings: dict) -> list[dict]:
+    """One node per poll source: on or off, what it cost today, and one `{checkout, ok, age_s}` per
+    checkout it has a cell for -- never the cell's value or its error text."""
+    counts = counts or {}
+    out = []
+    for source in P.SOURCES:
+        cells = []
+        for r in rows:
+            cell = (r.get("polls") or {}).get(P.CELLS[source])
+            if isinstance(cell, dict):
+                try:
+                    age = round(float(cell.get("age_s") or 0.0), 1)
+                except (TypeError, ValueError):
+                    age = 0.0
+                cells.append({"checkout": f"c:{r['repo']}", "ok": not cell.get("grey"), "age_s": age})
+        s = {"id": f"s:{source}", "name": SOURCE_NAMES[source],
+             "on": bool((settings.get(source) or {}).get("on", True)),
+             "requests": _n((counts.get("requests") or {}).get(source)),
+             "errors": _n((counts.get("errors") or {}).get(source)),
+             "stood_down": _n((counts.get("stood_down") or {}).get(source)),
+             "cells": cells}
+        s["says"] = source_says(s)
+        out.append(s)
+    return out
+
+
+def _network(snapshot: dict, rows: list[dict], checkouts: list[dict], net: dict) -> dict:
+    """The map's `network` (#404) from the snapshot and `serve.map_network`'s raw facts."""
+    server = snapshot.get("server") or {}
+    installed = server.get("installed") if isinstance(server.get("installed"), dict) else {}
+    port, version = _n(net.get("port")), str(net.get("version") or "")
+    current = bool(server.get("current", True))
+    srv = {"id": "n:server", "port": port, "version": version, "current": current,
+           "says": f"the desk server · port {port}" + (f" · {version}" if version else "")
+           + ("" if current else " · not the installed version")}
+    windows = _windows(snapshot, list(net.get("live") or []))
+    sources = _sources(rows, net.get("counts"), net.get("settings") or {})
+    pending = len(snapshot.get("approvals") or [])
+    approvals = {"id": "n:approvals", "pending": pending, "says": approvals_says(pending)}
+
+    stale = []
+    for c in checkouts:
+        if c["agent"]["stale"]:
+            c["agent"]["stale_of"] = "n:install"
+            stale.append(c["agent"]["id"])
+    iv, ic = str(installed.get("version") or ""), str(installed.get("commit") or "")
+    label = (iv + (f" ({ic[:7]})" if ic else "")) if iv else "not readable"
+    began = (_count(len(stale), "agent", "agents") + " began on an older install" if stale
+             else "every agent began on it")
+    install = {"id": "n:install", "version": iv, "commit": ic, "stale_agents": stale,
+               "says": f"the install · {label} · {began}"}
+    open_n = sum(1 for w in windows if w["connected"])
+    return {"says": network_says(open_n, sum(1 for s in sources if s["on"]), pending),
+            "server": srv, "windows": windows, "sources": sources, "approvals": approvals,
+            "install": install}
+
+
+def graph(snapshot: dict, *, now: float | None = None, branch_rows=None,
+          network: dict | None = None) -> dict:
     """The map's schema-1 graph of one `fleet_snapshot()` answer. Pure: the same snapshot (and the
     same `branch_rows` answers) gives an equal graph.
 
     `branch_rows` is `Poller.branch_rows`, a name -> dict callable over the git poll's side cache
     (#403), or None when nothing polls. `now` is what a branch's `age_s` is measured against;
-    without it, against the moment the poll read the rows."""
+    without it, against the moment the poll read the rows. `network` (#404) is
+    `serve.map_network`'s raw facts, `{port, version, live, counts, settings}`; with it the graph
+    gains `network` and its `says` the windows open and any source that is unreachable."""
     rows = [r for r in (snapshot.get("repos") or []) if r.get("repo")]
     by_path = {_key(r.get("path", "")): r["repo"] for r in rows if r.get("path")}
 
@@ -310,7 +465,7 @@ def graph(snapshot: dict, *, now: float | None = None, branch_rows=None) -> dict
     working = sum(1 for c in checkouts if c["agent"]["state"] == "running")
     needs = sum(1 for c in checkouts if c["agent"]["needs_human"])
     seqs = {r["repo"]: int(r.get("last_seq") or 0) for r in rows}
-    return {
+    out = {
         "schema": SCHEMA,
         "as_of": rows[0].get("as_of") if rows else None,
         "cursor": ",".join(f"{repo}:{seqs[repo]}" for repo in sorted(seqs)),
@@ -318,3 +473,11 @@ def graph(snapshot: dict, *, now: float | None = None, branch_rows=None) -> dict
         "projects": projects,
         "checkouts": checkouts,
     }
+    if network is not None:
+        net = _network(snapshot, rows, checkouts, network)
+        said = [windows_open_says(sum(1 for w in net["windows"] if w["connected"]))]
+        said += [unreachable_says(s["name"], grey) for s in net["sources"]
+                 if (grey := sum(1 for c in s["cells"] if not c["ok"]))]
+        out["says"] += ", " + ", ".join(said)
+        out["network"] = net
+    return out

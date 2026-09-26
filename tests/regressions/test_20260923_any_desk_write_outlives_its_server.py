@@ -36,7 +36,7 @@ import pytest
 from agentdata import textio
 from agentdata.fleet import serve as S
 
-from test_fleet_column import _own_desk_globals, _repos, fleet_home  # noqa: F401 - fixtures
+from test_fleet_column import _repos, fleet_home  # noqa: F401 - fixtures
 
 SLOW_S = 1.0
 

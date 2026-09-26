@@ -35,18 +35,6 @@ def _project(root: str, project: str = "RDSD") -> str:
     return root
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-
-
 @pytest.fixture()
 def project(tmp_path, monkeypatch):
     """One project, two working trees -- the shape `git worktree add` leaves behind."""

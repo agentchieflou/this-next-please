@@ -88,25 +88,9 @@ def fleet_home(tmp_path, monkeypatch):
     return tmp_path / "fleet"
 
 
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    """The desk module's globals are process-wide, which is right for a server and wrong for a suite
-    that gives every test a fresh fleet directory."""
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-    monkeypatch.setattr(S, "_refreshed_at", {})
-    monkeypatch.setattr(S, "_measure_asks", {})
-
-
-def _repos(tmp_path, names):
+def _repos(tmp_path, names, project=None):
     for name in names:
-        Registry().add(make_project(tmp_path / name, ticket="RDSD-1"), name=name)
+        Registry().add(make_project(tmp_path / name, ticket="RDSD-1"), name=name, project=project)
         E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-1"),
                         E.event(name, "assistant_text", {"text": "working on " + name},
                                 ticket="RDSD-1"),
@@ -250,6 +234,13 @@ def _wire(body: bytes) -> int:
     return len(gzip.compress(body.replace(b"\r\n", b"\n"), 6, mtime=0))
 
 
+def _served(name: str) -> bytes:
+    """An ink module as the server sends it -- without its comments (`serve.strip_asset`) -- from
+    the bytes git stores, LF, as `_wire` measures them."""
+    lf = open(os.path.join(INK, name), "rb").read().replace(b"\r\n", b"\n")
+    return S.strip_asset(f"ink/{name}", lf)
+
+
 def test_a_crlf_checkout_of_the_ink_modules_measures_what_an_lf_one_does():
     """A Windows checkout with `core.autocrlf=true` holds the modules with CRLF endings, about 190
     bytes more gzipped than LF. The budget measures what git stores, so the two are one figure
@@ -266,15 +257,21 @@ def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     turned on fetches them. three.js is 163 KB of its own and is outside the desk's budget, because
     no desk fetches it unless it draws. The lazy modules (`LAZY`: `fx.js`, #370) are fetched only
     by a table that asks for them, so each has a budget of its own and is not in `INK_BUDGET`."""
-    sizes = {n: _wire(open(os.path.join(INK, n), "rb").read()) for n in MODULES}
+    # What the server sends of each (#523, decision 19): the module without its comments.
+    sizes = {n: _wire(_served(n)) for n in MODULES}
     print(f"\n  ink modules over the wire: {sum(sizes.values())} bytes gzipped {sizes}")
     assert sum(sizes.values()) < INK_BUDGET, sizes
-    fx = _wire(open(os.path.join(INK, "fx.js"), "rb").read())
+    fx = _wire(_served("fx.js"))
     print(f"  fx.js over the wire: {fx} bytes gzipped")
     assert fx < FX_BUDGET, fx
-    files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
+    # Beside each module, its tagalong reasoning (`<file>.md`, #523), which is never served.
+    files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n))
+                   and not n.endswith(S.UNSERVED))
     assert files == sorted(MODULES + LAZY), "a module no budget counts"
-    assert sorted(os.listdir(INK)) == sorted(MODULES + LAZY + ("skins",))
+    assert sorted(n for n in os.listdir(INK) if not n.endswith(S.UNSERVED)) \
+        == sorted(MODULES + LAZY + ("skins",))
+    assert sorted(n for n in os.listdir(INK) if n.endswith(S.UNSERVED)) \
+        == sorted(n + ".md" for n in MODULES + LAZY)
     # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost.
     # Every one but the example is a skin skins.py offers (#249-#256 ship them).
     from agentdata.fleet import skins as K
@@ -406,6 +403,8 @@ def test_the_desk_with_no_skin_using_ink_is_unchanged(fleet_home, tmp_path):
                 # And idle is idle: the panes test's loop, with the layer's module on the page --
                 # and with a *start fresh* button on alpha's head (#489: its session is stale).
                 page.wait_for_selector('.tile[data-repo="alpha"] .freshtoggle:not([hidden])', timeout=10000)
+                # And the bottom row's *Start fresh* on every full pane with an empty box (#509).
+                page.wait_for_function(FULL_PANE_STARTS_FRESH, timeout=10000)
                 count = page.evaluate(IDLE_LOOP)
                 assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
                 assert not errors, errors
@@ -413,6 +412,15 @@ def test_the_desk_with_no_skin_using_ink_is_unchanged(fleet_home, tmp_path):
             browser.close()
     finally:
         _stop(server)
+
+
+#: #509: every visible bottom-row Start on a pane with an empty reply box reads *Start fresh*, and
+#: there is at least one.
+FULL_PANE_STARTS_FRESH = """() => {
+  const starts = [...document.querySelectorAll('.tile .bottom .start')].filter(b => b.offsetParent !== null
+      && !b.closest('.tile').querySelector('.say').value);
+  return starts.length > 0 && starts.every(b => b.textContent === 'Start fresh');
+}"""
 
 
 #: Every fetch the page makes, counted while it is in flight -- so the idle loop below starts only
@@ -900,12 +908,36 @@ CHALK = {"name": "chalk", "speed": 0.5, "series": False, "marks": [
     {"selector": ".tile.ink-pencil .repo", "tool": "pencil", "shape": "underline"},
     {"selector": ".tile.ink-pen .head", "tool": "pen", "shape": "loop"}]}
 
-#: The model of alpha's hand in a frame where that hand is shown and the mark on `tool` is part
-#: drawn -- read in the one frame, so a hand that swaps tools in the next is not misread.
-HAND_AT = """tool => { const l = Ink.inspect().layer;
-  const m = l.marks.find(m => m.tool === tool && m.lane === 'pane:alpha');
-  return l.lanes['pane:alpha'] && l.lanes['pane:alpha'].hand && m && m.drawn > 0 && m.drawn < 1
-    ? l.handModel : false; }"""
+#: `RECORD`'s pattern for the hand: each `[tool, class]` is put on alpha, and then, every frame until
+#: those marks are drawn and the paper is at rest, the model of alpha's hand in the first frame where
+#: that hand is shown and the mark on `tool` is part drawn -- read in the one frame, so a hand that
+#: swaps tools in the next is not misread. Recorded in the page: the pencil's short row is drawn in
+#: a fraction of a second, and a `wait_for_function` begun a round trip after the class went on
+#: never saw it part drawn on a loaded machine (a 0.3 s late start failed it every time, #490).
+#: A tool never seen part drawn within the old wait's 20 s is `false`, and the test fails on it.
+HANDS_AT = """async (tools) => {
+  const tile = document.querySelector('.tile[data-repo="alpha"]');
+  for (const [, cls] of tools) tile.classList.add(cls);
+  const seen = {};
+  const t0 = performance.now();
+  let n = 0;
+  return await new Promise(done => {
+    const tick = () => {
+      const l = Ink.inspect().layer;
+      const lane = l.lanes['pane:alpha'];
+      const mark = tool => l.marks.find(m => m.tool === tool && m.lane === 'pane:alpha');
+      for (const [tool] of tools) {
+        const m = mark(tool);
+        if (!(tool in seen) && lane && lane.hand && m && m.drawn > 0 && m.drawn < 1) seen[tool] = l.handModel;
+      }
+      n += 1;
+      const drawn = tools.every(([tool]) => mark(tool) && mark(tool).drawn === 1);
+      if ((n > 3 && drawn && !l.busy) || n > 3000 || performance.now() - t0 > 20000) return done(tools.map(([tool]) => seen[tool] ?? false));
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}"""
 
 #: `RECORD`'s pattern for a class taken away: every frame until alpha's pencil mark is gone, the
 #: hand's model and whether alpha's hand is shown.
@@ -946,10 +978,7 @@ def test_the_hand_can_be_a_stick_of_chalk(fleet_home, tmp_path):
                 refused = page.evaluate("""() => { try { Ink.setSkin({ name: 'bad', hand: 'crayon', marks: [] }); return ''; }
                                                    catch (e) { return e.message; } }""")
                 assert "`hand`" in refused and page.evaluate("() => Ink.inspect().table") == "chalk", refused
-                _mark(page, "alpha", "ink-pencil")
-                _mark(page, "alpha", "ink-pen")
-                drew = [page.wait_for_function(HAND_AT, arg=tool, timeout=20000).json_value()
-                        for tool in ("pencil", "pen")]
+                drew = page.evaluate(HANDS_AT, [["pencil", "ink-pencil"], ["pen", "ink-pen"]])
                 _rest(page, "Ink.inspect().layer.marks.filter(m => m.drawn === 1).length === 2")
                 frames = page.evaluate(ERASE)
                 assert frames[-1]["erased"] == [], frames[-1]
@@ -1327,7 +1356,12 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     Alpha has run more than once, so its row carries `earlier` runs and the session pill's runs list
     is drawn on every row pass: patched, never torn down and rebuilt (#494). A run arriving adds one
     row and leaves the others' elements alone; an ended run's time is written into its row in place.
-    And with the wrap-up sheet open on the project panel, its rows drawn and no job running (#510)."""
+    And with the wrap-up sheet open on the project panel, its rows drawn and no job running (#510).
+
+    Beta is a second checkout of alpha's project, so alpha's session menu lists it as a sibling on
+    every row pass too: patched by repo, not emptied and cloned again (#514). `SIBS_IN_PLACE` draws
+    it by hand: the row keeps its element, a state and age that change are written in place, and
+    after several draws one click on it opens beta, through one handler."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata import config as C
     from agentdata.fleet import wrapup as WRAP
@@ -1345,7 +1379,7 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
                        E.event("alpha", "assistant_text", {"text": "working on alpha", "model": "claude-sonnet-5"},
                                ticket="RDSD-1"),
                        E.event("alpha", "turn_ended", {"turn": "0"}, ticket="RDSD-1")])
-    _repos(tmp_path, ["beta"])
+    _repos(tmp_path, ["beta"], project="alpha")
     S.arrange(order=["alpha", "beta"])
     S.update_window("main", open="alpha", widths={"alpha": 1, "beta": 1})
     cfg = C.load()
@@ -1362,6 +1396,9 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
             page.wait_for_function(f"() => document.querySelectorAll('{RUNS}').length === 1"
                                    " && !!document.querySelector('.tile[data-repo=\"alpha\"] .spill')"
                                    ".textContent", timeout=15000)
+            page.wait_for_function(f"""() => {{ const s = document.querySelectorAll('{SIBS}');
+              return s.length === 1 && s[0].querySelector('.sib-open').title.indexOf('beta') >= 0; }}""",
+                                   timeout=15000)
             first = page.evaluate(f"""() => {{ window.__run1 = document.querySelector('{RUNS}');
               return {{ words: window.__run1.textContent,
                         hidden: window.__run1.parentElement.hidden }}; }}""")
@@ -1376,6 +1413,7 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
             _rest(page, "Ink.inspect().layer.marks.length === 3")
             # A *start fresh* button is on the glass through every loop below (#489).
             assert page.is_visible('.tile[data-repo="alpha"] .freshtoggle')
+            assert page.evaluate(FULL_PANE_STARTS_FRESH), "#509: a full pane's empty box reads Start fresh"
             count = page.evaluate(IDLE_LOOP)
             kept = page.evaluate(f"() => document.querySelector('{RUNS}') === window.__run1")
             in_place = page.evaluate(RUNS_IN_PLACE)
@@ -1416,6 +1454,8 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
             page.wait_for_function("() => !/reading/.test(document.querySelector('.wrapsheet .wrap-status').textContent)",
                                    timeout=5000)
             wrapping = page.evaluate(IDLE_LOOP)
+            # Last, because its click opens beta.
+            sibs = page.evaluate(SIBS_IN_PLACE)
             assert not errors, errors
             browser.close()
     finally:
@@ -1435,10 +1475,41 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     assert kept, "an idle pass re-created a row of the runs list"
     assert in_place == {"kept": True, "equal": 0, "words": "run 1 · done (10:00–10:05)",
                         "added": 1, "empty": True}, in_place
+    assert sibs["kept"] == [True, True, True] and sibs["rows"] == [1, 1, 1], sibs
+    assert "working" in sibs["moved"] and "9s" in sibs["moved"] and sibs["back"] == sibs["was"], sibs
+    assert sibs["opened"] == ["beta"], sibs
 
 
 #: Alpha's runs list, under its session pill.
 RUNS = '.tile[data-repo="alpha"] .live-runs li'
+
+#: Alpha's sibling checkouts, in the same menu: the drawn rows, not the hidden pattern.
+SIBS = '.tile[data-repo="alpha"] .sib-list .sib-row:not([hidden])'
+
+#: Alpha's sibling list drawn by hand (#514): beta turns busy and older, then back. Whether its row
+#: keeps its element on each draw, the words each draw leaves, how many rows are drawn, and which
+#: agents one click on the row opens (`openAgent` is watched, and still called).
+SIBS_IN_PLACE = """() => {
+  const el = document.querySelector('.tile[data-repo="alpha"]');
+  const row = tiles.get('alpha').row;
+  const drawn = () => [...document.querySelectorAll('%s')];
+  const words = () => drawn()[0].querySelector('.sib-open').textContent;
+  const first = drawn()[0];
+  const was = words();
+  const busy = Object.assign({}, row.siblings[0], { state: 'working', age: '9s' });
+  const moved = Object.assign({}, row, { siblings: [busy] });
+  const kept = [], rows = [];
+  drawSessionPill(el, moved); kept.push(drawn()[0] === first); rows.push(drawn().length);
+  const movedWords = words();
+  drawSessionPill(el, moved); kept.push(drawn()[0] === first); rows.push(drawn().length);
+  drawSessionPill(el, row); kept.push(drawn()[0] === first); rows.push(drawn().length);
+  const back = words();
+  const opened = [];
+  const real = window.openAgent;
+  window.openAgent = function (name, skip) { opened.push(name); return real(name, skip); };
+  try { drawn()[0].querySelector('.sib-open').click(); } finally { window.openAgent = real; }
+  return { kept: kept, rows: rows, was: was, moved: movedWords, back: back, opened: opened };
+}""" % SIBS
 
 #: `drawRuns` on a list of its own: an ended run's time is written into the row it already has, an
 #: equal draw writes nothing, a new run adds exactly one row, and no runs hides the list.

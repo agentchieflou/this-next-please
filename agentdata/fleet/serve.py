@@ -41,6 +41,8 @@ import mimetypes
 import os
 import re
 import secrets
+import select as _select   # `select` is this module's own function (the desk's selection)
+import socket
 import threading
 import time
 from html import escape as _escape
@@ -50,7 +52,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
                inbox as IN, launch as LAUNCH, lifecycle, links as LK, loads as LOADS, notify as N,
-               poll as P, probe as PROBE, supervisor, trace as TRACE, wrapup as WRAP)
+               poll as P, probe as PROBE, strip, supervisor, trace as TRACE, wrapup as WRAP)
 from .registry import Registry, RegistryError, agent_dir, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
@@ -172,6 +174,47 @@ def gzip_for(body: bytes, key: tuple) -> bytes:
             _GZIPPED.clear()                  # that has been restyled all day still stays small
         _GZIPPED[key] = packed
     return packed
+
+# A script or a stylesheet goes out without its comments (#523, decision 19 on #429). The source
+# keeps the JSDoc types `tsc` reads, and none of it is for the browser, so it is stripped here, on
+# the way out, rather than by a build: this is the one path every page load takes, from a checkout
+# and from the wheel alike, and there is no build step to keep in step with it (docs/desk-types.md).
+# Stripped once per version of the file -- its path, mtime and size -- and remembered, like the gzip
+# above. `vendor/` goes out as it shipped, licence header and all. A file the tokenizer cannot read
+# goes out as it is: served whole is slower, never broken.
+_STRIPPED: dict[tuple, bytes] = {}
+_STRIP_LOCK = threading.Lock()
+
+
+def strip_asset(name: str, raw: bytes) -> bytes:
+    """What the desk serves of the static file `name` whose bytes are `raw`: a `.js` or `.css`
+    outside `vendor/` without its comments, anything else unchanged."""
+    rel = textio.norm_path(name)
+    if not rel.endswith((".js", ".css")) or rel.startswith("vendor/") or "/vendor/" in rel:
+        return raw
+    try:
+        text = raw.decode("utf-8")
+        return (strip.strip_js(text) if rel.endswith(".js") else strip.strip_css(text)).encode("utf-8")
+    except (UnicodeDecodeError, ValueError):
+        return raw
+
+
+def static_body(name: str) -> bytes:
+    """The bytes `/static/<name>` answers with, stripped once per version of the file."""
+    path = os.path.join(STATIC, name)
+    stamp = os.stat(path)
+    key = (path, stamp.st_mtime_ns, stamp.st_size)
+    with _STRIP_LOCK:
+        hit = _STRIPPED.get(key)
+    if hit is not None:
+        return hit
+    with open(path, "rb") as f:
+        body = strip_asset(name, f.read())
+    with _STRIP_LOCK:
+        if len(_STRIPPED) > 64:               # one entry per file version; a server whose files
+            _STRIPPED.clear()                 # are edited all day still stays small
+        _STRIPPED[key] = body
+    return body
 
 # What `.agent/out/` file counts as a verify summary, and which command wrote it. An allow-list of
 # *names*, like the catalogue's: `.agent/out/` also holds trace jsonl, screenshots and the debug log,
@@ -392,6 +435,12 @@ def split_runs(stream: list[dict], live: bool = False) -> tuple[dict, list[dict]
         "origin": run_origin(start_data),
         "events": curr_events,
     }
+    # Is this pane on a session that began before today (#508)? Derived, never stored: from the
+    # `started` that began the session, never the current run -- a Send this morning on yesterday's
+    # session is still yesterday's. Unknown counts as before. #511's morning offer reads it.
+    from . import fresh as FRESH
+
+    curr_run["before_today"] = FRESH.before_today(FRESH.session_began(stream))
     return curr_run, earlier
 
 
@@ -1052,6 +1101,56 @@ def current_poller():
         return _fresh()["poller"]
 
 
+# Who is listening right now (#404): one entry per open `/api/events` connection, added before the
+# stream starts and removed in its `finally`. In memory only, never written anywhere: a window that
+# is open is a fact about this process, and `desk.json` is what every window agrees on, not who is
+# looking. A closed tab is noticed on its stream's next write -- an event, a tick, or at most the
+# `HEARTBEAT_S` beat when nothing happens.
+_live_lock = threading.Lock()
+_live: dict[int, dict] = {}
+
+
+def live_entry(query: dict) -> dict:
+    """What a stream's query says about the window that opened it: `w` and `page` only when they
+    are names (`SKIN_FAMILY`), else `main` and `settings` (for `frames=theme`) or `desk`."""
+    def name(key: str) -> str:
+        got = ((query.get(key) or [""])[0] or "").strip()
+        return got if SKIN_FAMILY.match(got) else ""
+
+    frames = (query.get("frames") or [""])[0].split(",")
+    now = time.time()
+    return {"w": name("w") or "main",
+            "page": name("page") or ("settings" if "theme" in frames else "desk"),
+            "shell": ink_facts(query)["shell"],
+            "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "last": now}
+
+
+def live_windows() -> list[dict]:
+    """Copies of every open stream's entry, oldest first."""
+    with _live_lock:
+        return sorted((dict(v) for v in _live.values()), key=lambda v: (v["since"], v["w"]))
+
+
+def map_network(port: int) -> dict:
+    """The raw facts `fleetmap.graph(network=)` draws the network from (#404). It reads what the
+    process already knows -- who is listening, what the poll counted -- and asks nothing of anyone:
+    no ping, no probe, and never a `Poller` of its own (`current_poller`, not `poller`)."""
+    from ..version import version_string
+
+    live = current_poller()
+    try:
+        settings = live.settings if live is not None else P.settings()
+    except Exception:                        # noqa: BLE001 - a broken config is `ad-doctor`'s
+        settings = {}
+    try:
+        counts = live.counts() if live is not None else None
+    except Exception:                        # noqa: BLE001 - a map without counts, not no map
+        counts = None
+    parts = version_string().split()
+    return {"port": int(port), "version": parts[1] if len(parts) > 1 else "",
+            "live": live_windows(), "counts": counts, "settings": settings}
+
+
 def inbox_folders(cfg: dict | None = None) -> list[str] | None:
     """`fleet.inbox.folders` from the config, or None for the inbox's own default.
 
@@ -1442,6 +1541,11 @@ def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
     off = not desk or INK_OFF_UNTIL_DRAWN or not gate_on
     return {"html": attrs, "link": link, "body_class": "ink-off" if off else "", "body": body}
 
+
+#: What sits beside the served files and is never served (#523, decision 18 on #429): a script's or
+#: a stylesheet's reasoning, its tagalong `<file>.md`. It is for whoever reads the source; a page
+#: that fetched it would pay for prose the budget exists to keep off the wire.
+UNSERVED = (".md",)
 
 #: What `layer.js` imports once the gate is on (layer.js `start`, `VENDOR`), after ink.js imports it.
 INK_LAYER_MODULES = ("ink/layer.js", "ink/shapes.js", "ink/pen.js", "vendor/three/three.module.min.js")
@@ -2283,6 +2387,23 @@ def act(what: str, body: dict) -> dict:
         from .. import config as C
         from . import fresh as FRESH
 
+        if body.get("all"):
+            # A fresh day (#508): the preview, or the repos the operator ticked in it. Nothing else
+            # launches -- `{all: true}` alone is refused, and no field confirms a plan by itself.
+            try:
+                if body.get("dry_run"):
+                    return FRESH.plan_all(keyless=bool(body.get("keyless")), cfg=C.load())
+                repos = [str(n) for n in (body.get("repos") or []) if str(n)]
+                if not repos:
+                    raise ServeError("preview first: {all: true, dry_run: true}, then post the repos you ticked",
+                                     "a fresh day launches only what you saw and ticked",
+                                     code="preview_first")
+                out = FRESH.run_all(expect=repos, cfg=C.load())
+            except FRESH.FreshRefused as e:
+                raise ServeError(e.msg, e.hint, code=e.code) from None
+            # Each answer carries its pane's new row, so the page patches it at once: one snapshot.
+            rows = {r.get("repo"): r for r in fleet_snapshot().get("repos", [])}
+            return {**out, "rows": [{**r, "row": rows.get(r["repo"], {})} for r in out["rows"]]}
         if not repo:
             raise ServeError("which repository?", "pass {repo}", code="no_repo")
         try:
@@ -2831,6 +2952,53 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):       # noqa: A003 - stdlib's name
         """Silence. The console running the server is the operator's, not a request log."""
 
+    # How often a kept-alive connection, waiting for its next request, looks at `stopping` (#515).
+    idle_poll_s = 0.1
+
+    def handle_one_request(self):
+        """One request -- but not on a connection whose server has stopped (#515).
+
+        HTTP/1.1 keeps a connection open between requests, and the standard library waits for the
+        next one in a blocking `readline`, which nothing but the peer ends on Windows: Winsock's
+        `shutdown(SD_RECEIVE)` refuses later receives but does not wake one already waiting, and
+        `closesocket` must never be issued while another call is using the socket. So the wait is
+        made here instead, in `select` with a short timeout, looking at `stopping` in between. A
+        request already in the buffer, or bytes (or the end) on the socket, go on to the read."""
+        if not self._next_request_comes():
+            self.close_connection = True
+            return
+        super().handle_one_request()
+
+    def _next_request_comes(self) -> bool:
+        stopping = getattr(self.server, "stopping", None)
+        if stopping is None:
+            return True
+        while not stopping.is_set():
+            if self._request_buffered():
+                return True
+            try:
+                ready, _, _ = _select.select([self.connection], [], [], self.idle_poll_s)
+            except (OSError, ValueError):     # closed under us: the read says how
+                return True
+            if ready:
+                # Looked at again: a read side shut by closing reads as ready too, and on Winsock a
+                # read from it is an error rather than the end.
+                return not stopping.is_set()
+        return False
+
+    def _request_buffered(self) -> bool:
+        """Whether `rfile` already holds bytes a `select` on the socket would not see (a request
+        pipelined behind the last one), read without blocking."""
+        sock = self.connection
+        was = sock.gettimeout()
+        try:
+            sock.setblocking(False)
+            return bool(self.rfile.peek(1))
+        except OSError:
+            return True
+        finally:
+            sock.settimeout(was)
+
     # ------------------------------------------------------------------ plumbing
 
     def _authorized(self, query: dict) -> bool:
@@ -2944,7 +3112,9 @@ class Handler(BaseHTTPRequestHandler):
             snap = fleet_snapshot()
             # Branch lanes (#403) from the git poll's side cache: no git call of the map's own.
             rows = p.branch_rows if (p := current_poller()) else None
-            return self._json({"ok": True, **fleetmap.graph(snap, branch_rows=rows),
+            # The network (#404): who is listening and what the poll counted, from this process.
+            net = map_network(self.server.server_address[1])
+            return self._json({"ok": True, **fleetmap.graph(snap, branch_rows=rows, network=net),
                                "theme": snap["theme"]})
         if route == "/api/themes":
             from . import skins
@@ -3191,11 +3361,10 @@ class Handler(BaseHTTPRequestHandler):
         """
         root = os.path.join(STATIC, "")      # the directory, with its trailing separator
         path = os.path.normpath(os.path.join(STATIC, name))
-        if not path.startswith(root) or not os.path.isfile(path):
+        if not path.startswith(root) or not os.path.isfile(path) or path.endswith(UNSERVED):
             return self._refuse(404, f"no file {name}")
         stamp = os.stat(path)
-        with open(path, "rb") as f:
-            body = f.read()
+        body = static_body(os.path.relpath(path, STATIC))
         # Decided from the *base* type, before the charset is appended -- and not from what this
         # machine happens to call a `.js` file. `mimetypes` reads the registry on Windows, where
         # `.js` is commonly `application/javascript`; deciding after the append left that failing
@@ -3218,13 +3387,20 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", CSP)
         self.end_headers()
         cursors = _cursors((query.get("since") or [""])[0] or self.headers.get("Last-Event-ID", ""))
+        # Who is listening (#404): this stream's entry, stamped on each frame written, gone in the
+        # `finally` -- from the dict it was added to, whatever `_live` is bound to by then.
+        live, key, entry = _live, id(self), live_entry(query)
 
         def write(chunk: str) -> None:
             self.wfile.write(chunk.encode("utf-8"))
             self.wfile.flush()
+            with _live_lock:
+                entry["last"] = time.time()
 
         url = f"http://127.0.0.1:{self.server.server_address[1]}/?t={self.token}"
         try:
+            with _live_lock:
+                live[key] = entry
             # `?frames=theme` (#348): the settings page listens for one frame, not the agents' history.
             frames = (query.get("frames") or [""])[0].split(",")
             # Only a desk's stream sweeps (#356): the sweep's cursor is shared, so a stream that
@@ -3235,6 +3411,9 @@ class Handler(BaseHTTPRequestHandler):
                           sweep=notify != "0" and "theme" not in frames)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass                              # the tab was closed. Not an error.
+        finally:
+            with _live_lock:
+                live.pop(key, None)
         self.close_connection = True
 
     # --------------------------------------------------------------------- POST
@@ -3497,6 +3676,7 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
             # Before the bind: a taken port makes the base class call `server_close()` from here.
             self.stopping = threading.Event()
             self.handlers: list[threading.Thread] = []
+            self.connections: dict[threading.Thread, socket.socket] = {}
             self.handlers_lock = threading.Lock()
             super().__init__(*args, **kwargs)
 
@@ -3506,13 +3686,37 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
         # harmless, but a suite runs a desk per test, and a window write finishing late landed in
         # the NEXT test's desk (#245). Closing now says `stopping`, which ends every stream on its
         # next tick, and waits a bounded time for whatever is left.
+        #
+        # That left one thread closing did not end: HTTP/1.1 keeps a connection open between
+        # requests, and its handler waits in `readline` for the next one, which `stopping` never
+        # reaches. A page still open after its server closed -- a test that failed before closing
+        # it, with a browser that outlives the test -- was answered by that thread, from whatever
+        # fleet directory and desk the process had moved on to (#227, #298), and closing waited
+        # the full `close_wait_s` for it every time. So closing also shuts the read side of every
+        # connection still open: a handler waiting for a request reads the end of it and goes,
+        # and one still writing an answer finishes it. That wakes a waiting read on POSIX only; on
+        # Windows the handler's own wait (`Handler.handle_one_request`, in `select`) sees
+        # `stopping` within `idle_poll_s` and goes (#515, the Windows leg of train 7).
         def process_request(self, request, client_address):
             t = threading.Thread(target=self.process_request_thread,
                                  args=(request, client_address), daemon=True)
             with self.handlers_lock:
                 self.handlers = [h for h in self.handlers if h.is_alive()]
+                self.connections = {h: s for h, s in self.connections.items() if h.is_alive()}
                 self.handlers.append(t)
+                self.connections[t] = request
             t.start()
+
+        @staticmethod
+        def _end_reads(sockets):
+            """Where the OS allows it, wake a handler waiting in a read at once: on POSIX a shut read
+            side reads as the end. Winsock does not wake a waiting read this way, which is why the
+            handler also waits in `select` and looks at `stopping` every `idle_poll_s` (#515)."""
+            for s in sockets:
+                try:
+                    s.shutdown(socket.SHUT_RD)
+                except OSError:                  # already closed by its handler: nothing to end
+                    pass
 
         def server_close(self):
             self.stopping.set()
@@ -3520,6 +3724,8 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
             deadline = time.monotonic() + self.close_wait_s
             with self.handlers_lock:
                 left = list(self.handlers)
+                open_ = [s for h, s in self.connections.items() if h.is_alive()]
+            self._end_reads(open_)
             for t in left:
                 t.join(max(0.0, deadline - time.monotonic()))
 

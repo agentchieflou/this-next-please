@@ -38,7 +38,7 @@ from test_fleet import make_project
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import (AT_REST, COUNT_FETCHES, IDLE_LOOP, _marks, _serve, _stop,
                             catch_up_frames)
-from test_fleet_ink import _own_desk_globals, fleet_home  # noqa: F401 - fixtures
+from test_fleet_ink import fleet_home  # noqa: F401 - fixtures
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")

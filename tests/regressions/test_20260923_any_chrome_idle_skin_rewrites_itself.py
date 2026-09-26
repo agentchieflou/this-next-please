@@ -26,7 +26,7 @@ import pytest
 from agentdata.fleet import serve as S
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import (IDLE_LOOP, _open, _own_desk_globals, _repos, _serve,  # noqa: F401 - fixtures
+from test_fleet_ink import (IDLE_LOOP, _open, _repos, _serve,  # noqa: F401 - fixtures
                             _stop, fleet_home)
 
 

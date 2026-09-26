@@ -21,7 +21,7 @@ import pytest
 
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import (IDLE_LOOP, TABLE, _desk_of, _serve, _stop, _open, _rest,  # noqa: F401
-                            fleet_home, _own_desk_globals)
+                            fleet_home)
 
 #: The test table with effects, and hooks shaped like a skin module's (`cue` is #372's hook).
 SET_FX = """t => Ink.setSkin(Object.assign({}, t, { fx: { cues: [] } }),

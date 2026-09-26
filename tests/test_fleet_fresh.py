@@ -20,7 +20,7 @@ from agentdata.fleet import adopt as A, events as E, fingerprint as FP, fresh as
 from agentdata.fleet import serve as S, sessions as SESS, supervisor
 from agentdata.fleet.registry import Registry, fleet_dir
 
-from test_fleet_desk_switcher import _own_desk_globals, _serve, spawns  # noqa: F401 - fixtures
+from test_fleet_desk_switcher import _serve, spawns  # noqa: F401 - fixtures
 from test_fleet_renew import NOW, OLD, _repo, fleet_home, started, turn_ended  # noqa: F401 - fixtures
 
 CHAT_PID = 26846
@@ -330,3 +330,279 @@ def test_the_api_answers_what_the_cli_answers(fleet_home, copilot_home, tmp_path
         server.shutdown()
         server.server_close()
 
+
+
+# ------------------------------------------------------------------------ a fresh day (#508)
+
+YESTERDAY = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 86400))
+
+
+def _today() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+
+
+def _at(ev: dict, ts: str) -> dict:
+    return {**ev, "ts": ts}
+
+
+def _yesterdays(name: str, ticket: str = "RDSD-1") -> list[dict]:
+    """A fleet session begun yesterday evening, on current skills, whose turn ended."""
+    return [_at(started(NOW), YESTERDAY),
+            _at(E.event(name, "session_id", {"session": f"s-{name}"}, ticket=ticket), YESTERDAY),
+            _at(turn_ended(), YESTERDAY)]
+
+
+def _a_fleet_morning(tmp_path, home, monkeypatch, spawns) -> None:
+    """Every row #508 names, in one fleet."""
+    _repo(tmp_path, "idle", events=_yesterdays("idle"))
+    # A Send this morning: a `started` with `resumed: true`, a run today on yesterday's session.
+    _repo(tmp_path, "nudged", events=_yesterdays("nudged") + [
+        _at(started(NOW, resumed=True, session="s-nudged"), _today()), _at(turn_ended(), _today())])
+    # A fresh start today that died before its `session_id`.
+    _repo(tmp_path, "died", ticket="RDSD-9", events=_yesterdays("died", "RDSD-9") + [
+        _at(started(NOW), _today())])
+    # A fleet turn running now, begun today.
+    _repo(tmp_path, "busy", events=[_at(started(NOW), _today())])
+    supervisor.write_lock("busy", {"pid": 7001, "repo": "busy", "ticket": "RDSD-1"})
+    spawns["alive"].add(7001)
+    _repo(tmp_path, "free", phase="idle", ticket="", events=_yesterdays("free", ""))
+    _repo(tmp_path, "finished", phase="done", ticket="RDSD-5", events=_yesterdays("finished", "RDSD-5"))
+    _repo(tmp_path, "asking", events=_yesterdays("asking"),
+          questions=[{"id": "q1", "q": "which workspace?"}])
+    _repo(tmp_path, "consoled", events=[_at(started(NOW, console=True), _today())])
+    supervisor.write_lock("consoled", {"pid": 7002, "repo": "consoled", "kind": "console"})
+    spawns["alive"].add(7002)
+    _adopted_by_file(tmp_path, home, "chat")                        # live by its session file
+    _adopted_by_file(tmp_path, home, "quiet")                       # went quiet, lock reaped
+    quiet = time.time() - A.IDLE_S - 60
+    os.utime(os.path.join(str(home), "native-quiet", "events.jsonl"), (quiet, quiet))
+    supervisor.clear_lock("quiet")
+    _repo(tmp_path, "beside", ticket="RDSD-8", events=_yesterdays("beside", "RDSD-8"))
+    # A fleet session begun today, with its session id: today's already.
+    _repo(tmp_path, "today", events=[_at(started(NOW), _today()),
+                                     _at(E.event("today", "session_id", {"session": "s-today"}), _today()),
+                                     _at(turn_ended(), _today())])
+    beside = Registry().get("beside").path
+    listings = []
+
+    def listing(**kw):
+        listings.append(kw)
+        return [{"pid": CHAT_PID, "cwd": beside, "cmdline": "copilot"}]
+
+    monkeypatch.setattr(A, "agent_processes", listing)
+    for repo in Registry().sorted():                     # the stream caught up, as a desk tick leaves it
+        E.refresh(repo.name, repo.path, repo_state=repo.state())
+    return listings
+
+
+def _started_events() -> int:
+    return len([e for n in Registry().repos for e in E.read(n) if e["kind"] == "started"])
+
+
+def test_a_fresh_day_plans_every_agent_and_launches_nothing(fleet_home, copilot_home, tmp_path, monkeypatch, spawns):  # noqa: F811
+    listings = _a_fleet_morning(tmp_path, copilot_home, monkeypatch, spawns)
+    before, files = _started_events(), _files()
+    del listings[:]
+    got = FRESH.plan_all(cfg={})
+    assert [kw for kw in listings if kw.get("max_age") == 0] == [{"max_age": 0}], listings
+    rows = {r["repo"]: r for r in got["rows"]}
+    assert {n: (r["verdict"], r["code"], r["ticked"]) for n, r in rows.items()} == {
+        "idle": ("now", "", True), "nudged": ("now", "", True), "died": ("now", "", True),
+        "busy": ("refused", "mid_turn", False),
+        "free": ("now", "keyless", False), "finished": ("now", "keyless", False),
+        "asking": ("refused", "needs_you", False), "consoled": ("refused", "console_window", False),
+        "chat": ("skipped", "your_own_chat", False), "quiet": ("skipped", "your_own_chat", False),
+        "beside": ("refused", "foreign_session", False), "today": ("skipped", "fresh_today", False),
+    }, rows
+    assert rows["asking"]["question"] == {"id": "q1", "q": "which workspace?"}
+    assert rows["died"]["why"] == "today's fresh start did not begin"
+    assert rows["free"]["why"].startswith("no ticket in progress") and rows["free"]["keyless"] is True
+    assert rows["today"]["why"].startswith("already on today's session (began ")
+    assert "Alt+N" in rows["chat"]["why"]
+    assert rows["idle"]["began"] == YESTERDAY and rows["nudged"]["began"] == YESTERDAY
+    assert got["premium_turns"] == got["ticked"] == 3 and got["keyless"] == 2
+    assert got["skipped"] == {"mid_turn": 1, "needs_you": 1, "console_window": 1, "your_own_chat": 2,
+                              "foreign_session": 1, "fresh_today": 1}
+    assert FRESH.plan_all(keyless=True, cfg={})["premium_turns"] == 5
+    assert _started_events() == before and _files() == files, "a preview writes nothing"
+    assert spawns["launched"] == []
+
+
+def test_a_send_this_morning_does_not_make_yesterdays_session_todays(fleet_home, copilot_home, tmp_path, monkeypatch, spawns):  # noqa: F811
+    _repo(tmp_path, "nudged", events=_yesterdays("nudged") + [
+        _at(started(NOW, resumed=True, session="s-nudged"), _today()), _at(turn_ended(), _today())])
+    monkeypatch.setattr(FP, "current", lambda: dict(NOW))
+    stream = E.read("nudged")
+    assert FRESH.session_began(stream) == YESTERDAY and FRESH.before_today(YESTERDAY)
+    assert not FRESH.before_today(_today()) and FRESH.before_today("")
+    curr, _ = S.split_runs(stream)
+    assert curr["started"] != YESTERDAY and curr["resumed"] is True, "the run began today"
+    assert curr["before_today"] is True, "the session did not"
+    row = FRESH.plan_all(cfg={})["rows"][0]
+    assert (row["verdict"], row["ticked"]) == ("now", True)
+
+
+def test_the_sweep_never_touches_the_operators_own_chat(fleet_home, copilot_home, tmp_path, monkeypatch, spawns):  # noqa: F811
+    _a_fleet_morning(tmp_path, copilot_home, monkeypatch, spawns)
+    released = []
+    monkeypatch.setattr(A, "release", lambda *a, **k: released.append(a) or {"released": True})
+    closed = []
+    real_run = FRESH.run
+    monkeypatch.setattr(FRESH, "run", lambda *a, **k: closed.append(k.get("closed")) or real_run(*a, **k))
+    killed = []
+    monkeypatch.setattr(supervisor, "stop", lambda *a, **k: killed.append(a) or {"stopped": False})
+    out = FRESH.run_all(expect=["chat", "quiet", "idle"], cfg={})
+    rows = {r["repo"]: r for r in out["rows"]}
+    assert (rows["chat"]["done"], rows["chat"]["code"]) == ("changed", "your_own_chat")
+    assert (rows["quiet"]["done"], rows["quiet"]["code"]) == ("changed", "your_own_chat")
+    assert rows["idle"]["done"] == "started"
+    assert released == [] and killed == [], "no adoption released, nothing the fleet did not start signalled"
+    assert closed and all(c is False for c in closed), "no sweep path passes closed=True"
+    assert supervisor.read_lock("chat").get("external")
+    assert len(spawns["launched"]) == 1
+
+
+def test_a_fresh_day_launches_only_what_was_ticked_and_is_still_now(fleet_home, copilot_home, tmp_path, monkeypatch, spawns):  # noqa: F811
+    _a_fleet_morning(tmp_path, copilot_home, monkeypatch, spawns)
+    planned = FRESH.plan_all(cfg={})
+    ticked = [r["repo"] for r in planned["rows"] if r["ticked"]]
+    assert ticked == ["died", "idle", "nudged"]
+    cfg = {"fleet": {"models": {"idle": {"model": "claude-opus-5", "effort": "high"}}}}
+    out = FRESH.run_all(expect=ticked, cfg=cfg)
+    rows = {r["repo"]: r for r in out["rows"]}
+    assert [n for n, r in rows.items() if r["done"] == "started"] == ticked and out["started"] == 3
+    assert len(spawns["launched"]) == 3
+    by_ticket = {_prompt(argv).split(".")[0]: argv for argv in spawns["launched"]}
+    for argv in spawns["launched"]:
+        assert "--resume" not in argv
+    idle = next(argv for argv in spawns["launched"] if "s-idle" in _prompt(argv))
+    assert idle[idle.index("--model") + 1] == "claude-opus-5" and idle[idle.index("--effort") + 1] == "high"
+    assert "Ticket RDSD-9" in by_ticket and "Ticket RDSD-1" in by_ticket
+    assert "left session s-nudged" in _prompt(next(a for a in spawns["launched"] if "s-nudged" in _prompt(a)))
+    for name in ticked:
+        began = [e for e in E.read(name) if e["kind"] == "started"][-1]["data"]
+        assert began["new"] is True and "leaves" in began, began
+    assert [e for e in E.read("idle") if e["kind"] == "started"][-1]["data"]["leaves"]["session"] == "s-idle"
+    assert "s-idle" in [s["id"] for s in SESS.load_sessions("idle")], "the left session stays listed"
+    assert all(r["done"] == "skipped" for n, r in rows.items() if n not in ticked), rows
+
+    # Between the preview and the run, one turned mid-turn: reported, and not launched. A `now` repo
+    # not in `expect` is not launched either.
+    supervisor.write_lock("free", {"pid": 7003, "repo": "free", "ticket": ""})
+    spawns["alive"].add(7003)
+    out = FRESH.run_all(expect=["free"], cfg={})
+    free = next(r for r in out["rows"] if r["repo"] == "free")
+    assert (free["done"], free["code"]) == ("changed", "mid_turn") and len(spawns["launched"]) == 3
+    assert next(r for r in out["rows"] if r["repo"] == "finished")["done"] == "skipped"
+    for nothing in ([], None):
+        with pytest.raises(FRESH.FreshRefused) as e:
+            FRESH.run_all(expect=nothing)
+        assert e.value.code == "preview_first"
+    assert len(spawns["launched"]) == 3
+
+    # `keyless=True` and all five ticked: every ticked row ends on a new session.
+    supervisor.clear_lock("free")
+    spawns["alive"].discard(7003)
+    for pid in list(spawns["alive"]):
+        if pid not in (7001, 7002):
+            spawns["alive"].discard(pid)
+    for name in ("died", "idle", "nudged"):             # their first turns ended
+        E.append(name, [E.event(name, "session_id", {"session": f"new-{name}"}), dict(turn_ended(), repo=name)])
+    planned = FRESH.plan_all(keyless=True, cfg={})
+    assert [r["repo"] for r in planned["rows"] if r["ticked"]] == ["finished", "free"]
+    out = FRESH.run_all(expect=["finished", "free"], cfg={})
+    for name in ("finished", "free"):
+        began = [e for e in E.read(name) if e["kind"] == "started"][-1]["data"]
+        assert began["new"] is True
+        assert "Ticket ." not in _prompt(spawns["launched"][-1])
+    assert len(spawns["launched"]) == 5
+
+
+def _first_turns_end(spawns) -> None:
+    """Every launched agent's first turn ended: its pid is gone and its session id recorded."""
+    for name in [r.name for r in Registry().sorted()]:
+        last = [e for e in E.read(name) if e["kind"] == "started"]
+        data = (last[-1]["data"] if last else {})
+        if data.get("new") and data.get("leaves") is not None:
+            spawns["alive"].discard(int(data.get("pid") or 0))
+            supervisor.clear_lock(name)
+            E.append(name, [E.event(name, "session_id", {"session": f"new-{name}"}),
+                            dict(turn_ended(), repo=name)])
+
+
+def test_a_fresh_day_is_idempotent_within_the_day(fleet_home, copilot_home, tmp_path, monkeypatch, spawns):  # noqa: F811
+    _a_fleet_morning(tmp_path, copilot_home, monkeypatch, spawns)
+    first, second = FRESH.plan_all(cfg={}), FRESH.plan_all(cfg={})
+    assert first["plan_id"] == second["plan_id"] and len(first["plan_id"]) == 12
+    FRESH.run_all(expect=[r["repo"] for r in first["rows"] if r["ticked"]], cfg={})
+    _first_turns_end(spawns)
+    again = {r["repo"]: r for r in FRESH.plan_all(cfg={})["rows"]}
+    assert [n for n in ("died", "idle", "nudged") if again[n]["code"] != "fresh_today"] == []
+    assert FRESH.plan_all(cfg={})["premium_turns"] == 0
+    assert FRESH.plan_all(cfg={})["plan_id"] != first["plan_id"]
+
+
+def test_the_cli_needs_a_confirm_and_refuses_a_bare_fresh_and_a_fleet_wide_closed(fleet_home, copilot_home, tmp_path, monkeypatch, capsys, spawns):  # noqa: F811
+    _a_fleet_morning(tmp_path, copilot_home, monkeypatch, spawns)
+    assert cli_fleet.main(["fresh"]) == 2
+    assert "name a repo, or pass --all" in capsys.readouterr().out
+    assert cli_fleet.main(["fresh", "--all", "--closed"]) == 2
+    out = capsys.readouterr().out
+    assert "code: closed_is_per_pane" in out and "ad-fleet fresh <repo> --closed" in out
+    assert cli_fleet.main(["fresh", "--all"]) == 2
+    out = capsys.readouterr().out
+    plan_id = FRESH.plan_all(cfg={})["plan_id"]
+    assert f"--confirm {plan_id}" in out and "premium_turns: 3" in out and spawns["launched"] == []
+    assert cli_fleet.main(["fresh", "--all", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "fresh[12]{repo,verdict,code,ticked,ticket,model,model_source,leaves,began,why}:" in out, out
+    assert "which workspace?" in out and "your_own_chat" in out and spawns["launched"] == []
+    assert cli_fleet.main(["fresh", "idle", "nudged", "--dry-run"]) == 0
+    assert "busy" not in capsys.readouterr().out.split("fresh[", 1)[-1]
+
+    assert cli_fleet.main(["fresh", "--all", "--confirm", "0123456789ab"]) == 2
+    out = capsys.readouterr().out
+    assert "code: plan_changed" in out and plan_id in out and spawns["launched"] == []
+    assert cli_fleet.main(["fresh", "--all", "--confirm", plan_id]) == 0
+    assert "started: 3" in capsys.readouterr().out and len(spawns["launched"]) == 3
+    _first_turns_end(spawns)
+    assert cli_fleet.main(["fresh", "--all", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    rows = {line.split(",")[0].strip(): line for line in out.splitlines() if line.startswith("  ")}
+    for name in ("died", "idle", "nudged"):
+        assert "fresh_today" in rows[name], rows[name]
+    assert len(spawns["launched"]) == 3
+
+
+def test_the_api_answers_what_the_cli_answers_for_a_fresh_day(fleet_home, copilot_home, tmp_path, monkeypatch, capsys, spawns):  # noqa: F811
+    _a_fleet_morning(tmp_path, copilot_home, monkeypatch, spawns)
+    assert cli_fleet.main(["fresh", "--all", "--dry-run"]) == 0
+    said = capsys.readouterr().out
+    server, token, port = _serve()
+    try:
+        def post(body):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
+            conn.request("POST", f"/api/fresh?t={token}", body=json.dumps(body),
+                         headers={"Content-Type": "application/json"})
+            r = conn.getresponse()
+            return r.status, json.loads(r.read())
+
+        status, refused = post({"all": True})
+        assert status == 409 and refused["code"] == "preview_first"
+        assert refused["error"].startswith("preview first: {all: true, dry_run: true}")
+        status, preview = post({"all": True, "dry_run": True})
+        assert status == 200 and preview["plan_id"] in said and preview["premium_turns"] == 3
+        assert {r["repo"]: r["code"] for r in preview["rows"]}["today"] == "fresh_today"
+        status, keyless = post({"all": True, "dry_run": True, "keyless": True})
+        assert keyless["premium_turns"] == 5 and spawns["launched"] == []
+        status, done = post({"all": True, "repos": ["idle", "nowhere"]})
+        assert status == 200 and done["unknown_repos"] == ["nowhere"] and done["started"] == 1
+        rows = {r["repo"]: r for r in done["rows"]}
+        assert rows["idle"]["done"] == "started" and rows["idle"]["row"]["repo"] == "idle"
+        assert rows["idle"]["row"]["fresh"]["code"] == "mid_turn", "the pane's new row: running now"
+        assert all(r["row"].get("repo") == n for n, r in rows.items())
+        assert len(spawns["launched"]) == 1
+    finally:
+        server.stopping.set()
+        server.shutdown()
+        server.server_close()

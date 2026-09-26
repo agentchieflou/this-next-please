@@ -1,37 +1,3 @@
-/* The ink layer's front door (#248, slice B of the ink epic #246): the gate, `window.Ink`, and the
-   plain fallback. `docs/desk-ink.md` is the page this file implements.
-
-   Loaded by the desk as `<script type="module">` beside the classic `app.js`, after `common.js`,
-   whose globals (`PARAMS`, `q`) it uses. It is small on purpose, because every desk loads it and
-   most never draw: it decides whether this shell gets ink, and it is the only thing `app.js` will
-   ever see of the layer (`window.Ink`). The drawing half -- `layer.js`, `shapes.js`, `pen.js` and
-   the vendored three.js -- is fetched only when the gate says on AND a skin hands it a mark table,
-   and always through `import(q(...))`: a module specifier resolved against this file's URL does
-   not carry the run token, and every route on this server wants it (the reason `probe.js` does the
-   same).
-
-   THE GATE. The server writes what `/probe` measured in this shell onto the page it serves:
-   `<body data-ink-shell="pycharm" data-ink-probe="hardware">`, from `probe.classify()` of that
-   shell's record in `~/.agentdata/fleet/probes.json` (`unmeasured` when there is none). This file
-   decides nothing about renderers. Only `hardware` -- the one class `probe.works()` accepts --
-   turns ink on. Everything else is the plain fallback, `body.ink-off`: software, none, unknown,
-   incomplete, unmeasured. So do `?ink=off`, a shell that will not give a WebGL context after all,
-   three.js failing to load, and a lost context.
-
-   THE OVERRIDE. `?ink=on` turns ink on whatever the probe said. It exists so CI -- which draws in
-   SwiftShader, and so is always `software` -- can exercise the layer. It is an override, not a
-   measurement: it writes nothing to `probes.json` and never reaches `/api/probe`, and `Ink.verdict`
-   says `source: "override"` with the probe's own answer beside it.
-
-   THE FALLBACK. The same mark table, drawn as plain CSS: an outline is an outline, a highlight a
-   tinted background, a strike a line-through, a check or a bang a bar in the margin. One look
-   shared by every skin, with no animation. It is a constructed stylesheet (`adoptedStyleSheets`),
-   so it costs the page no DOM writes at all: the browser matches the selectors, and a mark comes
-   and goes with the class `app.js` sets. */
-
-/* The tools a mark table may name, and the palette colour each is drawn in unless the skin names
-   one of its own as `--ink-<tool>`. A palette colours the inks; a skin chooses the paper. The
-   eraser is not here: it is how a pencil mark leaves, not a mark. */
 const TOOLS = {
   pencil: "--muted",
   pen: "--accent",
@@ -41,15 +7,9 @@ const TOOLS = {
   highlighter: "--waiting",
 };
 
-/* Pencil is erased when its mark goes; everything else is ink, and is struck through. A row may
-   say otherwise with `leaves` (#252): the paper grammar highlights an agent's name while it needs
-   you, and a name struck through when the question is answered reads as an agent that is gone --
-   the flaw both prototypes had. That row's highlight is erased, and the question is struck. */
 const ERASABLE = new Set(["pencil"]);
 const LEAVES = ["erased", "struck"];
 
-/* Each shape as the plain fallback draws it, `%c` standing for the tool's colour. Everything the
-   layer can draw is a row here: `layer.js` refuses to start if the two lists disagree. */
 const PLAIN = {
   outline: "outline: 1px solid %c; outline-offset: 2px;",
   divider: "box-shadow: inset 0 -1px 0 %c;",
@@ -67,26 +27,18 @@ const PLAIN = {
   write: "",
 };
 
-/* The shapes whose plain look is a bar in the pane's margin, an inset shadow (#386). */
 const MARGIN = new Set(["check", "bang", "cross"]);
 
-const PLAIN_TINT = 38;           // percent of the ink in a plain highlight
-const SPEED = [0.25, 4];         // the range a table's `speed` is held to
+const PLAIN_TINT = 38;
+const SPEED = [0.25, 4];
 
-/* The shapes a row may rule onto a grid with `snap` (#253): the straight ones. A loop, an ellipse
-   or a tick drawn to a ruler is not a hand-drawn loop, ellipse or tick any more. */
 const SNAPS = new Set(["outline", "divider", "underline"]);
 
-/* A tool's physics a table may tune (#253), each a number: the graph paper's mechanical pencil is
-   the prototype's pencil made thin and even, with no taper. `kind`, `pad` and `model` are the
-   tool's identity, not its hand, and stay the layer's. */
 const TUNABLE = ["w", "press", "pvar", "wob", "lam", "bow", "wmin", "tin", "tout"];
 
 function colour(tool) {
   return "var(--ink-" + tool + ", var(" + TOOLS[tool] + "))";
 }
-
-// -------------------------------------------------------------------------------- the gate
 
 const body = document.body;
 const facts = {
@@ -115,10 +67,6 @@ if (asked === "off") {
 }
 if (!verdict.on && body) body.classList.add("ink-off");
 
-// ----------------------------------------------------------------------------- the table
-
-/* A mark table, checked once here so that a mistake in a skin is an exception at the call that
-   made it, naming the row -- not a mark that silently never appears. */
 function normalise(table) {
   if (!table || typeof table !== "object") throw new TypeError("ink: a mark table is an object");
   const rows = Array.isArray(table.marks) ? table.marks : [];
@@ -151,8 +99,6 @@ function normalise(table) {
         throw new SyntaxError(where + ": `to` is not a selector the page can match");
       }
     }
-    // #249: an underline that grows with what arrives in its pane, a pen-tip dot at its end, and a
-    // written word that is struck and written again when it changes. Each belongs to one shape.
     if ((row.grow !== undefined || row.tip) && row.shape !== "underline") {
       throw new TypeError(where + ": `grow` and `tip` are an underline's");
     }
@@ -172,7 +118,6 @@ function normalise(table) {
     if (row.snap != null && !(Number.isFinite(row.snap) && row.snap >= 4 && SNAPS.has(row.shape))) {
       throw new TypeError(where + ": `snap` is a grid pitch of 4px or more, for " + Array.from(SNAPS).join(", "));
     }
-    // Graph paper (#253) and the napkin (#252) each added `leaves`; this is the one check for both.
     if (row.leaves != null && !LEAVES.includes(row.leaves)) {
       throw new TypeError(where + ": `leaves` is " + LEAVES.map(function (w) { return JSON.stringify(w); }).join(" or "));
     }
@@ -191,9 +136,6 @@ function normalise(table) {
       cap: row.cap || "",
       rewrite: !!row.rewrite,
       snap: Number.isFinite(row.snap) ? row.snap : 0,
-      // How the mark goes: pencil is erased and ink struck, unless the row says otherwise -- the
-      // paper grammar strikes the question and never the agent's name, so the name's highlight
-      // is taken up rather than struck through (#252, #253).
       leaves: row.leaves || (ERASABLE.has(row.tool) ? "erased" : "struck"),
     };
   });
@@ -204,7 +146,6 @@ function normalise(table) {
     }
     tools[tool] = {};
     for (const [k, v] of Object.entries(tune)) {
-      // `lam` is a wavelength, and divides: it is the one that cannot be 0.
       if (!TUNABLE.includes(k) || !Number.isFinite(v) || v < 0 || (k === "lam" && v === 0)) {
         throw new TypeError("ink: tools." + tool + "." + k + ": a tool tunes " + TUNABLE.join(", ") +
                             ", each a number of 0 or more (`lam` more than 0)");
@@ -212,7 +153,6 @@ function normalise(table) {
       tools[tool][k] = v;
     }
   }
-  // The hand (#387): on, off, or a stick of chalk in every hand, the eraser's included.
   const hand = table.hand === undefined || table.hand;
   if (hand !== true && hand !== false && hand !== "chalk") {
     throw new TypeError("ink: `hand` is true, false or 'chalk', not " + JSON.stringify(hand));
@@ -224,20 +164,15 @@ function normalise(table) {
     hand,
     speed,
     tools,
-    // The page's own trace rows (#257) follow the table, unless the skin plots the hour itself.
     series: table.series !== false,
     marks,
-    // Effects (#370): `{cues, use}`, which has the layer fetch fx.js; none, and it is never asked for.
     fx: table.fx || null,
   };
 }
 
-// --------------------------------------------------------------------------- the fallback
-
 let plainSheet = null;
 let plainStyle = null;
 
-/* The same table as plain CSS, one rule per row, only ever under `body.ink-off`. */
 function plainCss(t) {
   const out = ["/* ink: the plain fallback for the " + t.name + " table (#248) */"];
   for (const row of t.marks) {
@@ -253,8 +188,6 @@ function plainCss(t) {
       let rule = look.split("%c").join(c);
       if (row.shape === "underline" && row.dash) rule += " text-decoration-style: dashed;";
       out.push(sel + " { " + rule + " }");
-      // A margin bar is an inset shadow, which would take the selection ring's place on a selected
-      // pane: the ring is kept beside it, because a selected pane is still one pane (HIG *Focus*).
       if (MARGIN.has(row.shape)) {
         out.push("body.ink-off :is(" + row.selector + ").is-selected { box-shadow: inset 3px 0 0 " + c +
                  ", 0 0 0 2px var(--focus, var(--accent)); }");
@@ -280,7 +213,6 @@ function plain(t) {
     plainSheet.replaceSync(css);
     return;
   }
-  // An engine without constructed stylesheets gets a <style> element: one DOM write, not per mark.
   if (!css) {
     if (plainStyle) plainStyle.remove();
     plainStyle = null;
@@ -294,11 +226,9 @@ function plain(t) {
   if (plainStyle.textContent !== css) plainStyle.textContent = css;
 }
 
-// ------------------------------------------------------------------------------ the layer
-
 let table = null;
-let layer = null;          // the running layer, once `layer.js` has started
-let loading = null;        // the promise of it
+let layer = null;
+let loading = null;
 
 function turnOff(reason) {
   const was = verdict.on;
@@ -309,7 +239,7 @@ function turnOff(reason) {
   }
   if (body) body.classList.add("ink-off");
   if (layer) {
-    try { layer.stop(); } catch (e) { /* it is going anyway */ }
+    try { layer.stop(); } catch (e) {}
   }
   layer = null;
   plain(table);
@@ -331,7 +261,6 @@ function start() {
   return loading;
 }
 
-/* The material hooks a skin brings, the ones that are functions -- `sampleGround` is a flag. */
 function materials(hooks) {
   const out = {};
   if (!hooks) return null;
@@ -360,37 +289,22 @@ function apply(next, hooks, variant) {
   return start().then(running => {
     if (running && verdict.on && table === wanted) {
       running.setTable(wanted);
-      // The server serves a skinned page `ink-off` (#345): legible until the ink is there. It goes
-      // in the task that puts `#ink[data-skin]` on, the key app.css clears the panes on.
       if (body && body.classList.contains("ink-off")) body.classList.remove("ink-off");
     }
     return { drawn: running && verdict.on ? "ink" : "plain", verdict: Object.assign({}, verdict) };
   }, () => ({ drawn: "plain", verdict: Object.assign({}, verdict) }));
 }
 
-// ------------------------------------------------------------------------ the page's skin
-
-/* A skin draws with ink by shipping `static/ink/skins/<name>.js`: a module that exports its
-   `marks` (the table's rows, or a function of the variant that answers them), optional `options`
-   (`paper`, `hand`, `speed`), and optional material hooks the layer calls -- `ground`, `paper`,
-   `frame`, `tick`, `dispose` (docs/desk-ink.md §Writing a skin). The server lists those names on
-   <body> (`data-ink-skins`), and `applySkin` in common.js writes the chosen skin as
-   `body[data-skin]` and `[data-skin-variant]`, which is how skins.py and the settings page choose
-   one today. This follows those two attributes, fetches the module through `q()` like every
-   module here, and sets its table. Every shell fetches it, because the plain fallback draws the
-   marks too; only a shell the gate turned on runs its materials. A skin with no module sets
-   none, and asks for none. */
 const INKED = new Set(String((body && body.dataset.inkSkins) || "").split(/\s+/).filter(Boolean));
 const FAMILY = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const HOOKS = ["ground", "paper", "frame", "tick", "dispose", "cue"];
-let fromSkin = false;          // the table in force is the page's skin's, not a caller's
+let fromSkin = false;
 let skinKey = "";
 
 function valueOf(x, variant) {
   return typeof x === "function" ? x(variant) : x;
 }
 
-/* The table a skin module describes, with its hooks beside it. */
 function fromModule(m, family, variant) {
   const o = valueOf(m.options, variant) || {};
   return {
@@ -415,12 +329,11 @@ function follow() {
     return;
   }
   import(q("/static/ink/skins/" + family + ".js")).then(m => {
-    if (skinKey !== key) return null;           // the skin changed again while this one loaded
+    if (skinKey !== key) return null;
     const made = fromModule(m, family, variant);
     fromSkin = true;
     return apply(made.table, made.hooks, variant);
   }).catch(e => {
-    // A skin's own mistake: said where a skin author looks, and the page carries on without ink.
     console.error("ink: the " + family + " skin: " + String((e && e.message) || e));
   });
 }
@@ -430,32 +343,23 @@ if (body) {
   follow();
 }
 
-/* A caller's table (a test, a console) replaces the skin's until the skin changes again. `hooks`
-   is optional: anything shaped like a skin module's material hooks. */
 function setSkin(next, hooks) {
   fromSkin = false;
   return apply(next, hooks);
 }
 
 window.Ink = Object.freeze({
-  /* Settled as soon as the page has read its gate, which is when this module runs. */
   ready: Promise.resolve(Object.assign({}, verdict)),
   get enabled() { return verdict.on; },
   get verdict() { return Object.assign({}, verdict); },
   get tools() { return Object.keys(TOOLS); },
   get shapes() { return Object.keys(PLAIN); },
-  /* The skin's mark table, or null for none. Answers how it is being drawn: `ink`, `plain` or
-     `none`. Throws, naming the row, on a table it cannot draw. */
   setSkin: setSkin,
-  /* Read the palette again, match the table against the page and measure every mark now. */
   refresh() { if (layer) layer.refresh(); },
-  /* Off for the rest of this page's life, with the reason `verdict.why` will give. */
   off(reason) { turnOff(reason || "turned off by the page"); },
-  /* What is on the paper, for tests and for a curious console: lanes, marks, frames. */
   inspect() {
     return { verdict: Object.assign({}, verdict), table: table ? table.name : null,
              plain: !!(plainSheet || plainStyle), layer: layer ? layer.inspect() : null };
   },
-  /* How many pixels of ink are in a box of the viewport, read back from the frame just drawn. */
   sample(box) { return layer ? layer.sample(box) : 0; },
 });
