@@ -959,7 +959,7 @@ that closes the runbook. **The desk's stylesheet**: 3–5 KB gzipped for D2–D6
 | MOB-D12 | SharePoint lists as the store, the workbook as the list source and the Excel fallback? | lists; Excel proven once in F6 or dropped | yes: one YAML serves both | F1, F6 |
 | MOB-D13 | relay `info` notifications to the phone? | no: `action` and `alert` only | yes, a Switch case | F2 |
 | MOB-D14 | one Tablet-format responsive app, or a phone app and a tablet app? | one app | no: a second app is a second source tree | P1 |
-| MOB-D15 | the two-pane threshold at 900 px (`ScreenSize.Medium` at the tablet defaults)? | 900 | yes | P3 |
+| MOB-D15 | the two-pane threshold at 900 px (where `ScreenSize.Large` begins at the tablet defaults `[600, 900, 1200]`)? | 900 | yes | P3 |
 | MOB-D16 | one 60 s auto-refresh Timer, on the home screen? | 60 s, one Timer | yes | P1 |
 | MOB-D17 | the stack breakpoint at 640 px (the key map's existing breakpoint)? | 640 | yes | D4 |
 | MOB-D18 | `/m` at all, and only after #523? | yes, last, after #523 | yes, an order | D10 |
