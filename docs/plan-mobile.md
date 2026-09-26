@@ -1,7 +1,8 @@
 # Plan: mobile — the fleet on the operator's phone and tablet, by a folder the laptop already syncs, a canvas app the tenant already licenses, and a desk that fits a 390 px glass
 
-_Status: PLANNED (2026-09-26) — epics MOB-S, MOB-B, MOB-F, MOB-P, MOB-D and MOB-V (issue numbers are filled in by the
-filing session), under #91 (the fleet) and #122 (the desk). Written from the operator's two statements of 2026-09-26,
+_Status: PLANNED (2026-09-26) — epics MOB-S #537, MOB-B #538, MOB-F #539, MOB-P #540, MOB-D #541 and MOB-V #542, with
+their forty cards #543–#582 ([brief-mobile-epics.md](brief-mobile-epics.md) lists every card by epic and wave), under #91
+(the fleet) and #122 (the desk). Written from the operator's two statements of 2026-09-26,
 recorded verbatim in §Why this exists, from six research notes under `research_notes/Mobile fleet scope/` read whole,
 and from the earlier report [reports/Intune phone access to agents.md](../reports/Intune%20phone%20access%20to%20agents.md).
 Every code fact is at `0b9ec72`, which is `main` in this checkout; the board's `main` has moved by train 10 (#523),
