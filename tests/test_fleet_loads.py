@@ -2,8 +2,9 @@
 
 * Off by default: the switch is `fleet.loads.enabled` in the config file, read on every post, so
   with it absent or false nothing is written and a running server stops the moment it goes false.
-* On: one record per post, the newest `KEEP` per shell, page and from; `from` is its own group
-  because settings -> desk and a cold open are both `navigate`.
+* On: one record per page load, the newest `KEEP` per shell, page and from; `from` is its own group
+  because settings -> desk and a cold open are both `navigate`. A second post from the same
+  document (the same `origin_ms`) is folded into its record (#531).
 * A known key with a value the store cannot take is refused as `load_shape`, in-process and as a
   409 over the wire; an unknown key is dropped.
 * `rows()` is nearest-rank p50/p95 and the settled %, and `ad-fleet engines` prints it.
@@ -11,6 +12,7 @@
 from __future__ import annotations
 import csv
 import io
+import itertools
 import json
 import os
 import re
@@ -42,10 +44,15 @@ def switched_on(fleet_home):
     return fleet_home
 
 
+_OPENED = itertools.count()
+_T0 = time.time() * 1000.0
+
+
 def good(**over) -> dict:
-    """What a desk page posts after a cold open in PyCharm."""
+    """What a desk page posts after a cold open in PyCharm: each call its own document (#531), so
+    two calls never share a `performance.timeOrigin`, however coarse this machine's clock."""
     body = {"shell": "pycharm", "page": "desk", "from": "", "how": "navigate",
-            "origin_ms": time.time() * 1000.0, "first_paint_ms": 120.5, "fleet_ms": 240.0,
+            "origin_ms": _T0 + next(_OPENED), "first_paint_ms": 120.5, "fleet_ms": 240.0,
             "ink_first_frame_ms": 310.0, "longest_task_ms": 45.0,
             "skin_first": "paper", "skin_settled": "paper", "ua": "Mozilla/5.0 JCEF"}
     body.update(over)
@@ -151,6 +158,20 @@ def test_sixty_posts_keep_the_newest_fifty_and_another_from_keeps_its_own(switch
     assert back == [float(1000 + i) for i in range(5, 55)]
     assert S.act("load", good(shell="vscode")) == {"kept": 1}
     assert S.act("load", good()) == {"kept": 50}
+
+
+def test_one_document_posted_twice_is_kept_once_with_what_either_copy_measured(switched_on):
+    """#531: the `pagehide` beacon and the `fetchLater` copy it failed to cancel, in either order."""
+    early = good(ink_first_frame_ms=None, longest_task_ms=45.0, skin_settled="")
+    late = dict(early, ink_first_frame_ms=310.0, longest_task_ms=80.0, skin_settled="paper")
+    assert S.act("load", late) == {"kept": 1}
+    assert S.act("load", early) == {"kept": 1}
+    (rec,) = L.load()
+    assert (rec["origin_ms"], rec["ink_first_frame_ms"], rec["longest_task_ms"], rec["skin_settled"]) == \
+        (round(late["origin_ms"], 1), 310.0, 80.0, "paper")
+    # Another document, identical but for its origin, is another load.
+    assert S.act("load", dict(early, origin_ms=early["origin_ms"] + 0.5)) == {"kept": 2}
+    assert len(L.load()) == 2
 
 
 def test_turning_the_switch_off_in_the_file_stops_the_next_write_with_no_restart(switched_on):
