@@ -1834,6 +1834,7 @@ function refresh() {
     });
     var need = data.repos.filter(function (r) { return r.needs_human; }).length;
     drawRenewStrip(data.repos, data.server);
+    drawDayOffer(data.repos);
     var fleetSpend = data.spend || {};
     var counts = document.getElementById("counts");
     text(counts,
@@ -5787,6 +5788,235 @@ function runRenew() {
   });
 })();
 
+/* ------------------------------------------------------------------ a fresh day (#508, #511)
+
+   The morning: one line while idle panes with a ticket are on sessions that began before today, and
+   the preview of `ad-fleet fresh --all` behind it, `Shift+N` or the *day* menu. The preview is the
+   only thing any of them posts (`{all: true, dry_run: true}`), and `?fresh=1` is one more way to ask
+   for it -- an address can come from anywhere, so it never confirms anything (DAY-D4). Only `daygo`
+   posts `repos`: the ones ticked here. */
+function dayStrip() { return document.getElementById("day-strip"); }
+var dayOpen = false;
+var dayOfferN = -1;
+var DAY_NOT_TODAY = "fleet.day.not-today";
+
+function localDay() {
+  var d = new Date();
+  return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+}
+
+function dayDismissed() {
+  try { return localStorage.getItem(DAY_NOT_TODAY) === localDay(); } catch (e) { return false; }
+}
+
+/** Idle panes with a ticket in progress, on sessions that began before today: what the line counts. */
+function morningPanes(rows) {
+  return (rows || []).filter(function (r) {
+    var f = r.fresh || {};
+    var run = r.run || {};
+    return run.before_today === true && f.verdict === "now" && !!(f.starts || {}).ticket &&
+           !r.external && run.origin !== "adopted";
+  }).length;
+}
+
+/** The one-line offer, drawn only when its count changes: an idle desk writes nothing. */
+function drawDayOffer(rows) {
+  var strip = dayStrip();
+  if (!strip) return;
+  var n = dayDismissed() ? 0 : morningPanes(rows);
+  if (n === dayOfferN) return;
+  dayOfferN = n;
+  text(strip.querySelector(".day-offer-words"), n === 1
+    ? "1 pane is on a session that began before today —"
+    : n + " panes are on sessions that began before today —");
+  hide(strip.querySelector(".day-offer"), n === 0 || dayOpen);
+  hide(strip, n === 0 && !dayOpen);
+}
+
+function dayGo() { return /** @type {HTMLButtonElement} */ (document.getElementById("daygo")); }
+
+/** `#daygo` names what it spends: one premium turn per ticked agent (DAY-D2). */
+function countDay() {
+  var strip = dayStrip();
+  var n = strip ? strip.querySelectorAll(".day-rows li:not(.day-pattern) .day-tick:checked:not(:disabled)").length : 0;
+  var go = dayGo();
+  disable(go, n === 0);
+  text(go, "start " + n + " fresh — about " + n + " premium turn" + (n === 1 ? "" : "s"));
+}
+
+function openDay() {
+  var strip = dayStrip();
+  if (!strip) return Promise.resolve();
+  closePopovers();
+  dayOpen = true;
+  var sum = strip.querySelector(".day-sum");
+  hide(strip, false);
+  hide(strip.querySelector(".day-offer"), true);
+  hide(sum, false);
+  text(sum, "checking every agent…");
+  disable(dayGo(), true);
+  hide(strip.querySelector(".day-rows"), false);
+  hide(strip.querySelector(".day-actions"), false);
+  return post("fresh", { all: true, dry_run: true }).then(function (r) {
+    if (!r || r.ok === false) {
+      text(sum, ((r && r.error) || "the preview could not be read") + (r && r.hint ? " — " + r.hint : ""));
+      return;
+    }
+    if (dayOpen) drawDayPlan(r);
+  }).catch(function () { text(sum, "the preview could not be read"); });
+}
+
+/** The model column in `modelTitle`'s words: the label, and where each half came from (#493). */
+function dayModelTitle(st) {
+  return (st.model ? "configured " + st.model + " (" + (st.model_source || "") + ")"
+                   : "no --model flag is passed (" + (st.model_source || "cli-auto") + ")") +
+         (st.effort ? " · effort " + st.effort + (st.effort_source && st.effort_source !== st.model_source
+                                                 ? " (" + st.effort_source + ")" : "") : "");
+}
+
+function drawDayPlan(p) {
+  var strip = dayStrip();
+  var list = strip.querySelector(".day-rows");
+  var plan = String(p.plan_id || "");
+  patchList(list, p.rows || [], function (r) { return r.repo; },
+    function () {
+      // Cloned from the markup's pattern row, so the two cannot disagree about the parts.
+      var li = /** @type {HTMLElement} */ (strip.querySelector(".day-pattern").cloneNode(true));
+      li.classList.remove("day-pattern");
+      li.hidden = false;
+      li.querySelector(".day-answer").addEventListener("click", function () {
+        var name = li.dataset.rowkey || "";
+        openPane(name);
+        var entry = tiles.get(name);
+        /** @type {HTMLElement} */
+        var ask = entry && entry.el.querySelector(".asks:not([hidden]) textarea, .asks:not([hidden]) input, .asks:not([hidden]) button");
+        if (ask) ask.focus();
+      });
+      return li;
+    },
+    function (li, r) {
+      var st = r.starts || {};
+      /** @type {HTMLInputElement} */
+      var box = li.querySelector(".day-tick");
+      var tickable = r.verdict === "now";
+      disable(box, !tickable);
+      // Ticked as the plan says, once per plan: a redraw never undoes the operator's own tick.
+      if (li.dataset.plan !== plan) { box.checked = tickable && !!r.ticked; setData(li, "plan", plan); }
+      attr(box, "aria-label", "start " + r.repo + " fresh");
+      setData(li, "keyless", r.keyless ? "1" : "");
+      text(li.querySelector(".day-repo"), r.repo);
+      text(li.querySelector(".day-verdict"), r.code || r.verdict);
+      text(li.querySelector(".day-ticket"), st.ticket || "no ticket");
+      var model = li.querySelector(".day-model");
+      text(model, shortModel(st.model) + " · " + (st.model_source || "cli-auto"));
+      attr(model, "title", dayModelTitle(st));
+      text(li.querySelector(".day-began"), r.began ? "began " + beganWords(r.began) : "");
+      text(li.querySelector(".day-why"), r.why || "");
+      var q = (r.question || {}).q || "";
+      text(li.querySelector(".day-question"), q ? "“" + q + "”" : "");
+      hide(li.querySelector(".day-answer"), r.code !== "needs_you");
+      setClass(li, "fresh-row day-row verdict-" + String(r.code || r.verdict).replace(/_/g, "-"));
+    });
+  hide(strip.querySelector(".day-keyless"), !(p.keyless > 0));
+  text(strip.querySelector(".day-sum"), (p.ticked || 0) + " of " + (p.rows || []).length +
+       " agents would start on a clean session — the others say why" +
+       (p.keyless ? "; " + p.keyless + " with no ticket can be ticked" : ""));
+  countDay();
+}
+
+function closeDay() {
+  var strip = dayStrip();
+  if (!strip) return;
+  dayOpen = false;
+  hide(strip.querySelector(".day-sum"), true);
+  hide(strip.querySelector(".day-rows"), true);
+  hide(strip.querySelector(".day-keyless"), true);
+  hide(strip.querySelector(".day-actions"), true);
+  dayOfferN = -1;
+  drawDayOffer(lastFleet ? lastFleet.repos : []);
+}
+
+function runDay() {
+  var strip = dayStrip();
+  var go = dayGo();
+  var repos = [];
+  strip.querySelectorAll(".day-rows li:not(.day-pattern)").forEach(function (/** @type {HTMLElement} */ li) {
+    var box = /** @type {HTMLInputElement} */ (li.querySelector(".day-tick"));
+    if (box.checked && !box.disabled) repos.push(li.dataset.rowkey);
+  });
+  if (!repos.length) return;
+  disable(go, true);
+  var sum = strip.querySelector(".day-sum");
+  post("fresh", { all: true, repos: repos }).then(function (r) {
+    if (!r || r.ok === false) {
+      text(sum, ((r && r.error) || "the fresh day could not be started") + (r && r.hint ? " — " + r.hint : ""));
+      countDay();
+      return;
+    }
+    var said = [];
+    (r.rows || []).forEach(function (x) {
+      var li = strip.querySelector('.day-rows li[data-rowkey="' + x.repo + '"]');
+      if (li && x.done !== "skipped") {
+        text(li.querySelector(".day-verdict"), x.done === "started" ? "started" : x.done + ": " + (x.code || x.verdict));
+        if (x.done !== "started") text(li.querySelector(".day-why"), x.why || "");
+        disable(li.querySelector(".day-tick"), true);
+        setClass(li, "fresh-row day-row done-" + x.done);
+      }
+      if (x.row && x.row.repo) patchRow(x.row);
+      if (x.done === "started") {
+        var left = (x.leaves || {}).session;
+        said.push(x.repo + ": started fresh on " + ((x.starts || {}).ticket || "no ticket") +
+                  (left ? ", left " + ((x.leaves || {}).title || left) : ""));
+      }
+    });
+    place();
+    text(sum, (r.started || 0) + " started" + (r.changed ? ", " + r.changed + " changed since the preview" : ""));
+    if (said.length) say(said.join(" · "), 12);
+    countDay();
+  }).catch(function () { countDay(); });
+}
+
+/* `?fresh=1` (`ad-fleet serve --open --fresh`, `open --fresh`): the preview, once, and the parameter
+   comes off the address so a reload does not open it again. It posts the preview and nothing else. */
+function previewFromAddress() {
+  if (PARAMS.get("fresh") !== "1") return;
+  var u = new URLSearchParams(location.search);
+  u.delete("fresh");
+  var qs = u.toString();
+  history.replaceState(history.state, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
+  openDay();
+}
+
+(function bindDay() {
+  var strip = dayStrip();
+  if (!strip) return;
+  var fresh = document.getElementById("dayfresh");
+  if (fresh) fresh.addEventListener("click", function () { openDay(); });
+  var offer = document.getElementById("dayoffer");
+  if (offer) offer.addEventListener("click", function () { openDay(); });
+  var nope = document.getElementById("daynottoday");
+  if (nope) nope.addEventListener("click", function () {
+    try { localStorage.setItem(DAY_NOT_TODAY, localDay()); } catch (e) { /* a private window: just this page */ }
+    dayOfferN = -1;
+    hide(strip.querySelector(".day-offer"), true);
+    hide(strip, !dayOpen);
+  });
+  dayGo().addEventListener("click", runDay);
+  var cancel = document.getElementById("daycancel");
+  if (cancel) cancel.addEventListener("click", closeDay);
+  var all = /** @type {HTMLInputElement} */ (document.getElementById("daykeyless"));
+  if (all) all.addEventListener("change", function () {
+    strip.querySelectorAll('.day-rows li[data-keyless="1"] .day-tick').forEach(function (b) {
+      /** @type {HTMLInputElement} */ (b).checked = all.checked;
+    });
+    countDay();
+  });
+  strip.querySelector(".day-rows").addEventListener("change", countDay);
+  strip.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { e.stopPropagation(); closeDay(); }
+  });
+})();
+
 /* An address that still chooses an arrangement (#232): a bookmark, an older launcher, or a shell
    built before there was only one. The desk opens as it always does, the footer says once that
    the parameters meant nothing, and they come off the address -- so a reload does not say it a
@@ -5885,7 +6115,7 @@ document.getElementById("hiddencount").addEventListener("click", showEverything)
 /* ---- the popovers: the key map behind `?`. The pickers that used to sit beside it are a page of
    their own now (`/settings`), so this map has one entry -- and keeps its shape, because "one open
    at a time" is the rule whatever is open. */
-var POPOVERS = { keymap: "keysbtn" };
+var POPOVERS = { keymap: "keysbtn", daymenu: "daybtn" };
 
 function popover(id, open) {
   var box = document.getElementById(id);
@@ -5936,8 +6166,9 @@ document.addEventListener("click", function (/** @type {MouseEvent & {target: El
 
 document.addEventListener("keydown", function (e) {
   var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-  if (e.key === "Escape" && !typing) { closeSide(); return; }
+  if (e.key === "Escape" && !typing) { if (dayOpen) { closeDay(); return; } closeSide(); return; }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "N" && e.shiftKey) { openDay(); return; }      // #511: a fresh day, previewed
   // The three presets (#234), and the footer's undo of whichever widths changed last.
   if (e.key === "1") { applyPreset("one"); return; }
   if (e.key === "=") { applyPreset("all"); return; }
@@ -5961,3 +6192,4 @@ restoreCached();
 // Last for the same reason: `say` writes the footer's state, which is only set up once the script
 // has run past it.
 forgetRetiredParams();
+previewFromAddress();

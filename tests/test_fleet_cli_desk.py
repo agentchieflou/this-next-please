@@ -490,6 +490,38 @@ def test_serve_without_a_layout_says_nothing_about_one(fleet_home, capsys, monke
     assert "--layout" not in out and "stop with Ctrl-C" in out
 
 
+def test_serve_and_open_with_fresh_open_the_preview_and_launch_nothing(fleet_home, tmp_path, capsys, monkeypatch):
+    """#511, DAY-D4: `serve --open --fresh` and `open --fresh` put `fresh=1` on the address they print
+    and open, and launch nothing -- the fake copilot on the PATH (#480), and every spawn recorded."""
+    import fakes
+    import webbrowser
+    from agentdata.fleet import opener as O, serve as S, supervisor
+
+    fakes.apply(monkeypatch, tmp_path, ["copilot"])
+    spawned = []
+    monkeypatch.setattr(supervisor, "_spawn", lambda *a, **k: spawned.append(a))
+    opened = []
+    monkeypatch.setattr(cli_fleet, "_open_browser", lambda url: opened.append(url) or "the test")
+    monkeypatch.setattr(S, "run", lambda server: server.server_close())
+    code, out = run(["serve", "--port", "0", "--open", "--fresh"], capsys)
+    assert code == 0 and re.search(r'url: "?http://127\.0\.0\.1:\d+/\?t=[^&\s"]+&fresh=1"?$', out, re.M), out
+    assert len(opened) == 1 and opened[0].endswith("&fresh=1"), opened
+    assert "fresh=1" not in json.dumps(json.load(open(S.serve_file(), encoding="utf-8"))), \
+        "the recorded address stays the plain one"
+    code, out = run(["serve", "--port", "0"], capsys)
+    assert code == 0 and "fresh=1" not in out
+
+    record = {"port": 8765, "token": "tok", "pid": 0, "url": "http://127.0.0.1:8765/?t=tok"}
+    monkeypatch.setattr(O, "current_desk", lambda port=8765: (dict(record), "already up"))
+    monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url) or True)
+    code, out = run(["open", "--fresh"], capsys)
+    assert code == 0 and opened[-1] == "http://127.0.0.1:8765/?t=tok&fresh=1", opened
+    assert re.search(r'url: "?http://127\.0\.0\.1:8765/\?t=tok&fresh=1"?$', out, re.M), out
+    code, out = run(["open"], capsys)
+    assert opened[-1] == "http://127.0.0.1:8765/?t=tok"
+    assert spawned == [], "nothing launches"
+
+
 def test_hide_still_takes_a_layout_and_writes_the_one_arrangement(fleet_home, tmp_path, capsys):
     """`ad-fleet hide` wrote to `grid` whatever the page showed, which is why the migration reads
     `grid` when there is no `column`. It writes the one arrangement now, whatever `--layout` says."""
