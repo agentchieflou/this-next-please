@@ -234,6 +234,13 @@ def _wire(body: bytes) -> int:
     return len(gzip.compress(body.replace(b"\r\n", b"\n"), 6, mtime=0))
 
 
+def _served(name: str) -> bytes:
+    """An ink module as the server sends it -- without its comments (`serve.strip_asset`) -- from
+    the bytes git stores, LF, as `_wire` measures them."""
+    lf = open(os.path.join(INK, name), "rb").read().replace(b"\r\n", b"\n")
+    return S.strip_asset(f"ink/{name}", lf)
+
+
 def test_a_crlf_checkout_of_the_ink_modules_measures_what_an_lf_one_does():
     """A Windows checkout with `core.autocrlf=true` holds the modules with CRLF endings, about 190
     bytes more gzipped than LF. The budget measures what git stores, so the two are one figure
@@ -250,15 +257,21 @@ def test_the_ink_payload_is_inside_its_budget_and_three_is_not_in_it():
     turned on fetches them. three.js is 163 KB of its own and is outside the desk's budget, because
     no desk fetches it unless it draws. The lazy modules (`LAZY`: `fx.js`, #370) are fetched only
     by a table that asks for them, so each has a budget of its own and is not in `INK_BUDGET`."""
-    sizes = {n: _wire(open(os.path.join(INK, n), "rb").read()) for n in MODULES}
+    # What the server sends of each (#523, decision 19): the module without its comments.
+    sizes = {n: _wire(_served(n)) for n in MODULES}
     print(f"\n  ink modules over the wire: {sum(sizes.values())} bytes gzipped {sizes}")
     assert sum(sizes.values()) < INK_BUDGET, sizes
-    fx = _wire(open(os.path.join(INK, "fx.js"), "rb").read())
+    fx = _wire(_served("fx.js"))
     print(f"  fx.js over the wire: {fx} bytes gzipped")
     assert fx < FX_BUDGET, fx
-    files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n)))
+    # Beside each module, its tagalong reasoning (`<file>.md`, #523), which is never served.
+    files = sorted(n for n in os.listdir(INK) if os.path.isfile(os.path.join(INK, n))
+                   and not n.endswith(S.UNSERVED))
     assert files == sorted(MODULES + LAZY), "a module no budget counts"
-    assert sorted(os.listdir(INK)) == sorted(MODULES + LAZY + ("skins",))
+    assert sorted(n for n in os.listdir(INK) if not n.endswith(S.UNSERVED)) \
+        == sorted(MODULES + LAZY + ("skins",))
+    assert sorted(n for n in os.listdir(INK) if n.endswith(S.UNSERVED)) \
+        == sorted(n + ".md" for n in MODULES + LAZY)
     # A skin module is fetched only by the desk that chose it, one at a time: not the layer's cost.
     # Every one but the example is a skin skins.py offers (#249-#256 ship them).
     from agentdata.fleet import skins as K
@@ -1335,7 +1348,7 @@ def test_a_shell_that_will_not_give_a_webgl_context_falls_back_without_fetching_
 
 
 @pytest.mark.browser
-def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fleet_home, tmp_path):
+def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fleet_home, tmp_path, monkeypatch):
     """The render contract with the layer running: once the marks are drawn, an idle desk is still
     zero DOM mutations -- and zero WebGL frames, because a paper with nothing new is not redrawn.
     With a pane's model chip waiting for the next turn on it, too (#492).
@@ -1343,6 +1356,7 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     Alpha has run more than once, so its row carries `earlier` runs and the session pill's runs list
     is drawn on every row pass: patched, never torn down and rebuilt (#494). A run arriving adds one
     row and leaves the others' elements alone; an ended run's time is written into its row in place.
+    And with the wrap-up sheet open on the project panel, its rows drawn and no job running (#510).
 
     Beta is a second checkout of alpha's project, so alpha's session menu lists it as a sibling on
     every row pass too: patched by repo, not emptied and cloned again (#514). `SIBS_IN_PLACE` draws
@@ -1350,6 +1364,14 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     after several draws one click on it opens beta, through one handler."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     from agentdata import config as C
+    from agentdata.fleet import wrapup as WRAP
+
+    # The wrap-up's adapters answer at once, in process: no child starts, and no job is left running.
+    monkeypatch.setattr(WRAP, "RUN", lambda argv, cwd, env=None: {
+        "code": 0, "meta": {"ok": True, "branch": "feature/RDSD-1", "remote": "origin", "ahead": 1,
+                            "action": "update", "key": "RDSD-1", "chars": 10, "first_line": "End of project",
+                            "status": "In Progress", "to": "In Review", "transition": "31 In Review"},
+        "tables": {}, "stderr": ""})
 
     # `_desk_of`, with alpha's runs launched on sonnet 5 and luna set for its next turn: `next`.
     Registry().add(make_project(tmp_path / "alpha", ticket="RDSD-1"), name="alpha")
@@ -1420,6 +1442,18 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
                 && !!document.querySelector('#dispatch .dispatch-model button[aria-pressed="true"]')""",
                                    timeout=10000)
             dispatched = page.evaluate(IDLE_LOOP)
+            # And with the wrap-up sheet open (#510): `w` on the pane, the rows drawn, nothing running.
+            page.keyboard.press("Escape")
+            page.wait_for_selector("#dispatch[hidden]", state="attached", timeout=5000)
+            page.focus('.tile[data-repo="alpha"]')
+            page.keyboard.press("w")
+            page.wait_for_function("""() => !document.querySelector('#inspector .wrapsheet').hidden
+                && document.querySelectorAll('.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)').length > 0""",
+                                   timeout=15000)
+            assert WRAP.wait("alpha", 10) and WRAP.job_state("alpha")["state"] == "planned"
+            page.wait_for_function("() => !/reading/.test(document.querySelector('.wrapsheet .wrap-status').textContent)",
+                                   timeout=5000)
+            wrapping = page.evaluate(IDLE_LOOP)
             # Last, because its click opens beta.
             sibs = page.evaluate(SIBS_IN_PLACE)
             assert not errors, errors
@@ -1432,6 +1466,8 @@ def test_an_idle_desk_with_ink_on_the_paper_writes_nothing_and_draws_nothing(fle
     assert carded["renders"] == 0, f"an idle paper under the model card was redrawn {carded['renders']} times"
     assert dispatched["n"] == 0, f"an idle desk with the dispatch card open wrote to the page: {dispatched}"
     assert dispatched["renders"] == 0, f"an idle paper under the dispatch card was redrawn {dispatched['renders']} times"
+    assert wrapping["n"] == 0, f"an idle desk with the wrap-up sheet open wrote to the page: {wrapping}"
+    assert wrapping["renders"] == 0, f"an idle paper beside the wrap-up sheet was redrawn {wrapping['renders']} times"
     assert re.fullmatch(r"run 1 · RDSD-1 · [\w-]+ \(\d\d:\d\d–\d\d:\d\d\)", first["words"]), first
     assert first["hidden"] is False, first
     assert arrived["kept"], f"a run arriving re-created the rows already there: {arrived}"

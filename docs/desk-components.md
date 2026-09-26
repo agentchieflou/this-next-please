@@ -44,6 +44,24 @@ Seven rules. They are not style; each one is a bug that happened.
    makes rule 1 cheap rather than careful.
 7. **`place()` is idempotent.** A pass with nothing to change touches nothing.
 
+## Where a component's reasoning lives (#523)
+
+The desk's scripts and stylesheets carry code, and the scripts their JSDoc type tags for `tsc`, and
+no prose (decisions 18 and 19 on #429). What goes to the browser carries not even the tags: the server
+strips every comment on the way out (`agentdata/fleet/strip.py`). Why a component is the way it is
+lives beside its file, in the tagalong `<file>.md` (`app.js.md`, `app.css.md`, `common.js.md`,
+`ink/layer.js.md`, `skins/<name>/skin.css.md`, and so on):
+
+* a `##` heading is a section of the file, named by the banner comment that used to open it;
+* a `###` heading is a function, a declaration or a statement in `app.js`, or a rule's selector or
+  at-rule in `app.css`, in source order: `### \`function drawTile\``, `### \`.tile .pane-rail\``;
+* each note says which line of code it sat beside, and keeps the words it had.
+
+The inventory below says what each component is and who draws it; the `.md` says why. A change to a
+component changes its note in the same commit, and `tests/test_fleet_served_comments.py` fails on
+prose in a source file or on a served file without its `.md`. The server refuses to serve a `.md`
+(`UNSERVED`), so the reasoning costs a page load nothing.
+
 ## The setters
 
 All in `common.js`, all guarded, all no-ops when the value is already right:
@@ -65,7 +83,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | toolbar | brand, live dot, `widths` group (the presets), `see` group, map link, settings link, `alerts` group | — (static) | `.toolbar` | — | `g` | `test_fleet_desk_toolbar.py` |
 | presets | *one*, *all*, *needs me*: one segmented control, three presses, each one write of this window's widths | — (static); `applyPreset` on the press | `.presets` | — (presses, not modes) | `1`, `=`, `f` | `test_fleet_gutters.py`, `test_fleet_column.py` |
 | away strip | title, one line per repo, dismiss | `checkAway` | `.away-strip` | — | — | `test_fleet_desk_sessions_b.py` |
-| day strip (#511) | the morning line (*N panes are on sessions that began before today*, *preview a fresh day*, *not today*), then the fresh day's preview: one row per agent (a tick, repo, verdict, ticket, model and its source, began, why; a *needs you* row's question and *answer*), *tick every idle agent*, *start N fresh — about N premium turns*, cancel; the toolbar's *day* menu (`#daymenu`) | `drawDayOffer`, `drawDayPlan` | `.day-strip`, `.day-row`, `#daymenu` | hidden until a pane is on a session from before today or the preview is asked for; *not today* hides the line until the next local day (localStorage); `verdict-*`, `done-started`, `done-changed` | `Shift+N`, `Esc` | `test_fleet_renew.py` |
+| day strip (#511) | the morning line (*N panes are on sessions that began before today*, *preview a fresh day*, *not today*), then the fresh day's preview: one row per agent (a tick, repo, verdict, ticket, model and its source, began, why; a *needs you* row's question and *answer*), *tick every idle agent*, *start N fresh — about N premium turns*, cancel; the toolbar's *day* menu (`#daymenu`: *start the day fresh*, *end of day…*, *end of project…*). The sweep (#512) holds the strip instead: one `li.sweep-row` per agent (repo, state, a cell per write cloned from the wrap-up sheet's `li.wrap-pattern` and drawn by `wrapCell`, the comment's text box), *write N — P pushes, …* | `drawDayOffer`, `drawDayPlan`; the sweep's `previewSweep`, `drawSweep`, `drawSweepRow` | `.day-strip`, `.day-row`, `.sweep-row`, `#daymenu` | hidden until a pane is on a session from before today or the preview is asked for; *not today* hides the line until the next local day (localStorage); `verdict-*`, `done-started`, `done-changed` | `Shift+N`, `Esc` | `test_fleet_renew.py` |
 | renew strip | the desk's own line, sentence, preview, then one row per stale agent (repo, verdict, why), renew, cancel | `drawRenewStrip`, `drawRenewPlan` | `.renew-strip`, `.renew-row` | hidden when no session is stale; `verdict-now`, `verdict-at-turn-end`, `verdict-skipped` | `Esc` | `test_fleet_renew.py` |
 | the lines above the grid (#530) | the renew strip and the day strip, as a pair: either one coming or going moves every pane | `drawRowLines`, from the rows the panes show, with every row that lands (an action's answer and a snapshot alike) | `.renew-strip`, `.day-strip` | — | — | `test_fleet_desk_actions.py` |
 | row | the panes in the arrangement's order, then the rails of repositories that left | `place`, `reorderDomTiles`, `paintWidths`, the tier observer (`onRowResize`) | `#grid`, `.panes` | grouped (a project's checkouts share one rail) only when the rails do not fit | `←`, `→`, `j`, `k`, `2`–`9`, `Esc` | `test_fleet_panes.py`, `test_fleet_column.py`, `test_fleet_gutters.py` |
@@ -99,6 +117,7 @@ All in `common.js`, all guarded, all no-ops when the value is already right:
 | board | search, ticket rows, history | `drawBoard` | `#tickets` | `dragging` | `b` | `test_fleet_desk_rail.py` |
 | inbox | offered rows, refused rows | `drawTray` | `.tray` | — | `i` | `test_fleet_desk_actions.py` |
 | where | hits | `drawHits` | `#hits` | — | `/` | `test_fleet_board_desk.py` |
+| wrap-up sheet (#510) | the *end of day* / *end of project* toggle, the status line, one row per write (tick, glyph, step, summary, hint, actions) cloned from `li.wrap-pattern`, the comment's text box, *write n*, *cancel* | `openWrapup`, `drawWrap`, one row by `wrapCell` and `wrapActs` through `patchList`; drawn only on an answer or a `wrapup` frame | `.wrapsheet`, `.wrap-row` | hidden until `w` or *wrap up*; a row's `data-done` (`written`, `failed`, `changed`, `skipped`) in words and a glyph, never a status colour | `w`, `Esc` | `test_fleet_demo_sitting.py`, `test_fleet_ink.py` (idle), `test_fleet_board_desk.py` |
 | inspector | one screen (#504): rail, open friction, one spend line, branches pane (rows and commits in `details.branches-list`), then one closed *more* with the facts, missing keys, the *earlier friction (n)* fold (each row with *dismiss*, #499), verify and offered files; an unchanged project is not redrawn | `drawInspector` | `#inspectordetails`, `.spendline`, `details.more`, `details.branches-list`, `.frictionrow.quiet`, `.friction-earlier` | — | — | `test_fleet_branches.py`, `test_fleet_board_desk.py` |
 | notice | one line | `drawNotice` | `#notice` | — | — | `test_fleet_desk_hide.py` |
 | model card | facts (configured, where the model and the effort each come from, the last turn's), the full model picker (each toolbar's `inherit` clears its own half, #493), **inherit both** (`#mc-inherit`, shown while the repository holds either half), the note (`#mc-note`, `role=status`: saved, refused, not offered) | `openModelCard`, `drawModelCard` | `.modelcard` | `aria-expanded` on the `.modeltoggle` that opened it; `.mp-other.bad` after a refusal of what was typed | `m` on a pane or a rail; the picker's arrows, `Home`, `End`, `Enter`; every other key stays in the card; `Esc` closes it and gives the keyboard back | `test_fleet_column.py`, `test_fleet_ink.py` |

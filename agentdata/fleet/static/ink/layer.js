@@ -1,65 +1,20 @@
-/* The ink layer (#248): one canvas behind the page, lanes of drawing, and marks derived from the
-   classes the page already sets. `ink.js` starts it once the gate says on and a skin has handed it
-   a mark table; `docs/desk-ink.md` is the page it implements.
-
-   THE DOM IS THE TRUTH (plan-ink ground rule 2). Nothing pushes a mark. A skin is a table -- when
-   this selector matches, this tool draws this shape -- and the layer watches the page: a
-   MutationObserver says *something changed* (and does nothing else, so a gesture's own frame is not
-   charged for the ink), and the next animation frame matches every row against the page. A match
-   that is new is a mark to draw; a match that has gone is a mark to erase (pencil) or strike
-   through (ink). The layer never decides a state and never writes one: its only write to the page
-   is the handwriting reveal's `clip-path`, on the element being written, while it is written.
-
-   DRAWN, NEVER FADED (ground rule 1). A mark arrives by being drawn, a stroke at a time at the
-   speed of a hand, and leaves by being erased or struck. With reduced motion every mark is drawn at
-   once and no hand travels.
-
-   LANES. One queue of drawing per agent's pane (`.tile[data-repo]`) plus one for everything
-   outside a pane (the header). Every lane advances on every frame, so two agents draw at once, and
-   within a lane one mark is finished before the next is begun, so one agent's marks never
-   interleave.
-
-   GEOMETRY. Each mark's strokes are built in its anchor's own coordinates and the mesh is put where
-   the anchor is. So a pane that moves -- a gutter drag, a scroll, a reorder -- moves its marks by
-   moving meshes, and only an anchor that changes size (or whose text wraps differently) rebuilds
-   its strokes. A ResizeObserver on every anchor and every lane's pane redraws inside the frame the
-   browser laid out, so the marks follow the gutter without the layer adding a DOM write to the
-   drag (plan-panes ground rule 4).
-
-   THE PAGE'S OWN DRAWING (#257). Every agent's trace is the desk's, not a skin's, and still comes
-   from the page: an element carrying its series (`data-ink-series`, and the minutes that stopped for
-   a person as `data-ink-ticks`), drawn as a mark in its pane's lane by two rows the layer owns,
-   `PAGE_ROWS`, after the skin's. They are drawn whenever a skin draws with ink, because that is when
-   the panes show the paper -- unless the skin plots the hour itself (`series: false`, the graph
-   paper). The canvas says which table it draws (`#ink[data-skin]`), and that is what the
-   stylesheet reads to let the trace's own SVG step aside. */
-
-const PEN = 900;                 // px a second at 1x: the prototype's pen speed
+const PEN = 900;
 const LANE = ".tile[data-repo]";
 const HEADER = "header";
 const VENDOR = "/static/vendor/three/three.module.min.js";
-const DZ = 1600;                 // the hand's camera distance, in CSS px
+const DZ = 1600;
 const DEG = Math.PI / 180;
-const FOLLOW_MS = 400;           // how long a transition is followed: --motion-slow and a margin
-const REVEAL_BLEED = 14;         // a written line's ascenders and descenders, uncovered too
-/* The palette tokens a skin's hooks are handed, as [r, g, b] (the desk's thirteen, app.css). */
+const FOLLOW_MS = 400;
+const REVEAL_BLEED = 14;
 const TOKENS = ["bg", "panel", "text", "line", "select", "muted", "accent", "focus", "running",
                 "waiting", "human", "done", "idle"];
 
-/* The page's own rows (#257): a series is one line in pen across its element's box, and a minute
-   that stopped for a person a red tick through it. They are the layer's, not a skin's: drawn with
-   whatever table is in force, after its rows, and left on the paper when one table replaces
-   another. A series is not a state, so what goes is erased: its hour emptied, and there is nothing
-   to strike through. */
 const PAGE_ROWS = [
   { selector: "[data-ink-series]:not([data-ink-series=''])", tool: "pen", shape: "series" },
   { selector: "[data-ink-series][data-ink-ticks]:not([data-ink-ticks=''])", tool: "red", shape: "ticks" },
 ];
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 
-/* A colour as the page writes one, to [r, g, b, a] in 0-1 sRGB, without a 2D context -- the desk
-   has none anywhere now (#257). A computed style is always `rgb()` or `rgba()`; a custom property
-   (a hex, a name) goes through three.js's own parser. */
 function parseColour(css, THREE) {
   const s = String(css || "").trim().toLowerCase();
   const m = /^rgba?\(([^)]*)\)$/.exec(s);
@@ -80,8 +35,6 @@ function seedOf(s) {
   return (h >>> 0) % 99991;
 }
 
-/* The context is asked for before three.js is fetched, the way the probe asks for it: a shell that
-   will not give one falls back without spending 163 KB on a library it cannot use. */
 function context(canvas) {
   const attrs = { antialias: true, alpha: true, premultipliedAlpha: true, powerPreference: "high-performance" };
   let gl = null, why = "";
@@ -115,20 +68,20 @@ class Layer {
     this.rows = [];
     this.lanes = new Map();
     this.marks = new Set();
-    this.clipped = new Set();          // elements whose clip-path this layer wrote
-    this.inks = {};                    // tool -> [r, g, b], read from the page at paint time
+    this.clipped = new Set();
+    this.inks = {};
     this.dark = false;
-    this.mode = 0;                     // the highlighter's blend: 0 over nothing, 1 multiply, 2 screen
+    this.mode = 0;
     this.frames = 0;
     this.renders = 0;
-    this.handModel = "";               // the model key of the last hand shown (#387)
+    this.handModel = "";
     this.raf = 0;
     this.last = 0;
     this.followUntil = 0;
     this.dirty = { table: false, geom: false, colours: true, size: true };
-    this.stale = true;                 // something on the paper changed since it was last drawn
+    this.stale = true;
     this.stopped = false;
-    this.fx = null;                    // fx.js, attached for a table that has effects (#370)
+    this.fx = null;
     this.ids = new WeakMap();
     this.observed = new WeakSet();
     this.nextId = 0;
@@ -149,8 +102,6 @@ class Layer {
     sun.position.set(-0.45, 0.55, 0.9);
     this.toolScene.add(sun);
     this.paperMesh = null;
-    // A skin's materials (docs/desk-ink.md §Writing a skin): its ground and paper live in `back`,
-    // drawn first, and -- when the skin asks to sample it -- into a texture its frames can read.
     this.back = new THREE.Scene();
     this.skin = null;
     this.groundRT = null;
@@ -158,12 +109,10 @@ class Layer {
     this.backStale = true;
     this.tokens = {};
     this.api = this.makeApi();
-    // The page's own rows (#257), which a table that draws with ink is followed by.
     this.pageRows = PAGE_ROWS.map((row, i) => Object.assign({ index: "page" + i, to: "", pad: 0, dash: false,
                                                                leaves: "erased", page: true }, row,
                                                              { live: new Map(), leaving: new Map(), history: new Map() }));
 
-    // On the page only while a table is set (`setTable`).
     this.onLost = () => this.host.off("the WebGL context was lost");
     canvas.addEventListener("webglcontextlost", this.onLost);
 
@@ -186,29 +135,19 @@ class Layer {
     if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener("loadingdone", this.onFonts);
   }
 
-  // ------------------------------------------------------------------------ the table
-
   setTable(t) {
-    // One table replacing another leaves the page's own marks where they are; no table takes them.
     this.clear(!t);
     this.unskin();
     this.table = t;
     if (t && t.hooks) this.enskin(t.hooks);
-    // Effects: their own module, fetched only by a skin that has them (docs/desk-ink.md §Budgets).
     if (t && t.fx) import(q("/static/ink/fx.js")).then(m => {
       if (this.table === t && !this.stopped) { this.fx = m.attach(this, t.fx); this.refresh(); }
     }, e => console.error("ink: fx.js: " + e));
-    // The skin's rows, then the page's own (#257): the traces, after the skin's marks in each lane.
     this.rows = t ? t.marks.map(row => Object.assign({}, row, { live: new Map(), leaving: new Map(), history: new Map() }))
       .concat(t.series ? this.pageRows : []) : [];
-    // The layer's own element says which table it draws: the stylesheet lets a trace's SVG step
-    // aside for the ink only then (app.css). Written once a table, never per frame.
     if (t) this.canvas.setAttribute("data-skin", t.name);
     else this.canvas.removeAttribute("data-skin");
     this.mo.disconnect();
-    // The attributes the table's selectors can depend on, and the few this layer itself reads
-    // (a skin changing, a pane hidden). Not `style`: the page writes it on every frame of a drag,
-    // and the ResizeObserver already follows what it moves.
     const attrs = new Set(["class", "id", "hidden", "data-tier", "data-skin", "data-skin-variant", "open"]);
     for (const row of this.rows) {
       for (const sel of [row.selector, row.to, row.grow]) {
@@ -223,16 +162,11 @@ class Layer {
       if (this.raf) cancelAnimationFrame(this.raf);
       this.frame(performance.now());
     } else {
-      // No table, no canvas: the page is as it was before a skin drew on it. The context lives on
-      // for the next table.
       this.render();
       this.canvas.remove();
     }
   }
 
-  /* Every mark off the paper at once, with no animation: the table changed, or the layer is going.
-     The page is left as it was found -- every clip this layer wrote is taken back. A table that
-     changes (`all` false) leaves the page's own marks where they are, mid-stroke or not (#257). */
   clear(all = true) {
     for (const m of Array.from(this.marks)) if (all || !this.own(m)) this.drop(m);
     for (const L of this.lanes.values()) {
@@ -257,15 +191,10 @@ class Layer {
     }
   }
 
-  /* A mark of the page's own rows (#257), not the skin's. */
   own(m) {
     return !!(m.row && m.row.page);
   }
 
-  // -------------------------------------------------------------- a skin's materials
-
-  /* What a skin's hooks are handed besides three.js, the scene and the camera: the viewport, the
-     page's state, and a way to ask for a frame. Read at call time, never kept stale. */
   makeApi() {
     const self = this;
     return Object.freeze({
@@ -273,27 +202,17 @@ class Layer {
       get reduced() { return self.instant(); },
       get dark() { return self.dark; },
       get renderer() { return self.renderer; },
-      /* The ground and paper as a texture, for a skin that exports `sampleGround = true` -- a
-         frosted pane reads it at `gl_FragCoord.xy / groundSize`. Null otherwise. */
       get groundTexture() { return self.groundRT ? self.groundRT.texture : null; },
       get groundSize() { return self.groundSize; },
-      /* Where a skin's pieces go in the draw order: under every mark (§Writing a skin). */
       order: Object.freeze({ ground: -30, paper: -20, frame: -10, fx: -5 }),
-      /* fx.js's helpers, once a table with effects has it attached; null otherwise (§Writing a skin). */
       get fx() { return self.fx && self.fx.api; },
-      /* The panes, where they are now: `{el, repo, box: {x, y, w, h}}` in viewport CSS px. */
       panes() {
         return Array.from(document.querySelectorAll(LANE)).map(el => {
           const r = el.getBoundingClientRect();
           return { el, repo: el.dataset.repo, box: { x: r.left, y: r.top, w: r.width, h: r.height } };
         });
       },
-      /* Draw another frame: a hook changed something outside a call the layer made. */
       request() { self.stale = true; self.backStale = true; self.kick(); },
-      /* A skin's material in a tool's own stroke (#388), from head 0: a shapes.js path in `group`'s
-         coordinates, `group` one a hook was handed or one under it. It dies with the group's
-         contents -- a resize, a palette change, the skin leaving -- and the skin draws it again in
-         its next call: it is never recoloured in place. */
       stroke(group, path, tool, opts = {}) {
         const s = self.skin, ink = opts.ink || tool, names = Object.keys(self.host.tools);
         for (const [k, v] of Object.entries({ tool, ink })) {
@@ -315,8 +234,6 @@ class Layer {
     return { THREE: this.THREE, scene, camera: this.cam, tokens: this.tokens, api: this.api };
   }
 
-  /* A skin's hook, called so that its mistake is the skin's: said once, where a skin author
-     looks, and the desk carries on drawing its marks. */
   hook(name, ...args) {
     const s = this.skin;
     if (!s || typeof s.hooks[name] !== "function") return undefined;
@@ -334,13 +251,13 @@ class Layer {
     const group = order => { const g = new T.Group(); g.renderOrder = order; return g; };
     this.skin = { hooks, ground: group(this.api.order.ground), paper: group(this.api.order.paper),
                   frames: new Map(), framesRoot: group(this.api.order.frame), err: {}, dirty: true,
-                  strokes: new Set() };        // its live material strokes (#388, `api.stroke`)
+                  strokes: new Set() };
     this.back.add(this.skin.ground, this.skin.paper);
     this.scene.add(this.skin.framesRoot);
     if (hooks.sampleGround) {
       this.groundRT = new T.WebGLRenderTarget(1, 1, { depthBuffer: false, stencilBuffer: false });
       this.dirty.size = true;
-      this.W = 0;                      // so `resize` sizes the texture
+      this.W = 0;
     }
     this.dirty.colours = true;
   }
@@ -362,15 +279,11 @@ class Layer {
     this.stale = this.backStale = true;
   }
 
-  /* A skin's material strokes (#388) under `g`, or all of them, freed: each handle says `dead` and
-     touches nothing freed. */
   kill(g) {
     const s = this.skin;
     if (s) for (const st of s.strokes) if (!g || g.getObjectById(st.mesh.id)) { s.strokes.delete(st); st.dispose(st.mesh.parent); }
   }
 
-  /* Everything in a group taken out and its GPU memory freed: a hook's call begins empty, and the
-     material strokes in it are dead. */
   empty(g) {
     this.kill(g);
     for (const c of g.children.slice()) {
@@ -382,8 +295,6 @@ class Layer {
     }
   }
 
-  /* The panes a skin frames: one group each, at the pane's top-left, made when the pane appears
-     and gone with it. Matched with the table, on the frame after the page changed. */
   framePanes() {
     const s = this.skin;
     if (!s || typeof s.hooks.frame !== "function") return false;
@@ -407,7 +318,6 @@ class Layer {
     return changed;
   }
 
-  /* Each pane's frame where the pane is; built again only when its size, or its transcript's box, changed. */
   syncFrames() {
     const s = this.skin;
     if (!s || !s.frames.size) return false;
@@ -421,7 +331,6 @@ class Layer {
         f.group.position.set(r.left, -r.top, 0);
         changed = true;
       }
-      // and where its transcript is: a card shown above it moves it in an unchanged pane (#338)
       const t = f.el.querySelector(".transcript"), q = t && t.getBoundingClientRect();
       const sig = r.width.toFixed(1) + "x" + r.height.toFixed(1) + (q ? "@" + (q.top - r.top).toFixed(1) + "+" + q.height.toFixed(1) : "");
       if (sig !== f.sig) {
@@ -447,8 +356,6 @@ class Layer {
     return L;
   }
 
-  /* Observed once each: observing an element again re-reports its size, which is a redraw for
-     nothing. */
   watch(el) {
     if (this.observed.has(el)) return;
     this.observed.add(el);
@@ -461,7 +368,6 @@ class Layer {
     return id;
   }
 
-  /* Match every row against the page: new matches are drawn, lost ones leave. */
   evaluate() {
     let changed = false;
     for (const row of this.rows) {
@@ -472,7 +378,6 @@ class Layer {
         if (row.live.has(el)) continue;
         const leaving = row.leaving.get(el);
         if (leaving && this.unqueue(leaving, leaving.leaveOp)) {
-          // Back before the eraser reached it: the mark simply stays.
           leaving.leaveOp = null;
           row.leaving.delete(el);
           row.live.set(el, leaving);
@@ -499,8 +404,6 @@ class Layer {
       }
       if (row.rewrite) for (const m of row.live.values()) if (this.rewrite(m)) changed = true;
     }
-    // Marks whose paper has gone: an element that left the page takes its marks, struck or not,
-    // with it. Nothing is left to draw them on.
     for (const m of Array.from(this.marks)) {
       if (!m.el.isConnected) { this.drop(m); changed = true; }
     }
@@ -529,7 +432,6 @@ class Layer {
     this.kick();
   }
 
-  /* Take an op back out of its lane, if the pen has not started it. */
   unqueue(m, op) {
     if (!op || op.started) return false;
     const i = m.lane.q.indexOf(op);
@@ -563,11 +465,6 @@ class Layer {
     if (m.shape === "write" && !m.el.isConnected) this.clipped.delete(m.el);
   }
 
-  // --------------------------------------------------------------------- the geometry
-
-  /* The rectangle an anchor can be seen in: the viewport, cut down by every ancestor that scrolls
-     and, in a pane's lane, by the pane's border box inset 1px, so no mark leaves its pane (#331).
-     The ancestors are found once per mark; their boxes are read every time. */
   clipOf(m) {
     if (!m.scrollers) {
       m.scrollers = [];
@@ -588,7 +485,6 @@ class Layer {
     return [x0, y0, x1, y1];
   }
 
-  /* The text's line boxes, in the anchor's coordinates: one per line it wraps to. */
   linesOf(el, r) {
     const range = document.createRange();
     range.selectNodeContents(el);
@@ -620,8 +516,6 @@ class Layer {
     return t;
   }
 
-  /* Where the mark is now, and -- when its size or text changed -- its strokes built again.
-     Answers whether anything about it changed, so a frame with nothing new draws nothing. */
   sync(m) {
     if (m.dropped) return false;
     const r = m.el.isConnected ? m.el.getBoundingClientRect() : null;
@@ -636,8 +530,6 @@ class Layer {
       if (m.row && (m.row.grow || m.row.tip || m.row.cap)) {
         const pr = m.lane.root ? m.lane.root.getBoundingClientRect() : null;
         shape.limit = (pr ? pr.right : window.innerWidth) - r.left - 14;
-        // The pen's tip sits at the end while the mark is on the paper; a mark that is leaving has
-        // had its pen lifted, and is struck or erased without it.
         shape.tip = m.row.tip && m.state !== "leaving" && m.state !== "struck";
         shape.cap = m.row.cap || "";
       }
@@ -647,8 +539,6 @@ class Layer {
       }
       let sig = r.width.toFixed(1) + "x" + r.height.toFixed(1);
       if (m.shape === "series" || m.shape === "ticks") {
-        // A series is read from its element each time it is measured, so the mark follows its
-        // data the way it follows its box: new numbers are a new line, drawn whole where it stands.
         const series = m.el.getAttribute("data-ink-series") || "", ticks = m.el.getAttribute("data-ink-ticks") || "";
         shape.values = series.split(/\s+/).filter(Boolean).map(Number).map(v => (Number.isFinite(v) ? clamp(v, 0, 1) : 0));
         shape.ticks = m.shape === "ticks" ? ticks.split(/\s+/).filter(Boolean).map(Number).filter(Number.isInteger) : [];
@@ -659,8 +549,6 @@ class Layer {
       if (m.strikeOf) sig += "|" + m.strikeOf.sig;
       if (shape.base !== undefined) sig += "|" + Math.round(shape.base) + "," + Math.round(shape.floor);
       if (shape.limit !== undefined) sig += "|" + Math.round(shape.grow || 0) + "," + Math.round(shape.limit) + (shape.tip ? "t" : "") + (shape.cap ? "c" + shape.cap : "");
-      // A ruled mark sits on the viewport's grid, so where the anchor is against the grid is part
-      // of its shape: a move by a whole square moves the mesh, anything else rules it again.
       const g = m.row && !m.strikeOf ? m.row.snap : 0;
       if (g) {
         shape.snap = { g, at: { x: r.left, y: r.top } };
@@ -698,13 +586,6 @@ class Layer {
     return shape.snap ? this.S.snap(paths, m.shape, shape.box, shape.snap.at, shape.snap.g, shape) : paths;
   }
 
-  /* Where an underline may go (#331), in the anchor's coordinates: `base` is the foot of the tallest
-     of its siblings on its line, and `floor` the top of the next row in its pane (none in the
-     header): the highest of the elements beside it that start below it, and of their words, whose
-     line box can stand above their element's box. Not the first in the markup: a wrapped header
-     puts the chip first but the taller `.oldsession` higher. Nor only those after it: the compact
-     tier's `order: -1` puts the name first and the pane number, before it in the markup, under it.
-     Read only, where `sync` already measures. */
   under(m, r, s) {
     let b = r.bottom;
     for (const k of m.el.parentElement ? m.el.parentElement.children : []) {
@@ -728,10 +609,6 @@ class Layer {
   }
 
   build(m, paths) {
-    // A growing line keeps what the pen has drawn, in px rather than as a fraction of a length that
-    // has changed, and the pen goes back to draw on from there (#249).
-    // A mark whose match has gone is leaving: it is struck or erased at the length it had, and grows
-    // no more -- the refresh that takes its class away often brings the line that would grow it.
     const grows = !!(m.row && m.row.grow) && !m.leaveOp && (m.state === "drawn" || m.state === "drawing");
     const had = grows ? m.strokes.map(st => ({ head: st.head, len: st.len, sig: st.sig })) : null;
     while (m.strokes.length > paths.length) m.strokes.pop().dispose(this.scene);
@@ -743,8 +620,6 @@ class Layer {
         if (m.state !== "queued" && m.state !== "drawing") st.done = true;
       }
       st.build(p, this.scene, this.inks[(m.row && m.row.ink) || m.tool] || [0.3, 0.3, 0.3], this.mode);
-      // A mark already on the paper is redrawn whole at its new size; one not yet begun stays
-      // blank until its turn.
       if (m.state === "queued") st.setHead(0);
     });
     if (!grows) return;
@@ -752,8 +627,6 @@ class Layer {
     m.strokes.forEach((st, i) => {
       const was = had[i];
       if (st.dead || (was && was.sig === st.sig)) return;
-      // Longer than it was: what was drawn stays drawn, the rest is the pen's to draw. A stroke that
-      // is new or moved (the tip, at the new end) is drawn again from its start.
       const keep = was && st.len > was.len ? Math.min(was.head, st.len) : (i === 0 ? st.len : 0);
       if (keep < st.len - 0.01) {
         st.setHead(keep);
@@ -761,13 +634,9 @@ class Layer {
         more = true;
       }
     });
-    // Drawn, or still drawing a stroke the pen has already left: the pen comes back for the rest.
     if (more) this.push(m.lane, { t: "draw", m });
   }
 
-  /* How many of the row's `grow` matches have arrived in this mark's pane since it was made (#249).
-     Counted once each, as they arrive, so a list that drops its oldest line as it takes a new one
-     still counts the new one. The ones already there when the mark was made are its start. */
   growth(m) {
     const root = m.lane.root || document;
     let found = [];
@@ -784,15 +653,11 @@ class Layer {
     return m.grown;
   }
 
-  /* A written word whose text changed after it was written (#249, the header's count): what it said
-     is kept on the paper beside it, as it looked, and struck through in pen; the new text is written
-     again by the reveal. One struck word is kept per row and element, like every struck mark. */
   rewrite(m) {
     const now = m.el.textContent;
     if (m.text === null || now === m.text) return false;
     const was = m.text;
     m.text = now;
-    // Still being written, the reveal is uncovering the new text already.
     if (m.state !== "drawn") return false;
     if (was.trim()) {
       const g = this.mark({ row: m.row, el: m.el, lane: m.lane, tool: "pen", shape: "ghost",
@@ -809,11 +674,6 @@ class Layer {
     return true;
   }
 
-  /* The old text as it looked -- its own font and colour -- drawn once into a texture and set just
-     to the left of the element, a little apart, where a hand would have left it. Drawn by the
-     browser as an SVG `<text>`, never on a 2D canvas: the desk has none (#257). Its width is the
-     element's own text's, per letter, so the strike is laid before the image arrives; the image
-     lands in the texture a frame later. */
   ghostOf(m, text) {
     const T = this.THREE, cs = getComputedStyle(m.el), dpr = this.dpr || 1;
     const fs = parseFloat(cs.fontSize) || 14;
@@ -832,7 +692,6 @@ class Layer {
     tex.colorSpace = T.SRGBColorSpace;
     const img = new Image();
     img.onload = () => {
-      // The ghost may have left the paper (its mesh freed) before its image arrived.
       if (this.stopped || rec.mesh !== mesh) return;
       tex.image = img;
       tex.needsUpdate = true;
@@ -859,8 +718,6 @@ class Layer {
     return changed;
   }
 
-  // ----------------------------------------------------------------------- the palette
-
   rgb(css) {
     return parseColour(css, this.THREE).slice(0, 3);
   }
@@ -876,13 +733,9 @@ class Layer {
     const paperCss = t && t.paper ? (t.paper.startsWith("--") ? read(t.paper) : t.paper) : "";
     const ground = this.rgb(paperCss || read("--bg") || cs.backgroundColor);
     this.dark = 0.2126 * ground[0] + 0.7152 * ground[1] + 0.0722 * ground[2] < 0.4;
-    // The palette as a skin's hooks read it: every token as [r, g, b] in 0-1, the inks, and the
-    // raw custom property by name for anything else.
     const tokens = { inks: this.inks, dark: this.dark, css: name => read(name) };
     for (const name of TOKENS) tokens[name] = this.rgb(read("--" + name) || "#888");
     this.tokens = tokens;
-    // Something opaque under the marks -- a paper, the skin's or the table's -- and the
-    // highlighter multiplies into it (screens onto it when dark); over nothing it is a swipe.
     const papered = !!(paperCss || (this.skin && (this.skin.hooks.paper || this.skin.hooks.ground)));
     this.mode = papered ? (this.dark ? 2 : 1) : 0;
     const flat = paperCss && !(this.skin && this.skin.hooks.paper);
@@ -900,7 +753,6 @@ class Layer {
     }
     this.backStale = true;
     if (this.skin) {
-      // Every frame is made again too, in `syncFrames`, which a palette change alone did not reach (#388).
       this.skin.dirty = this.dirty.geom = true;
       for (const f of this.skin.frames.values()) f.sig = "";
     }
@@ -935,8 +787,6 @@ class Layer {
     }
   }
 
-  // ------------------------------------------------------------------------- the lanes
-
   instant() {
     return !!(this.reduce && this.reduce.matches);
   }
@@ -946,7 +796,6 @@ class Layer {
       L.hand = new this.pen.Hand(this.toolScene, this.scene, this.inks);
       L.hand.dark = this.dark;
     }
-    // A stick of chalk (#387) is taken up at the hand's next model, so a new table changes it there.
     L.hand.chalk = this.table.hand === "chalk";
     return L.hand;
   }
@@ -959,9 +808,6 @@ class Layer {
     return this.table ? this.table.speed : 1;
   }
 
-  /* A lane runs `dt` seconds of its queue: segments are consumed in order, and a segment that
-     finishes early hands what is left of the frame to the next, so a fast hand is not slowed to
-     one stroke a frame. */
   run(L, dt) {
     let t = dt;
     for (let guard = 0; guard < 5000; guard++) {
@@ -984,10 +830,8 @@ class Layer {
   compile(L, op) {
     const m = op.m;
     if (!m || m.dropped) return [];
-    // A mark can leave the page while its op runs; what the op does at its end is then not done.
     const once = fn => ({ step: dt => { if (!m.dropped) fn(); return dt; } });
     if (op.t === "draw") {
-      // A draw queued before the mark began to leave (a growing line's rest) is not drawn after it.
       if (m.leaveOp || m.state === "leaving" || m.state === "struck") return [];
       m.state = "drawing";
       this.sync(m);
@@ -1031,8 +875,6 @@ class Layer {
       out.push(once(() => {
         s.state = "drawn";
         m.state = "struck";
-        // One struck mark kept per row and element: the history stays visible, and a state that
-        // comes and goes all day does not stack a hundred strikes on one name.
         const row = m.row, old = row.history.get(m.el);
         if (row.leaving.get(m.el) === m) row.leaving.delete(m.el);
         row.history.set(m.el, m);
@@ -1043,8 +885,6 @@ class Layer {
     return [];
   }
 
-  /* A mark that is going stops being worked: its pen-tip dot (#249) is lifted before it is struck
-     or erased. */
   lift(m) {
     if (!m.row || !m.row.tip || m.state === "leaving") return;
     m.state = "leaving";
@@ -1052,8 +892,6 @@ class Layer {
     this.sync(m);
   }
 
-  /* A point of a mark's stroke on the viewport, or null for a mark that is not on the glass -- a
-     hidden pane's marks are finished at once, and no hand travels to where it is not. */
   world(m, p) {
     return m.visible ? [m.x + p[0], m.y + p[1]] : null;
   }
@@ -1136,9 +974,6 @@ class Layer {
     };
   }
 
-  /* The handwriting reveal: the element's own text uncovered left to right while the pen moves
-     along it -- the text is the page's, only its `clip-path` is this layer's, and only until the
-     line is written. */
   clip(m, f) {
     const el = m.el;
     let want = "";
@@ -1223,31 +1058,20 @@ class Layer {
     return false;
   }
 
-  // ------------------------------------------------------------------------ the frame
-
   kick() {
     if (!this.raf && !this.stopped) this.raf = requestAnimationFrame(t => this.frame(t));
   }
 
-  /* Inside the frame the browser just laid out (a ResizeObserver callback): measure and draw now,
-     so the marks are where the panes are on the frame that shows the panes. */
   now() {
-    // Geometry only. Matching the table can make a mark, and a mark observes its element; an
-    // observation begun inside the observer's own callback is a loop the browser reports as an
-    // error. The table is matched on the next animation frame instead.
     this.prepare();
     if (this.stale) this.render();
     if (this.busy() || this.dirty.table) this.kick();
   }
 
-  /* Everything a frame needs measured before it is drawn. Anything that moved, was built again or
-     changed colour makes the frame stale; a frame that is not stale is not drawn at all. */
   prepare() {
     if (this.dirty.size) { this.dirty.size = false; this.resize(); this.stale = true; }
     if (this.dirty.colours) { this.dirty.colours = false; this.colours(); this.stale = true; }
     if (this.skin && this.skin.dirty) {
-      // The ground and the paper, made again from nothing: on the skin's arrival, a resize, or a
-      // palette change. Frames are made in `syncFrames`, per pane.
       this.skin.dirty = false;
       this.empty(this.skin.ground);
       this.hook("ground", this.ctx(this.skin.ground));
@@ -1291,8 +1115,6 @@ class Layer {
         if (L.hand.vis) lifting = true;
       }
     }
-    // A skin's own animation. It asks for the next frame by answering true; under reduced motion
-    // it is still called on the frames the layer draws, and is never given a loop of its own.
     let ticking = false;
     if (this.skin && this.skin.hooks.tick) {
       const more = this.hook("tick", this.ctx(null), dt, now);
@@ -1329,8 +1151,6 @@ class Layer {
     this.renders += 1;
   }
 
-  // ---------------------------------------------------------------- what tests can see
-
   refresh() {
     this.dirty.table = this.dirty.geom = this.dirty.colours = true;
     this.kick();
@@ -1344,7 +1164,6 @@ class Layer {
     const marks = [], series = [];
     for (const m of this.marks) {
       if (this.own(m)) {
-        // The page's own marks (#257) are listed apart, so a skin's table reads as itself.
         const len = m.strokes.reduce((a, s) => a + (s.dead ? 0 : s.len), 0);
         const head = m.strokes.reduce((a, s) => a + (s.dead ? 0 : Math.min(s.head, s.len)), 0);
         series.push({ id: m.id, lane: m.lane.key, tool: m.tool, shape: m.shape, state: m.state,
@@ -1366,8 +1185,6 @@ class Layer {
         was: m.ghost ? m.ghost.text : undefined,
         erased, visible: m.visible,
         box: { x: m.x, y: m.y, w: m.w, h: m.h },
-        // Each stroke's extent on the viewport, so a test can see where the ink is (#253), as it is
-        // drawn: cut to the mark's clip (#331). A stroke cut away whole has none.
         bounds: m.strokes.filter(st => !st.dead).map(st => st.bbox()).filter(Boolean).map(b =>
           ({ x: Math.max(m.x + b.x, m.clip[0]), y: Math.max(m.y + b.y, m.clip[1]),
              r: Math.min(m.x + b.r, m.clip[2]), b: Math.min(m.y + b.b, m.clip[3]) })).filter(b => b.r >= b.x && b.b >= b.y),
@@ -1387,8 +1204,6 @@ class Layer {
              webgl2: !!this.renderer.capabilities.isWebGL2, mode: this.mode, dark: this.dark };
   }
 
-  /* How many pixels in a box of the viewport hold ink, read back from a frame drawn for the
-     purpose -- the drawing buffer is not kept between frames. */
   sample(box) {
     if (this.stopped) return 0;
     this.render();
@@ -1438,7 +1253,6 @@ class Layer {
       this.renderer.dispose();
       this.renderer.forceContextLoss();
     } catch (e) {
-      /* a lost context has nothing left to free */
     }
     this.canvas.remove();
   }

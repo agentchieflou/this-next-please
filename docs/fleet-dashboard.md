@@ -45,7 +45,11 @@ That is also what the payload budget measures now. It used to count bytes on dis
 comment in the page cost against a number that exists to keep the page quick to open — and the page
 is mostly prose, because the comments are where this project keeps its design record. The number an
 operator waits on is what crosses the wire, so that is the number the test asserts (200 kB), with
-the on-disk figure reported beside it so a file that doubles is still visible. On loopback the
+the on-disk figure reported beside it so a file that doubles is still visible. Since #523 (decisions
+18 and 19 on #429) the prose is not in the page at all: a source file keeps code and its JSDoc
+types, its reasoning is in `<file>.md` beside it, which the server never serves, and the server
+strips every comment from what it sends. The desk went from 202,333 bytes gzipped to 117,055
+([desk-components.md](desk-components.md) §Where a component's reasoning lives). On loopback the
 saving is nothing and the CPU is real, which is why the API's JSON is *not* compressed: the desk
 polls it four times a second, and nobody waits on that. The page is for the case where the server
 is not loopback — a forwarded port, a phone on the LAN, a remote desktop.
@@ -104,6 +108,18 @@ path* and the git cell already say), the missing-keys line, *earlier friction (n
 and the files Downloads offers for this project. The desk's tick redraws the panel only when
 something it shows changed, so an idle desk writes nothing to it, and a redraw keeps every fold as
 the operator left it.
+
+The rail ends with **wrap up** (#510), and `w` on a pane or rail does the same: the project section
+opens on that agent with the wrap-up sheet above its details, set to *end of project* (the pairing for
+one agent; *end of day* is the other half of its toggle, and pressing it previews again). The sheet
+reads *reading push · pr · page · comment · transition…* while #503's job runs every adapter's
+dry-run, then shows one row per write with a tick as the preset says; a row that is not `ok` is
+disabled with its code and hint (the pr and page rows read `not_pinned` until #506 and #507), and a
+ticked row that waits on another says *after push*. A transition row offers Jira's own names, a page or
+PR description someone edited offers *replace*, and the comment row offers *edit* — each of those is a
+second preview, never a write (WRAP-D8). **Write n** posts exactly the ticked ids; each row then reads
+*written* (with its link), *failed* (with *preview again*), *changed* or *skipped*, in words and a
+glyph, and the footer says one line. A merge is never offered. `Esc` or *cancel* closes the sheet.
 
 **Open friction** (#499) is decided by the server, not the page. A STOP is *open* when the operator
 has not dismissed it, it is on the active ticket (or names none), and either its unblock sentence is
@@ -170,7 +186,7 @@ rail chip in that position, `Enter` the row's one candidate.
 
 The **toolbar** is three labelled groups and one row: *widths* (the three presets, #234), *see*
 (search, the sidebar, and a *settings* link) and *alerts* (chime, the bell, and the **day** menu: *start
-the day fresh (Shift+N)*, #511; #512 adds the sweeps). A group named *window*
+the day fresh (Shift+N)*, #511; *end of day…* and *end of project…*, #512). A group named *window*
 chose between the arrangements, and went with them (#232); the presets stand where it was. Settings are a **page**, `/settings`, not a popover: the palette was never
 the only one, and the model each agent runs and the flags the Copilot CLI is launched with have no
 business behind a button on a bar that is about the agents. The link's `href` is built at runtime
@@ -438,9 +454,11 @@ red everywhere or the colour stops being information:
 | `u` | take the last change of widths back |
 | `r` | re-read the agent the keyboard is on — a rail as well — now; spends no premium request |
 | `m` | which model that agent runs, and which one its last turn actually ran on; a press there shows on the pane at once, and applies from the next turn (#492) |
+| `w` | wrap up the agent the keyboard is on — a rail as well: the project panel's sheet previews every Jira, Bitbucket and Confluence write, and nothing is written until *write n* (#510) |
 | `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
+| *day* → *end of day…* / *end of project…* | the sweep (#512): the day strip previews every agent's Jira, Bitbucket and Confluence writes (#505) — *reading N agents…*, then one row per agent with a cell per write, drawn as the wrap-up sheet draws a step (tick, summary, hint; `not_pinned` names `ad-pncli capture-help`); an agent with nothing to write, or a busy one, is one muted line saying why. *Edit* on a comment cell opens that agent's text, previewed again when it changes. *Write N — P pushes, R PRs, G pages, C comments, T transitions* posts the ticked ids per agent, and each cell then reads written, failed, changed or skipped. At end of project *done* is unticked, the operator's call; no cell offers a merge. `Esc` closes it |
 | `Shift`+`N` | a fresh day for every pane (preview): the day strip under the toolbar, one row per agent — ticked, tickable (no ticket), or why not, a *needs you* row with its question and *answer* — then *start N fresh — about N premium turns*; `Esc` closes it (#511) |
 | `Alt`+`N` | start this pane fresh: a clean session on its ticket, the one it is on kept under *earlier* (#489) |
 | `/` | the search box — `where` over the catalogue |

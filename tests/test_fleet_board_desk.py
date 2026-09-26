@@ -813,10 +813,10 @@ def test_a_directory_beside_static_is_not_served_because_its_name_starts_with_st
     root = tmp_path / "pkg"
     (root / "static").mkdir(parents=True)
     with open(root / "static" / "app.js", "w", encoding="utf-8", newline="\n") as f:
-        f.write("/* the real one */\n")
+        f.write('var which = "the real one";\n')       # code: a comment is stripped on the way out
     (root / "static_backup").mkdir()
     with open(root / "static_backup" / "app.js", "w", encoding="utf-8", newline="\n") as f:
-        f.write("/* NOT SERVED */\n")
+        f.write('var which = "NOT SERVED";\n')
     monkeypatch.setattr(S, "STATIC", str(root / "static"))
     base, token = running
 
@@ -861,6 +861,46 @@ def test_no_body_class_names_an_arrangement():
                  "view-board", "view-agents", "view-verify", "solo", "panels", "focused"):
         assert f'"{name}"' not in js, f"app.js still sets {name}"
         assert f"body.{name}" not in css, f"app.css still styles body.{name}"
+
+
+def _enclosing_functions(js: str, needle: str) -> list[str]:
+    """The top-level `function name(` each occurrence of `needle` in app.js sits in."""
+    import re
+
+    heads = [(m.start(), m.group(1)) for m in re.finditer(r"^(?:async )?function (\w+)\(", js, re.M)]
+    out = []
+    for m in re.finditer(re.escape(needle), js):
+        before = [name for at, name in heads if at < m.start()]
+        out.append(before[-1] if before else "")
+    return out
+
+
+def test_the_wrap_up_sheet_is_static_markup_and_posts_only_from_its_own_paths():
+    """#510: the sheet and its pattern row are in index.html, so the panel's rebuilds never touch
+    them; the key map lists `w`; and the page posts `wrapup` only from the sheet's open, its mode
+    toggle, a deliberate re-preview and *write n* -- never from a tick, a frame or a page load."""
+    js = open(APP_JS, encoding="utf-8").read()
+    html = open(INDEX, encoding="utf-8").read()
+    inspector = html[html.index('<aside id="inspector"'):html.index("</aside>", html.index('<aside id="inspector"'))]
+    sheet = inspector[inspector.index('class="wrapsheet"'):]
+    assert inspector.index('class="drawer-head"') < inspector.index('class="wrapsheet"') \
+        < inspector.index('id="inspectordetails"'), "the sheet sits between the drawer head and the details"
+    for part in ('class="segmented', 'data-mode="day"', 'data-mode="project"', 'class="wrap-status"',
+                 'class="wrap-rows"', 'class="wrap-pattern wrap-row"', 'class="wrap-tick"', 'class="wrap-step"',
+                 'class="wrap-sum"', 'class="wrap-hint"', 'class="wrap-act"', 'class="wrap-comment"',
+                 'class="wrap-go"', 'class="wrap-cancel"'):
+        assert part in sheet, part
+    panes = html[html.index("<strong>panes</strong>"):]
+    panes = panes[:panes.index("</div>")]
+    assert "<kbd>w</kbd> wrap up (preview first)" in panes
+    posts = _enclosing_functions(js, 'post("wrapup"')
+    # #512's sweep posts from the day strip (`previewSweep`, `writeSweep`), checked in test_fleet_renew.py.
+    assert sorted(p for p in posts if not p.endswith("Sweep")) == ["previewWrap", "writeWrap"], posts
+    assert set(posts) <= {"previewWrap", "writeWrap", "previewSweep", "writeSweep"}, posts
+    assert set(_enclosing_functions(js, "previewWrap(")) <= {"previewWrap", "openWrapup", "bindWrapSheet",
+                                                             "wrapActs"}, _enclosing_functions(js, "previewWrap(")
+    assert set(_enclosing_functions(js, "writeWrap(")) <= {"writeWrap", "bindWrapSheet"}
+    assert "wrap up" in js and "preview what would be written to Jira, Bitbucket and Confluence (w)" in js
 
 
 def test_the_rows_rules_are_the_pages_rules():
@@ -974,11 +1014,13 @@ def test_the_page_has_exactly_one_place_that_renders_a_fact_block():
     safe: a fact block is hand-edited prose and a real one carries a warehouse hostname, a share
     path and a service account beside the Jira keys. A second loop over some other payload's facts
     is how that filter gets bypassed by a change that looks like a feature, so the count is the
-    test. One binding, one loop, and the narrowing named beside it."""
+    test. One binding, one loop, and the narrowing named beside it -- in the page's tagalong,
+    `app.js.md`, where its reasoning lives since #523."""
     js = open(APP_JS, encoding="utf-8").read()
     assert len(re.findall(r"\bfactsFromCatalogue\s*=", js)) == 1, "more than one fact source"
     assert len(re.findall(r"Object\.keys\(factsFromCatalogue\)", js)) == 1, "more than one fact loop"
-    assert "serve.tile_facts()" in js, "the page must say where the narrowing happens"
+    notes = open(APP_JS + ".md", encoding="utf-8").read()
+    assert "serve.tile_facts()" in notes, "the page must say where the narrowing happens"
 
 
 def test_the_panel_draws_the_rail_first_and_folds_the_facts_under_more():

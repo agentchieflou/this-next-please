@@ -794,10 +794,11 @@ def _summary(mode: str, rows: list[dict]) -> dict:
 
 
 def plan_all(mode: str = "day", names: list[str] | None = None, *, registry: Registry | None = None,
-             on_repo=None) -> dict:
+             on_repo=None, comments: dict | None = None) -> dict:
     """Every registered agent's wrap-up, previewed: up to three repos at a time, each repo's steps one after
     another. Writes to no system; the only files it writes are the comment texts under the fleet directory.
-    `on_repo(row)` hears each repo as it finishes, for the desk's job."""
+    `on_repo(row)` hears each repo as it finishes, for the desk's job. `comments` is the operator's edited
+    text per repo (#512), previewed again so that the confirm writes the text that was checked."""
     if mode not in MODES:
         raise WrapupError(f"{mode!r} is not a preset", "day | project", code="bad_mode")
     order = _names(names, registry)
@@ -806,7 +807,7 @@ def plan_all(mode: str = "day", names: list[str] | None = None, *, registry: Reg
 
     def one(i: int, name: str) -> None:
         try:
-            row = repo_row(name, plan(name, mode, registry=registry))
+            row = repo_row(name, plan(name, mode, registry=registry, comment=(comments or {}).get(name)))
         except Exception as e:  # noqa: BLE001 - one repo's trouble is its own row, never the sweep's end
             row = {"repo": name, "ticket": "", "state": "error", "plan_id": "", "writes": 0, "notes": [],
                    "steps": [], "skipped": str(getattr(e, "msg", e))[:300], "hint": getattr(e, "hint", "")}
@@ -869,7 +870,7 @@ def _write_fleet_job(data: dict) -> None:
 _FLEET = "*"                                             # the sweep's key in `_THREADS`
 
 
-def start_plan_all(mode: str, names: list[str] | None = None) -> dict:
+def start_plan_all(mode: str, names: list[str] | None = None, *, comments: dict | None = None) -> dict:
     """The sweep's preview on a thread; answers at once with the repos it is reading. Each repo's rows land in
     the job as that repo finishes, so the page can draw them as they arrive."""
     if mode not in MODES:
@@ -896,7 +897,7 @@ def start_plan_all(mode: str, names: list[str] | None = None) -> dict:
 
         def work():
             try:
-                swept = plan_all(mode, names or None, on_repo=arrived)
+                swept = plan_all(mode, names or None, on_repo=arrived, comments=comments)
                 _write_fleet_job({**base, **swept, "state": "planned", "reading": []})
             except Exception as e:  # noqa: BLE001 - the page must hear why, not wait forever
                 _write_fleet_job({**base, "state": "done", "reading": [], "repos": [],

@@ -1,18 +1,3 @@
-/* The ink layer's tools (#248): how each one lays a stroke down, and the shaders that make it look
-   like graphite, ballpoint, felt or highlighter rather than a line.
-
-   Ported from the operator-approved prototype (`notebook-three.html`, epic #246 Decision 1). Two
-   halves: `geometry()` is plain arithmetic -- resample the path, give it the tool's wobble, bow,
-   pressure and taper -- and `makePen(THREE)` turns that into three.js meshes, materials and the
-   small lit pencil (the hand) that travels along a stroke while it is drawn. three.js is handed in
-   by `layer.js`, which is the one module that imports it, from the vendored copy, with the token.
-
-   A tool is a `kind` for the shader and its physics: `w` the width, `press` and `pvar` the
-   pressure and how much it varies, `wob` and `lam` the wobble and its wavelength, `bow` how much a
-   long stroke sags, `pad` the antialiasing margin, `wmin` how thin light pressure goes, `tin` and
-   `tout` the taper at each end. Colour is not here: a palette colours the inks (`layer.js` reads
-   them from the page's custom properties at paint time), and a skin chooses the paper. */
-
 export const TOOLS = {
   pencil: { kind: 0, w: 1.9, press: 0.7, pvar: 0.28, wob: 0.85, lam: 70, bow: 0.006, pad: 1.4, wmin: 0.72, tin: 10, tout: 16, model: "pencil" },
   pen: { kind: 1, w: 1.45, press: 0.85, pvar: 0.15, wob: 0.4, lam: 110, bow: 0.004, pad: 1.3, wmin: 0.8, tin: 6, tout: 10, model: "pen" },
@@ -23,11 +8,7 @@ export const TOOLS = {
   eraser: { kind: 5, w: 14, press: 1, pvar: 0.2, wob: 0.8, lam: 40, bow: 0, pad: 2, wmin: 0.9, tin: 4, tout: 4, model: "eraser" },
 };
 
-/* What is drawn over what: the highlighter under everything, graphite and its scuffs above it, ink
-   on top. */
 const ORDER = { 4: 1, 5: 2, 0: 2, 1: 3, 3: 3 };
-
-// ------------------------------------------------------------------------------ the arithmetic
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const sstep = x => x * x * (3 - 2 * x);
@@ -107,11 +88,7 @@ function normals(P) {
   return N;
 }
 
-/* One path as the tool would lay it: the points it passes through (`P`), the distance along it at
-   each (`D`), its length, and the triangle strip the shader draws -- a quad per step with a round
-   cap at each end, carrying distance, side, half-width, width and pressure per vertex. */
 export function geometry(path, tool, seed, tune) {
-  // A table may tune a tool's hand (#253): its numbers over the tool's own, for this stroke only.
   const T = tune ? Object.assign({}, TOOLS[tool], tune) : TOOLS[tool];
   let P = resample(path.smooth ? catmull(path.pts) : path.pts, 2);
   let D = cumd(P);
@@ -166,8 +143,6 @@ export function geometry(path, tool, seed, tune) {
   return { P, D, len: L, maxHalf, segD, index: I, attrs: { position: pos, aD, aS, aH, aW, aP } };
 }
 
-// ------------------------------------------------------------------------------- the shaders
-
 const NOISE = `
 float h21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
@@ -175,9 +150,6 @@ float vn(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 
 float tooth(vec2 p){ return vn(p * 0.55) * 0.5 + vn(p * 1.37 + 17.0) * 0.3 + vn(p * 3.1 + 41.0) * 0.2; }
 `;
 
-/* The clip: a mark on a line of a transcript that has scrolled out of its box must not be drawn
-   outside the box, so every mesh carries the rectangle its anchor can be seen in (the viewport, cut
-   down by every scrolling ancestor), in CSS pixels, and the fragment outside it is discarded. */
 const CLIP = `
 uniform vec4 uClip; uniform float uDpr; uniform float uViewH;
 bool clipped(){ vec2 c = vec2(gl_FragCoord.x / uDpr, uViewH - gl_FragCoord.y / uDpr);
@@ -190,12 +162,6 @@ varying float vD; varying float vS; varying float vH; varying float vW; varying 
 void main(){ vD = aD; vS = aS; vH = aH; vW = aW; vP = aP; vPos = vec2(position.x, -position.y);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 
-/* One shader, five tools. Graphite takes the paper's tooth, so a pencil line is grainy where the
-   paper is raised and pressure fills it in. Ballpoint is steady, skips a little under light
-   pressure and blobs now and then. Felt (the marker) bleeds outward the longer the ink has been on
-   the paper and pools where the nib stopped. The highlighter has ragged ends and streaks, and is
-   multiplied into a light paper or screened onto a dark one. The eraser leaves a faint scuff.
-   `uHead` is how far the pen has got; `uErase` how far back the eraser has taken it. */
 const STROKE_FS = `
 uniform vec3 uColor; uniform float uKind; uniform float uHead; uniform float uLen; uniform float uErase; uniform float uSeed;
 uniform float uDash; uniform float uMode; uniform float uAlpha; uniform float uDone;
@@ -270,9 +236,6 @@ void main(){
 
 const PAPER_VS = `void main(){ gl_Position = vec4(position.xy * 2.0, 0.0, 1.0); }`;
 
-/* A skin's paper, when it has one: its colour with the tooth a pencil catches on, lit from the top
-   left. The notebook (#249) adds its rules and margin here; slice B needs only enough paper for the
-   highlighter to have something to multiply into. */
 const PAPER_FS = `
 uniform vec3 uPaper; uniform float uDark; uniform float uDpr;
 ${NOISE}
@@ -298,11 +261,6 @@ void main(){ vec2 pa = vPos - uA, ba = uB - uA; float h = clamp(dot(pa, ba) / ma
 
 const DEG = Math.PI / 180;
 
-// --------------------------------------------------------------------------- the three.js half
-
-/* Everything that needs three.js, built once per layer. `shared` holds the uniforms every stroke
-   reads (the device pixel ratio and the viewport's height, for the clip), so a resize writes two
-   numbers rather than one per mesh. */
 export function makePen(THREE, shared) {
   const QUAD = new THREE.PlaneGeometry(1, 1);
 
@@ -313,11 +271,10 @@ export function makePen(THREE, shared) {
     }
     mt.blending = THREE.CustomBlending;
     mt.blendEquation = THREE.AddEquation;
-    if (mode === 2) { mt.blendSrc = THREE.OneFactor; mt.blendDst = THREE.OneMinusSrcColorFactor; }  // screen
-    else { mt.blendSrc = THREE.DstColorFactor; mt.blendDst = THREE.ZeroFactor; }                    // multiply
+    if (mode === 2) { mt.blendSrc = THREE.OneFactor; mt.blendDst = THREE.OneMinusSrcColorFactor; }
+    else { mt.blendSrc = THREE.DstColorFactor; mt.blendDst = THREE.ZeroFactor; }
   }
 
-  /* One stroke of one mark: its geometry in the anchor's coordinates, drawn up to `head`. */
   class Stroke {
     constructor(tool, seed, dash, tune) {
       this.tool = tool;
@@ -340,8 +297,6 @@ export function makePen(THREE, shared) {
       this.dead = false;
     }
 
-    /* (Re)build from a path. The same path is the same geometry, so a redraw with nothing new is
-       free; a changed one keeps how far along the pen had got, as a fraction. */
     build(path, scene, colour, mode) {
       if (!path || !path.pts || path.pts.length < 2) {
         this.dead = true;
@@ -460,7 +415,6 @@ export function makePen(THREE, shared) {
     }
   }
 
-  /* The paper, when a skin has one: a full-screen quad drawn first, opaque. */
   function paper(colour, dark) {
     const mesh = new THREE.Mesh(QUAD, new THREE.ShaderMaterial({
       vertexShader: PAPER_VS, fragmentShader: PAPER_FS, depthTest: false, depthWrite: false,
@@ -482,9 +436,6 @@ export function makePen(THREE, shared) {
     return m;
   }
 
-  /* The hand: a small lit pencil, pen, marker or highlighter that travels along the stroke being
-     drawn and lifts off at the end, with its shadow on the paper. Low-poly, one per lane. Coloured
-     by the tool's own ink, looked up by `tint` at paint time. */
   function model(key, ink) {
     const g = new THREE.Group();
     const part = (geo, colour, y, o = {}) => {
@@ -537,7 +488,7 @@ export function makePen(THREE, shared) {
 
   class Hand {
     constructor(toolScene, scene, inks) {
-      this.inks = inks;               // tool name -> [r, g, b], read at paint time by the layer
+      this.inks = inks;
       this.g = new THREE.Group();
       this.inner = new THREE.Group();
       this.g.add(this.inner);
@@ -561,7 +512,6 @@ export function makePen(THREE, shared) {
 
     model(tool) {
       const T = TOOLS[tool] || TOOLS.pen;
-      // A stick of chalk (#387) is every tool's hand, the eraser's too: flipped below as the pencil is.
       const kind = this.chalk ? "chalk" : T.model;
       const key = kind + (kind === "pen" ? ":" + tool : "");
       if (!this.models[key]) {

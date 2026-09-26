@@ -1,83 +1,38 @@
-/* The notebook (#249) and the night notebook (#250): the first skin drawn with ink, and the reference
-   every later paper skin's marks are measured against (plan-ink §C). The operator chose it from the
-   three.js prototype (`notebook-three.html`, epic #246 Decision 1); its tools and shaders are the
-   layer's `pen.js`, and this file is the rest of it -- the mark table, which is the state grammar,
-   and the paper.
-
-   ONE MODULE, TWO VARIANTS. `notebook:light` is white stock with blue rules and a red margin;
-   `notebook:dark` is charcoal stock with gel inks, and its highlighter is screened rather than
-   multiplied. The table is the same for both: what changes is the paper and the inks, and those are
-   custom properties in `static/skins/notebook/skin.css` (`--paper`, `--rule`, `--margin` and
-   `--ink-<tool>`), read here through `tokens` at paint time. No colour is written in this file, so a
-   variant, a palette or a scheme change repaints the page without it (desk-ink §Writing a skin, 3).
-
-   THE DOM IS THE TRUTH. Every row is a class or an attribute `app.js` already sets: `state-<state>`
-   and `needs-human` on the pane, the question card's rows and `aria-pressed` on its choices,
-   `is-answered` on a question the server passed on, `.oldsession` shown for a session on old skills
-   (#240), a transcript line's kind, and the header's unread count. Nothing here decides a state. */
-
-/* The state grammar (plan-ink §The state grammar), a row per mark. Rows are drawn in table order
-   within a pane, so the order below is the order a hand would work down a page. */
 export function marks() {
   return [
-    // idle: a pencil outline, and a pencil line under the name.
     { selector: ".tile.state-idle", tool: "pencil", shape: "outline", pad: -3 },
     { selector: ".tile.state-idle .head .repo", tool: "pencil", shape: "underline" },
-    // running: a pen line under the name that grows with the turn -- a step for every transcript
-    // line that arrives while it works -- with the pen's tip resting at its end.
     { selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline",
       grow: ".transcript > li", step: 12, tip: true },
-    // needs you: the name and the question highlighted, pencil loops round the choices. The
-    // approval card is the other way a pane asks, and its summary is its question. The name's
-    // highlight is taken up when the agent no longer needs you, never struck: a line through an
-    // agent's name reads as the agent crossed out (the graph paper's rule, #253).
     { selector: ".tile.needs-human .head .repo", tool: "highlighter", shape: "lines", leaves: "erased" },
     { selector: ".tile.needs-human .ask:not([hidden]):not(.is-answered) .ask-q", tool: "highlighter", shape: "lines" },
     { selector: ".tile.needs-human .approval:not([hidden]) .summary", tool: "highlighter", shape: "lines" },
     { selector: ".tile.needs-human .ask:not([hidden]):not(.is-answered) .ask-choice", tool: "pencil", shape: "loop" },
-    // answered: the question struck in pen (its highlight is struck by leaving, above), and the
-    // answer circled -- the choice pressed, or the box when the answer was typed. Never the name.
     { selector: ".ask.is-answered .ask-q", tool: "pen", shape: "strike" },
     { selector: ".ask.is-answered .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "ellipse" },
     { selector: ".ask.is-answered:not(:has(.ask-choice[aria-pressed=\"true\"])) .ask-answer",
       tool: "pen", shape: "ellipse" },
-    // error: a red marker box round the pane, and a bang in the margin.
     { selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },
     { selector: ".tile.state-error", tool: "marker", shape: "bang" },
-    // done: a green check in the margin. `state-done` is the chip's word, which a pane the fleet
-    // does not supervise shows as idle; `is-done` is the fold's own, and what a finished agent
-    // carries (#253). A finished pane is idle and done, and has both marks.
     { selector: ".tile:is(.state-done, .is-done)", tool: "green", shape: "check" },
-    // stale (#240): a pencil note in the margin -- the chip's own words, handwritten -- an arrow
-    // from it to the run line that says which session this is, and a dashed pencil outline.
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "write" },
     { selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "arrow", to: ".runline" },
     { selector: ".tile:has(.oldsession:not([hidden]))", tool: "pencil", shape: "outline", dash: true, pad: -8 },
-    // a finding -- a friction the agent recorded: a red ellipse round the line, the highlighter on
-    // its token, and its own text written in the margin.
     { selector: ".tile .transcript > li.friction", tool: "red", shape: "ellipse", pad: -6 },
     { selector: ".tile .transcript > li.friction > .k", tool: "highlighter", shape: "lines" },
     { selector: ".tile .transcript > li.friction > .v", tool: "pencil", shape: "write" },
-    // the header's count, handwritten: when it changes the old number is struck and the new one
-    // written beside it.
     { selector: "#bellcount", tool: "pen", shape: "write", rewrite: true },
   ];
 }
 
-/* The paper is the skin's own (the `paper` hook); `--paper` is named too, so the layer knows how
-   light the stock is and multiplies the highlighter into it, or screens it onto the night page. */
 export const options = { paper: "--paper", hand: true, speed: 1 };
 
 export const sampleGround = false;
 
-/* The rules' pitch: the page's 28px baseline, the one graph paper (#253) will share. */
 const PITCH = 28;
-/* Where a pane's margin line runs, from its left edge: the check and the bang are written left of it. */
 const MARGIN = 28;
 const RAIL_BELOW = 90;
 
-/* A custom property's colour as [r, g, b] in 0-1 sRGB. The skin's colours are custom properties,
-   and `tokens.css` answers them as written: a hex, or rgb(). */
 function rgbOf(tokens, name, fallback) {
   const s = String(tokens.css(name) || "").trim();
   let m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s);
@@ -114,8 +69,6 @@ void main(){
   gl_FragColor = vec4(c * fall, 1.0);
 }`;
 
-/* The stock: the paper's colour, its fibre and its light, ruled or not, `w` x `h` px. It is shaded
-   in viewport pixels, so a plain patch laid over the ruled sheet is the same sheet without rules. */
 function stock(THREE, tokens, api, ruled, w, h) {
   const { w: vw, h: vh, dpr } = api.viewport;
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.ShaderMaterial({
@@ -134,7 +87,6 @@ function stock(THREE, tokens, api, ruled, w, h) {
   return mesh;
 }
 
-/* The stock behind the panes: the paper's colour, its rules, its fibre and its light. */
 export function paper({ THREE, scene, tokens, api }) {
   const { w, h } = api.viewport;
   const mesh = stock(THREE, tokens, api, true, w, h);
@@ -143,13 +95,8 @@ export function paper({ THREE, scene, tokens, api }) {
   scene.add(mesh);
 }
 
-/* How many times a pane's frame has been built, for `inspect`. */
 let builds = 0;
 
-/* One pane's margin: a red line down it, a little in from its left edge. A rail has no margin to
-   draw; its marks go down its middle. Under the transcript the rules are the transcript's own
-   (#338): the sheet's rules are covered with plain stock, and a rule is drawn every PITCH up from
-   the transcript's bottom edge, where its rows end, so each line of text sits on one. */
 export function frame({ THREE, scene, tokens, api }, el, box) {
   builds += 1;
   if (box.w < RAIL_BELOW) return;
@@ -179,7 +126,6 @@ export function frame({ THREE, scene, tokens, api }, el, box) {
   }
 }
 
-/* What this skin draws of its own, for tests and a curious console: how many frames it has built. */
 export function inspect() {
   return { builds };
 }

@@ -33,7 +33,9 @@ ad-fleet status
    read the unblock sentence from the one that stopped.
 5. **End the day:** `ad-fleet wrapup --all --day --dry-run`, then `--confirm <plan_id>` — every
    agent's Jira, Bitbucket and Confluence writes in one table, written on one confirm (#505).
-   `ad-fleet history` says what was dispatched, how it ended, and what it cost.
+   On the desk (#512): the *day* menu's *end of day…* opens the same table in the day strip, and
+   *write N* confirms the ticked cells. `ad-fleet history` says what was dispatched, how it ended,
+   and what it cost.
 
 Everything in that loop is also a command, because a fleet you can only drive through a page is a
 fleet you cannot script: `approvals`, `approve`, `deny`, `send`, `restart`, `renew`, `stop`, `board`,
@@ -119,6 +121,12 @@ gets every row skipped, and nothing is queued. Until #506 and #507 pin the PR an
 rows read `not_pinned`. The confirm is the approval: each written step leaves one record
 `by: operator`, `via: wrapup` (see [fleet-approvals.md](fleet-approvals.md)), and one line in
 `<fleet dir>/agents/<repo>/wrapup.jsonl`. The fleet never writes the checkout.
+
+**On the desk** (#510): `w` on the agent's pane, or *wrap up* at the end of its project panel's rail,
+opens the same preview as a sheet on the panel, set to end of project. Each write is a row with a
+tick; *write n* writes exactly the ticked ones, and each row then says *written*, *failed*, *changed*
+or *skipped*. *Edit* on the comment row shows the template's text; an edit is previewed again before
+it can be sent. The desk never waits on Jira or Bitbucket: the rows arrive as the job reads them.
 
 **The sweep** (#505) is the same preview for every registered agent, or for the ones you name:
 
