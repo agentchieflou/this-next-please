@@ -402,7 +402,16 @@ def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp
 
 
 @pytest.mark.browser
+@pytest.mark.measured
 def test_choosing_and_leaving_at_once_never_paints_the_old_skin(browser, fleet_home, tmp_path):
+    """Three round trips, desk to /settings and Back, each within the page's 15 s and 30 s waits.
+
+    `measured` (#513, operator ruling): the waits bound how fast six page loads settle, so they are
+    durations, and they run with the machine to themselves. Under `-n` on a loaded 4-core machine
+    the desk after Back waited 2-6 s in each compositor commit (0.2 s of CPU in 17-24 s), opened its
+    stream 11.6-16.1 s after the click, and missed the 15 s wait for its first `theme` frame (main,
+    16 of 32). The server sent the frame at once. Serially the test is what it claims.
+    """
     PR.record(_facts(shell="browser"))
     _desk_of(tmp_path, ("alpha", "beta", "gamma"))
     run = ["farmstead:daytime", "glass:smoke", "voxel:overworld"]
