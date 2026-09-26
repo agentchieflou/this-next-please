@@ -31,7 +31,9 @@ ad-fleet status
    needs you, green when it is done. A toast arrives for the first two.
 4. **Answer.** Approve the write from the tile; type a reply to the agent that asked a question;
    read the unblock sentence from the one that stopped.
-5. **`ad-fleet history`** at the end of the day: what was dispatched, how it ended, what it cost.
+5. **End the day:** `ad-fleet wrapup --all --day --dry-run`, then `--confirm <plan_id>` — every
+   agent's Jira, Bitbucket and Confluence writes in one table, written on one confirm (#505).
+   `ad-fleet history` says what was dispatched, how it ended, and what it cost.
 
 Everything in that loop is also a command, because a fleet you can only drive through a page is a
 fleet you cannot script: `approvals`, `approve`, `deny`, `send`, `restart`, `renew`, `stop`, `board`,
@@ -79,6 +81,62 @@ session menu, or `Alt`+`N`), beside the header's renew (#489).
 
 A Copilot CLI update can also drop a model an agent is configured with: see **After a CLI update**
 under "Which model an agent runs" below.
+
+## Wrapping up an agent
+
+One agent's Jira ticket, Bitbucket branch and PR, and Confluence page, previewed and written in one
+press, with no model turn (#503):
+
+```bash
+ad-fleet wrapup luna --dry-run              # end of day: every write previewed, nothing written
+ad-fleet wrapup luna --project --dry-run    # end of project
+ad-fleet wrapup luna --confirm <plan_id>    # write the ticked ok steps of exactly that preview
+```
+
+Each step runs its own adapter with `--dry-run`, in the checkout: `ad-git push`, `ad-pncli bitbucket
+pr`, `ad-confluence publish`, `ad-jira comment`, `ad-jira transition`. The confirm writes the ticked
+ones in that order, and only when a fresh preview has the same `plan_id`; a step whose preview
+changed answers `changed` and is not written, and a failed step skips the steps that wait on it.
+
+| Step | End of day (`--day`, the default) | End of project (`--project`) |
+|---|---|---|
+| push | ticked when the branch has unpushed commits | same |
+| pr | a draft when commits exist; otherwise update the open PR | create or update, ready for review |
+| page | update a page this tool published; never create | create or update `.agent/out/<KEY>-confluence.md` |
+| comment | a progress comment, when anything changed since the last wrap-up | a final summary comment |
+| transition | *to do → in progress* when commits exist | *review* ticked with a PR; *done* shown unticked |
+| merge | never offered | never offered |
+
+The comment is a template filled from the checkout (branch, phase, commits since the last wrap-up,
+PR, page, open questions, artifacts), written to `<fleet dir>/agents/<repo>/wrapup/comment.md`;
+`--comment-file` replaces it, and the preview runs again on the replacement. `--to` picks another
+transition. A page or PR description edited since this tool wrote it is never replaced by default:
+`--overwrite-page <version>` or `--overwrite-pr <hash>` previews again with the replacement.
+
+Untracked work gets push and PR rows and no Jira rows. A checkout on a protected branch or a
+detached HEAD has no push or PR that can run. A busy agent (mid-turn, a console, your own chat)
+gets every row skipped, and nothing is queued. Until #506 and #507 pin the PR and page verbs, those
+rows read `not_pinned`. The confirm is the approval: each written step leaves one record
+`by: operator`, `via: wrapup` (see [fleet-approvals.md](fleet-approvals.md)), and one line in
+`<fleet dir>/agents/<repo>/wrapup.jsonl`. The fleet never writes the checkout.
+
+**The sweep** (#505) is the same preview for every registered agent, or for the ones you name:
+
+```bash
+ad-fleet wrapup --all --dry-run                 # end of day across the fleet: one table, totals, a plan_id
+ad-fleet wrapup --all --project --dry-run       # end of project across the fleet
+ad-fleet wrapup luna sol --dry-run              # just those
+ad-fleet wrapup --all --confirm <plan_id>       # write every ticked ok step, repo by repo
+```
+
+End of day is the sweep's default (the operator's pairing: *clean sweep* with *end of day*), and
+`--project` must be named. The preview reads three agents at a time, each agent's steps one after
+another, and prints one row per agent (`planned`, `busy` with its hint, or *nothing to write*), one row
+per step, and the totals by kind — pushes, PRs, pages, comments, transitions — with `not_pinned`
+counted apart. The confirm needs the fleet `plan_id`, which hashes every agent's own; a fleet that
+changed since the preview is refused `plan_changed`. Each agent is then written through the same
+path as one agent's wrap-up, so its fresh dry-runs, ids, order and records all hold, and one
+agent's failure never stops another's. A busy agent is skipped with a hint and never queued (DAY-D3).
 
 ## More than one project: the desk
 
@@ -295,6 +353,10 @@ deny-list. The spike measured Copilot's own permission classifier refusing three
 file write and allowing the fourth, which is why the boundary lives in our commands. Git stops at
 `git commit -m`; the one push is `shell(ad-git push)`, which refuses a force, a refspec, a protected
 branch and an unconfigured remote itself and waits on the gate. `shell(git push)` stays denied.
+Two module forms are on the list, `python -m agentdata state` and `python -m agentdata doctor` (#500), so an
+agent whose launcher will not start can still record that it is stuck. The write adapters (jira,
+pncli, confluence, git) have none: the `python` on PATH may be another install, one without the
+approval gate. `fleet`, `update` and `setup` stay denied.
 
 **Nothing is announced twice, and nothing routine is announced at all.** Four agents working
 normally produce zero notifications; see [fleet-notifications.md](fleet-notifications.md).

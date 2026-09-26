@@ -257,6 +257,7 @@ class FleetStep(Step):
         self._check_copilot(ctx, found)
         self._check_models(ctx, found)
         self._check_skills(ctx, found)
+        self._check_launchers(ctx, found)
         self._check_port(ctx, found)
         self._check_repos(ctx, found)
         self._check_parent(ctx, found)
@@ -406,6 +407,30 @@ class FleetStep(Step):
                     "`ad-update --skills`", keys=())
         else:
             ctx.add(self.key, "skills", "ok", f"{skills['installed']} in {skills['dir']}", keys=())
+
+    def _check_launchers(self, ctx: Context, found: dict) -> None:
+        """The console step's `launchers` and `module` rows, again here, because agents run exactly
+        these commands (#500). A configured `fleet.allow_tools` has replaced the default, so the
+        module row names the two entries it would need.
+
+        Only with a registered repository: a fleet switched on by `fleet.enabled` alone has no agent
+        to run them, and the launches (one process each) are then the console step's to spend.
+        """
+        from ... import update as U
+        from ...fleet import launch as L
+
+        if not found.get("repos"):
+            return
+
+        wanted = ["shell(python -m agentdata state)", "shell(python -m agentdata doctor)"]
+        lacking = [w for w in wanted if w not in L.allow_tools(ctx.cfg)]
+        for name, status, detail, hint in U.launcher_rows(*U.launcher_probe(ctx)):
+            if name == "module" and lacking:
+                hint = ((hint + "; ") if hint else "") + ("your `fleet.allow_tools` replaced the default: add "
+                                                          + " and ".join(f"`{w}`" for w in lacking)
+                                                          + " so an agent with a broken launcher can still record state")
+                status = "warn"
+            ctx.add(self.key, name, status, detail, hint, keys=())
 
     def _check_port(self, ctx: Context, found: dict) -> None:
         port = found.get("port", 8765)

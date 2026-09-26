@@ -263,9 +263,11 @@ function settle(mark) {
    500 ms (`kUnloadTimeout`, render_frame_host_impl.cc) and closes it without them after that, so a
    page still busy when it is closed -- the slow load this table exists to see -- would post
    nothing. Where the engine has `fetchLater` (Chromium 135+), the record is also queued with it,
-   queued again each time a measurement lands, and cancelled once pagehide's beacon is on its way;
-   the browser sends a copy still queued when the document goes. One record either way.
-   `LOAD.queued` is that copy's body, "" where there is none. */
+   queued again each time a measurement lands, and the browser sends the copy still queued when the
+   document goes. It is never cancelled (#531): a beacon sent from `pagehide` can be dropped as the
+   page is torn down, `sendBeacon` having said yes, so the queued copy is sent as well and the server
+   keeps one record per document (by `origin_ms`). `LOAD.queued` is that copy's body, "" where
+   there is none. */
 var LOAD = { on: false, page: null, settled: "", queued: "" };
 
 (function measureLoad() {
@@ -408,13 +410,7 @@ var LOAD = { on: false, page: null, settled: "", queued: "" };
     if (sent) return;
     sent = true;
     try {
-      var body = record();
-      // The beacon on its way, the queued copy is cancelled and never sent: one record, not two.
-      if (navigator.sendBeacon(q("/api/load"), new Blob([body], { type: "text/plain" })) && later) {
-        later.abort();
-        later = null;
-        LOAD.queued = "";
-      }
+      navigator.sendBeacon(q("/api/load"), new Blob([record()], { type: "text/plain" }));
     } catch (e) { /* a load that cannot be sent is a load not counted, never a broken page */ }
   });
   queue();

@@ -215,6 +215,17 @@ def child_env(base: dict | None = None) -> dict:
     return env
 
 
+def _overlay(base: dict, env: dict | None) -> dict:
+    """`env` laid over `base`; a value of None removes the variable (the fleet markers, for a wrap-up)."""
+    out = dict(base)
+    for k, v in (env or {}).items():
+        if v is None:
+            out.pop(k, None)
+        else:
+            out[k] = v
+    return out
+
+
 def _spawn(real: list[str], *, timeout: int, cwd: str | None, env: dict | None = None) -> tuple[int, str, str]:
     """Run to completion, or kill the whole tree and raise. Never blocks past `timeout`.
 
@@ -242,7 +253,7 @@ def _spawn(real: list[str], *, timeout: int, cwd: str | None, env: dict | None =
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as out, \
             tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
         p = subprocess.Popen(real, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
-                             cwd=cwd, env={**child_env(), **(env or {})}, text=True,
+                             cwd=cwd, env=_overlay(child_env(), env), text=True,
                              encoding="utf-8", errors="replace",
                              # Its own session on POSIX, so the timeout can kill the child *and its
                              # descendants* as a group without touching ours. Without this,
@@ -268,7 +279,7 @@ def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: st
     """(returncode, stdout, stderr, elapsed). Raises ProcError for start failures and, with check, for exit != 0.
 
     `env` is laid over the child's environment (`child_env()`), for the variables one call needs --
-    `GIT_TERMINAL_PROMPT=0` on a push -- without changing this process's own."""
+    `GIT_TERMINAL_PROMPT=0` on a push -- without changing this process's own. A None value removes one."""
     real, info = prepare(argv, exe=exe, hint=hint)
     launched = info["path"]
     t0 = time.time()

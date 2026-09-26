@@ -3,9 +3,11 @@
 * The server serves `data-measure="loads"` on `<html>` for `/` and `/settings` only while
   `fleet.loads.enabled` is on, never on `/probe`, and the flag is in the gzip entry's key.
 * `common.js` reads that attribute at boot; with it absent nothing registers, observes or touches
-  storage. With it on, one record per document to `/api/load`: the `pagehide` beacon, or, when
-  Chrome closes a busy page without running `pagehide`, the copy it keeps queued with `fetchLater`
-  (#481).
+  storage. With it on, one record per document to `/api/load`: the `pagehide` beacon, and the copy
+  it keeps queued with `fetchLater`, which reaches the server when Chrome closes a busy page without
+  running `pagehide` (#481) or drops the beacon of one it is tearing down (#531). The server keeps
+  one record per document, so a page is heard by its `performance.timeOrigin`, never counted by
+  the posts that arrive.
 * /settings leaves `fleet.load.from` in sessionStorage as it goes, so the desk it opens files its
   record as `from=settings`; a cold open is `from=""`.
 * The ink's first frame is read from the layer's own counter, never from an ink-module change.
@@ -180,14 +182,34 @@ def _desk(page, port, token, extra=""):
     _settled(page)
 
 
+def _origin(page) -> float:
+    """The page's `performance.timeOrigin` as its record carries it: the name of its document."""
+    return page.evaluate("() => Math.round(performance.timeOrigin * 10) / 10")
+
+
+def _heard(posts, origin: float) -> list[dict]:
+    """The bodies the server was sent from one document, once there is at least one (#531)."""
+    return _until(lambda: [p for p in posts if p.get("origin_ms") == origin], 1)
+
+
+def _pages(posts) -> list[str]:
+    """The page of each document heard, in the order its first post arrived (#531)."""
+    first: dict = {}
+    for body in posts:
+        first.setdefault(body.get("origin_ms"), body.get("page"))
+    return list(first.values())
+
+
 def _control(ctx, posts, port, token):
-    """A desk opened and closed with measuring on: the beacon this test's instrument must hear."""
+    """A desk opened and closed with measuring on: the document this test's instrument must hear.
+    Answers the page of every document heard by then."""
     _switch(True)
     page = ctx.new_page()
     _desk(page, port, token)
-    before = len(posts)
+    doc = _origin(page)
     page.close()
-    return _until(lambda: posts, before + 1)
+    assert _heard(posts, doc), "the control desk was never heard"
+    return _pages(posts)
 
 
 def test_nothing_is_measured_unless_measuring_is_on(fleet_home, tmp_path, browser, posts):
@@ -212,8 +234,7 @@ def test_nothing_is_measured_unless_measuring_is_on(fleet_home, tmp_path, browse
         assert not (fleet_home / L.LOADS_FILE).exists()
         # The control: switched on, the same instrument hears the one beacon a desk sends. A beacon
         # the round trip above had sent would have been heard first.
-        heard = _control(ctx, posts, port, token)
-        assert [p["page"] for p in heard] == ["desk"]
+        assert _control(ctx, posts, port, token) == ["desk"]
         assert errors == []
     finally:
         ctx.close()
@@ -232,8 +253,9 @@ def test_every_page_load_leaves_one_record_when_it_goes(fleet_home, tmp_path, br
         _recorded(page, "first_paint_ms", "fleet_ms")
         assert page.evaluate("() => document.documentElement.getAttribute('data-measure')") == "loads"
         assert posts == []                      # nothing is sent before the page goes
+        desk = _origin(page)
         page.close()
-        assert len(_until(lambda: posts, 1)) == 1
+        assert _heard(posts, desk) and _pages(posts) == ["desk"]
         page = ctx.new_page()
         page.goto(f"http://127.0.0.1:{port}/settings?t={token}", wait_until="domcontentloaded")
         _settled(page)
@@ -243,8 +265,7 @@ def test_every_page_load_leaves_one_record_when_it_goes(fleet_home, tmp_path, br
         _close_blocked(page, monkeypatch)
         kept = _records(2)
         # The control that closes the window on a late second beacon from either document.
-        _control(ctx, posts, port, token)
-        assert [p["page"] for p in posts] == ["desk", "settings", "desk"]
+        assert _control(ctx, posts, port, token) == ["desk", "settings", "desk"]
         assert errors == []
     finally:
         ctx.close()
@@ -275,7 +296,7 @@ def test_a_round_trip_is_filed_from_settings(fleet_home, tmp_path, browser, post
         _settled(page)
         page.close()
         kept = _records(3)
-        assert len(posts) == 3, posts
+        assert len(_pages(posts)) == 3, posts
         assert errors == []
         rc, out = cli("engines")
     finally:
@@ -300,8 +321,7 @@ def test_the_probe_page_posts_no_load(fleet_home, tmp_path, browser, posts):
         assert page.evaluate("() => LOAD.page === null")
         page.close()
         # The control: a desk on the same server, switched on, is heard -- and only it.
-        heard = _control(ctx, posts, port, token)
-        assert [p["page"] for p in heard] == ["desk"]
+        assert _control(ctx, posts, port, token) == ["desk"]
         assert [r["page"] for r in _records(1)] == ["desk"]
     finally:
         ctx.close()
@@ -319,18 +339,25 @@ def test_the_first_ink_frame_is_read_without_the_ink_modules(fleet_home, tmp_pat
         page.wait_for_function("() => { const s = window.Ink && Ink.inspect();"
                                " return !!(s && s.layer && s.layer.renders >= 1); }", timeout=15000)
         page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+        inked = _origin(page)
         page.close()
-        _until(lambda: posts, 1)
+        assert _heard(posts, inked), "the page drawn in ink was never heard"
         page = ctx.new_page()
         _desk(page, port, token, "&ink=off")
+        plain = _origin(page)
         page.close()
-        heard = _until(lambda: posts, 2)
+        assert _heard(posts, plain), "the plain page was never heard"
         kept = _records(2)
         assert errors == []
     finally:
         ctx.close()
         _stop(server)
-    on, off = heard
-    assert on["ink_first_frame_ms"] > 0
-    assert "ink_first_frame_ms" not in off
+    # By document, not by arrival (#531): a page's `pagehide` beacon and its `fetchLater` copy are
+    # both sent, so one document is heard twice, in either order, and kept once.
+    on = [body for body in posts if body.get("origin_ms") == inked]
+    off = [body for body in posts if body.get("origin_ms") == plain]
+    assert len(on) + len(off) == len(posts), posts
+    assert all(body["ink_first_frame_ms"] > 0 for body in on), on
+    assert all("ink_first_frame_ms" not in body for body in off), off
+    assert [r["origin_ms"] for r in kept] == [inked, plain], kept
     assert kept[0]["ink_first_frame_ms"] > 0 and kept[1]["ink_first_frame_ms"] is None

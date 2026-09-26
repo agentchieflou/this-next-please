@@ -33,7 +33,13 @@ from .. import textio
 # `ad-fleet stop --all`. The commands are enumerated instead, and the supervisor is not among them.
 DEFAULT_ALLOW = [
     "shell(ad-state)",               # the agent's own state; ad-state is its only writer
+    # The module forms of `state` and `doctor` only (#500, WRAP-D7): an agent whose launcher will not
+    # start can still record that it is stuck and ask for help. The write adapters (jira, pncli,
+    # confluence, git) get none, because the `python` on PATH may be another install without the
+    # approval gate; `fleet`, `update` and `setup` stay on the deny floor.
+    "shell(python -m agentdata state)",
     "shell(ad-doctor)",
+    "shell(python -m agentdata doctor)",
     "shell(ad-help)",
     "shell(ad-jira)",
     "shell(ad-pncli)",

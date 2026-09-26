@@ -440,10 +440,19 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
             world.states.update({"alpha": "idle", "beta": "idle", "gamma": "idle", "delta": "idle"})
             world.stale.clear()
             world.push(*names)
-            page.click('.tile[data-repo="alpha"] .ask-choice:nth-child(2)')
+            second = '.tile[data-repo="alpha"] .ask-choice:nth-child(2)'
+            page.click(second)
+            # The rest is read once the second answer is on the page and the layer has matched the
+            # page since (#517). The layer matches on the animation frame after a mutation, and it
+            # queues the new loop and the old mark's strike in that frame: until then it is not
+            # busy, and a rest checked in between -- the push above already landed, so the stacks
+            # are idle -- passed with the strike not yet begun, and `left` read it under way.
+            page.wait_for_function(f"() => document.querySelector({second!r}).getAttribute('aria-pressed') === 'true'",
+                                   timeout=10000)
+            seen = page.evaluate("() => Ink.inspect().layer.frames")
             _rest(page, f"""(() => {{ const v = ({VOXEL})();
               return v.panes.every(p => p.stack.state === 'idle' && p.stack.lift === 0 && !p.stack.stale)
-                     && !v.timer; }})()""")
+                     && !v.timer && Ink.inspect().layer.frames > {seen}; }})()""")
             off = {n: _stack(page, n) for n in names}
             left = {k: [(m["lane"], m["state"], bool(m["strikeOf"]), m["erased"]) for m in _marks(page, sel)]
                     for k, sel in MARK.items()}

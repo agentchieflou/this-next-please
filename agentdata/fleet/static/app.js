@@ -1695,6 +1695,7 @@ function patchRow(row, index) {
   entry.row = row;
   departed.delete(row.repo);
   drawTile(entry.el, row, lastApprovals);
+  drawRowLines(lastFleet && lastFleet.server);
   return entry;
 }
 
@@ -1833,8 +1834,7 @@ function refresh() {
       }
     });
     var need = data.repos.filter(function (r) { return r.needs_human; }).length;
-    drawRenewStrip(data.repos, data.server);
-    drawDayOffer(data.repos);
+    drawRowLines(data.server);
     var fleetSpend = data.spend || {};
     var counts = document.getElementById("counts");
     text(counts,
@@ -5673,6 +5673,23 @@ function drawOldSession(el, row) {
     : "");
 }
 
+/** @returns {Row[]} */
+function shownRows() {
+  /** @type {Row[]} */
+  var rows = [];
+  tiles.forEach(function (entry) { if (entry.row) rows.push(entry.row); });
+  return rows;
+}
+
+/* The renew and day lines, from the rows the panes show, with every row that lands (#530). Drawn
+   only from a snapshot, the day line went a beat after an adopt's answer and moved the grid under
+   the next press; and a snapshot that `readBefore` kept off its pane still counted that pane. */
+function drawRowLines(server) {
+  var rows = shownRows();
+  drawRenewStrip(rows, server);
+  drawDayOffer(rows);
+}
+
 function renewStrip() { return document.getElementById("renew-strip"); }
 var renewOpen = false;
 
@@ -5933,7 +5950,7 @@ function closeDay() {
   hide(strip.querySelector(".day-keyless"), true);
   hide(strip.querySelector(".day-actions"), true);
   dayOfferN = -1;
-  drawDayOffer(lastFleet ? lastFleet.repos : []);
+  drawDayOffer(shownRows());
 }
 
 function runDay() {

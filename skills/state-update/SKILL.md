@@ -5,6 +5,7 @@ description: "Use immediately after any skill finishes a step, to record progres
 # State update
 
 1. `ad-state show` (or `python -m agentdata state show`). It prints the state and one line: `state: phase=<phase> ticket=<ticket>`.
+   A launcher that does not start (*Unable to create process*, *not recognized*): use `python -m agentdata state …` for state for the rest of the session, and never run the broken launcher again (AGENTS.md rule 11). A write to Jira, Confluence or Bitbucket has no such fallback: `friction-log` (`tool-error`), then STOP.
 2. `ad-state set <key=value ...> [--artifact <path>=<what>]... [--clear-questions] [--tool <key>=<YYYY-MM-DD>]`. Allowed:
    - `phase=idle | triaged | querying | optimizing | validating | documenting | pr_open | blocked | done | closed | merged`
    - `active_ticket=`, `branch=`, `pr_url=`, `confluence_url=`: a string, or `null` to clear

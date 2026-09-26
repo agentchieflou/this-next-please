@@ -263,9 +263,11 @@ document, from `common.js`; nothing is written to the page and the ink modules a
 A close does not always run `pagehide` (#481): Chrome gives a closing page's unload handlers 500 ms
 and closes it without them after that, so a page still busy when it is closed, the slow load the
 table is for, would post nothing. Where the engine has `fetchLater` (Chromium 135+), the page also
-keeps the record queued with it, queues it again as each measurement lands, and cancels it once the
-beacon is on its way; the browser sends a copy still queued when the document goes. One record
-either way, and `LOAD.queued` is the queued copy.
+keeps the record queued with it and queues it again as each measurement lands, and the browser
+sends the copy still queued when the document goes. That copy is never cancelled (#531):
+a beacon from a closing page can be dropped as the page is torn down, with `sendBeacon` having
+answered true, so both are sent and the server keeps one record per document, by `origin_ms`, with
+what either copy measured. `LOAD.queued` is the queued copy.
 
 | Field | From |
 | --- | --- |

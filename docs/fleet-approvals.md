@@ -119,9 +119,19 @@ so the dashboard tile clears on its own. See [fleet-events.md](fleet-events.md).
 | --- | --- | --- |
 | `fleet.approval_timeout` | `1800` | seconds an agent waits at a write before refusing with `approval_timeout` |
 
+## The operator's wrap-up
+
+`ad-fleet wrapup <repo>` and the desk's *wrap up* (#503) run the same adapters as the module form,
+with both fleet markers removed from the child's environment, so each adapter's own gate passes
+through: **the confirm is the approval**, for exactly the ticked, dry-run-verified steps. Each
+written step leaves one decided record, `by: operator` and `via: wrapup`, written decision first and
+request second, so `ad-fleet approvals` and the `a` key never offer it. `ad-fleet approval <id>`
+shows one in full, like any other.
+
 ## Still never
 
-Merging a pull request and closing a ticket are not gated actions — they are not done at all,
-approval or no approval (`AGENTS.md` rule 8). Approving arbitrary shell commands is also out of
+Merging a pull request and closing a ticket are never done on an agent's own initiative (`AGENTS.md`
+rule 8). A wrap-up never offers a merge. It shows *done* unticked at end of project: a *done* row
+the operator ticks is the operator's word, and the one way a ticket closes here. Approving arbitrary shell commands is also out of
 scope: that is the allow-list's job, and "pause for every tool call" was declined deliberately —
 an agent that asks about `git status` trains its operator to click yes without reading.
