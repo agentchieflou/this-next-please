@@ -85,9 +85,18 @@ its own link rail, verify pane, file tray and fact block left no room for the tr
 
 The **sidebar** sits beside the glass and holds five sections, one open at a time: the Jira **board**
 (`b`), the Downloads **inbox** (`i`), **alerts** (`n`), **where** (`/`, `ad-fleet where` over the
-catalogue), and **project** — the selected project's link rail, verify pane, facts, open friction
-and offered files. Every window on this server agrees on which project is selected, so clicking a
-tile on the left monitor changes the inspector on the centre one.
+catalogue), and **project**. Every window on this server agrees on which project is selected, so
+clicking a tile on the left monitor changes the inspector on the centre one.
+
+The **project** section fits one screen (#504). Top to bottom: the link rail with *copy path*, the
+friction that needs you now, one line of spend (*spend N all time · N today · N this session*, with
+*· of B* against a budget; the turns, the mean and `ad-fleet spend` are its tooltip), the branches,
+and one closed **more**. *More*'s summary names what it holds (*more — facts · 3 earlier friction ·
+verify · 2 offered*): the facts (without the project, path and branch, which the drawer head, *copy
+path* and the git cell already say), the missing-keys line, *earlier friction (n)*, the newest verify
+and the files Downloads offers for this project. The desk's tick redraws the panel only when
+something it shows changed, so an idle desk writes nothing to it, and a redraw keeps every fold as
+the operator left it.
 
 **Open friction** (#499) is decided by the server, not the page. A STOP is *open* when the operator
 has not dismissed it, it is on the active ticket (or names none), and either its unblock sentence is
@@ -134,6 +143,9 @@ default first and marked, then the last twenty commits of the current branch. A 
 carries the tile's active ticket is that ticket's; a second one with the same key is the smell the
 operator asked to see, and the pane says so in one line: *two branches carry RDSD-22490; only one
 can merge*. The pane is read on the click and cached for the git cell's interval, never on the poll.
+Its *read* button says what it reads in its tooltip. Once read, the summary and the carry line stay
+in sight; the rows (one line each, the full detail in the row's tooltip) and the commits sit in a fold
+that is open when the count warns or the git cell asked for it, and otherwise as the operator left it.
 On the tile, the git cell is the button that opens it and carries the count on its second line:
 `7 branches · 3 never reached main`, amber at `fleet.branches.warn` (default 6), grey with the error
 when git cannot be asked, and never a toast. `ad-fleet branches <repo>` prints the same rows.

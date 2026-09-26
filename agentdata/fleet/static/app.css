@@ -1139,6 +1139,17 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 .friction-earlier .frictionrow { border-left-color: var(--muted); color: var(--muted); }
 #inspectordetails .frictionrow button,
 #inspectordetails .frictionrow .frictionasked { display: block; margin-top: 2px; }
+/* #504: the panel fits one screen. Everything but the rail, open friction, spend and the branches
+   folds under one closed *more*; a branch row is one line, its full meta in its title. */
+#inspectordetails details.more > summary,
+#inspectordetails details.branches-list > summary { cursor: pointer; font: 11px var(--ui); color: var(--muted); }
+#inspectordetails details.more[open] { display: flex; flex-direction: column; gap: 8px; }
+#inspectordetails details.more .missing { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#inspectordetails .spendline { margin: 0; font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#inspectordetails .spendline.warn { color: var(--waiting-text); }
+#inspectordetails details.branches-list .branchrow { flex-wrap: nowrap; white-space: nowrap; min-width: 0; }
+#inspectordetails details.branches-list .branchrow .bname { flex: 0 0 auto; }
+#inspectordetails details.branches-list .branchrow .bmeta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
 
 /* ---------------------------------------------------------- the dispatch card (#164)
    A drop opens this instead of launching, in the approval card's shape: both are "the tile is
