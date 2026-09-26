@@ -1031,13 +1031,17 @@ LAUNCHERS = ("ad-state", "ad-pncli", "ad-jira", "ad-confluence")
 
 
 def _stub(bin_dir, name, *, out="", err="", code=0, exec_python=False):
-    """A launcher in both shapes tests/fakes materialises: an `sh` script, and a `.cmd` on Windows."""
+    """A launcher in both shapes tests/fakes materialises: an `sh` script, and a `.cmd` on Windows.
+
+    `exec_python` runs this interpreter with the stub's arguments and waits for it. Not `os.execv`:
+    on Windows that starts the new process and exits 0 at once (python/cpython#63323), so the caller
+    sees an empty stdout and the module row reads "would run nothing" (#500, train 8b)."""
     import fakes
 
     py = os.path.join(str(bin_dir), f"stub_{name.replace('-', '_')}.py")
     with open(py, "w", encoding="utf-8") as f:
         if exec_python:
-            f.write("import os, sys\nos.execv(sys.argv[1], sys.argv[1:])\n")
+            f.write("import subprocess, sys\nsys.exit(subprocess.call(sys.argv[1:]))\n")
         else:
             f.write(f"import sys\nsys.stdout.write({out!r})\nsys.stderr.write({err!r})\nsys.exit({code})\n")
     tail = f' "{sys.executable}"' if exec_python else ""
