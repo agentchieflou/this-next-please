@@ -80,6 +80,44 @@ session menu, or `Alt`+`N`), beside the header's renew (#489).
 A Copilot CLI update can also drop a model an agent is configured with: see **After a CLI update**
 under "Which model an agent runs" below.
 
+## Wrapping up an agent
+
+One agent's Jira ticket, Bitbucket branch and PR, and Confluence page, previewed and written in one
+press, with no model turn (#503):
+
+```bash
+ad-fleet wrapup luna --dry-run              # end of day: every write previewed, nothing written
+ad-fleet wrapup luna --project --dry-run    # end of project
+ad-fleet wrapup luna --confirm <plan_id>    # write the ticked ok steps of exactly that preview
+```
+
+Each step runs its own adapter with `--dry-run`, in the checkout: `ad-git push`, `ad-pncli bitbucket
+pr`, `ad-confluence publish`, `ad-jira comment`, `ad-jira transition`. The confirm writes the ticked
+ones in that order, and only when a fresh preview has the same `plan_id`; a step whose preview
+changed answers `changed` and is not written, and a failed step skips the steps that wait on it.
+
+| Step | End of day (`--day`, the default) | End of project (`--project`) |
+|---|---|---|
+| push | ticked when the branch has unpushed commits | same |
+| pr | a draft when commits exist; otherwise update the open PR | create or update, ready for review |
+| page | update a page this tool published; never create | create or update `.agent/out/<KEY>-confluence.md` |
+| comment | a progress comment, when anything changed since the last wrap-up | a final summary comment |
+| transition | *to do → in progress* when commits exist | *review* ticked with a PR; *done* shown unticked |
+| merge | never offered | never offered |
+
+The comment is a template filled from the checkout (branch, phase, commits since the last wrap-up,
+PR, page, open questions, artifacts), written to `<fleet dir>/agents/<repo>/wrapup/comment.md`;
+`--comment-file` replaces it, and the preview runs again on the replacement. `--to` picks another
+transition. A page or PR description edited since this tool wrote it is never replaced by default:
+`--overwrite-page <version>` or `--overwrite-pr <hash>` previews again with the replacement.
+
+Untracked work gets push and PR rows and no Jira rows. A checkout on a protected branch or a
+detached HEAD has no push or PR that can run. A busy agent (mid-turn, a console, your own chat)
+gets every row skipped, and nothing is queued. Until #506 and #507 pin the PR and page verbs, those
+rows read `not_pinned`. The confirm is the approval: each written step leaves one record
+`by: operator`, `via: wrapup` (see [fleet-approvals.md](fleet-approvals.md)), and one line in
+`<fleet dir>/agents/<repo>/wrapup.jsonl`. The fleet never writes the checkout.
+
 ## More than one project: the desk
 
 Everything above is per repository. The desk (#122) is the same fleet pointed at the folder every
@@ -295,7 +333,7 @@ deny-list. The spike measured Copilot's own permission classifier refusing three
 file write and allowing the fourth, which is why the boundary lives in our commands. Git stops at
 `git commit -m`; the one push is `shell(ad-git push)`, which refuses a force, a refspec, a protected
 branch and an unconfigured remote itself and waits on the gate. `shell(git push)` stays denied.
-Two module forms are on it, `python -m agentdata state` and `python -m agentdata doctor` (#500), so an
+Two module forms are on the list, `python -m agentdata state` and `python -m agentdata doctor` (#500), so an
 agent whose launcher will not start can still record that it is stuck. The write adapters (jira,
 pncli, confluence, git) have none: the `python` on PATH may be another install, one without the
 approval gate. `fleet`, `update` and `setup` stay denied.

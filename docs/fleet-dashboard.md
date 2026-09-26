@@ -548,6 +548,8 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/focus` | `{repo}` — bring that checkout's console window to the front (#190) |
 | GET | `/api/branches` | `?repo=&refresh=` — every local branch of one checkout, which never reached the default, the last twenty commits; read on the click, cached for the git interval (#184) |
 | POST | `/api/dismiss` | `{id}` — stop offering that file until it is downloaded again |
+| POST | `/api/wrapup` | `{repo, mode, dry_run: true, to?, overwrite?, comment?}` — preview one agent's wrap-up on a thread; answers at once `{job, repo, reading: true}`, and a second ask while one reads joins it. `{job, steps: [ids], comment?, to?, overwrite?}` writes those steps of that preview on a thread, `{job, writing: true}`; a job that is not the repo's latest preview is refused `plan_changed` (#503) |
+| GET | `/api/wrapup` | `?repo=` — the wrap-up job: `reading`, `planned` (with the rows), `writing`, or `done` (with the results) (#503) |
 
 `select` and `dismiss` change nothing on disk inside a repository. `attach` is the single exception
 in "the fleet never writes in a repository", and it is a click, a copy, and one `inbox.attached`
@@ -578,6 +580,10 @@ at config.json, by its mtime, and then compares a digest of the ids, whether eac
 the efforts with the one it last sent: a refresh that found the same list sends nothing. A new
 stream records the list without a frame, since a page fetches it when it loads. The list is never
 carried inside another frame, and no frame goes out on a tick where nothing changed.
+
+A `wrapup` event (#503) is `{repo, job, state}`: that checkout's wrap-up job moved (`reading`,
+`planned`, `writing`, `done`), and a page showing it fetches `GET /api/wrapup?repo=`. The stream looks
+at `<fleet dir>/agents/<repo>/wrapup/job.json` by its mtime; a new stream records it without a frame.
 
 A `notify` event is a notification the sweep found (#97). **Only a desk's stream sweeps** (#356).
 `notify.sweep` advances one shared cursor and hands what it found to whichever stream swept first,
