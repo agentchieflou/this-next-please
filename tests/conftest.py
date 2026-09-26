@@ -11,12 +11,17 @@ Everything here runs against a temporary home unless it asks not to.
 there rather than three months later as "works on my machine".
 """
 from __future__ import annotations
+import copy
 import importlib
 import os
 import random
+import secrets
 import shutil
 import subprocess
 import sys
+import threading
+import time
+import traceback
 
 import pytest
 
@@ -407,6 +412,94 @@ def close_the_desk_catalogue() -> None:
             cat.close()
         except Exception:                    # noqa: BLE001 - a handle already closed is the point
             pass
+
+
+# The desk's process state, reset for every test by this one owner (#298, the root of #227).
+# `agentdata/fleet` keeps these in module globals: right for one long-running `ad-fleet serve`, wrong
+# for a suite where every test has its own fleet directory. Thirty-five modules used to reset parts of
+# it by hand, eight different ways; serially a file ran contiguously and hid the gaps, and
+# `--dist load` interleaved modules in one worker and showed them. `tests/test_hygiene_process_state.py`
+# fails on a new mutable global in `agentdata/fleet` that is neither here nor allow-listed there.
+FLEET_PROCESS_STATE = {
+    "agentdata.fleet.serve": ("_desk", "_selection", "_desk_loaded", "_refreshed_at", "_measure_asks",
+                              "_desk_written", "_read_order", "LOADED", "_SERVING", "_live"),
+    "agentdata.fleet.fingerprint": ("_cache",),
+    "agentdata.fleet.poll": ("_branches_cache",),
+    "agentdata.fleet.trace": ("_SECONDS_CACHE",),
+}
+# Each name's import-time value, copied once per process before any test runs.
+_FLEET_PRISTINE: dict[str, dict[str, object]] = {}
+
+
+def snapshot_fleet_process_state() -> None:
+    for module, names in FLEET_PROCESS_STATE.items():
+        mod = importlib.import_module(module)
+        _FLEET_PRISTINE[module] = {name: copy.deepcopy(getattr(mod, name)) for name in names}
+
+
+def pytest_sessionstart(session):  # pragma: no cover - session hook
+    snapshot_fleet_process_state()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_fleet_process_state(monkeypatch):
+    """Every test starts with the desk's globals as a fresh process has them, and gives them back.
+
+    A fresh deep copy each time, so nothing one test put in a dict reaches the next; `_read_order`
+    gets a new run id, as a new process would. `_a_test_closes_the_catalogue_it_opened` closes the
+    test's own catalogue at teardown, before monkeypatch puts the originals back.
+    """
+    if not _FLEET_PRISTINE:
+        snapshot_fleet_process_state()
+    for module, values in _FLEET_PRISTINE.items():
+        mod = sys.modules[module]
+        for name, value in values.items():
+            fresh = ({"run": secrets.token_hex(4), "n": 0} if (module, name) == ("agentdata.fleet.serve", "_read_order")
+                     else copy.deepcopy(value))
+            monkeypatch.setattr(mod, name, fresh)
+
+
+# The threads a desk server leaves behind: `ThreadingHTTPServer.serve_forever` on a thread of its own,
+# a request handler (`process_request_thread`) still running, or the desk's process listing.
+SERVER_THREAD_MARKS = ("(serve_forever)", "(process_request_thread)")
+SERVER_THREAD_NAMES = ("adopt-listing",)
+THREAD_GUARD_WAIT_S = 10.0
+THREAD_GUARD_POLL_S = 0.05
+
+
+def _is_server_thread(thread: threading.Thread) -> bool:
+    return thread.name in SERVER_THREAD_NAMES or any(mark in thread.name for mark in SERVER_THREAD_MARKS)
+
+
+def server_threads_left(before: set, *, wait: float = THREAD_GUARD_WAIT_S) -> list:
+    """The desk server threads started since `before` that are still alive after up to `wait` s."""
+    deadline = time.monotonic() + wait
+    while True:
+        left = [t for t in threading.enumerate()
+                if t not in before and t.is_alive() and _is_server_thread(t)]
+        if not left or time.monotonic() >= deadline:
+            return left
+        time.sleep(THREAD_GUARD_POLL_S)
+
+
+@pytest.fixture(autouse=True)
+def _a_test_leaves_no_server_thread_running():
+    """A test that leaves a desk server thread behind fails, naming it and where it is.
+
+    A server a test does not shut down keeps serving into the next test's clock, and under
+    `--dist load` into another module's. The thread is found where it was left, not three tests later.
+    """
+    before = set(threading.enumerate())
+    yield
+    left = server_threads_left(before)
+    if left:
+        frames = sys._current_frames()
+        stacks = "\n".join(
+            f"--- {t.name}\n" + "".join(traceback.format_stack(frames[t.ident])) if t.ident in frames
+            else f"--- {t.name} (no frame)"
+            for t in left)
+        pytest.fail(f"this test left a desk server thread running: {', '.join(t.name for t in left)}\n"
+                    f"{stacks}", pytrace=False)
 
 
 # What the page and the server were doing when a wait on the desk ran out. A browser test that

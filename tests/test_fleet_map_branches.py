@@ -29,23 +29,7 @@ T0 = 1_700_000_000.0
 def fleet_home(tmp_path, monkeypatch):
     monkeypatch.setenv(registry.FLEET_DIR_ENV, str(tmp_path / "fleet"))
     monkeypatch.setenv("AGENTDATA_CONFIG", str(tmp_path / "cfg.json"))
-    P._branches_cache.clear()
     return tmp_path / "fleet"
-
-
-@pytest.fixture(autouse=True)
-def _own_desk_globals(monkeypatch):
-    """serve's desk globals are process-wide; every test here gets its own."""
-    monkeypatch.setattr(S, "_desk_loaded", False)
-    monkeypatch.setattr(S, "_selection", {
-        "schema": 2, "selected": "", "version": 0, "at": "",
-        "arrangement": {"order": [], "size": {}, "pinned": [], "hidden": []},
-        "windows": {},
-    })
-    monkeypatch.setattr(S, "_desk", dict(S._desk, dir="", poller=None, inbox=None,
-                                         catalogue=None, last_tick=0.0, last_fold=0.0))
-    monkeypatch.setattr(S, "_refreshed_at", {})
-    monkeypatch.setattr(S, "_measure_asks", {})
 
 
 def worktree(tmp_path, main_path, folder, ticket):

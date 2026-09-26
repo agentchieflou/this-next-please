@@ -41,6 +41,8 @@ import mimetypes
 import os
 import re
 import secrets
+import select as _select   # `select` is this module's own function (the desk's selection)
+import socket
 import threading
 import time
 from html import escape as _escape
@@ -545,6 +547,7 @@ def fleet_snapshot() -> dict:
     # What a new session would start on, read once per snapshot (#240). Every row is judged
     # against it, so staleness is checked on every tick of every open desk -- at every turn.
     from . import fingerprint as FP
+    from . import fresh as FRESH
     from . import renew as RENEW
 
     try:
@@ -564,7 +567,8 @@ def fleet_snapshot() -> dict:
         except (RegistryError, OSError):
             pass
         stream = E.read(name)
-        is_live = bool(supervisor.live(name))
+        live_lock = supervisor.live(name)
+        is_live = bool(live_lock)
         curr_run, earlier = split_runs(stream, live=is_live)
         # `state.json` says which questions are open (#231); the stream only says which were asked.
         # A file nobody has written has no say, so a missing or unreadable one reconciles nothing.
@@ -705,6 +709,10 @@ def fleet_snapshot() -> dict:
                      # so that the page could take its length.
                      "run": {**curr_run, "events": None, "events_n": len(curr_run["events"])},
                      "recent": curr_run["events"][-40:] if curr_run["events"] else stream[-40:]})
+        # Start fresh (#488): whether the pane offers it, why, and what it would do -- derived from
+        # what this row already read and the snapshot's one listing, so a tick spawns nothing.
+        rows[-1]["fresh"] = FRESH.row_cell(rows[-1], st=repo_state, stream=stream, lock=live_lock,
+                                           offer=offers.get(name), cfg=cfg)
 
     _add_siblings(rows)
     from .. import config as C
@@ -1044,6 +1052,56 @@ def current_poller():
     the poll already read (the map, #403) must not be the thing that starts polling."""
     with _desk_lock:
         return _fresh()["poller"]
+
+
+# Who is listening right now (#404): one entry per open `/api/events` connection, added before the
+# stream starts and removed in its `finally`. In memory only, never written anywhere: a window that
+# is open is a fact about this process, and `desk.json` is what every window agrees on, not who is
+# looking. A closed tab is noticed on its stream's next write -- an event, a tick, or at most the
+# `HEARTBEAT_S` beat when nothing happens.
+_live_lock = threading.Lock()
+_live: dict[int, dict] = {}
+
+
+def live_entry(query: dict) -> dict:
+    """What a stream's query says about the window that opened it: `w` and `page` only when they
+    are names (`SKIN_FAMILY`), else `main` and `settings` (for `frames=theme`) or `desk`."""
+    def name(key: str) -> str:
+        got = ((query.get(key) or [""])[0] or "").strip()
+        return got if SKIN_FAMILY.match(got) else ""
+
+    frames = (query.get("frames") or [""])[0].split(",")
+    now = time.time()
+    return {"w": name("w") or "main",
+            "page": name("page") or ("settings" if "theme" in frames else "desk"),
+            "shell": ink_facts(query)["shell"],
+            "since": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)), "last": now}
+
+
+def live_windows() -> list[dict]:
+    """Copies of every open stream's entry, oldest first."""
+    with _live_lock:
+        return sorted((dict(v) for v in _live.values()), key=lambda v: (v["since"], v["w"]))
+
+
+def map_network(port: int) -> dict:
+    """The raw facts `fleetmap.graph(network=)` draws the network from (#404). It reads what the
+    process already knows -- who is listening, what the poll counted -- and asks nothing of anyone:
+    no ping, no probe, and never a `Poller` of its own (`current_poller`, not `poller`)."""
+    from ..version import version_string
+
+    live = current_poller()
+    try:
+        settings = live.settings if live is not None else P.settings()
+    except Exception:                        # noqa: BLE001 - a broken config is `ad-doctor`'s
+        settings = {}
+    try:
+        counts = live.counts() if live is not None else None
+    except Exception:                        # noqa: BLE001 - a map without counts, not no map
+        counts = None
+    parts = version_string().split()
+    return {"port": int(port), "version": parts[1] if len(parts) > 1 else "",
+            "live": live_windows(), "counts": counts, "settings": settings}
 
 
 def inbox_folders(cfg: dict | None = None) -> list[str] | None:
@@ -2153,7 +2211,7 @@ def _act_friction(repo: str, body: dict) -> dict:
 
 
 ROW_ACTIONS = ("start", "console", "say", "send", "stop", "reset", "answer", "approve", "deny",
-               "adopt", "release", "refresh", "hold", "resume", "attach", "attach-bytes")
+               "adopt", "release", "refresh", "hold", "resume", "attach", "attach-bytes", "fresh")
 
 
 def act(what: str, body: dict) -> dict:
@@ -2271,6 +2329,22 @@ def act(what: str, body: dict) -> dict:
             raise ServeError("this desk is not serving", "nothing to stop")
         threading.Thread(target=server.shutdown, daemon=True).start()
         return {"stopping": True, "pid": os.getpid()}
+    if what == "fresh":
+        # Leave this pane's session for a clean one (#488): `ad-fleet fresh`'s two functions. A
+        # `second_press` refusal says so, so the page can arm its button for the deliberate press.
+        from .. import config as C
+        from . import fresh as FRESH
+
+        if not repo:
+            raise ServeError("which repository?", "pass {repo}", code="no_repo")
+        try:
+            if body.get("dry_run"):
+                return {"repo": repo, **FRESH.plan(repo, cfg=C.load())}
+            return {"repo": repo, **FRESH.run(repo, closed=bool(body.get("closed")), cfg=C.load())}
+        except FRESH.FreshRefused as e:
+            refused = ServeError(e.msg, e.hint, code=e.code)
+            refused.second_press = e.second_press
+            raise refused from None
     if what == "renew":
         # Stale only, when idle, previewed first (#241). The page asks with `dry_run` and shows the
         # rows before it asks again without; the CLI verb calls the same two functions.
@@ -2779,6 +2853,53 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):       # noqa: A003 - stdlib's name
         """Silence. The console running the server is the operator's, not a request log."""
 
+    # How often a kept-alive connection, waiting for its next request, looks at `stopping` (#515).
+    idle_poll_s = 0.1
+
+    def handle_one_request(self):
+        """One request -- but not on a connection whose server has stopped (#515).
+
+        HTTP/1.1 keeps a connection open between requests, and the standard library waits for the
+        next one in a blocking `readline`, which nothing but the peer ends on Windows: Winsock's
+        `shutdown(SD_RECEIVE)` refuses later receives but does not wake one already waiting, and
+        `closesocket` must never be issued while another call is using the socket. So the wait is
+        made here instead, in `select` with a short timeout, looking at `stopping` in between. A
+        request already in the buffer, or bytes (or the end) on the socket, go on to the read."""
+        if not self._next_request_comes():
+            self.close_connection = True
+            return
+        super().handle_one_request()
+
+    def _next_request_comes(self) -> bool:
+        stopping = getattr(self.server, "stopping", None)
+        if stopping is None:
+            return True
+        while not stopping.is_set():
+            if self._request_buffered():
+                return True
+            try:
+                ready, _, _ = _select.select([self.connection], [], [], self.idle_poll_s)
+            except (OSError, ValueError):     # closed under us: the read says how
+                return True
+            if ready:
+                # Looked at again: a read side shut by closing reads as ready too, and on Winsock a
+                # read from it is an error rather than the end.
+                return not stopping.is_set()
+        return False
+
+    def _request_buffered(self) -> bool:
+        """Whether `rfile` already holds bytes a `select` on the socket would not see (a request
+        pipelined behind the last one), read without blocking."""
+        sock = self.connection
+        was = sock.gettimeout()
+        try:
+            sock.setblocking(False)
+            return bool(self.rfile.peek(1))
+        except OSError:
+            return True
+        finally:
+            sock.settimeout(was)
+
     # ------------------------------------------------------------------ plumbing
 
     def _authorized(self, query: dict) -> bool:
@@ -2813,10 +2934,14 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, payload: dict, code: int = 200) -> None:
         self._send(code, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
 
-    def _refuse(self, code: int, error: str, hint: str = "", refusal_code: str = "") -> None:
+    def _refuse(self, code: int, error: str, hint: str = "", refusal_code: str = "",
+                second_press: bool = False) -> None:
         payload = {"ok": False, "error": error, "hint": hint}
         if code == 409 or refusal_code:
             payload["code"] = refusal_code or "refused"
+        if second_press:
+            # A refusal a deliberate second press gets past (#488's `chat_open`): the page arms it.
+            payload["second_press"] = True
         self._json(payload, code)
 
     # ---------------------------------------------------------------------- GET
@@ -2888,7 +3013,9 @@ class Handler(BaseHTTPRequestHandler):
             snap = fleet_snapshot()
             # Branch lanes (#403) from the git poll's side cache: no git call of the map's own.
             rows = p.branch_rows if (p := current_poller()) else None
-            return self._json({"ok": True, **fleetmap.graph(snap, branch_rows=rows),
+            # The network (#404): who is listening and what the poll counted, from this process.
+            net = map_network(self.server.server_address[1])
+            return self._json({"ok": True, **fleetmap.graph(snap, branch_rows=rows, network=net),
                                "theme": snap["theme"]})
         if route == "/api/themes":
             from . import skins
@@ -3152,13 +3279,20 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", CSP)
         self.end_headers()
         cursors = _cursors((query.get("since") or [""])[0] or self.headers.get("Last-Event-ID", ""))
+        # Who is listening (#404): this stream's entry, stamped on each frame written, gone in the
+        # `finally` -- from the dict it was added to, whatever `_live` is bound to by then.
+        live, key, entry = _live, id(self), live_entry(query)
 
         def write(chunk: str) -> None:
             self.wfile.write(chunk.encode("utf-8"))
             self.wfile.flush()
+            with _live_lock:
+                entry["last"] = time.time()
 
         url = f"http://127.0.0.1:{self.server.server_address[1]}/?t={self.token}"
         try:
+            with _live_lock:
+                live[key] = entry
             # `?frames=theme` (#348): the settings page listens for one frame, not the agents' history.
             frames = (query.get("frames") or [""])[0].split(",")
             # Only a desk's stream sweeps (#356): the sweep's cursor is shared, so a stream that
@@ -3169,6 +3303,9 @@ class Handler(BaseHTTPRequestHandler):
                           sweep=notify != "0" and "theme" not in frames)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass                              # the tab was closed. Not an error.
+        finally:
+            with _live_lock:
+                live.pop(key, None)
         self.close_connection = True
 
     # --------------------------------------------------------------------- POST
@@ -3215,7 +3352,8 @@ class Handler(BaseHTTPRequestHandler):
                 HO.HandoffError, SCOPE_ERROR, PROBE.ProbeError, LOADS.LoadError) as e:
             # The same refusal the CLI gives, with the same hint. One vocabulary.
             ref_code = getattr(e, "code", "") or "refused"
-            return self._refuse(409, e.msg, getattr(e, "hint", ""), refusal_code=ref_code)
+            return self._refuse(409, e.msg, getattr(e, "hint", ""), refusal_code=ref_code,
+                                second_press=bool(getattr(e, "second_press", False)))
         except Exception as e:               # noqa: BLE001 - a button must never 500 silently
             from ..log import debug_exc
 
@@ -3430,6 +3568,7 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
             # Before the bind: a taken port makes the base class call `server_close()` from here.
             self.stopping = threading.Event()
             self.handlers: list[threading.Thread] = []
+            self.connections: dict[threading.Thread, socket.socket] = {}
             self.handlers_lock = threading.Lock()
             super().__init__(*args, **kwargs)
 
@@ -3439,13 +3578,37 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
         # harmless, but a suite runs a desk per test, and a window write finishing late landed in
         # the NEXT test's desk (#245). Closing now says `stopping`, which ends every stream on its
         # next tick, and waits a bounded time for whatever is left.
+        #
+        # That left one thread closing did not end: HTTP/1.1 keeps a connection open between
+        # requests, and its handler waits in `readline` for the next one, which `stopping` never
+        # reaches. A page still open after its server closed -- a test that failed before closing
+        # it, with a browser that outlives the test -- was answered by that thread, from whatever
+        # fleet directory and desk the process had moved on to (#227, #298), and closing waited
+        # the full `close_wait_s` for it every time. So closing also shuts the read side of every
+        # connection still open: a handler waiting for a request reads the end of it and goes,
+        # and one still writing an answer finishes it. That wakes a waiting read on POSIX only; on
+        # Windows the handler's own wait (`Handler.handle_one_request`, in `select`) sees
+        # `stopping` within `idle_poll_s` and goes (#515, the Windows leg of train 7).
         def process_request(self, request, client_address):
             t = threading.Thread(target=self.process_request_thread,
                                  args=(request, client_address), daemon=True)
             with self.handlers_lock:
                 self.handlers = [h for h in self.handlers if h.is_alive()]
+                self.connections = {h: s for h, s in self.connections.items() if h.is_alive()}
                 self.handlers.append(t)
+                self.connections[t] = request
             t.start()
+
+        @staticmethod
+        def _end_reads(sockets):
+            """Where the OS allows it, wake a handler waiting in a read at once: on POSIX a shut read
+            side reads as the end. Winsock does not wake a waiting read this way, which is why the
+            handler also waits in `select` and looks at `stopping` every `idle_poll_s` (#515)."""
+            for s in sockets:
+                try:
+                    s.shutdown(socket.SHUT_RD)
+                except OSError:                  # already closed by its handler: nothing to end
+                    pass
 
         def server_close(self):
             self.stopping.set()
@@ -3453,6 +3616,8 @@ def build(port: int = 8765, *, token: str | None = None) -> tuple[ThreadingHTTPS
             deadline = time.monotonic() + self.close_wait_s
             with self.handlers_lock:
                 left = list(self.handlers)
+                open_ = [s for h, s in self.connections.items() if h.is_alive()]
+            self._end_reads(open_)
             for t in left:
                 t.join(max(0.0, deadline - time.monotonic()))
 

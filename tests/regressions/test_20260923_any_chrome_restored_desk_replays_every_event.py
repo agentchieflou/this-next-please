@@ -23,7 +23,7 @@ import pytest
 
 from agentdata.fleet import serve as S
 
-from test_fleet_instant import _own_desk_globals, _serve, fleet_home  # noqa: F401 - fixtures
+from test_fleet_instant import _serve, fleet_home  # noqa: F401 - fixtures
 from test_fleet_stream_resume import browser, busy_fleet, restored, since  # noqa: F401 - fixture
 
 

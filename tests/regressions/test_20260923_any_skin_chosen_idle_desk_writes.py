@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, _desk_of, _own_desk_globals, _serve, _stop, fleet_home  # noqa: F401 - fixtures
+from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, _desk_of, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 
 #: The mutation count of `IDLE_LOOP` without the layer: it reads the layer's renders, and with no
 #: skin drawing ink there is no layer.

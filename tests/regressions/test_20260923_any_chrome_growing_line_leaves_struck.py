@@ -24,7 +24,7 @@ from __future__ import annotations
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import (_desk_of, _marks, _open, _own_desk_globals, _rest, _serve,  # noqa: F401 - fixtures
+from test_fleet_ink import (_desk_of, _marks, _open, _rest, _serve,  # noqa: F401 - fixtures
                             _stop, fleet_home)
 
 TABLE = {"name": "grow", "marks": [

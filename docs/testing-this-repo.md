@@ -145,8 +145,10 @@ one twice, never on Linux. Order-independence is not concurrency-independence: `
 interleaves tests from different modules in one worker, and modules like `tests/test_fleet_console.py`
 keep process-level state in `serve` that only a per-module autouse fixture resets. Serially every
 test in a file runs contiguously and that reset holds; interleaved it does not. That is the suite's
-own weakness, surfaced rather than caused by the tiers, and it is #227. Until it is fixed Windows
-runs the way it always has, so the leg costs nothing against what it did before.
+own weakness, surfaced rather than caused by the tiers, and it is #227. **The cause is fixed at its
+root** (#298): the desk's process state now has one owner that resets all of it for every test
+(§Isolation), and a test that leaves a desk server thread running fails where it did it. Windows
+stays serial until #313 moves it to shards; the leg costs nothing against what it did before.
 
 The coverage job stays serial on purpose: `coverage run -m pytest -n auto` measures the controller
 process and none of the workers, which would quietly report a fraction of the truth.
@@ -279,6 +281,25 @@ global, and a desk fixture that did not swap `_desk` for its own left it open; t
 first desk request then closed it in `_fresh()` -- a WAL checkpoint under the desk lock, on that
 test's clock, which on the Windows leg was still running three seconds into a five-second wait.
 `_a_test_closes_the_catalogue_it_opened` closes it at teardown instead.
+
+**The desk's process state is reset for every test** (#298). `agentdata/fleet` keeps state in
+module globals -- the desk's selection and handles in `serve` (`_desk`, `_selection`,
+`_desk_loaded`), the refresh floor, the measure asks, `_desk_written`, `_read_order`, `LOADED`,
+`_SERVING`, and the caches in `fingerprint`, `poll` and `trace` -- which is right for one
+long-running `ad-fleet serve` and wrong for a suite where every test has its own fleet directory.
+Thirty-five modules used to reset parts of it by hand, eight different ways, and none reset all of
+it: sixteen left the refresh floor, thirty-four carried the last test's `last_renew` forward. They
+are gone. `FLEET_PROCESS_STATE` in `tests/conftest.py` names every such global; its import-time
+value is deep-copied once per process in `pytest_sessionstart`, and the autouse
+`_fresh_fleet_process_state` hands each test a fresh copy (and `_read_order` a new run id), which
+monkeypatch puts back afterwards. A test that needs a particular desk sets it up itself.
+`tests/test_hygiene_process_state.py` scans `agentdata/fleet/*.py` for module-level mutable values
+and names rebound through `global`, and fails naming any that is neither in the table nor
+allow-listed there with its reason; add a new cache to the table, not a fixture to your module.
+Beside it, `_a_test_leaves_no_server_thread_running` records the threads alive when a test starts
+and, at teardown, waits up to ten seconds for any `(serve_forever)`, `(process_request_thread)` or
+`adopt-listing` thread the test started; one still alive fails the test with its name and stack.
+The same file proves that on an inner session that forgets to shut its server down.
 
 **Subprocesses import the checkout** (#297). A test that spawns `python -m agentdata...` with
 `cwd=tmp_path` imports `agentdata` only if it is installed or on `PYTHONPATH`: an uninstalled

@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from test_fleet_desk_browser import launch_chromium
-from test_fleet_ink import _serve, _stop, fleet_home, _own_desk_globals  # noqa: F401 - fixtures
+from test_fleet_ink import _serve, _stop, fleet_home  # noqa: F401 - fixtures
 from test_fleet_ink_farmstead import CONTROLS, _choose, _farm_desk, _inked, _page, _ratio
 
 

@@ -149,7 +149,7 @@ CORPUS_START = SPRINT_START - timedelta(days=40)
 _MASK = (1 << 64) - 1
 _ISSUE_ID_BASE = 10000
 
-_ISSUE_RE = re.compile(r"^/rest/api/(?P<api>\d)/issue/(?P<key>[^/]+?)(?P<tail>/changelog|/transitions)?$")
+_ISSUE_RE = re.compile(r"^/rest/api/(?P<api>\d)/issue/(?P<key>[^/]+?)(?P<tail>/changelog|/transitions|/comment)?$")
 _AGILE_SPRINT_RE = re.compile(r"^/rest/agile/1\.0/sprint/(?P<id>\d+)(?P<tail>/issue)?$")
 _AGILE_BOARD_RE = re.compile(r"^/rest/agile/1\.0/board/(?P<id>\d+)/sprint$")
 _JQL_KEYS_RE = re.compile(r"key\s+in\s*\(([^)]*)\)", re.I)
@@ -465,6 +465,7 @@ class FakeJira:
         self.rate_headers = self.bucket.on if rate_headers is None else rate_headers
         self.faults: list[Fault] = [Fault.of(f) for f in faults]
         self.requests: list[Recorded] = []
+        self.comments: list[dict] = []                   # every comment POSTed, in Jira's response shape
 
         # A virtual clock anchored to real wall time: an HTTP-date `Retry-After` is compared against
         # `datetime.now()` by the client, so a clock set in fictional 2026 would hand back a negative wait.
@@ -671,6 +672,8 @@ class FakeJira:
                 if not self.paged_changelog:
                     raise self._http_error(404, path)
                 return self._changelog_page(i, params, cap)
+            if tail == "/comment":
+                return self._comment(i, method, body)
             if tail == "/transitions":
                 if method == "POST":
                     return None
@@ -770,6 +773,26 @@ class FakeJira:
             top = [self._history(i, h) for h in range(total - 1, max(-1, total - 1 - self.expand_cap), -1)]
             out["changelog"] = {"startAt": 0, "maxResults": len(top), "total": total, "histories": top}
         return out
+
+    def _comment(self, i: int, method: str, body: Any) -> dict:
+        """`POST /issue/{key}/comment` answers the created comment; `GET` pages the issue's comments.
+
+        The shapes are Jira's REST reference ("Add comment", "Get comments"): the body comes back as it was sent --
+        ADF on Cloud's v3, the plain string on Data Center's v2 -- and `self` names the comment by the issue's id.
+        """
+        key = self.corpus.key(i)
+        if method == "POST":
+            n = 10000 + len(self.comments)
+            stamp = _iso(self.wall)
+            me = ({"accountId": "acct-1", "displayName": "Luna Fake", "active": True} if self.flavor == "cloud" else
+                  {"name": "luna", "key": "luna", "displayName": "Luna Fake", "active": True})
+            made = {"self": f"{self.base_url}{self.api}/issue/{self.corpus.issue_id(i)}/comment/{n}",
+                    "id": str(n), "author": dict(me), "body": (body or {}).get("body"), "updateAuthor": dict(me),
+                    "created": stamp, "updated": stamp, "_key": key}
+            self.comments.append(made)
+            return {k: v for k, v in made.items() if k != "_key"}
+        mine = [{k: v for k, v in c.items() if k != "_key"} for c in self.comments if c["_key"] == key]
+        return {"startAt": 0, "maxResults": 5000, "total": len(mine), "comments": mine}
 
     def _bulkfetch(self, body: dict, cap: int | None) -> dict:
         """`maxResults` counts change histories, grouped by issue, which is how the client's page budget reads.

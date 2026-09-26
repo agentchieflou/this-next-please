@@ -215,7 +215,7 @@ def child_env(base: dict | None = None) -> dict:
     return env
 
 
-def _spawn(real: list[str], *, timeout: int, cwd: str | None) -> tuple[int, str, str]:
+def _spawn(real: list[str], *, timeout: int, cwd: str | None, env: dict | None = None) -> tuple[int, str, str]:
     """Run to completion, or kill the whole tree and raise. Never blocks past `timeout`.
 
     Deliberately not `subprocess.run(capture_output=True, timeout=...)`, which is not a real timeout
@@ -242,7 +242,7 @@ def _spawn(real: list[str], *, timeout: int, cwd: str | None) -> tuple[int, str,
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as out, \
             tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as err:
         p = subprocess.Popen(real, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
-                             cwd=cwd, env=child_env(), text=True,
+                             cwd=cwd, env={**child_env(), **(env or {})}, text=True,
                              encoding="utf-8", errors="replace",
                              # Its own session on POSIX, so the timeout can kill the child *and its
                              # descendants* as a group without touching ours. Without this,
@@ -264,8 +264,11 @@ def _spawn(real: list[str], *, timeout: int, cwd: str | None) -> tuple[int, str,
 
 
 def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: str = "", check: bool = False,
-        cwd: str | None = None, progress: str | None = None) -> tuple[int, str, str, float]:
-    """(returncode, stdout, stderr, elapsed). Raises ProcError for start failures and, with check, for exit != 0."""
+        cwd: str | None = None, progress: str | None = None, env: dict | None = None) -> tuple[int, str, str, float]:
+    """(returncode, stdout, stderr, elapsed). Raises ProcError for start failures and, with check, for exit != 0.
+
+    `env` is laid over the child's environment (`child_env()`), for the variables one call needs --
+    `GIT_TERMINAL_PROMPT=0` on a push -- without changing this process's own."""
     real, info = prepare(argv, exe=exe, hint=hint)
     launched = info["path"]
     t0 = time.time()
@@ -273,9 +276,9 @@ def run(argv: list[str], *, exe: str | None = None, timeout: int = 120, hint: st
         if progress:
             from . import ui
             with ui.progress(progress):
-                code, out, err = _spawn(real, timeout=timeout, cwd=cwd)
+                code, out, err = _spawn(real, timeout=timeout, cwd=cwd, env=env)
         else:
-            code, out, err = _spawn(real, timeout=timeout, cwd=cwd)
+            code, out, err = _spawn(real, timeout=timeout, cwd=cwd, env=env)
     except FileNotFoundError as e:      # resolved, then vanished, or a broken shim target
         raise ProcError("start_failed", f"{argv[0]}: cannot start {launched} ({e.strerror or e})",
                         hint or "re-run `ad-setup --patch`", {"executable": launched, "kind": info["kind"]}) from None

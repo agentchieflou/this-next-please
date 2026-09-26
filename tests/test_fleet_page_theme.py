@@ -15,7 +15,7 @@ from agentdata import theme as T
 from agentdata.fleet import serve as S
 from agentdata.fleet import settings as SET
 
-from test_fleet_ink import _serve, _stop, fleet_home, _own_desk_globals  # noqa: F401
+from test_fleet_ink import _serve, _stop, fleet_home  # noqa: F401
 
 TOKEN = "tok"
 DEFAULT_TIERS = dict(SET.TIER_DEFAULTS, invalid="")

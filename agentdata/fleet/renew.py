@@ -72,7 +72,8 @@ def verdict(repo, now: dict | None = None) -> dict:
         return {**row, "verdict": SKIPPED, "why": why}
 
     if stale["unknown"] or lock.get("external"):
-        return skip("adopted: it began outside the fleet — start a new session in its own window")
+        return skip(f"adopted: it began outside the fleet — `ad-fleet fresh {name}` (start fresh on "
+                    f"its pane) leaves it for a clean session")
     if not stale["stale"]:
         return skip("not stale")
     if lock.get("kind") == "console" or (last.get("data") or {}).get("console"):
