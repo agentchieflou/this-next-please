@@ -30,6 +30,7 @@ from test_fleet_board_desk import PHOTO, friction
 from test_fleet_branches import seven_branches
 from test_fleet_desk_browser import launch_chromium
 from test_fleet_handoff_pickup import RICH
+from test_fleet_wrapup import Recorder
 
 pytestmark = [pytest.mark.slow, pytest.mark.browser]
 
@@ -95,7 +96,7 @@ def _eventually(cond, timeout=10.0):
     return cond()
 
 
-def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_branches(desk):
+def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_branches(desk, tmp_path, monkeypatch):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     server, token, port = _serve()
     try:
@@ -249,6 +250,11 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
             grid.wait_for_function("""() => document.querySelectorAll('#inspector .branches .branchrow').length === 7
                 && document.querySelector('#inspectordetails > details.more').open
                 && document.querySelector('#inspector details.branches-list').open""", timeout=10000)
+
+            # 6. Wrap up (#510): `w` on luna's pane opens the project panel with the sheet. #503's `RUN`
+            #    is recorded: push is real git against a bare origin, the comment goes to the fake Jira,
+            #    and the pr and page adapters answer as `main` does until #506 and #507 land.
+            wrapped = _wrap_up_from_the_pane(grid, desk, tmp_path, monkeypatch)
             assert not errors, errors
             browser.close()
     finally:
@@ -258,3 +264,78 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
 
     # The fleet wrote nothing in the checkout: the branch it is on is the one the agent chose.
     assert Registry().get("luna").state()["active_ticket"] == TICKET
+
+    # The wrap-up (#510): the preset's rows, one write post with exactly the ticked ids, patched rows.
+    rows, ticked = wrapped["rows"], wrapped["ticked"]
+    assert wrapped["reading"], "the sheet said nothing while the adapters read"
+    assert [r["step"] for r in rows] == ["push", "pr", "page", "comment", "transition", "transition"], rows
+    by = {r["slot"]: r for r in rows}
+    for step in ("pr", "page"):
+        assert "not_pinned" in by[step]["text"] and by[step]["disabled"] and not by[step]["checked"], by[step]
+    assert by["push"]["checked"] and by["comment"]["checked"], rows
+    assert not by["transition-review"]["checked"] and not by["transition-done"]["checked"], rows
+    assert [p.get("dry_run") for p in wrapped["posts"]] == [True, None], wrapped["posts"]
+    assert wrapped["posts"][0]["repo"] == "luna" and wrapped["posts"][0]["mode"] == "project"
+    assert wrapped["posts"][1]["steps"] == ticked == [r["id"] for r in rows if r["checked"]], wrapped
+    assert wrapped["done"] == {r["slot"]: "written" for r in rows if r["checked"]}, wrapped["done"]
+    assert "refs/heads/feature/RDSD-7-part-2" in wrapped["refs"]
+    assert len(wrapped["fake"].comments) == 1
+    assert "wrap-up" in wrapped["said"] and "2 written" in wrapped["said"], wrapped["said"]
+    assert wrapped["closed_shape"]["scroll"] <= wrapped["closed_shape"]["client"] + 1, wrapped["closed_shape"]
+
+
+def _wrap_up_from_the_pane(grid, path, tmp_path, monkeypatch) -> dict:
+    from agentdata import cli_jira
+    from agentdata.fleet import wrapup as WRAP
+    from tests.fakes import jira as FJ
+
+    from test_fleet_branches import git
+
+    bare = tmp_path / "origin.git"
+    git(tmp_path, "init", "-q", "--bare", str(bare))
+    git(path, "remote", "add", "origin", str(bare))
+    git(path, "push", "-q", "origin", "main")
+    git(path, "remote", "set-head", "origin", "main")
+    os.makedirs(os.path.join(path, ".agent", "out"), exist_ok=True)
+    with open(os.path.join(path, ".agent", "out", f"{TICKET}-confluence.md"), "w", encoding="utf-8") as f:
+        f.write("# RDSD-7\n")
+    fake = FJ.FakeJira(issues=8, histories=1)
+    client = fake.client()
+    monkeypatch.setattr(cli_jira, "_client", lambda redetect=False, a=None: ({}, client, {}))
+    rec = Recorder(fake, delay=1.0)                      # the first adapter answers late: *reading…* shows
+    monkeypatch.setattr(WRAP, "RUN", rec)
+
+    # The rail ends with *wrap up*, and the panel still fits one screen with the sheet closed (#504).
+    grid.wait_for_selector("#inspectordetails .rail button.wrapup", timeout=10000)
+    closed_shape = grid.evaluate("""() => { const el = document.getElementById('inspector');
+        return { scroll: el.scrollHeight, client: el.clientHeight,
+                 sheet: document.querySelector('#inspector .wrapsheet').hidden,
+                 title: document.querySelector('#inspectordetails .rail button.wrapup').title }; }""")
+    assert closed_shape["sheet"] and "Jira, Bitbucket and Confluence" in closed_shape["title"], closed_shape
+
+    posts: list = []
+    grid.on("request", lambda r: posts.append(r.post_data_json)
+            if r.method == "POST" and r.url.split("?")[0].endswith("/api/wrapup") else None)
+    grid.focus('.tile[data-repo="luna"]')
+    grid.keyboard.press("w")
+    grid.wait_for_selector("#inspector:not([hidden]) .wrapsheet:not([hidden])", timeout=5000)
+    reading = grid.wait_for_function(
+        "() => /^reading push · pr · page · comment · transition/.test("
+        "document.querySelector('.wrapsheet .wrap-status').textContent)", timeout=5000) is not None
+    grid.wait_for_function("() => document.querySelectorAll('.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)')"
+                           ".length === 6", timeout=20000)
+    rows = grid.eval_on_selector_all(".wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)", """els => els.map(e => ({
+        id: e.dataset.id, slot: e.dataset.rowkey, step: e.querySelector('.wrap-step').textContent,
+        checked: e.querySelector('input.wrap-tick').checked, disabled: e.querySelector('input.wrap-tick').disabled,
+        text: e.textContent }))""")
+    ticked = [r["id"] for r in rows if r["checked"]]
+    assert grid.locator(".wrapsheet .wrap-go").inner_text() == f"write {len(ticked)}"
+    grid.locator(".wrapsheet .wrap-go").click()
+    grid.wait_for_function("""() => [...document.querySelectorAll('.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)')]
+        .filter(e => e.querySelector('input.wrap-tick').checked).every(e => e.dataset.done)""", timeout=20000)
+    done = grid.evaluate("""() => Object.fromEntries([...document.querySelectorAll(
+        '.wrapsheet .wrap-rows > li.wrap-row:not(.wrap-pattern)')].filter(e => e.dataset.done)
+        .map(e => [e.dataset.rowkey, e.dataset.done]))""")
+    said = grid.locator("#notice").inner_text()
+    return {"rows": rows, "ticked": ticked, "posts": posts, "done": done, "reading": reading, "said": said,
+            "refs": git(bare, "for-each-ref", "--format=%(refname)"), "fake": fake, "closed_shape": closed_shape}

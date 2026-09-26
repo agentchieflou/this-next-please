@@ -1199,6 +1199,10 @@ Above `source.addEventListener("models", function () {`:
 
 The model list moved (#361): stale for the next open, and drawn again now only if the card is.
 
+Above `source.addEventListener("wrapup", function (m) {`:
+
+A wrap-up job moved (#503, #510): read it only when the sheet shows that repo.
+
 In `source.onerror`, above `setTimeout(function () { refresh().then(connect); }, 2000);`:
 
 EventSource reconnects on its own, but the page must not trust what it drew in between.
@@ -1280,6 +1284,11 @@ Above `var at = document.activeElement;`:
 
 #234: the arrows walk the row as `j` and `k` do -- from a pane, or from nowhere. An arrow in
 the sidebar or a menu is that control's own, and a shifted one is not this gesture.
+
+Above `var onPane = document.activeElement && document.activeElement.closest`:
+
+#510: wrap up the pane the keyboard is on, rail or wide, as `r` and `m` act on it: the project
+panel opens with the sheet, and the preview starts. Nothing is written until *write n*.
 
 Above `var host = document.activeElement && document.activeElement.closest`:
 
@@ -1801,9 +1810,17 @@ A fold on the panel that remembers being opened or closed, across rebuilds and r
 
 ### `function drawInspector`
 
+Beside `if (wrap && wrap.repo && name !== wrap.repo) closeWrapup();`:
+
+the sheet is one repo's (#510)
+
 Above `var links = (p.links || []);`:
 
 Where this project lives -- the link rail, so a tab is opened to act and never to check.
+
+Above `var wrapBtn = mk("button", "wrapup", "wrap up");`:
+
+#510: the rail's last button previews every write for this agent; `w` on its pane does the same.
 
 Above `var frictionOpen = p.friction_open || p.friction || [];`:
 
@@ -1842,6 +1859,90 @@ What is missing is named, so the operator knows which AGENTS.md key would fill t
 Above `var latest = ((p.verify || {}).latest) || {};`:
 
 The newest thing the project's own agent verified, beside the report link.
+
+## wrapping up an agent (#510)
+
+The project panel's sheet: every write #503 plans for this agent, previewed by its adapter's own
+dry-run, a tick per write, and one press -- *write n* -- that writes exactly the ticked ones
+(WRAP-D4). The sheet is static markup, so the panel's rebuilds never touch it, and it is drawn
+only from an answer or a `wrapup` frame: an idle desk with it open writes nothing.
+
+The page posts `wrapup` from four places and no others: the sheet's open, its mode toggle, a
+deliberate re-preview (a transition's name, *replace*, an edited comment, *preview again*) and
+*write n*. Nothing is written that the sheet has not shown, a merge is never offered, and the
+comment is a template (WRAP-D2) -- no model turn.
+
+### `var wrapGo`
+
+Beside `var wrapGo = new WeakMap();`:
+
+a row's action button -> what it does now
+
+### `function wrapSlot`
+
+Above `function wrapSlot(row) {`:
+
+The step a row writes, as its id's slot: `push`, `pr`, …, `transition-review`.
+
+### `function wrapDone`
+
+Above `function wrapDone(result) {`:
+
+What a result's `done` reads as one word: written, failed, changed or skipped.
+
+### `function wrapCell`
+
+Above `function wrapCell(el, row, ticked, result, locked) {`:
+
+One step's cell -- tick, glyph, step, summary, hint -- on an element cloned from `li.wrap-pattern`.
+The sheet draws its rows with it, and the fleet sweep (#512) draws its cells with it too. A
+result is words and a glyph, never a state colour: the agent's colours stay the agent's (#339).
+
+### `function wrapActs`
+
+Above `function wrapActs(el, row, result) {`:
+
+The sheet's actions for one row: a transition's names, *open it* / *replace v<n>* on a page
+someone edited, *replace the description* on a kept PR, *edit* on the comment, *preview again*
+on a failed step. Every one that changes a write is a second preview (WRAP-D8), never a write.
+
+### `function drawWrap`
+
+Above `function drawWrap() {`:
+
+The sheet as `wrap` says: the status line, the rows from the pattern row, the button's count.
+
+### `function previewWrap`
+
+Above `function previewWrap(extra) {`:
+
+A fresh preview: this repo, this mode, and whatever the operator deliberately asked again with.
+
+### `function writeWrap`
+
+Above `function writeWrap() {`:
+
+*Write n*: exactly the ticked ids of the preview on the sheet, and the edited comment with them.
+
+### `function loadWrap`
+
+Above `function loadWrap() {`:
+
+The job as the server has it now, drawn: the frame says it moved, this reads what it is.
+
+### `function openWrapup`
+
+Above `function openWrapup(name) {`:
+
+`w`, or *wrap up* on the rail: the project panel on this repo, the sheet, and a preview --
+unless this repo's last job was written from another tab, whose results are drawn first.
+
+### `function bindWrapSheet`
+
+Above `wrap.comment = box.value;`:
+
+An edit is checked again before it is sent: the comment's id hashes its text, so the preview
+that *write n* confirms has to be the one that read this text.
 
 ### `function getArrangement`
 

@@ -684,6 +684,13 @@ Above `#inspectordetails details.more > summary,`:
 #504: the panel fits one screen. Everything but the rail, open friction, spend and the branches
 folds under one closed *more*; a branch row is one line, its full meta in its title.
 
+### `.wrapsheet`
+
+Above `.wrapsheet {`:
+
+#510: the wrap-up sheet, between the drawer head and the panel's details. A step's result is a
+word and a glyph, never a status colour: the agent's colours stay the agent's (#339).
+
 ## the dispatch card (#164)
 
 A drop opens this instead of launching, in the approval card's shape: both are "the tile is

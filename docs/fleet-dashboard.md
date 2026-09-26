@@ -109,6 +109,18 @@ and the files Downloads offers for this project. The desk's tick redraws the pan
 something it shows changed, so an idle desk writes nothing to it, and a redraw keeps every fold as
 the operator left it.
 
+The rail ends with **wrap up** (#510), and `w` on a pane or rail does the same: the project section
+opens on that agent with the wrap-up sheet above its details, set to *end of project* (the pairing for
+one agent; *end of day* is the other half of its toggle, and pressing it previews again). The sheet
+reads *reading push · pr · page · comment · transition…* while #503's job runs every adapter's
+dry-run, then shows one row per write with a tick as the preset says; a row that is not `ok` is
+disabled with its code and hint (the pr and page rows read `not_pinned` until #506 and #507), and a
+ticked row that waits on another says *after push*. A transition row offers Jira's own names, a page or
+PR description someone edited offers *replace*, and the comment row offers *edit* — each of those is a
+second preview, never a write (WRAP-D8). **Write n** posts exactly the ticked ids; each row then reads
+*written* (with its link), *failed* (with *preview again*), *changed* or *skipped*, in words and a
+glyph, and the footer says one line. A merge is never offered. `Esc` or *cancel* closes the sheet.
+
 **Open friction** (#499) is decided by the server, not the page. A STOP is *open* when the operator
 has not dismissed it, it is on the active ticket (or names none), and either its unblock sentence is
 still an open question in `state.json` — it then reads *still asked — answer it on the pane*, which
@@ -442,6 +454,7 @@ red everywhere or the colour stops being information:
 | `u` | take the last change of widths back |
 | `r` | re-read the agent the keyboard is on — a rail as well — now; spends no premium request |
 | `m` | which model that agent runs, and which one its last turn actually ran on; a press there shows on the pane at once, and applies from the next turn (#492) |
+| `w` | wrap up the agent the keyboard is on — a rail as well: the project panel's sheet previews every Jira, Bitbucket and Confluence write, and nothing is written until *write n* (#510) |
 | `f` | *needs me*: every agent that needs a person wide, the rest rails; nothing hidden |
 | `h` | hide the agent the keyboard is on; the footer counts it |
 | `Alt`+`[` / `Alt`+`]` | walk the tile's session menu, opening it on the first press |
