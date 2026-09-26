@@ -264,7 +264,11 @@ then serves SharePoint and the Excel fallback (Excel exposes every column as a s
 | `FleetHeartbeat` | `"laptop"` | `Title, At, EverySeconds, ExpireSeconds, Contract, Operator, Bridge, LaptopId, ServeUp, DeskStreams, Repos, NeedsHuman, ApprovalsPending, Notifications24h, Rejected24h, InboxLastSeen` | the flow, one row updated |
 
 `mobile/data/FleetAgent.xlsx` holds the five tables with these headers and three fictional sample rows each, and is
-both the "Create a list → From Excel" source and the Excel Online (Business) fallback store. Under Excel the single-writer rule (`Excel Online
+both the "Create a list → From Excel" source and the Excel Online (Business) fallback store. A single-line text column
+holds 255 characters: `Says`, `LastSaid`, `QuestionsJson`, `PayloadPreview`, `Message`, `AnswersJson` and `Body` are
+*Multiple lines of text* (plain), and the flow truncates `Summary`, `Reason` and `ResultText` to 255 in the row while
+the outbox and inbox files keep the whole text (`mobile/data/README.md`; `mobile/flows/README.md` "Verify on import"
+row 19 for `ApprovalsJson`). Under Excel the single-writer rule (`Excel Online
 (Business)` connector reference, `flows_and_onedrive_bridge.md` Q3) means **two copies**: one written by
 `FleetOutboxToLists`, one by `FleetDecide`; the app reads both. A `FleetNotifications` row is about 0.5 KB, so a
 year at 200 a day is ~36 MB, over the 25 MB cap: one more reason Excel is the fallback (MOB-D12).
@@ -363,8 +367,9 @@ mobile/
   flows/
     FleetOutboxToLists.definition.json     the exported Workflows JSON, reviewed in the repo
     FleetDecide.definition.json
+    samples/*.json                         one outbox record per kind (and a rejected result): the Parse JSON schema source, the test plan's seeds
     solution/                              the unmanaged solution zip's contents after F4
-    README.md                              build sheets, the import sheet, request-budget arithmetic
+    README.md                              build sheets, the import sheet, the "verify on import" table, request-budget arithmetic
   data/
     FleetAgent.xlsx                        five tables, the list source and the Excel fallback
     make_workbook.py                       builds the workbook from the column tables (run by hand; CI reads the tables only)
