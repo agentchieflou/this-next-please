@@ -12,6 +12,7 @@ ever except the liveness dot; and everything must be reachable by the reduced-mo
 including the view-transition pseudo-elements that `*` does not match.
 """
 from __future__ import annotations
+import json
 import os
 import re
 import threading
@@ -343,6 +344,26 @@ def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_id
         server.server_close()
 
 
+#: What the browser calls a long task: a block of the main thread three frames could not be drawn in.
+LONG_TASK_MS = 50.0
+
+
+def _main_thread_tasks(trace: bytes) -> list[tuple[float, float]]:
+    """(thread ms, wall ms) of every task a renderer main thread ran while the trace was on.
+
+    `RunTask` is the scheduler's own slice around one task; `tdur` is its thread time, the time the
+    thread was on a core, and `dur` its wall time. A task with no `tdur` is left out rather than
+    counted as nought, and the caller fails when none is left.
+    """
+    events = json.loads(trace)["traceEvents"]
+    main = {(e["pid"], e["tid"]) for e in events
+            if e.get("ph") == "M" and e.get("name") == "thread_name"
+            and e.get("args", {}).get("name") == "CrRendererMain"}
+    return [(e["tdur"] / 1000.0, e.get("dur", 0) / 1000.0) for e in events
+            if e.get("ph") == "X" and e.get("name") == "RunTask" and "tdur" in e
+            and (e["pid"], e["tid"]) in main]
+
+
 @pytest.mark.browser
 @pytest.mark.measured
 def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp_path):
@@ -355,6 +376,13 @@ def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp
     fifty milliseconds or more, which is three frames nobody could have drawn. None during a swap
     of five tiles at 1080p is the floor. The frame gaps are printed alongside, because the number
     is worth having in the job output even where it cannot be asserted.
+
+    The fifty milliseconds are counted on the main thread's own clock (#521). A `longtask` entry is
+    wall time: on a machine shared with other suites the OS takes the core away in the middle of a
+    task, and a swap that did 6ms of work was reported as a 117ms task (main, 2 of 4 at load 7-9).
+    So the trace is read too, and every task the renderer's main thread ran in the window is held to
+    the same fifty milliseconds of its thread time (`tdur`), which the OS's other work does not
+    count into. The `longtask` entries are printed alongside.
     """
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon")
@@ -372,6 +400,8 @@ def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp
             page.wait_for_selector(".tile.is-solo", timeout=15000)
             page.wait_for_timeout(300)               # past the first fold's own work
 
+            browser.start_tracing(page=page, categories=["devtools.timeline",
+                                                     "disabled-by-default-devtools.timeline"])
             out = page.evaluate("""() => new Promise(resolve => {
               const long = [];
               const obs = new PerformanceObserver(list => {
@@ -394,6 +424,7 @@ def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp
                           open: document.querySelector('.tile.is-solo').dataset.repo });
               }, 700);
             })""")
+            held = _main_thread_tasks(browser.stop_tracing())
             assert not errors, errors
             assert out["open"] == "epsilon", "the swap did not happen at all"
             gaps = sorted(out["gaps"])
@@ -401,7 +432,13 @@ def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp
                 print(f"\nframes during the swap: median {gaps[len(gaps) // 2]:.1f}ms, "
                       f"max {gaps[-1]:.1f}ms, over {len(gaps)} frames; "
                       f"the call itself held the thread for {out['handed']:.1f}ms")
-            assert out["long"] == [], f"the swap blocked the main thread: {out['long']}ms"
+            print(f"main-thread tasks: {len(held)}, the longest on the thread's own clock "
+                  f"{max((cpu for cpu, _ in held), default=0.0):.1f}ms; longtask entries "
+                  f"(wall clock) {out['long']}ms")
+            assert held, "the trace holds no main-thread task with a thread time to measure"
+            blocked = [(round(cpu, 1), round(wall, 1)) for cpu, wall in held if cpu >= LONG_TASK_MS]
+            assert blocked == [], \
+                f"the swap blocked the main thread: {blocked} (thread ms, wall ms); longtask {out['long']}ms"
             assert out["handed"] <= 50.0, \
                 f"the gesture held the thread for {out['handed']:.1f}ms before returning"
             browser.close()
