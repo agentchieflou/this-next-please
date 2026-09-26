@@ -192,13 +192,43 @@ def load() -> list[dict]:
     return [r for r in got if isinstance(r, dict)] if isinstance(got, list) else []
 
 
+#: What names one document's load (#531): `origin_ms` is its `performance.timeOrigin`.
+DOCUMENT = ("shell", "page", "from", "how", "origin_ms", "ua")
+
+
+def _document(rec: dict) -> tuple:
+    return tuple(rec.get(k) for k in DOCUMENT)
+
+
+def _merged(kept: dict, rec: dict) -> dict:
+    """One document's two copies as one record. Both are the same record read at two moments (the
+    page only ever adds to it), so a field either copy measured is kept, and the longer task."""
+    out = dict(kept)
+    for key, value in rec.items():
+        if value not in (None, "") and out.get(key) in (None, ""):
+            out[key] = value
+    tasks = [r["longest_task_ms"] for r in (kept, rec) if r.get("longest_task_ms") is not None]
+    out["longest_task_ms"] = max(tasks) if tasks else None
+    return out
+
+
 def record(body) -> dict:
     """Keep one load, and only the newest `KEEP` of its shell, page and from. Answers `{kept: n}`,
-    how many that group now holds; the page's beacon never reads it."""
+    how many that group now holds; the page's beacon never reads it.
+
+    One record per document (#531). A page posts its record at `pagehide` and the browser also sends
+    the copy it keeps queued with `fetchLater`, because a beacon sent from a closing page can be
+    dropped as the page is torn down. So one document can be heard twice, and the second copy is
+    folded into the first rather than kept."""
     rec = normalize(body)
     group = _group(rec)
     with _LOCK:
-        records = load() + [rec]
+        records = load()
+        same = [i for i, r in enumerate(records) if _document(r) == _document(rec)]
+        if same:
+            records[same[0]] = _merged(records[same[0]], rec)
+        else:
+            records.append(rec)
         mine = [r for r in records if _group(r) == group]
         drop = {id(r) for r in mine[:-KEEP]}
         records = [r for r in records if id(r) not in drop]
