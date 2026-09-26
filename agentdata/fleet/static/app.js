@@ -1,5 +1,74 @@
 "use strict";
 
+/**
+ * @typedef {Object} DeskRecord
+ * @property {number} [schema]
+ * @property {string} [selected]
+ * @property {number} [version]
+ * @property {string} [at]
+ * @property {Arrangement} [arrangement]
+ * @property {Object<string, WindowRecord>} [windows]
+ * @property {Object<string, number>} [measure]
+ */
+
+/**
+ * @typedef {Object} Arrangement
+ * @property {string[]} [order]
+ * @property {Object<string, {cols: number, rows: number} | number>} [size]
+ * @property {string[]} [pinned]
+ * @property {string[]} [hidden]
+ */
+
+/**
+ * @typedef {Object} WindowRecord
+ * @property {string} [open]
+ * @property {boolean} [focus]
+ * @property {Object<string, number>} [read]
+ * @property {string} [seen]
+ * @property {string[]} [held]
+ * @property {string} [section]
+ * @property {Widths} [widths]
+ * @property {number} [widths_at]
+ */
+
+/** @typedef {Object<string, number>} Widths */
+
+/**
+ * @typedef {Object} WindowWrite
+ * @property {string} [open]
+ * @property {Widths} [widths]
+ * @property {Object<string, number>} [read]
+ * @property {string} [seen]
+ * @property {string} [section]
+ */
+
+/**
+ * @typedef {DeskRecord & {ok?: boolean, action?: string, error?: string, hint?: string, code?: string}} DeskAnswer
+ */
+
+/**
+ * @typedef {{ repo?: string, project?: string, path?: string, state?: string, needs_human?: boolean, why?: string, last_said?: string, last_event_age_s?: number, spend?: {total?: number, [field: string]: any}, recent?: Array<{seq: number}>, as_of?: {run: string, n: number}, [field: string]: any }} Row
+ */
+
+/** @typedef {"rail" | "compact" | "full"} Tier */
+
+/**
+ * @typedef {Object} Tiers
+ * @property {number} rail
+ * @property {number} compact
+ * @property {number} full
+ * @property {number} slack
+ * @property {string} invalid
+ */
+
+/**
+ * @typedef {Object} Pane
+ * @property {HTMLElement} el
+ * @property {number} seq
+ * @property {Row} [row]
+ * @property {boolean} [restored]
+ */
+
 var tiles = /** @type {Map<string, Pane>} */ (new Map());
 var pendingRefresh = null;
 var source = null;
@@ -25,6 +94,10 @@ var PREFLIGHT = true;
 var windowWrites = 0;
 var windowChain = /** @type {Promise<DeskAnswer | null | void>} */ (Promise.resolve());
 
+/**
+ * @param {WindowWrite} patch
+ * @returns {Promise<DeskAnswer | null | void>}
+ */
 function saveWindow(patch) {
   var body = /** @type {WindowWrite & {w: string, version?: number}} */ (Object.assign({ w: W_NAME }, patch));
   windowWrites += 1;
@@ -47,6 +120,10 @@ function saveWindow(patch) {
   return windowChain;
 }
 
+/**
+ * @param {DeskAnswer} payload
+ * @returns {boolean}
+ */
 function acceptDesk(payload) {
   if (!payload || typeof payload !== "object") return false;
   var have = desk.desk ? desk.desk.version : undefined;
@@ -158,6 +235,11 @@ function appendTo(list, ev) {
   }
 }
 
+/**
+ * @param {Row} row
+ * @param {number} index
+ * @returns {HTMLElement}
+ */
 function makeTile(row, index) {
   var el = /** @type {HTMLElement} */ (/** @type {HTMLTemplateElement} */ (
     document.getElementById("tile")).content.firstElementChild.cloneNode(true));
@@ -547,6 +629,10 @@ function shownState(row) {
   return cold ? "idle" : (row.state || "");
 }
 
+/**
+ * @param {HTMLElement} el
+ * @returns {{wide: boolean, full: boolean}}
+ */
 function paneShows(el) {
   var tier = el.dataset.tier || "rail";
   return { wide: tier !== "rail", full: tier === "full" };
@@ -996,6 +1082,11 @@ function disarmFresh(el) {
   text(el.querySelector(".sm-new-label"), "start fresh");
 }
 
+/**
+ * @param {HTMLElement} el
+ * @param {string} repo
+ * @param {HTMLElement|null} button
+ */
 function startFresh(el, repo, button) {
   var closed = !!el.dataset.freshArmed;
   var rail = !paneShows(el).wide;
@@ -1084,6 +1175,7 @@ if (dismissBtn) {
   });
 }
 
+/** @param {WindowRecord} win */
 function applyWindow(win) {
   if (!win) return;
   if (!appliedInitialWindow) {
@@ -1154,11 +1246,20 @@ function redrawAll() {
   place();
 }
 
+/**
+ * @param {Row | undefined} shown
+ * @param {Row} row
+ * @returns {boolean}
+ */
 function readBefore(shown, row) {
   var had = shown && shown.as_of, got = row.as_of;
   return !!(had && got && had.run === got.run && got.n < had.n);
 }
 
+/**
+ * @param {Pane} entry
+ * @param {Row} row
+ */
 function fillTranscript(entry, row) {
   (row.recent || []).forEach(function (ev) { append(entry.el, ev); entry.seq = ev.seq; });
   try {
@@ -1169,6 +1270,11 @@ function fillTranscript(entry, row) {
   } catch (e) {}
 }
 
+/**
+ * @param {Row} row
+ * @param {number} [index]
+ * @returns {Pane | null}
+ */
 function patchRow(row, index) {
   if (!row || !row.repo) return null;
   var entry = tiles.get(row.repo);
@@ -1197,6 +1303,10 @@ var SNAP_GOOD_FOR_MS = 5 * 60 * 1000;
 var lastFleet = null;
 var themeEvents = 0;
 
+/**
+ * @param {DeskRecord | null} fallback
+ * @returns {DeskRecord | null}
+ */
 function deskAsShown(fallback) {
   var d = desk.desk || fallback;
   if (!d) return null;
@@ -1224,6 +1334,7 @@ function cacheSnapshot(data) {
   } catch (e) {}
 }
 
+/** @returns {Tiers | null} */
 function servedTiers() {
   var said = document.documentElement.dataset.tiers;
   if (!said) return null;
@@ -2208,6 +2319,7 @@ document.getElementById("closeboard").addEventListener("click", function () { bo
 document.getElementById("boardrefresh").addEventListener("click", function () { loadBoard(true); });
 document.getElementById("boardsearch").addEventListener("input", function () { drawBoard(board); });
 
+/** @param {string[]} order */
 function registryChanged(order) {
   if (!Array.isArray(order)) return false;
   if (order.length !== tiles.size) return true;
@@ -2586,6 +2698,7 @@ function foundPanel(open) { return section("found", !!open); }
 document.getElementById("find").addEventListener("input", findSoon);
 document.getElementById("closefound").addEventListener("click", function () { foundPanel(false); });
 
+/** @param {DeskAnswer} answer */
 function mergeDesk(answer) {
   if (!answer) return;
   var next = Object.assign({}, desk.desk);
@@ -2599,6 +2712,10 @@ function mergeDesk(answer) {
   desk.desk = next;
 }
 
+/**
+ * @param {string} name
+ * @returns {Promise<void>}
+ */
 function choose(name) {
   if (desk.desk.selected === name) {
     drawInspector(name);
@@ -2805,6 +2922,7 @@ document.getElementById("closeinspector").addEventListener("click", function () 
   section("inspector", false);
 });
 
+/** @returns {Arrangement} */
 function getArrangement() {
   if (!desk.desk) desk.desk = {};
   if (!desk.desk.arrangement) {
@@ -2813,6 +2931,7 @@ function getArrangement() {
   return desk.desk.arrangement;
 }
 
+/** @returns {string[]} */
 function getEffectiveOrder() {
   var curArr = getArrangement();
   var pinned = curArr.pinned || [];
@@ -2826,12 +2945,14 @@ function getEffectiveOrder() {
   return result;
 }
 
+/** @param {string} name */
 function isHidden(name) {
   var entry = tiles.get(name);
   if (entry && entry.el.classList.contains("needs-human")) return false;
   return ((getArrangement().hidden) || []).indexOf(name) >= 0;
 }
 
+/** @returns {string[]} */
 function visibleOrder() {
   return getEffectiveOrder().filter(function (n) { return !isHidden(n); });
 }
@@ -2839,6 +2960,12 @@ function visibleOrder() {
 var arrangeWrites = 0;
 var arrangeChain = /** @type {Promise<DeskAnswer | void>} */ (Promise.resolve());
 
+/**
+ * @param {Arrangement} patch
+ * @param {() => (() => void) | void} apply
+ * @param {string} [what]
+ * @returns {Promise<DeskAnswer | void>}
+ */
 function arrangeNow(patch, apply, what) {
   var mark = gesture("arrange:" + (what || "change"));
   var undo = apply();
@@ -2868,6 +2995,10 @@ function arrangeNow(patch, apply, what) {
   return arrangeChain;
 }
 
+/**
+ * @param {string} name
+ * @param {boolean} hide
+ */
 function setHidden(name, hide) {
   var curArr = getArrangement();
   var was = (curArr.hidden || []).slice();
@@ -3474,6 +3605,7 @@ function bindTools(root, repo) {
   });
 }
 
+/** @returns {string} */
 function openName() {
   if (openTile && tiles.has(openTile) && !isHidden(openTile)) return openTile;
   var shown = visibleOrder();
@@ -3488,10 +3620,16 @@ function openName() {
   return free[0] || shown[0] || "";
 }
 
+/** @param {string} name */
 function markTile(name) {
   if (name && location.hash !== "#tile=" + name) history.replaceState(null, "", "#tile=" + name);
 }
 
+/**
+ * @param {string} name
+ * @param {boolean} [skipPost]
+ * @param {boolean} [pressed]
+ */
 function openPane(name, skipPost, pressed) {
   if (!name || !tiles.has(name)) return;
   var was = openName();
@@ -3508,6 +3646,7 @@ function openPane(name, skipPost, pressed) {
   if (!skipPost) saveWidths(next ? { open: name, widths: next } : { open: name });
 }
 
+/** @returns {boolean} */
 function backToPrevious() {
   if (!previousOpen || !tiles.has(previousOpen)) return false;
   var going = previousOpen;
@@ -3522,6 +3661,14 @@ function backToPrevious() {
   return true;
 }
 
+/** @typedef {Object<string, number>} Pixels */
+
+/** @typedef {{widths: Widths | null, open: string}} WidthsBefore */
+
+/**
+ * @param {*} value
+ * @returns {Widths | null}
+ */
 function ownWidths(value) {
   if (!value || typeof value !== "object") return null;
   var out = {};
@@ -3533,12 +3680,17 @@ function ownWidths(value) {
   return any ? out : null;
 }
 
+/**
+ * @param {string} name
+ * @returns {number}
+ */
 function legacyShare(name) {
   var v = (getArrangement().size || {})[name];
   var cols = v && typeof v === "object" ? v.cols : v;
   return Math.max(1, Math.min(4, Math.round(Number(cols) || 1)));
 }
 
+/** @returns {Widths} */
 function paneWeights() {
   var shown = visibleOrder();
   var out = {};
@@ -3555,10 +3707,19 @@ function paneWeights() {
   return out;
 }
 
+/**
+ * @param {Widths} weights
+ * @returns {string[]}
+ */
 function wideNames(weights) {
   return visibleOrder().filter(function (name) { return (weights[name] || 0) > 0; });
 }
 
+/**
+ * @param {Widths} weights
+ * @param {string[]} names
+ * @returns {Widths}
+ */
 function evenShares(weights, names) {
   var sum = 0;
   var n = 0;
@@ -3575,6 +3736,7 @@ function evenShares(weights, names) {
   return out;
 }
 
+/** @param {Widths} weights */
 function paintWidths(weights) {
   var wide = wideNames(weights).filter(function (name) { return !groupedAway(name); });
   var shares = evenShares(weights, wide);
@@ -3585,12 +3747,17 @@ function paintWidths(weights) {
   });
 }
 
+/**
+ * @param {Widths} changes
+ * @returns {Widths}
+ */
 function widthsWith(changes) {
   var out = Object.assign({}, myWidths || paneWeights());
   Object.keys(changes).forEach(function (name) { out[name] = changes[name]; });
   return evenShares(out, visibleOrder());
 }
 
+/** @returns {number} */
 function paneEdge() {
   var wide = document.querySelector('#grid .tile.is-solo:not([data-tier="rail"])');
   if (!wide) return 24;
@@ -3599,10 +3766,19 @@ function paneEdge() {
          (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
 }
 
+/**
+ * @param {number} px
+ * @param {number} edge
+ * @returns {number}
+ */
 function weightOf(px, edge) {
   return Math.max(1, px - edge);
 }
 
+/**
+ * @param {Pixels} px
+ * @returns {Widths}
+ */
 function widthsFromPixels(px) {
   var edge = paneEdge();
   var changes = {};
@@ -3612,6 +3788,7 @@ function widthsFromPixels(px) {
   return widthsWith(changes);
 }
 
+/** @returns {Pixels} */
 function measurePanes() {
   var out = {};
   Array.prototype.forEach.call(
@@ -3620,6 +3797,11 @@ function measurePanes() {
   return out;
 }
 
+/**
+ * @param {string} was
+ * @param {string} name
+ * @returns {Widths | null}
+ */
 function swappedWidths(was, name) {
   if (!myWidths) return null;
   var weights = paneWeights();
@@ -3637,6 +3819,11 @@ function swappedWidths(was, name) {
   return widthsWith(changes);
 }
 
+/**
+ * @param {WindowWrite} patch
+ * @param {WidthsBefore} [before]
+ * @returns {Promise<DeskAnswer | null | void>}
+ */
 function saveWidths(patch, before) {
   return saveWindow(patch).then(function (r) {
     if (r && r.ok === false && patch.widths !== undefined) {
@@ -3657,6 +3844,13 @@ var undoOffer = /** @type {(WidthsBefore & {what: string, until: number}) | null
 var undoTimer = 0;
 var keyHome = /** @type {HTMLElement | null} */ (null);
 
+/**
+ * @param {Widths | null} next
+ * @param {string} what
+ * @param {string} [open]
+ * @param {string} [how]
+ * @returns {Promise<DeskAnswer | null | void>}
+ */
 function widthsNow(next, what, open, how) {
   var mark = gesture("widths:" + what);
   var before = { widths: myWidths ? Object.assign({}, myWidths) : null, open: openTile };
@@ -3682,6 +3876,10 @@ function widthsNow(next, what, open, how) {
 var UNDO_WORDS = { drag: "the resize", step: "the resize", even: "the even split",
                    beside: "open beside", one: "one", all: "all", needs: "needs me" };
 
+/**
+ * @param {WidthsBefore} before
+ * @param {string} what
+ */
 function offerUndo(before, what) {
   undoOffer = { widths: before.widths, open: before.open, what: what,
                 until: Date.now() + UNDO_FOR_MS };
@@ -3695,6 +3893,7 @@ function dropUndo() {
   drawUndo();
 }
 
+/** @returns {boolean} */
 function undoWidths() {
   if (!undoOffer || Date.now() > undoOffer.until) return false;
   var back = undoOffer;
@@ -3710,17 +3909,26 @@ function drawUndo() {
   text(button, on ? "undo " + (UNDO_WORDS[undoOffer.what] || "the widths") : "");
 }
 
+/** @returns {string} */
 function keyboardPane() {
   var at = document.activeElement;
   var host = /** @type {HTMLElement} */ (at && at.closest ? at.closest("#grid .tile") : null);
   return host && host.dataset.repo && !isHidden(host.dataset.repo) ? host.dataset.repo : "";
 }
 
+/**
+ * @param {string} name
+ * @returns {boolean}
+ */
 function needsPerson(name) {
   var entry = tiles.get(name);
   return !!entry && entry.el.classList.contains("needs-human");
 }
 
+/**
+ * @param {string} which
+ * @returns {boolean}
+ */
 function applyPreset(which) {
   var shown = visibleOrder();
   if (!shown.length || gutterHeld) return false;
@@ -3761,20 +3969,47 @@ var RAIL_SNAP_PX = 120;
 var SNAP_PX = 8;
 var GUTTER_STEP_PX = 40;
 
+/**
+ * @typedef {Object} GutterHold
+ * @property {HTMLElement} left
+ * @property {HTMLElement} right
+ * @property {number} x
+ * @property {number} a0
+ * @property {number} total
+ * @property {number} a
+ * @property {number} painted
+ * @property {Pixels} px
+ * @property {number} edge
+ * @property {number} frame
+ * @property {boolean} lifted
+ */
 var gutterHeld = /** @type {GutterHold | null} */ (null);
 var placeWanted = false;
 
+/**
+ * @param {HTMLElement} el
+ * @returns {boolean}
+ */
 function onGlass(el) {
   return !!(el && el.dataset && el.dataset.repo && tiles.has(el.dataset.repo) &&
             !el.classList.contains("is-hidden") && !el.classList.contains("is-grouped"));
 }
 
+/**
+ * @param {HTMLElement} el
+ * @returns {HTMLElement | null}
+ */
 function nextOnGlass(el) {
   var n = el ? /** @type {HTMLElement} */ (el.nextElementSibling) : null;
   while (n && !onGlass(n)) n = /** @type {HTMLElement} */ (n.nextElementSibling);
   return n;
 }
 
+/**
+ * @param {number} a
+ * @param {number} total
+ * @returns {number}
+ */
 function settlePair(a, total) {
   if (total < RAIL_PX + TIER_COMPACT_FROM) return RAIL_PX;
   a = Math.max(RAIL_PX, Math.min(total - RAIL_PX, a));
@@ -3784,6 +4019,11 @@ function settlePair(a, total) {
   return Math.max(TIER_COMPACT_FROM, Math.min(total - TIER_COMPACT_FROM, a));
 }
 
+/**
+ * @param {number} a
+ * @param {number} total
+ * @returns {number}
+ */
 function snapPair(a, total) {
   var stops = [TIER_COMPACT_FROM, TIER_FULL_FROM, total / 2,
                total - TIER_FULL_FROM, total - TIER_COMPACT_FROM];
@@ -3795,6 +4035,12 @@ function snapPair(a, total) {
   return settlePair(near === null ? a : near, total);
 }
 
+/**
+ * @param {number} a
+ * @param {number} total
+ * @param {number} dir
+ * @returns {number}
+ */
 function stepPair(a, total, dir) {
   var b = total - a;
   var want = a + dir * GUTTER_STEP_PX;
@@ -3805,6 +4051,11 @@ function stepPair(a, total, dir) {
   return settlePair(want, total);
 }
 
+/**
+ * @param {HTMLElement} el
+ * @param {number} px
+ * @param {number} edge
+ */
 function paintHeldWidth(el, px, edge) {
   var wide = px > RAIL_PX + 0.5;
   toggle(el, "is-solo", wide);
@@ -3832,6 +4083,10 @@ function paintHeld() {
   settle(mark);
 }
 
+/**
+ * @param {HTMLElement} gutter
+ * @param {HTMLElement} el
+ */
 function bindGutter(gutter, el) {
   if (!gutter) return;
   gutter.addEventListener("pointerdown", function (e) {
@@ -3862,12 +4117,14 @@ function bindGutter(gutter, el) {
       document.removeEventListener("keydown", onKey, true);
       try { gutter.releasePointerCapture(e.pointerId); } catch (err) {}
     };
+    /** @param {PointerEvent} ev */
     var onMove = function (ev) {
       var a = snapPair(held.a0 + (ev.clientX - held.x), held.total);
       if (a === held.a) return;
       held.a = a;
       if (!held.frame) held.frame = requestAnimationFrame(paintHeld);
     };
+    /** @param {PointerEvent} ev */
     var onUp = function (ev) {
       if (ev && typeof ev.clientX === "number") {
         held.a = snapPair(held.a0 + (ev.clientX - held.x), held.total);
@@ -3879,6 +4136,7 @@ function bindGutter(gutter, el) {
       held.px[held.right.dataset.repo] = held.total - held.a;
       widthsNow(widthsFromPixels(held.px), "drag");
     };
+    /** @param {KeyboardEvent} ev */
     var onKey = function (ev) {
       if (ev.key !== "Escape") return;
       ev.stopPropagation();
@@ -3907,6 +4165,10 @@ function bindGutter(gutter, el) {
   });
 }
 
+/**
+ * @param {HTMLElement} el
+ * @returns {boolean}
+ */
 function evenGutter(el) {
   var right = onGlass(el) && !gutterHeld ? nextOnGlass(el) : null;
   if (!right) return false;
@@ -3922,6 +4184,11 @@ function evenGutter(el) {
   return true;
 }
 
+/**
+ * @param {HTMLElement} el
+ * @param {number} dir
+ * @returns {boolean}
+ */
 function stepGutter(el, dir) {
   var right = onGlass(el) && !gutterHeld ? nextOnGlass(el) : null;
   if (!right) return false;
@@ -3936,6 +4203,7 @@ function stepGutter(el, dir) {
   return true;
 }
 
+/** @param {string} name */
 function openBeside(name) {
   if (!name || !tiles.has(name) || gutterHeld) return;
   var host = openName();
@@ -3966,6 +4234,10 @@ function drawGutters() {
 
 var departed = /** @type {Map<string, {path: string}>} */ (new Map());
 
+/**
+ * @param {Row} row
+ * @returns {number}
+ */
 function ageOf(row) {
   return row && typeof row.last_event_age_s === "number" ? row.last_event_age_s : 0;
 }
@@ -3981,6 +4253,7 @@ var TIER_DEFAULTS = /** @type {{rail: number, compact: number, full: number, sla
                       slack: TIER_SLACK });
 var tiersSaid = "";
 
+/** @param {Tiers | null | undefined} t */
 function applyTiers(t) {
   if (!t) return;
   var rail = Number(t.rail), compact = Number(t.compact), full = Number(t.full);
@@ -4009,6 +4282,11 @@ function applyTiers(t) {
   placeSoon();
 }
 
+/**
+ * @param {number} width
+ * @param {Tier | ""} [was]
+ * @returns {Tier}
+ */
 function paneTier(width, was) {
   var raw = /** @type {Tier} */ (width >= TIER_FULL_FROM ? "full" : width >= TIER_COMPACT_FROM ? "compact" : "rail");
   if (!was || raw === was || raw === "rail" || was === "rail") return raw;
@@ -4017,6 +4295,11 @@ function paneTier(width, was) {
   return (width >= lo - TIER_SLACK && width < hi + TIER_SLACK) ? was : raw;
 }
 
+/**
+ * @param {HTMLElement} el
+ * @param {number} width
+ * @returns {boolean}
+ */
 function setTier(el, width) {
   var was = /** @type {Tier | ""} */ (el.dataset.tier || "");
   var tier = paneTier(width, was);
@@ -4029,6 +4312,10 @@ var rowObserver = /** @type {ResizeObserver | null} */ (null);
 var rowWidth = 0;
 var rowSoon = 0;
 
+/**
+ * @param {ResizeObserverEntry} entry
+ * @returns {number}
+ */
 function entryWidth(entry) {
   var box = entry.borderBoxSize;
   var first = /** @type {ResizeObserverSize} */ (box && (box[0] || box));
@@ -4036,6 +4323,7 @@ function entryWidth(entry) {
   return entry.target.getBoundingClientRect().width;
 }
 
+/** @param {ResizeObserverEntry[]} entries */
 function onRowResize(entries) {
   var redraw = [];
   entries.forEach(function (entry) {
@@ -4070,11 +4358,13 @@ function startRowObserver() {
   tiles.forEach(function (entry) { rowObserver.observe(entry.el, { box: "border-box" }); });
 }
 
+/** @param {HTMLElement} el */
 function watchPane(el) {
   startRowObserver();
   if (rowObserver) rowObserver.observe(el, { box: "border-box" });
 }
 
+/** @param {HTMLElement} el */
 function forgetPane(el) {
   if (rowObserver) rowObserver.unobserve(el);
 }
@@ -4104,6 +4394,10 @@ window.addEventListener("resize", function () {
 var railGroups = /** @type {Map<string, string[]>} */ (new Map());
 var groupedInto = /** @type {Map<string, string>} */ (new Map());
 
+/**
+ * @param {string[]} shown
+ * @param {string[]} open
+ */
 function groupRails(shown, open) {
   railGroups = new Map();
   groupedInto = new Map();
@@ -4129,10 +4423,18 @@ function groupRails(shown, open) {
   });
 }
 
+/**
+ * @param {string} name
+ * @returns {boolean}
+ */
 function groupedAway(name) {
   return groupedInto.has(name);
 }
 
+/**
+ * @param {string} name
+ * @returns {string}
+ */
 function railTarget(name) {
   var members = railGroups.get(name);
   if (!members) return name;
@@ -4148,6 +4450,10 @@ var RAIL_GLYPHS = {
   error: "✕", done: "✓", idle: "○", starting: "◌"
 };
 
+/**
+ * @param {Row} row
+ * @returns {string}
+ */
 function railLine(row) {
   var ac = ageChip(row.last_event_age_s);
   var bits = [row.needs_human ? "needs you" : (shownState(row).replace(/_/g, " ") || "no run yet")];
@@ -4162,6 +4468,10 @@ function railLine(row) {
          (freshShown(row) ? " — Alt+N starts fresh" : "");
 }
 
+/**
+ * @param {HTMLElement} el
+ * @param {Row} row
+ */
 function drawPaneRail(el, row) {
   var face = el.querySelector(".pane-rail");
   if (!face || !row) return;
@@ -4616,12 +4926,14 @@ function title(need) {
   if (document.title !== want) document.title = want;
 }
 
+/** @returns {HTMLElement[]} */
 function paneStops() {
   return Array.prototype.map.call(
     document.querySelectorAll("#grid .tile:not(.is-hidden):not(.is-grouped)"),
     function (el) { return el.dataset.tier === "rail" ? el.querySelector(".pane-rail") : el; });
 }
 
+/** @param {number} dir */
 function stepRow(dir) {
   var stops = paneStops();
   if (!stops.length) return;

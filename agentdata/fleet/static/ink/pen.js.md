@@ -1,8 +1,8 @@
 # `ink/pen.js`
 
-The reasoning that used to be this file's comments, moved out of the served source by #523
-(decision 18 on #429): a file the desk serves carries code, and inline `/** @type {X} */ (expr)`
-casts where `tsc` needs them, and nothing else.
+The reasoning that used to be this file's comments, moved out of the source by #523 (decisions
+18 and 19 on #429). The source keeps its code and the JSDoc types `tsc` reads (docs/desk-types.md);
+the server strips every comment from what it serves (`agentdata/fleet/strip.py`).
 
 A `##` heading is a section of the file, as its banner comment named it. A `###` heading is the
 declaration or statement the notes sit in or above, in source order, and each note says which

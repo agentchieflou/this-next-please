@@ -813,10 +813,10 @@ def test_a_directory_beside_static_is_not_served_because_its_name_starts_with_st
     root = tmp_path / "pkg"
     (root / "static").mkdir(parents=True)
     with open(root / "static" / "app.js", "w", encoding="utf-8", newline="\n") as f:
-        f.write("/* the real one */\n")
+        f.write('var which = "the real one";\n')       # code: a comment is stripped on the way out
     (root / "static_backup").mkdir()
     with open(root / "static_backup" / "app.js", "w", encoding="utf-8", newline="\n") as f:
-        f.write("/* NOT SERVED */\n")
+        f.write('var which = "NOT SERVED";\n')
     monkeypatch.setattr(S, "STATIC", str(root / "static"))
     base, token = running
 

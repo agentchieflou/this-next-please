@@ -1,9 +1,49 @@
 "use strict";
 
+/**
+ * @typedef {Object} ModelEntry
+ * @property {string} id
+ * @property {string} [label]
+ * @property {string} [group]
+ * @property {boolean} [offered]
+ * @property {boolean} [available]
+ * @property {string} [why_unavailable]
+ * @property {number} [multiplier]
+ * @property {string[]} [efforts]
+ */
+
+/**
+ * @typedef {Object} ModelPick
+ * @property {string} model
+ * @property {string} effort
+ * @property {"model" | "effort"} toolbar
+ * @property {string} droppedEffort
+ */
+
+/**
+ * @typedef {Object} ModelPickerOptions
+ * @property {"full" | "compact"} [variant]
+ * @property {string} [label]
+ * @property {string} [emptyLabel]
+ * @property {string} [emptyTitle]
+ * @property {(pick: ModelPick) => void} [onPick]
+ * @property {(anchor: HTMLElement) => void} [onMore]
+ */
+
+/**
+ * @typedef {Object} ModelPickerState
+ * @property {{models?: ModelEntry[], groups?: {key: string, title: string}[], efforts?: string[], meta?: {cli_version?: string}}} catalogue
+ * @property {{model: string, effort: string}} current
+ * @property {{model: string, effort: string, source?: string} | null} [inherited]
+ * @property {string} [actual]
+ * @property {string[]} [quick]
+ */
+
 var mpImpl = (function () {
   var seq = 0;
   var own = /** @type {WeakMap<HTMLElement, any>} */ (new WeakMap());
 
+  /** @return {HTMLElement} */
   function make(tag, cls, words) {
     var e = document.createElement(tag);
     e.className = cls;
@@ -85,6 +125,7 @@ var mpImpl = (function () {
     pills.forEach(function (p) { attr(p, "tabindex", p === to ? "0" : "-1"); });
   }
 
+  /** @return {ModelPick} */
   function pickModel(me, id) {
     return { model: id, effort: me.cur.effort, toolbar: "model", droppedEffort: "" };
   }
@@ -93,6 +134,7 @@ var mpImpl = (function () {
     if (typeof me.opts.onPick === "function") me.opts.onPick(pick);
   }
 
+  /** @param {ModelPickerOptions} opts */
   function build(opts) {
     opts = opts || {};
     var root = make("div", "mpick"), models = make("div", "mp-models");
@@ -179,6 +221,10 @@ var mpImpl = (function () {
     return root;
   }
 
+  /**
+   * @param {HTMLElement} root
+   * @param {ModelPickerState} state
+   */
   function draw(root, state) {
     var me = own.get(root);
     if (!me) return;
@@ -267,10 +313,18 @@ var mpImpl = (function () {
   return { build: build, draw: draw };
 })();
 
+/**
+ * @param {ModelPickerOptions} opts
+ * @return {HTMLElement}
+ */
 function createModelPicker(opts) {
   return mpImpl.build(opts);
 }
 
+/**
+ * @param {HTMLElement} el
+ * @param {ModelPickerState} state
+ */
 function drawModelPicker(el, state) {
   mpImpl.draw(el, state);
 }

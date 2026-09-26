@@ -398,9 +398,9 @@ def test_the_static_payload_is_small_enough_to_load_over_anything():
     ink layer that is drawing, never by a desk that is not. Nor is a skin module
     (`static/ink/skins/`): a desk fetches the one it chose, like a skin's stylesheet.
 
-    Nor is a file's tagalong reasoning, `<file>.md`, or a typed script's `<file>.d.ts` (#523,
-    decision 18): the server refuses both (`UNSERVED`), so no page can fetch them. That is where
-    the comments went, so that the prose stops costing against this number at all.
+    Nor is a file's tagalong reasoning, `<file>.md` (#523, decision 18), which the server refuses
+    (`UNSERVED`). And what is counted is what the server sends, `static_body`: a script or a
+    stylesheet without its comments, the JSDoc types included (decision 19).
     """
     import gzip as gz
 
@@ -410,7 +410,7 @@ def test_the_static_payload_is_small_enough_to_load_over_anything():
                 if os.path.isfile(os.path.join(where, n)) and not n.endswith(S.UNSERVED)]
 
     files = files_in("") + files_in("ink")
-    raw = {n: open(os.path.join(STATIC, n), "rb").read() for n in files}
+    raw = {n: S.static_body(n) for n in files}
     sent = sum(len(gz.compress(body, 6, mtime=0)) for body in raw.values())
     on_disk = sum(len(body) for body in raw.values())
     assert sent < 200 * 1024, f"{sent} bytes over the wire ({on_disk} on disk): {sorted(raw)}"
@@ -426,8 +426,8 @@ def test_the_map_page_fits_inside_the_desk_budget_and_its_scripts_inside_their_o
     them; they are held to 4 KiB of it together. The map's scripts have a budget of their own."""
     import gzip as gz
 
-    def wire(rel):
-        return len(gz.compress(open(os.path.join(STATIC, rel), "rb").read(), 6, mtime=0))
+    def wire(rel):                            # what the server sends, as the budget above counts it
+        return len(gz.compress(S.static_body(rel), 6, mtime=0))
 
     page = wire("map.html") + wire("map.css")
     assert page < 4 * 1024, page

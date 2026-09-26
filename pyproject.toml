@@ -83,10 +83,6 @@ include = ["agentdata*"]
 # the project stub and external tool definitions must ship in the wheel: `ad-setup --project` runs on laptops with no repo checkout
 agentdata = ["templates/project-stub/*", "templates/external-tool/*", "pbip/*.ps1", "fleet/static/*", "fleet/static/**/*", "fleet/models_shipped.json", "templates/pycharm/*"]
 
-[tool.setuptools.exclude-package-data]
-# a typed desk script's declarations (#523) are the type check's, which is dev-only like tsconfig.json
-agentdata = ["fleet/static/*.d.ts", "fleet/static/**/*.d.ts"]
-
 [tool.pytest.ini_options]
 norecursedirs = ["tests/fixtures", "fixtures", ".*", "build", "dist"]
 # A test that stops making progress dumps every thread's stack after five minutes, naming the exact

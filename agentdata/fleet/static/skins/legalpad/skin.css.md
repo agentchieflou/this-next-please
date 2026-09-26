@@ -1,7 +1,8 @@
 # `skins/legalpad/skin.css`
 
-The reasoning that used to be this stylesheet's comments, moved out of the served source by #523
-(decision 18 on #429): a file the desk serves carries rules and nothing else.
+The reasoning that used to be this stylesheet's comments, moved out of the source by #523
+(decisions 18 and 19 on #429). The source keeps its rules, and the server strips any comment from
+what it serves (`agentdata/fleet/strip.py`).
 
 A `##` heading is a section of the file, as its banner comment named it. A `###` heading is the
 rule or at-rule the notes sit in or above, by its selector or prelude, in source order, and each

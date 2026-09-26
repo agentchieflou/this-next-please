@@ -52,7 +52,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from .. import textio
 from . import (agentstate, approval, board as B, catalogue as CAT, events as E, handoff as HO,
                inbox as IN, launch as LAUNCH, lifecycle, links as LK, loads as LOADS, notify as N,
-               poll as P, probe as PROBE, supervisor, trace as TRACE)
+               poll as P, probe as PROBE, strip, supervisor, trace as TRACE)
 from .registry import Registry, RegistryError, agent_dir, fleet_dir
 from .scope import ScopeError as SCOPE_ERROR
 
@@ -174,6 +174,47 @@ def gzip_for(body: bytes, key: tuple) -> bytes:
             _GZIPPED.clear()                  # that has been restyled all day still stays small
         _GZIPPED[key] = packed
     return packed
+
+# A script or a stylesheet goes out without its comments (#523, decision 19 on #429). The source
+# keeps the JSDoc types `tsc` reads, and none of it is for the browser, so it is stripped here, on
+# the way out, rather than by a build: this is the one path every page load takes, from a checkout
+# and from the wheel alike, and there is no build step to keep in step with it (docs/desk-types.md).
+# Stripped once per version of the file -- its path, mtime and size -- and remembered, like the gzip
+# above. `vendor/` goes out as it shipped, licence header and all. A file the tokenizer cannot read
+# goes out as it is: served whole is slower, never broken.
+_STRIPPED: dict[tuple, bytes] = {}
+_STRIP_LOCK = threading.Lock()
+
+
+def strip_asset(name: str, raw: bytes) -> bytes:
+    """What the desk serves of the static file `name` whose bytes are `raw`: a `.js` or `.css`
+    outside `vendor/` without its comments, anything else unchanged."""
+    rel = textio.norm_path(name)
+    if not rel.endswith((".js", ".css")) or rel.startswith("vendor/") or "/vendor/" in rel:
+        return raw
+    try:
+        text = raw.decode("utf-8")
+        return (strip.strip_js(text) if rel.endswith(".js") else strip.strip_css(text)).encode("utf-8")
+    except (UnicodeDecodeError, ValueError):
+        return raw
+
+
+def static_body(name: str) -> bytes:
+    """The bytes `/static/<name>` answers with, stripped once per version of the file."""
+    path = os.path.join(STATIC, name)
+    stamp = os.stat(path)
+    key = (path, stamp.st_mtime_ns, stamp.st_size)
+    with _STRIP_LOCK:
+        hit = _STRIPPED.get(key)
+    if hit is not None:
+        return hit
+    with open(path, "rb") as f:
+        body = strip_asset(name, f.read())
+    with _STRIP_LOCK:
+        if len(_STRIPPED) > 64:               # one entry per file version; a server whose files
+            _STRIPPED.clear()                 # are edited all day still stays small
+        _STRIPPED[key] = body
+    return body
 
 # What `.agent/out/` file counts as a verify summary, and which command wrote it. An allow-list of
 # *names*, like the catalogue's: `.agent/out/` also holds trace jsonl, screenshots and the debug log,
@@ -1501,11 +1542,10 @@ def page_theme(ts: dict, token: str, *, desk: bool, gate_on: bool) -> dict:
     return {"html": attrs, "link": link, "body_class": "ink-off" if off else "", "body": body}
 
 
-#: What sits beside the served files and is never served (#523, decision 18 on #429): a script's
-#: or a stylesheet's reasoning, its tagalong `<file>.md`, and a typed script's declarations,
-#: `<file>.d.ts`. They are for whoever reads and checks the source; a page that fetched one would
-#: pay for prose the budget exists to keep off the wire.
-UNSERVED = (".md", ".d.ts")
+#: What sits beside the served files and is never served (#523, decision 18 on #429): a script's or
+#: a stylesheet's reasoning, its tagalong `<file>.md`. It is for whoever reads the source; a page
+#: that fetched it would pay for prose the budget exists to keep off the wire.
+UNSERVED = (".md",)
 
 #: What `layer.js` imports once the gate is on (layer.js `start`, `VENDOR`), after ink.js imports it.
 INK_LAYER_MODULES = ("ink/layer.js", "ink/shapes.js", "ink/pen.js", "vendor/three/three.module.min.js")
@@ -3284,8 +3324,7 @@ class Handler(BaseHTTPRequestHandler):
         if not path.startswith(root) or not os.path.isfile(path) or path.endswith(UNSERVED):
             return self._refuse(404, f"no file {name}")
         stamp = os.stat(path)
-        with open(path, "rb") as f:
-            body = f.read()
+        body = static_body(os.path.relpath(path, STATIC))
         # Decided from the *base* type, before the charset is appended -- and not from what this
         # machine happens to call a `.js` file. `mimetypes` reads the registry on Windows, where
         # `.js` is commonly `application/javascript`; deciding after the append left that failing

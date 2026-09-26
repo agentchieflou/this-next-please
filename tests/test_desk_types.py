@@ -40,14 +40,25 @@ def _source(name: str) -> str:
 
 
 def _typedef(name: str) -> set[str]:
-    """The property names `type <name> = {...}` declares in `app.js.d.ts`, where the JSDoc
-    `@typedef` that used to sit in app.js went (#523, decision 18)."""
-    dts = _source("app.js.d.ts")
-    m = re.search(r"^type " + re.escape(name) + r" = \{\n(.*?)^\};", dts, re.S | re.M)
-    assert m, f"no `type {name} = {{...}}` in app.js.d.ts"
-    # A property is a line of its own at the first indent: `  name?: Type;`. A doc comment above it,
-    # or a type that nests braces, never starts a line that way.
-    return set(re.findall(r"^  ([A-Za-z_$][\w$]*)\??:", m.group(1), re.M))
+    """The property names a `@typedef {Object} <name>` in app.js declares."""
+    js = _source("app.js")
+    m = re.search(r"/\*\*((?:(?!\*/).)*?)@typedef \{Object\} " + re.escape(name) + r"\b(.*?)\*/",
+                  js, re.S)
+    assert m, f"no @typedef {{Object}} {name} in app.js"
+    found = set()
+    for line in m.group(2).splitlines():
+        at = line.find("@property {")
+        if at < 0:
+            continue
+        # The type can nest braces -- `Object<string, {cols: number, rows: number} | number>` --
+        # so the name is whatever follows the brace that closes the first one.
+        depth, i = 0, line.index("{", at)
+        for i in range(i, len(line)):
+            depth += {"{": 1, "}": -1}.get(line[i], 0)
+            if depth == 0:
+                break
+        found.add(line[i + 1:].split()[0].strip("[]"))
+    return found
 
 
 def test_the_program_is_the_one_the_plan_names():
@@ -58,20 +69,12 @@ def test_the_program_is_the_one_the_plan_names():
     opts = cfg["compilerOptions"]
     assert opts["allowJs"] is True and opts["checkJs"] is True and opts["noEmit"] is True
     assert opts["strict"] is False, "turning strict on is a decision the plan leaves to its number"
-    # Each typed script is read with its declarations, which sit beside it (#523, decision 18).
-    assert cfg["files"] == ["agentdata/fleet/static/common.js",
-                            "agentdata/fleet/static/picker.js.d.ts", "agentdata/fleet/static/picker.js",
-                            "agentdata/fleet/static/app.js.d.ts", "agentdata/fleet/static/app.js"]
+    assert cfg["files"] == ["agentdata/fleet/static/common.js", "agentdata/fleet/static/picker.js",
+                            "agentdata/fleet/static/app.js"]
     for rel in cfg["files"]:
         assert os.path.isfile(os.path.join(ROOT, rel)), rel
-    # Dev-only: nothing about the check reaches the page or the wheel. The one `.ts` beside the page
-    # is a typed script's declarations, which the server refuses to serve and the wheel leaves out.
-    declared = {os.path.basename(f) for f in cfg["files"] if f.endswith(".d.ts")}
-    assert sorted(n for n in os.listdir(STATIC)
-                  if n.endswith((".ts", ".map")) or n == "tsconfig.json") == sorted(declared)
-    assert all(n.endswith(S.UNSERVED) for n in declared)
-    toml = open(os.path.join(ROOT, "pyproject.toml"), encoding="utf-8").read()
-    assert '"fleet/static/**/*.d.ts"' in toml.split("[tool.setuptools.exclude-package-data]")[1]
+    # Dev-only: nothing about the check reaches the page or the wheel.
+    assert not [n for n in os.listdir(STATIC) if n.endswith((".ts", ".map")) or n == "tsconfig.json"]
 
 
 def test_ci_and_the_docs_run_the_same_pinned_compiler():
