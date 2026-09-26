@@ -111,6 +111,14 @@ LATE_FRAME = """
 """
 
 FILLED = "() => document.querySelectorAll('#skin option').length > 3"
+
+#: How long each step of a settings round trip may take (#513): leaving the desk, the settings page
+#: filling, the pick, Back, and the desk after Back settling. On a loaded 4-core machine a desk's
+#: renderer waited 2-6 s in each compositor commit (0.2 s of CPU in 17-24 s): the desk after Back
+#: opened its stream 11.6-16.1 s after the click and heard its first `theme` frame up to 20.6 s after
+#: it, and leaving a glass desk for /settings outlasted Playwright's 30 s click. Three round trips are
+#: six page loads in one test. The frames checked, and every assertion on them, are unchanged.
+ROUND_TRIP_MS = 60000
 BG = "() => document.documentElement.style.getPropertyValue('--bg')"
 
 
@@ -412,18 +420,19 @@ def test_choosing_and_leaving_at_once_never_paints_the_old_skin(browser, fleet_h
     try:
         page, errors = _page(browser)
         _desk(page, port, token)
+        page.set_default_timeout(ROUND_TRIP_MS)      # the clicks and the pick below
         old = "voxel"
         for skin in run:
             family = skin.split(":")[0]
-            page.wait_for_function("() => !!Ink.inspect().table", timeout=15000)
+            page.wait_for_function("() => !!Ink.inspect().table", timeout=ROUND_TRIP_MS)
             page.locator("#setbtn").click()
-            page.wait_for_url(re.compile(r"/settings"), timeout=15000)
-            page.wait_for_function(FILLED, timeout=15000)
+            page.wait_for_url(re.compile(r"/settings"), timeout=ROUND_TRIP_MS)
+            page.wait_for_function(FILLED, timeout=ROUND_TRIP_MS)
             page.select_option("#skin", skin)
             page.locator("#backbtn").click()
-            page.wait_for_url(re.compile(r"/\?"), timeout=15000)
-            page.wait_for_function(SETTLED, timeout=15000)
-            page.wait_for_function("s => Ink.inspect().table === s", arg=skin, timeout=15000)
+            page.wait_for_url(re.compile(r"/\?"), timeout=ROUND_TRIP_MS)
+            page.wait_for_function(SETTLED, timeout=ROUND_TRIP_MS)
+            page.wait_for_function("s => Ink.inspect().table === s", arg=skin, timeout=ROUND_TRIP_MS)
             frames = _frames(page)["frames"]
             print(f"\n  {old} -> {skin}: {len(frames)} frames")
             assert frames and not _wrong(frames, family, bgs[skin], old), (skin, frames)
