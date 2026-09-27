@@ -1071,6 +1071,19 @@ when the server answered, so an answer asked before a theme change lands after t
 event and would put the old skin back. `refresh` applies the answer's theme only when no theme
 event arrived while it was in flight.
 
+Beside `var wornStrips = "";`:
+
+The theme the panes' strips were last painted for (#610's fix): its palette, its skin and the
+projects the config colours, as `stripsKey` writes them. A fleet answer that applies its theme
+paints every row's own accent, so it sets it too.
+
+### `function stripsKey`
+
+Above `function stripsKey(ts) {`:
+
+Only what decides a strip. `seq` (#483) and `tiers` (#235) move with a pick or a settings save and
+change no colour, so they are not in it.
+
 ### `function deskAsShown`
 
 Above `function deskAsShown(fallback) {`:
@@ -1202,6 +1215,13 @@ monitor that joined late never sits on a different project than the one beside i
 Beside `applyTiers(d.tiers);`:
 
 #235: set on the settings page, in effect now
+
+Above `if (stripsKey(d) === wornStrips) return;`:
+
+A frame that repeats the theme the strips already wear paints nothing. The stream sends the theme
+on every connect, and a page whose first fleet read already painted each pane's mark would clear
+it here and paint it back on the next read: an idle desk writing after every (re)connect. That was
+3 `style` writes in the legal pad's plain-fallback check on train 21's CI.
 
 Above `var a = d.accents || {};`:
 

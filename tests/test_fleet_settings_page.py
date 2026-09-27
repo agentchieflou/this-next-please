@@ -604,6 +604,18 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path, desk_b
         desk.wait_for_function("""(m) => document.body.dataset.skinVariant === 'light'
             && (document.querySelector('#grid .tile').style.borderLeftColor === m || (refresh(), false))""",
                                arg=mark, timeout=15000, polling=250)
+        # A stream that connects again is sent the theme the page already wears: the strip keeps
+        # its mark, unwritten, rather than cleared by the frame and painted back by the next read.
+        again = desk.evaluate("""async () => {
+            const w = __deskWaits.watch(document.getElementById('grid'), { childList: false, characterData: false },
+                                        { where: r => r.attributeName === 'style' && r.target.classList.contains('tile') });
+            const n0 = themeEvents;
+            source.close(); connect();
+            for (let i = 0; themeEvents === n0 && i < 600; i++) await new Promise(requestAnimationFrame);
+            const framed = themeEvents > n0;
+            await new Promise(d => requestAnimationFrame(() => requestAnimationFrame(d)));
+            return { framed, writes: w.stop().n, strip: document.querySelector('#grid .tile').style.borderLeftColor }; }""")
+        assert again == {"framed": True, "writes": 0, "strip": mark}, f"a reconnect's theme frame: {again}"
         fleet_reads = []
         desk.on("request", lambda r: fleet_reads.append(r.url) if "/api/fleet?" in r.url else None)
         (tmp_path / "cfg.json").write_text(
