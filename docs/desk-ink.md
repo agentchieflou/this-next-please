@@ -79,8 +79,16 @@ compressed page is cached per shell and class.
 | where the renderer would not name itself | `unknown` | no | yes |
 | where the probe did not finish | `incomplete` | no | yes |
 | where nothing has measured yet | `unmeasured` | no | yes |
+| on a coarse pointer under 900 px (a phone, a small tablet) | anything | no, `source: "narrow"` | yes |
 | with `?ink=off` | anything | no | yes |
 | with `?ink=on` | anything | yes, `source: "override"` | no |
+
+**`narrow` (#580).** The page has one rule of its own beside the probe:
+`matchMedia("(pointer: coarse) and (max-width: 900px)")` turns ink off whatever the probe said. A phone that opens
+the laptop's `w`-less URL inherits the `browser` record, which may say `hardware`. The layer's canvas is rebuilt on
+every `resize`, and a mobile URL bar fires those over and over. `?ink=off` and `?ink=on` are read first, so the
+override still forces ink on at 390 px. A fine pointer at any width, and a coarse one wider than 900 px, is the
+probe's to decide as before.
 
 The gate can also fail after load. The layer asks for a WebGL context (WebGL2, then WebGL1) **before** it fetches
 three.js, the way the probe does. A shell that will not give one falls back, and three.js is never fetched. If
