@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import _open, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 from test_fleet_ink_bounds import MEASURE, NAMES, RUNS, FIN, TOOL_W, bounds_desk, choose, desk_states, problems
 from test_fleet_ink_notebook import alive, finished  # noqa: F401 - fixtures are used by name
@@ -31,30 +31,28 @@ from test_fleet_ink_notebook import alive, finished  # noqa: F401 - fixtures are
 
 @pytest.mark.browser
 def test_the_running_underline_keeps_off_the_pane_number_under_the_name(fleet_home, tmp_path, monkeypatch,
-                                                                         alive, finished):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+                                                                         alive, finished, desk_browser):
     alive.update({RUNS, FIN})
     finished.add(FIN)
     bounds_desk(tmp_path, fleet_home, monkeypatch)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(NAMES), width=700, reduced=True)
-            desk_states(page)
-            # The chip on a row of its own, as a long enough age puts it: the number is alone under the name.
-            page.add_style_tag(content=f'.tile[data-repo="{RUNS}"] .head .chip {{ flex: 0 0 100% !important; }}')
-            choose(page, "napkin:diner")
-            laid = page.evaluate(f"""() => {{
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(NAMES), width=700, reduced=True)
+        desk_states(page)
+        # The chip on a row of its own, as a long enough age puts it: the number is alone under the name.
+        page.add_style_tag(content=f'.tile[data-repo="{RUNS}"] .head .chip {{ flex: 0 0 100% !important; }}')
+        choose(page, "napkin:diner")
+        laid = page.evaluate(f"""() => {{
               const h = document.querySelector('.tile[data-repo="{RUNS}"] .head'), r = h.querySelector('.repo'),
                     n = h.querySelector('.n'), c = h.querySelector('.chip');
               const [rq, nq, cq] = [r, n, c].map(e => e.getBoundingClientRect());
               return {{ tier: h.closest('.tile').dataset.tier, numberUnderName: nq.top >= rq.bottom,
                         chipUnderNumber: cq.top >= nq.bottom }};
             }}""")
-            marks = page.evaluate(MEASURE, TOOL_W)
-            assert not errors, errors
-            browser.close()
+        marks = page.evaluate(MEASURE, TOOL_W)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert laid == {"tier": "compact", "numberUnderName": True, "chipUnderNumber": True}, laid

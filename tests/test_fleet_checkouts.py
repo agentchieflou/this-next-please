@@ -326,11 +326,10 @@ def test_a_checkout_with_no_poll_running_still_answers(fleet_home, tmp_path, mon
 
 
 @pytest.mark.browser
-def test_the_strip_carries_the_other_checkouts_of_this_project(fleet_home, tmp_path):
+def test_the_strip_carries_the_other_checkouts_of_this_project(fleet_home, tmp_path, desk_browser):
     """The tabs beside the main one are the project's other checkouts, each with its own agent and
     its own chip. Clicking one selects that checkout's tile -- the strip stays, so the way back is
     one click and never `Esc`."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     import threading
 
     from agentdata.fleet import events as E
@@ -350,38 +349,37 @@ def test_the_strip_carries_the_other_checkouts_of_this_project(fleet_home, tmp_p
     thread.start()
     port = server.server_address[1]
     try:
-        from test_fleet_desk_browser import launch_chromium
+        from desk_harness import close_pages
 
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile:visible", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector(".tile:visible", timeout=15000)
 
-            tile = page.locator('.tile[data-repo="luna"]')
-            # The sibling checkouts moved into the one session menu (#206): same rows, same
-            # handler, one control instead of a row of tabs.
-            tile.locator(".spill").click()
-            page.wait_for_selector('.tile[data-repo="luna"] .sib-row:not([hidden])', timeout=5000)
-            sib = tile.locator(".sib-row:not([hidden]) .sib-open").first
-            assert "luna-hotfix" in (sib.get_attribute("title") or "") or \
-                   "luna-hotfix" in sib.inner_text()
+        tile = page.locator('.tile[data-repo="luna"]')
+        # The sibling checkouts moved into the one session menu (#206): same rows, same
+        # handler, one control instead of a row of tabs.
+        tile.locator(".spill").click()
+        page.wait_for_selector('.tile[data-repo="luna"] .sib-row:not([hidden])', timeout=5000)
+        sib = tile.locator(".sib-row:not([hidden]) .sib-open").first
+        assert "luna-hotfix" in (sib.get_attribute("title") or "") or \
+               "luna-hotfix" in sib.inner_text()
 
-            # It opens that checkout: the zoom this used to be went with the grid (#232).
-            sib.click()
-            page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="luna-hotfix"]')
+        # It opens that checkout: the zoom this used to be went with the grid (#232).
+        sib.click()
+        page.wait_for_function(
+            """() => document.querySelector('.tile[data-repo="luna-hotfix"]')
                           .classList.contains('is-solo')""",
-                timeout=5000)
-            # The strip is still there on the tile it went to, so the way back is a click.
-            page.locator('.tile[data-repo="luna-hotfix"] .spill').click()
-            page.wait_for_selector('.tile[data-repo="luna-hotfix"] .sib-row:not([hidden])',
-                                   timeout=5000)
-            assert page.locator('.tile[data-repo="luna-hotfix"] .sib-row:not([hidden])').count() == 1
-            assert not errors, errors
-            browser.close()
+            timeout=5000)
+        # The strip is still there on the tile it went to, so the way back is a click.
+        page.locator('.tile[data-repo="luna-hotfix"] .spill').click()
+        page.wait_for_selector('.tile[data-repo="luna-hotfix"] .sib-row:not([hidden])',
+                               timeout=5000)
+        assert page.locator('.tile[data-repo="luna-hotfix"] .sib-row:not([hidden])').count() == 1
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

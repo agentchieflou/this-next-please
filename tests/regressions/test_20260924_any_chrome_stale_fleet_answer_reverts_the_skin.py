@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink_glass import (_choose, _finished_desk, _open, _serve,  # noqa: F401 - fixtures
                                   _stop, alive, fleet_home)
 
@@ -40,30 +40,28 @@ HOLD_ONE_ANSWER = """() => {
 
 
 @pytest.mark.browser
-def test_a_fleet_answer_asked_before_a_skin_change_does_not_put_the_old_skin_back(fleet_home, tmp_path, alive):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_a_fleet_answer_asked_before_a_skin_change_does_not_put_the_old_skin_back(fleet_home, tmp_path, alive, desk_browser):
     _finished_desk(tmp_path, fleet_home, skin="glass:azure")
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, reduced=True)
-            page.wait_for_function("() => Ink.inspect().table === 'glass:azure' && pendingRefresh === null",
-                                   timeout=20000)
-            page.evaluate(HOLD_ONE_ANSWER)
-            # Asked again until an answer is held: a `refreshSoon()` timer can start a refresh with
-            # the real fetch between the wait above and the hold, and `refresh()` then hands back
-            # that one (#349).
-            page.wait_for_function("() => { if (pendingRefresh === null) refresh(); return window.__held === true; }",
-                                   timeout=10000)
-            _choose(page, "glass:noir")
-            page.wait_for_function("() => Ink.inspect().table === 'glass:noir'", timeout=20000)
-            page.evaluate("() => window.__release()")
-            page.wait_for_function("() => window.__held === 'released' && pendingRefresh === null", timeout=20000)
-            table = page.evaluate("() => Ink.inspect().table")
-            skin = page.evaluate("() => document.body.dataset.skinVariant")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, reduced=True)
+        page.wait_for_function("() => Ink.inspect().table === 'glass:azure' && pendingRefresh === null",
+                               timeout=20000)
+        page.evaluate(HOLD_ONE_ANSWER)
+        # Asked again until an answer is held: a `refreshSoon()` timer can start a refresh with
+        # the real fetch between the wait above and the hold, and `refresh()` then hands back
+        # that one (#349).
+        page.wait_for_function("() => { if (pendingRefresh === null) refresh(); return window.__held === true; }",
+                               timeout=10000)
+        _choose(page, "glass:noir")
+        page.wait_for_function("() => Ink.inspect().table === 'glass:noir'", timeout=20000)
+        page.evaluate("() => window.__release()")
+        page.wait_for_function("() => window.__held === 'released' && pendingRefresh === null", timeout=20000)
+        table = page.evaluate("() => Ink.inspect().table")
+        skin = page.evaluate("() => document.body.dataset.skinVariant")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert (table, skin) == ("glass:noir", "noir"), \

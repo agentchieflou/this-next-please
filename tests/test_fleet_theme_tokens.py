@@ -18,7 +18,7 @@ from agentdata.fleet import events as E, serve as S, skins
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import (  # noqa: F401 - fixtures used by name
     _desk_of, _open, _serve, _stop, fleet_home
 )
@@ -33,8 +33,7 @@ def _hex_to_rgb(hex_str: str) -> str:
 
 @pytest.mark.browser
 @pytest.mark.parametrize("skin_name", ["notebook:light", "glass:smoke"])
-def test_computed_muted_and_placeholder_tokens(fleet_home, tmp_path, skin_name):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_computed_muted_and_placeholder_tokens(fleet_home, tmp_path, skin_name, desk_browser):
     _desk_of(tmp_path, ("alpha", "beta"))
 
     # Write skin configuration
@@ -47,31 +46,30 @@ def test_computed_muted_and_placeholder_tokens(fleet_home, tmp_path, skin_name):
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, extra="&ink=on", panes=2)
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, extra="&ink=on", panes=2)
 
-            page.wait_for_function(
-                """() => !!document.querySelector('.runline') && !!document.querySelector('input.say')""",
-                timeout=10000,
-            )
-            page.wait_for_function(
-                f"""() => getComputedStyle(document.querySelector('.runline')).color === '{expected_rgb}'""",
-                timeout=10000,
-            )
-            page.wait_for_function(
-                f"""() => getComputedStyle(document.querySelector('input.say'), '::placeholder').color === '{expected_rgb}'""",
-                timeout=10000,
-            )
+        page.wait_for_function(
+            """() => !!document.querySelector('.runline') && !!document.querySelector('input.say')""",
+            timeout=10000,
+        )
+        page.wait_for_function(
+            f"""() => getComputedStyle(document.querySelector('.runline')).color === '{expected_rgb}'""",
+            timeout=10000,
+        )
+        page.wait_for_function(
+            f"""() => getComputedStyle(document.querySelector('input.say'), '::placeholder').color === '{expected_rgb}'""",
+            timeout=10000,
+        )
 
-            runline_color = page.evaluate("() => getComputedStyle(document.querySelector('.runline')).color")
-            placeholder_color = page.evaluate("() => getComputedStyle(document.querySelector('input.say'), '::placeholder').color")
+        runline_color = page.evaluate("() => getComputedStyle(document.querySelector('.runline')).color")
+        placeholder_color = page.evaluate("() => getComputedStyle(document.querySelector('input.say'), '::placeholder').color")
 
-            assert runline_color == expected_rgb
-            assert placeholder_color == expected_rgb
-            assert not errors, errors
-            page.close()
-            browser.close()
+        assert runline_color == expected_rgb
+        assert placeholder_color == expected_rgb
+        assert not errors, errors
+        page.close()
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -220,36 +218,34 @@ def _chip_desk(tmp_path, alive, finished):
 @pytest.mark.browser
 @pytest.mark.parametrize("ink", ["on", "off"])
 @pytest.mark.parametrize("look", ["voxel:overworld", "voxel:nether", "glass:azure", "none"])
-def test_every_chip_word_and_age_read_at_4_5_on_the_chip(fleet_home, tmp_path, alive, finished, look, ink):
+def test_every_chip_word_and_age_read_at_4_5_on_the_chip(fleet_home, tmp_path, alive, finished, look, ink, desk_browser):
     """Browser (#327), ink on and off: each `.chip` word and its `.chipage`, as computed, read at
     4.5:1 on the chip's computed background, for one pane in every state. The look is served in the
     page (#345), not switched in late."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _chip_desk(tmp_path, alive, finished)
     (fleet_home.parent / "cfg.json").write_text(f'{{"theme": {{"skin": "{look}"}}}}', encoding="utf-8")
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, extra=f"&ink={ink}", panes=len(STATES))
-            # Once the page has the desk: its first fold writes each project's own phase first.
-            _emit(page, "fin", ("phase_changed", {"from": "build", "to": "done"}))
-            want = ", ".join(f'.tile[data-repo="{r}"] .head .chip.{s}' for r, s in STATES.items())
-            try:
-                page.wait_for_function(
-                    "(want) => { if (document.querySelectorAll(want).length === 5) return true; refresh(); return false; }",
-                    arg=want, timeout=15000, polling=250)
-            except Exception:
-                pytest.fail(f"the chips never reached their states: {page.evaluate(CHIPS)}")
-            if look != "none":
-                family = look.split(":")[0]
-                page.wait_for_function(
-                    f"""() => document.body.dataset.skin === '{family}'
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, extra=f"&ink={ink}", panes=len(STATES))
+        # Once the page has the desk: its first fold writes each project's own phase first.
+        _emit(page, "fin", ("phase_changed", {"from": "build", "to": "done"}))
+        want = ", ".join(f'.tile[data-repo="{r}"] .head .chip.{s}' for r, s in STATES.items())
+        try:
+            page.wait_for_function(
+                "(want) => { if (document.querySelectorAll(want).length === 5) return true; refresh(); return false; }",
+                arg=want, timeout=15000, polling=250)
+        except Exception:
+            pytest.fail(f"the chips never reached their states: {page.evaluate(CHIPS)}")
+        if look != "none":
+            family = look.split(":")[0]
+            page.wait_for_function(
+                f"""() => document.body.dataset.skin === '{family}'
                          && [...document.styleSheets].some(s => (s.href || '').includes('/skins/{family}/'))""",
-                    timeout=15000)
-            chips = page.evaluate(CHIPS)
-            assert not errors, errors
-            browser.close()
+                timeout=15000)
+        chips = page.evaluate(CHIPS)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert {c["repo"] for c in chips} == set(STATES), chips
@@ -393,50 +389,48 @@ def _until_words(page, sel):
 
 
 @pytest.mark.browser
-def test_words_in_a_state_colour_are_painted_in_the_served_text_token(fleet_home, tmp_path):
+def test_words_in_a_state_colour_are_painted_in_the_served_text_token(fleet_home, tmp_path, desk_browser):
     """Browser (#328). Ink on, on glass:smoke, graph:blueprint, voxel:overworld and farmstead:rainy:
     the error's why line, the transcript's "exit 2" and the question card's head are painted in the
     `--human-text` the page is served -- the one `to_css(base, panels=panels_on(base))` chose -- and
     farmstead's clear error chip writes its word in it too. Then the plain page under the OS dark
     scheme (`none`, Playwright `color_scheme="dark"`): the card's head and the why line are painted in
     the dark `:root` block's own `--human-text`. One server and one browser; a page per look."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _words_desk(tmp_path)
     seen = {}
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for look in WORD_LOOKS:
-                family = look.split(":")[0]
-                _choose(fleet_home, '{"skin": "%s"}' % look)
-                sel = dict(HUMAN_WORDS)
-                if family == "farmstead":
-                    sel["chip"] = '.tile[data-repo="err"] .head .chip.error'
-                page, errors, _ = _open(browser, port, token, "&ink=on", panes=2)
-                _until_words(page, sel)
-                page.wait_for_function(
-                    """([look, family]) => (Ink.inspect().table === look || (refresh(), false))
+        browser = desk_browser
+        for look in WORD_LOOKS:
+            family = look.split(":")[0]
+            _choose(fleet_home, '{"skin": "%s"}' % look)
+            sel = dict(HUMAN_WORDS)
+            if family == "farmstead":
+                sel["chip"] = '.tile[data-repo="err"] .head .chip.error'
+            page, errors, _ = _open(browser, port, token, "&ink=on", panes=2)
+            _until_words(page, sel)
+            page.wait_for_function(
+                """([look, family]) => (Ink.inspect().table === look || (refresh(), false))
                          && document.body.dataset.skin === family && !document.body.classList.contains('ink-off')
                          && [...document.querySelectorAll('link[data-skin]')].some(l => l.sheet
                               && l.href.includes('/static/skins/' + family + '/skin.css'))""",
-                    arg=[look, family], timeout=30000, polling=250)
-                seen[look] = (page.evaluate(SERVED), page.evaluate(PAINTED, sel))
-                assert not errors, (look, errors)
-                page.close()
+                arg=[look, family], timeout=30000, polling=250)
+            seen[look] = (page.evaluate(SERVED), page.evaluate(PAINTED, sel))
+            assert not errors, (look, errors)
+            page.close()
 
-            _choose(fleet_home, "{}")
-            page = browser.new_page(viewport={"width": 1400, "height": 900}, color_scheme="dark")
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            sel = {k: HUMAN_WORDS[k] for k in ("asks", "why")}
-            _until_words(page, sel)
-            page.wait_for_function("() => !document.documentElement.dataset.theme && !document.body.dataset.skin",
-                                   timeout=15000)
-            seen["none (dark)"] = (page.evaluate(SERVED), page.evaluate(PAINTED, sel))
-            assert not errors, errors
-            browser.close()
+        _choose(fleet_home, "{}")
+        page = browser.new_page(viewport={"width": 1400, "height": 900}, color_scheme="dark")
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        sel = {k: HUMAN_WORDS[k] for k in ("asks", "why")}
+        _until_words(page, sel)
+        page.wait_for_function("() => !document.documentElement.dataset.theme && !document.body.dataset.skin",
+                               timeout=15000)
+        seen["none (dark)"] = (page.evaluate(SERVED), page.evaluate(PAINTED, sel))
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 

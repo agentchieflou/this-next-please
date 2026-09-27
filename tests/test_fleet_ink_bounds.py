@@ -33,7 +33,7 @@ from agentdata.fleet import events as E, fingerprint as FP, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import AT_REST, _choose, _open, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until, alive, finished  # noqa: F401 - fixtures are used by name
 
@@ -332,25 +332,23 @@ def tail_problems(width, tails):
 @pytest.mark.browser
 @pytest.mark.parametrize("width", WIDTHS)
 def test_skin_marks_keep_inside_their_pane_and_off_other_words(fleet_home, tmp_path, monkeypatch, alive,
-                                                               finished, width):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+                                                               finished, width, desk_browser):
     alive.update({RUNS, FIN})
     finished.add(FIN)
     bounds_desk(tmp_path, fleet_home, monkeypatch)
     server, token, port = _serve()
     seen, tails = {}, None
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(NAMES), width=width, reduced=True)
-            desk_states(page)
-            for look in LOOKS:
-                choose(page, look)
-                seen[look] = page.evaluate(MEASURE, TOOL_W)
-                if look.startswith("legalpad"):
-                    tails = page.evaluate(TAILS)
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(NAMES), width=width, reduced=True)
+        desk_states(page)
+        for look in LOOKS:
+            choose(page, look)
+            seen[look] = page.evaluate(MEASURE, TOOL_W)
+            if look.startswith("legalpad"):
+                tails = page.evaluate(TAILS)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     found = [x for look, marks in seen.items() for x in problems(look, width, marks)]

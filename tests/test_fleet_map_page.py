@@ -19,7 +19,6 @@ from agentdata.fleet import supervisor as SV
 from agentdata.fleet.registry import AGENT_ENV, Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import _serve, _stop
 from test_fleet_map import _worktree, fleet_home, row, snap  # noqa: F401
 
@@ -91,13 +90,10 @@ def test_open_page_map_lands_on_the_map(fleet_home, tmp_path):
 # -------------------------------------------------------------------------------- the browser
 
 
-@pytest.fixture(scope="module")
-def browser():
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        b = launch_chromium(p)
-        yield b
-        b.close()
+@pytest.fixture()
+def browser(desk_browser):
+    """The worker's shared Chromium (tests/desk_harness.py); this test's contexts close when it ends."""
+    return desk_browser
 
 
 def _open(browser, port, token, extra="", viewport=(1400, 900)):

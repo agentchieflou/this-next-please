@@ -23,7 +23,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -167,30 +167,28 @@ def test_the_one_door_for_a_layout_change_has_both_paths_and_takes_neither_under
 
 @pytest.mark.browser
 def test_the_gestures_animate_for_the_base_duration_and_not_at_all_under_reduced_motion(
-        fleet_home, tmp_path):
+        fleet_home, tmp_path, desk_browser):
     """`getAnimations()` is the only honest answer to "did that animate": it reports what the
     engine is really running, not what the stylesheet hoped for."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            for reduced in (False, True):
-                page = browser.new_page(viewport={"width": 1400, "height": 900},
-                                        reduced_motion="reduce" if reduced else "no-preference")
-                errors = []
-                page.on("pageerror", lambda e: errors.append(str(e)))
-                page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                          wait_until="domcontentloaded")
-                page.wait_for_selector(".tile.is-solo", timeout=15000)
+        browser = desk_browser
+        for reduced in (False, True):
+            page = browser.new_page(viewport={"width": 1400, "height": 900},
+                                    reduced_motion="reduce" if reduced else "no-preference")
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
+                      wait_until="domcontentloaded")
+            page.wait_for_selector(".tile.is-solo", timeout=15000)
 
-                # Opening the session menu is the simplest of the three: one panel, one
-                # pattern. The enter animates opacity and translate; `display` is discrete and
-                # flips on the first frame, which is what makes the panel there to animate at all.
-                ran = page.evaluate("""() => {
+            # Opening the session menu is the simplest of the three: one panel, one
+            # pattern. The enter animates opacity and translate; `display` is discrete and
+            # flips on the first frame, which is what makes the panel there to animate at all.
+            ran = page.evaluate("""() => {
                   const menu = document.querySelector('.tile.is-solo .smenu');
                   menu.hidden = false;
                   return menu.getAnimations().map(a => ({
@@ -198,44 +196,44 @@ def test_the_gestures_animate_for_the_base_duration_and_not_at_all_under_reduced
                     ms: Math.round(a.effect.getComputedTiming().duration),
                   }));
                 }""")
-                assert not errors, errors
-                if reduced:
-                    assert all(a["ms"] <= 1 for a in ran), ran
-                else:
-                    assert ran, "the menu arrived with no animation at all"
-                    props = {a["prop"] for a in ran}
-                    assert props == {"opacity", "translate"}, props
-                    assert all(200 <= a["ms"] <= 320 for a in ran), ran
+            assert not errors, errors
+            if reduced:
+                assert all(a["ms"] <= 1 for a in ran), ran
+            else:
+                assert ran, "the menu arrived with no animation at all"
+                props = {a["prop"] for a in ran}
+                assert props == {"opacity", "translate"}, props
+                assert all(200 <= a["ms"] <= 320 for a in ran), ran
 
-                # And the leave, which is the half `allow-discrete` exists for: the panel is
-                # still painted after it was hidden, rather than being gone before anyone saw it
-                # go.
-                #
-                # Waited on with an interval rather than a frame. Headless Chromium throttles
-                # `requestAnimationFrame` hard when nothing is compositing, so a poll built on it
-                # can simply not run on a loaded runner -- and then the stylesheet gets blamed for
-                # the scheduler. The `polling` argument takes a millisecond count, which is a
-                # timer and is not throttled the same way.
-                page.evaluate(
-                    "() => { document.querySelector('.tile.is-solo .smenu').hidden = true; }")
-                if reduced:
-                    page.wait_for_function(
-                        """() => document.querySelector('.tile.is-solo .smenu')
+            # And the leave, which is the half `allow-discrete` exists for: the panel is
+            # still painted after it was hidden, rather than being gone before anyone saw it
+            # go.
+            #
+            # Waited on with an interval rather than a frame. Headless Chromium throttles
+            # `requestAnimationFrame` hard when nothing is compositing, so a poll built on it
+            # can simply not run on a loaded runner -- and then the stylesheet gets blamed for
+            # the scheduler. The `polling` argument takes a millisecond count, which is a
+            # timer and is not throttled the same way.
+            page.evaluate(
+                "() => { document.querySelector('.tile.is-solo .smenu').hidden = true; }")
+            if reduced:
+                page.wait_for_function(
+                    """() => document.querySelector('.tile.is-solo .smenu')
                                    .getBoundingClientRect().height === 0""",
-                        polling=25, timeout=8000)
-                else:
-                    # Still there a frame's worth later, which is the whole claim.
-                    page.wait_for_timeout(60)
-                    left = page.evaluate("""() => {
+                    polling=25, timeout=8000)
+            else:
+                # Still there a frame's worth later, which is the whole claim.
+                page.wait_for_timeout(60)
+                left = page.evaluate("""() => {
                       const menu = document.querySelector('.tile.is-solo .smenu');
                       return { box: menu.getBoundingClientRect().height,
                                running: menu.getAnimations().length };
                     }""")
-                    assert left["box"] > 0, "the panel was gone before it could be seen going"
-                    assert left["running"] > 0, left
-                assert not errors, errors
-                page.close()
-            browser.close()
+                assert left["box"] > 0, "the panel was gone before it could be seen going"
+                assert left["running"] > 0, left
+            assert not errors, errors
+            page.close()
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -243,43 +241,41 @@ def test_the_gestures_animate_for_the_base_duration_and_not_at_all_under_reduced
 
 
 @pytest.mark.browser
-def test_a_gesture_that_supersedes_another_is_not_an_unhandled_rejection(fleet_home, tmp_path):
+def test_a_gesture_that_supersedes_another_is_not_an_unhandled_rejection(fleet_home, tmp_path, desk_browser):
     """Two gestures inside one transition is the most ordinary thing on this page, and the browser
     rejects all three of the superseded transition's promises to say so. Unhandled, that reaches
     the console as `Transition was skipped. New ViewTransition started` -- and reached this suite
     as a page error on the slower of the two CI runners, which is how it was found."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta")
     S.arrange(order=["alpha", "beta", "gamma", "delta"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
-            page.wait_for_function(
-                "() => document.querySelectorAll('#grid .tile[data-tier=\"rail\"]').length >= 2",
-                timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector(".tile.is-solo", timeout=15000)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grid .tile[data-tier=\"rail\"]').length >= 2",
+            timeout=15000)
 
-            # Four opens inside a frame: every one of them supersedes the one before.
-            page.evaluate("""() => {
+        # Four opens inside a frame: every one of them supersedes the one before.
+        page.evaluate("""() => {
               openPane('beta'); openPane('gamma'); openPane('delta'); openPane('alpha');
             }""")
-            # Waited on by state and not by a clock: a fixed sleep here passes on an idle machine
-            # and fails on a loaded one, which is a test measuring the load.
-            page.wait_for_function(
-                """() => { const t = document.querySelector('.tile.is-solo');
+        # Waited on by state and not by a clock: a fixed sleep here passes on an idle machine
+        # and fails on a loaded one, which is a test measuring the load.
+        page.wait_for_function(
+            """() => { const t = document.querySelector('.tile.is-solo');
                            return !!t && t.dataset.repo === 'alpha'; }""", timeout=15000)
-            page.wait_for_function(
-                "() => !document.querySelector('[style*=\"view-transition-name\"]')",
-                timeout=15000)
-            assert errors == [], errors
-            browser.close()
+        page.wait_for_function(
+            "() => !document.querySelector('[style*=\"view-transition-name\"]')",
+            timeout=15000)
+        assert errors == [], errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -288,56 +284,54 @@ def test_a_gesture_that_supersedes_another_is_not_an_unhandled_rejection(fleet_h
 
 @pytest.mark.browser
 def test_with_view_transitions_taken_away_the_same_gestures_run_flip_and_land_identically(
-        fleet_home, tmp_path):
+        fleet_home, tmp_path, desk_browser):
     """The IDE shells are behind Chromium and will be for a while. Whatever the desk does on the
     good path it has to do on the other one, and end in the same place."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            shapes = {}
-            for stubbed in (False, True):
-                page = browser.new_page(viewport={"width": 1400, "height": 900})
-                errors = []
-                page.on("pageerror", lambda e: errors.append(str(e)))
-                if stubbed:
-                    page.add_init_script("delete Document.prototype.startViewTransition;")
-                page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                          wait_until="domcontentloaded")
-                page.wait_for_selector(".tile.is-solo", timeout=15000)
-                assert page.evaluate(
-                    "() => typeof document.startViewTransition === 'function'") is not stubbed
+        browser = desk_browser
+        shapes = {}
+        for stubbed in (False, True):
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            if stubbed:
+                page.add_init_script("delete Document.prototype.startViewTransition;")
+            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
+                      wait_until="domcontentloaded")
+            page.wait_for_selector(".tile.is-solo", timeout=15000)
+            assert page.evaluate(
+                "() => typeof document.startViewTransition === 'function'") is not stubbed
 
-                page.evaluate("() => openPane('gamma')")
-                page.wait_for_function(
-                    """() => document.querySelector('.tile.is-solo')
+            page.evaluate("() => openPane('gamma')")
+            page.wait_for_function(
+                """() => document.querySelector('.tile.is-solo')
                               && document.querySelector('.tile.is-solo').dataset.repo === 'gamma'""",
-                    timeout=8000)
-                # Waited for, not slept through (#227): the names come off when the transition's
-                # `finished` settles, and that is --motion-base plus the snapshot frames plus the
-                # pane's own redraw -- 420-550 ms headless here, so a flat 450 was a coin toss.
-                page.wait_for_function(
-                    "() => !document.querySelector('[style*=\"view-transition-name\"]')",
-                    timeout=15000)
-                shapes[stubbed] = page.evaluate("""() => ({
+                timeout=8000)
+            # Waited for, not slept through (#227): the names come off when the transition's
+            # `finished` settles, and that is --motion-base plus the snapshot frames plus the
+            # pane's own redraw -- 420-550 ms headless here, so a flat 450 was a coin toss.
+            page.wait_for_function(
+                "() => !document.querySelector('[style*=\"view-transition-name\"]')",
+                timeout=15000)
+            shapes[stubbed] = page.evaluate("""() => ({
                   open: document.querySelector('.tile.is-solo').dataset.repo,
                   rails: [...document.querySelectorAll('#grid .tile[data-tier="rail"]')]
                     .map(t => t.dataset.repo),
                   names: [...document.querySelectorAll('.tile')]
                     .map(t => t.style.viewTransitionName || ''),
                 })""")
-                assert not errors, errors
-                page.close()
+            assert not errors, errors
+            page.close()
 
-            assert shapes[False]["open"] == shapes[True]["open"] == "gamma"
-            assert shapes[False]["rails"] == shapes[True]["rails"] == ["alpha", "beta"], shapes
-            assert shapes[False]["names"] == [""] * len(shapes[False]["names"]), \
-                "the names are for the duration of the transition and are cleared after it"
-            browser.close()
+        assert shapes[False]["open"] == shapes[True]["open"] == "gamma"
+        assert shapes[False]["rails"] == shapes[True]["rails"] == ["alpha", "beta"], shapes
+        assert shapes[False]["names"] == [""] * len(shapes[False]["names"]), \
+            "the names are for the duration of the transition and are cleared after it"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -366,7 +360,7 @@ def _main_thread_tasks(trace: bytes) -> list[tuple[float, float]]:
 
 @pytest.mark.browser
 @pytest.mark.measured
-def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp_path):
+def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp_path, desk_browser):
     """The frame-rate floor, measured as the thing this code actually decides.
 
     A headless runner throttles `requestAnimationFrame` to whatever it feels like -- sixty-six
@@ -384,25 +378,23 @@ def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp
     the same fifty milliseconds of its thread time (`tdur`), which the OS's other work does not
     count into. The `longtask` entries are printed alongside.
     """
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", "delta", "epsilon")
     S.arrange(order=["alpha", "beta", "gamma", "delta", "epsilon"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1920, "height": 1080})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
-            page.wait_for_timeout(300)               # past the first fold's own work
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1920, "height": 1080})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=column",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector(".tile.is-solo", timeout=15000)
+        page.wait_for_timeout(300)               # past the first fold's own work
 
-            browser.start_tracing(page=page, categories=["devtools.timeline",
-                                                     "disabled-by-default-devtools.timeline"])
-            out = page.evaluate("""() => new Promise(resolve => {
+        browser.start_tracing(page=page, categories=["devtools.timeline",
+                                                 "disabled-by-default-devtools.timeline"])
+        out = page.evaluate("""() => new Promise(resolve => {
               const long = [];
               const obs = new PerformanceObserver(list => {
                 list.getEntries().forEach(e => long.push(Math.round(e.duration)));
@@ -424,24 +416,24 @@ def test_a_layout_change_blocks_the_main_thread_for_no_long_task(fleet_home, tmp
                           open: document.querySelector('.tile.is-solo').dataset.repo });
               }, 700);
             })""")
-            held = _main_thread_tasks(browser.stop_tracing())
-            assert not errors, errors
-            assert out["open"] == "epsilon", "the swap did not happen at all"
-            gaps = sorted(out["gaps"])
-            if gaps:
-                print(f"\nframes during the swap: median {gaps[len(gaps) // 2]:.1f}ms, "
-                      f"max {gaps[-1]:.1f}ms, over {len(gaps)} frames; "
-                      f"the call itself held the thread for {out['handed']:.1f}ms")
-            print(f"main-thread tasks: {len(held)}, the longest on the thread's own clock "
-                  f"{max((cpu for cpu, _ in held), default=0.0):.1f}ms; longtask entries "
-                  f"(wall clock) {out['long']}ms")
-            assert held, "the trace holds no main-thread task with a thread time to measure"
-            blocked = [(round(cpu, 1), round(wall, 1)) for cpu, wall in held if cpu >= LONG_TASK_MS]
-            assert blocked == [], \
-                f"the swap blocked the main thread: {blocked} (thread ms, wall ms); longtask {out['long']}ms"
-            assert out["handed"] <= 50.0, \
-                f"the gesture held the thread for {out['handed']:.1f}ms before returning"
-            browser.close()
+        held = _main_thread_tasks(browser.stop_tracing())
+        assert not errors, errors
+        assert out["open"] == "epsilon", "the swap did not happen at all"
+        gaps = sorted(out["gaps"])
+        if gaps:
+            print(f"\nframes during the swap: median {gaps[len(gaps) // 2]:.1f}ms, "
+                  f"max {gaps[-1]:.1f}ms, over {len(gaps)} frames; "
+                  f"the call itself held the thread for {out['handed']:.1f}ms")
+        print(f"main-thread tasks: {len(held)}, the longest on the thread's own clock "
+              f"{max((cpu for cpu, _ in held), default=0.0):.1f}ms; longtask entries "
+              f"(wall clock) {out['long']}ms")
+        assert held, "the trace holds no main-thread task with a thread time to measure"
+        blocked = [(round(cpu, 1), round(wall, 1)) for cpu, wall in held if cpu >= LONG_TASK_MS]
+        assert blocked == [], \
+            f"the swap blocked the main thread: {blocked} (thread ms, wall ms); longtask {out['long']}ms"
+        assert out["handed"] <= 50.0, \
+            f"the gesture held the thread for {out['handed']:.1f}ms before returning"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
