@@ -1195,3 +1195,104 @@ def apply_once(cfg: dict | None = None, *, now: float | None = None) -> dict:
         s["rejected_24h"] = _rejected_24h(folder, p.now)
     update_state(seen)
     return counts
+
+
+# ============================================================================== the thread and `watch` (#550)
+#
+# One loop, two hosts (MOB-D5): a daemon thread of `ad-fleet serve` and `quickstart`, started by the CLI after
+# `_refresh_models(server)` and ending with `server.stopping`, never by `serve.build()` (every browser test builds a
+# server, and none of them may start the bridge); or `ad-fleet mobile watch` in the foreground, for a laptop with no
+# desk running. Each pass, in order: the notification sweep (`serve.sweep_if_due("")`, the one sweep the desk's
+# streams share, so there is one cursor however many sweep), `export_once` (which beats every `HEARTBEAT_S`),
+# `apply_once`, and `prune` every `PRUNE_EVERY_S`. Each step is wrapped on its own: a failure is logged through
+# `debug_exc` and the next step and the next pass still run. The tick is a constant, not a setting.
+#
+# The loop reads the config it was given, or `config.json` afresh on every pass when it was given none (the CLI's
+# case), so `operator`, `expire_s` and `notify` are read now, as §Settings says.
+
+BRIDGE_THREAD = "fleet-bridge"
+
+__all__ += ["TICK_S", "BRIDGE_THREAD", "run_loop", "start"]
+
+
+def _log(where: str) -> None:
+    from ..log import debug_exc
+
+    debug_exc(where)
+
+
+def _jumped(stamps: dict, now: float) -> bool:
+    """A wall-clock jump since the last pass: forward further than two minutes and a tick explain (the laptop slept,
+    `lifecycle.slept`), or backward at all (the clock was stepped back)."""
+    from .lifecycle import SLEEP_GAP_S
+
+    last = stamps.get("wall")
+    return last is not None and (now < last or now - last > SLEEP_GAP_S + stamps.get("tick", TICK_S))
+
+
+def _one_pass(cfg: dict | None, stamps: dict, now: float) -> None:
+    """One pass of the loop. `stamps` is the loop's own: `wall` (the last pass) and `prune` (the last prune).
+
+    After a jump the heartbeat and prune stamps are reset rather than trusted: one heartbeat is written now (the phone
+    learns the laptop is awake, and a clock stepped back cannot hold the next beat off for hours), and the next prune is
+    a whole interval away. Nothing catches up, so a wake is never a burst.
+    """
+    if _jumped(stamps, now):
+        try:
+            update_state(lambda s: s.__setitem__("last_heartbeat", ""))
+        except Exception:                                  # noqa: BLE001 - logged; the export still beats on time
+            _log("bridge jump")
+        stamps["prune"] = now
+    stamps["wall"] = now
+    try:
+        from .serve import sweep_if_due
+
+        sweep_if_due("")
+    except Exception:                                      # noqa: BLE001 - one step never stops the next
+        _log("bridge sweep")
+    try:
+        export_once(cfg, now=now)
+    except Exception:                                      # noqa: BLE001 - one step never stops the next
+        _log("bridge export")
+    try:
+        apply_once(cfg)
+    except Exception:                                      # noqa: BLE001 - one step never stops the next
+        _log("bridge apply")
+    last = stamps.get("prune")
+    if last is None or now - last >= PRUNE_EVERY_S:
+        stamps["prune"] = now
+        try:
+            folder = check_folder(cfg)
+            update_state(lambda s: prune(folder, s, now))
+        except Exception:                                  # noqa: BLE001 - one step never stops the next
+            _log("bridge prune")
+
+
+def run_loop(stop: _threading.Event, cfg: dict | None = None, *, tick: float = TICK_S, once: bool = False) -> None:
+    """Pass after pass until `stop` is set (within one `tick`), or once. Never raises."""
+    stamps: dict = {"tick": float(tick)}
+    while not stop.is_set():
+        try:
+            _one_pass(cfg, stamps, _time.time())
+        except Exception:                                  # noqa: BLE001 - the loop outlives any one pass
+            _log("bridge pass")
+        if once or stop.wait(tick):
+            return
+
+
+def start(stop: _threading.Event, cfg: dict | None = None) -> _threading.Thread | None:
+    """The bridge's daemon thread, started, or `None` when the bridge is off or its folder is refused.
+
+    A refusal is logged through `debug_exc` and never raised: a misconfigured bridge never stops the desk from serving
+    (`ad-doctor` and `ad-fleet mobile status` say why). `cfg=None` reads `config.json`, now and on every pass.
+    """
+    try:
+        if not settings(cfg)["enabled"]:
+            return None
+        check_folder(cfg)
+    except Exception:                                      # noqa: BLE001 - logged; the desk serves without it
+        _log("bridge start")
+        return None
+    thread = _threading.Thread(target=run_loop, args=(stop, cfg), name=BRIDGE_THREAD, daemon=True)
+    thread.start()
+    return thread
