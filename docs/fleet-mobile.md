@@ -165,3 +165,11 @@ Marked as such, not asserted:
   URL): *unverified*.
 - **Zscaler's default exemption list.** help.zscaler.com did not render when the research was done, so whether the
   recommended exemptions already cover the push hosts is *unverified*.
+
+## Runbook
+
+What only the laptop, the tenant and a phone can answer is in
+[windows-verification.md §Mobile](windows-verification.md#mobile-538-539-the-bridge-the-phone-and-the-tenant):
+rows M1–M12, each *not yet measured* until the mobile sitting (#582) runs it. The round trip (M1) and push
+latency (M10) set `fleet.mobile.expire_s` and the heartbeat; the snapshot's cost per tick (M5) decides
+`TICK_S`.
