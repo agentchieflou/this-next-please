@@ -271,21 +271,21 @@ jobs:
       # #311: step cap 15. The `windows` times in tests/durations.json put each 3.14 shard at about
       # 9.3 minutes and each 3.12 shard at about 4.7 (the serial step's last runs: 28-32 minutes on
       # 3.14, 14m16s on 3.12 in run 36258816693).
-      - name: pytest · shard
-        if: matrix.python == '3.14' && matrix.shard != ''
-        shell: pwsh
-        timeout-minutes: 15
-        env:
-          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -q -rs --shard=${{ matrix.shard }} -m "not slow and not measured and not scale" --junitxml=junit/windows-${{ matrix.key }}-pytest.xml
       # No Chromium on 3.12, so the browser tier is deselected, not left to skip.
-      - name: pytest · shard, no browser
+      - name: pytest · no browser
         if: matrix.python == '3.12' && matrix.shard != ''
         shell: pwsh
         timeout-minutes: 15
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
         run: python -m pytest -q -rs --shard=${{ matrix.shard }} -m "not browser and not slow and not measured and not scale" --junitxml=junit/windows-${{ matrix.key }}-pytest.xml
+      - name: pytest
+        if: matrix.python == '3.14' && matrix.shard != ''
+        shell: pwsh
+        timeout-minutes: 15
+        env:
+          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
+        run: python -m pytest -q -rs --shard=${{ matrix.shard }} -m "not slow and not measured and not scale" --junitxml=junit/windows-${{ matrix.key }}-pytest.xml
       # #435: late in the serial step Chromium has failed to fetch a script with
       # `net::ERR_NO_BUFFER_SPACE` (Winsock WSAENOBUFS). The suspect is the dynamic port range run
       # dry by sockets held in TIME_WAIT. Print both after the suite, pass or fail, so the next red
@@ -442,7 +442,7 @@ jobs:
         run: |
           s=.github/scripts/durations.py
           report() { [ -f "junit/$1.xml" ] && python "$s" summarize "junit/$1.xml" --step "$2" --cap-minutes "$3" | tee -a "$GITHUB_STEP_SUMMARY"; true; }
-          report windows-$KEY-pytest "pytest · shard" 15
+          report windows-$KEY-pytest "pytest" 15
           report windows-$KEY-measured "the measured and scale tiers" 5
           report windows-$KEY-slow "pytest · slow" 10
           if ls junit/*.xml >/dev/null 2>&1; then
