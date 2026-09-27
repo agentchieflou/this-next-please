@@ -63,7 +63,8 @@ KINDS = (
     "inbox.attached",
     # the handoff pipeline (#162)
     "handoff.brief", "scope.added",
-    # the mobile bridge (#546): a pending approval was mirrored to the phone's outbox, once per id. Additive:
+    # the mobile bridge, in the order a pass emits them; docs/fleet-mobile.md §Events is their contract (#554).
+    # #546: a pending approval was mirrored to the phone's outbox, once per id. Additive:
     # the fold changes no state for it.
     "mobile.exported",
     # ...and the applier (#547): a phone decision applied through `approval.decide(via="mobile")`, or any inbox file
