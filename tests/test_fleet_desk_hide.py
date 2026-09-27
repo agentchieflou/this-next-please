@@ -17,9 +17,9 @@ import pytest
 from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
+from desk_harness import close_pages
 from test_fleet import make_project
 from test_fleet_column import _until
-from test_fleet_desk_browser import launch_chromium
 
 
 @pytest.fixture()
@@ -77,12 +77,11 @@ def test_a_desk_written_before_this_slice_loads_without_a_hidden_key(fleet_home,
 
 @pytest.mark.browser
 def test_a_hidden_agent_is_off_the_glass_and_show_all_brings_it_back_to_its_slot(fleet_home,
-                                                                                 tmp_path):
+                                                                                 tmp_path, desk_browser):
     """Acceptance criterion: hide an agent, reload, read that it is put away, bring it back, and
     read it back in its old slot. It was the dock's chip, then the column's foot (#232); it is the
     footer now (#233), and the hide is `h` on the rail the keyboard is on -- a rail has no head to
     carry the button."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
     rails = """() => [...document.querySelectorAll(
@@ -91,42 +90,41 @@ def test_a_hidden_agent_is_off_the_glass_and_show_all_brings_it_back_to_its_slot
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-tier="full"]', timeout=15000)
-            page.wait_for_function(f"() => ({rails})() === 'beta,gamma'", timeout=5000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-tier="full"]', timeout=15000)
+        page.wait_for_function(f"() => ({rails})() === 'beta,gamma'", timeout=5000)
 
-            page.focus('.tile[data-repo="beta"] .pane-rail')
-            page.keyboard.press("h")
-            page.wait_for_function(f"() => ({rails})() === 'gamma'", timeout=5000)
-            assert page.locator('.tile[data-repo="beta"]').evaluate(
-                "t => t.classList.contains('is-hidden')")
-            assert not page.locator('.tile[data-repo="beta"]').is_visible(), "it left the row"
-            # The footer says how many are put away, and is the press that brings them back.
-            assert page.inner_text("#hiddencount") == "1 hidden"
-            assert page.locator("#hiddencount").is_visible()
+        page.focus('.tile[data-repo="beta"] .pane-rail')
+        page.keyboard.press("h")
+        page.wait_for_function(f"() => ({rails})() === 'gamma'", timeout=5000)
+        assert page.locator('.tile[data-repo="beta"]').evaluate(
+            "t => t.classList.contains('is-hidden')")
+        assert not page.locator('.tile[data-repo="beta"]').is_visible(), "it left the row"
+        # The footer says how many are put away, and is the press that brings them back.
+        assert page.inner_text("#hiddencount") == "1 hidden"
+        assert page.locator("#hiddencount").is_visible()
 
-            # ...and still there after a reload, because the arrangement is the server's. The hide
-            # paints before it is written (#219), so the reload waits for the record, not the pixels.
-            _until(lambda: S.desk_state()["arrangement"]["hidden"] == ["beta"])
-            page.reload(wait_until="domcontentloaded")
-            page.wait_for_selector(".tile:visible", timeout=15000)
-            page.wait_for_function(
-                "() => document.getElementById('hiddencount').textContent === '1 hidden'",
-                timeout=5000)
+        # ...and still there after a reload, because the arrangement is the server's. The hide
+        # paints before it is written (#219), so the reload waits for the record, not the pixels.
+        _until(lambda: S.desk_state()["arrangement"]["hidden"] == ["beta"])
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector(".tile:visible", timeout=15000)
+        page.wait_for_function(
+            "() => document.getElementById('hiddencount').textContent === '1 hidden'",
+            timeout=5000)
 
-            # One click puts it back where it was -- between alpha and gamma, not at the end.
-            page.click("#hiddencount")
-            page.wait_for_function(f"() => ({rails})() === 'beta,gamma'", timeout=5000)
-            order = page.eval_on_selector_all(
-                "#grid .tile:not(.is-hidden)", "els => els.map(e => e.dataset.repo)")
-            assert order == ["alpha", "beta", "gamma"], "it kept its slot, it did not go to the end"
-            assert not errors, errors
-            browser.close()
+        # One click puts it back where it was -- between alpha and gamma, not at the end.
+        page.click("#hiddencount")
+        page.wait_for_function(f"() => ({rails})() === 'beta,gamma'", timeout=5000)
+        order = page.eval_on_selector_all(
+            "#grid .tile:not(.is-hidden)", "els => els.map(e => e.dataset.repo)")
+        assert order == ["alpha", "beta", "gamma"], "it kept its slot, it did not go to the end"
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -134,31 +132,29 @@ def test_a_hidden_agent_is_off_the_glass_and_show_all_brings_it_back_to_its_slot
 
 
 @pytest.mark.browser
-def test_a_hidden_agent_that_needs_a_person_is_on_the_glass_anyway(fleet_home, tmp_path):
+def test_a_hidden_agent_that_needs_a_person_is_on_the_glass_anyway(fleet_home, tmp_path, desk_browser):
     """The one rule the operator's own choice cannot override: hiding a demand is how a demand
     gets missed. On the glass means its rail is drawn, red, while another agent is open."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", needs=("beta",))
     S.arrange(order=["alpha", "beta"], hidden=["beta"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
 
-            beta = page.locator('.tile[data-repo="beta"][data-tier="rail"] .pane-rail')
-            beta.wait_for(state="visible", timeout=5000)
-            assert beta.is_visible(), "it is hidden and it needs somebody, so it is on the glass"
-            assert "needs-human" in (beta.get_attribute("class") or "")
-            assert page.inner_text("#hiddencount") == "", "it is not counted as put away"
-            assert not page.locator("#hiddencount").is_visible()
-            assert not errors, errors
-            browser.close()
+        beta = page.locator('.tile[data-repo="beta"][data-tier="rail"] .pane-rail')
+        beta.wait_for(state="visible", timeout=5000)
+        assert beta.is_visible(), "it is hidden and it needs somebody, so it is on the glass"
+        assert "needs-human" in (beta.get_attribute("class") or "")
+        assert page.inner_text("#hiddencount") == "", "it is not counted as put away"
+        assert not page.locator("#hiddencount").is_visible()
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -166,42 +162,40 @@ def test_a_hidden_agent_that_needs_a_person_is_on_the_glass_anyway(fleet_home, t
 
 
 @pytest.mark.browser
-def test_a_digit_can_no_longer_blank_the_window(fleet_home, tmp_path):
+def test_a_digit_can_no_longer_blank_the_window(fleet_home, tmp_path, desk_browser):
     """Acceptance criterion: pressing a digit for an agent focus mode is quieting no longer leaves an
     empty window. It used to zoom that tile, which hid every other one while the mode hid that
     one. The zoom went with the grid (#232); a digit opens the pane printed with it (#233); and the
     mode is the *needs me* preset now (#234), which makes a quiet agent a rail -- on the glass, so
     what the digit opens is there to open."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", needs=("alpha",))
     S.arrange(order=["alpha", "beta"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
 
-            page.keyboard.press("f")          # needs me: only alpha needs anybody
-            # `2` is beta's pane -- a rail, which needs me has made it. Every agent is a pane and
-            # counts, the open one included (#233), so alpha is `1`.
-            # Conditions, with the headroom a loaded Windows runner needs: the preset's width write
-            # outran 5s there once (#277).
-            page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=15000)
-            page.wait_for_function("() => windowWrites === 0", timeout=15000)
-            assert page.inner_text('.tile[data-repo="beta"] .pr-n') == "2"
-            page.keyboard.press("2")
-            # Wait for the open to have happened rather than for a clock: it goes through a view
-            # transition (#216) and applies on the frame after the browser has taken its "before"
-            # snapshot, which on a loaded machine is past any fixed sleep.
-            page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=8000)
-            assert page.locator(".tile:visible").count() >= 1, "the window is not blank"
-            assert not errors, errors
-            browser.close()
+        page.keyboard.press("f")          # needs me: only alpha needs anybody
+        # `2` is beta's pane -- a rail, which needs me has made it. Every agent is a pane and
+        # counts, the open one included (#233), so alpha is `1`.
+        # Conditions, with the headroom a loaded Windows runner needs: the preset's width write
+        # outran 5s there once (#277).
+        page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=15000)
+        page.wait_for_function("() => windowWrites === 0", timeout=15000)
+        assert page.inner_text('.tile[data-repo="beta"] .pr-n') == "2"
+        page.keyboard.press("2")
+        # Wait for the open to have happened rather than for a clock: it goes through a view
+        # transition (#216) and applies on the frame after the browser has taken its "before"
+        # snapshot, which on a loaded machine is past any fixed sleep.
+        page.wait_for_selector('.tile[data-repo="beta"].is-solo', timeout=8000)
+        assert page.locator(".tile:visible").count() >= 1, "the window is not blank"
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -209,36 +203,34 @@ def test_a_digit_can_no_longer_blank_the_window(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_an_anchor_reopens_a_hidden_tile_and_names_one_that_does_not_exist(fleet_home, tmp_path):
+def test_an_anchor_reopens_a_hidden_tile_and_names_one_that_does_not_exist(fleet_home, tmp_path, desk_browser):
     """Acceptance criterion: `#tile=` reopens a hidden tile and says so; for an unregistered name
     the footer says so. Neither is silent -- a toast for a tile that is not there used to do
     nothing at all."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta")
     S.arrange(order=["alpha", "beta"], hidden=["beta"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid#tile=beta", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile:visible", timeout=15000)
-            page.wait_for_function(
-                """() => /reopened/.test(document.getElementById('notice').textContent)""",
-                timeout=5000)
-            # Reopening is a round trip: the arrangement is the server's, so the tile comes back
-            # when the answer does rather than the instant the footer says so.
-            page.locator('.tile[data-repo="beta"]').wait_for(state="visible", timeout=5000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid#tile=beta", wait_until="domcontentloaded")
+        page.wait_for_selector(".tile:visible", timeout=15000)
+        page.wait_for_function(
+            """() => /reopened/.test(document.getElementById('notice').textContent)""",
+            timeout=5000)
+        # Reopening is a round trip: the arrangement is the server's, so the tile comes back
+        # when the answer does rather than the instant the footer says so.
+        page.locator('.tile[data-repo="beta"]').wait_for(state="visible", timeout=5000)
 
-            page.evaluate("() => { location.hash = '#tile=nowhere'; }")
-            page.wait_for_function(
-                """() => /no tile for/.test(document.getElementById('notice').textContent)""",
-                timeout=5000)
-            assert not errors, errors
-            browser.close()
+        page.evaluate("() => { location.hash = '#tile=nowhere'; }")
+        page.wait_for_function(
+            """() => /no tile for/.test(document.getElementById('notice').textContent)""",
+            timeout=5000)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -247,42 +239,40 @@ def test_an_anchor_reopens_a_hidden_tile_and_names_one_that_does_not_exist(fleet
 
 @pytest.mark.browser
 def test_a_repository_that_leaves_the_registry_keeps_a_rail_naming_what_restores_it(
-        fleet_home, tmp_path):
+        fleet_home, tmp_path, desk_browser):
     """Acceptance criterion: removing a repository while the page is open used to make a tile --
     and a transcript -- disappear with nothing said. It leaves a rail after the row, and the rail
     names the command. (It was a dock chip until the dock went with the grid, #232, and a band
     until the column went, #233.)"""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta")
     S.arrange(order=["alpha", "beta"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
-            page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=15000)
-            assert page.locator('.tile[data-repo="beta"] .pane-rail').is_visible()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="alpha"].is-solo', timeout=15000)
+        page.wait_for_selector('.tile[data-repo="beta"][data-tier="rail"]', timeout=15000)
+        assert page.locator('.tile[data-repo="beta"] .pane-rail').is_visible()
 
-            Registry().remove("beta")
-            # The registry is not an agent event, so nothing is pushed: the page notices on the
-            # desk's own fifteen-second clock, and the wait is generous enough to cross one.
-            page.wait_for_function(
-                """() => document.querySelectorAll('#gone .gone-rail:not([hidden])').length === 1""",
-                timeout=30000)
-            rail = page.locator('#gone .gone-rail[data-repo="beta"]')
-            assert rail.is_visible()
-            assert "beta" in rail.inner_text()
-            said = rail.get_attribute("title") or ""
-            assert "removed from the registry" in said and "repo add" in said, said
-            assert rail.get_attribute("aria-label") == said
-            assert page.locator('.tile[data-repo="beta"]').count() == 0, "its pane went"
-            assert not errors, errors
-            browser.close()
+        Registry().remove("beta")
+        # The registry is not an agent event, so nothing is pushed: the page notices on the
+        # desk's own fifteen-second clock, and the wait is generous enough to cross one.
+        page.wait_for_function(
+            """() => document.querySelectorAll('#gone .gone-rail:not([hidden])').length === 1""",
+            timeout=30000)
+        rail = page.locator('#gone .gone-rail[data-repo="beta"]')
+        assert rail.is_visible()
+        assert "beta" in rail.inner_text()
+        said = rail.get_attribute("title") or ""
+        assert "removed from the registry" in said and "repo add" in said, said
+        assert rail.get_attribute("aria-label") == said
+        assert page.locator('.tile[data-repo="beta"]').count() == 0, "its pane went"
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -290,10 +280,9 @@ def test_a_repository_that_leaves_the_registry_keeps_a_rail_naming_what_restores
 
 
 @pytest.mark.browser
-def test_alt_arrow_steps_over_a_hidden_tile_rather_than_swapping_with_it(fleet_home, tmp_path):
+def test_alt_arrow_steps_over_a_hidden_tile_rather_than_swapping_with_it(fleet_home, tmp_path, desk_browser):
     """A hidden tile keeps its slot in `order`, so a move that steps one index swapped the tile
     with something nobody can see and read as the key having done nothing."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"], hidden=["beta"])
     # Gamma is the one open, so its head and its keys are on the glass.
@@ -301,26 +290,25 @@ def test_alt_arrow_steps_over_a_hidden_tile_rather_than_swapping_with_it(fleet_h
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="gamma"].is-solo', timeout=15000)
-            page.wait_for_function(
-                """() => document.querySelectorAll('.tile:not(.is-hidden)').length === 2""",
-                timeout=5000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="gamma"].is-solo', timeout=15000)
+        page.wait_for_function(
+            """() => document.querySelectorAll('.tile:not(.is-hidden)').length === 2""",
+            timeout=5000)
 
-            # The Alt+arrow listener is the tile's, so the keyboard has to be somewhere inside it.
-            page.locator('.tile[data-repo="gamma"] .hidetoggle').focus()
-            page.keyboard.press("Alt+ArrowLeft")
-            page.wait_for_function(
-                """() => { var v = [].slice.call(document.querySelectorAll('#grid .tile:not(.is-hidden)'));
-                           return v.map(function (e) { return e.dataset.repo; }).join(',') === 'gamma,alpha'; }""",
-                timeout=5000)
-            assert not errors, errors
-            browser.close()
+        # The Alt+arrow listener is the tile's, so the keyboard has to be somewhere inside it.
+        page.locator('.tile[data-repo="gamma"] .hidetoggle').focus()
+        page.keyboard.press("Alt+ArrowLeft")
+        page.wait_for_function(
+            """() => { var v = [].slice.call(document.querySelectorAll('#grid .tile:not(.is-hidden)'));
+                       return v.map(function (e) { return e.dataset.repo; }).join(',') === 'gamma,alpha'; }""",
+            timeout=5000)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

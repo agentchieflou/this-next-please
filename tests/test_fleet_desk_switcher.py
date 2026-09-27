@@ -21,8 +21,8 @@ from agentdata import cli_fleet, proc
 from agentdata.fleet import adopt as A, events as E, fingerprint as FP, registry, serve as S, supervisor
 from agentdata.fleet.registry import Registry
 
+from desk_harness import close_pages
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 
 
 @pytest.fixture()
@@ -328,8 +328,7 @@ def _eventually(predicate, timeout: float = 10.0):
     return False
 
 
-def _page(p, port, token):
-    browser = launch_chromium(p)
+def _page(browser, port, token):
     page = browser.new_page(viewport={"width": 1280, "height": 900})
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -339,47 +338,45 @@ def _page(p, port, token):
 
 
 @pytest.mark.browser
-def test_earlier_opens_a_session_read_only_and_spawns_nothing(fleet_home, tmp_path):
+def test_earlier_opens_a_session_read_only_and_spawns_nothing(fleet_home, tmp_path, desk_browser):
     """Acceptance criterion: choosing an earlier session never spawns anything — counted in
     `started` events, which is the only place a spawn can hide."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repo(tmp_path)
     before = sum(1 for ev in E.read("alpha") if ev["kind"] == "started")
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser, page, errors = _page(p, port, token)
-            tile = page.locator('.tile[data-repo="alpha"]')
+        browser, page, errors = _page(desk_browser, port, token)
+        tile = page.locator('.tile[data-repo="alpha"]')
 
-            # One control: the pill opens the menu, and *earlier (n)* is a label inside it
-            # rather than a fourth tab beside three others (#206).
-            tile.locator(".spill").click()
-            page.wait_for_selector('.tile[data-repo="alpha"] .smenu:not([hidden])', timeout=5000)
-            assert "earlier (1)" in tile.locator(".sm-earlier-label").inner_text().lower()
-            page.wait_for_selector('.tile[data-repo="alpha"] .session-row:not([hidden]) .ss-open',
-                                   timeout=5000)
-            row = tile.locator(".session-row:not([hidden]) .ss-open").first
-            assert "sess-1" in (row.get_attribute("title") or ""), "the one the tile is not on"
+        # One control: the pill opens the menu, and *earlier (n)* is a label inside it
+        # rather than a fourth tab beside three others (#206).
+        tile.locator(".spill").click()
+        page.wait_for_selector('.tile[data-repo="alpha"] .smenu:not([hidden])', timeout=5000)
+        assert "earlier (1)" in tile.locator(".sm-earlier-label").inner_text().lower()
+        page.wait_for_selector('.tile[data-repo="alpha"] .session-row:not([hidden]) .ss-open',
+                               timeout=5000)
+        row = tile.locator(".session-row:not([hidden]) .ss-open").first
+        assert "sess-1" in (row.get_attribute("title") or ""), "the one the tile is not on"
 
-            row.click()
-            page.wait_for_selector('.tile[data-repo="alpha"] .history:not([hidden])', timeout=5000)
-            history = tile.locator(".history").inner_text()
-            assert "one, first turn" in history and "one, second turn" in history, \
-                "both of that session's runs, gathered by id across the stream"
-            assert "two, first turn" not in history
+        row.click()
+        page.wait_for_selector('.tile[data-repo="alpha"] .history:not([hidden])', timeout=5000)
+        history = tile.locator(".history").inner_text()
+        assert "one, first turn" in history and "one, second turn" in history, \
+            "both of that session's runs, gathered by id across the stream"
+        assert "two, first turn" not in history
 
-            # Read-only: the reply box is gone rather than disabled, and one sentence says why.
-            assert not tile.locator(".row.bottom").is_visible()
-            assert "ended" in tile.locator(".ro-what").inner_text()
+        # Read-only: the reply box is gone rather than disabled, and one sentence says why.
+        assert not tile.locator(".row.bottom").is_visible()
+        assert "ended" in tile.locator(".ro-what").inner_text()
 
-            # Back, and the live transcript is whole -- it was hidden, never thrown away.
-            tile.locator(".ro-back").click()
-            page.wait_for_selector('.tile[data-repo="alpha"] .transcript:not([hidden])', timeout=5000)
-            assert tile.locator(".row.bottom").is_visible()
-            assert "two, second turn" in tile.locator(".transcript").inner_text()
-            assert not errors, errors
-            browser.close()
+        # Back, and the live transcript is whole -- it was hidden, never thrown away.
+        tile.locator(".ro-back").click()
+        page.wait_for_selector('.tile[data-repo="alpha"] .transcript:not([hidden])', timeout=5000)
+        assert tile.locator(".row.bottom").is_visible()
+        assert "two, second turn" in tile.locator(".transcript").inner_text()
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -391,11 +388,10 @@ def test_earlier_opens_a_session_read_only_and_spawns_nothing(fleet_home, tmp_pa
 
 @pytest.mark.browser
 def test_resume_here_is_refused_while_an_agent_is_live_and_the_second_press_takes_it(
-        fleet_home, tmp_path, spawns):
+        fleet_home, tmp_path, spawns, desk_browser):
     """Acceptance criterion: *Resume here* refuses in the supervisor's own words while something is
     live, and the second, deliberate press stops it and resumes — launched with `--resume <id>`.
     Never a silent force, and never two agents in one working tree."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repo(tmp_path)
     # Session two is the live one, the way it would be a moment after `+ new`.
     supervisor.write_lock("alpha", {"pid": 4242, "repo": "alpha", "ticket": "RDSD-2",
@@ -404,33 +400,32 @@ def test_resume_here_is_refused_while_an_agent_is_live_and_the_second_press_take
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser, page, errors = _page(p, port, token)
-            tile = page.locator('.tile[data-repo="alpha"]')
-            tile.locator(".spill").click()
-            page.wait_for_selector('.tile[data-repo="alpha"] .session-row:not([hidden]) .ss-open',
-                                   timeout=5000)
-            tile.locator(".session-row:not([hidden]) .ss-open").first.click()
-            page.wait_for_selector('.tile[data-repo="alpha"] .history:not([hidden])', timeout=5000)
+        browser, page, errors = _page(desk_browser, port, token)
+        tile = page.locator('.tile[data-repo="alpha"]')
+        tile.locator(".spill").click()
+        page.wait_for_selector('.tile[data-repo="alpha"] .session-row:not([hidden]) .ss-open',
+                               timeout=5000)
+        tile.locator(".session-row:not([hidden]) .ss-open").first.click()
+        page.wait_for_selector('.tile[data-repo="alpha"] .history:not([hidden])', timeout=5000)
 
-            tile.locator(".ro-resume").click()
-            page.wait_for_function(
-                """() => /already has a live agent/.test(
-                     document.querySelector('.tile[data-repo="alpha"] .ro-note').textContent)""",
-                timeout=5000)
-            note = tile.locator(".ro-note").inner_text()
-            assert "ad-fleet stop alpha" in note, "the supervisor's own hint, not a reworded one"
-            assert "stop and resume" in tile.locator(".ro-resume").inner_text().lower()
-            assert not spawns["launched"], "the first press must not have started anything"
+        tile.locator(".ro-resume").click()
+        page.wait_for_function(
+            """() => /already has a live agent/.test(
+                 document.querySelector('.tile[data-repo="alpha"] .ro-note').textContent)""",
+            timeout=5000)
+        note = tile.locator(".ro-note").inner_text()
+        assert "ad-fleet stop alpha" in note, "the supervisor's own hint, not a reworded one"
+        assert "stop and resume" in tile.locator(".ro-resume").inner_text().lower()
+        assert not spawns["launched"], "the first press must not have started anything"
 
-            tile.locator(".ro-resume").click()
-            # The pane closes because the resume took: a refusal would have written the note again
-            # and left it open.
-            page.wait_for_selector('.tile[data-repo="alpha"] .readonly[hidden]', timeout=5000,
-                                   state="attached")
-            assert _eventually(lambda: len(spawns["launched"]) == 1)
-            assert not errors, errors
-            browser.close()
+        tile.locator(".ro-resume").click()
+        # The pane closes because the resume took: a refusal would have written the note again
+        # and left it open.
+        page.wait_for_selector('.tile[data-repo="alpha"] .readonly[hidden]', timeout=5000,
+                               state="attached")
+        assert _eventually(lambda: len(spawns["launched"]) == 1)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -443,276 +438,274 @@ def test_resume_here_is_refused_while_an_agent_is_live_and_the_second_press_take
 
 
 @pytest.mark.browser
-def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spawns, monkeypatch):
+def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spawns, monkeypatch, desk_browser):
     """Acceptance criterion: end to end from the keyboard. `Alt+[` / `Alt+]` walk the menu and
     `Alt+N` is a clean session — an item that cannot be reached by hand is a window somebody
     loses. The menu opens on the first step rather than needing a click first (#206)."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repo(tmp_path)
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser, page, errors = _page(p, port, token)
-            tile = page.locator('.tile[data-repo="alpha"]')
-            # #489: its sessions began before the fleet recorded installs, so it is stale, and the
-            # rail's face says so and names the key.
-            page.wait_for_function(
-                """() => /old skills/.test(document.querySelector('.tile[data-repo="alpha"] .pane-rail').getAttribute('aria-label'))""",
-                timeout=10000)
-            assert "Alt+N starts fresh" in tile.locator(".pane-rail").get_attribute("aria-label")
-            assert tile.locator(".sm-new").inner_text().startswith("start fresh")
+        browser, page, errors = _page(desk_browser, port, token)
+        tile = page.locator('.tile[data-repo="alpha"]')
+        # #489: its sessions began before the fleet recorded installs, so it is stale, and the
+        # rail's face says so and names the key.
+        page.wait_for_function(
+            """() => /old skills/.test(document.querySelector('.tile[data-repo="alpha"] .pane-rail').getAttribute('aria-label'))""",
+            timeout=10000)
+        assert "Alt+N starts fresh" in tile.locator(".pane-rail").get_attribute("aria-label")
+        assert tile.locator(".sm-new").inner_text().startswith("start fresh")
 
-            tile.locator(".spill").focus()
-            page.keyboard.press("Alt+]")                     # opens the menu, on *this session*
-            page.wait_for_selector('.tile[data-repo="alpha"] .smenu:not([hidden])', timeout=5000)
-            page.wait_for_function(
-                """() => document.activeElement.classList.contains('sm-live')""", timeout=5000)
-            # The earlier sessions come by their own fetch, and land between *this session* and
-            # *new*. A walk begun before they arrive steps from *this session* straight to *new*;
-            # the row then appears between the two, and `Alt+[` stops on it rather than going back
-            # -- the Windows 3.14 leg of #258, twice. What is walked is the list, so it is waited for,
-            # with `stepMenu`'s own filter (the row's pattern is in the list too, hidden).
-            page.wait_for_function(
-                """() => [...document.querySelectorAll('.tile[data-repo="alpha"] .sessions .ss-open')]
-                          .some(b => !b.disabled && b.offsetParent !== null)""", timeout=10000)
+        tile.locator(".spill").focus()
+        page.keyboard.press("Alt+]")                     # opens the menu, on *this session*
+        page.wait_for_selector('.tile[data-repo="alpha"] .smenu:not([hidden])', timeout=5000)
+        page.wait_for_function(
+            """() => document.activeElement.classList.contains('sm-live')""", timeout=5000)
+        # The earlier sessions come by their own fetch, and land between *this session* and
+        # *new*. A walk begun before they arrive steps from *this session* straight to *new*;
+        # the row then appears between the two, and `Alt+[` stops on it rather than going back
+        # -- the Windows 3.14 leg of #258, twice. What is walked is the list, so it is waited for,
+        # with `stepMenu`'s own filter (the row's pattern is in the list too, hidden).
+        page.wait_for_function(
+            """() => [...document.querySelectorAll('.tile[data-repo="alpha"] .sessions .ss-open')]
+                      .some(b => !b.disabled && b.offsetParent !== null)""", timeout=10000)
 
-            page.keyboard.press("Alt+]")                     # forward, into the sessions
-            assert page.evaluate(
-                "() => !!document.activeElement.closest('.smenu')"
-                " && !document.activeElement.classList.contains('sm-live')"), \
-                "Alt+] did not walk the menu"
+        page.keyboard.press("Alt+]")                     # forward, into the sessions
+        assert page.evaluate(
+            "() => !!document.activeElement.closest('.smenu')"
+            " && !document.activeElement.classList.contains('sm-live')"), \
+            "Alt+] did not walk the menu"
 
-            page.keyboard.press("Alt+[")                     # and back again
-            page.wait_for_function(
-                """() => document.activeElement.classList.contains('sm-live')""", timeout=5000)
+        page.keyboard.press("Alt+[")                     # and back again
+        page.wait_for_function(
+            """() => document.activeElement.classList.contains('sm-live')""", timeout=5000)
 
-            page.keyboard.press("Alt+N")                     # start this pane fresh (#489)
-            assert _eventually(lambda: len(spawns["launched"]) == 1), "Alt+N started nothing"
-            page.wait_for_function("() => /^alpha: /.test(document.getElementById('notice').textContent)",
-                                   timeout=10000)
+        page.keyboard.press("Alt+N")                     # start this pane fresh (#489)
+        assert _eventually(lambda: len(spawns["launched"]) == 1), "Alt+N started nothing"
+        page.wait_for_function("() => /^alpha: /.test(document.getElementById('notice').textContent)",
+                               timeout=10000)
 
-            # A rail says its answer in the footer: its `.err` is not on the glass. Another pane
-            # opens, alpha folds to a rail, and `Alt+N` on its face is refused mid-turn -- the fresh
-            # session is running -- in the server's words, and nothing more is launched.
-            _repo(tmp_path, "beta")
+        # A rail says its answer in the footer: its `.err` is not on the glass. Another pane
+        # opens, alpha folds to a rail, and `Alt+N` on its face is refused mid-turn -- the fresh
+        # session is running -- in the server's words, and nothing more is launched.
+        _repo(tmp_path, "beta")
+        page.evaluate("() => refresh()")
+        page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=10000)
+        page.evaluate("() => openAgent('beta')")
+        page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=10000)
+        page.evaluate("() => say('')")
+        page.focus('.tile[data-repo="alpha"] .pane-rail')
+        page.keyboard.press("Alt+N")
+        page.wait_for_function(
+            "() => /^alpha: a session changes between turns/.test(document.getElementById('notice').textContent)",
+            timeout=10000)
+        assert page.is_visible("#notice")
+        assert len(spawns["launched"]) == 1, "Alt+N started exactly one clean session"
+        assert "--resume" not in spawns["launched"][0], "clean means clean"
+
+        # #509: start fresh is one visible press on every pane. The operator's morning: a pane
+        # mid-ticket on current skills, in a fleet session that began yesterday, idle.
+        monkeypatch.setattr(FP, "current", lambda: dict(INSTALLED))
+        _yesterdays(tmp_path, "gamma")                    # the full pane
+        _yesterdays(tmp_path, "eps")                      # its twin, for the compact pane
+        _yesterdays(tmp_path, "delta", ticket="", phase="idle")
+        _yesterdays(tmp_path, "asking", ticket="RDSD-4",
+                    questions=[{"id": "q1", "q": "which workspace?"}])
+        posts: list[tuple[str, dict]] = []
+        page.on("request", lambda r: posts.append((r.url.split("?")[0].rsplit("/", 1)[-1],
+                                                   json.loads(r.post_data or "{}")))
+                if r.method == "POST" else None)
+
+        def open_pane(name, tier="full"):
             page.evaluate("() => refresh()")
-            page.wait_for_selector('.tile[data-repo="beta"]', state="attached", timeout=10000)
-            page.evaluate("() => openAgent('beta')")
-            page.wait_for_selector('.tile[data-repo="alpha"][data-tier="rail"]', timeout=10000)
-            page.evaluate("() => say('')")
-            page.focus('.tile[data-repo="alpha"] .pane-rail')
-            page.keyboard.press("Alt+N")
-            page.wait_for_function(
-                "() => /^alpha: a session changes between turns/.test(document.getElementById('notice').textContent)",
-                timeout=10000)
-            assert page.is_visible("#notice")
-            assert len(spawns["launched"]) == 1, "Alt+N started exactly one clean session"
-            assert "--resume" not in spawns["launched"][0], "clean means clean"
+            page.wait_for_selector(f'.tile[data-repo="{name}"]', state="attached", timeout=10000)
+            page.evaluate(f"() => openAgent('{name}')")
+            page.wait_for_selector(f'.tile[data-repo="{name}"][data-tier="{tier}"]', timeout=10000)
+            return page.locator(f'.tile[data-repo="{name}"]')
 
-            # #509: start fresh is one visible press on every pane. The operator's morning: a pane
-            # mid-ticket on current skills, in a fleet session that began yesterday, idle.
-            monkeypatch.setattr(FP, "current", lambda: dict(INSTALLED))
-            _yesterdays(tmp_path, "gamma")                    # the full pane
-            _yesterdays(tmp_path, "eps")                      # its twin, for the compact pane
-            _yesterdays(tmp_path, "delta", ticket="", phase="idle")
-            _yesterdays(tmp_path, "asking", ticket="RDSD-4",
-                        questions=[{"id": "q1", "q": "which workspace?"}])
-            posts: list[tuple[str, dict]] = []
-            page.on("request", lambda r: posts.append((r.url.split("?")[0].rsplit("/", 1)[-1],
-                                                       json.loads(r.post_data or "{}")))
-                    if r.method == "POST" else None)
+        def launches(n):
+            assert _eventually(lambda: len(spawns["launched"]) == n), spawns["launched"]
+            return spawns["launched"][-1]
 
-            def open_pane(name, tier="full"):
-                page.evaluate("() => refresh()")
-                page.wait_for_selector(f'.tile[data-repo="{name}"]', state="attached", timeout=10000)
-                page.evaluate(f"() => openAgent('{name}')")
-                page.wait_for_selector(f'.tile[data-repo="{name}"][data-tier="{tier}"]', timeout=10000)
-                return page.locator(f'.tile[data-repo="{name}"]')
+        def prompt_of(argv):
+            return argv[argv.index("-p") + 1]
 
-            def launches(n):
-                assert _eventually(lambda: len(spawns["launched"]) == n), spawns["launched"]
-                return spawns["launched"][-1]
+        gamma = open_pane("gamma")
+        start, box = gamma.locator(".bottom .start"), gamma.locator(".say")
+        page.wait_for_function(
+            """() => /before this session/.test(document.querySelector('.tile[data-repo="gamma"] .runline').textContent)
+                  && document.querySelector('.tile[data-repo="gamma"] .bottom .start').textContent === 'Start fresh'""",
+            timeout=10000)
+        title = start.get_attribute("title")
+        assert "RDSD-1" in title and "the CLI's own choice" in title and "began yesterday" in title, title
+        assert not gamma.locator(".head .freshtoggle").is_visible(), "a full pane keeps #489's head rule"
+        # Text that is not a ticket key is refused, never launched: on a mid-ticket pane ...
+        box.fill("hello")
+        assert start.inner_text() == "Start"
+        start.click()
+        page.wait_for_function(
+            """() => /hello is not a ticket key/.test(document.querySelector('.tile[data-repo="gamma"] .err').textContent)""",
+            timeout=10000)
+        assert posts[-1] == ("start", {"repo": "gamma", "ticket": "hello"}), posts
+        # ... and the empty box's one press leaves yesterday's session for a clean one.
+        box.fill("")
+        assert start.inner_text() == "Start fresh"
+        start.click()
+        argv = launches(2)
+        assert posts[-1] == ("fresh", {"repo": "gamma"}), posts
+        assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-gamma" in prompt_of(argv)
+        # The supervisor writes the `started` after the launch the fixture records (#586), so
+        # the stream is waited for rather than read at once.
+        assert _eventually(lambda: len([e for e in E.read("gamma") if e["kind"] == "started"]) == 2)
+        began = [e["data"] for e in E.read("gamma") if e["kind"] == "started"][-1]
+        assert began["new"] is True and began["leaves"]["session"] == "s-gamma", began
+        # A ticket key in the box is today's *Start {ticket}*: it posts `start`, and the live agent
+        # the press just began refuses it -- nothing more is launched.
+        box.fill("RDSD-1")
+        assert start.inner_text() == "Start"
+        start.click()
+        page.wait_for_function(
+            """() => /already has a live agent/.test(document.querySelector('.tile[data-repo="gamma"] .err').textContent)""",
+            timeout=10000)
+        assert posts[-1] == ("start", {"repo": "gamma", "ticket": "RDSD-1"}), posts
+        assert len(spawns["launched"]) == 2
 
-            def prompt_of(argv):
-                return argv[argv.index("-p") + 1]
+        # No ticket: `hello` is refused here too, and *Start fresh* is one keyless session.
+        delta = open_pane("delta")
+        start, box = delta.locator(".bottom .start"), delta.locator(".say")
+        box.fill("hello")
+        start.click()
+        page.wait_for_function(
+            """() => /hello is not a ticket key/.test(document.querySelector('.tile[data-repo="delta"] .err').textContent)""",
+            timeout=10000)
+        assert len(spawns["launched"]) == 2, "`hello` on a pane with no ticket launches nothing"
+        box.fill("")
+        assert "no ticket — session-bootstrap, then router" in start.get_attribute("title")
+        start.click()
+        argv = launches(3)
+        assert "Ticket ." not in prompt_of(argv) and "session-bootstrap" in prompt_of(argv)
 
-            gamma = open_pane("gamma")
-            start, box = gamma.locator(".bottom .start"), gamma.locator(".say")
-            page.wait_for_function(
-                """() => /before this session/.test(document.querySelector('.tile[data-repo="gamma"] .runline').textContent)
-                      && document.querySelector('.tile[data-repo="gamma"] .bottom .start').textContent === 'Start fresh'""",
-                timeout=10000)
-            title = start.get_attribute("title")
-            assert "RDSD-1" in title and "the CLI's own choice" in title and "began yesterday" in title, title
-            assert not gamma.locator(".head .freshtoggle").is_visible(), "a full pane keeps #489's head rule"
-            # Text that is not a ticket key is refused, never launched: on a mid-ticket pane ...
-            box.fill("hello")
-            assert start.inner_text() == "Start"
-            start.click()
-            page.wait_for_function(
-                """() => /hello is not a ticket key/.test(document.querySelector('.tile[data-repo="gamma"] .err').textContent)""",
-                timeout=10000)
-            assert posts[-1] == ("start", {"repo": "gamma", "ticket": "hello"}), posts
-            # ... and the empty box's one press leaves yesterday's session for a clean one.
-            box.fill("")
-            assert start.inner_text() == "Start fresh"
-            start.click()
-            argv = launches(2)
-            assert posts[-1] == ("fresh", {"repo": "gamma"}), posts
-            assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-gamma" in prompt_of(argv)
-            # The supervisor writes the `started` after the launch the fixture records (#586), so
-            # the stream is waited for rather than read at once.
-            assert _eventually(lambda: len([e for e in E.read("gamma") if e["kind"] == "started"]) == 2)
-            began = [e["data"] for e in E.read("gamma") if e["kind"] == "started"][-1]
-            assert began["new"] is True and began["leaves"]["session"] == "s-gamma", began
-            # A ticket key in the box is today's *Start {ticket}*: it posts `start`, and the live agent
-            # the press just began refuses it -- nothing more is launched.
-            box.fill("RDSD-1")
-            assert start.inner_text() == "Start"
-            start.click()
-            page.wait_for_function(
-                """() => /already has a live agent/.test(document.querySelector('.tile[data-repo="gamma"] .err').textContent)""",
-                timeout=10000)
-            assert posts[-1] == ("start", {"repo": "gamma", "ticket": "RDSD-1"}), posts
-            assert len(spawns["launched"]) == 2
+        # Refusals keep their words: a pane that needs you says so in `.err`, and launches nothing.
+        asking = open_pane("asking")
+        asking.locator(".bottom .start").click()
+        page.wait_for_function(
+            """() => /answer it first/.test(document.querySelector('.tile[data-repo="asking"] .err').textContent)""",
+            timeout=10000)
+        assert len(spawns["launched"]) == 3
 
-            # No ticket: `hello` is refused here too, and *Start fresh* is one keyless session.
-            delta = open_pane("delta")
-            start, box = delta.locator(".bottom .start"), delta.locator(".say")
-            box.fill("hello")
-            start.click()
-            page.wait_for_function(
-                """() => /hello is not a ticket key/.test(document.querySelector('.tile[data-repo="delta"] .err').textContent)""",
-                timeout=10000)
-            assert len(spawns["launched"]) == 2, "`hello` on a pane with no ticket launches nothing"
-            box.fill("")
-            assert "no ticket — session-bootstrap, then router" in start.get_attribute("title")
-            start.click()
-            argv = launches(3)
-            assert "Ticket ." not in prompt_of(argv) and "session-bootstrap" in prompt_of(argv)
+        # A chat that may still be open (a session file and no pid, the Windows shape): the pressed
+        # Start arms *start fresh — it is closed*, as #489's head button does.
+        monkeypatch.setenv("COPILOT_SESSION_STATE", str(tmp_path / "session-state"))
+        places = A.listing_places
+        monkeypatch.setattr(A, "listing_places", lambda: False)
+        win = _yesterdays(tmp_path, "win")
+        os.makedirs(tmp_path / "session-state" / "native-win")
+        (tmp_path / "session-state" / "native-win" / "workspace.yaml").write_text(
+            f"id: native-win\ncwd: '{win}'\n", encoding="utf-8")
+        (tmp_path / "session-state" / "native-win" / "events.jsonl").write_text(
+            json.dumps({"type": "assistant.turn_start", "data": {"turnId": "0"}}) + "\n", encoding="utf-8")
+        pane = open_pane("win")
+        pane.locator(".bottom .start").click()
+        page.wait_for_function(
+            """() => document.querySelector('.tile[data-repo="win"] .bottom .start').textContent === 'start fresh — it is closed'
+                  && /may still be open/.test(document.querySelector('.tile[data-repo="win"] .err').textContent)""",
+            timeout=10000)
+        assert len(spawns["launched"]) == 3
+        monkeypatch.setattr(A, "listing_places", places)
 
-            # Refusals keep their words: a pane that needs you says so in `.err`, and launches nothing.
-            asking = open_pane("asking")
-            asking.locator(".bottom .start").click()
-            page.wait_for_function(
-                """() => /answer it first/.test(document.querySelector('.tile[data-repo="asking"] .err').textContent)""",
-                timeout=10000)
-            assert len(spawns["launched"]) == 3
+        # A compact pane hides the bottom row's Start: its head's *start fresh* shows on every
+        # compact pane, and one press does the same.
+        S.act("settings", {"set": [{"key": "fleet.tiers.full_px", "value": 1600}]})
+        eps = open_pane("eps", tier="compact")
+        head = eps.locator(".head .freshtoggle")
+        page.wait_for_function(
+            """() => document.querySelector('.tile[data-repo="eps"] .head .freshtoggle').offsetParent !== null""",
+            timeout=10000)
+        assert not eps.locator(".bottom .start").is_visible()
+        head.click()
+        argv = launches(4)
+        assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-eps" in prompt_of(argv)
+        assert not errors, errors
 
-            # A chat that may still be open (a session file and no pid, the Windows shape): the pressed
-            # Start arms *start fresh — it is closed*, as #489's head button does.
-            monkeypatch.setenv("COPILOT_SESSION_STATE", str(tmp_path / "session-state"))
-            places = A.listing_places
-            monkeypatch.setattr(A, "listing_places", lambda: False)
-            win = _yesterdays(tmp_path, "win")
-            os.makedirs(tmp_path / "session-state" / "native-win")
-            (tmp_path / "session-state" / "native-win" / "workspace.yaml").write_text(
-                f"id: native-win\ncwd: '{win}'\n", encoding="utf-8")
-            (tmp_path / "session-state" / "native-win" / "events.jsonl").write_text(
-                json.dumps({"type": "assistant.turn_start", "data": {"turnId": "0"}}) + "\n", encoding="utf-8")
-            pane = open_pane("win")
-            pane.locator(".bottom .start").click()
-            page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="win"] .bottom .start').textContent === 'start fresh — it is closed'
-                      && /may still be open/.test(document.querySelector('.tile[data-repo="win"] .err').textContent)""",
-                timeout=10000)
-            assert len(spawns["launched"]) == 3
-            monkeypatch.setattr(A, "listing_places", places)
-
-            # A compact pane hides the bottom row's Start: its head's *start fresh* shows on every
-            # compact pane, and one press does the same.
-            S.act("settings", {"set": [{"key": "fleet.tiers.full_px", "value": 1600}]})
-            eps = open_pane("eps", tier="compact")
-            head = eps.locator(".head .freshtoggle")
-            page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="eps"] .head .freshtoggle').offsetParent !== null""",
-                timeout=10000)
-            assert not eps.locator(".bottom .start").is_visible()
-            head.click()
-            argv = launches(4)
-            assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-eps" in prompt_of(argv)
-            assert not errors, errors
-
-            # #544: the sidebar toggle works on a window that has never been seen. A phone's first
-            # write is a rail tap, which makes the record; the page used to read the record's old
-            # default section `tickets` (the board's list) back as the open section, and the toggle
-            # opened that dead id forever. Then the map's `Enter` path: a record made before any
-            # page has read it; and a record an older server wrote with `tickets`, left as it is.
-            sections = ("", "board", "unsorted", "drawer", "found", "inspector")
-            S.update_window(w="frommap", open="alpha")
-            S.update_window(w="oldrecord", open="alpha", section="tickets")
-            for w, first in (("phone544", "rail tap"), ("frommap", "none"), ("oldrecord", "none")):
-                phone = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True)
-                tab = phone.new_page()
-                tab.on("pageerror", lambda e: errors.append(str(e)))
-                tab.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&w={w}", wait_until="domcontentloaded")
-                tab.wait_for_selector(".tile:visible", timeout=15000)
-                if first == "rail tap":
-                    rail = tab.locator('.tile[data-tier="rail"] .pane-rail').first
-                    name = rail.evaluate("el => el.closest('.tile').dataset.repo")
-                    rail.tap()
-                    tab.wait_for_selector(f'.tile[data-repo="{name}"]:not([data-tier="rail"])', timeout=10000)
-                    assert _eventually(lambda: S.desk_state()["windows"].get(w, {}).get("open") == name)
-                    tab.wait_for_function(                    # the answer is back on the page
-                        f"() => !windowWrites && ((desk.desk.windows || {{}})[W_NAME] || {{}}).open === '{name}'",
-                        timeout=10000)
-                if w != "oldrecord":
-                    assert S.desk_state()["windows"][w]["section"] in sections, S.desk_state()["windows"][w]
-                tab.click("#sidetoggle")
+        # #544: the sidebar toggle works on a window that has never been seen. A phone's first
+        # write is a rail tap, which makes the record; the page used to read the record's old
+        # default section `tickets` (the board's list) back as the open section, and the toggle
+        # opened that dead id forever. Then the map's `Enter` path: a record made before any
+        # page has read it; and a record an older server wrote with `tickets`, left as it is.
+        sections = ("", "board", "unsorted", "drawer", "found", "inspector")
+        S.update_window(w="frommap", open="alpha")
+        S.update_window(w="oldrecord", open="alpha", section="tickets")
+        for w, first in (("phone544", "rail tap"), ("frommap", "none"), ("oldrecord", "none")):
+            phone = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True)
+            tab = phone.new_page()
+            tab.on("pageerror", lambda e: errors.append(str(e)))
+            tab.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&w={w}", wait_until="domcontentloaded")
+            tab.wait_for_selector(".tile:visible", timeout=15000)
+            if first == "rail tap":
+                rail = tab.locator('.tile[data-tier="rail"] .pane-rail').first
+                name = rail.evaluate("el => el.closest('.tile').dataset.repo")
+                rail.tap()
+                tab.wait_for_selector(f'.tile[data-repo="{name}"]:not([data-tier="rail"])', timeout=10000)
+                assert _eventually(lambda: S.desk_state()["windows"].get(w, {}).get("open") == name)
+                tab.wait_for_function(                    # the answer is back on the page
+                    f"() => !windowWrites && ((desk.desk.windows || {{}})[W_NAME] || {{}}).open === '{name}'",
+                    timeout=10000)
+            if w != "oldrecord":
+                assert S.desk_state()["windows"][w]["section"] in sections, S.desk_state()["windows"][w]
+            tab.click("#sidetoggle")
+            tab.wait_for_function("() => !document.getElementById('side').hidden", timeout=5000)
+            assert _eventually(lambda: S.desk_state()["windows"][w]["section"] in sections[1:])
+            # At 390 px the open sheet's scrim lies over the toolbar, so a pointer cannot reach
+            # the button a second time (a tap there closes the sheet, #576, below). The press is
+            # the button's own click, which is what the toggle is.
+            tab.locator("#sidetoggle").dispatch_event("click")
+            tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
+            tab.keyboard.press("b")                       # `b` still opens the board ...
+            tab.wait_for_function(
+                "() => !document.getElementById('side').hidden && !document.getElementById('board').hidden",
+                timeout=5000)
+            if w == "phone544":
+                # #576: at 640 px and under the sidebar is a full-width sheet over a scrim. A tap
+                # inside the sheet leaves it open; a tap on the scrim above it closes it.
+                sheet = tab.locator("#side").bounding_box()
+                assert sheet["x"] == 0 and sheet["width"] == 390 and sheet["y"] > 0, sheet
+                tab.locator("#board .drawer-head strong").tap()
+                tab.wait_for_timeout(300)
+                assert tab.evaluate("() => !document.getElementById('side').hidden"), \
+                    "a tap inside the sheet closed it"
+                y = sheet["y"] / 2
+                assert tab.evaluate(f"() => document.elementFromPoint(195, {y}).id") == "side", \
+                    "no scrim above the sheet"
+                assert tab.evaluate(
+                    "() => getComputedStyle(document.getElementById('side'), '::before').backgroundColor"
+                ) == "rgba(0, 0, 0, 0.3)"
+                tab.touchscreen.tap(195, y)
+                tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
+                assert _eventually(lambda: S.desk_state()["windows"][w]["section"] == "")
+                # At a tablet's 820 px the sheet is min(480px, 60vw) and the open pane shows
+                # beside it; at 1280 px it is the column it was, clamp(300px, 28vw, 440px), and
+                # no scrim.
+                tab.set_viewport_size({"width": 820, "height": 1180})
+                tab.keyboard.press("b")
                 tab.wait_for_function("() => !document.getElementById('side').hidden", timeout=5000)
-                assert _eventually(lambda: S.desk_state()["windows"][w]["section"] in sections[1:])
-                # At 390 px the open sheet's scrim lies over the toolbar, so a pointer cannot reach
-                # the button a second time (a tap there closes the sheet, #576, below). The press is
-                # the button's own click, which is what the toggle is.
-                tab.locator("#sidetoggle").dispatch_event("click")
-                tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
-                tab.keyboard.press("b")                       # `b` still opens the board ...
+                sheet = tab.locator("#side").bounding_box()
+                pane = tab.locator('.tile:not([data-tier="rail"]):visible').first.bounding_box()
+                assert sheet["width"] == 480 and sheet["x"] + sheet["width"] == 820, sheet
+                assert pane["x"] < sheet["x"], (pane, sheet)
+                tab.set_viewport_size({"width": 1280, "height": 900})
                 tab.wait_for_function(
-                    "() => !document.getElementById('side').hidden && !document.getElementById('board').hidden",
+                    "() => getComputedStyle(document.getElementById('side')).position === 'static'",
                     timeout=5000)
-                if w == "phone544":
-                    # #576: at 640 px and under the sidebar is a full-width sheet over a scrim. A tap
-                    # inside the sheet leaves it open; a tap on the scrim above it closes it.
-                    sheet = tab.locator("#side").bounding_box()
-                    assert sheet["x"] == 0 and sheet["width"] == 390 and sheet["y"] > 0, sheet
-                    tab.locator("#board .drawer-head strong").tap()
-                    tab.wait_for_timeout(300)
-                    assert tab.evaluate("() => !document.getElementById('side').hidden"), \
-                        "a tap inside the sheet closed it"
-                    y = sheet["y"] / 2
-                    assert tab.evaluate(f"() => document.elementFromPoint(195, {y}).id") == "side", \
-                        "no scrim above the sheet"
-                    assert tab.evaluate(
-                        "() => getComputedStyle(document.getElementById('side'), '::before').backgroundColor"
-                    ) == "rgba(0, 0, 0, 0.3)"
-                    tab.touchscreen.tap(195, y)
-                    tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
-                    assert _eventually(lambda: S.desk_state()["windows"][w]["section"] == "")
-                    # At a tablet's 820 px the sheet is min(480px, 60vw) and the open pane shows
-                    # beside it; at 1280 px it is the column it was, clamp(300px, 28vw, 440px), and
-                    # no scrim.
-                    tab.set_viewport_size({"width": 820, "height": 1180})
-                    tab.keyboard.press("b")
-                    tab.wait_for_function("() => !document.getElementById('side').hidden", timeout=5000)
-                    sheet = tab.locator("#side").bounding_box()
-                    pane = tab.locator('.tile:not([data-tier="rail"]):visible').first.bounding_box()
-                    assert sheet["width"] == 480 and sheet["x"] + sheet["width"] == 820, sheet
-                    assert pane["x"] < sheet["x"], (pane, sheet)
-                    tab.set_viewport_size({"width": 1280, "height": 900})
-                    tab.wait_for_function(
-                        "() => getComputedStyle(document.getElementById('side')).position === 'static'",
-                        timeout=5000)
-                    column = tab.locator("#side").bounding_box()
-                    assert 300 <= column["width"] <= 440 and column["x"] + column["width"] == 1280, column
-                    assert tab.evaluate(
-                        "() => getComputedStyle(document.getElementById('side'), '::before').content") == "none"
-                    tab.set_viewport_size({"width": 390, "height": 844})
-                tab.keyboard.press("Escape")                  # ... and `Esc` still closes it
-                tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
-                phone.close()
-            assert not errors, errors
-            browser.close()
+                column = tab.locator("#side").bounding_box()
+                assert 300 <= column["width"] <= 440 and column["x"] + column["width"] == 1280, column
+                assert tab.evaluate(
+                    "() => getComputedStyle(document.getElementById('side'), '::before').content") == "none"
+                tab.set_viewport_size({"width": 390, "height": 844})
+            tab.keyboard.press("Escape")                  # ... and `Esc` still closes it
+            tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
+            phone.close()
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
