@@ -28,7 +28,8 @@ from __future__ import annotations
 import pytest
 
 from desk_harness import close_pages
-from test_fleet_ink import (IDLE_LOOP, TABLE, _desk_of, _serve, _stop, _open, _rest,  # noqa: F401
+from desk_waits import observe_quiet
+from test_fleet_ink import (TABLE, _desk_of, _serve, _stop, _open, _rest,  # noqa: F401
                             fleet_home)
 
 #: The test table with effects, and hooks shaped like a skin module's (`cue` is #372's hook).
@@ -76,8 +77,8 @@ def test_fx_js_is_fetched_only_by_a_table_with_effects(fleet_home, tmp_path, des
         assert page.evaluate("() => Object.keys(Ink.inspect().layer).includes('fx')")
 
         # At rest with effects attached: nothing written, nothing drawn.
-        count = page.evaluate(IDLE_LOOP)
-        assert count["n"] == 0, f"an idle desk with effects attached wrote to the page: {count}"
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0, f"an idle desk with effects attached wrote to the page: {count}"
         assert count["renders"] == 0, f"an idle paper with effects was redrawn {count['renders']} times"
 
         # Detached by a table without effects.
@@ -167,16 +168,13 @@ ARRIVE = """async ([repo, n]) => {
   const frame = () => new Promise(done => requestAnimationFrame(() => done()));
   const el = tiles.get(repo).el, r = el.getBoundingClientRect();
   el.classList.add('ink-cue');
-  const seen = [], obs = new MutationObserver(rs => rs.forEach(x => seen.push(x.type + ' ' +
-    (x.attributeName || '') + ' ' + (x.target.id || x.target.className || x.target.nodeName))));
-  obs.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+  const w = __deskWaits.watch(document.documentElement);
   for (let i = 0; i < 600; i++) {
     const l = Ink.inspect().layer;
     if (l.fx.delivered > n && !l.fx.queued && !l.fx.children && !window.__example.inspect().quads) break;
     await frame();
   }
-  obs.takeRecords().forEach(x => seen.push(x.type));
-  obs.disconnect();
+  const seen = w.stop().records();
   return { box: { x: r.left, y: r.top, w: r.width, h: r.height }, seen };
 }"""
 #: A pane that arrives already matching the arrive row: made by the test, outside the grid.
@@ -225,9 +223,7 @@ MOVED = """async (repo) => {
   const before = { style: el.getAttribute('style'), css: el.style.cssText, box: box() };
   window.__went = undefined;
   el.classList.add('ink-cue');
-  const seen = [], obs = new MutationObserver(rs => rs.forEach(x => seen.push(x.type + ' ' +
-    (x.attributeName || '') + ' ' + (x.target.id || x.target.className || x.target.nodeName))));
-  obs.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  const w = __deskWaits.watch(document.body);
   const samples = [];
   let i = 0, anim = null, finished = -1, timing = null, frames = null;
   for (; i < 600; i++) {
@@ -245,8 +241,7 @@ MOVED = """async (repo) => {
   }
   const gone = i;
   for (let k = 0; k < 10; k++) await frame();
-  obs.takeRecords().forEach(x => seen.push(x.type));
-  obs.disconnect();
+  const seen = w.stop().records();
   return { went: window.__went, before, after: { style: el.getAttribute('style'), css: el.style.cssText, box: box() },
            samples, timing, frames, finished, gone, seen, fx: Ink.inspect().layer.fx };
 }"""
@@ -461,9 +456,9 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
 
         # At rest after them all: nothing written, nothing drawn, nothing delivered or left.
         before = page.evaluate(CUED)
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         after = page.evaluate(CUED)
-        assert count["n"] == 0, f"an idle desk after its cues wrote to the page: {count}"
+        assert count["mutations"] == 0, f"an idle desk after its cues wrote to the page: {count}"
         assert count["renders"] == 0, f"an idle desk after its cues was redrawn {count['renders']} times"
         assert after["fx"]["delivered"] == before["fx"]["delivered"], (before["fx"], after["fx"])
         assert (after["quads"], after["fx"]["reaped"], after["fx"]["dropped"]) == (0, 0, 0), after
@@ -509,8 +504,8 @@ def test_cues_come_from_the_page_once_each_with_the_last_box(fleet_home, tmp_pat
             assert moved["fx"]["animating"] == 0, moved["fx"]
         assert moved["fx"]["animated"] == {"hit": 2, "pop": 0, "flash": 0}, moved["fx"]
         page.evaluate("s => tiles.get('alpha').el.setAttribute('style', s)", own)
-        count = page.evaluate(IDLE_LOOP)
-        assert count["n"] == 0 and count["renders"] == 0, f"an idle desk after a pane moved: {count}"
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0 and count["renders"] == 0, f"an idle desk after a pane moved: {count}"
 
         # Where it may not run: the pane focused, a selection inside it, already moving, an unknown kind (said
         # once); and a focus arriving mid-animation, and `Ink.setSkin(null)` mid-animation, take it back.

@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 
 from desk_harness import close_pages
-from test_fleet_ink import IDLE_LOOP
+from desk_waits import observe_quiet
 from test_fleet_voxel_ink import (_desk_of, _open, _serve, _skin, _stop,  # noqa: F401
                                   fleet_home)
 
@@ -40,9 +40,9 @@ def test_an_idle_desk_with_a_skin_chosen_writes_nothing(fleet_home, tmp_path, sk
         # The gate as it is in CI with no probe recorded: off. No ink draws; the page alone.
         page, errors = _open(browser, port, token, "", panes=2, count=True,
                              family=skin.split(":")[0])
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle {skin} desk wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle {skin} desk wrote to the page: {count}"

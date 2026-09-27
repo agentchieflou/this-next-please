@@ -20,12 +20,9 @@ from __future__ import annotations
 
 import pytest
 
-from desk_harness import close_pages
-from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, _desk_of, _serve, _stop, fleet_home  # noqa: F401 - fixtures
-
-#: The mutation count of `IDLE_LOOP` without the layer: it reads the layer's renders, and with no
-#: skin drawing ink there is no layer.
-WATCH = IDLE_LOOP.replace("Ink.inspect().layer", "null")
+from desk_harness import close_pages, desk_page
+from desk_waits import observe_quiet
+from test_fleet_ink import _desk_of, _serve, _stop, fleet_home  # noqa: F401 - fixtures
 
 
 @pytest.mark.browser
@@ -36,8 +33,7 @@ def test_an_idle_desk_with_a_skin_chosen_writes_nothing(fleet_home, tmp_path, sk
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1400, "height": 900})
-        page.add_init_script(COUNT_FETCHES)
+        page = desk_page(browser, width=1400, height=900)
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -47,9 +43,9 @@ def test_an_idle_desk_with_a_skin_chosen_writes_nothing(fleet_home, tmp_path, sk
                  && document.body.dataset.skin === {family!r}
                  && !!document.head.querySelector('link[data-skin]')
                  && !document.body.classList.contains('is-stale')""", timeout=15000)
-        count = page.evaluate(WATCH)
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle desk with {skin} chosen wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle desk with {skin} chosen wrote to the page: {count}"

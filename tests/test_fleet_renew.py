@@ -17,7 +17,7 @@ from agentdata.fleet import supervisor
 from agentdata.fleet.registry import Registry, agent_dir
 
 from test_fleet import make_project
-from test_fleet_ink import IDLE_LOOP
+from desk_waits import counted, observe_quiet
 
 OLD = {"version": "0.13.1", "commit": "aaaaaaaaaaaa", "skills": "111111111111"}
 NOW = {"version": "0.13.2", "commit": "bbbbbbbbbbbb", "skills": "222222222222"}
@@ -319,7 +319,7 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1280, "height": 900}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -372,8 +372,8 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
         assert page.inner_text("#daygo") == "start 4 fresh — about 4 premium turns", "yday, sent, fresh, old"
         assert [b for w, b in posted if w == "fresh"] == [{"all": True, "dry_run": True}], posted
         # An idle desk with the strip open writes nothing.
-        count = page.evaluate(IDLE_LOOP)
-        assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+        count = observe_quiet(page, passes=8)
+        assert count["mutations"] == 0, f"an idle desk wrote to the page: {count}"
         page.click("#daycancel")
         page.wait_for_selector("#day-strip .day-rows", state="hidden", timeout=5000)
         # The *day* menu's item opens the same preview, and Esc closes the strip.
@@ -424,8 +424,8 @@ def test_the_desk_says_which_sessions_are_stale_and_previews_before_it_renews(
         assert not any("merge" in c["text"].lower() for r in swept.values() for c in r["cells"])
         # An idle desk with the table open, and no job running, writes nothing.
         assert WRAP.wait_all(10)
-        swept_idle = page.evaluate(IDLE_LOOP)
-        assert swept_idle["n"] == 0, f"an idle desk with the sweep open wrote to the page: {swept_idle}"
+        swept_idle = observe_quiet(page, passes=8)
+        assert swept_idle["mutations"] == 0, f"an idle desk with the sweep open wrote to the page: {swept_idle}"
         page.click("#daygo")
         page.wait_for_function("""() => [...document.querySelectorAll('#day-strip .sweep-row:not(.day-pattern) .wrap-row')]
                 .filter(c => c.querySelector('.wrap-tick').checked).every(c => c.dataset.done)""", timeout=20000)

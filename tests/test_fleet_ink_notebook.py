@@ -32,8 +32,9 @@ from agentdata.fleet import agentstate, events as E, serve as S, skins, supervis
 
 # The ink layer's own fixtures and helpers: the fleet directory, the desk's globals (autouse), the
 # desk and the page, and what the layer shows of itself.
+from desk_waits import observe_quiet
 from test_fleet_ink import (  # noqa: F401 - fixtures are used by name
-    AT_REST, COUNT_FETCHES, IDLE_LOOP, PEN, _choose, _layer, _marks, _open, _repos, _rest, _serve,
+    AT_REST, COUNT_FETCHES, PEN, _choose, _layer, _marks, _open, _repos, _rest, _serve,
     _stop, fleet_home)
 from desk_harness import close_pages
 
@@ -647,10 +648,10 @@ def test_an_idle_notebook_writes_nothing_draws_nothing_and_settles_in_bounded_fr
         strokes = sum(m["strokes"] for m in layer["marks"])
         bound = ink / PEN * 60 * 1.6 / lanes * 2 + strokes * 30 + 60
         assert layer["frames"] <= bound, (layer["frames"], bound)
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle notebook wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle notebook wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle notebook was redrawn {count['renders']} times"

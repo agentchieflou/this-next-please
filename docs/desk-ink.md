@@ -917,6 +917,11 @@ are H–J. Moving `drawGround` and `drawTrace` onto the layer was K's first phas
 * **At rest:** the desk with no skin using ink is unchanged, and so is an idle desk with ink on it.
 * **Budgets:** catch-up is counted in frames, and a gesture keeps its budget while the ink draws.
 
+Every skin test waits for the paper with `desk_waits.settle` (the layer at rest is `AT_REST`, the predicate
+`settle` uses; a skin passes only its own predicate as `also=`, such as farmstead's `__farm.inspect()` or the
+napkin's bleed), and says an idle desk writes nothing and draws nothing with `assert_idle` / `observe_quiet`,
+observed over page work rather than a duration ([testing-this-repo.md](testing-this-repo.md) §Settle, then assert).
+
 `tests/test_fleet_ink_fx.py` covers the effects seam (#370): `fx.js` is never fetched for a table without `fx`,
 fetched once with the token for one with it (not again when that table is set twice), leaves nothing attached after
 a table without `fx`, `Ink.setSkin(null)` or `Ink.off()`, and an idle desk with it attached writes nothing and draws

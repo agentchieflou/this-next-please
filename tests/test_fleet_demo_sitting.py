@@ -29,6 +29,7 @@ from test_fleet import make_project
 from test_fleet_board_desk import PHOTO, friction
 from test_fleet_branches import seven_branches
 from desk_harness import close_pages
+from desk_waits import counted
 from test_fleet_handoff_pickup import RICH
 from test_fleet_wrapup import Recorder
 
@@ -172,7 +173,7 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
 
         # 4. A second window, opened on luna the way a toast opens it: the tile's cell reads the
         #    count, and the pane names the three.
-        grid = browser.new_page(viewport={"width": 1280, "height": 900})
+        grid = counted(browser.new_page(viewport={"width": 1280, "height": 900}))
         grid.on("pageerror", lambda e: errors.append(str(e)))
         grid.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid#tile=luna",
                   wait_until="domcontentloaded")
@@ -233,13 +234,11 @@ def test_a_ticket_handed_over_from_the_board_window_to_a_checkout_with_seven_bra
         grid.evaluate("() => { document.querySelector('#inspectordetails > details.more').open = true; }")
         ticked = grid.evaluate("""async () => {
                 const body = document.getElementById('inspectordetails');
-                const seen = [];
-                const watch = new MutationObserver((records) => { for (const r of records) seen.push(r.type + ':' + (r.target.className || r.target.nodeName)); });
-                watch.observe(body, { subtree: true, childList: true, attributes: true, characterData: true });
+                const watch = __deskWaits.watch(body);
                 await loadDesk();
                 await new Promise(requestAnimationFrame);
-                watch.disconnect();
-                return { n: seen.length, seen: seen.slice(0, 8),
+                watch.stop();
+                return { n: watch.n, seen: watch.seen.slice(0, 8),
                          open: document.querySelector('#inspectordetails > details.more').open };
             }""")
         assert ticked["n"] == 0 and ticked["open"], ticked

@@ -25,6 +25,7 @@ from agentdata import theme as T
 from agentdata.fleet import probe as PR
 from agentdata.fleet import serve as S
 
+from desk_waits import counted, settle
 from test_fleet_ink import (_desk_of, _facts, _serve, _stop, fleet_home)  # noqa: F401
 from test_fleet_theme_switch import (SAMPLER, SETTLED, _desk, _frames, _rgb, _wrong,  # noqa: F401
                                      browser)
@@ -146,7 +147,7 @@ def _state_of(fleet_home, **theme) -> dict:
 
 
 def _page(browser, *scripts):
-    page = browser.new_page(viewport={"width": 1400, "height": 900})
+    page = counted(browser.new_page(viewport={"width": 1400, "height": 900}))
     page.add_init_script(SAMPLER)
     for s in scripts:
         page.add_init_script(s)
@@ -470,6 +471,10 @@ def test_the_settings_page_stays_legible_through_a_pick(browser, fleet_home, tmp
         page.select_option("#skin", "farmstead:daytime")
         page.wait_for_function("() => document.getElementById('saved').hidden === false", timeout=15000)
         page.wait_for_function("() => document.readyState === 'complete'", timeout=15000)
+        # The sampler records a frame, not a moment: on a loaded runner the pick can land with no
+        # frame drawn since (#304). So wait for frames -- the sampler has seen the new skin, and the
+        # page has been still for `settle`'s frames running, each sampled -- before reading them.
+        settle(page, also="window.__frames.some(f => f.skin === 'farmstead')")
         frames = _frames(page)["frames"]
         read = []
         for f in frames:

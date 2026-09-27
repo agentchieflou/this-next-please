@@ -20,7 +20,8 @@ from __future__ import annotations
 import pytest
 
 from desk_harness import close_pages
-from test_fleet_ink import (IDLE_LOOP, _desk_of, _open, _serve, _stop,  # noqa: F401 - fixtures
+from desk_waits import observe_quiet
+from test_fleet_ink import (_desk_of, _open, _serve, _stop,  # noqa: F401 - fixtures
                             fleet_home)
 
 
@@ -38,9 +39,9 @@ def test_an_idle_desk_with_a_skin_writes_nothing(fleet_home, tmp_path, skin, des
                                  && document.body.dataset.skinVariant === '{variant}'
                                  && !!document.head.querySelector('link[data-skin]').sheet""",
                                timeout=15000)
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle desk with {skin} wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle desk with {skin} wrote to the page: {count}"

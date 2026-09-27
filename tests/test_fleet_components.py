@@ -18,6 +18,7 @@ import pytest
 from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
+from desk_waits import counted
 from desk_harness import close_pages
 from test_fleet import make_project
 
@@ -155,7 +156,7 @@ def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path, desk_b
     server, token, port = _serve()
     try:
         browser = desk_browser
-        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        page = counted(browser.new_page(viewport={"width": 1400, "height": 900}))
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -165,16 +166,7 @@ def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path, desk_b
             timeout=15000)
 
         counts = page.evaluate("""() => {
-          const watch = (node, run) => {
-            let n = 0;
-            const obs = new MutationObserver(rs => { n += rs.length; });
-            obs.observe(node, { subtree: true, childList: true,
-                                attributes: true, characterData: true });
-            run();
-            obs.takeRecords().forEach(() => { n += 1; });
-            obs.disconnect();
-            return n;
-          };
+          const watch = (node, run) => { const w = __deskWaits.watch(node); run(); return w.stop().n; };
           const tile = document.querySelector('.tile.is-solo');
           const row = tiles.get(tile.dataset.repo).row;
           // The red one, as a rail: the pane at its narrowest, and the face that says it (#233).
