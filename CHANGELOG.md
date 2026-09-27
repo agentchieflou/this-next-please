@@ -4,6 +4,148 @@ Read this before running `ad-update`: it says whether an update needs anything b
 (a new optional dependency, a re-run of `ad-setup --patch`). Newest first. The top version here must match
 `pyproject.toml`, and `ad-update --check` prints the version and commit you are actually running.
 
+## 0.17.0
+
+**On update:**
+- **Python 3.14 is now required (#591).** `requires-python` is `>=3.14`, and 3.14 is the only version tested. On
+  3.12 or 3.13, pip refuses the new wheel and `ad-update` stops, naming the fix: install Python 3.14 first, then
+  run the update with it (`py -3.14 -m agentdata update`, or that interpreter's full path). After that, run
+  `ad-update --check`: its `python` must be the 3.14 you meant. If a `python_too_old` row names an older Python
+  still on PATH, the `ad-*` commands keep resolving to it until that Python moves behind the new one.
+- **Then the two standard commands, and a new Copilot chat.** Four skills changed (`bitbucket-pr`,
+  `confluence-publish`, `friction-log`, `state-update`), and a chat reads them only when it starts. There is no new
+  dependency, no `ad-setup --patch` and no config to migrate. The IDE extensions are unchanged. The update adds
+  one launcher, `ad-git`.
+- **A `fleet.allow_tools` of your own** gets none of the new defaults: `shell(ad-git push)` (#502), and
+  `python -m agentdata state` and `python -m agentdata doctor` (#500). Without the first, `bitbucket-pr` can no
+  longer push, since raw `git push` stays denied. `ad-doctor`'s fleet step names the module entries your list
+  lacks. With no list of your own, there is nothing to do.
+- **The desk answers only a loopback name (#551).** A request whose `Host` is not `127.0.0.1`, `localhost` or
+  `[::1]` is refused 403 before any route, which stops DNS rebinding. Any port is accepted, so an IDE's port
+  forward still works. A bookmark that uses the machine's name or a LAN address needs one of the three names.
+- **Run `ad-doctor`.** Its new `launchers` row (#500) fails when an `ad-*` launcher on PATH does not start, and
+  names the reinstall. Its `module` row says which agentdata `python -m agentdata` would run.
+- **The phone bridge is off until you turn it on.** Nothing changes unless you set it up with
+  `ad-setup --patch fleet.mobile` and `ad-fleet mobile init` (below).
+
+Developing this repo: make a Python 3.14 venv and run `pip install -e ".[dev]"` in it. Local gates run on 3.14
+only (decision 23).
+
+**The fleet on a phone and a tablet.** The desk now fits a phone and a tablet, and a bridge carries the fleet to
+a phone through a OneDrive folder (P-1, MOB-D14). The bridge is off by default (`fleet.mobile.enabled`).
+- **The bridge** (`agentdata/fleet/bridge.py`) runs as a thread of `ad-fleet serve` and `quickstart`, one pass
+  every 5 s (#550):
+  - **Out:** it writes attention rows, approval mirrors, heartbeats and results to `<folder>/outbox/`, and prunes
+    them after a day (#546). Every free-text field goes through one scrubber: credentials, paths, the run token,
+    user, machine and host names (#545).
+  - **In:** it applies the phone's decisions and replies from `inbox/`. Every check fails closed and moves the
+    file to `rejected/` with a `mobile_*` code (#547). A reply is applied exactly as the desk's answer, say or
+    send, and is never forced (#548).
+  - **Approvals:** every approval is bound to a sha256 digest of the whole request. A decision that names a
+    different request is refused, and each decision records where it came from (`via`) and who made it (`by`)
+    (#543).
+- **Commands:**
+  - `ad-fleet mobile status | init | export | apply`, with `--dry-run` on export and apply (#552);
+  - `ad-fleet mobile watch` when no serve is running (#550);
+  - `ad-setup --patch fleet.mobile`, which asks the five `fleet.mobile.*` keys (#553);
+  - `ad-doctor`'s `fleet/mobile` and `fleet/mobile traffic` rows, which read from disk only (#553).
+- **The routes and the channel:**
+  - `GET /api/attention` and `GET /api/approval?id=` answer from the bridge's allow-list (#559);
+  - a mobile notification channel writes into the outbox beside the toast, with one sweep per process (#549).
+- **The phone app is in `mobile/`** (PR #535): the Power Apps canvas app as YAML, its two flows and the list
+  workbook, kept byte-exact on a Windows checkout. `docs/fleet-mobile.md` has the IT ask for the lane (#571).
+- **The desk on a phone and a tablet:**
+  - **Viewport:** the pages fit a notch and an on-screen keyboard (#573).
+  - **Touch targets:** a coarse pointer gets 44 px targets, 16 px fields, a 20 px gutter strip and sticky decision
+    rows (#574).
+  - **The stack:** at 640 px and under, the row stacks. The open pane fills the glass, the rails become a bottom
+    bar, and `all` stacks the panes (#575).
+  - **The sidebar:** at 640 px and under it is a full-width sheet over a scrim, and a tap outside closes it (#576).
+    It also opens on a brand-new window again (#544).
+  - **The map and settings:** a tap on a map node opens it on the desk, and `/settings` fits 390 px (#578).
+  - **Ink:** a coarse pointer under 900 px draws plain; `?ink=on` still forces ink (#580).
+  - **Windows:** `phone` and `tablet` are device windows that `ad-fleet open --all` skips.
+- **A stream that survives the background (#579).** A hidden page closes its stream, and a shown one re-reads the
+  fleet and reconnects from its cursors: iOS drops a backgrounded stream without a word. `/api/fleet` and
+  `/api/desk` are gzipped when the client asks and the answer is over 8 KB.
+
+**Start fresh.** Leave the current session for a clean one in one step (#488, #489, #509):
+- `ad-fleet fresh <repo> [--dry-run] [--closed]` does it from the terminal. On the desk it is *Start fresh* in an
+  empty pane's bottom row, the head's toggle, or `Alt+N` on a pane or a rail. The pane then says where the old
+  session went.
+- `ad-fleet fresh --all` previews the whole fleet's morning and starts the ticked agents on one confirm (#508).
+  On the desk, the day strip offers it, as do `Shift+N` and `ad-fleet serve --open --fresh` (#511).
+- Text that is not a ticket key is refused `not_a_ticket`.
+
+**Wrap-up: Jira, Bitbucket and Confluence at the end of the work.**
+- `ad-fleet wrapup <repo>` previews every write for one agent and writes the ticked ones in order (#503).
+  `--all --day|--project` sweeps the whole fleet on one confirm (#505). On the desk, `w` on a pane opens the
+  wrap-up sheet (#510), and the day menu has *end of day…* and *end of project…* (#512). No step offers a merge.
+- `ad-jira comment <KEY> --body|--body-file [--dry-run]` posts a comment without a transition, through the
+  approval gate (#501).
+- `ad-git push [--remote R] [--dry-run]` is the one push: gated, never forced, and never to a protected branch
+  or the remote's HEAD (#502).
+- `ad-pncli capture-help` writes every `pncli --help` into one redacted file, for pinning the PR and page verbs
+  (#498).
+
+**Models, chosen without typing** (decision 15):
+- The model card is one press per choice: the tile head's `m`, or a rail (#366).
+- `/settings` sets the fleet's model and each repository's with pills (#367).
+- The dispatch card shows the model a ticket will start on and lets you change it before Start (#368).
+- A pane's chip shows a switch the moment it is saved, with name-first labels such as `luna 5.6` (#492).
+- The model and the effort inherit separately, and an effort survives a model switch (#493).
+
+**Never end the operator's own chat (#487).** Stop, Reset and every start refuse (`external_session`) when a
+Copilot the fleet did not start is working in the checkout.
+
+**The desk.**
+- **The map** has a link on the toolbar and the `g` key (#407). It stays live, with its own stream (#406), and
+  shows the network: the open windows, the server, the polled sources, approvals and the install (#404).
+- **The project panel fits one screen** (#504), and friction folds away once it is answered or comes from an
+  earlier session. It can also be dismissed, and it needs no re-index (#499).
+- **Served JS and CSS carry no comments.** The server strips them, the JSDoc types stay in the source, and the
+  reasoning is in a `<file>.md` beside each file (#523).
+- **Fixes:**
+  - closing the desk ends the connections a page kept open, on Windows too (#515);
+  - a POST whose body never arrived is not acted on (#584);
+  - a snapshot reads the registry once (#586);
+  - an idle desk writes nothing to the runs and sibling lists (#494, #514);
+  - a page load is recorded once, even when Chrome closes the page without `pagehide` (#481, #531);
+  - the renew and day lines follow every row that lands (#530).
+
+**Themes and ink.**
+- Words in a state colour read at 4.5:1, and marks keep 3:1 (#328). The needs-you name reads at 4.5:1 through
+  the highlighter the layer actually draws, and the layer reads a skin's inks again when its stylesheet lands
+  (#329).
+- **For a skin's author:** `cues`, one-shot effects from the page with the last box (#372), held by a contract
+  test (#373). Farmstead gets its effect sprites and weather colours (#380), and `docs/themes.md` shows every
+  palette's look (#399).
+
+**Security and correctness.**
+- `pncli` reads `-h`/`--help` and `--dry-run` as a read only when it is a flag of its own, never an option's
+  value. Before this, a `--title -h` could skip the approval gate (#524, #525).
+- TOON spells control characters as `\u{..}`, so it never writes a raw ESC (#522).
+- A text that starts with U+FEFF survives a write and a read (#519).
+- Windows reads a child's command line from the process before trying CIM (#520).
+
+**For developers of this repo.**
+- **Python 3.14 only**: one ubuntu leg and three Windows shards, and the floor job has pip on 3.13 refuse the
+  wheel (#591). pip is cached on every job, and the IDE jobs skip draft PRs (#592).
+- **CI:**
+  - every pytest step has a budget, and the job summary has a durations table (`tests/durations.json`, #309);
+  - `--shard=K/N` splits whole files by duration (#310), with Windows in parallel shards (#311) and the Linux
+    browser tier in its own sharded and shuffled jobs (#312);
+  - Winsock is captured when a test fails with #435's signature (#435);
+  - which tier runs where is a matrix generated from `tests.yml` (#315);
+  - the duration scan catches `monotonic` and `time.time` bounds, and every Chromium test is marked `browser`
+    (#602).
+- **The suite:**
+  - one owner in the conftest resets the desk's process state for every test (#298);
+  - the serve tests run the fake copilot (#480);
+  - `mobile/**` is byte-exact on Windows.
+  - Flakes fixed at their cause: #470, #479, #482, #490, #513, #517, #521, #527, #534, #583, #589 and #590.
+- **The agent relay:** merge trains 4 to 17 (#485 onward) and the implementation plan v2 (decision 20).
+
 ## 0.16.0
 
 **On update:** the two standard commands. There is no new dependency, no `ad-setup --patch`, no config to migrate and
