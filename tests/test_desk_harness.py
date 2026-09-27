@@ -6,6 +6,10 @@ motion, `COUNT_FETCHES`), and what can be told without Chromium is told here, wi
 the driver and the browser: the driver starts under the real environment and only once, a browser
 a test closed is launched again, a test's contexts are closed and no one else's, a browser test
 that is not on the harness finds the shared driver stopped, and the desk fixture serves and stops.
+
+The CPU throttle (#307): where its rate comes from, and that a page is throttled again when its main
+frame navigates. Whether Chromium really runs slower is a verdict on real timings, so that check
+folds into `test_fleet_ink.py::test_a_gesture_keeps_its_budget_while_the_ink_draws` (measured).
 """
 from __future__ import annotations
 import os
@@ -147,3 +151,100 @@ def test_the_desk_fixture_serves_the_page_and_stops(fleet_home, desk_server):
         assert answer.status == 200
     assert desk_server.url("&w=side").endswith(f"/?t={desk_server.token}&w=side")
     assert desk_server.base == f"http://127.0.0.1:{desk_server.port}"
+
+
+# ------------------------------------------------------------------ the CPU throttle (#307)
+
+
+def test_the_throttle_rate_is_the_option_then_the_environment_then_none():
+    """`--desk-cpu-throttle`, else `AGENTDATA_DESK_THROTTLE`, else 1; under 1, or not a number, is a
+    usage error rather than a run that quietly measures nothing."""
+    env = H.THROTTLE_ENV
+    assert env == "AGENTDATA_DESK_THROTTLE"
+    assert H.throttle_rate(None, {}) == 1.0
+    assert H.throttle_rate(None, {env: " "}) == 1.0
+    assert H.throttle_rate(None, {env: "2.5"}) == 2.5
+    assert H.throttle_rate(4.0, {env: "2"}) == 4.0
+    assert H.throttle_rate(1.0, {}) == 1.0
+    for option, environ in ((0.5, {}), (None, {env: "0"}), (None, {env: "fast"})):
+        with pytest.raises(pytest.UsageError):
+            H.throttle_rate(option, environ)
+
+
+class CdpSession:
+    def __init__(self, sent):
+        self.sent = sent
+
+    def send(self, method, params):
+        self.sent.append((method, params))
+
+
+class ThrottledContext:
+    def __init__(self):
+        self.sent: list = []
+        self.sessions = 0
+        self.kwargs: dict = {}
+
+    def new_page(self):
+        self.page = ThrottledPage(self)
+        return self.page
+
+    def new_cdp_session(self, page):
+        assert page is self.page
+        self.sessions += 1
+        return CdpSession(self.sent)
+
+
+class ThrottledPage:
+    def __init__(self, context):
+        self.context = context
+        self.handlers: dict = {}
+        self.main_frame = type("Frame", (), {"parent_frame": None})()
+
+    def on(self, event, handler):
+        self.handlers.setdefault(event, []).append(handler)
+
+    def add_init_script(self, script):
+        pass
+
+    def navigate(self, frame):
+        for handler in self.handlers.get("framenavigated", []):
+            handler(frame)
+
+
+class ThrottledBrowser:
+    def __init__(self):
+        self.context = ThrottledContext()
+
+    def new_context(self, **kwargs):
+        self.context.kwargs = kwargs
+        return self.context
+
+
+def test_a_throttled_page_is_throttled_again_whenever_its_main_frame_navigates(monkeypatch):
+    """`desk_page` sends `Emulation.setCPUThrottlingRate` when the rate is over 1, and again on each
+    navigation of the main frame (a new site is a new renderer process), not of a frame inside it.
+    At the default rate it opens no CDP session at all."""
+    rate = ("Emulation.setCPUThrottlingRate", {"rate": 4.0})
+    browser = ThrottledBrowser()
+    page = H.desk_page(browser, throttle=4)
+    assert browser.context.sessions == 1 and browser.context.sent == [rate]
+    page.navigate(page.main_frame)
+    assert browser.context.sent == [rate, rate]
+    page.navigate(type("Frame", (), {"parent_frame": page.main_frame})())
+    assert browser.context.sent == [rate, rate], "a subframe's navigation is not the page's"
+    assert browser.context.kwargs == {"viewport": {"width": 1400, "height": 900},
+                                      "reduced_motion": "no-preference"}
+
+    monkeypatch.setitem(H.THROTTLE, "rate", 1.0)
+    plain = ThrottledBrowser()
+    H.desk_page(plain)
+    assert plain.context.sessions == 0 and plain.context.sent == []
+
+    monkeypatch.setitem(H.THROTTLE, "rate", 2.0)
+    slowed = ThrottledBrowser()
+    H.desk_page(slowed)
+    assert slowed.context.sent == [("Emulation.setCPUThrottlingRate", {"rate": 2.0})]
+    unslowed = ThrottledBrowser()
+    H.desk_page(unslowed, throttle=1)
+    assert unslowed.context.sessions == 0, "an explicit rate of 1 overrides the option"

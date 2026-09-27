@@ -720,8 +720,9 @@ and cap raises. None of them named a cause.
    ([`.github/ISSUE_TEMPLATE/flake.md`](../.github/ISSUE_TEMPLATE/flake.md)) with the job URL, the node id, the
    full failure output (including what `_explain_the_page` printed), the commit, and the runner OS and Python.
 2. **Reproduce before fixing.** Run `-n 8` on 4 cores, several concurrent copies of the one test, or the
-   deterministic trick the cause needs (a late real answer patched in after a stub, as commit a42e0df did). #307
-   adds a CPU throttle and a stress script to this list. Paste the reproduction in the issue.
+   deterministic trick the cause needs (a late real answer patched in after a stub, as commit a42e0df did), or
+   the two tools in *Reproducing a CI-only failure* below: `--desk-cpu-throttle` and
+   `.github/scripts/stress_one.py` (#307). Paste the reproduction in the issue.
 3. **Fix the cause**: a missing condition, a stub race, a leaked global, a product defect. A product defect gets
    a regression file, `tests/regressions/test_<yyyymmdd>_<any|shell>_<short>.py`, quoting what the runner
    printed (see *The regression convention*).
@@ -734,6 +735,35 @@ operator's call, one PR at a time**: it happens only at the operator's word for 
 names the check and links its flake issue. Branch protection is the operator's setting and is not changed here;
 the `flake` label the template applies is created by the operator. `tests/test_hygiene_flake_policy.py` keeps
 this section, the template and the rule together.
+
+## Reproducing a CI-only failure
+
+A runner is 1.5 to 3 times slower than a laptop, and Windows-only failures were fixed by guessing because
+nobody could make a laptop that slow (#307). Two tools do it, and both are local: CI runs neither, and neither
+is a reason to raise a ceiling.
+
+| Tool | What it slows | What it does not slow |
+| --- | --- | --- |
+| `--desk-cpu-throttle=RATE` (or `AGENTDATA_DESK_THROTTLE=RATE`; default 1) | the main thread of every desk page the harness opens (`tests/desk_harness.py` `desk_page`, so `new_desk_page` and every helper on it): CDP `Emulation.setCPUThrottlingRate`, sent again whenever the page's main frame navigates, because a navigation to another site starts a new renderer process unthrottled | the Python server, the Playwright driver, and Chromium's GPU process |
+| `python .github/scripts/stress_one.py NODEID [--copies 8] [--rounds 2] [--throttle 1] [--timeout 600]` | everything, by contention: `--copies` processes of the one test fight for the CPU at once, as the tests on a loaded runner do; `--throttle` passes the option above to each copy | nothing in particular: it is the whole machine that is slow, not one thread |
+
+```
+python -m pytest -q -m browser tests/test_fleet_ink_glass.py --desk-cpu-throttle=4
+python .github/scripts/stress_one.py tests/test_fleet_ink_glass.py::test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_nothing
+```
+
+The numbers they were chosen on, in this suite's headless Chromium: a fixed JS loop took 43 ms at rate 1 and
+171 ms at rate 4; 8 copies over 2 rounds of
+`test_fleet_ink_glass.py::test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_nothing`
+took about 115 s each, about 11x slower than under `-n 4`, and all 16 passed.
+
+`stress_one.py` prints a TOON table, `round, copy, outcome, seconds`, and exits 1 when any copy did not pass.
+An outcome is `passed` (exit 0), `failed` (any other exit) or `timeout`. Every copy is started with
+`agentdata.proc.run`, which on POSIX gives it a session of its own and on a timeout kills the whole tree, so a
+copy that ran out of time leaves no driver or Chromium behind. `tests/test_stress_one.py` drives it with the
+node ids in `tests/fixtures/stress_one/target.py`, and
+`test_fleet_ink.py::test_a_gesture_keeps_its_budget_while_the_ink_draws` checks the throttle (a loop at rate 4
+takes at least three times as long, before and after a navigation to another site).
 
 ## What CI runs
 
