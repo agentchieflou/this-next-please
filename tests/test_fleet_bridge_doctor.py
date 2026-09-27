@@ -22,6 +22,7 @@ from agentdata.setup.steps.fleet import FleetStep
 
 from test_fleet import make_project
 from test_fleet_events import fleet_home                        # noqa: F401 - a fixture, used by name
+from mobile_contract import contract_checked                     # noqa: F401 - autouse: every record written validates
 
 UPN = "luna@example.com"
 PROBE = {"version": "1.0.81", "why": "", "login": "ok", "port": 8765, "port_free": True, "ours": False,
