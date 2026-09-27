@@ -32,7 +32,8 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
-from test_fleet_ink import COUNT_FETCHES, IDLE_LOOP, TABLE as INK_TABLE, _set as _ink_set
+from desk_waits import counted, observe_quiet
+from test_fleet_ink import TABLE as INK_TABLE, _set as _ink_set
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -581,7 +582,7 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path, desk_b
         desk_errors = []
         desk = browser.new_page(viewport={"width": 1400, "height": 900}, color_scheme="dark")
         desk.on("pageerror", lambda e: desk_errors.append(str(e)))
-        desk.add_init_script(COUNT_FETCHES)
+        counted(desk)
         desk.add_init_script("""document.addEventListener('DOMContentLoaded', () => {
             window.__atLoad = [document.body.dataset.skinVariant,
                 getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()];
@@ -619,8 +620,8 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path, desk_b
         # A variant switch redraws the paper's traces, at the notebook's pace; the ink idle
         # test's fast table draws them in seconds rather than fifteen, and waits for rest.
         _ink_set(desk, dict(INK_TABLE, speed=4))
-        idle = desk.evaluate(IDLE_LOOP)
-        assert idle["n"] == 0 and idle["renders"] == 0, f"an idle desk on notebook:auto: {idle}"
+        idle = observe_quiet(desk, passes=8)
+        assert idle["mutations"] == 0 and idle["renders"] == 0, f"an idle desk on notebook:auto: {idle}"
         assert not desk_errors, desk_errors
         assert not errors, errors
         close_pages(browser)

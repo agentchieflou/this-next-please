@@ -139,7 +139,9 @@
         "tests/fakes/jira.py",
         "tests/fakes/runner.py",
         "tests/subproc.py",
-        "tests/test_fleet.py"
+        "tests/test_fleet.py",
+        "tests/conftest.py",
+        "tests/winsock_capture.py"
       ]
     },
     "static-only": {
