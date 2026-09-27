@@ -646,7 +646,7 @@
           "type": "string",
           "maxLength": 32,
           "pattern": "^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z?)?$",
-          "description": "approval.decide's stamp, `yyyy-MM-ddTHH:mm:ss` with no Z."
+          "description": "UTC, `yyyy-MM-ddTHH:mm:ssZ` (bridge._utc of approval.decide's stamp). The pattern also takes the Z-less form v1 laptops wrote before the fix, so a mirror already in an outbox stays valid."
         },
         "digest": {
           "type": "string",
