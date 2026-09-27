@@ -1189,7 +1189,7 @@ function applyWindow(win) {
     openTile = String(win.open || "");
   }
   myWidths = ownWidths(win.widths);
-  if (win.section && win.section !== lastSection) {
+  if (SECTIONS.indexOf(win.section) >= 0 && win.section !== lastSection) {
     section(win.section, true, true);
   }
   if (win.read && typeof win.read === "object") {
@@ -1756,6 +1756,10 @@ function closeSide() {
   syncSide();
   saveWindow({ section: "" });
 }
+
+document.getElementById("side").addEventListener("click", function (e) {
+  if (e.target === e.currentTarget) closeSide();
+});
 
 function drawer(open) { return section("drawer", open); }
 
