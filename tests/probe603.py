@@ -160,8 +160,26 @@ def pytest_runtest_logstart(nodeid, location):
     CURRENT["id"] = nodeid
 
 
+def _netstat_q():
+    """`netstat -anoq -p tcp`: every TCP port by state, BOUND ones too (which the TCP table omits),
+    counted by state and, for BOUND, by owning PID."""
+    import subprocess
+    out = subprocess.run(["netstat", "-anoq", "-p", "tcp"], capture_output=True, text=True, timeout=20,
+                         errors="replace").stdout
+    states, bound = Counter(), Counter()
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 5 and parts[0] == "TCP":
+            states[parts[3]] += 1
+            if parts[3] == "BOUND":
+                bound[parts[4]] += 1
+    return {"states": dict(states), "bound_by_pid": dict(bound.most_common(5))}
+
+
 def _sampler():
+    k = 0
     while True:
+        k += 1
         t0 = time.time()
         try:
             conns = psutil.net_connections(kind="tcp")
@@ -173,6 +191,9 @@ def _sampler():
             mine = Counter(c.status for c in conns if c.pid in kids or c.pid == ME.pid)
             rec = {"t": round(t0 - START, 2), "id": CURRENT["id"], "machine": dict(machine), "ours": dict(mine),
                    "threads": threading.active_count(), "sys": _nonpaged(), "took_ms": round((time.time() - t0) * 1000)}
+            if WIN and k % 8 == 0:
+                rec["netstat_q"] = _netstat_q()
+                rec["mine_pids"] = [ME.pid] + list(kids)
             with open(SAMPLES, "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec) + "\n")
         except Exception as e:                      # noqa: BLE001 - a probe never fails the run
