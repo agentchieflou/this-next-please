@@ -375,7 +375,7 @@ byte-identical to `AGENTDATA_COLOR=never`, so no escape ever reaches an agent's 
 ### What CI proves per shell
 
 The laptop runbook (`docs/windows-verification.md`) only needs to cover what CI cannot. CI runs
-`windows-latest` on Python 3.12 (the floor) and 3.14 (the laptop), and each of these is its own step, so
+`windows-latest` on Python 3.14 (the floor, and what the laptop runs), and each of these is its own step, so
 a red job names the shell:
 
 | Step | Shell | What it proves |
@@ -386,7 +386,7 @@ a red job names the shell:
 | `encoding · code page 437` | cmd | `ui.glyphs()` falls back to ASCII rather than printing `?` |
 | `encoding · code page 65001` | cmd | `→ · ≤` survive |
 | `floor · PowerShell 5.1 is refused` | powershell 5.1 | `smoke.ps1`'s `#Requires -Version 7.0` refuses to run, **and** `ad-doctor` prints the "PowerShell 7 required" row. This is the only 5.1 step in the workflow and exists to prove the refusal, not to support the shell |
-| `floor · pip refuses the wheel on 3.11` | bash | the built wheel declares `Requires-Python: >=3.12`, and pip on 3.11 refuses it with *"requires a different Python"* — the message the user actually sees |
+| `floor · pip refuses the wheel on 3.13` | bash | the built wheel declares `Requires-Python: >=3.14`, and pip on 3.13 refuses it with *"requires a different Python"* and *"not in '>=3.14'"* — the message the user actually sees |
 | `lint · shellcheck + PSScriptAnalyzer` | both | `smoke.sh` passes `shellcheck --shell=bash` (the bash 4.4 floor), `smoke.ps1` passes PSScriptAnalyzer with `PSUseCompatibleSyntax` targeting 7.x |
 
 The smoke scripts live in `.github/scripts/` and are the same files a person can run on the laptop.

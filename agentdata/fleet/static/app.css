@@ -56,6 +56,8 @@
 
 [hidden] { display: none !important; }
 
+html { overscroll-behavior-y: contain; }
+
 body {
   margin: 0;
   font: 13px/1.45 var(--ui);
@@ -64,6 +66,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
 }
 
 header, footer {
@@ -72,6 +75,8 @@ header, footer {
   flex-wrap: wrap;
   gap: 6px 12px;
   padding: 6px 14px;
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(14px, env(safe-area-inset-right));
   border-bottom: 1px solid var(--line);
   background: var(--panel);
   flex: 0 0 auto;
@@ -118,7 +123,10 @@ header, footer {
   color: var(--accent);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
-footer { border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted); position: relative; }
+footer {
+  border-bottom: 0; border-top: 1px solid var(--line); color: var(--muted); position: relative;
+  padding-bottom: calc(6px + env(safe-area-inset-bottom));
+}
 
 .popover {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
@@ -460,7 +468,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
   z-index: 30; pointer-events: none; cursor: grabbing;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
 }
-.tile .head, .pane-rail { touch-action: none; user-select: none; -webkit-user-select: none; }
+.tile .head, .pane-rail { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
 
 .tile.is-pinned .head .n::after { content: "\00a0\1F4CC"; font-size: 11px; }
 .tile.is-pinned .head .pintoggle { color: var(--accent); }
@@ -527,6 +535,7 @@ body:has(> #ink[data-skin]) .tile.is-selected { box-shadow: 0 0 0 2px var(--focu
 
 @media (max-width: 640px) {
   .keys { display: none; }
+  kbd { display: none; }
 }
 
 #bell { position: relative; }
@@ -755,7 +764,7 @@ body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-selec
 
 .modelcard {
   position: fixed; z-index: 40; display: flex; flex-direction: column; gap: 8px;
-  min-width: 280px; max-width: min(440px, 92vw); max-height: calc(100vh - 16px); overflow: auto;
+  min-width: 280px; max-width: min(440px, 92vw); max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); overflow: auto;
   padding: 10px 12px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, .18); font-size: 12px;

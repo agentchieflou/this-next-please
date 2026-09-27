@@ -6,6 +6,7 @@ proven headlessly is everything that would silently break: the token, the loopba
 frames, the fact that the page fetches nothing from the internet, and that the wheel ships it.
 """
 from __future__ import annotations
+import calendar
 import http.client
 import json
 import re
@@ -118,14 +119,15 @@ def test_a_request_whose_host_is_not_the_loopback_address_is_refused_before_any_
     loopback peer, so the peer check passes; only `Host` still carries the hostile name."""
     base, token, server = running
     port = server.server_address[1]
-    for host in (f"evil.example:{port}", "evil.example", None, "127.0.0.1", f"127.0.0.1:{port + 1}",
+    for host in (f"evil.example:{port}", "evil.example", None, "127.0.0.1",
                  f"127.0.0.2:{port}", f"::1:{port}", f"localhost.evil.example:{port}"):
         for path in ("/", f"/?t={token}", "/open", "/open?w=vscode", "/api/ping",
                      f"/api/fleet?t={token}"):
             code, body, _ = _as_host(port, path, host)
             assert code == 403, (host, path, code)
             assert json.loads(body)["error"] == "not authorized", (host, path)
-    for host in (f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}", f"LOCALHOST:{port}"):
+    for host in (f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}", f"LOCALHOST:{port}",
+                 f"127.0.0.1:{port + 1}"):
         code, body, headers = _as_host(port, "/open?w=vscode", host)
         assert code == 302, host
         assert headers["Location"] == f"/?t={token}&w=vscode", host
@@ -149,6 +151,27 @@ def test_a_request_whose_host_is_not_the_loopback_address_is_refused_before_any_
             assert json.loads(answer.read())["error"] == "not authorized", host
         finally:
             conn.close()
+
+
+def test_a_loopback_host_on_a_forwarded_port_is_served_and_a_rebinding_name_on_it_is_not(running):
+    """Decision 22 on #429: an IDE that forwards the desk to another local port sends that port in
+    `Host`. The name carries the rebinding protection, so a loopback name passes on any port."""
+    base, token, server = running
+    port = server.server_address[1]
+    for forwarded in (port + 1, 8080, 1, 65535):
+        for host in (f"localhost:{forwarded}", f"127.0.0.1:{forwarded}", f"[::1]:{forwarded}"):
+            code, body, headers = _as_host(port, "/open?w=vscode", host)
+            assert code == 302 and headers["Location"] == f"/?t={token}&w=vscode", host
+            code, body, _ = _as_host(port, f"/?t={token}", host)
+            assert code == 200 and "<title>fleet</title>" in body, host
+        for host in (f"evil.example:{forwarded}", f"localhost.evil.example:{forwarded}",
+                     f"127.0.0.2:{forwarded}", f"10.0.0.1:{forwarded}", f"::1:{forwarded}"):
+            code, body, _ = _as_host(port, "/open?w=vscode", host)
+            assert code == 403 and json.loads(body)["error"] == "not authorized", host
+    for host in ("localhost:", "localhost:x", f"localhost:{port}x", "localhost:65536", "localhost:0",
+                 "localhost:\u00b2"):
+        code, _, _ = _as_host(port, "/api/ping", host)
+        assert code == 403, host
 
 
 def test_every_response_carries_the_headers_that_keep_the_page_local(running):
@@ -194,6 +217,88 @@ def test_a_pending_approval_reaches_the_page_with_its_payload(running, tmp_path,
     data = json.loads(body)
     assert data["repos"][0]["state"] == "waiting_approval"
     assert data["approvals"][0]["payload"]["transition"] == "31 In Review"
+
+
+def test_the_attention_route_answers_only_the_bridges_allow_listed_keys_and_six_agents_fit_in_8kb(running, tmp_path,
+                                                                                                  monkeypatch):
+    """`/api/attention` (#559) is `bridge.attention_row()` over the same snapshot `/api/fleet` folds: one allow-list
+    for the phone's folder and the phone's page, and a fraction of the bytes."""
+    from agentdata.fleet import bridge
+
+    base, token, _ = running
+    for name in ("luna", "uat", "velocity", "prod", "ops", "lab"):
+        a_repo(tmp_path, name, ticket="RDSD-1")
+    monkeypatch.setenv(registry.AGENT_ENV, "luna")
+    id = approval.require("jira-transition", "RDSD-1: In Progress -> In Review", {"key": "RDSD-1"},
+                          ticket="RDSD-1", timeout=0).id
+    monkeypatch.delenv(registry.AGENT_ENV)
+    state = os.path.join(registry.fleet_dir(), bridge.STATE_FILE)
+    assert not os.path.exists(state)
+
+    _, body, _ = get(base, "/api/attention", token)
+    data = json.loads(body)
+    assert set(data) == {"ok", "schema", "generated", "rows"} and data["ok"] is True and data["schema"] == 1
+    assert len(body.encode("utf-8")) < 8 * 1024, len(body)
+    rows = {r["repo"]: r for r in data["rows"]}
+    assert set(rows) == {"luna", "uat", "velocity", "prod", "ops", "lab"}
+    for row in rows.values():
+        assert set(row) == bridge.ATTENTION_KEYS, set(row) ^ bridge.ATTENTION_KEYS
+        assert row["seq"] == 0 and row["digest"] == bridge.attention_digest(row)
+    assert rows["luna"]["approvals"] == [id] and rows["luna"]["needs_human"] is True
+
+    def keys(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                yield k
+                yield from keys(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                yield from keys(v)
+
+    for key in keys(data):
+        assert key not in ("path", "pid", "console", "recent", "trace") and not key.endswith("_source"), key
+    assert not os.path.exists(state), "a GET minted the bridge's state file"
+
+    # `seq` is the bridge's, read and never bumped.
+    with open(state, "w", encoding="utf-8") as f:
+        json.dump({"schema": 1, "attention_seq": {"luna": 7}}, f)
+    before = open(state, "rb").read()
+    rows = {r["repo"]: r for r in json.loads(get(base, "/api/attention", token)[1])["rows"]}
+    assert rows["luna"]["seq"] == 7 and rows["uat"]["seq"] == 0
+    assert open(state, "rb").read() == before
+
+
+def test_the_approval_route_answers_one_mirror_with_its_digest_and_never_the_payload(running, tmp_path, monkeypatch):
+    base, token, _ = running
+    a_repo(tmp_path, "luna")
+    monkeypatch.setenv(registry.AGENT_ENV, "luna")
+    id = approval.require("jira-transition", "RDSD-1: In Progress -> In Review",
+                          {"key": "RDSD-1", "transition": "31 In Review"}, ticket="RDSD-1", timeout=0).id
+    decided = approval.require("jira-comment", "RDSD-1: comment", {"key": "RDSD-1"}, timeout=0).id
+    monkeypatch.delenv(registry.AGENT_ENV)
+    approval.decide(decided, approval.APPROVED, by="operator")
+    request = approval.read_request(id)
+
+    _, body, _ = get(base, f"/api/approval?id={id}", token)
+    data = json.loads(body)
+    assert data["ok"] is True and data["id"] == id and data["repo"] == "luna"
+    assert re.fullmatch(r"[0-9a-f]{64}", data["digest"]) and data["digest"] == approval.digest(request)
+    created = calendar.timegm(time.strptime(request["created"], "%Y-%m-%dT%H:%M:%S"))
+    assert data["created"] == request["created"] + "Z"
+    assert data["expires"] == time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                            time.gmtime(created + approval.timeout_seconds()))
+    assert data["payload_preview"] == {"key": "RDSD-1", "transition": "31 In Review"}
+    assert "payload" not in data and "pid" not in data and str(request["pid"]) not in body
+
+    for missing in (decided, "luna-jira-transition-20260101T000000-dead"):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            get(base, f"/api/approval?id={missing}", token)
+        assert e.value.code == 404, missing
+        assert json.loads(e.value.read()) == {"ok": False, "error": f"no approval called {missing} is waiting"}
+    for bad in ("", "..%2Fserve", "a" * 97, "luna%20x"):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            get(base, f"/api/approval?id={bad}", token)
+        assert e.value.code == 400, bad
 
 
 def test_approving_from_the_page_releases_the_agent(running, tmp_path, monkeypatch):
@@ -694,7 +799,7 @@ def test_the_wheel_ships_the_static_files():
 def test_the_dashboard_is_documented_including_the_keyboard_map():
     text = open(CONTRACT, encoding="utf-8").read()
     for endpoint in ("/api/fleet", "/api/events", "/api/approve", "/api/deny", "/api/start",
-                     "/api/send", "/api/stop"):
+                     "/api/send", "/api/stop", "/api/attention", "/api/approval?id="):
         assert endpoint in text, f"{endpoint} is not documented"
     for key in ("Esc", "1", "9", "a"):
         assert f"`{key}`" in text, f"the {key} key is not in the keyboard map"

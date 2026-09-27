@@ -66,9 +66,10 @@ MAX_BODY = 64 * 1024
 # a new route it must call, or a changed meaning for one it already calls.
 CONTRACT = 1
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
-# What a request's `Host` may name, with this server's port (#551). The peer check above cannot see
+# What a request's `Host` may name, on any port (#551, decision 22). The peer check above cannot see
 # DNS rebinding: a hostile name that re-resolves to 127.0.0.1 connects from loopback, and once it is
-# same-origin it could read `/open`'s redirect. Only the `Host` header still carries that name.
+# same-origin it could read `/open`'s redirect. Only the `Host` header still carries that name, so the
+# name is the check; the port is not, because an IDE may forward the desk to another local port.
 HOSTS_ALLOWED = ("127.0.0.1", "localhost", "[::1]")
 
 POLL_EVERY_S = 5.0           # the floor between two ticks of the shared poller, however many tabs
@@ -553,6 +554,53 @@ def row_for(name: str) -> dict:
         if row.get("repo") == name:
             return row
     return {}
+
+
+APPROVAL_ID = re.compile(r"^[A-Za-z0-9_.-]{1,96}$")
+
+
+def _attention_seq() -> dict:
+    """The bridge's `attention_seq`, read and never written: a GET neither bumps it nor mints the state file."""
+    from . import bridge
+
+    try:
+        state = textio.read_json(os.path.join(fleet_dir(), bridge.STATE_FILE), bridge.STATE_FILE)
+    except (OSError, ValueError):
+        return {}
+    seq = state.get("attention_seq") if isinstance(state, dict) else None
+    return seq if isinstance(seq, dict) else {}
+
+
+def attention_answer() -> dict:
+    """`GET /api/attention` (#559): `bridge.attention_row()` over one `fleet_snapshot()`, the function the outbox
+    writes with, so the folder and the page share one allow-list. Nothing else of the snapshot rides along."""
+    from . import bridge
+
+    snap = fleet_snapshot()
+    scrub = bridge.Scrubber().scrub
+    seqs = _attention_seq()
+    rows = []
+    for row in snap.get("repos") or []:
+        repo = str(row.get("repo") or "")
+        if repo:
+            try:
+                seq = int(seqs.get(repo) or 0)
+            except (TypeError, ValueError):
+                seq = 0
+            rows.append(bridge.attention_row(row, scrub, snap.get("approvals") or [], seq))
+    return {"ok": True, "schema": bridge.MOBILE_SCHEMA,
+            "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "rows": rows}
+
+
+def approval_answer(id: str) -> dict | None:
+    """`GET /api/approval?id=` (#559): one waiting request as the bridge mirrors it (a scrubbed preview, the digest of
+    all of it, `expires`), or None for an id that is unknown or already decided. Never `payload`, never `pid`."""
+    from . import bridge
+
+    for request in approval.pending():
+        if request.get("id") == id:
+            return bridge.approval_record(request, bridge.Scrubber())
+    return None
 
 
 def fleet_snapshot() -> dict:
@@ -3033,10 +3081,10 @@ class Handler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------ plumbing
 
     def _host_ok(self) -> bool:
-        """`Host` is a loopback name with this server's port, or the request is refused (#551)."""
+        """`Host` is a loopback name with a port, any port, or the request is refused (#551)."""
         given = (self.headers.get("Host") or "").strip().lower()
         name, _, port = given.rpartition(":")
-        return name in HOSTS_ALLOWED and port == str(self.server.server_address[1])
+        return name in HOSTS_ALLOWED and port.isascii() and port.isdigit() and 0 < int(port) < 65536
 
     def _authorized(self, query: dict) -> bool:
         host = (self.client_address[0] or "").strip("[]")
@@ -3145,6 +3193,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._page(PAGES[route], query)
         if route == "/api/fleet":
             return self._json({"ok": True, **fleet_snapshot()})
+        if route == "/api/attention":
+            # The phone's view of the fleet (#559): the bridge's allow-listed rows, never `/api/fleet`'s.
+            return self._json(attention_answer())
+        if route == "/api/approval":
+            id = (query.get("id") or [""])[0]
+            if not APPROVAL_ID.match(id):
+                return self._refuse(400, "an approval id is 1-96 letters, digits, dots, dashes or underscores",
+                                    "take the id from /api/attention's `approvals`")
+            record = approval_answer(id)
+            if record is None:
+                return self._json({"ok": False, "error": f"no approval called {id} is waiting"}, 404)
+            return self._json({"ok": True, **record})
         if route == "/api/map":
             from . import fleetmap
 

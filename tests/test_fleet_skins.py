@@ -212,6 +212,53 @@ def test_every_palette_has_a_look_or_says_why_it_has_none():
         f"PALETTE_ONLY names what is not a built-in palette: {sorted(skins.PALETTE_ONLY)}")
 
 
+def _themes_md_section(heading: str) -> str:
+    """The body of `### <heading>` in docs/themes.md, up to the next heading of any level."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "themes.md")
+    text = open(path, encoding="utf-8").read()
+    m = re.search(r"^### %s\n(.*?)(?=^#{1,3} )" % re.escape(heading), text, re.S | re.M)
+    assert m, f"docs/themes.md has no '### {heading}' section"
+    return m.group(1)
+
+
+def _table_rows(section: str) -> dict[str, list[str]]:
+    """A Markdown table's body rows, by their first cell with its backticks taken off."""
+    rows = {}
+    for line in section.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if line.startswith("|") and len(cells) > 1 and not set(cells[0]) <= set("-: "):
+            rows[cells[0].strip("`")] = cells[1:]
+    return rows
+
+
+def test_docs_themes_lists_every_skin_every_variant_and_every_palettes_look():
+    """#399. docs/themes.md names every skin in 'Available Skins', every `<skin>:<variant>` in the
+    worlds table, and every built-in palette but `none` in 'Every palette's look' -- with the
+    variants drawn on it (skin title · variant title), or `palette only` when there are none. A
+    palette some variant is drawn on is never `palette only`; every `PALETTE_ONLY` one is."""
+    available = _table_rows(_themes_md_section("Available Skins"))
+    missing = [name for name in skins.SKINS if name not in available]
+    assert not missing, f"docs/themes.md 'Available Skins' has no row for: {missing}"
+    worlds = _table_rows(_themes_md_section("Skins and their worlds"))
+    missing = [f"{s}:{v}" for s, v, _ in skins.every_variant() if f"{s}:{v}" not in worlds]
+    assert not missing, f"docs/themes.md 'Skins and their worlds' has no row for: {missing}"
+    looks = _table_rows(_themes_md_section("Every palette's look"))
+    drawn: dict[str, list[str]] = {}
+    for s, v, spec in skins.every_variant():
+        drawn.setdefault(spec["base"], []).append(f"{skins.SKINS[s]['title']} · {spec['title']}")
+    for name in theme.BUILTINS:
+        if name == "none":
+            continue
+        assert name in looks, f"docs/themes.md 'Every palette's look' has no row for {name}"
+        row = " | ".join(looks[name])
+        if name in drawn:
+            assert "palette only" not in row, f"{name} is drawn by {drawn[name]} but its row says palette only"
+            for look in drawn[name]:
+                assert look in looks[name][0], f"{name}'s row does not name {look}"
+        if name in skins.PALETTE_ONLY:
+            assert "palette only" in row, f"{name} is in PALETTE_ONLY but its row does not say palette only"
+
+
 def test_a_skins_default_variant_is_one_of_its_variants():
     for name, skin in skins.SKINS.items():
         assert skin["default"] in skin["variants"], name

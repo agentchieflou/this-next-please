@@ -17,15 +17,17 @@ import yaml
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(REPO_ROOT, ".github", "workflows", "tests.yml")
 
-#: What the old serial 3.14 `pytest` step selected; every 3.14 shard selects this, sharded.
+#: What the old serial 3.14 `pytest` step selected; every shard selects this, sharded.
 LAPTOP = "not slow and not measured and not scale"
-#: The 3.12 legs install no browser, so they deselect the browser tier rather than skip it.
-FLOOR = "not browser and not slow and not measured and not scale"
-#: The steps other than pytest that the old job ran on 3.12 and 3.14 alike, and on 3.14 only.
-BOTH = {"smoke · pwsh 7", "smoke · Git Bash", "smoke · cmd", "completion · Git Bash", "completion · pwsh 7",
-        "encoding · code page 437 falls back to ASCII", "encoding · code page 65001 keeps the glyphs"}
-LAPTOP_ONLY = {"encoding · pwsh redirection is UTF-8 without a BOM, and byte-identical to Linux",
-               "floor · Windows PowerShell 5.1 is refused, and the doctor says why"}
+#: #591: the one Python, which is the floor and what the laptop runs (decision 23 on #429).
+PYTHON = "3.14"
+#: The steps other than pytest that run once per run, in the packaging and shells job: the shells, the
+#: code pages, and the pwsh-redirection and 5.1-refusal steps the old job ran on 3.14 only.
+SHELLS = {"smoke · pwsh 7", "smoke · Git Bash", "smoke · cmd", "completion · Git Bash", "completion · pwsh 7",
+          "encoding · code page 437 falls back to ASCII", "encoding · code page 65001 keeps the glyphs",
+          "encoding · pwsh redirection is UTF-8 without a BOM, and byte-identical to Linux",
+          "floor · Windows PowerShell 5.1 is refused, and the doctor says why"}
+PACKAGING = f"windows · python {PYTHON} · packaging and shells"
 
 _TERM = re.compile(r"^(?:always\(\)|matrix\.(\w+) (==|!=) '([^']*)')$")
 _EXPR = re.compile(r"\$\{\{\s*matrix\.(\w+)\s*\}\}")
@@ -89,84 +91,80 @@ def shard_of(run: str):
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
-def _by_python(python: str) -> list[dict]:
-    return [e for e in expand(_job()) if e["row"]["python"] == python]
-
-
-def test_the_windows_rows_are_three_laptop_shards_a_packaging_job_and_two_floor_shards():
+def test_the_windows_rows_are_three_shards_and_a_packaging_job_all_on_3_14():
     job = _job()
     assert job["timeout-minutes"] <= 20, "the Windows caps came back down to 20 minutes"
     for s in job["steps"]:
         assert s.get("timeout-minutes", 0) <= 20, s.get("name")
-    names = [e["name"] for e in expand(job)]
+    expanded = expand(job)
+    names = [e["name"] for e in expanded]
     assert len(names) == len(set(names)), f"two Windows jobs share a name: {names}"
+    assert {e["row"]["python"] for e in expanded} == {PYTHON}, "#591: no Windows job runs another Python"
+    for s in job["steps"]:
+        if str(s.get("uses", "")).startswith("actions/setup-python"):
+            assert s["with"]["python-version"] == "${{ matrix.python }}", s
 
-    for python, n, autocrlf in (("3.14", 3, "false"), ("3.12", 2, "true")):
-        legs = _by_python(python)
-        assert {e["row"]["autocrlf"] for e in legs} == {autocrlf}, python
-        shards = []
-        for e in legs:
-            runs = pytest_runs(e)
-            sharded = [shard_of(s["run"]) for s in runs if shard_of(s["run"])]
-            assert len(sharded) <= 1, f"{e['name']}: more than one sharded step"
-            if sharded:
-                shards.append(sharded[0])
-                assert e["name"] == f"windows · python {python} · shard {sharded[0][0]}/{sharded[0][1]}"
-        assert sorted(shards) == [(k, n) for k in range(1, n + 1)], (
-            f"{python}: every shard K/{n} exactly once, and nothing else: {shards}")
+    shards = []
+    for e in expanded:
+        runs = pytest_runs(e)
+        sharded = [shard_of(s["run"]) for s in runs if shard_of(s["run"])]
+        assert len(sharded) <= 1, f"{e['name']}: more than one sharded step"
+        if sharded:
+            shards.append(sharded[0])
+            assert e["name"] == f"windows · python {PYTHON} · shard {sharded[0][0]}/{sharded[0][1]}"
+    assert sorted(shards) == [(k, 3) for k in range(1, 4)], f"every shard K/3 exactly once, and nothing else: {shards}"
 
-    packaging = [e for e in _by_python("3.14") if not any(shard_of(s["run"]) for s in pytest_runs(e))]
-    assert [e["name"] for e in packaging] == ["windows · python 3.14 · packaging and shells"]
+    packaging = [e for e in expanded if not any(shard_of(s["run"]) for s in pytest_runs(e))]
+    assert [e["name"] for e in packaging] == [PACKAGING]
+
+
+def test_the_shards_check_out_as_git_for_windows_does_and_packaging_leaves_line_endings_alone():
+    """#591: the old floor's two shards were the only `core.autocrlf=true` checkouts, the setting behind
+    train 13's line-ending bug. The shards take it over; packaging and shells keeps `false`, so the
+    matrix still runs both ways (tests/test_shell.py holds the pair)."""
+    by_name = {e["name"]: e["row"]["autocrlf"] for e in expand(_job())}
+    assert by_name.pop(PACKAGING) == "false"
+    assert set(by_name.values()) == {"true"} and len(by_name) == 3, by_name
+    first = _job()["steps"][0]
+    assert first["run"] == "git config --global core.autocrlf ${{ matrix.autocrlf }}", "set before the checkout"
 
 
 def test_each_shard_selects_what_the_old_step_did_serially_and_with_its_own_budget():
-    for python, expr in (("3.14", LAPTOP), ("3.12", FLOOR)):
-        for e in _by_python(python):
-            for s in pytest_runs(e):
-                if not shard_of(s["run"]):
-                    continue
-                assert selection(s["run"]) == expr, f"{e['name']}: {s['run']}"
-                assert " -n " not in f" {s['run']} ", "serial within a shard until #313"
-                assert "-rs" in s["run"].split(), "every skip prints its reason"
-                assert s["timeout-minutes"] <= 15, e["name"]
+    for e in expand(_job()):
+        for s in pytest_runs(e):
+            if not shard_of(s["run"]):
+                continue
+            assert selection(s["run"]) == LAPTOP, f"{e['name']}: {s['run']}"
+            assert " -n " not in f" {s['run']} ", "serial within a shard until #313"
+            assert "-rs" in s["run"].split(), "every skip prints its reason"
+            assert s["timeout-minutes"] <= 15, e["name"]
 
 
-def test_a_browser_is_installed_and_required_on_every_3_14_job_and_on_no_3_12_job():
+def test_a_browser_is_installed_and_required_on_every_windows_job():
     for e in expand(_job()):
         names = [s["name"] for s in e["steps"]]
         installs = [i for i, s in enumerate(e["steps"]) if "playwright install chromium" in s["run"]]
         runs = [i for i, s in enumerate(e["steps"]) if "-m pytest" in s["run"]]
         required = {s["env"].get("AGENTDATA_REQUIRE_BROWSER", "") for s in e["steps"] if "-m pytest" in s["run"]}
-        if e["row"]["python"] == "3.14":
-            assert len(installs) == 1 and installs[0] < min(runs), f"{e['name']}: {names}"
-            assert required == {"1"}, f"{e['name']}: a browser test could skip for want of Chromium"
-        else:
-            assert not installs, e["name"]
-            assert required == {""}, e["name"]
-            for s in e["steps"]:
-                if "-m pytest" in s["run"]:
-                    assert "not browser" in selection(s["run"]), (
-                        f"{e['name']}: a 3.12 step relies on a skip rather than a deselection")
+        assert len(installs) == 1 and installs[0] < min(runs), f"{e['name']}: {names}"
+        assert required == {"1"}, f"{e['name']}: a browser test could skip for want of Chromium"
 
 
-def test_the_other_steps_run_once_per_python_where_they_ran_before():
-    laptop, floor = _by_python("3.14"), _by_python("3.12")
-    ran = {e["name"]: {s["name"] for s in e["steps"]} for e in laptop + floor}
-    assert shells_in(laptop, "windows · python 3.14 · packaging and shells") >= BOTH | LAPTOP_ONLY
-    assert shells_in(floor, "windows · python 3.12 · shard 1/2") >= BOTH
+def test_the_other_steps_run_once_in_the_packaging_job():
+    expanded = expand(_job())
+    ran = {e["name"]: {s["name"] for s in e["steps"]} for e in expanded}
+    assert shells_in(expanded, PACKAGING) >= SHELLS
     for name, steps in ran.items():
-        extra = steps & (BOTH | LAPTOP_ONLY)
-        if name not in ("windows · python 3.14 · packaging and shells", "windows · python 3.12 · shard 1/2"):
+        extra = steps & SHELLS
+        if name != PACKAGING:
             assert not extra, f"{name} runs {extra}, which another job already runs"
-    assert not ran["windows · python 3.12 · shard 1/2"] & LAPTOP_ONLY
 
-    def only(expanded, expr):
+    def only(expr):
         return [e["name"] for e in expanded for s in pytest_runs(e) if selection(s["run"]) == expr]
 
-    assert only(laptop, "(measured or scale) and not slow") == ["windows · python 3.14 · packaging and shells"]
-    assert only(floor, "(measured or scale) and not slow and not browser") == ["windows · python 3.12 · shard 1/2"]
-    slow = [(e["name"], s) for e in laptop + floor for s in pytest_runs(e) if selection(s["run"]) == "slow"]
-    assert [n for n, _ in slow] == ["windows · python 3.14 · packaging and shells"]
+    assert only("(measured or scale) and not slow") == [PACKAGING]
+    slow = [(e["name"], s) for e in expanded for s in pytest_runs(e) if selection(s["run"]) == "slow"]
+    assert [n for n, _ in slow] == [PACKAGING]
     step = slow[0][1]
     assert step["timeout-minutes"] == 10
     for flag in ("-v", "--durations=0", "--capture=tee-sys", "-rs"):
@@ -210,7 +208,7 @@ def test_every_row_writes_its_own_junit_files_and_reports_each_against_its_cap()
     (None, {}, True), ("always()", {}, True),
     ("matrix.python == '3.14'", {"python": "3.14"}, True),
     ("matrix.python == '3.14' && matrix.shard != ''", {"python": "3.14", "shard": ""}, False),
-    ("always() && matrix.extras != ''", {"extras": "3.12"}, True),
+    ("always() && matrix.extras != ''", {"extras": "3.14"}, True),
 ])
 def test_the_condition_reader_reads_the_forms_the_job_uses(condition, row, expected):
     assert holds(condition, row) is expected
@@ -218,6 +216,6 @@ def test_the_condition_reader_reads_the_forms_the_job_uses(condition, row, expec
 
 def test_the_condition_reader_refuses_what_it_cannot_read():
     with pytest.raises(AssertionError, match="cannot evaluate"):
-        holds("matrix.python == '3.14' || matrix.python == '3.12'", {"python": "3.12"})
+        holds("matrix.python == '3.14' || matrix.shard == ''", {"python": "3.14"})
     with pytest.raises(AssertionError, match="cannot evaluate"):
-        holds("startsWith(matrix.python, '3.1')", {"python": "3.12"})
+        holds("startsWith(matrix.python, '3.1')", {"python": "3.14"})

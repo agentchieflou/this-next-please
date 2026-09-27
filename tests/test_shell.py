@@ -206,7 +206,8 @@ def test_the_workflow_runs_all_three_shells_and_swallows_nothing():
     assert {"pwsh", "bash", "cmd", "powershell"} <= shells, f"missing a shell: {shells}"
     rows = win["strategy"]["matrix"]["include"]
     # #311: several shard jobs per Python now; tests/test_hygiene_windows_shards.py pins the rows
-    assert {r["python"] for r in rows} == {"3.12", "3.14"}, "the floor and the laptop"
+    # #591 (decision 23): 3.14 is the floor and the laptop's Python, and the only one tested
+    assert {r["python"] for r in rows} == {"3.14"}, "3.14 only: the floor is the laptop"
     # a Windows checkout's line endings depend on core.autocrlf, and fixture bytes are the point of
     # several tests, so the matrix runs it both ways rather than pinning one
     assert {r["autocrlf"] for r in rows} == {"true", "false"}
@@ -219,8 +220,8 @@ def test_the_workflow_runs_all_three_shells_and_swallows_nothing():
 
 
 def test_the_workflow_is_shaped_for_the_merge_train():
-    """Decision 7 (#429): a superseded run is cancelled, a draft PR skips only the Windows job, and
-    marking a PR ready for review runs it."""
+    """Decision 7 (#429): a superseded run is cancelled, a draft PR skips only the Windows job and
+    (#592) the IDE builds, and marking a PR ready for review runs them."""
     import yaml
 
     wf = yaml.safe_load(open(os.path.join(REPO_ROOT, ".github", "workflows", "tests.yml"), encoding="utf-8"))
@@ -231,10 +232,12 @@ def test_the_workflow_is_shaped_for_the_merge_train():
     assert wf["concurrency"] == {"group": "tests-${{ github.ref }}", "cancel-in-progress": True}
 
     draft_gate = "github.event_name != 'pull_request' || github.event.pull_request.draft == false"
-    assert wf["jobs"]["windows"]["if"] == draft_gate
+    gated = ("windows", "vscode-extension", "jetbrains-plugin")
+    for name in gated:
+        assert wf["jobs"][name]["if"] == draft_gate, name
     for name, job in wf["jobs"].items():
-        if name != "windows":
-            assert "if" not in job, f"only the Windows job is gated on draft, not {name}"
+        if name not in gated:
+            assert "if" not in job, f"only the Windows and IDE jobs are gated on draft, not {name}"
 
 
 def test_the_doctor_contract_checker_catches_a_hintless_fail_row():
