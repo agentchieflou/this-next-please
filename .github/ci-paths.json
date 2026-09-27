@@ -1,0 +1,296 @@
+{
+  "about": "The CI path map (#593 CI-1, plan .agent/out/ci-repo-restructure-plan.md §4.2, decision 23 on #429). `.github/scripts/ci_paths.py` reads it in the `changes` job. A path no group names turns every group on. Report only until CI-4 (#596): no job is skipped yet. tests/test_ci_paths.py and tests/test_hygiene_ci_paths.py keep it honest.",
+  "groups": {
+    "ci": {
+      "everything": true,
+      "paths": [
+        ".github/workflows/**",
+        ".github/scripts/**",
+        ".github/ci-paths.json",
+        ".gitignore",
+        "pyproject.toml",
+        "tests/conftest.py",
+        "tests/shard.py",
+        "tests/tier_matrix.py"
+      ],
+      "except": [
+        ".github/scripts/smoke.*"
+      ]
+    },
+    "py": {
+      "paths": [
+        "agentdata/**",
+        "tests/**",
+        "skills/**",
+        "prompts/**",
+        "themes/**",
+        ".gitattributes",
+        "tsconfig.json",
+        "LICENSE",
+        ".github/agent-lanes.json",
+        ".github/pull_request_template.md",
+        ".github/ISSUE_TEMPLATE/**"
+      ],
+      "except": [
+        "agentdata/fleet/static/**"
+      ]
+    },
+    "desk": {
+      "paths": [
+        "agentdata/fleet/**",
+        "agentdata/cli_fleet.py",
+        "agentdata/__init__.py",
+        "agentdata/__main__.py",
+        "agentdata/cli.py",
+        "agentdata/cli_confluence.py",
+        "agentdata/cli_git.py",
+        "agentdata/cli_jira.py",
+        "agentdata/cli_state.py",
+        "agentdata/color.py",
+        "agentdata/completion.py",
+        "agentdata/config.py",
+        "agentdata/confluence.py",
+        "agentdata/connectors/__init__.py",
+        "agentdata/connectors/content_understanding.py",
+        "agentdata/connectors/hs2.py",
+        "agentdata/connectors/impala.py",
+        "agentdata/connectors/jira_api.py",
+        "agentdata/connectors/jira_http.py",
+        "agentdata/connectors/odbc.py",
+        "agentdata/connectors/oracle.py",
+        "agentdata/connectors/pncli.py",
+        "agentdata/connectors/probe.py",
+        "agentdata/connectors/secrets.py",
+        "agentdata/connectors/sql_base.py",
+        "agentdata/connectors/teradata.py",
+        "agentdata/console.py",
+        "agentdata/graph/__init__.py",
+        "agentdata/graph/model.py",
+        "agentdata/graph/query.py",
+        "agentdata/install.py",
+        "agentdata/jira_cache.py",
+        "agentdata/jira_create.py",
+        "agentdata/jira_stream.py",
+        "agentdata/jira_workflow.py",
+        "agentdata/log.py",
+        "agentdata/metrics.py",
+        "agentdata/model.py",
+        "agentdata/omp.py",
+        "agentdata/pbi/__init__.py",
+        "agentdata/pbi/auth.py",
+        "agentdata/pbi/client.py",
+        "agentdata/pbi/errors.py",
+        "agentdata/pbi/refresh.py",
+        "agentdata/pbip/__init__.py",
+        "agentdata/pbip/bridge.py",
+        "agentdata/pbip/dax.py",
+        "agentdata/pbip/desktop.py",
+        "agentdata/pbip/dmv.py",
+        "agentdata/pbip/external_tool.py",
+        "agentdata/pbip/normalize.py",
+        "agentdata/pbip/pbir.py",
+        "agentdata/pbip/probe.py",
+        "agentdata/pbip/screenshot.py",
+        "agentdata/pbip/tmdl.py",
+        "agentdata/pbip/trace.py",
+        "agentdata/pbip/winui.py",
+        "agentdata/policy.py",
+        "agentdata/proc.py",
+        "agentdata/setup/__init__.py",
+        "agentdata/setup/steps/__init__.py",
+        "agentdata/setup/steps/console.py",
+        "agentdata/setup/steps/content_understanding.py",
+        "agentdata/setup/steps/fleet.py",
+        "agentdata/setup/steps/pncli_import.py",
+        "agentdata/setup/steps/powerbi.py",
+        "agentdata/setup/steps/project.py",
+        "agentdata/setup/steps/sources.py",
+        "agentdata/setup/steps/theme.py",
+        "agentdata/setup/wizard.py",
+        "agentdata/shell.py",
+        "agentdata/sqlcheck/__init__.py",
+        "agentdata/sqlcheck/rules.py",
+        "agentdata/sqlcheck/strip.py",
+        "agentdata/state.py",
+        "agentdata/testing/__init__.py",
+        "agentdata/testing/bench.py",
+        "agentdata/testing/coverage.py",
+        "agentdata/testing/detect.py",
+        "agentdata/testing/kill.py",
+        "agentdata/testing/runner.py",
+        "agentdata/textio.py",
+        "agentdata/theme.py",
+        "agentdata/theme_project.py",
+        "agentdata/theme_signals.py",
+        "agentdata/toon.py",
+        "agentdata/uat/__init__.py",
+        "agentdata/uat/sprint.py",
+        "agentdata/ui.py",
+        "agentdata/update.py",
+        "agentdata/verification.py",
+        "agentdata/version.py",
+        "themes/**",
+        "tsconfig.json",
+        "tests/test_fleet_*.py",
+        "tests/regressions/**",
+        "tests/desk_*.py",
+        "tests/fakes/__init__.py",
+        "tests/fakes/jira.py",
+        "tests/fakes/runner.py",
+        "tests/subproc.py",
+        "tests/test_fleet.py"
+      ]
+    },
+    "static-only": {
+      "only": [
+        "agentdata/fleet/static/**"
+      ]
+    },
+    "docs": {
+      "paths": [
+        "docs/**",
+        "*.md",
+        "HANDOFF.md"
+      ]
+    },
+    "shells": {
+      "paths": [
+        ".github/scripts/smoke.{sh,ps1,cmd}"
+      ]
+    },
+    "mobile": {
+      "smoke_only": true,
+      "paths": [
+        "mobile/**",
+        "tests/test_mobile_powerapp.py",
+        "agentdata/fleet/{bridge,notify,approval,agentstate}.py"
+      ]
+    },
+    "ide-vscode": {
+      "paths": [
+        "ide/vscode/**",
+        "agentdata/fleet/serve.py",
+        "docs/fleet-ide.md"
+      ]
+    },
+    "ide-jetbrains": {
+      "paths": [
+        "ide/jetbrains/**",
+        "agentdata/fleet/serve.py",
+        "docs/fleet-ide.md"
+      ]
+    },
+    "ide-desktop": {
+      "paths": [
+        "ide/desktop/**"
+      ]
+    }
+  },
+  "jobs": {
+    "changes": {
+      "always": true,
+      "names": [
+        "changes · which groups a filter would run (report only)"
+      ]
+    },
+    "pytest": {
+      "groups": [
+        "py",
+        "desk",
+        "static-only",
+        "docs",
+        "ide-desktop"
+      ],
+      "names": [
+        "ubuntu-latest · python 3.14"
+      ]
+    },
+    "browser": {
+      "groups": [
+        "desk",
+        "static-only"
+      ],
+      "names": [
+        "ubuntu · python 3.14 · browser · shard 1/2",
+        "ubuntu · python 3.14 · browser · shard 2/2"
+      ]
+    },
+    "windows": {
+      "groups": [
+        "py",
+        "desk",
+        "static-only",
+        "shells"
+      ],
+      "names": [
+        "windows · python 3.14 · shard 1/3",
+        "windows · python 3.14 · shard 2/3",
+        "windows · python 3.14 · shard 3/3",
+        "windows · python 3.14 · packaging and shells"
+      ]
+    },
+    "floor-python": {
+      "groups": [
+        "py"
+      ],
+      "names": [
+        "floor · pip refuses the wheel on Python 3.13"
+      ]
+    },
+    "lint-shell-scripts": {
+      "always": true,
+      "names": [
+        "lint · shellcheck + PSScriptAnalyzer"
+      ]
+    },
+    "floor-lints": {
+      "always": true,
+      "names": [
+        "lint · bash 4.4 and pwsh 7 floors"
+      ]
+    },
+    "coverage": {
+      "groups": [
+        "py"
+      ],
+      "names": [
+        "coverage · per-module floors"
+      ]
+    },
+    "order-independence": {
+      "groups": [
+        "py"
+      ],
+      "names": [
+        "suite · shuffled · seed 1",
+        "suite · shuffled · seed 20260904"
+      ]
+    },
+    "order-independence-browser": {
+      "groups": [
+        "desk",
+        "static-only"
+      ],
+      "names": [
+        "suite · shuffled · browser · shard 1/2",
+        "suite · shuffled · browser · shard 2/2"
+      ]
+    },
+    "vscode-extension": {
+      "groups": [
+        "ide-vscode"
+      ],
+      "names": [
+        "ide · vscode extension"
+      ]
+    },
+    "jetbrains-plugin": {
+      "groups": [
+        "ide-jetbrains"
+      ],
+      "names": [
+        "ide · jetbrains plugin"
+      ]
+    }
+  }
+}

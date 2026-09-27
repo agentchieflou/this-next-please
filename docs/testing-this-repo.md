@@ -756,6 +756,7 @@ A red job is handled as *When CI is red* says: a flake issue and a reproduction 
 
 | Job | What it proves |
 |---|---|
+| `changes · which groups a filter would run (report only)` | which groups of `.github/ci-paths.json` the PR's diff (or the push's range) touches, and in its job summary which jobs a path filter *would* skip (#593). Report only: every job `needs:` it and none reads its outputs, so nothing is skipped until #596. A path no group names, a push, a dispatch and an empty diff all mean everything |
 | `ubuntu-latest · python 3.14` | the suite on the floor, which is also the laptop's Python (#591): the bulk on every core without the browser tier, then `measured` + `scale` with the machine to themselves, then `slow` serially. It first type-checks the desk, `tsc --noEmit` with a pinned compiler ([desk-types.md](desk-types.md), #236), and keeps Chromium for the `browser` tests that are also `measured` or `slow`, the measurements and the demo (#312) |
 | `ubuntu · python 3.14 · browser · shard K/2` (K = 1, 2) | the browser tier (`browser and not slow and not measured and not scale`), once per run, in two whole-file shards under `-n 2`, with Chromium (#312) |
 | `windows · python 3.14 · shard K/3` (K = 1..3) | the tiers the ubuntu legs run in parallel, as three whole-file shards (#311), each **serially** (see *Parallelism* — #227), with Chromium, `core.autocrlf true` (Git for Windows' default; #591) |
