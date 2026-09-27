@@ -1345,6 +1345,11 @@ function servedTiers() {
 
 window.addEventListener("pageshow", function (e) { if (e.persisted) refresh(); });
 
+document.addEventListener("visibilitychange", function () {
+  if (source) { source.close(); source = null; }
+  if (document.visibilityState === "visible") refresh().then(connect);
+});
+
 window.addEventListener("pagehide", function () { if (lastFleet) cacheSnapshot(lastFleet); });
 
 function restoreCached() {

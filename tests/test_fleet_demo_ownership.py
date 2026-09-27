@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 import threading
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -151,6 +152,45 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
                             .classList.contains('is-hidden')""", timeout=8000)
             # The page below is a reload; it reads the server's arrangement, not these pixels.
             _until(lambda: S.desk_state()["arrangement"]["hidden"] == [])
+
+            # 4a. Hidden, then shown (#579). iOS 18 closes a backgrounded stream without an `error`
+            #     and leaves `readyState` at 1, so the page closes its own stream when it is hidden;
+            #     shown again, it reads the fleet once and reconnects from its cursors, and the next
+            #     event arrives on the new stream.
+            asked = []
+
+            def heard(r):
+                path = r.url.split("?")[0].rsplit("/", 1)[-1]
+                if path in ("fleet", "events"):
+                    asked.append((path, parse_qs(urlsplit(r.url).query).get("since", [""])[0]))
+
+            page.evaluate("""() => {
+              window.__shown = 'hidden';
+              Object.defineProperty(document, 'visibilityState',
+                                    { configurable: true, get: () => window.__shown });
+              document.dispatchEvent(new Event('visibilitychange'));
+            }""")
+            assert page.evaluate("() => source === null"), "a hidden page kept its stream open"
+            page.on("request", heard)
+            page.evaluate(
+                "() => { window.__shown = 'visible'; document.dispatchEvent(new Event('visibilitychange')); }")
+            page.wait_for_function("() => !!source && source.readyState === 1", timeout=8000)
+            page.wait_for_timeout(300)
+            page.remove_listener("request", heard)
+            upto = [a for a, _ in asked].index("events")
+            assert [a for a, _ in asked[:upto]] == ["fleet"], asked
+            since = asked[upto][1]
+            assert since == page.evaluate("() => cursors()"), (since, asked)
+            names = sorted(part.split(":")[0] for part in since.split(","))
+            assert names == sorted(["rdsd-pbi-reporting", "luna", "velocity", "backlog-health",
+                                    "arl-usage"]) and all(int(part.split(":")[1]) > 0 for part in
+                                                          since.split(",")), since
+            # The next event comes down the new stream (the one-second promise itself is
+            # `test_a_live_stream_delivers_a_new_event_within_a_second`'s, with the same deadline).
+            seq = page.evaluate("() => tiles.get('velocity').seq")
+            E.append("velocity", [E.event("velocity", "assistant_text", {"text": "back again"},
+                                          ticket="RDSD-1")])
+            page.wait_for_function("(n) => tiles.get('velocity').seq > n", arg=seq, timeout=5000)
 
             # 4. The reconnect. The stream is dropped and the desk keeps what it had -- and the
             #    window that comes back shows it before the fleet answers.
