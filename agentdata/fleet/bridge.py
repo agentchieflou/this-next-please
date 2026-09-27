@@ -468,11 +468,13 @@ def decision_mirror(id: str, decision: dict, scrub=None) -> dict:
     """The laptop's decision file, as the phone may read it. `nonce` only when the phone decided."""
     scrub = scrub or Scrubber().scrub
     via = str(decision.get("via") or "laptop")
+    # approval.decide stamps `decided` with no Z; the outbox writes every stamp in bridge._utc's form (#598).
+    decided = _epoch(decision.get("decided", ""))
     out = {"schema": MOBILE_SCHEMA, "kind": "decision", "id": _cap(id, LIMITS["id"]),
            "decision": _cap(decision.get("decision"), 16),
            "reason": scrub(decision.get("reason"), LIMITS["reason"]),
            "by": scrub(decision.get("by"), LIMITS["by"]), "via": _cap(via, 16),
-           "decided": _cap(decision.get("decided"), 32), "digest": _cap(decision.get("digest"), 64),
+           "decided": _utc(decided) if decided is not None else "", "digest": _cap(decision.get("digest"), 64),
            "late": bool(decision.get("late"))}
     if via == "mobile":
         out["nonce"] = _cap(decision.get("nonce"), 64)

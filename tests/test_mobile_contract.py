@@ -15,9 +15,12 @@ file, not on this package, so the file has to be exactly what `bridge.py` does:
 from __future__ import annotations
 import copy
 import glob
+import importlib.util
 import json
 import os
+import re
 import time
+import zipfile
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -185,6 +188,27 @@ def test_every_record_kind_the_bridge_writes_validates(fleet_home, tmp_path, mon
     assert seen["approval"] == 3 and seen["decision_mirror"] == 2 and seen["result"] >= 3
 
 
+def test_a_decision_mirrors_decided_is_utc_with_a_z_like_every_other_outbox_stamp(fleet_home, tmp_path):  # noqa: F811
+    """`FleetApprovals.DecidedAt` is `yyyy-MM-ddTHH:mm:ssZ`; the mirror of either side's decision writes that form."""
+    cfg = _cfg(tmp_path)
+    laptop, phone = _request(kind="jira-create"), _request()
+    snapshot = {"repos": [], "approvals": approval.pending()}
+    bridge.export_once(cfg, snapshot)                                                # both requests
+    approval.decide(laptop["id"], approval.DENIED, reason="wrong workspace")
+    bridge.export_once(cfg, snapshot)                                                # the laptop decision's mirror
+    _drop(cfg, _phone(phone))                                                        # the phone decision's mirror
+    assert bridge.apply_once(cfg)["applied"] == 1
+    folder = bridge.check_folder(cfg)
+    for request in (laptop, phone):
+        mirror = textio.read_json(bridge.outbox_dir(folder, "approvals", f"{request['id']}.decision.json"), "mirror")
+        on_disk = approval.read_decision(request["id"])["decided"]
+        assert mirror["decided"] == bridge._utc(bridge._epoch(on_disk)), (mirror["via"], mirror["decided"])
+        assert mirror["decided"].endswith("Z"), (mirror["via"], mirror["decided"])
+    example = _examples()["decision-luna-a1c9.json"]
+    assert example["decided"] == bridge.decision_mirror(example["id"], dict(example, decided="2026-09-25T16:06:40"))[
+        "decided"] == "2026-09-25T16:06:40Z"
+
+
 def test_a_record_the_schema_accepts_is_one_the_applier_never_refuses_for_its_shape():
     """The inbox half: every shape `_check_common`, `_check_decision` and `_check_reply` refuse, the schema refuses."""
     examples = _examples()
@@ -315,6 +339,140 @@ def test_fleet_decides_inputs_and_response_are_the_flows():
     assert len(responses) == 3
     for response in responses:
         assert list(response["inputs"]["body"]) == list(defs["fleet_decide_response"]["properties"])
+
+
+def _workbook():
+    """`mobile/data/make_workbook.py` as a module: its `ROWS` import without openpyxl, which only building needs."""
+    path = os.path.join(MC.REPO_ROOT, "mobile", "data", "make_workbook.py")
+    spec = importlib.util.spec_from_file_location("make_workbook", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _cell(value) -> str:
+    """A record value as FleetOutboxToLists writes it into a text column (`@string(...)` for objects and lists)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+    return "" if value is None else str(value)
+
+
+def _result_columns(result: dict) -> dict:
+    """The `result` case: `Result` from ok, `ResultText` = trim(concat(error, ' ', hint)) truncated to 255."""
+    return {"Result": "applied" if result["ok"] else "rejected", "ResultCode": result["code"],
+            "ResultText": f"{result['error']} {result['hint']}".strip()[:255], "ResultAt": result["at"]}
+
+
+def test_the_workbooks_sample_rows_are_what_the_flows_write_from_the_contract_examples():
+    """`mobile/data/README.md`: the rows are what `contract/examples/*.json` would have produced, column by column,
+    by the mapping in `mobile/flows/README.md`. Every row is also a valid list row."""
+    ex, rows = _examples(), _workbook().ROWS
+
+    def row(table, title):
+        [found] = [r for r in rows[table] if r["Title"] == title]
+        return found
+
+    a = ex["attention-luna-187.json"]
+    want = {"FleetAttention": {a["repo"]: {
+        "Title": a["repo"], "Project": a["project"], "Ticket": a["ticket"], "State": a["state"], "Role": a["role"],
+        "NeedsHuman": _cell(a["needs_human"]), "Says": a["says"], "LastSaid": a["last_said"],
+        "AgeSeconds": _cell(a["age_s"]), "At": a["at"], "Generated": a["generated"], "ApprovalId": a["approval_id"],
+        "ApprovalsJson": _cell(a["approvals"]), "QuestionsJson": _cell(a["questions"]),
+        "RunNumber": _cell(a["run"]["n"]), "RunOrigin": a["run"]["origin"], "RunLive": _cell(a["run"]["live"]),
+        "Model": a["model"], "SpendLine": a["spend"]["line"], "SpendTotal": _cell(a["spend"]["total"]),
+        "SpendToday": _cell(a["spend"]["today"]), "SpendBudget": _cell(a["spend"]["budget"]),
+        "Turns": _cell(a["spend"]["turns"]), "Supervised": _cell(a["supervised"]), "External": _cell(a["external"]),
+        "Digest": a["digest"], "Seq": _cell(a["seq"])}}}
+
+    p, m = ex["approval-rdsd-uat-7f3a.json"], ex["decision-luna-a1c9.json"]
+    want["FleetApprovals"] = {
+        p["id"]: {"Title": p["id"], "Repo": p["repo"], "Ticket": p["ticket"], "ApprovalKind": p["approval_kind"],
+                  "Summary": p["summary"], "PayloadPreview": _cell(p["payload_preview"]),
+                  "PayloadTruncated": _cell(p["payload_truncated"]), "PayloadBytes": _cell(p["payload_bytes"]),
+                  "Digest": p["digest"], "Created": p["created"], "Expires": p["expires"],
+                  "WaitingSeconds": _cell(p["waiting_s"]), "Status": "pending", "DecidedBy": "", "DecidedAt": "",
+                  "Reason": "", "Via": "", "Late": "", "Nonce": "", "ResultCode": "", "ResultText": "",
+                  "SourceFile": p["id"] + ".json"},
+        m["id"]: {"Title": m["id"], "Status": m["decision"], "DecidedBy": m["by"], "DecidedAt": m["decided"],
+                  "Via": m["via"], "Late": _cell(m["late"]), "Reason": m["reason"], "Nonce": m["nonce"],
+                  "Digest": m["digest"]},
+    }
+
+    d, r = ex["inbox-decision-9f2c4b7e.json"], ex["inbox-reply-4b8e1f3a.json"]
+    applied, rejected = ex["result-9f2c4b7e.json"], ex["result-c0d3e6f9-rejected.json"]
+    want["FleetDecisions"] = {
+        d["nonce"]: {"Title": d["nonce"], "Kind": d["kind"], "ApprovalId": d["id"], "Decision": d["decision"],
+                     "Reason": d["reason"], "Message": "", "AnswersJson": "", "Digest": d["digest"], "By": d["by"],
+                     "Device": d["device"], "Issued": d["issued"], "Expires": d["expires"],
+                     "InboxFile": f"{d['kind']}-{d['nonce']}.json", **_result_columns(applied)},
+        # The reply row is FleetDecide's, before its result lands: `sent`, the result columns empty.
+        r["nonce"]: {"Title": r["nonce"], "Kind": r["kind"], "ApprovalId": "", "Repo": r["repo"], "Decision": "",
+                     "Reason": "", "Message": r["message"], "AnswersJson": _cell(r["answers"]), "Digest": "",
+                     "By": r["by"], "Device": r["device"], "Issued": r["issued"], "Expires": r["expires"],
+                     "InboxFile": f"{r['kind']}-{r['nonce']}.json", "Result": "sent", "ResultCode": "",
+                     "ResultText": "", "ResultAt": ""},
+        rejected["nonce"]: {"Title": rejected["nonce"], "Kind": rejected["kind_of"], "ApprovalId": rejected["id"],
+                            **_result_columns(rejected)},
+    }
+    assert d["id"] == applied["id"] == m["id"] and d["nonce"] == applied["nonce"] == m["nonce"]
+    assert m["decided"] == applied["at"], "the phone's decision is applied when it is decided"
+
+    n = ex["notification-luna-needs_human-187.json"]
+    want["FleetNotifications"] = {n["key"]: {
+        "Title": n["key"], "Repo": n["repo"], "Ticket": n["ticket"], "State": n["state"], "Severity": n["severity"],
+        "TitleText": n["title"], "Body": n["body"], "At": n["at"], "Seq": _cell(n["seq"]), "Quiet": _cell(n["quiet"]),
+        "ApprovalId": n["approval_id"]}}
+
+    h = ex["heartbeat-20260926-0915.json"]
+    beat = {"Title": "laptop", "At": h["at"], "EverySeconds": _cell(h["every_s"]),
+            "ExpireSeconds": _cell(h["expire_s"]), "Contract": _cell(h["contract"]), "Operator": h["operator"],
+            "Bridge": h["bridge"], "LaptopId": h["laptop_id"], "ServeUp": _cell(h["serve_up"]),
+            "DeskStreams": _cell(h["desk_streams"]), "Repos": _cell(h["counts"]["repos"]),
+            "NeedsHuman": _cell(h["counts"]["needs_human"]), "ApprovalsPending": _cell(h["counts"]["approvals_pending"]),
+            "Notifications24h": _cell(h["counts"]["notifications_24h"]),
+            "Rejected24h": _cell(h["counts"]["rejected_24h"]), "InboxLastSeen": h["inbox_last_seen"]}
+    assert [b for b in rows["FleetHeartbeat"] if b["At"] == h["at"]] == [beat]
+
+    off = [f"{table} {title} {c}: {row(table, title)[c]!r}, the example says {v!r}"
+           for table, by_title in want.items() for title, columns in by_title.items()
+           for c, v in columns.items() if row(table, title)[c] != v]
+    assert off == [], "the workbook disagrees with contract/examples/:\n" + "\n".join(off)
+    for table in LISTS:
+        for sample in rows[table]:
+            MC.check(sample, table, where=f"mobile/data/make_workbook.py {table} {sample['Title']}")
+
+
+def _letter(i: int) -> str:
+    """Excel's column letters: 1 -> A, 27 -> AA."""
+    out = ""
+    while i:
+        i, rest = divmod(i - 1, 26)
+        out = chr(65 + rest) + out
+    return out
+
+
+def test_the_committed_workbook_holds_exactly_the_generators_rows():
+    """`FleetAgent.xlsx` is `make_workbook.py`'s output, sheet by sheet and cell by cell. Read with the standard
+    library (openpyxl writes every cell as an inline string), so the check runs without openpyxl."""
+    import xml.etree.ElementTree as ET
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    wb = _workbook()
+    with zipfile.ZipFile(wb.OUT) as z:
+        names = [e.get("name") for e in ET.fromstring(z.read("xl/workbook.xml")).iterfind("m:sheets/m:sheet", ns)]
+        assert names == list(wb.COLUMNS)
+        for n, table in enumerate(names, start=1):
+            grid = []
+            for r in ET.fromstring(z.read(f"xl/worksheets/sheet{n}.xml")).iterfind("m:sheetData/m:row", ns):
+                cells = {re.match(r"[A-Z]+", c.get("r")).group(): "".join(t.text or "" for t in c.iterfind(".//m:t", ns))
+                         for c in r.iterfind("m:c", ns)}
+                grid.append(cells)
+            columns = wb.COLUMNS[table]
+            letters = [_letter(i) for i in range(1, len(columns) + 1)]
+            got = [[g.get(x, "") for x in letters] for g in grid]
+            assert got == [columns] + [[row[c] for c in columns] for row in wb.ROWS[table]], \
+                f"{table}: FleetAgent.xlsx is stale; run python mobile/data/make_workbook.py"
 
 
 # ------------------------------------------------------------------------------------ the breaking-change guard
