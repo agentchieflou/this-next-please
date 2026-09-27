@@ -18,8 +18,8 @@ import pytest
 from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
+from desk_harness import close_pages
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -133,76 +133,74 @@ def test_one_owner_paints_the_accent():
 
 
 @pytest.mark.browser
-def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path):
+def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path, desk_browser):
     """The acceptance criterion, per component: `draw(el, row)` twice with the same row records no
     DOM mutation at all. Everything else in this slice is in service of this one number being 0."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma", needs=("gamma",))
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
-            page.wait_for_function(
-                "() => document.querySelectorAll('#grid .tile[data-tier=\"rail\"]').length >= 2",
-                timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grid .tile[data-tier=\"rail\"]').length >= 2",
+            timeout=15000)
 
-            counts = page.evaluate("""() => {
-              const watch = (node, run) => {
-                let n = 0;
-                const obs = new MutationObserver(rs => { n += rs.length; });
-                obs.observe(node, { subtree: true, childList: true,
-                                    attributes: true, characterData: true });
-                run();
-                obs.takeRecords().forEach(() => { n += 1; });
-                obs.disconnect();
-                return n;
-              };
-              const tile = document.querySelector('.tile.is-solo');
-              const row = tiles.get(tile.dataset.repo).row;
-              // The red one, as a rail: the pane at its narrowest, and the face that says it (#233).
-              const rail = document.querySelector('#grid .tile[data-tier="rail"].needs-human');
-              const railRow = tiles.get(rail.dataset.repo).row;
-              const out = {};
-              // Each drawn once more first, so the FIRST of the two passes is not the one that
-              // fills in a value for the first time.
-              drawTile(tile, row, []);
-              out.tile = watch(tile, () => drawTile(tile, row, []));
-              drawCells(tile, row.polls || {}, row);
-              out.cells = watch(tile.querySelector('.cells'),
-                                () => drawCells(tile, row.polls || {}, row));
-              drawSessionPill(tile, row);
-              out.pill = watch(tile.querySelector('.sessionbar'),
-                               () => drawSessionPill(tile, row));
-              drawTile(rail, railRow, []);
-              out.rail = watch(rail, () => drawTile(rail, railRow, []));
-              drawPaneRail(rail, railRow);
-              out.face = watch(rail, () => drawPaneRail(rail, railRow));
-              drawHiddenCount();
-              out.hidden = watch(document.querySelector('footer'), () => drawHiddenCount());
-              drawGone();
-              out.gone = watch(document.getElementById('gone'), () => drawGone());
-              place();
-              out.place = watch(document.body, () => place());
-              /* Together, and last. Each of the above is idempotent on its own, and #220's demo
-                 found that the *pair* was not: `drawTile` rebuilt the whole class attribute and
-                 dropped `is-selected`, `is-hidden`, `is-pinned` and `size-2`, which `place()`
-                 then put straight back. Two writers with one draw each is still two writes a
-                 pass, and it is only visible when both run. */
-              redrawAll();
-              out.together = watch(document.body, () => { redrawAll(); });
-              return out;
-            }""")
-            assert not errors, errors
-            for component, n in counts.items():
-                assert n == 0, f"{component} made {n} DOM mutations with nothing to change"
-            browser.close()
+        counts = page.evaluate("""() => {
+          const watch = (node, run) => {
+            let n = 0;
+            const obs = new MutationObserver(rs => { n += rs.length; });
+            obs.observe(node, { subtree: true, childList: true,
+                                attributes: true, characterData: true });
+            run();
+            obs.takeRecords().forEach(() => { n += 1; });
+            obs.disconnect();
+            return n;
+          };
+          const tile = document.querySelector('.tile.is-solo');
+          const row = tiles.get(tile.dataset.repo).row;
+          // The red one, as a rail: the pane at its narrowest, and the face that says it (#233).
+          const rail = document.querySelector('#grid .tile[data-tier="rail"].needs-human');
+          const railRow = tiles.get(rail.dataset.repo).row;
+          const out = {};
+          // Each drawn once more first, so the FIRST of the two passes is not the one that
+          // fills in a value for the first time.
+          drawTile(tile, row, []);
+          out.tile = watch(tile, () => drawTile(tile, row, []));
+          drawCells(tile, row.polls || {}, row);
+          out.cells = watch(tile.querySelector('.cells'),
+                            () => drawCells(tile, row.polls || {}, row));
+          drawSessionPill(tile, row);
+          out.pill = watch(tile.querySelector('.sessionbar'),
+                           () => drawSessionPill(tile, row));
+          drawTile(rail, railRow, []);
+          out.rail = watch(rail, () => drawTile(rail, railRow, []));
+          drawPaneRail(rail, railRow);
+          out.face = watch(rail, () => drawPaneRail(rail, railRow));
+          drawHiddenCount();
+          out.hidden = watch(document.querySelector('footer'), () => drawHiddenCount());
+          drawGone();
+          out.gone = watch(document.getElementById('gone'), () => drawGone());
+          place();
+          out.place = watch(document.body, () => place());
+          /* Together, and last. Each of the above is idempotent on its own, and #220's demo
+             found that the *pair* was not: `drawTile` rebuilt the whole class attribute and
+             dropped `is-selected`, `is-hidden`, `is-pinned` and `size-2`, which `place()`
+             then put straight back. Two writers with one draw each is still two writes a
+             pass, and it is only visible when both run. */
+          redrawAll();
+          out.together = watch(document.body, () => { redrawAll(); });
+          return out;
+        }""")
+        assert not errors, errors
+        for component, n in counts.items():
+            assert n == 0, f"{component} made {n} DOM mutations with nothing to change"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -210,44 +208,42 @@ def test_a_draw_with_nothing_to_say_touches_nothing(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_the_keyboard_and_the_hover_survive_twenty_draws(fleet_home, tmp_path):
+def test_the_keyboard_and_the_hover_survive_twenty_draws(fleet_home, tmp_path, desk_browser):
     """What zero mutations buys: the thing under the cursor is still the thing under the cursor."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha", "beta", "gamma")
     S.arrange(order=["alpha", "beta", "gamma"])
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
-                      wait_until="domcontentloaded")
-            page.wait_for_selector(".tile.is-solo", timeout=15000)
-            page.wait_for_function(
-                "() => !!document.querySelector('.tile .cells .cell')", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
+                  wait_until="domcontentloaded")
+        page.wait_for_selector(".tile.is-solo", timeout=15000)
+        page.wait_for_function(
+            "() => !!document.querySelector('.tile .cells .cell')", timeout=15000)
 
-            out = page.evaluate("""() => {
-              const cell = document.querySelector('.tile .cells .cell');
-              cell.__marker = 'still me';
-              const say = document.querySelector('.tile .say');
-              say.focus();
-              say.value = 'half a sentence';
-              for (let i = 0; i < 20; i++) { redrawAll(); }
-              const after = document.querySelector('.tile .cells .cell');
-              return {
-                same: after.__marker === 'still me',
-                keyboard: document.activeElement === say,
-                typed: say.value,
-              };
-            }""")
-            assert not errors, errors
-            assert out["same"], "the cell was torn down and cloned again"
-            assert out["keyboard"], "twenty draws took the keyboard out of the reply box"
-            assert out["typed"] == "half a sentence", "and threw away what was being typed"
-            browser.close()
+        out = page.evaluate("""() => {
+          const cell = document.querySelector('.tile .cells .cell');
+          cell.__marker = 'still me';
+          const say = document.querySelector('.tile .say');
+          say.focus();
+          say.value = 'half a sentence';
+          for (let i = 0; i < 20; i++) { redrawAll(); }
+          const after = document.querySelector('.tile .cells .cell');
+          return {
+            same: after.__marker === 'still me',
+            keyboard: document.activeElement === say,
+            typed: say.value,
+          };
+        }""")
+        assert not errors, errors
+        assert out["same"], "the cell was torn down and cloned again"
+        assert out["keyboard"], "twenty draws took the keyboard out of the reply box"
+        assert out["typed"] == "half a sentence", "and threw away what was being typed"
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
