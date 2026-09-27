@@ -11,7 +11,7 @@ reads this page for every record kind, `fleet.mobile.*` key, verb, `mobile.*` ev
 
 ```
 LAPTOP (unchanged bind, unchanged token)            MICROSOFT 365                          PHONE / TABLET
-ad-fleet serve ── bridge thread, 5 s tick            OneDrive for Business                 Power Apps mobile (Intune APP)
+the desk (serve) ── bridge thread, 5 s tick         OneDrive for Business                  Power Apps mobile (Intune APP)
   fleet_snapshot() ─► allow-list ─► scrub ─► outbox/ ─sync─► FleetAgent/outbox/* ─trigger─► FleetOutboxToLists (flow)
   approval.decide()  ◄── verify ◄── inbox/ ◄─sync─ FleetAgent/inbox/*  ◄─create─ FleetDecide (flow, Power Apps V2)
   supervisor.send|say()                                five lists ◄────────────────────── FleetAgent canvas app
