@@ -98,7 +98,7 @@ surfaces are custom properties set in `skin.css` for each world and read through
 | `--voxel-ground` | `#5A3D28` | `#6B2A22` | `#2A2136` |
 | `--voxel-panel` | `#1E221E` | `#2A1512` | `#16121C` |
 | `--voxel-edge` | `#111111` | `#1A0907` | `#0B0810` |
-| `--ink-highlighter` | `#BF9637` | `#FFA657` | `#D29922` |
+| `--ink-highlighter` | `#BF9637` | `#FAA355` | `#C59020` |
 | `--ink-pen` | `#5EF0FF` | `#79C0FF` | `#58A6FF` |
 
 `--voxel-panel` is the variant's `composited_panel` in `skins.py`. It is exactly what the slab puts

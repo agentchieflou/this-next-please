@@ -16,7 +16,7 @@ body[data-skin="voxel"][data-skin-variant="nether"] {
   --voxel-edge: #1A0907;
   --voxel-band-ink: #FFEFEA;
   --voxel-band-ink-soft: #E0B3AA;
-  --ink-highlighter: #FFA657;
+  --ink-highlighter: #FAA355;
   --ink-pen: #79C0FF;
 }
 
@@ -26,7 +26,7 @@ body[data-skin="voxel"][data-skin-variant="end"] {
   --voxel-edge: #0B0810;
   --voxel-band-ink: #F3EEDC;
   --voxel-band-ink-soft: #C6BFA6;
-  --ink-highlighter: #D29922;
+  --ink-highlighter: #C59020;
   --ink-pen: #58A6FF;
 }
 

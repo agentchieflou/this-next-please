@@ -98,11 +98,11 @@ SKINS = {
             "nether": {"title": "Nether", "base": "reds", "composited_panel": "#2A1512",
                        "why": "netherrack and firelight",
                        "inks": {"marker": "#FFD166", "red": "#FFD166", "green": "#7EE787",
-                                "pencil": "#B79191", "highlighter": "#FFA657", "pen": "#79C0FF"}},
+                                "pencil": "#B79191", "highlighter": "#FAA355", "pen": "#79C0FF"}},
             "end": {"title": "The End", "base": "vanta-black", "composited_panel": "#16121C",
                     "why": "endstone and void",
                     "inks": {"marker": "#F85149", "red": "#F85149", "green": "#3FB950",
-                             "pencil": "#929292", "highlighter": "#D29922", "pen": "#58A6FF"}},
+                             "pencil": "#929292", "highlighter": "#C59020", "pen": "#58A6FF"}},
         },
     },
     "farmstead": {
