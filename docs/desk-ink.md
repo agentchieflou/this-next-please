@@ -841,3 +841,26 @@ following its data, glass's ground drawn by the layer and still under reduced mo
 gradients, and no 2D context, in the files or at run time.
 
 `tests/test_fleet_probe.py` holds three.js to `layer.js` and `probe.js`.
+
+**Skin tests open their pages through the desk harness (#300).** The skins' files (`test_fleet_ink_<skin>.py`,
+`test_fleet_voxel_ink.py`, `test_fleet_napkin.py`), `test_fleet_desk_glass.py`, `test_fleet_trace.py` and the skin
+regressions ask for `desk_browser` (`tests/desk_harness.py`; docs/testing-this-repo.md §Writing a browser test):
+one driver and one Chromium per worker, and every page in a fresh context the harness closes when the test ends. A
+test never starts `sync_playwright()` or calls `browser.close()`; `close_pages(browser)` stands where it closed the
+browser before stopping the desk. Each module's `_serve`, `_stop` and `_open` keep their names and signatures,
+over `serve_desk` and `desk_page`, so the files that import them are unchanged. The skin is still written to the
+config (or chosen with `POST /api/theme`) before the page that shows it opens. The call to copy:
+
+```python
+@pytest.mark.browser
+def test_the_skin_draws(fleet_home, tmp_path, desk_browser):
+    _desk_of(tmp_path)                            # the agents, and the skin in the config, first
+    server, token, port = _serve()
+    try:
+        page, errors, _ = _open(desk_browser, port, token, "&ink=on")
+        ...
+        assert not errors, errors
+        close_pages(desk_browser)
+    finally:
+        _stop(server)
+```
