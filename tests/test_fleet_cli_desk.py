@@ -558,10 +558,17 @@ def test_a_served_desk_asks_the_fake_copilot_and_never_the_one_on_the_path(fleet
     served desk begins runs the fake, and only the fake."""
     from agentdata.fleet import serve as S
 
-    monkeypatch.setattr(S, "run", lambda server: server.server_close())
+    def serve_until_refreshed(server):
+        # Closing sets `stopping`, and a refresh that has not begun by then asks nothing: that is
+        # the server's rule, and on a loaded runner it made this test see no copilot at all. So the
+        # desk stays up until the refresh it started is over, as a desk that is being used does.
+        refreshed.append(M.wait_refresh(10))
+        server.server_close()
+
+    refreshed: list[bool] = []
+    monkeypatch.setattr(S, "run", serve_until_refreshed)
     code, _out = run(["serve", "--port", "0"], capsys)
-    assert code == 0
-    assert M.wait_refresh(10)
+    assert code == 0 and refreshed == [True], refreshed
     ran = [path for name, path in copilot_is_the_fake["launched"] if name == "copilot"]
     assert ran, "the start-up refresh launched no copilot, so nothing here is proved"
     laptop = os.path.abspath(copilot_is_the_fake["laptop"])
