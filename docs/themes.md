@@ -165,9 +165,11 @@ A **skin** is one more stylesheet over the same DOM: the approved grid with CSS 
 | `farmstead` | Drawn by the ink layer (#255): warm cream paper, lit wooden frames and planks, and 5 crop-stage sprites (seed, sprout, sun, bloom, wilted) carrying state beside the chip's word. Plain CSS where WebGL is not measured as hardware (#257). Inspired by pixel farming games; zero copied assets. | *Color & Redundancy*: never colour alone; crop stages provide a second redundant carrier for agent status. |
 | `legalpad` | A yellow legal pad drawn by the ink layer (#251): canary stock, blue rules on the page's 28px baseline, a double red margin down every pane and a gummed band across the top; state is drawn on it in pencil, pen, marker and an orange-pink highlighter ([desk-ink.md](desk-ink.md) §The legal pad). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: every state is a shape as well as an ink -- an outline, a loop, a strike, a check, a bang. |
 
-A variant re-colours the surfaces and nothing else. The status chips and the crop stages are
-deliberately **not** among them: a chip means the same thing in every world, and a `fail` that were
-red in one and orange in another would be a state the operator has to translate before reading it.
+A variant re-colours the surfaces, and its palette colours the states: a chip's word and glyph, a crop
+stage and every mark of the state grammar ([desk-ink.md](desk-ink.md) §The state grammar across skins)
+mean the same thing in every world, but their colour is the world's, so Voxel Nether's needs-you and
+error chips (and its error marks) are its palette's yellow `--human` while its pane accent is red (#334;
+the accent is #339).
 
 ### Skins and their worlds
 

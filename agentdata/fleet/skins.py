@@ -86,19 +86,23 @@ SKINS = {
             # `inks` (#256): the voxel's mark table drawn on its slab, whose face is the composited
             # panel. Each is the palette's own token (`theme.to_css` of `base`) -- marker and red
             # `--human`, green `--done`, pencil `--muted` -- and `tests/test_fleet_voxel_ink.py`
-            # holds them to it, so a palette change cannot leave a stale ink here unchecked.
+            # holds them to it, so a palette change cannot leave a stale ink here unchecked. The
+            # highlighter and the pen (#334: the state grammar's needs-you and running) are the
+            # world's own, the literal its skin.css writes as `--ink-<tool>`: a highlighter the
+            # name keeps 4.5:1 through on the slab (`theme.highlight_under`), a pen the world's
+            # running blue.
             "overworld": {"title": "Overworld", "base": "matrix", "composited_panel": "#1E221E",
                           "why": "grass, stone and daylight",
                           "inks": {"marker": "#FF3B3B", "red": "#FF3B3B", "green": "#A8FFC0",
-                                   "pencil": "#2CAD57"}},
+                                   "pencil": "#2CAD57", "highlighter": "#BF9637", "pen": "#5EF0FF"}},
             "nether": {"title": "Nether", "base": "reds", "composited_panel": "#2A1512",
                        "why": "netherrack and firelight",
                        "inks": {"marker": "#FFD166", "red": "#FFD166", "green": "#7EE787",
-                                "pencil": "#B79191"}},
+                                "pencil": "#B79191", "highlighter": "#FAA355", "pen": "#79C0FF"}},
             "end": {"title": "The End", "base": "vanta-black", "composited_panel": "#16121C",
                     "why": "endstone and void",
                     "inks": {"marker": "#F85149", "red": "#F85149", "green": "#3FB950",
-                             "pencil": "#929292"}},
+                             "pencil": "#929292", "highlighter": "#C59020", "pen": "#58A6FF"}},
         },
     },
     "farmstead": {

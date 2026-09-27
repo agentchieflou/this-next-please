@@ -53,9 +53,24 @@ The state grammar's marks. Each row's selector is a class or attribute the page 
 
 ### `const MARKS`
 
-Above `{ selector: ".tile.needs-human .head .repo", tool: "marker", shape: "underline" },`:
+Above `{ selector: ".tile.needs-human .head .repo", tool: "highlighter", shape: "lines" },`:
 
-needs you: the name underlined in marker. The stack's block rises too.
+needs you: the name under the highlighter, as on every skin (#334, docs/desk-ink.md §The state
+grammar across skins; it was a marker underline). The stack's block rises too. The highlighter
+is each world's own (`--ink-highlighter` in skin.css, `inks` in skins.py), chosen so the name
+keeps 4.5:1 through it on the slab.
+
+Above `{ selector: ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q", tool: "h …`:
+
+needs you: every open question under the highlighter too (#334).
+
+Above `{ selector: ".tile.state-running .head .repo", tool: "pen", shape: "underline" },`:
+
+running: the name underlined in pen (#334), the world's own `--ink-pen`, while the block turns.
+
+Above `{ selector: ".tile.state-error", tool: "marker", shape: "loop", pad: -7 },`:
+
+error: a marker loop round the pane, inside it (pad -7, #332; #334).
 
 Above `{ selector: ".tile.state-error", tool: "red", shape: "bang" },`:
 
@@ -70,9 +85,10 @@ Above `{ selector: ".tile .oldsession:not([hidden])", tool: "pencil", shape: "ou
 
 stale (#240): the old-session chip outlined in dashed pencil. A pebble on the stack.
 
-Above `{ selector: ".tile .ask-choice[aria-pressed=\"true\"]", tool: "green", shape: "loop", pa …`:
+Above `{ selector: ".tile .ask-choice[aria-pressed=\"true\"]", tool: "pen", shape: "loop", pad: …`:
 
-answered: the choice pressed in the question card, looped in green.
+answered: the choice pressed in the question card, looped in pen (#334; it was green, which is
+done's ink).
 
 Above `{ selector: ".tile .transcript li.friction .v, .tile .transcript li.denied .v", tool: "r …`:
 
