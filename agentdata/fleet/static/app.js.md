@@ -1110,6 +1110,16 @@ Above `window.addEventListener("pageshow", function (e) { if (e.persisted) refre
 Back into a page the browser kept whole (bfcache): what it shows is from before it was left, and
 a theme chosen meanwhile reaches it only by asking again.
 
+### `document.addEventListener("visibilitychange", function () {`
+
+The stream, across a trip to the background (#579). iOS 17 closes a backgrounded `EventSource`
+after about 20 s and fires `error` on return, which `onerror` already handles; iOS 18 fires
+nothing and leaves `readyState` at 1 on a stream that is gone, and Chrome freezes hidden pages and
+keeps a page with an open stream out of the bfcache. So a hidden page closes its own stream, and a
+shown one re-reads `/api/fleet` once and reconnects through `connect`, whose `since` is the
+per-agent cursors, so nothing is replayed twice. `readyState` is never taken as proof the stream is
+alive.
+
 ### `window.addEventListener("pagehide", function () { if (lastFleet) cache …`
 
 Above `window.addEventListener("pagehide", function () { if (lastFleet) cacheSnapshot(lastFleet …`:

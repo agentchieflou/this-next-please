@@ -304,6 +304,47 @@ def _notify_frames(text: str) -> list[dict]:
             if block.startswith("event: notify\n")]
 
 
+def _ask(base, path, token, encoding):
+    req = urllib.request.Request(f"{base}{path}?t={token}", headers={"Accept-Encoding": encoding})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return r.read(), r.headers
+
+
+def test_the_fleet_and_desk_polls_are_gzipped_only_when_asked_and_over_8_kb(running, tmp_path):
+    """#579: `/api/fleet` and `/api/desk` are the page's polls, and over a tunnel or a phone on the
+    LAN the uncompressed fleet is the dominant cost. They are gzipped when the client asks and the
+    body is over 8 KB; a small fleet, a client that does not ask and every other route go plain."""
+    import gzip as gz
+
+    base, token, _ = running
+    a_repo(tmp_path, "luna", phase="optimizing", ticket="RDSD-1")
+    small, headers = _ask(base, "/api/fleet", token, "gzip")
+    assert len(small) <= 8 * 1024 and not headers.get("Content-Encoding"), len(small)
+    assert json.loads(small)["ok"] is True
+
+    for i, name in enumerate(("sol", "mars", "vega", "rigel", "deneb"), start=2):
+        a_repo(tmp_path, name, phase="optimizing", ticket=f"RDSD-{i}")
+    for route in ("/api/fleet", "/api/desk"):
+        plain, headers = _ask(base, route, token, "identity")
+        assert not headers.get("Content-Encoding") and len(plain) > 8 * 1024, (route, len(plain))
+        packed, headers = _ask(base, route, token, "gzip, deflate")
+        assert headers.get("Content-Encoding") == "gzip", route
+        assert "Accept-Encoding" in (headers.get("Vary") or ""), route
+        assert int(headers["Content-Length"]) == len(packed) < len(plain) // 3, (route, len(packed), len(plain))
+        opened, plainly = json.loads(gz.decompress(packed)), json.loads(plain)
+        assert opened.keys() == plainly.keys(), route
+        if route == "/api/fleet":
+            assert [r["repo"] for r in opened["repos"]] == [r["repo"] for r in plainly["repos"]]
+        else:
+            assert opened == plainly
+        with urllib.request.urlopen(f"{base}{route}?t={token}", timeout=10) as r:  # no header at all
+            assert not r.headers.get("Content-Encoding") and json.loads(r.read())["ok"] is True, route
+
+    for route in ("/api/map", "/api/notifications"):
+        _, headers = _ask(base, route, token, "gzip")
+        assert not headers.get("Content-Encoding"), route
+
+
 @pytest.mark.parametrize("quiet", ["notify=0", "frames=theme"])
 def test_a_stream_that_is_not_a_desk_leaves_the_notifications_to_the_desk(running, tmp_path, quiet):
     """The sweep's cursor is shared and its finds go to whichever stream swept first. A settings
