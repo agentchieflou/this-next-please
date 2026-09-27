@@ -356,6 +356,10 @@ def test_ink_off_draws_no_canvas_and_a_narrow_scene_stacks_the_tree_over_the_sta
                                                             "choices": ["this one", "the next"]}, ticket="RDSD-9")])
         sent = []
         monkeypatch.setattr(SV, "send", lambda repo, message, **k: sent.append((repo, message)) or {"pid": 4242})
+        # A 6 s beat for the stream /m opens, not 15 s: still longer than the poller's floor, so the idle
+        # window below spans a poll as well as a tick.
+        monkeypatch.setattr(S, "HEARTBEAT_S", 6.0)
+        assert S.POLL_EVERY_S < S.HEARTBEAT_S
         phone = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
         page = phone.new_page()
         page.on("pageerror", lambda e: errors.append(str(e)))
