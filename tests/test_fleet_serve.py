@@ -308,13 +308,26 @@ def test_the_stream_sends_each_event_once(fleet_home, tmp_path):  # noqa: F811
     assert not [f for f in out if "event: agent" in f], "an event was delivered twice"
 
 
-def test_a_heartbeat_goes_out_even_when_nothing_happens(fleet_home, tmp_path):  # noqa: F811
+def test_a_heartbeat_goes_out_even_when_nothing_happens(fleet_home, tmp_path, monkeypatch):  # noqa: F811
     """Not decoration: a proxy that sees no bytes for a minute closes the connection, and the tiles
-    then stop updating with nothing anywhere saying why."""
+    then stop updating with nothing anywhere saying why. Its cadence is `HEARTBEAT_S` as it stands
+    when a stream opens, so a browser test can wait for a tick without waiting 15 s for one."""
     a_repo(tmp_path, "luna")
     out = []
     S.stream_events({}, threading.Event(), out.append, once=True)
     assert "event: tick" in "".join(out)
+
+    monkeypatch.setattr(S, "HEARTBEAT_S", 0.05)
+    out.clear()
+    stop = threading.Event()
+    beat = threading.Thread(target=S.stream_events, args=({}, stop, out.append),
+                            kwargs={"tick": 0.01, "polls": False, "sweep": False}, daemon=True)
+    beat.start()
+    time.sleep(0.6)
+    stop.set()
+    beat.join(5)
+    assert not beat.is_alive()
+    assert sum("event: tick" in f for f in out) >= 3, out
 
 
 def test_cursors_are_per_agent(fleet_home):                     # noqa: F811

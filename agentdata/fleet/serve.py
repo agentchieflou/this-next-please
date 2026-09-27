@@ -2789,7 +2789,7 @@ def _config_changed() -> None:
         _WAKE.notify_all()
 
 
-def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float = HEARTBEAT_S,
+def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: float | None = None,
                   tick: float = TICK_S, once: bool = False, url: str = "",
                   notify_every: float = NOTIFY_EVERY_S, polls: bool = True,
                   agents: bool = True, sweep: bool = True) -> None:
@@ -2837,6 +2837,8 @@ def stream_events(cursors: dict, stop: threading.Event, write, *, heartbeat: flo
     this stream last sent, and a `models` frame goes out only when it moved. The first pass records
     it without a frame: a page fetches `/api/models` itself.
     """
+    # Read at connect, not at import, so a test can set `HEARTBEAT_S` for the streams it opens.
+    heartbeat = HEARTBEAT_S if heartbeat is None else heartbeat
     last_beat = 0.0
     last_sweep = 0.0
     seen_selection = -1
