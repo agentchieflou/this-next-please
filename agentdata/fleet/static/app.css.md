@@ -78,6 +78,12 @@ desktop window, where every `env(safe-area-inset-*)` is 0:
   scrolls (never `position: fixed`).
 - At 640 px and under, every `kbd` hint is hidden beside the `.keys` popover (MOB-D17's
   breakpoint): a phone has no keyboard to name.
+- At 640 px and under, `#side` is a full-width sheet (#576) that starts 48 px below the top (plus
+  the notch's inset), and `#side::before` is its scrim: fixed over the whole viewport at
+  `z-index: -1` inside the sheet's own stacking context, so it darkens the page and never the
+  sheet. The scrim is part of `#side`, so a tap on it is a click whose target is `#side` itself,
+  which is how `app.js` tells a tap outside from a tap inside. The 48 px strip is what a thumb
+  taps to dismiss; a sheet that covered the whole screen would have no outside.
 
 ### `.toolbar-group`
 
@@ -147,6 +153,9 @@ Above `@media (max-width: 900px) {`:
 
 A narrow window -- JCEF's tool window, Simple Browser in a split -- cannot afford a column
 beside the grid, so the sidebar goes back to being an overlay there and says so with a shadow.
+
+`min(480px, 60vw)` (#576): at a tablet's 820 px the overlay is 480 px, so the open pane stays
+visible beside it; the phone rule below takes over at 640 px and under.
 
 ## the row (#233)
 

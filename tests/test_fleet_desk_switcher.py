@@ -662,15 +662,52 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
                 tab.click("#sidetoggle")
                 tab.wait_for_function("() => !document.getElementById('side').hidden", timeout=5000)
                 assert _eventually(lambda: S.desk_state()["windows"][w]["section"] in sections[1:])
-                # At 390 px the open sidebar lies over the toolbar, so a pointer cannot reach the
-                # button a second time; the sheet with its own close is #576. The press is the
-                # button's own click, which is what the toggle is.
+                # At 390 px the open sheet's scrim lies over the toolbar, so a pointer cannot reach
+                # the button a second time (a tap there closes the sheet, #576, below). The press is
+                # the button's own click, which is what the toggle is.
                 tab.locator("#sidetoggle").dispatch_event("click")
                 tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
                 tab.keyboard.press("b")                       # `b` still opens the board ...
                 tab.wait_for_function(
                     "() => !document.getElementById('side').hidden && !document.getElementById('board').hidden",
                     timeout=5000)
+                if w == "phone544":
+                    # #576: at 640 px and under the sidebar is a full-width sheet over a scrim. A tap
+                    # inside the sheet leaves it open; a tap on the scrim above it closes it.
+                    sheet = tab.locator("#side").bounding_box()
+                    assert sheet["x"] == 0 and sheet["width"] == 390 and sheet["y"] > 0, sheet
+                    tab.locator("#board .drawer-head strong").tap()
+                    tab.wait_for_timeout(300)
+                    assert tab.evaluate("() => !document.getElementById('side').hidden"), \
+                        "a tap inside the sheet closed it"
+                    y = sheet["y"] / 2
+                    assert tab.evaluate(f"() => document.elementFromPoint(195, {y}).id") == "side", \
+                        "no scrim above the sheet"
+                    assert tab.evaluate(
+                        "() => getComputedStyle(document.getElementById('side'), '::before').backgroundColor"
+                    ) == "rgba(0, 0, 0, 0.3)"
+                    tab.touchscreen.tap(195, y)
+                    tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
+                    assert _eventually(lambda: S.desk_state()["windows"][w]["section"] == "")
+                    # At a tablet's 820 px the sheet is min(480px, 60vw) and the open pane shows
+                    # beside it; at 1280 px it is the column it was, clamp(300px, 28vw, 440px), and
+                    # no scrim.
+                    tab.set_viewport_size({"width": 820, "height": 1180})
+                    tab.keyboard.press("b")
+                    tab.wait_for_function("() => !document.getElementById('side').hidden", timeout=5000)
+                    sheet = tab.locator("#side").bounding_box()
+                    pane = tab.locator('.tile:not([data-tier="rail"]):visible').first.bounding_box()
+                    assert sheet["width"] == 480 and sheet["x"] + sheet["width"] == 820, sheet
+                    assert pane["x"] < sheet["x"], (pane, sheet)
+                    tab.set_viewport_size({"width": 1280, "height": 900})
+                    tab.wait_for_function(
+                        "() => getComputedStyle(document.getElementById('side')).position === 'static'",
+                        timeout=5000)
+                    column = tab.locator("#side").bounding_box()
+                    assert 300 <= column["width"] <= 440 and column["x"] + column["width"] == 1280, column
+                    assert tab.evaluate(
+                        "() => getComputedStyle(document.getElementById('side'), '::before').content") == "none"
+                    tab.set_viewport_size({"width": 390, "height": 844})
                 tab.keyboard.press("Escape")                  # ... and `Esc` still closes it
                 tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
                 phone.close()

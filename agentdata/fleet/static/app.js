@@ -1757,6 +1757,10 @@ function closeSide() {
   saveWindow({ section: "" });
 }
 
+document.getElementById("side").addEventListener("click", function (e) {
+  if (e.target === e.currentTarget) closeSide();
+});
+
 function drawer(open) { return section("drawer", open); }
 
 document.getElementById("bell").addEventListener("click", function () { drawer(); });
