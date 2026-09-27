@@ -33,8 +33,13 @@ export function ground({ THREE, scene, tokens, api }) {
   scene.add(mesh);
 }
 
+let sheet = null, square = null;
+const pointed = { at: null, draws: 0 };
+const SQUARE = 12;
+
 export function paper({ THREE, scene, tokens, api }) {
   handed = api;
+  sheet = scene;
   const { w, h } = api.viewport;
   const pts = [];
   for (let y = 28; y < h; y += 28) pts.push(new THREE.Vector3(0, -y, 0), new THREE.Vector3(w, -y, 0));
@@ -76,8 +81,23 @@ export function cue({ THREE, scene, tokens, api }, name, el, box, how) {
   quads.push({ mesh, age: 0 });
 }
 
-export function tick({ api }) {
+export function tick({ THREE, tokens, api }) {
   handed = api;
+  if (api.fx && "pointer" in api.fx) {
+    const p = api.fx.pointer;
+    if (p && sheet && (!square || square.parent !== sheet)) {
+      square = new THREE.Mesh(new THREE.PlaneGeometry(SQUARE, SQUARE),
+                              new THREE.MeshBasicMaterial({ color: colour(THREE, tokens.accent), transparent: true }));
+      square.renderOrder = api.order.paper;
+      sheet.add(square);
+    }
+    if (square) {
+      square.visible = !!p;
+      if (p) square.position.set(p.x, -p.y, 0);
+    }
+    pointed.at = p ? { x: p.x, y: p.y, repo: p.repo } : null;
+    if (p) pointed.draws += 1;
+  }
   for (const q of quads) {
     q.age += 1;
     q.mesh.scale.setScalar(1 - q.age / LIFE);
@@ -93,8 +113,16 @@ export function tick({ api }) {
 
 export function dispose() {
   quads = [];
+  if (square) {
+    square.removeFromParent();
+    square.geometry.dispose();
+    square.material.dispose();
+  }
+  square = sheet = null;
+  pointed.at = null;
 }
 
 export function inspect() {
-  return { cues: played.slice(), quads: quads.length, text: read.slice() };
+  return { cues: played.slice(), quads: quads.length, text: read.slice(),
+           pointer: { at: pointed.at, draws: pointed.draws, shown: !!(square && square.visible && square.parent) } };
 }

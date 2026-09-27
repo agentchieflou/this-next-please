@@ -1700,7 +1700,10 @@ def test_the_handwriting_reveal_uncovers_the_text_and_leaves_the_page_as_it_foun
 @pytest.mark.measured
 def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, desk_browser):
     """Ground rule 5's other half: the ink draws after the gesture, never inside it. The page's own
-    gesture marks, taken while every pane has a long mark drawing, stay inside the 50ms budget."""
+    gesture marks, taken while every pane has a long mark drawing, stay inside the 50ms budget.
+
+    And the pointer (#376): the same gestures, on a table that asks for `api.fx.pointer`, taken while
+    a `pointermove` loop drives the layer a frame a move, stay inside the budget too."""
     names = ("alpha", "beta", "gamma", "delta")
     _desk_of(tmp_path, names)
     server, token, port = _serve()
@@ -1724,6 +1727,12 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
             .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1], ms: m.duration })) };
         }""")
         assert not errors, errors
+        # #376: a table that asks for the pointer, and the gestures again while a move a frame reaches it.
+        page.evaluate(POINTER_TABLE, dict(TABLE, speed=0.25))
+        page.wait_for_function("() => { const l = Ink.inspect().layer; return !!(l && l.fx && l.fx.pointer); }",
+                               timeout=10000)
+        pointed = page.evaluate(GESTURES_WHILE_POINTING)
+        assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
@@ -1733,6 +1742,50 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
     worst = max(m["ms"] for m in measures)
     print(f"\n  gestures while the ink draws: {len(measures)} marked, worst {worst:.1f}ms")
     assert [m for m in measures if m["ms"] > LOCAL_BUDGET_MS] == [], measures
+    moving = pointed["measures"]
+    worst = max(m["ms"] for m in moving) if moving else 0
+    print(f"  gestures while the pointer moves: {len(moving)} marked, worst {worst:.1f}ms, "
+          f"{pointed['moves']} moves, {pointed['renders']} renders")
+    assert pointed["moves"] >= 3 and pointed["renders"] >= 1, pointed
+    assert len(moving) >= 4, moving
+    assert [m for m in moving if m["ms"] > LOCAL_BUDGET_MS] == [], moving
+
+
+#: A table that asks for the pointer (#376), with the test table's marks and hooks that draw nothing of their own.
+POINTER_TABLE = """t => Ink.setSkin(Object.assign({}, t, { fx: { cues: [], use: { pointer: true } } }),
+                                  { cue() {}, tick() { return false; } })"""
+
+#: The gesture set, taken while a `pointermove` a frame crosses alpha (#376): the loop starts, three moves reach
+#: the layer, the gestures run, three frames more, and the loop stops. The moves the effects took, the frames the
+#: layer rendered meanwhile, and the gestures' marks.
+GESTURES_WHILE_POINTING = """async () => {
+  const fx = () => Ink.inspect().layer.fx.pointer, frame = () => new Promise(requestAnimationFrame);
+  const alpha = document.querySelector('.tile[data-repo="alpha"]'), r = alpha.getBoundingClientRect();
+  const m0 = fx().moves, r0 = Ink.inspect().layer.renders;
+  let on = true, i = 0;
+  const move = () => {
+    if (!on) return;
+    i += 1;
+    alpha.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, composed: true,
+      clientX: r.left + 20 + (i % 40), clientY: r.top + r.height / 2 }));
+    requestAnimationFrame(move);
+  };
+  requestAnimationFrame(move);
+  while (fx().moves - m0 < 3) await frame();
+  performance.clearMeasures();
+  setHidden('beta', true);
+  setHidden('beta', false);
+  moveTile('gamma', 1);
+  moveTile('gamma', -1);
+  stepGutter(alpha, -1);
+  evenGutter(alpha);
+  const measures = performance.getEntriesByType('measure')
+    .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1], ms: m.duration }));
+  for (let k = 0; k < 3; k++) await frame();
+  on = false;
+  await frame();
+  return { moves: fx().moves - m0, renders: Ink.inspect().layer.renders - r0, measures };
+}"""
 
 
 #: The pixels three.js drew at points in viewport boxes, read back from a frame drawn for the
