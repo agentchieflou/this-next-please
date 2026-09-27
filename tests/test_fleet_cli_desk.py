@@ -22,11 +22,41 @@ import sys
 
 import pytest
 
-from agentdata import cli_fleet
-from agentdata.fleet import registry
+from agentdata import cli_fleet, proc
+from agentdata.fleet import models as M, registry
 from agentdata.fleet.registry import Registry
 
+import fakes
 from test_fleet import make_project
+
+
+@pytest.fixture(autouse=True)
+def copilot_is_the_fake(tmp_path, monkeypatch):
+    """#480: every test here that starts a server starts the model refresh (#361), and the refresh
+    runs `copilot --version`. So the fake copilot goes first on `PATH`, behind it a stand-in for
+    the operator's real one, and every executable the process launches is recorded as it resolves.
+
+    After the test the refresh is waited for, while `PATH` is still this one, and every `copilot`
+    launched must be the fake: none may be the stand-in, which is where a real install would sit.
+    """
+    laptop = fakes.install(tmp_path / "laptop", ["copilot"])["PATH"].split(os.pathsep)[0]
+    monkeypatch.setenv("PATH", laptop + os.pathsep + os.environ.get("PATH", ""))
+    fake = fakes.apply(monkeypatch, tmp_path, ["copilot"])
+    launched: list[tuple[str, str]] = []
+    prepare = proc.prepare
+
+    def recording(argv, **kw):
+        real, info = prepare(argv, **kw)
+        launched.append((str(argv[0]), str(info.get("path") or "")))
+        return real, info
+
+    monkeypatch.setattr(proc, "prepare", recording)
+    yield {"fake": fake, "laptop": laptop, "launched": launched}
+    assert M.wait_refresh(10), "the model refresh outlived its test"
+    for name, path in launched:
+        if name == "copilot":
+            assert os.path.dirname(os.path.abspath(path)) == os.path.abspath(fake), (
+                f"a copilot outside the fake ran: {path}")
 
 
 @pytest.fixture()
@@ -520,6 +550,25 @@ def test_serve_and_open_with_fresh_open_the_preview_and_launch_nothing(fleet_hom
     code, out = run(["open"], capsys)
     assert opened[-1] == "http://127.0.0.1:8765/?t=tok"
     assert spawned == [], "nothing launches"
+
+
+def test_a_served_desk_asks_the_fake_copilot_and_never_the_one_on_the_path(fleet_home, capsys, monkeypatch,
+                                                                            copilot_is_the_fake):
+    """#480: with a copilot earlier on `PATH` (the operator's laptop), the start-up refresh a
+    served desk begins runs the fake, and only the fake."""
+    from agentdata.fleet import serve as S
+
+    monkeypatch.setattr(S, "run", lambda server: server.server_close())
+    code, _out = run(["serve", "--port", "0"], capsys)
+    assert code == 0
+    assert M.wait_refresh(10)
+    ran = [path for name, path in copilot_is_the_fake["launched"] if name == "copilot"]
+    assert ran, "the start-up refresh launched no copilot, so nothing here is proved"
+    laptop = os.path.abspath(copilot_is_the_fake["laptop"])
+    assert not [p for p in ran if os.path.dirname(os.path.abspath(p)) == laptop], ran
+    asked = fakes.calls({"AGENTDATA_FAKE_LOG": os.path.join(copilot_is_the_fake["fake"], "calls.jsonl")},
+                        "copilot")
+    assert ["--version"] in asked, asked
 
 
 def test_hide_still_takes_a_layout_and_writes_the_one_arrangement(fleet_home, tmp_path, capsys):
