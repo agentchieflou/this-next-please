@@ -25,6 +25,7 @@ import gzip
 import math
 import os
 import re
+import statistics
 import urllib.request
 
 import pytest
@@ -1678,7 +1679,12 @@ def test_the_handwriting_reveal_uncovers_the_text_and_leaves_the_page_as_it_foun
 @pytest.mark.measured
 def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, desk_browser):
     """Ground rule 5's other half: the ink draws after the gesture, never inside it. The page's own
-    gesture marks, taken while every pane has a long mark drawing, stay inside the 50ms budget."""
+    gesture marks, taken while every pane has a long mark drawing, stay inside the 50ms budget.
+
+    And the throttle a slow runner is reproduced with (#307, `--desk-cpu-throttle`), checked here
+    because it is a verdict on real timings (decision 13 folds it): on a desk page throttled at 4, a
+    fixed loop takes at least three times what it takes unthrottled, and still does after the page
+    goes to a second address on another site, which Chromium gives a new renderer process."""
     names = ("alpha", "beta", "gamma", "delta")
     _desk_of(tmp_path, names)
     server, token, port = _serve()
@@ -1702,6 +1708,26 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
             .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1], ms: m.duration })) };
         }""")
         assert not errors, errors
+        # #307, after the gestures, so their marks are taken as they always were: a page at rate 1
+        # and one at rate 4, timed in turn seven times, first on the desk and then on a page of
+        # another site. The loop's own cost is its quickest unthrottled run in either round (a
+        # busy machine only adds to it, and it is the same loop on both pages); each round's
+        # throttled figure is its median, so no single run decides it.
+        # The ink page goes first: its four slow marks are still drawing, and that load lands on
+        # the unthrottled loop, while the throttled one's idle share absorbs it (on a 4-core
+        # Windows runner the desk round's quickest unthrottled run was 81.6 ms against 35.9 ms
+        # one round later, when the ink had finished).
+        page.close()
+        timed = {rate: desk_page(browser, throttle=rate) for rate in (1, 4)}
+        loops = []
+        for url in (f"http://127.0.0.1:{port}/?t={token}", f"http://localhost:{port}/settings?t={token}"):
+            runs = {1: [], 4: []}
+            for tab in timed.values():
+                tab.goto(url, wait_until="domcontentloaded")
+            for _ in range(7):
+                for rate, tab in timed.items():
+                    runs[rate].append(tab.evaluate(FIXED_LOOP))
+            loops.append({1: min(runs[1]), 4: statistics.median(runs[4])})
         close_pages(browser)
     finally:
         _stop(server)
@@ -1711,6 +1737,16 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
     worst = max(m["ms"] for m in measures)
     print(f"\n  gestures while the ink draws: {len(measures)} marked, worst {worst:.1f}ms")
     assert [m for m in measures if m["ms"] > LOCAL_BUDGET_MS] == [], measures
+    own = min(loop[1] for loop in loops)
+    for where, loop in zip(("on the desk", "after a navigation to another site"), loops):
+        print(f"  a fixed loop {where}: {loop[1]:.1f}ms, throttled at 4 {loop[4]:.1f}ms")
+        assert loop[4] >= 3 * own, (where, own, loops)
+
+
+#: A fixed piece of main-thread work, timed on the page in ms (#307: about 40 ms unthrottled).
+FIXED_LOOP = """() => { const t0 = performance.now(); let x = 0;
+  for (let i = 0; i < 2e7; i++) x += i % 7;
+  return x > 0 ? performance.now() - t0 : -1; }"""
 
 
 #: The pixels three.js drew at points in viewport boxes, read back from a frame drawn for the
