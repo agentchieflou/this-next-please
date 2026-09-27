@@ -217,6 +217,27 @@ ExpiresSeconds`, and `by` = the `UserPrincipalName` of Office 365 Users **Get my
 `inboxFile` then means the file was written anyway. The build sheet is `mobile/flows/README.md` §Build sheet:
 `FleetDecide` (PR #535).
 
+## The contract, versioned
+
+`contract/fleet-mobile.v1.schema.json` (JSON Schema draft 2020-12, #598) is this page as one file: every record above
+by name in `$defs` (the outbox kinds, `pairing`, and the two inbox kinds `inbox_decision` and `inbox_reply`), `schema`
+and `contract`, the `LIMITS` caps (`limits`, and each field's `maxLength`), the enums (states, roles, severities,
+notification states, decisions), the five lists' columns and `FleetDecide`'s inputs and response. Its top-level
+`contract` is `bridge.MOBILE_CONTRACT`; the heartbeat and pairing records carry the same number, so the app can say
+"update the app". `contract/examples/` holds one record per kind (the flow samples of PR #535, moved there, plus the
+pairing, a reply's result and the two inbox records); `contract/released/` holds the copy the last published tag
+carries. After the split the phone side depends on this file, not on the Python package.
+
+- **An additive change keeps the version**: a new optional field, a new enum value, a new record kind, a raised cap.
+- **A breaking change raises `bridge.MOBILE_CONTRACT`** and moves the file to `fleet-mobile.v2.schema.json`: anything
+  removed or tightened (a field, a kind, an enum value, a lower cap, a new required field, a narrower type, a new
+  pattern).
+
+`tests/test_mobile_contract.py` holds the laptop to it: the enums and caps equal their Python sources, every record the
+bridge writes in its own tests validates as it is written (`tests/mobile_contract.py`), every example validates and
+carries the producer's keys in the producer's order, and the breaking-change guard fails on anything removed or
+tightened relative to `contract/released/` without a version bump.
+
 ## Settings
 
 Five keys, none a secret, **none on the settings page** (`settings.EDITABLE`): each moves a human checkpoint (who may

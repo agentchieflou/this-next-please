@@ -16,6 +16,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet_board_desk import a_project, site_facts
 from test_fleet_events import fleet_home                        # noqa: F401 - a fixture, used by name
+from mobile_contract import contract_checked                     # noqa: F401 - autouse: every record written validates
 
 TOKEN = "Zq3v9Kx-run-token-8yP2mW4tL0aa"
 

@@ -19,14 +19,13 @@ from agentdata.fleet import serve as S
 from test_fleet_board_desk import a_project
 from test_fleet_bridge import UPN, _cfg, _drop, _phone, _request
 from test_fleet_events import fleet_home                        # noqa: F401 - a fixture, used by name
+import mobile_contract
+from mobile_contract import contract_checked                     # noqa: F401 - autouse: every record written validates
 
-# `mobile/flows/samples/decision-luna-a1c9.json` (PR #535) as it stands, adapted in the test to a live request's id
-# and digest. FleetDecide's own step 9 composes `issued` and `expires` beside these keys, and so does the test.
-FLEET_DECIDE_SAMPLE = {
-    "schema": 1, "kind": "decision", "id": "luna-jira-create-20260925T160301Z-a1c9", "decision": "approved",
-    "reason": "", "by": "operator@example.com", "via": "mobile", "decided": "2026-09-25T16:06:40Z",
-    "digest": "a1c9e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0", "late": False,
-    "nonce": "9f2c4b7e1d3a48c2b6e5f0a1d2c3b4e5"}
+# `contract/examples/inbox-decision-9f2c4b7e.json` (#598): the file FleetDecide writes, adapted in the test to a live
+# request's id and digest and to `issued` and `expires` around now. The mobile contract validates it as it stands.
+with open(os.path.join(mobile_contract.EXAMPLES, "inbox-decision-9f2c4b7e.json"), encoding="utf-8") as _f:
+    FLEET_DECIDE_SAMPLE = json.load(_f)
 
 
 def _run(argv, capsys) -> tuple[int, str]:
@@ -108,6 +107,7 @@ def test_export_dry_run_and_apply_dry_run_change_nothing_on_disk(fleet_home, tmp
     now = time.time()
     sample = dict(FLEET_DECIDE_SAMPLE, id=live["id"], digest=live["digest"],
                   issued=bridge._utc(now), expires=bridge._utc(now + 600))
+    mobile_contract.check(sample, "inbox_decision")
     good = _drop(cfg, sample)
     stale = _drop(cfg, _phone(live, digest="0" * 64), name="decision-zz-stale.json")   # applied after the sample
     folder = bridge.check_folder(cfg)
