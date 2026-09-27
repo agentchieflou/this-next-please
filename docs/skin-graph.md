@@ -111,7 +111,8 @@ skin; until then this is the graph paper's own.
 Every colour is a custom property of `skin.css`, per variant, and the module reads them at paint
 time (`tokens.css`), never as a hex: `--paper`, `--grid`, `--grid-major`, `--ink-<tool>` and
 `--ink-trace`. `skins.py` carries the same numbers, and `theme.check` holds every ink on the paper
-at 3:1 and the text through the highlighter at 4.5:1 (rule 5), plus the text on a heavy line. A
+at 3:1 and the text through the highlighter at 4.5:1 (rule 5, the layer's screen or multiply; blueprint's
+highlighter is `#958225`, since `#B8A12E` screened left the text at 4.17:1, #329), plus the text on a heavy line. A
 test reads the stylesheet back against `skins.py`.
 
 ## Fonts

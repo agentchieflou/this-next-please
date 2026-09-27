@@ -754,9 +754,17 @@ it holds (§Effects), so the end state is simply the page as it now is.
 
 ## `theme.check`, and ink on paper
 
-`theme.check(t, composited_panel, skin, inks={tool: colour})` holds ink on paper to the same standard as text on a
-panel. Every ink is a mark on the paper, so it needs **3:1** against it (WCAG 1.4.11, non-text contrast). The
-highlighter is read *through*, so the text needs **4.5:1** on its tint (`theme.INK_TINT`, the plain fallback's 38%).
+`theme.check(t, composited_panel, skin, inks={tool: colour}, *, plain=False, dark=None)` holds ink on paper to the same
+standard as text on a panel. Every ink is a mark on the paper, so it needs **3:1** against it (WCAG 1.4.11, non-text
+contrast). The highlighter is read *through*, so the text needs **4.5:1** on what the swipe leaves under it (#329). In
+ink that is the layer's own blend, `theme.highlight_under(panel, ink, dark)`: screened onto a dark ground at
+`HL_SCREEN` (0.42) of the ink, multiplied into a light one at `HL_MULTIPLY` (0.68), as `pen.js`'s highlighter branch
+draws it (a test reads both numbers back out of pen.js). `dark` is the variant's, as `layer.js` `colours()` decides it
+(`theme.is_dark`, gamma-encoded Rec. 709 weights under 0.4): from the `--paper` its skin.css sets, else the palette's
+ground, never per composited panel. `plain=True` reads the plain fallback instead, the text on a 38% tint of the ink
+(`theme.INK_TINT`). The 38% model used to stand for ink on as well, and passed a glass amber that read 4.10:1 through
+the real swipe. Under a skin the needs-you name is written in `--text`, not red (app.css,
+`body[data-skin] .tile.needs-human .head .repo`): the highlight, the chip, the rail and the rim still say "needs you".
 Rule 6 (#325) holds secondary text (`--muted`) to **4.5:1** on the target ground or composited panel, with a hint
 naming the skin and both colours if refused.
 Rule 8 (#328) holds a word written in a state colour (`--<role>-text`) to **4.5:1** on the target ground and on each of

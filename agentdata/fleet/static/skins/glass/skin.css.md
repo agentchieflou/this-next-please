@@ -63,11 +63,12 @@ Above `body[data-skin-variant="azure"] {`:
 
 azure: cold blue depth, the darkest of the three — over blues (#0B1B33); composites #11213B … #1D3F56
 
-Above `--ink-highlighter: var(--accent);`:
+Above `--ink-highlighter: #3979BE;`:
 
-The one variant whose warn colour is too light to read the text through at its lightest
-point (4.29:1): its highlighter is the accent's blue (4.76:1). Glass's inks are declared in
-skins.py (`inks`) and checked there.
+Every variant's highlighter is its own literal (#329), declared beside it in skins.py (`inks`)
+and checked there through the layer's real blend: screened onto the dark frosts, multiplied into
+frost. The palette's colours left the text at 4.10 (smoke's amber), 3.96 (azure's accent blue),
+4.07 (noir) and 3.04:1 (frost); a dimmer amber, a deeper blue and a paler yellow keep 4.5:1.
 
 ### `body[data-skin-variant="noir"]`
 

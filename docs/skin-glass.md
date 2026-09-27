@@ -54,10 +54,13 @@ Where two rims apply, *needs you* and *error* come before *done*. A mark leaves 
 and the struck mark stays (one per row and element).
 
 **The inks** are the palette's (`skins.GLASS_INKS`): pen `--accent`, red and marker `--human`, green `--done`,
-highlighter `--waiting`. Azure is the exception: its warn yellow is too light to read the text through at the frost's
-lightest point (4.29:1), so its highlighter is the accent's blue (4.76:1). skin.css says so as
-`--ink-highlighter: var(--accent)`, and skins.py says so as `ink_tokens`. `theme.check` holds every ink on both ends of
-every variant's frost: marks at 3:1, and text through the highlighter at 4.5:1.
+highlighter `--waiting`. The highlighter is each variant's own (#329): the layer screens it onto the dark frosts and
+multiplies it into the light one, and through that blend the palette's colours left the text at 4.10 (smoke), 3.96
+(azure's accent blue), 4.07 (noir) and 3.04:1 (frost). So smoke and noir draw a dimmer amber (`#A97B1B`, `#AC7D1C`),
+azure a deeper blue (`#3979BE`) and frost a paler yellow (`#F0DC7A`). skins.py declares each in the variant's `inks`,
+which win over the tokens, and skin.css writes the same literal as the variant's `--ink-highlighter`.
+`theme.check` holds every ink on both ends of every variant's frost: marks at 3:1, and text through the highlighter
+at 4.5:1.
 
 ## The contrast is measured from the frame
 
