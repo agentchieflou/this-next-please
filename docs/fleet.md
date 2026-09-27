@@ -404,6 +404,10 @@ Start with `ad-fleet doctor`. Every row names its own fix.
 | `fleet/facts` **warn** | a project cannot build every tile link | the row names the `AGENTS.md` key per project; `ad-fleet show <project>` lists them |
 | `fleet/inbox` **warn** | no Downloads folder, or it cannot be listed | `ad-fleet inbox --folder <path>`, or `fleet.inbox.folders` in the config |
 | `fleet/token budget` **warn** | N tiles are polling one Jira token near its limit | slow or stop a source: `fleet.poll.jira: {"interval": 300}` or `false` |
+| `fleet/mobile` **skip** | the phone bridge is off (`fleet.mobile.enabled`) | nothing; `ad-setup --patch fleet.mobile` turns it on |
+| `fleet/mobile` **fail** | `fleet.mobile.folder` is unset, missing, cannot be listed, or inside a checkout or the fleet directory; or its `inbox/` is online-only | `ad-setup --patch fleet.mobile` for the folder; for an online-only `inbox/`, `attrib +p "<folder>" /s /d` or *Always keep on this device* (no answer fixes that one) |
+| `fleet/mobile` **warn** | nothing says the folder syncs (no `%OneDriveCommercial%`, `%OneDrive%`, registry value or `OneDrive - ` parent), the path is over 300 characters, the operator is not a UPN, `expire_s` is not a number, or the folder outside `inbox/` is online-only | the row names the `fleet.mobile.*` key; `ad-setup --patch fleet.mobile` |
+| `fleet/mobile traffic` **warn** | serve is up and the last export is over 5 minutes old, or the phone's files were rejected in the last 24 hours | restart `ad-fleet serve`; the newest refusal's code is in the hint, its reason in `rejected/<name>.why.json`, the fix in [refusals.md](refusals.md) |
 
 And when a tile is wrong rather than the fleet:
 

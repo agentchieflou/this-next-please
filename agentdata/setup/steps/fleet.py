@@ -49,6 +49,17 @@ CATALOGUE_STALE_S = 24 * 3600
 # only ever seen by a live client in its `X-RateLimit-*` headers.
 POLLS_PER_HOUR_WARN = 300
 
+# The bridge rows (#553). MS-FSCC 2.6: Files On-Demand marks an online-only file or folder UNPINNED, a placeholder
+# whose data is fetched on read RECALL_ON_DATA_ACCESS, and an "Always keep on this device" one PINNED.
+FILE_ATTRIBUTE_PINNED = 0x00080000
+FILE_ATTRIBUTE_UNPINNED = 0x00100000
+FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = 0x00400000
+UPN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# serve is up and the last export is older than this: the bridge is not writing (it exports every few seconds).
+EXPORT_STALE_S = 300
+MOBILE_KEYS = ("fleet.mobile.enabled", "fleet.mobile.folder", "fleet.mobile.operator", "fleet.mobile.expire_s",
+               "fleet.mobile.notify")
+
 
 def _yes(value, default: bool) -> bool:
     if value is None or value == "":
@@ -83,6 +94,10 @@ class FleetStep(Step):
 
         found.update(self._probe(ctx))
         found.update(self._desk(ctx, repos))
+        try:
+            found["mobile"] = dict(self._mobile(ctx), serve_up=bool(found.get("ours")))
+        except Exception as e:                       # noqa: BLE001 - a report must not crash
+            found["mobile_error"] = str(e)[:160]
         return found
 
     def _desk(self, ctx: Context, repos: list) -> dict:
@@ -183,6 +198,46 @@ class FleetStep(Step):
             pass
         return found
 
+    @staticmethod
+    def _mobile(ctx: Context) -> dict:
+        """The bridge's facts (#553), from disk, file attributes and `winreg` only. Never a subprocess.
+
+        No `attrib`, no `reg query`: `ad-doctor --quiet` runs on every session start. The state file is
+        read, never written (`bridge.read_state()` would create it), and `serve_up` is `_probe`'s own
+        port answer, not `bridge._serve_up()`, whose `pid_alive` starts `tasklist` on Windows.
+        """
+        from ...fleet import bridge as B
+        from ...fleet.registry import Registry
+
+        s = B.settings(ctx.cfg)
+        found = {"settings": s, "folder": s["folder"], "exists": False, "listable": False, "in_repo": False,
+                 "why": "", "sync_root": "", "pinned": None, "online_only": None, "tree_online_only": None,
+                 "path_len": len(s["folder"]), "last_export_age_s": None, "last_inbox_age_s": None,
+                 "rejected_24h": 0, "rejected_code": "", "serve_up": False}
+        if not s["enabled"] or not s["folder"]:
+            return found
+        folder = s["folder"]
+        try:
+            B.check_folder(ctx.cfg, Registry(), need_enabled=False)
+        except B.BridgeError as e:
+            found["in_repo"] = e.code == "mobile_folder_in_repo"
+            found["why"] = e.msg
+        except Exception as e:                       # noqa: BLE001 - an unreadable registry is not this row's
+            found["why"] = str(e)[:120]
+        found["exists"] = os.path.isdir(folder)
+        if found["exists"]:
+            try:
+                with os.scandir(textio.longpath(folder)) as entries:
+                    next(entries, None)
+                found["listable"] = True
+            except OSError as e:
+                found["why"] = found["why"] or (e.strerror or str(e))[:120]
+        found["sync_root"] = _sync_root(folder)
+        found["tree_online_only"], _ = _attributes(folder)
+        found["online_only"], found["pinned"] = _attributes(os.path.join(folder, B.INBOX))
+        found.update(_traffic(folder))
+        return found
+
     def _probe(self, ctx: Context) -> dict:
         """The three answers that need a subprocess. Only reached when a fleet exists."""
         from ... import proc
@@ -266,6 +321,7 @@ class FleetStep(Step):
         self._check_inbox(ctx, found)
         self._check_polls(ctx, found)
         self._check_notifications(ctx, found)
+        self._check_mobile(ctx, found)
         self._check_session_store(ctx, found)
         self._check_spend(ctx, found)
         self._check_fresh(ctx, found)
@@ -700,6 +756,88 @@ class FleetStep(Step):
                 keys=("fleet.notify.cooldown", "fleet.notify.idle_minutes",
                       "fleet.notify.quiet_hours"))
 
+    def _check_mobile(self, ctx: Context, found: dict) -> None:
+        """`fleet/mobile` and `fleet/mobile traffic` (#553): is the bridge folder one the phone will see, and
+        is the bridge writing it. Off is `skip`, never `fail`: a bridge nobody enabled is not a broken install.
+        MOB-D4: an online-only `inbox/` is `fail`, an online-only folder elsewhere is `warn`."""
+        from ...fleet.bridge import PATH_WARN
+
+        m = found.get("mobile")
+        if m is None:
+            if found.get("mobile_error"):
+                ctx.add(self.key, "mobile", "warn", f"the bridge could not be read: {found['mobile_error']}",
+                        "a fault in the doctor rather than in the setup: the other rows stand", keys=())
+            return
+        s = m["settings"]
+        if not s["enabled"]:
+            ctx.add(self.key, "mobile", "skip", "off",
+                    "`ad-setup --patch fleet.mobile` turns the phone bridge on", keys=("fleet.mobile.enabled",))
+            return
+        folder = s["folder"]
+        fix = ("set fleet.mobile.folder to a folder OneDrive syncs, e.g. %OneDriveCommercial%/FleetAgent, outside "
+               "every checkout and the fleet directory: `ad-setup --patch fleet.mobile`")
+        if not folder:
+            ctx.add(self.key, "mobile", "fail", "no bridge folder is configured", fix, keys=("fleet.mobile.folder",))
+            return
+        if m["in_repo"]:
+            ctx.add(self.key, "mobile", "fail", f"{folder}: {m['why']}", fix, keys=("fleet.mobile.folder",))
+            return
+        if not m["exists"]:
+            ctx.add(self.key, "mobile", "fail", f"{folder} does not exist",
+                    "create it inside the OneDrive folder, or " + fix, keys=("fleet.mobile.folder",))
+            return
+        if not m["listable"]:
+            ctx.add(self.key, "mobile", "fail", f"{folder} cannot be listed: {m['why']}",
+                    "give this account read access to it, or " + fix, keys=("fleet.mobile.folder",))
+            return
+        pin = (f'`attrib +p "{textio.norm_path(folder)}" /s /d`, or right-click the folder and choose '
+               "*Always keep on this device*")
+        if m["online_only"]:
+            ctx.add(self.key, "mobile", "fail", f"{folder}/inbox is online-only: reading a phone's file would block "
+                    "on the network, and wait forever offline", pin, keys=())
+            return
+
+        warns: list[tuple[str, str, tuple]] = []
+        if m["tree_online_only"]:
+            warns.append((f"{folder} is online-only (its inbox is not)", pin, ()))
+        if not m["sync_root"]:
+            warns.append(("cannot tell that this folder syncs; the phone will not see it unless it does",
+                          "choose a folder under %OneDriveCommercial%; `ad-setup --patch fleet.mobile`",
+                          ("fleet.mobile.folder",)))
+        if m["path_len"] > PATH_WARN:
+            warns.append((f"the folder path is {m['path_len']} characters, over {PATH_WARN}",
+                          "a shorter folder keeps OneDrive and Windows from refusing a file inside it",
+                          ("fleet.mobile.folder",)))
+        if not UPN.match(s["operator"]):
+            warns.append(("no operator is set" if not s["operator"] else f"the operator {s['operator']!r} is not "
+                          "a UPN", "fleet.mobile.operator is the address you sign in to the phone with; every "
+                          "phone decision is refused until it matches", ("fleet.mobile.operator",)))
+        if s["expire_invalid"]:
+            warns.append((f"fleet.mobile.expire_s is not a number; {s['expire_s']} s is used",
+                          "set it to the seconds a phone decision stays valid (60-3600)", ("fleet.mobile.expire_s",)))
+        if warns:
+            keys = tuple(dict.fromkeys(k for _d, _h, ks in warns for k in ks))
+            ctx.add(self.key, "mobile", "warn", "; ".join(d for d, _h, _k in warns),
+                    "; ".join(dict.fromkeys(h for _d, h, _k in warns)), keys=keys)
+        else:
+            pinned = {True: " · pinned", False: " · not pinned", None: ""}[m["pinned"]]
+            ctx.add(self.key, "mobile", "ok", f"{folder} · synced ({m['sync_root']}){pinned} · operator "
+                    f"{s['operator']}", keys=MOBILE_KEYS)
+        self._check_mobile_traffic(ctx, m)
+
+    def _check_mobile_traffic(self, ctx: Context, m: dict) -> None:
+        """What the bridge has done lately, from its state file and `rejected/`. No key fixes it."""
+        export, inbox = m["last_export_age_s"], m["last_inbox_age_s"]
+        detail = (f"last export {_age(export)} · last inbox {_age(inbox)} · "
+                  f"{m['rejected_24h']} rejected in 24h")
+        problems = []
+        if m["serve_up"] and (export is None or export > EXPORT_STALE_S):
+            problems.append("serve is up but the bridge is not writing; restart it (`ad-fleet serve`)")
+        if m["rejected_24h"]:
+            problems.append(f"the newest refusal is {m['rejected_code'] or 'unknown'}: its `rejected/<name>.why.json` "
+                            "says why, and `docs/refusals.md` what to do")
+        ctx.add(self.key, "mobile traffic", "warn" if problems else "ok", detail, "; ".join(problems), keys=())
+
     def _check_session_store(self, ctx: Context, found: dict) -> None:
         from ...fleet import sessions as S
 
@@ -735,6 +873,51 @@ class FleetStep(Step):
         C.put(ctx.cfg, "fleet.port", _int(answer, 8765))
 
         self._ask_polls(ctx)
+        self._ask_mobile(ctx)
+
+    def _ask_mobile(self, ctx: Context) -> None:
+        """The five `fleet.mobile.*` answers (#553), so `ad-setup --patch fleet.mobile` asks exactly them.
+
+        Read from the config, as `_ask_polls` does. The folder is never defaulted (bridge.py: a default folder is a
+        folder nobody chose): `%OneDriveCommercial%/FleetAgent` is shown as a suggestion in the question, and only
+        what is typed is written. With the bridge off, the whole wizard asks the one question; `--patch fleet.mobile`
+        (or a failing row naming them) asks all five.
+        """
+        from ...fleet import bridge as B
+
+        s = B.settings(ctx.cfg)
+        stored = C.get(ctx.cfg, "fleet.mobile.folder") or ""
+        answer = ctx.ask.ask("fleet.mobile.enabled",
+                             "Mirror what needs you to a OneDrive folder your phone reads, and take decisions and "
+                             "replies back from it?", default="yes" if s["enabled"] else "no", choices=YES_NO)
+        on = _yes(answer, s["enabled"])
+        C.put(ctx.cfg, "fleet.mobile.enabled", on)
+        in_scope = getattr(ctx.ask, "in_scope", None)
+        if not on and not (in_scope and in_scope("fleet.mobile.folder")):
+            return
+
+        suggestion = "%OneDriveCommercial%/FleetAgent" if os.environ.get("OneDriveCommercial") else ""
+        answer = ctx.ask.ask("fleet.mobile.folder",
+                             "The bridge folder, one OneDrive syncs and outside every checkout"
+                             + (f" (e.g. {suggestion})" if suggestion else ""), default=str(stored))
+        if answer.strip():
+            C.put(ctx.cfg, "fleet.mobile.folder", answer.strip())
+
+        answer = ctx.ask.ask("fleet.mobile.operator",
+                             "Who may decide from the phone (the address you sign in with, e.g. you@example.com)",
+                             default=s["operator"])
+        if answer.strip():
+            C.put(ctx.cfg, "fleet.mobile.operator", answer.strip())
+
+        answer = ctx.ask.ask("fleet.mobile.expire_s",
+                             f"Seconds a phone decision stays valid ({B.EXPIRE_MIN_S}-{B.EXPIRE_MAX_S})",
+                             default=str(s["expire_s"]))
+        C.put(ctx.cfg, "fleet.mobile.expire_s",
+              min(B.EXPIRE_MAX_S, max(B.EXPIRE_MIN_S, _int(answer, s["expire_s"]))))
+
+        answer = ctx.ask.ask("fleet.mobile.notify", "Send the fleet's notifications to the phone too?",
+                             default="yes" if s["notify"] else "no", choices=YES_NO)
+        C.put(ctx.cfg, "fleet.mobile.notify", _yes(answer, s["notify"]))
 
     def _ask_polls(self, ctx: Context) -> None:
         """The two answers behind the `token budget` row.
@@ -761,6 +944,107 @@ class FleetStep(Step):
                              "Seconds between Jira polls (one search, on your token, however many "
                              "tiles are open)", default=str(polls["jira"]["interval"]))
         C.put(ctx.cfg, "fleet.poll.jira.interval", _int(answer, polls["jira"]["interval"]))
+
+
+# ------------------------------------------------------------------------------ the bridge rows (#553)
+
+def _sync_root(folder: str) -> str:
+    """Where the evidence that `folder` syncs came from, or "" when nothing says it does. Each source is optional:
+    `%OneDriveCommercial%`, then `%OneDrive%`, then the OneDrive client's registry value, then a parent folder
+    named like the client names its roots (`OneDrive - <tenant>`)."""
+    from ...fleet.bridge import _inside
+
+    for var in ("OneDriveCommercial", "OneDrive"):
+        root = os.environ.get(var) or ""
+        if root and _inside(folder, root):
+            return f"env:{var}"
+    for root in _registry_roots():
+        if _inside(folder, root):
+            return "registry"
+    parent = os.path.dirname(os.path.abspath(folder))
+    while parent and parent != os.path.dirname(parent):
+        if os.path.basename(parent).startswith("OneDrive - "):
+            return "parent"
+        parent = os.path.dirname(parent)
+    return ""
+
+
+def _registry_roots() -> list[str]:
+    """`HKCU\\Software\\Microsoft\\OneDrive\\Accounts\\{Business1,Personal}\\UserFolder`, read with `winreg`; [] off
+    Windows or when the client never wrote them."""
+    try:
+        import winreg
+    except ImportError:
+        return []
+    roots = []
+    for account in ("Business1", "Personal"):
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"Software\Microsoft\OneDrive\Accounts\{account}") as k:
+                value, _kind = winreg.QueryValueEx(k, "UserFolder")
+        except OSError:
+            continue
+        if value:
+            roots.append(str(value))
+    return roots
+
+
+def _attributes(path: str) -> tuple[bool | None, bool | None]:
+    """`(online_only, pinned)` from the Windows file attributes, or `(None, None)` where there are none (POSIX, or
+    the path is missing). Python's `stat` lacks these constants, so they are the MS-FSCC literals."""
+    try:
+        attrs = getattr(os.stat(path), "st_file_attributes", None)
+    except OSError:
+        return None, None
+    if attrs is None:
+        return None, None
+    return bool(attrs & (FILE_ATTRIBUTE_UNPINNED | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)), \
+        bool(attrs & FILE_ATTRIBUTE_PINNED)
+
+
+def _traffic(folder: str) -> dict:
+    """The last export and inbox times from the state file (read, never written), and `rejected/` over 24 h."""
+    from ...fleet import bridge as B
+    from ...fleet.registry import fleet_dir
+
+    now = time.time()
+    out = {"last_export_age_s": None, "last_inbox_age_s": None, "rejected_24h": 0, "rejected_code": ""}
+    try:
+        state = textio.read_json(os.path.join(fleet_dir(), B.STATE_FILE), B.STATE_FILE)
+    except (OSError, ValueError):
+        state = {}
+    if isinstance(state, dict):
+        for key, name in (("last_export", "last_export_age_s"), ("last_inbox_seen", "last_inbox_age_s")):
+            at = B._epoch(str(state.get(key) or ""))
+            out[name] = max(0.0, now - at) if at is not None else None
+    newest, directory = (0.0, ""), os.path.join(folder, B.REJECTED)
+    try:
+        for entry in os.scandir(directory):
+            if not entry.name.endswith(".why.json"):
+                continue
+            mtime = entry.stat().st_mtime
+            if now - mtime < B.KEEP_OUTBOX_S:
+                out["rejected_24h"] += 1
+                newest = max(newest, (mtime, entry.path))
+    except OSError:
+        pass
+    if newest[1]:
+        try:
+            why = textio.read_json(newest[1], "why")
+            out["rejected_code"] = str(why.get("code") or "")[:64] if isinstance(why, dict) else ""
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def _age(seconds) -> str:
+    """"12s", "4m", "3h", "2d"; "never" when there is nothing to measure."""
+    if seconds is None:
+        return "never"
+    s = int(seconds)
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if s >= size:
+            return f"{s // size}{unit}"
+    return f"{s}s"
 
 
 def _keys(keys: list) -> str:
