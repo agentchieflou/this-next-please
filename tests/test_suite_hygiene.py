@@ -353,19 +353,52 @@ def test_the_scan_leaves_verdicts_on_files_alone():
 @pytest.mark.scale
 def test_the_expensive_tiers_are_a_small_part_of_the_suite():
     """A tier that holds a third of the suite is not a tier, it is the suite. If these grow, the
-    inner loop stops being the thing most changes are tested with -- which is the whole point."""
-    def count(expr):
-        p = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-                            "--collect-only", "-m", expr],
-                           capture_output=True, text=True, cwd=REPO_ROOT)
-        return len([l for l in p.stdout.splitlines() if "::" in l])
+    inner loop stops being the thing most changes are tested with -- which is the whole point.
 
-    total = count("")
-    slow_tiers = count("browser or measured or scale or slow or laptop")
+    Folded in (decision 13), since it needs the same whole-suite collections: `--shard=K/3` (#310)
+    splits a shuffled selection, with and without `-m`, into whole-file shards whose node ids are
+    disjoint, add up to exactly the selection and keep its shuffled order."""
+    def collect(*args):
+        return subprocess.Popen([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                                 "--collect-only", *args],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=REPO_ROOT)
+
+    def lines(proc):
+        out, err = proc.communicate(timeout=600)
+        assert proc.returncode == 0, err or out
+        return out.splitlines()
+
+    inner = "not browser and not slow and not measured and not scale"
+    shuffled = ("--shuffle-seed", "1")
+    procs = {("", 0): collect("-m", "", *shuffled),
+             ("slow tiers", 0): collect("-m", "browser or measured or scale or slow or laptop"),
+             (inner, 0): collect("-m", inner, *shuffled)}
+    for k in (1, 2, 3):  # all at once: seven collections one after another cost minutes
+        procs[("", k)] = collect("-m", "", *shuffled, f"--shard={k}/3")
+        procs[(inner, k)] = collect("-m", inner, *shuffled, f"--shard={k}/3")
+    out = {key: lines(p) for key, p in procs.items()}
+    ids = {key: [ln for ln in o if "::" in ln] for key, o in out.items()}
+
+    total = len(ids[("", 0)])
+    slow_tiers = len(ids[("slow tiers", 0)])
     assert total > 1000, total
     assert slow_tiers < total * 0.10, (
         f"{slow_tiers} of {total} tests are in a tier the inner loop skips; the inner loop is "
         "supposed to be nearly all of it")
+
+    for expr in ("", inner):
+        whole = ids[(expr, 0)]
+        shards = [ids[(expr, k)] for k in (1, 2, 3)]
+        assert all(shards), f"-m {expr!r}: an empty shard"
+        assert sum(len(s) for s in shards) == len(whole) == len(set().union(*shards)), f"-m {expr!r}"
+        assert set().union(*shards) == set(whole), f"-m {expr!r}: the shards do not add up to the selection"
+        files = [{i.split("::")[0] for i in s} for s in shards]
+        assert not (files[0] & files[1] or files[0] & files[2] or files[1] & files[2]), "a file was split"
+        for k, s in enumerate(shards, 1):
+            mine = set(s)
+            assert s == [i for i in whole if i in mine], f"-m {expr!r} shard {k}/3 lost the shuffled order"
+            assert any(ln.startswith(f"shard {k}/3: {len(files[k - 1])} files, {len(s)} tests, ~")
+                       for ln in out[(expr, k)]), out[(expr, k)][:3]
 
 
 def test_parallelism_is_available_and_the_measured_tier_is_kept_out_of_it():

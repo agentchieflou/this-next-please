@@ -325,6 +325,14 @@ Carries `paths, how, by, queued`.
 {"schema": 1, "seq": 28, "ts": "2026-01-04T09:45:20", "repo": "luna", "ticket": "RDSD-118", "kind": "scope.added", "data": {"paths": ["models/RDSD.SemanticModel/definition/tables/Velocity.tmdl"], "how": "fingerprint", "by": "operator", "queued": false}}
 ```
 
+**`mobile.exported`** — the bridge (#546) mirrored a pending approval into the phone's outbox
+(`outbox/approvals/<id>.json`). Once per approval id, never per attention row; no state changes. Carries
+`id, digest, expires` (the approval's digest and `created` + `fleet.approval_timeout`, UTC).
+
+```json
+{"schema": 1, "seq": 29, "ts": "2026-01-04T09:45:25", "repo": "luna", "ticket": "RDSD-118", "kind": "mobile.exported", "data": {"id": "luna-jira-transition-20260104T094520-7f3a", "digest": "7d2a9f4c6b1e8d3f5a0c2e4b6d8f1a3c5e7b9d0f2a4c6e8b1d3f5a7c9e0b2d4f", "expires": "2026-01-04T10:15:20Z"}}
+```
+
 ## The state a tile shows
 
 `agentstate.derive()` folds the stream into one answer. Deterministic, in this order — the first
