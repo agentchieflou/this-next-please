@@ -104,6 +104,15 @@ jobs:
         run: |
           Get-NetTCPConnection | Group-Object OwningProcess,State | Sort-Object Count -Descending | Select-Object -First 15 Count,Name | Format-Table -AutoSize
           exit 0
+      - name: the System log's TCP/IP and AFD events during the job
+        if: always()
+        shell: pwsh
+        run: |
+          Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddHours(-1)} -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProviderName -match 'Tcpip|AFD|WFP|Winsock|BFE' } |
+            Select-Object -First 40 TimeCreated,Id,ProviderName,Message | Format-List
+          netstat -anoq -p tcp | Select-String BOUND | Measure-Object | Select-Object Count
+          exit 0
       - name: upload the probe
         if: always()
         uses: actions/upload-artifact@v4
