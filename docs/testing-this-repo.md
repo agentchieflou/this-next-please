@@ -227,7 +227,7 @@ browser that is up costs under 0.1 s.
 | --- | --- |
 | `desk_server` | a desk served on a daemon thread: `.url(extra="")`, `.token`, `.port`, `.base`, `.server`; stopped at teardown |
 | `desk_browser` | the worker's Chromium (from `launch_chromium`, relaunched if a test closed it); the contexts the test made are closed at teardown |
-| `new_desk_page` | `open(desk, extra="", *, width=1400, height=900, reduced=False, init_scripts=())` → `(page, record)`: a fresh context with `COUNT_FETCHES` installed; `record` keeps page errors, console errors and warnings, failed requests and non-2xx answers |
+| `new_desk_page` | `open(desk, extra="", *, width=1400, height=900, reduced=False, init_scripts=())` → `(page, record)`: a fresh context with `COUNT_FETCHES` and `desk_waits.COUNT_TIMERS` installed (as on every `desk_page`); `record` keeps page errors, console errors and warnings, failed requests and non-2xx answers |
 | `no_desk_driver` | no shared driver in this thread, for a test that needs `asyncio.run` |
 | `desk_chromium_with` | `launch(args)`: a Chromium of the test's own on the worker's driver, started with extra switches (a Blink flag), closed at teardown |
 
@@ -248,6 +248,29 @@ harness, or a `launch_chromium(` outside it, and says to use `desk_server`/`new_
 A module `browser` fixture is `desk_browser` under its old name. `tests/test_fleet_desk_browser.py` and
 `tests/test_fleet_ink.py` are the pattern; `test_fleet_ink`'s `_serve`, `_stop` and `_open` are thin
 wrappers over the harness, so the modules that import them keep working.
+
+#### Settle, then assert (#304)
+
+A browser test waits for the desk one way: `tests/desk_waits.py`. `settle(page, also=...)` waits
+until six frames in a row pass with nothing moving -- no fetch in flight, no `setTimeout` of 1000 ms
+or less pending, no DOM write, the fonts loaded, no animation but the live `.dot`, the ink layer off
+or at rest and not rendering (`allow_ground=True` lets a moving ground draw) -- and `also`, a JS
+expression that holds a skin's or a test's own condition, true. When nothing has moved it on for
+`DESK_WAIT_MS` (30 s; a frame the ink layer draws is moving on, a pen that never lifts is not) it
+prints the page and raises `the desk never settled: <what was still moving>`. There is no other
+ceiling, and no pause "to let it settle".
+
+A negative assertion is observed over page work, never over a duration. `assert_idle(page)` settles,
+replays `/api/fleet` byte for byte, and drives `refresh(); place(); redrawAll(); bell();` eight times
+under one observer over the whole document: zero writes, and zero ink frames unless the ground
+moves (`ground_moves=True`). Each pass ends when the work it started is done -- no fetch in flight,
+no short timer pending -- plus two frames, so a write a timer makes 300 ms later is inside the
+window. `observe_quiet(page, passes=, drive=False)` leaves the page alone and counts its own work (a
+refresh it starts itself, a retry it arms) as the passes. An observer that records what an action
+writes is `record_mutations(page, ...)` (or `WATCH`'s `__deskWaits.watch(node)` inside page code);
+`new MutationObserver` appears under `tests/` only in `desk_waits.py`, and `tests/test_desk_waits.py`
+keeps it so. `AGENTDATA_DESK_WAIT_SCALE` scales the ceiling for a local throttled run; CI never sets
+it.
 
 #### The guards that measure rather than read (#202)
 

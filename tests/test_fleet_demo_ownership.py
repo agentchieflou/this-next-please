@@ -29,6 +29,7 @@ from agentdata.fleet.registry import Registry
 from test_fleet import make_project
 from test_fleet_column import _until
 from desk_harness import close_pages
+from desk_waits import counted
 from test_fleet_gutters import _gutter_point
 
 SKINS = ["none", "glass:smoke"]
@@ -90,7 +91,7 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
             viewport={"width": 1600, "height": 1000},
             record_video_dir=os.path.join(shots, "video"),
             record_video_size={"width": 1600, "height": 1000})
-        page = context.new_page()
+        page = counted(context.new_page())
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid",
@@ -226,23 +227,10 @@ def test_five_agents_a_swap_a_resize_a_hide_and_a_reconnect(fleet_home, tmp_path
         #    which is the render contract, and what every gesture above rests on.
         page.wait_for_timeout(400)
         touched = page.evaluate("""() => {
-              let n = 0;
-              const what = [];
-              const obs = new MutationObserver(rs => {
-                n += rs.length;
-                rs.forEach(r => what.push(r.type + ' ' + (r.attributeName || '') + ' on ' +
-                  (r.target.className || r.target.nodeName)));
-              });
-              obs.observe(document.body, { subtree: true, childList: true,
-                                           attributes: true, characterData: true });
+              const w = __deskWaits.watch(document.body);
               for (let i = 0; i < 20; i++) redrawAll();
-              obs.takeRecords().forEach(r => {
-                n += 1;
-                what.push(r.type + ' ' + (r.attributeName || '') + ' on ' +
-                  (r.target.className || r.target.nodeName));
-              });
-              obs.disconnect();
-              return { n: n, what: what.slice(0, 8) };
+              w.stop();
+              return { n: w.n, what: w.seen.slice(0, 8) };
             }""")
         assert touched["n"] == 0, \
             f"twenty idle redraws made {touched['n']} DOM mutations: {touched['what']}"

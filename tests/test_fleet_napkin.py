@@ -36,7 +36,8 @@ from agentdata.fleet import serve as S
 
 from test_fleet import make_project
 from desk_harness import close_pages
-from test_fleet_ink import (AT_REST, COUNT_FETCHES, IDLE_LOOP, _marks, _serve, _stop,
+from desk_waits import counted, observe_quiet, settle
+from test_fleet_ink import (_marks, _serve, _stop,
                             catch_up_frames)
 from test_fleet_ink import fleet_home  # noqa: F401 - fixtures
 
@@ -168,8 +169,7 @@ def _napkin_page(browser, port, token, fleet_home, panes, *, ink=True, reduced=F
     (fleet_home.parent / "cfg.json").write_text('{"theme": {"skin": "%s"}}' % skin, encoding="utf-8")
     page = browser.new_page(viewport={"width": 1500, "height": 900},
                             reduced_motion="reduce" if reduced else "no-preference")
-    if count:
-        page.add_init_script(COUNT_FETCHES)
+    counted(page)
     errors, asked = [], []
     page.on("pageerror", lambda e: errors.append(str(e)))
     # A skin's mistake is said in the console as `ink: ...` (docs/desk-ink.md rule 8).
@@ -199,48 +199,17 @@ def _kinds(marks):
     return sorted((m["selector"], m["tool"], m["shape"]) for m in marks)
 
 
-#: The napkin has come to rest: the layer's lanes are empty and the felt tip has soaked in.
-SETTLED = f"""() => ({AT_REST})() && Object.values({NAPKIN}).every(p => !p.bleed || p.tail === 1)"""
-
-#: What the napkin had when `_settle` gave up: the layer's frames, the lanes still drawing or
-#: holding a hand, every mark not yet drawn whole, and how far each felt tip has soaked.
-WHY = f"""() => {{ const l = Ink.inspect().layer, n = {NAPKIN};
-  return !l ? 'no layer' : {{ frames: l.frames, busy: l.busy,
-    lanes: Object.entries(l.lanes).filter(([k, x]) => x.busy || x.hand)
-             .map(([k, x]) => k + (x.hand ? ' hand' : '') + ' queued ' + x.queued),
-    drawing: l.marks.filter(m => m.drawn !== 1).map(m => [m.lane, m.selector, m.state, m.drawn].join(' ')),
-    soaked: Object.keys(n).filter(k => n[k].bleed).map(k => k + ' ' + n[k].tail) }}; }}"""
+#: The napkin has come to rest: every felt tip has soaked in. The skin's predicate for
+#: `desk_waits.settle`, which waits for the layer's lanes and everything else itself.
+SETTLED = f"""() => Object.values({NAPKIN}).every(p => !p.bleed || p.tail === 1)"""
 
 
 def _settle(page, also="true", timeout=30000):
-    """Wait for the napkin at rest (`SETTLED`) and `also`, for as long as the layer is drawing its
-    way there. The pen keeps time in frames -- the layer holds a frame's `dt` to 0.1 s -- and in
-    SwiftShader a napkin frame costs about a tenth of a second on an idle machine and from half a
-    second to more than one on a loaded one. So a clock was the wrong bound: the felt tip's desk
-    comes to rest in about 57 frames, 5 s idle and 40 s at a load average of 45, where a 30 s
-    clock ran out with the pen still drawing (#479; glass met the same, #254). Each step waits for
-    the napkin settled or for the layer's next frame. It fails when the layer draws no frame for
-    `timeout` ms without settling -- a pen that stopped, or a page that never changed -- or
-    draws, without settling, the frames `timeout` is at 60 Hz, the fastest it draws: a pen that
-    never lifts."""
-    from playwright.sync_api import TimeoutError as PlaywrightTimeout
-
-    step = f"""(seen) => {{
-      if (({SETTLED})() && ({also})) return 'settled';
-      const l = Ink.inspect().layer;
-      return !!l && l.frames > seen && l.frames; }}"""
-    first = seen = page.evaluate("() => { const l = Ink.inspect().layer; return l ? l.frames : 0; }")
-    while seen - first <= timeout * 60 // 1000:
-        try:
-            got = page.wait_for_function(step, arg=seen, timeout=timeout).json_value()
-        except PlaywrightTimeout as e:
-            raise AssertionError(("the napkin drew no frame for", timeout, "ms and did not settle",
-                                  also, page.evaluate(WHY))) from e
-        if got == "settled":
-            return
-        seen = got
-    raise AssertionError(("the napkin drew", seen - first, "frames and did not settle", also,
-                          page.evaluate(WHY)))
+    """Wait for the napkin at rest (`desk_waits.settle` with `SETTLED`) and `also`, for as long as
+    the layer is drawing its way there: `settle`'s clock restarts at each frame the layer draws
+    (the felt tip's desk rests in about 57 frames, 5 s idle and 40 s at a load average of 45, #479),
+    and a pen that never lifts fails. `timeout` is kept for its callers."""
+    settle(page, also=f"({SETTLED})() && ({also})")
 
 
 @pytest.mark.browser
@@ -630,7 +599,7 @@ def test_an_idle_napkin_writes_nothing_draws_nothing_and_settled_in_bounded_fram
           return {{ stuck: {{ busy: l.busy, lanes: l.lanes, napkin: {NAPKIN},
                              marks: l.marks.filter(k => k.drawn !== 1).map(k => [k.selector, k.state, k.drawn]) }} }};
         }}""")
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
@@ -639,5 +608,5 @@ def test_an_idle_napkin_writes_nothing_draws_nothing_and_settled_in_bounded_fram
     bound = catch_up_frames(rec["marks"]) + math.ceil(0.7 * 60) + 2
     print(f"\n  the napkin settled in {rec['frames']} frames (bound {bound})")
     assert 3 <= rec["frames"] <= bound, (rec["frames"], bound)
-    assert count["n"] == 0, f"an idle napkin wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle napkin wrote to the page: {count}"
     assert count["renders"] == 0, f"an idle napkin was redrawn {count['renders']} times"

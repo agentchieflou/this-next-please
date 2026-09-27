@@ -24,7 +24,8 @@ from __future__ import annotations
 import pytest
 
 from desk_harness import close_pages
-from test_fleet_ink import (IDLE_LOOP, _desk_of, _open, _serve, _stop,  # noqa: F401
+from desk_waits import observe_quiet
+from test_fleet_ink import (_desk_of, _open, _serve, _stop,  # noqa: F401
                             fleet_home)
 
 
@@ -40,17 +41,13 @@ def test_a_skinned_desk_at_rest_writes_nothing(fleet_home, tmp_path, skin, desk_
         family = skin.split(":")[0]
         page.wait_for_function(f"""() => document.body.dataset.skin === '{family}'
           && !!document.head.querySelector('link[data-skin]').sheet""", timeout=15000)
-        count = page.evaluate(IDLE_LOOP)
-        # And with nothing asked of it at all, for longer than the retry's 150ms.
-        quiet = page.evaluate("""async () => { let n = 0;
-          const obs = new MutationObserver(rs => { n += rs.length; });
-          obs.observe(document.documentElement, { subtree: true, attributes: true, childList: true });
-          await new Promise(d => setTimeout(d, 700));
-          obs.disconnect();
-          return n; }""")
+        count = observe_quiet(page, passes=8)
+        # And with nothing asked of it at all: passes of the page's own work, each ended only once
+        # no short timer is pending -- so a retry that arms the next one (150ms) never ends it.
+        quiet = observe_quiet(page, passes=3, drive=False)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"{skin}: an idle desk wrote to the page: {count}"
-    assert quiet == 0, f"{skin}: {quiet} writes in 700ms with nothing happening"
+    assert count["mutations"] == 0, f"{skin}: an idle desk wrote to the page: {count}"
+    assert quiet["mutations"] == 0, f"{skin}: the page wrote with nothing happening: {quiet}"

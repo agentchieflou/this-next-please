@@ -30,6 +30,7 @@ from agentdata.fleet import approval, events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from desk_harness import close_pages
+from desk_waits import counted, observe_quiet
 from test_fleet import make_project
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -77,7 +78,7 @@ def _stop(server):
 
 
 def _page(browser, port, token, width, height=900):
-    page = browser.new_page(viewport={"width": width, "height": height})
+    page = counted(browser.new_page(viewport={"width": width, "height": height}))
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
@@ -238,51 +239,9 @@ def test_an_idle_desk_makes_no_mutation_at_all(fleet_home, tmp_path, desk_browse
             "() => document.getElementById('hiddencount').textContent === '1 hidden'",
             timeout=15000)
         page.wait_for_timeout(400)
-        count = page.evaluate("""async () => {
-          const real = window.fetch.bind(window);
-          const body = await (await real(q('/api/fleet'))).text();
-          window.fetch = function (url, opts) {
-            if (String(url).indexOf('/api/fleet') >= 0) {
-              return Promise.resolve(new Response(body, {
-                status: 200, headers: { 'Content-Type': 'application/json' } }));
-            }
-            return real(url, opts);
-          };
-          const pause = ms => new Promise(done => setTimeout(done, ms));
-          const frame = () => new Promise(done => requestAnimationFrame(() => done()));
-          // One pass of every path first: the replayed answer may carry an age that moved
-          // since the last live one, and a badge nobody has counted yet is written the first
-          // time it is -- both news. Everything after this pass is not.
-          await refresh();
-          place();
-          redrawAll();
-          bell();
-          await frame(); await frame(); await pause(200);
-
-          let n = 0;
-          const seen = [];
-          const obs = new MutationObserver(records => {
-            n += records.length;
-            records.slice(0, 5).forEach(r => seen.push(
-              r.type + ' ' + (r.attributeName || '') + ' ' +
-              (r.target.className || r.target.nodeName)));
-          });
-          obs.observe(document.documentElement, { subtree: true, childList: true,
-                                                  attributes: true, characterData: true });
-          for (let i = 0; i < 8; i++) {
-            await refresh();
-            place();
-            redrawAll();
-            bell();
-            await frame();
-            await pause(150);
-          }
-          obs.takeRecords().forEach(() => { n += 1; });
-          obs.disconnect();
-          return { n: n, seen: seen };
-        }""")
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
-        assert count["n"] == 0, f"an idle desk wrote to the page: {count}"
+        assert count["mutations"] == 0, f"an idle desk wrote to the page: {count}"
         close_pages(browser)
     finally:
         _stop(server)

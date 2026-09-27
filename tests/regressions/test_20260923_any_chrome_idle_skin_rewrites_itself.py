@@ -26,7 +26,8 @@ import pytest
 from agentdata.fleet import serve as S
 
 from desk_harness import close_pages
-from test_fleet_ink import (IDLE_LOOP, _open, _repos, _serve,  # noqa: F401 - fixtures
+from desk_waits import observe_quiet
+from test_fleet_ink import (_open, _repos, _serve,  # noqa: F401 - fixtures
                             _stop, fleet_home)
 
 
@@ -43,9 +44,9 @@ def test_an_idle_desk_with_a_skin_on_it_writes_nothing(fleet_home, tmp_path, ski
         page, errors, _ = _open(browser, port, token, count=True)
         page.wait_for_function(f"() => document.body.dataset.skin === '{skin.split(':')[0]}'",
                                timeout=15000)
-        count = page.evaluate(IDLE_LOOP)
+        count = observe_quiet(page, passes=8)
         assert not errors, errors
         close_pages(browser)
     finally:
         _stop(server)
-    assert count["n"] == 0, f"an idle desk with {skin} on it wrote to the page: {count}"
+    assert count["mutations"] == 0, f"an idle desk with {skin} on it wrote to the page: {count}"
