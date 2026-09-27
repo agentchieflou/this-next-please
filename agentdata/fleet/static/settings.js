@@ -69,6 +69,13 @@ function loadThemes() {
         option.title = (v.why || "") + "  ·  palette: " + v.base;
         group.appendChild(option);
       });
+      if (k.auto) {
+        var follow = document.createElement("option");
+        follow.value = k.name + ":auto";
+        text(follow, "Auto");
+        follow.title = "follows the system: " + k.auto.light + " when light, " + k.auto.dark + " when dark";
+        group.appendChild(follow);
+      }
       skinSel.appendChild(group);
     });
     skinSel.addEventListener("change", function () { choose(skinSel, { skin: skinSel.value }); });
@@ -76,10 +83,7 @@ function loadThemes() {
     if (themeNow) {
       reflectTheme(themeNow);
     } else if (data.current) {
-      if (data.current.css || data.current.theme === "none") {
-        applyTheme(data.current.css, data.current.theme);
-        applySkin(data.current.skin);
-      }
+      applyThemeState(data.current);
       reflectTheme(data.current);
     }
   }).catch(function () {});
@@ -103,6 +107,20 @@ function skinBase(full) {
   return base;
 }
 
+function autoFor(full) {
+  var parts = String(full || "").split(":"), out = null;
+  if (parts[1] !== "auto") return null;
+  ((themeData && themeData.skins) || []).forEach(function (k) {
+    if (k.name !== parts[0] || !k.auto) return;
+    out = {};
+    ["light", "dark"].forEach(function (side) {
+      var skin = k.name + ":" + k.auto[side], base = skinBase(skin);
+      out[side] = { variant: k.auto[side], skin: skin, theme: base, css: paletteCss(base) || {} };
+    });
+  });
+  return out;
+}
+
 function looksOn(data, name) {
   var looks = [];
   ((data && data.skins) || []).forEach(function (k) {
@@ -120,6 +138,7 @@ function looksLine(skin, palette) {
       (k.variants || []).forEach(function (v) {
         if (v.full === skin || (k.name === skin && v.name === k.default)) from = lookName(k, v);
       });
+      if (k.auto && skin === k.name + ":auto") from = (k.title || k.name) + " · Auto";
     });
     return "from " + from;
   }
@@ -140,6 +159,10 @@ function choose(select, body) {
       var keep = themeSel ? themeSel.value : "none";
       applySkin("none");
       reflectTheme({ theme: keep, skin: "none", css: paletteCss(keep) || {} });
+    } else if (autoFor(full)) {
+      var auto = autoFor(full), home = skinBase(full.split(":")[0]);
+      applyThemeState({ skin: full, auto: auto });
+      reflectTheme({ theme: home || auto.light.theme, skin: full, css: paletteCss(home) || {}, auto: auto });
     } else {
       var base = skinBase(full);
       var css = base ? paletteCss(base) : null;
@@ -162,8 +185,7 @@ function choose(select, body) {
     var heard = heardDuringWrite;
     heardDuringWrite = null;
     if (res && res.ok !== false) {
-      if (res.css || res.theme === "none") applyTheme(res.css, res.theme);
-      applySkin(res.skin);
+      applyThemeState(res);
       reflectTheme(res);
       problem(select, "");
       saidSaved();
@@ -184,8 +206,7 @@ function choose(select, body) {
 
 function putBack(was) {
   if (!was) return;
-  if (was.css || was.theme === "none") applyTheme(was.css, was.theme);
-  applySkin(was.skin);
+  applyThemeState(was);
   reflectTheme(was);
 }
 
@@ -595,8 +616,7 @@ function connectTheme() {
       try {
         var d = JSON.parse(m.data);
         if (pendingTheme) { heardDuringWrite = d; return; }
-        applyTheme(d.css, d.theme);
-        applySkin(d.skin);
+        applyThemeState(d);
         reflectTheme(d);
       } catch (e) {}
     });

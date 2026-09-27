@@ -1423,8 +1423,7 @@ function refresh() {
     if (data.desk) acceptDesk(data.desk);
     if (themeEvents !== themesAsked) delete data.theme;
     if (data.theme) {
-      applyTheme(data.theme.css, data.theme.theme);
-      applySkin(data.theme.skin);
+      applyThemeState(data.theme);
       applyTiers(data.theme.tiers);
     }
     if (typeof data.preflight === "boolean") PREFLIGHT = data.preflight;
@@ -1475,8 +1474,7 @@ function connect() {
     themeEvents++;
     try {
       var d = JSON.parse(m.data);
-      applyTheme(d.css, d.theme);
-      applySkin(d.skin);
+      applyThemeState(d);
       applyTiers(d.tiers);
       if (d.accents) {
         Object.keys(d.accents).forEach(function (repo) {

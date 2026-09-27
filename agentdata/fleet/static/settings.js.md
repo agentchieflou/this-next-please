@@ -81,6 +81,11 @@ its own, and a second picker offering it beside Farmstead would be offering a co
 that does not exist. Grouping them says the same thing the model does: pick a skin, and its
 ground comes with it. A skin with one variant lists as a single option.
 
+Above `if (k.auto) {`:
+
+"Auto" (#342), only on a skin with a light and a dark variant: the page then follows the system's
+appearance. Its tooltip names the two variants it switches between.
+
 Above `if (themeNow) {`:
 
 What is chosen, now that there is something to choose from. `themeNow` is whatever the
@@ -104,6 +109,14 @@ the last word on what this page is wearing, from either path
 Beside `var themeData = null;`:
 
 the `/api/themes` answer: every palette's css, every skin's base
+
+### `function autoFor`
+
+Above `function autoFor(full) {`:
+
+The two sides of `<skin>:auto` from the `/api/themes` answer, shaped as `theme_state`'s `auto`, so
+`choose` paints an Auto pick at once through `applyThemeState` as it paints a fixed one; `null`
+for anything that is not an auto pick of a skin with a pair.
 
 ### `function looksOn`
 
@@ -133,6 +146,11 @@ and says why on the control.
 Above `var keep = themeSel ? themeSel.value : "none";`:
 
 The palette stays the one the skin brought: the server keeps it as the default.
+
+Above `var auto = autoFor(full), home = skinBase(full.split(":")[0]);`:
+
+An Auto pick paints the side the system is on; the palette picker shows the default variant's
+palette, the one the server saves for the terminal.
 
 Beside `if (pendingTheme !== write) return;`:
 
