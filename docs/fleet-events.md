@@ -351,6 +351,15 @@ refusal, `why` at most 200 characters, scrubbed).
 {"schema": 1, "seq": 31, "ts": "2026-01-04T09:47:30", "repo": "luna", "ticket": "RDSD-118", "kind": "mobile.rejected", "data": {"nonce": "c0d3e6f91b2a4d6c8e0f1a3b5c7d9e1f", "kind": "decision", "code": "mobile_digest_mismatch", "why": "the decision names a different request (digest mismatch)"}}
 ```
 
+**`mobile.reply`** — the bridge (#548) applied a reply the phone dropped into `inbox/`, exactly as the desk's
+answer, say and send: typed into the console the fleet opened (`via: say`) or sent as a headless resume (`via: send`).
+No state changes: the agent's own turn (or `said`) follows. Carries `nonce, by, via, answered, words` (`answered` is
+the question ids an `answers` reply carried, `words` the word count of the text); never the text itself.
+
+```json
+{"schema": 1, "seq": 32, "ts": "2026-01-04T09:52:10", "repo": "luna", "ticket": "", "kind": "mobile.reply", "data": {"nonce": "5b7d9f1a3c5e4d6f8a0b2c4d6e8f0a1b", "by": "mobile:operator@example.com", "via": "send", "answered": ["q1", "q2"], "words": 31}}
+```
+
 ## The state a tile shows
 
 `agentstate.derive()` folds the stream into one answer. Deterministic, in this order — the first
