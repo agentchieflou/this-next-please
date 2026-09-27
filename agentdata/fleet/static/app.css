@@ -1183,3 +1183,16 @@ body.settings-page .patterns li {
 }
 body.settings-page .patterns code { font: 11px var(--mono); color: var(--text); }
 body.settings-page .patterns .from { font-size: 11px; color: var(--muted); }
+
+@media (max-width: 640px) {
+  body.settings-page main.settings { width: 100%; min-width: 0; box-sizing: border-box; }
+  body.settings-page .why { overflow-wrap: anywhere; }
+  body.settings-page .setrow { flex-wrap: wrap; }
+  body.settings-page .setrow > label, body.settings-page .setrow > .setlabel { flex: 1 1 100%; }
+  body.settings-page .setrow input, body.settings-page .setrow select { min-width: 0; width: 100%; }
+  body.settings-page .why.inline { flex: 1 1 100%; }
+  body.settings-page .twocol > div { min-width: 0; flex: 1 1 100%; }
+  body.settings-page .settable { display: block; max-width: 100%; overflow-x: auto; }
+  body.settings-page .settable input { width: 100%; }
+  body.settings-page #modeltable th { white-space: normal; }
+}

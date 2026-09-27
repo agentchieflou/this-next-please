@@ -261,6 +261,11 @@ def test_redraws_of_one_graph_touch_nothing_and_keep_what_the_operator_opened(
         _stop(server)
 
 
+# Every tree row's height on the glass, in whole px.
+SAY_HEIGHTS = """() => [...document.querySelectorAll('#maptree .say')].filter(s => s.offsetParent)
+  .map(s => Math.round(s.getBoundingClientRect().height))"""
+
+
 @pytest.mark.browser
 def test_ink_off_draws_no_canvas_and_a_narrow_scene_stacks_the_tree_over_the_stage(
         browser, fleet_home, tmp_path):
@@ -270,6 +275,7 @@ def test_ink_off_draws_no_canvas_and_a_narrow_scene_stacks_the_tree_over_the_sta
         page, errors = _open(browser, port, token, "&ink=off")
         assert page.evaluate("() => document.querySelectorAll('canvas').length") == 0
         assert page.evaluate("() => document.body.classList.contains('ink-off')")
+        mouse = page.evaluate(SAY_HEIGHTS)
         page.close()
 
         page, errors = _open(browser, port, token, viewport=(480, 800))
@@ -285,7 +291,36 @@ def test_ink_off_draws_no_canvas_and_a_narrow_scene_stacks_the_tree_over_the_sta
         assert box["nav"] >= box["cw"] - 1, box
         assert box["stage"] >= 240, box
         assert box["inkOff"], box
+        assert mouse and set(mouse) == {21}, f"a mouse's tree is 21 px rows at 1400 px: {mouse}"
         assert not errors, errors
         page.close()
+
+        # A finger (#578): 44 px rows, and a tap on a checkout opens it on the desk as Enter does,
+        # while a tap on a project, or on a checkout's twisty, still folds it.
+        phone = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        page = phone.new_page()
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/map?t={token}&w=side", wait_until="domcontentloaded")
+        page.wait_for_function(READY, timeout=15000)
+        rows = page.evaluate(SAY_HEIGHTS)
+        wide = page.evaluate("() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]")
+        assert rows and min(rows) >= 44, f"under a finger every row is 44 px: {rows}"
+        assert wide[0] == wide[1], wide
+        project = '#maptree [data-node="p:uat"]'
+        assert page.get_attribute(project, "aria-expanded") == "true"
+        page.tap(project + " > .say")
+        page.wait_for_function(f"() => document.querySelector('{project}').getAttribute('aria-expanded') === 'false'",
+                               timeout=5000)
+        assert "/map" in page.url, "a tap on a project opened something"
+        checkout = '#maptree [data-node="c:luna"]'
+        page.tap(checkout + " > .say", position={"x": 14, "y": 22})
+        page.wait_for_function(f"() => document.querySelector('{checkout}').getAttribute('aria-expanded') === 'false'",
+                               timeout=5000)
+        assert "/map" in page.url, "a tap on the twisty opened the checkout"
+        page.tap(checkout + " > .say")
+        page.wait_for_url(lambda u: "/map" not in u and "w=side" in u, timeout=15000)
+        assert S.desk_state()["windows"]["side"]["open"] == "luna"
+        assert not errors, errors
+        phone.close()
     finally:
         _stop(server)

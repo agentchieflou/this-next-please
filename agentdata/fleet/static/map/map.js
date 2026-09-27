@@ -193,13 +193,24 @@ mapTree.addEventListener("keydown", function (e) {
   if (handled) e.preventDefault();
 });
 
+function mapOnTwisty(say, e) {
+  var before = getComputedStyle(say, "::before");
+  if (before.content === "none" || before.content === "normal") return false;
+  var left = say.getBoundingClientRect().left + parseFloat(getComputedStyle(say).paddingLeft || "0");
+  return e.clientX < left + parseFloat(before.width || "0");
+}
+
 mapTree.addEventListener("click", function (e) {
   var li = /** @type {HTMLElement} */ (e.target).closest('[role="treeitem"]');
   if (!li) return;
-  if (/** @type {HTMLElement} */ (e.target).closest(".say") && li.hasAttribute("aria-expanded")) {
+  var say = /** @type {HTMLElement} */ (e.target).closest(".say");
+  var opens = !!say && /^[ca]:/.test(li.dataset.node || "") && e.button === 0 &&
+    !(e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && !mapOnTwisty(say, e);
+  if (say && !opens && li.hasAttribute("aria-expanded")) {
     mapExpand(li, li.getAttribute("aria-expanded") === "false");
   }
   mapGo(li);
+  if (opens) mapOpen(li);
 });
 
 var mapState = { graph: null, paused: false, cursor: null, frames: 0, live: "", themes: 0,
