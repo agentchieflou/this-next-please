@@ -607,6 +607,23 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path):
             # pane is sent none and its strip is each side's own `--focus`.
             focus = {side: _rgb(css["--focus"]) for side, css in _auto_sides("notebook").items()}
             desk.wait_for_function(STRIP_IS, arg=["", focus["dark"]], timeout=10000)
+            # #610: a live switch repaints the strip from the `theme` frame alone. notebook:light sends
+            # its palette's mark, which a fleet read paints; back on notebook:auto the answer is none,
+            # so the strip is the dark side's `--focus` before the desk reads `/api/fleet` again.
+            (tmp_path / "cfg.json").write_text(
+                json.dumps({"theme": {"default": "eye-relief-day", "skin": "notebook:light"}}), encoding="utf-8")
+            mark = _rgb(S.fleet_snapshot()["repos"][0]["accent"])
+            desk.wait_for_function("""(m) => document.body.dataset.skinVariant === 'light'
+                && (document.querySelector('#grid .tile').style.borderLeftColor === m || (refresh(), false))""",
+                                   arg=mark, timeout=15000, polling=250)
+            fleet_reads = []
+            desk.on("request", lambda r: fleet_reads.append(r.url) if "/api/fleet?" in r.url else None)
+            (tmp_path / "cfg.json").write_text(
+                json.dumps({"theme": {"default": "eye-relief-day", "skin": "notebook:auto"}}), encoding="utf-8")
+            desk.wait_for_function(AUTO_WORN, arg=["dark", sides["dark"]], timeout=15000)
+            strip = desk.evaluate("""() => { const t = document.querySelector('#grid .tile');
+                return [t.style.borderLeftColor, getComputedStyle(t).borderLeftColor]; }""")
+            assert (strip, fleet_reads) == (["", focus["dark"]], []), f"the strip after a live switch: {strip}"
             desk.emulate_media(color_scheme="light")
             desk.wait_for_function(AUTO_WORN, arg=["light", sides["light"]], timeout=10000)
             desk.wait_for_function(STRIP_IS, arg=["", focus["light"]], timeout=10000)
