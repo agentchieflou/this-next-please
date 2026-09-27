@@ -182,4 +182,25 @@ def _sampler():
 
 
 def pytest_sessionstart(session):
+    try:
+        _wrap_refuse()
+    except Exception:                               # noqa: BLE001 - a probe never fails the run
+        pass
     threading.Thread(target=_sampler, daemon=True, name="probe603-sampler").start()
+
+
+# ------------------------------------------------------------------ every 5xx the desk answers, with why
+def _wrap_refuse():
+    from agentdata.fleet import serve as S
+
+    real = S.Handler._refuse
+
+    def _refuse(self, code, msg, *args, **kwargs):
+        if int(code) >= 500:
+            with open(OUT + ".5xx", "a", encoding="utf-8") as f:
+                f.write(json.dumps({"t": round(time.time() - START, 2), "id": CURRENT["id"], "code": code,
+                                    "path": getattr(self, "path", "")[:80], "msg": str(msg)[:400]}) + "\n")
+        return real(self, code, msg, *args, **kwargs)
+
+    S.Handler._refuse = _refuse
+
