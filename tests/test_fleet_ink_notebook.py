@@ -232,10 +232,18 @@ def _read_through_the_highlighter(page, repo, full, plain=False):
         settled = f"() => ({AT_REST})() && ({took})()"
     for _ in range(5):
         # The question is written in the palette's `--text`: once it is, the page has its palette.
-        page.wait_for_function(f"([c, repo, rgb]) => ({CHOSEN})(c) && ({settled})()"
+        try:
+          page.wait_for_function(f"([c, repo, rgb]) => ({CHOSEN})(c) && ({settled})()"
                                f" && ({READ_TARGETS})(repo)[1].colour === rgb",
                                arg=[chosen, repo, "rgb(%d, %d, %d)" % tuple(round(v * 255) for v in theme.hex_to_rgb(chosen[1]))],
                                timeout=30000)
+        except Exception:
+          st = page.evaluate("""([repo]) => { const l = document.querySelector('link[data-skin]');
+            return { table: Ink.inspect().table, plain: Ink.inspect().plain, skin: document.body.dataset.skin, variant: document.body.dataset.skinVariant,
+              href: l && l.href, sheet: !!(l && l.sheet), links: [...document.querySelectorAll('link[data-skin]')].map(x => [x.href.split('?')[0], !!x.sheet]),
+              text: getComputedStyle(document.documentElement).getPropertyValue('--text').trim(),
+              q: getComputedStyle(document.querySelector(`.tile[data-repo="${repo}"] .asks:not([hidden]) .ask:not([hidden]) .ask-q`)).color }; }""", [repo])
+          raise AssertionError(("PROBE", full, plain, chosen, st))
         targets = page.evaluate(READ_TARGETS, repo)
         page.evaluate("css => { const s = document.createElement('style'); s.id = 'no-text'; s.textContent = css;"
                       " document.head.appendChild(s); }", NO_TEXT)
