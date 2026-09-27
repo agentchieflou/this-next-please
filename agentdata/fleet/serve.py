@@ -162,6 +162,7 @@ def ink_skins() -> list[str]:
 # forwarded port, a phone on the LAN, a remote desktop -- and for the budget below meaning what it
 # says: the number that matters is what goes over the wire, not what sits on the disk.
 GZIP_FROM = 1024
+JSON_GZIP_FROM = 8 * 1024
 _GZIPPED: dict[tuple, bytes] = {}
 _GZIP_LOCK = threading.Lock()
 
@@ -3136,8 +3137,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _json(self, payload: dict, code: int = 200) -> None:
-        self._send(code, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+    def _json(self, payload: dict, code: int = 200, *, gzip_ok: bool = False) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        extra = None
+        # #579: `/api/fleet` and `/api/desk` are the page's polls, about 74 KB for six agents. Over a
+        # tunnel or a phone on the LAN that is the dominant cost, so they are gzipped when the client
+        # asks and the body is over JSON_GZIP_FROM. Never cached: the body changes every call. A
+        # loopback client that does not ask takes the path it always took.
+        if gzip_ok and len(body) > JSON_GZIP_FROM and \
+                "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
+            body = gzip.compress(body, 6)
+            extra = {"Content-Encoding": "gzip", "Vary": "Accept-Encoding"}
+        self._send(code, body, "application/json; charset=utf-8", extra)
 
     def _refuse(self, code: int, error: str, hint: str = "", refusal_code: str = "",
                 second_press: bool = False) -> None:
@@ -3213,7 +3224,7 @@ class Handler(BaseHTTPRequestHandler):
         if route in PAGES:
             return self._page(PAGES[route], query)
         if route == "/api/fleet":
-            return self._json({"ok": True, **fleet_snapshot()})
+            return self._json({"ok": True, **fleet_snapshot()}, gzip_ok=True)
         if route == "/api/attention":
             # The phone's view of the fleet (#559): the bridge's allow-listed rows, never `/api/fleet`'s.
             return self._json(attention_answer())
@@ -3374,7 +3385,7 @@ class Handler(BaseHTTPRequestHandler):
                                "toast": N.toast_status(C.load()),
                                "settings": N.settings(C.load())})
         if route == "/api/desk":
-            return self._json({"ok": True, **desk_snapshot()})
+            return self._json({"ok": True, **desk_snapshot()}, gzip_ok=True)
         if route == "/api/show":
             project = (query.get("project") or [""])[0]
             try:
