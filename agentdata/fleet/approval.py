@@ -264,11 +264,13 @@ class ApprovalError(Exception):
         self.code = code
 
 
-def decide(id: str, state: str, *, reason: str = "", by: str = "", digest: str = "", via: str = "laptop") -> dict:
+def decide(id: str, state: str, *, reason: str = "", by: str = "", digest: str = "", via: str = "laptop",
+           nonce: str = "", late: bool = False) -> dict:
     """Answer one request. Idempotent-ish: a second answer is refused rather than silently ignored.
 
     `digest`, when given, must be the request's own (a decision made elsewhere names what it answers);
     laptop callers pass none. The decision file carries the request's digest and `via` either way.
+    `nonce` and `late` are the phone's (#547): given a nonce, the file carries both, as the outbox mirror reads them.
     """
     if state not in (APPROVED, DENIED):
         raise ApprovalError(f"{state!r} is not a decision", f"one of {APPROVED} | {DENIED}", code="bad_state")
@@ -294,6 +296,8 @@ def decide(id: str, state: str, *, reason: str = "", by: str = "", digest: str =
 
     decision = {"id": id, "decision": state, "reason": reason, "by": by or _who(), "via": via,
                 "decided": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "digest": on_disk}
+    if nonce:
+        decision.update(nonce=nonce, late=bool(late))
     os.makedirs(approvals_dir(), exist_ok=True)
     textio.write_json(_decision_path(id), decision)
     _prune()
