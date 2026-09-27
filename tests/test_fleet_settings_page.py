@@ -601,8 +601,13 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path):
             desk.wait_for_function("""() => document.querySelectorAll('#grid .tile.is-solo').length === 1
                 && !!window.Ink && !document.body.classList.contains('is-stale')""", timeout=15000)
             assert desk.evaluate("() => window.__atLoad") == ["dark", sides["dark"]]
+            # #342 with #339: the default variant's pane mark does not read on the dark side, so the
+            # pane is sent none and its strip is each side's own `--focus`.
+            focus = {side: _rgb(css["--focus"]) for side, css in _auto_sides("notebook").items()}
+            desk.wait_for_function(STRIP_IS, arg=["", focus["dark"]], timeout=10000)
             desk.emulate_media(color_scheme="light")
             desk.wait_for_function(AUTO_WORN, arg=["light", sides["light"]], timeout=10000)
+            desk.wait_for_function(STRIP_IS, arg=["", focus["light"]], timeout=10000)
             desk.emulate_media(color_scheme="dark")
             desk.wait_for_function(AUTO_WORN, arg=["dark", sides["dark"]], timeout=10000)
             # A variant switch redraws the paper's traces, at the notebook's pace; the ink idle
@@ -622,6 +627,17 @@ def test_a_palette_set_elsewhere_repaints_this_page(fleet_home, tmp_path):
 #: The auto skin is worn on this side: the variant attribute and the side's own `--bg`.
 AUTO_WORN = """([side, bg]) => document.body.dataset.skinVariant === side
     && getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === bg"""
+
+
+#: The first pane's strip: its inline colour and its computed one.
+STRIP_IS = """([inline, computed]) => { const t = document.querySelector('#grid .tile');
+    return t.style.borderLeftColor === inline && getComputedStyle(t).borderLeftColor === computed; }"""
+
+
+def _rgb(hex_colour):
+    """`#RRGGBB` as `getComputedStyle` writes it."""
+    h = hex_colour.lstrip("#")
+    return "rgb({}, {}, {})".format(*(int(h[i:i + 2], 16) for i in (0, 2, 4)))
 
 
 def _auto_sides(family):
