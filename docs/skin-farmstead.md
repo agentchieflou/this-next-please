@@ -113,13 +113,15 @@ does not count as growth. Under reduced motion the stage is simply there.
 ## The state grammar
 
 Every row comes from a class `app.js` already sets. The mark is the layer's, from the table, drawn in ink here and as
-plain CSS under `body.ink-off`. The material is the skin's own response.
+plain CSS under `body.ink-off`. The material is the skin's own response. The marks are the state grammar every skin
+draws ([desk-ink.md](desk-ink.md) §The state grammar across skins, #334); the crops and the scorched frame are added,
+never instead of a mark.
 
 | State | The page's signal | Mark (tool, shape) | Material | Plain (`body.ink-off`) |
 | --- | --- | --- | --- | --- |
-| needs you | `.tile.needs-human` | highlighter, `lines` on the name (`.head .repo`) | the crop wilts | a tinted name, and the stylesheet's wilted chip glyph |
+| needs you | `.tile.needs-human` | highlighter, `lines` on the name (`.head .repo`) and on the open question (`.asks:not([hidden]) .ask:not([hidden]) .ask-q`); pencil, `loop` round each choice not yet picked (#334) | the crop wilts | a tinted name and question, outlined choices, and the stylesheet's wilted chip glyph |
 | running | `.tile.state-running` | pen, `underline` under the name | a sprout grows | an underlined name, the sprout glyph |
-| error | `.tile.state-error` | marker, `loop` inside the pane (pad -7; round the head it crossed the chip row, #332) | the crop wilts, and the frame is scorched (its boards darkened, with an ember of `--human`) | a 2px outline round the pane |
+| error | `.tile.state-error` | marker, `loop` inside the pane (pad -7; round the head it crossed the chip row, #332); red, `bang` in the pane's margin (#334) | the crop wilts, and the frame is scorched (its boards darkened, with an ember of `--human`) | a 2px outline round the pane, and a bar in its margin |
 | done | `.tile:is(.state-done, .is-done)` | green, `check` in the pane's margin (#330) | the crop grows into a bloom | a bar in the pane's margin (the chip's own glyph says what the chip says) |
 | stale (#240) | `.tile .oldsession:not([hidden])` | pencil, dashed `outline` round the *old skills* tag | — | a 1px outline |
 | answered | `.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]` | pen, `loop` round the chosen answer | — | a 2px outline |

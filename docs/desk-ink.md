@@ -181,15 +181,17 @@ from scratch got 26px; one restyled in place kept 10px). Ink off keeps the 10px 
 its border box inset 1px (#331), so a row that pads outward is cut away rather than drawn in the gutter:
 
 * An `outline` or `loop` round the pane has a pad of 0 or less, so the stroke and half its width are on the pane:
-  an idle outline -5 (the napkin, the legal pad), an error loop -7 (napkin, legal pad, notebook, farmstead), the
+  an idle outline -5 (the napkin, the legal pad), an error loop -7 (napkin, legal pad, notebook, farmstead, glass,
+  voxel), the
   stale outline round a pane -8 (napkin, notebook). A test reads every skin's table for it.
 * A mark round something in the head is round that thing, never round the head: farmstead's error loop is round
   the pane, and a stale outline round `.oldsession` is on the note's own box (pad 0).
 * A compact pane's head wraps the name onto a line of its own, 2px over the number and the chip. A skin that
   underlines the name gives that head room in its sheet (`row-gap: 8px`, layout, keyed
-  `body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier="compact"] .head`): voxel, farmstead and the legal pad.
-  Glass underlines the chip, not the name, and draws no stale outline: round the note it still ran over the chip's
-  age at 700px, and the note's own words say it.
+  `body[data-skin="<skin>"]:not(.ink-off) .tile[data-tier="compact"] .head`): voxel, farmstead, the legal pad
+  and glass.
+  Glass draws no stale outline: round the note it still ran over the chip's age at 700px, and the note's own words
+  say it. Since #334 it underlines the name, as every skin does, and gives the compact head the same room.
 
 `tests/test_fleet_ink_bounds.py` holds one look per module at 1400px and 700px, with a blocking question, a running
 turn, an error and a stale done: no stroke more than 2px outside its pane, none outside the viewport, none cut away
@@ -241,6 +243,44 @@ the lit pencil back. Anything else is refused, naming `hand`. A new table's hand
 **A palette colours the inks, and a skin chooses the paper.** Colours are read from the page's custom properties at
 paint time, on `body`, so a skin can override `--ink-pen` and a palette change repaints them. They are never carried
 in the script ([desk-rendering.md](desk-rendering.md) rule 1).
+
+## The state grammar across skins
+
+A state is drawn with the same marks on the same elements in every skin (#334; HIG *Color*: one sign never means two
+things). Each module's table must carry these rows. A skin may add material responses (glass's rims, voxel's stacks,
+farmstead's crops) and extra marks, never instead of a required row. The test holds it as data:
+`GRAMMAR` in `tests/test_fleet_ink.py`, which is this table, row for row
+(`test_the_state_grammar_in_desk_ink_is_the_one_the_skins_are_held_to`).
+
+| Entry | State | Element | Tools | Shapes |
+| --- | --- | --- | --- | --- |
+| `needs_name` | needs you: the name | `.tile.needs-human .head .repo` | `highlighter` | `lines` |
+| `needs_q` | needs you: the open question | `.tile.needs-human .ask:not([hidden]) .ask-q` | `highlighter` | `lines` |
+| `answered` | the choice picked | `.ask-choice[aria-pressed=true]` | `pen` | `loop`, `ellipse` |
+| `running` | running: the name | `.tile.state-running .head .repo` | `pen` | `underline` |
+| `error_bang` | error: the margin | `.tile.state-error` | `red`, `marker` | `bang` |
+| `error_box` | error: the pane, or its why | `.tile.state-error`, `.tile.state-error .why` | `marker` | `loop`, `outline` |
+| `done` | done | `.tile.is-done` | `green` | `check` |
+
+The element decides, not the selector string. `test_a_skin_is_a_module_the_page_loads_when_it_is_chosen` imports
+every `static/ink/skins/*.js` but `example.js` (so a new skin is held to it the day it lands), calls `marks(variant)`
+(and `options(variant)` where it is a function) for every variant skins.py gives it, and clones the page's `#tile`
+template into detached panes, one per state, set the way `app.js` sets them (classes, attributes, `hidden`, never
+markup). An entry passes when some row with one of its tools and shapes matches the entry's element
+(`E.matches(row.selector)`). A module missing a row fails, naming the skin, the variant and the entry.
+
+Where the skins stand after #334:
+
+| | notebook, legal pad, napkin, graph | glass | farmstead | voxel |
+| --- | --- | --- | --- | --- |
+| running | pen underline on the name | the same (it was the chip) | the same | the same (it had none) |
+| needs you | highlighter on the name and the question | the same | the same (it had the name only), and the choices looped in pencil | the same (it was a marker underline) |
+| error | marker (graph: ruled outline) round the pane, and a bang | a marker loop round the pane (#335 narrows it to `.why`), and a bang | a marker loop round the pane, and a red bang (it had no bang) | a marker loop round the pane (it had the bang only), and a red bang |
+| answered | pen ellipse | pen loop | pen loop | pen loop (it was green, done's ink) |
+
+Which of these states is the loudest is #335's; a mark's geometry is #330-#332's. A colour is the world's: voxel
+Nether's needs-you and error chips, and its error marks, are its palette's yellow `--human`, while its
+pane accent is red ([themes.md](themes.md); the accent is #339).
 
 ## Writing a skin
 

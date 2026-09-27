@@ -35,6 +35,13 @@ Above `--scroll-thumb: #3A3D40;`:
 
 The scrollbar (#181): stone, as the tokens app.css draws every thumb with.
 
+Above `--ink-highlighter: #BF9637;`:
+
+The state grammar's highlighter and pen (#334), one pair per world: the highlighter each world's
+name and open question are read through, at 4.5:1 on its slab (`theme.highlight_under`), and the
+pen its running name and answered choice are drawn in, at 3:1. skins.py's `inks` carries the same
+literals, and `tests/test_fleet_voxel_ink.py` holds the two together.
+
 ### `body[data-skin="voxel"][data-skin-variant="nether"]`
 
 Above `body[data-skin="voxel"][data-skin-variant="nether"] {`:

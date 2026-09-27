@@ -6,6 +6,8 @@ body[data-skin="voxel"] {
   --voxel-band-ink-soft: #B8C4B8;
   --scroll-thumb: #3A3D40;
   --scroll-thumb-hover: #4A4E52;
+  --ink-highlighter: #BF9637;
+  --ink-pen: #5EF0FF;
 }
 
 body[data-skin="voxel"][data-skin-variant="nether"] {
@@ -14,6 +16,8 @@ body[data-skin="voxel"][data-skin-variant="nether"] {
   --voxel-edge: #1A0907;
   --voxel-band-ink: #FFEFEA;
   --voxel-band-ink-soft: #E0B3AA;
+  --ink-highlighter: #FFA657;
+  --ink-pen: #79C0FF;
 }
 
 body[data-skin="voxel"][data-skin-variant="end"] {
@@ -22,6 +26,8 @@ body[data-skin="voxel"][data-skin-variant="end"] {
   --voxel-edge: #0B0810;
   --voxel-band-ink: #F3EEDC;
   --voxel-band-ink-soft: #C6BFA6;
+  --ink-highlighter: #D29922;
+  --ink-pen: #58A6FF;
 }
 
 body[data-skin="voxel"]:not(.ink-off) .tile { border-left-color: transparent !important; }

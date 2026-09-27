@@ -62,13 +62,18 @@ attribute `app.js` already sets. The skin adds no state class and never writes t
 
 | State | The page says | Voxel response | Mark (tool, shape) |
 | --- | --- | --- | --- |
-| needs you | `.tile.needs-human` | the top block rises 5px out of its socket | `.tile.needs-human .head .repo`: marker, underline |
-| running | `.tile.state-running` | two blocks; the top one turns a quarter every 3s | none: the turning block is the running pen |
-| error | `.tile.state-error` | the top block cracks into two halves, knocked off square | `.tile.state-error`: red, bang in the pane's margin (#330) |
+| needs you | `.tile.needs-human` | the top block rises 5px out of its socket | `.tile.needs-human .head .repo`: highlighter, lines; and each open question, `.tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q`: highlighter, lines (#334) |
+| running | `.tile.state-running` | two blocks; the top one turns a quarter every 3s | `.tile.state-running .head .repo`: pen, underline (#334) |
+| error | `.tile.state-error` | the top block cracks into two halves, knocked off square | `.tile.state-error`: marker, loop round the pane (pad -7, #334); and red, bang in the pane's margin (#330) |
 | done | `:is(.state-done, .is-done)`: the chip's word, or the fold's for a finished agent nothing supervises, whose chip says idle (#253, #333) | the stack is set full, three blocks, flush | `.tile:is(.state-done, .is-done)`: green, check in the pane's margin (#330) |
 | stale (#240) | `.oldsession` not `hidden` | a pebble on top of the stack | `.tile .oldsession:not([hidden])`: pencil, dashed outline |
-| answered | the choice's `aria-pressed="true"` in the question card | the risen block settles as `needs-human` goes | `.tile .ask-choice[aria-pressed="true"]`: green, loop |
+| answered | the choice's `aria-pressed="true"` in the question card | the risen block settles as `needs-human` goes | `.tile .ask-choice[aria-pressed="true"]`: pen, loop (#334; green is done's) |
 | finding | a transcript line `li.friction` or `li.denied` | an ore fleck in the bottom block | `.tile .transcript li.friction .v, .tile .transcript li.denied .v`: red, underline |
+
+These are the state grammar every skin draws ([desk-ink.md](desk-ink.md) §The state grammar across
+skins, #334); the blocks are the material voxel adds, never instead of a row. The highlighter and
+the pen are each world's own (`--ink-highlighter`, `--ink-pen` in skin.css, `inks` in skins.py):
+the name keeps 4.5:1 through the highlighter on the slab, and the pen is the world's running blue.
 
 An error is a state that needs you (`agentstate.needs_the_human`), so its cracked block also rises.
 Every other state (idle, starting, waiting for approval, blocked) is a stack in its colour and nothing
@@ -93,12 +98,16 @@ surfaces are custom properties set in `skin.css` for each world and read through
 | `--voxel-ground` | `#5A3D28` | `#6B2A22` | `#2A2136` |
 | `--voxel-panel` | `#1E221E` | `#2A1512` | `#16121C` |
 | `--voxel-edge` | `#111111` | `#1A0907` | `#0B0810` |
+| `--ink-highlighter` | `#BF9637` | `#FFA657` | `#D29922` |
+| `--ink-pen` | `#5EF0FF` | `#79C0FF` | `#58A6FF` |
 
 `--voxel-panel` is the variant's `composited_panel` in `skins.py`. It is exactly what the slab puts
 behind the text, because a face square to the light is drawn in its own colour, and passed through as
 sRGB. So the pair `theme.check` measures is the pair drawn. The inks the table uses (marker and red
 `--human`, green `--done`, pencil `--muted`) are declared per variant as `inks` in `skins.py`, and each
-must reach 3:1 on the panel.
+must reach 3:1 on the panel. The highlighter and the pen (#334) are the world's own literals, the same in
+`skins.py` and `skin.css`: the pen reaches 3:1, and the text keeps 4.5:1 through the highlighter as the
+layer screens it onto the slab (`theme.highlight_under`) and through the plain fallback's 38% tint.
 
 ## Tests
 

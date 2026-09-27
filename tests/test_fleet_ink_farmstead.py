@@ -192,7 +192,7 @@ def test_the_mark_table_names_only_what_the_page_already_sets():
     app = _read(os.path.join(STATIC, "app.js"))
     html = _read(os.path.join(STATIC, "index.html"))
     selectors = re.findall(r'selector: "((?:[^"\\]|\\.)*)"', _read(MODULE))
-    assert len(selectors) == 7, selectors
+    assert len(selectors) == 10, selectors
     for sel in selectors:
         for cls in re.findall(r"\.([\w-]+)", sel):
             if cls.startswith("state-"):
@@ -865,6 +865,9 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
         return [m for m in snapshot["marks"] if m["lane"] == "pane:" + lane and m["selector"] == selector
                 and not m["strikeOf"] and m["state"] == "drawn"]
     assert live(on, "beta", ".tile.needs-human .head .repo")[0]["tool"] == "highlighter"
+    assert live(on, "beta", ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q")[0]["tool"] == "highlighter"
+    assert live(on, "alpha", ".tile.state-error")[-1]["shape"] in ("loop", "bang")
+    assert {m["shape"] for m in live(on, "alpha", ".tile.state-error")} == {"loop", "bang"}
     assert live(on, "beta", '.tile .asks:not([hidden]) .ask-choice[aria-pressed="true"]')[0]["shape"] == "loop"
     assert live(on, "beta", ".tile .transcript li.friction")[0]["tool"] == "red"
     assert live(on, "alpha", ".tile.state-error")[0]["tool"] == "marker"
@@ -882,6 +885,9 @@ def test_each_state_draws_its_mark_or_material_and_takes_it_away(fleet_home, tmp
         if m["strikeOf"] or "oldsession" in m["selector"] or "friction" in m["selector"]:
             continue
         if m["selector"] == ".tile.state-running .head .repo" and m in done["marks"]:
+            continue
+        if m["tool"] == "pencil":   # the open choices' loops (#334): pencil leaves by being erased
+            assert m["id"] not in {o["id"] for o in off["marks"]}, f"{m['selector']} in {m['lane']} kept"
             continue
         assert m["id"] in struck, f"{m['selector']} in {m['lane']} left without being struck"
     for repo in ("alpha", "beta", "gamma"):

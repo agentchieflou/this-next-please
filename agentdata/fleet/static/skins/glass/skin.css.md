@@ -102,6 +102,14 @@ off the pane number and the name. Keyed on the body's skin and not ink-off, as t
 its 34px: a rule keyed on the ink canvas (`body:has(> #ink[data-skin])`) was left unapplied to the
 panes by Chromium 153 after the layer set `data-skin`. Ink off keeps app.css's 10px.
 
+### `body[data-skin="glass"]:not(.ink-off) .tile[data-tier="compact"] .head`
+
+Above `body[data-skin="glass"]:not(.ink-off) .tile[data-tier="compact"] .head { row-gap: 8px; }`:
+
+The running pen under the name (#334; it was under the chip): a compact pane's head wraps the
+name onto a line of its own, and the line 2px below its foot needs more than app.css's 2px before
+the number and the chip on the next line (#332, as farmstead, voxel and the legal pad).
+
 ### `body[data-skin="glass"]:not(.ink-off) header`
 
 Above `body[data-skin="glass"]:not(.ink-off) header { will-change: transform; }`:
