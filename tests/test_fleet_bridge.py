@@ -855,3 +855,248 @@ def test_a_move_that_fails_is_retried_on_the_next_tick_and_the_decision_is_appli
     assert _inbox_names(cfg) == [] and os.path.isfile(os.path.join(_folder(cfg), "processed", name))
     assert bridge.read_state()["processed"][record["nonce"]]["moved"] is True
     assert _result(cfg, record["nonce"])["result"] == "applied" and len(_events("luna", "mobile.decision")) == 1
+
+
+# ----------------------------------------------------------------------------------- Applier: replies
+#
+# A reply is the desk's `act("answer" | "say" | "send")`, verbatim. The real supervisor runs against a fake launcher
+# (the `spawns` fixture of `test_fleet_desk_switcher.py`) and the fake console helper (`tests/fakes/say_helper.py`):
+# what is asserted is the argv that would have run, and the line the helper was handed. No process, no console.
+
+import sys
+
+from agentdata.fleet import lifecycle, supervisor
+
+from test_fleet_desk_switcher import spawns                  # noqa: F401 - a fixture, used by name
+from test_fleet_console import SAY_HELPER
+from test_fleet import make_project
+
+
+def _reply_cfg(tmp_path, monkeypatch, **fleet):
+    """The bridge's config plus the fake console helper, and a session-state folder inside tmp_path."""
+    monkeypatch.setenv("COPILOT_SESSION_STATE", str(tmp_path / "copilot" / "session-state"))
+    monkeypatch.setenv("AGENTDATA_FAKE_SAY_LOG", str(tmp_path / "helper.jsonl"))
+    monkeypatch.setenv("AGENTDATA_FAKE_SAY_FILE", "")
+    monkeypatch.setenv("AGENTDATA_FAKE_SAY_FAIL", "")
+    return _cfg(tmp_path, console={"host": "fake", "helper": [sys.executable, SAY_HELPER]}, **fleet)
+
+
+def _typed(tmp_path) -> list[list[str]]:
+    log = tmp_path / "helper.jsonl"
+    return [json.loads(line)["argv"] for line in log.read_text(encoding="utf-8").splitlines() if line.strip()] \
+        if log.exists() else []
+
+
+def _headless(tmp_path, name, session="sess-h1"):
+    """A registered checkout whose last headless session can be resumed."""
+    Registry().add(make_project(tmp_path / name, ticket="RDSD-9"), name=name)
+    E.append(name, [E.event(name, "started", {"pid": 1}, ticket="RDSD-9"),
+                    E.event(name, "session_id", {"session": session}, ticket="RDSD-9"),
+                    E.event(name, "turn_ended", {"turn": "0"}, ticket="RDSD-9")])
+
+
+def _in_console(tmp_path, name, session="sess-c1"):
+    """A registered checkout with a console the fleet opened (this process stands in for its pid)."""
+    path = make_project(tmp_path / name, ticket="RDSD-7")
+    Registry().add(path, name=name)
+    supervisor.write_lock(name, {"pid": os.getpid(), "kind": "console", "session": session, "repo": name,
+                                 "path": path, "ticket": "RDSD-7", "started": time.time(), "restarts": 0,
+                                 "launch": []})
+    return path
+
+
+def _reply(repo, *, message=None, answers=None, nonce=None, by=UPN, issued=None, expires=None, **over):
+    """What `FleetDecide` writes for a reply: `repo`, `message` and/or `answers` as `[{id, answer}]`, `device`."""
+    now = time.time()
+    record = {"schema": 1, "kind": "reply", "nonce": nonce or uuid.uuid4().hex,
+              "issued": bridge._utc(now if issued is None else issued),
+              "expires": bridge._utc(now + 600 if expires is None else expires),
+              "by": by, "repo": repo, "device": "iOS"}
+    if message is not None:
+        record["message"] = message
+    if answers is not None:
+        record["answers"] = answers
+    record.update(over)
+    return record
+
+
+def _drop_reply(cfg, record) -> str:
+    return _drop(cfg, record, name=f"reply-{record['nonce']}.json")
+
+
+def test_a_reply_to_a_console_session_is_typed_and_a_reply_to_a_headless_one_is_sent(fleet_home, tmp_path,  # noqa: F811
+                                                                                    monkeypatch, spawns):
+    cfg = _reply_cfg(tmp_path, monkeypatch)
+    spawns["alive"].add(os.getpid())                        # the console window's pid, as the launcher sees it
+    _in_console(tmp_path, "luna")
+    _headless(tmp_path, "sol", session="sess-sol")
+    typed = _reply("luna", message="use the staging\nconnection string")
+    sent = _reply("sol", message="  carry on with the second table  ")
+    typed_name, sent_name = _drop_reply(cfg, typed), _drop_reply(cfg, sent)
+
+    assert bridge.apply_once(cfg) == {"applied": 2, "rejected": 0, "retried": 0}
+    # The console: one line, typed into the window by pid, the newline collapsed as `console.one_line` does.
+    assert _typed(tmp_path) == [["say-into", str(os.getpid()), "use the staging connection string"]]
+    assert spawns["launched"] and len(spawns["launched"]) == 1, "the console reply spawned nothing"
+    # The headless agent: one `copilot -p --resume <session>` carrying the text, stripped as the desk strips it.
+    [argv] = spawns["launched"]
+    assert "--resume" in argv and argv[argv.index("--resume") + 1] == "sess-sol"
+    assert "carry on with the second table" in argv
+
+    folder = _folder(cfg)
+    assert _inbox_names(cfg) == []
+    for record, name, via in ((typed, typed_name, "say"), (sent, sent_name, "send")):
+        res = _result(cfg, record["nonce"])
+        assert (res["ok"], res["result"], res["kind_of"], res["repo"], res["via"], res["answered"]) == (
+            True, "applied", "reply", record["repo"], via, [])
+        assert os.path.isfile(os.path.join(folder, "processed", name))
+        assert textio.read_json(os.path.join(folder, "processed", name + ".result.json"), "sidecar")["via"] == via
+        assert bridge.read_state()["processed"][record["nonce"]]["code"] == ""
+
+    # `mobile.reply` on the repo's own stream: who, how, which questions and how many words; never the words.
+    [ev] = _events("luna", "mobile.reply")
+    assert ev["data"] == {"nonce": typed["nonce"], "by": f"mobile:{UPN}", "via": "say", "answered": [], "words": 5}
+    [ev] = _events("sol", "mobile.reply")
+    assert ev["data"] == {"nonce": sent["nonce"], "by": f"mobile:{UPN}", "via": "send", "answered": [], "words": 6}
+    assert "staging" not in json.dumps(_events("luna", "mobile.reply") + _events("sol", "mobile.reply"))
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 0, "retried": 0}
+
+
+def test_answers_travel_as_one_answers_prompt_exactly_as_the_desk_sends_them(fleet_home, tmp_path,  # noqa: F811
+                                                                             monkeypatch):
+    from agentdata.fleet import serve as S
+
+    cfg = _reply_cfg(tmp_path, monkeypatch)
+    _headless(tmp_path, "sol")
+    answers = [{"id": "q1", "answer": "the staging workspace"}, {"id": "q2", "answer": "yes; both tables"}]
+    sends: list[tuple[str, str, bool]] = []
+    monkeypatch.setattr(supervisor, "send", lambda name, message, *, cfg=None, force=False, **k:
+                        sends.append((name, message, force)) or {"pid": 4242})
+
+    record = _reply("sol", answers=answers, message="ignored when answers are given")
+    _drop_reply(cfg, record)
+    assert bridge.apply_once(cfg)["applied"] == 1
+    S.act("answer", {"repo": "sol", "answers": answers})
+
+    assert len(sends) == 2, "one answers_prompt per reply, however many answers it carries"
+    assert sends[0] == sends[1] == (
+        "sol", lifecycle.answers_prompt([("q1", "the staging workspace"), ("q2", "yes; both tables")]), False)
+    res = _result(cfg, record["nonce"])
+    assert (res["via"], res["answered"]) == ("send", ["q1", "q2"])
+    [ev] = _events("sol", "mobile.reply")
+    assert ev["data"]["answered"] == ["q1", "q2"] and ev["data"]["words"] == len(sends[0][1].split())
+    assert "staging" not in json.dumps(ev)
+
+
+def test_force_from_the_phone_is_never_honoured(fleet_home, tmp_path, monkeypatch, spawns):  # noqa: F811
+    cfg = _reply_cfg(tmp_path, monkeypatch, budget_per_agent=2)
+    _headless(tmp_path, "sol")
+    E.append("sol", [E.event("sol", "cost", {"premium_requests": 9.0, "source": "checkpoint"}, ticket="RDSD-9")])
+    record = _reply("sol", message="one more turn, please", force=True)
+    name = _drop_reply(cfg, record)
+
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 1, "retried": 0}
+    assert spawns["launched"] == [], "nothing was spawned"
+    assert _why(cfg, name)["code"] == "budget_exceeded"
+    assert _result(cfg, record["nonce"])["code"] == "budget_exceeded"
+
+
+def test_a_supervisor_refusal_is_written_in_its_own_words_and_the_file_is_rejected(fleet_home, tmp_path,  # noqa: F811
+                                                                                   monkeypatch, spawns):
+    cfg = _reply_cfg(tmp_path, monkeypatch, budget_per_agent=2)
+    # external_session: a session the fleet adopted (this process stands in for it).
+    path = make_project(tmp_path / "ext", ticket="RDSD-3")
+    Registry().add(path, name="ext")
+    spawns["alive"].add(os.getpid())
+    supervisor.write_lock("ext", {"pid": os.getpid(), "external": True, "repo": "ext", "path": path,
+                                  "started": time.time()})
+    assert supervisor.live("ext"), "the adopted session is live"
+    # budget_exceeded: spent 9 of 2.
+    _headless(tmp_path, "spent")
+    E.append("spent", [E.event("spent", "cost", {"premium_requests": 9.0, "source": "checkpoint"}, ticket="RDSD-9")])
+    # no_session: registered, never started.
+    Registry().add(make_project(tmp_path / "new", ticket="RDSD-4"), name="new")
+
+    records = {repo: _reply(repo, message="status?") for repo in ("ext", "spent", "new")}
+    names = {repo: _drop_reply(cfg, r) for repo, r in records.items()}
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": 3, "retried": 0}
+    assert spawns["launched"] == []
+
+    for repo, code in (("ext", "external_session"), ("spent", "budget_exceeded"), ("new", "no_session")):
+        with pytest.raises(supervisor.SupervisorError) as refused:
+            supervisor.send(repo, "status?", cfg=cfg)
+        e = refused.value
+        assert e.code == code
+        why = _why(cfg, names[repo])
+        assert (why["code"], why["error"], why["hint"]) == (e.code, e.msg, e.hint), repo
+        res = _result(cfg, records[repo]["nonce"])
+        assert (res["ok"], res["kind_of"], res["repo"], res["code"], res["error"], res["hint"]) == (
+            False, "reply", repo, e.code, e.msg[:bridge.LIMITS["reason"]], e.hint[:bridge.LIMITS["reason"]]), repo
+        assert os.path.isfile(os.path.join(_folder(cfg), "rejected", names[repo]))
+        [ev] = _events(repo, "mobile.rejected")
+        assert (ev["data"]["kind"], ev["data"]["code"]) == ("reply", code)
+    assert _inbox_names(cfg) == []
+
+
+def test_mid_turn_is_retried_until_expires_then_refused_as_mid_turn(fleet_home, tmp_path, monkeypatch,  # noqa: F811
+                                                                     spawns):
+    cfg = _reply_cfg(tmp_path, monkeypatch)
+    _headless(tmp_path, "sol", session="sess-sol")
+    spawns["alive"].add(os.getpid())
+    turn = {"pid": os.getpid(), "repo": "sol", "session": "sess-sol", "started": time.time()}
+    supervisor.write_lock("sol", turn)                      # a turn in flight: `send` refuses mid_turn
+    now = time.time()
+    record = _reply("sol", message="and then the report", issued=now, expires=now + 300)
+    name = _drop_reply(cfg, record)
+
+    assert bridge.apply_once(cfg, now=now) == {"applied": 0, "rejected": 0, "retried": 1}
+    assert bridge.apply_once(cfg, now=now + 5) == {"applied": 0, "rejected": 0, "retried": 1}
+    assert _inbox_names(cfg) == [name] and spawns["launched"] == []
+    retrying = bridge.read_state()["retrying"][record["nonce"]]
+    assert retrying["tries"] == 2 and retrying["first_seen"] == bridge._utc(now)
+    assert not os.path.exists(bridge.outbox_dir(_folder(cfg), "results", f"{record['nonce']}.result.json"))
+
+    os.remove(supervisor.lock_path("sol"))                  # the turn ends within `expires`
+    assert bridge.apply_once(cfg, now=now + 10) == {"applied": 1, "rejected": 0, "retried": 0}
+    [argv] = spawns["launched"]
+    assert "and then the report" in argv and _result(cfg, record["nonce"])["via"] == "send"
+    assert record["nonce"] not in bridge.read_state()["retrying"]
+
+    # Past `expires` with the lock still held: refused as mid_turn, in the supervisor's words, with how long it tried.
+    supervisor.write_lock("sol", turn)                      # the next turn
+    late = _reply("sol", message="one more thing", issued=now, expires=now + 300)
+    late_name = _drop_reply(cfg, late)
+    assert bridge.apply_once(cfg, now=now + 20)["retried"] == 1
+    assert bridge.apply_once(cfg, now=now + 301) == {"applied": 0, "rejected": 1, "retried": 0}
+    with pytest.raises(supervisor.SupervisorError) as refused:
+        supervisor.send("sol", "one more thing", cfg=cfg)
+    why = _why(cfg, late_name)
+    assert (why["code"], why["error"], why["hint"]) == ("mid_turn", refused.value.msg, refused.value.hint)
+    assert why["retried_s"] == 281
+    res = _result(cfg, late["nonce"])
+    assert (res["ok"], res["code"], res["retried_s"]) == (False, "mid_turn", 281)
+    assert late["nonce"] not in bridge.read_state()["retrying"] and len(spawns["launched"]) == 1
+
+
+def test_a_reply_naming_an_unregistered_repo_is_refused_with_wrong_repo(fleet_home, tmp_path, monkeypatch,  # noqa: F811
+                                                                        spawns):
+    cfg = _reply_cfg(tmp_path, monkeypatch)
+    _headless(tmp_path, "sol")
+    cases = {
+        "mobile_wrong_repo": [_reply("nowhere", message="hello"), _reply("", message="hello"),
+                              _reply(["sol"], message="hello")],
+        "mobile_bad_schema": [_reply("sol"), _reply("sol", message="   "), _reply("sol", message="", answers=[]),
+                              _reply("sol", answers=[{"id": "q1", "answer": " "}]),
+                              _reply("sol", message="x" * 4001),
+                              _reply("sol", answers=[{"id": f"q{i}", "answer": "a"} for i in range(9)]),
+                              _reply("sol", answers=[{"id": "q" * 33, "answer": "a"}]),
+                              _reply("sol", answers=[{"id": "q1", "answer": "a" * 1001}]),
+                              _reply("sol", answers="q1: yes"), _reply("sol", message=["hello"])],
+    }
+    names = {r["nonce"]: (code, _drop_reply(cfg, r)) for code, rs in cases.items() for r in rs}
+    assert bridge.apply_once(cfg) == {"applied": 0, "rejected": len(names), "retried": 0}
+    for nonce, (code, name) in names.items():
+        assert _why(cfg, name)["code"] == code, name
+        assert _result(cfg, nonce)["code"] == code
+    assert spawns["launched"] == [] and _typed(tmp_path) == []
+    assert not _events("nowhere", "mobile.rejected")

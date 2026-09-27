@@ -325,7 +325,7 @@ def _state_path() -> str:
 def _fresh_state() -> dict:
     return {"schema": MOBILE_SCHEMA, "laptop_id": _secrets.token_hex(16), "processed": {}, "attention_digests": {},
             "attention_seq": {}, "exported": {}, "last_export": "", "last_inbox_seen": "", "last_heartbeat": "",
-            "rejected_24h": 0, "failures": {}}
+            "rejected_24h": 0, "failures": {}, "retrying": {}}
 
 
 def _read_state_unlocked() -> dict:
@@ -515,11 +515,12 @@ def heartbeat_record(cfg: dict | None, state: dict, counts: dict) -> dict:
 
 
 def write_result(folder: str, nonce: str, kind_of: str, ok: bool, *, id: str = "", repo: str = "", code: str = "",
-                 error: str = "", hint: str = "", via: str = "", answered=None, late: bool | None = None) -> str:
+                 error: str = "", hint: str = "", via: str = "", answered=None, late: bool | None = None,
+                 retried_s: int | None = None) -> str:
     """`outbox/results/<nonce>.result.json`: the laptop's verdict on one phone decision or reply. #547 and #548 call it.
 
-    The words are the supervisor's or the bridge's own; `via` (`say`|`send`) and `answered` belong to replies, `late`
-    to an applied decision (#547).
+    The words are the supervisor's or the bridge's own; `via` (`say`|`send`), `answered` and `retried_s` (a reply
+    refused `mid_turn` after its retries, #548) belong to replies, `late` to an applied decision (#547).
     """
     if kind_of not in ("decision", "reply"):
         raise BridgeError(f"{kind_of!r} is not a result kind", "decision | reply", code="bad_kind")
@@ -533,6 +534,8 @@ def write_result(folder: str, nonce: str, kind_of: str, ok: bool, *, id: str = "
     if kind_of == "reply":
         record["via"] = via if via in ("say", "send") else ""
         record["answered"] = [_cap(a, 32) for a in (answered or [])]
+        if retried_s is not None:
+            record["retried_s"] = int(retried_s)
     elif late is not None:
         record["late"] = bool(late)
     record["at"] = _utc()
@@ -765,9 +768,9 @@ __all__ += ["apply_once"]
 
 
 class _Refused(Exception):
-    def __init__(self, code: str, error: str, hint: str = ""):
+    def __init__(self, code: str, error: str, hint: str = "", retried_s: int | None = None):
         super().__init__(error)
-        self.code, self.error, self.hint = code, error, hint
+        self.code, self.error, self.hint, self.retried_s = code, error, hint, retried_s
 
 
 def _stamp(value) -> float | None:
@@ -895,6 +898,12 @@ def _check_common(p: _Pass, record, state: dict) -> dict:
     if issued is None or issued > p.now + SKEW_S:
         raise _Refused("mobile_bad_time", "`issued` is missing or in the future",
                        "check the phone's clock; issued may lead the laptop by at most 5 minutes")
+    retrying = state["retrying"].get(nonce) if record["kind"] == "reply" else None
+    if isinstance(retrying, dict) and expires is not None and p.now > expires:
+        # MOB-D7: a reply that waited out a turn until `expires` is refused as what it met, not as expired.
+        first = _epoch(str(retrying.get("first_seen") or "")) or p.now
+        raise _Refused("mid_turn", str(retrying.get("error") or "mid-turn"), str(retrying.get("hint") or ""),
+                       retried_s=int(p.now - first))
     if expires is None or not p.now <= expires <= issued + p.settings["expire_s"]:
         raise _Refused("mobile_expired", "the decision has expired, or expires later than fleet.mobile.expire_s allows",
                        "decide again from the phone")
@@ -964,23 +973,29 @@ def _apply_decision(p: _Pass, path: str, name: str, record: dict) -> None:
 
 
 def _finish(p: _Pass, path: str, name: str, nonce: str, *, ok: bool, id: str = "", late: bool | None = None,
-            refused: _Refused | None = None, verdict: bool = True, kind_of: str = "decision", repo: str = "") -> None:
+            refused: _Refused | None = None, verdict: bool = True, kind_of: str = "decision", repo: str = "",
+            via: str = "", answered=None) -> None:
     """Move the file to `processed/` or `rejected/` with its sidecar, and write the verdict (`verdict=False`: a
     replay's, whose first verdict stands). The caller records the nonce first, so a move that fails is retried on the
     next tick rather than read again as a new record."""
     sub = PROCESSED if ok else REJECTED
     if _move(path, os.path.join(p.folder, sub, name)) and nonce and verdict:
         update_state(lambda s: s["processed"].get(nonce, {}).__setitem__("moved", True))
+    if ok and kind_of == "reply":
+        result = write_result(p.folder, nonce, "reply", True, repo=repo, via=via, answered=answered)
+        textio.write_json(os.path.join(p.folder, PROCESSED, name + ".result.json"), textio.read_json(result, "result"))
+        return
     if ok:
         result = write_result(p.folder, nonce, "decision", True, id=id, late=late)
         textio.write_json(os.path.join(p.folder, PROCESSED, name + ".result.json"), textio.read_json(result, "result"))
         return
-    textio.write_json(os.path.join(p.folder, REJECTED, name + ".why.json"),
-                      {"code": refused.code, "error": refused.error, "hint": refused.hint, "at": _utc(p.now),
-                       "nonce": nonce})
+    why = {"code": refused.code, "error": refused.error, "hint": refused.hint, "at": _utc(p.now), "nonce": nonce}
+    if refused.retried_s is not None:
+        why["retried_s"] = refused.retried_s
+    textio.write_json(os.path.join(p.folder, REJECTED, name + ".why.json"), why)
     if nonce and verdict:
         write_result(p.folder, nonce, kind_of, False, id=id, repo=repo, code=refused.code, error=refused.error,
-                     hint=refused.hint)
+                     hint=refused.hint, retried_s=refused.retried_s)
 
 
 def _reject(p: _Pass, path: str, name: str, record, refused: _Refused) -> None:
@@ -992,7 +1007,11 @@ def _reject(p: _Pass, path: str, name: str, record, refused: _Refused) -> None:
     id = record.get("id") if isinstance(record, dict) and isinstance(record.get("id"), str) else ""
     if nonce and not replay:
         entry = {"at": _utc(p.now), "kind": kind, "code": refused.code, "name": name, "moved": False}
-        update_state(lambda s: s["processed"].__setitem__(nonce, entry))
+
+        def refused_(s: dict) -> None:
+            s["processed"][nonce] = entry
+            s["retrying"].pop(nonce, None)
+        update_state(refused_)
     named = record.get("repo") if isinstance(record, dict) and isinstance(record.get("repo"), str) else ""
     _finish(p, path, name, nonce, ok=False, id=id[:LIMITS["id"]], refused=refused, verdict=not replay,
             kind_of="reply" if kind == "reply" else "decision", repo=named)
@@ -1020,6 +1039,93 @@ def _retry_move(p: _Pass, path: str, name: str, state: dict) -> bool:
     return True
 
 
+# ============================================================================== the applier: replies (#548)
+#
+# A reply is the desk's `act("answer" | "say" | "send")` verbatim (serve.py): `answers` become one
+# `lifecycle.answers_prompt`, else the `message` is the text; a console the fleet opened is typed into
+# (`supervisor.say`, one line), anything else is resumed headless (`supervisor.send`). After the common checks:
+#   `repo` is not a registered name                                   mobile_wrong_repo
+#   `message` not text <= 4000; `answers` not <= 8 `{id <= 32, answer <= 1000}`;
+#   nothing left to say once blank answers are dropped (as the desk drops them)   mobile_bad_schema
+# A `SupervisorError` is the verdict in its own words (`code`, `error`, `hint`, never re-interpreted), except
+# `mid_turn`: the phone cannot press Send again a minute later, so the file stays in `inbox/` and is tried every tick
+# until its `expires`, then refused `mid_turn` with `retried_s` (MOB-D7). `force` is never read (MOB-D8). The text
+# goes to the agent exactly as typed; nothing of it reaches the stream or the outbox (`answered` ids, a word count).
+
+MESSAGE_MAX = LIMITS["message"]
+ANSWERS_MAX = 8
+ANSWER_ID_MAX = 32
+ANSWER_MAX = LIMITS["answer"]
+
+
+def _check_reply(p: _Pass, record: dict) -> tuple[str, str, list[str]]:
+    """The repo, the text the desk would send, and the answered ids, or a refusal. Nothing is written here."""
+    repo = record.get("repo")
+    if not isinstance(repo, str) or not repo or len(repo) > LIMITS["repo"] or not p.registered(repo):
+        raise _Refused("mobile_wrong_repo", "the reply names no repository registered on this laptop",
+                       "the phone read another laptop's outbox, or the repository was removed from the fleet")
+    message, answers, device = record.get("message"), record.get("answers"), record.get("device", "")
+    bad = _Refused("mobile_bad_schema", f"a reply is a message of at most {MESSAGE_MAX} characters and/or at most "
+                   f"{ANSWERS_MAX} answers of {{id, answer}}, and says something",
+                   "only FleetDecide writes into inbox/")
+    if not isinstance(message, (str, type(None))) or len(message or "") > MESSAGE_MAX \
+            or not isinstance(device, (str, type(None))):
+        raise bad
+    if not isinstance(answers, (list, type(None))) or len(answers or []) > ANSWERS_MAX:
+        raise bad
+    for a in answers or []:
+        if not isinstance(a, dict) or not isinstance(a.get("id"), str) or not isinstance(a.get("answer"), str) \
+                or len(a["id"]) > ANSWER_ID_MAX or len(a["answer"]) > ANSWER_MAX:
+            raise bad
+    # `act("answer")`'s filter and `act("say" | "send")`'s strip, verbatim.
+    pairs = [(a["id"], a["answer"]) for a in answers or [] if a["id"] and a["answer"].strip()]
+    if pairs:
+        from . import lifecycle
+
+        return repo, lifecycle.answers_prompt(pairs), [qid for qid, _ in pairs]
+    text = (message or "").strip()
+    if not text:
+        raise bad
+    return repo, text, []
+
+
+def _apply_reply(p: _Pass, path: str, name: str, record: dict) -> bool:
+    """Say or send; True when applied, False when left in `inbox/` for the next tick (`mid_turn`)."""
+    from . import supervisor
+
+    repo, text, answered = _check_reply(p, record)
+    nonce, by = record["nonce"], record["by"]
+    cfg = p.cfg if p.cfg is not None else C.load()
+    try:
+        if supervisor.live(repo).get("kind") == "console":
+            via = "say"
+            supervisor.say(repo, text, cfg=cfg)
+        else:
+            via = "send"
+            supervisor.send(repo, text, cfg=cfg)            # never force=True (MOB-D8)
+    except supervisor.SupervisorError as e:
+        if e.code != "mid_turn":
+            raise _Refused(e.code or "refused", e.msg, e.hint) from None
+
+        def waiting(s: dict) -> None:
+            entry = s["retrying"].setdefault(nonce, {"first_seen": _utc(p.now), "tries": 0})
+            entry.update(tries=int(entry.get("tries") or 0) + 1, error=e.msg, hint=e.hint, name=name)
+        update_state(waiting)
+        return False
+
+    entry = {"at": _utc(p.now), "kind": "reply", "code": "", "name": name, "moved": False, "via": via,
+             "device": p.scrubber.scrub(record.get("device") or "", DEVICE_MAX)}
+
+    def applied(s: dict) -> None:
+        s["processed"][nonce] = entry
+        s["retrying"].pop(nonce, None)
+    update_state(applied)
+    _emit(repo, "mobile.reply", {"nonce": nonce, "by": f"mobile:{by}", "via": via, "answered": answered,
+                                 "words": len(text.split())})
+    _finish(p, path, name, nonce, ok=True, kind_of="reply", repo=repo, via=via, answered=answered)
+    return True
+
+
 def _rejected_24h(folder: str, now: float) -> int:
     directory = os.path.join(folder, REJECTED)
     return sum(1 for name in _names(directory)
@@ -1031,7 +1137,8 @@ def apply_once(cfg: dict | None = None, *, now: float | None = None) -> dict:
     retried}`. A missing inbox is an empty one. Refuses as `check_folder` does.
 
     `retried` counts files left for the next tick: an unexpected failure (logged through `debug_exc`; the same one
-    twice is `mobile_unreadable`), a move that did not happen, or a reply before #548 lands.
+    twice is `mobile_unreadable`), a move that did not happen, or a reply that met a turn in flight (`mid_turn`, tried
+    again every tick until its `expires`, MOB-D7).
     """
     folder = check_folder(cfg)
     p = _Pass(cfg, folder, _time.time() if now is None else now)
@@ -1053,10 +1160,11 @@ def apply_once(cfg: dict | None = None, *, now: float | None = None) -> dict:
                 record = _read(entry)
                 _check_common(p, record, state)
                 if record["kind"] == "reply":
-                    counts["retried"] += 1                  # #548 applies replies; until then one waits here
-                    continue
-                _apply_decision(p, path, name, record)
-                counts["applied"] += 1
+                    applied = _apply_reply(p, path, name, record)
+                    counts["applied" if applied else "retried"] += 1
+                else:
+                    _apply_decision(p, path, name, record)
+                    counts["applied"] += 1
             except _Refused as refused:
                 _reject(p, path, name, record, refused)
                 counts["rejected"] += 1
