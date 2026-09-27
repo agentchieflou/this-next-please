@@ -29,8 +29,8 @@ from agentdata.fleet import (approval, board as B, events as E, models as M, pre
                              serve as S, supervisor)
 from agentdata.fleet.registry import Registry
 
+from desk_harness import close_pages
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 
 
 @pytest.fixture()
@@ -103,11 +103,10 @@ def _serve():
     return server, token, server.server_address[1]
 
 
-def _board_window(p, port, token):
+def _board_window(browser, port, token):
     """The board, open beside `sol`: the checkouts a ticket can go to are rails, with no room on the
     glass for the card (#233; they were bands in the column, off the glass altogether). The address
     is the roles layout's board window, as a bookmark from before #232 still has it."""
-    browser = launch_chromium(p)
     page = browser.new_page(viewport={"width": 1280, "height": 900})
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -160,7 +159,7 @@ def _eventually(cond, timeout=5.0):
 
 @pytest.mark.browser
 def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start_starts_it_once(
-        fleet_home, tmp_path, spawns, monkeypatch):
+        fleet_home, tmp_path, spawns, monkeypatch, desk_browser):
     """Acceptance criterion. With the board open and the checkout off the glass, a ticket row
     dragged onto a rail chip opens the pre-flight card under the rail with its verdict; *Start*
     counts exactly one `started` event on that checkout.
@@ -168,7 +167,6 @@ def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start
     And the card says what it will run on (#368): "runs on" and its pills, one of which is the model
     luna's last turn ran on. A press writes `fleet.models.luna` -- this start and every later one --
     and the start that follows carries `--model`."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _fleet(tmp_path)
     _seed_models()
     E.append("luna", [E.event("luna", "assistant_text", {"text": "done", "model": "claude-opus-5"},
@@ -180,45 +178,44 @@ def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser, page, errors = _board_window(p, port, token)
-            _drop(page, "luna")
-            _card_open(page)
-            card = page.locator("#railslot #dispatch")
-            assert card.is_visible(), "the card is under the rail, where the operator is looking"
-            assert card.locator(".verdict").inner_text().strip().lower() == "thin"
-            assert "RDSD-118 → luna" in card.locator(".dispatch-key").inner_text()
-            assert "none found" in card.locator(".dispatch-rows").inner_text()
-            assert _started("luna") == 0, "the card is the decision, not the launch"
+        browser, page, errors = _board_window(desk_browser, port, token)
+        _drop(page, "luna")
+        _card_open(page)
+        card = page.locator("#railslot #dispatch")
+        assert card.is_visible(), "the card is under the rail, where the operator is looking"
+        assert card.locator(".verdict").inner_text().strip().lower() == "thin"
+        assert "RDSD-118 → luna" in card.locator(".dispatch-key").inner_text()
+        assert "none found" in card.locator(".dispatch-rows").inner_text()
+        assert _started("luna") == 0, "the card is the decision, not the launch"
 
-            # #368: the model row, "runs on" and the pills: the inherit pill pressed, the last turn's
-            # model beside it, and `more…`.
-            assert "the CLI chooses · cli-auto" in card.locator(".dispatch-rows").inner_text()
-            assert card.locator(".dispatch-note").get_attribute("role") == "status"
-            assert card.locator(".dispatch-runs").inner_text().strip() == "runs on"
-            page.wait_for_selector('#dispatch .dispatch-model button[data-model="claude-opus-5"]', timeout=5000)
-            pills = page.evaluate("""() => [...document.querySelectorAll('#dispatch .dispatch-model button.pill')]
-                .map(b => [b.dataset.model ?? 'more', b.getAttribute('aria-pressed')])""")
-            assert pills == [["", "true"], ["claude-opus-5", "false"], ["more", None]], pills
-            card.locator('.dispatch-model button[data-model="claude-opus-5"]').click()
-            assert _eventually(lambda: _luna_model() == "claude-opus-5"), "the press wrote nothing"
-            page.wait_for_function(
-                "() => /model set for this and later turns/.test(document.querySelector('#dispatch .dispatch-note').textContent)",
-                timeout=5000)
-            page.wait_for_selector('#dispatch .dispatch-model button[data-model="claude-opus-5"][aria-pressed="true"]',
-                                   timeout=5000)
-            assert _started("luna") == 0, "a press is a setting, not a launch"
-            # The card's own `model` row is current at once, and reading it read no issue.
-            page.wait_for_function(
-                """() => document.querySelector('#dispatch .dispatch-row[data-row="model"] .dr-value')
-                         .textContent === 'opus 5 · fleet.models.luna'""", timeout=5000)
-            assert fetched == ["RDSD-118"], fetched
+        # #368: the model row, "runs on" and the pills: the inherit pill pressed, the last turn's
+        # model beside it, and `more…`.
+        assert "the CLI chooses · cli-auto" in card.locator(".dispatch-rows").inner_text()
+        assert card.locator(".dispatch-note").get_attribute("role") == "status"
+        assert card.locator(".dispatch-runs").inner_text().strip() == "runs on"
+        page.wait_for_selector('#dispatch .dispatch-model button[data-model="claude-opus-5"]', timeout=5000)
+        pills = page.evaluate("""() => [...document.querySelectorAll('#dispatch .dispatch-model button.pill')]
+            .map(b => [b.dataset.model ?? 'more', b.getAttribute('aria-pressed')])""")
+        assert pills == [["", "true"], ["claude-opus-5", "false"], ["more", None]], pills
+        card.locator('.dispatch-model button[data-model="claude-opus-5"]').click()
+        assert _eventually(lambda: _luna_model() == "claude-opus-5"), "the press wrote nothing"
+        page.wait_for_function(
+            "() => /model set for this and later turns/.test(document.querySelector('#dispatch .dispatch-note').textContent)",
+            timeout=5000)
+        page.wait_for_selector('#dispatch .dispatch-model button[data-model="claude-opus-5"][aria-pressed="true"]',
+                               timeout=5000)
+        assert _started("luna") == 0, "a press is a setting, not a launch"
+        # The card's own `model` row is current at once, and reading it read no issue.
+        page.wait_for_function(
+            """() => document.querySelector('#dispatch .dispatch-row[data-row="model"] .dr-value')
+                     .textContent === 'opus 5 · fleet.models.luna'""", timeout=5000)
+        assert fetched == ["RDSD-118"], fetched
 
-            card.locator(".dispatch-go").click()
-            assert _eventually(lambda: _started("luna") == 1), "Start started nothing"
-            page.wait_for_selector("#dispatch[hidden]", state="attached", timeout=5000)
-            assert not errors, errors
-            browser.close()
+        card.locator(".dispatch-go").click()
+        assert _eventually(lambda: _started("luna") == 1), "Start started nothing"
+        page.wait_for_selector("#dispatch[hidden]", state="attached", timeout=5000)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -232,30 +229,28 @@ def test_a_ticket_dropped_on_a_rail_chip_opens_the_card_under_the_rail_and_start
 
 
 @pytest.mark.browser
-def test_a_drop_on_a_live_agents_chip_reads_the_refusal_and_starts_nothing(fleet_home, tmp_path, spawns):
+def test_a_drop_on_a_live_agents_chip_reads_the_refusal_and_starts_nothing(fleet_home, tmp_path, spawns, desk_browser):
     """Acceptance criterion. The same drop on a chip whose agent is live reads the `live_agent`
     refusal verbatim -- the supervisor's words, on the card -- and counts no `started`."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _fleet(tmp_path)
     supervisor.write_lock("luna", {"pid": 4242, "repo": "luna", "ticket": "RDSD-2", "session": "sess-2"})
     spawns["alive"].add(4242)
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser, page, errors = _board_window(p, port, token)
-            _drop(page, "luna")
-            _card_open(page)
-            page.locator("#dispatch .dispatch-go").click()
-            page.wait_for_function(
-                "() => /already has a live agent/.test(document.querySelector('#dispatch .dispatch-note').textContent)",
-                timeout=5000)
-            note = page.locator("#dispatch .dispatch-note").inner_text()
-            assert "luna already has a live agent (pid 4242" in note, note
-            assert "ad-fleet stop luna" in note, "the supervisor's own hint, not a reworded one"
-            assert page.locator("#railslot #dispatch").is_visible(), "a refusal leaves the card open"
-            assert not errors, errors
-            browser.close()
+        browser, page, errors = _board_window(desk_browser, port, token)
+        _drop(page, "luna")
+        _card_open(page)
+        page.locator("#dispatch .dispatch-go").click()
+        page.wait_for_function(
+            "() => /already has a live agent/.test(document.querySelector('#dispatch .dispatch-note').textContent)",
+            timeout=5000)
+        note = page.locator("#dispatch .dispatch-note").inner_text()
+        assert "luna already has a live agent (pid 4242" in note, note
+        assert "ad-fleet stop luna" in note, "the supervisor's own hint, not a reworded one"
+        assert page.locator("#railslot #dispatch").is_visible(), "a refusal leaves the card open"
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -268,42 +263,40 @@ def test_a_drop_on_a_live_agents_chip_reads_the_refusal_and_starts_nothing(fleet
 
 @pytest.mark.browser
 def test_a_drop_on_a_non_candidate_reads_cross_project_and_declining_the_override_starts_nothing(
-        fleet_home, tmp_path, spawns):
+        fleet_home, tmp_path, spawns, desk_browser):
     """Acceptance criterion. A drop on a chip the rail did not light reads the `cross_project`
     refusal and its one override; declining it starts nothing. And the rail said so before the
     drop: while the ticket is in flight `luna` is lit and `mars` is dimmed."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _fleet(tmp_path)
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser, page, errors = _board_window(p, port, token)
+        browser, page, errors = _board_window(desk_browser, port, token)
 
-            page.evaluate("""() => {
-              const li = document.querySelector('#tickets li[data-key="RDSD-118"]');
-              const dt = new DataTransfer();
-              li.dispatchEvent(new DragEvent('dragstart', {dataTransfer: dt, bubbles: true, cancelable: true}));
-            }""")
-            lit = page.evaluate("""() => Array.from(document.querySelectorAll('#agentrail .rail-chip:not([hidden])')).map(li =>
-                [li.dataset.repo, li.classList.contains('is-candidate'), li.classList.contains('is-dim'),
-                 li.querySelector('.rail-open').getAttribute('aria-selected')])""")
-            assert lit == [["luna", True, False, "true"], ["mars", False, True, "false"],
-                           ["sol", False, True, "false"]], lit
+        page.evaluate("""() => {
+          const li = document.querySelector('#tickets li[data-key="RDSD-118"]');
+          const dt = new DataTransfer();
+          li.dispatchEvent(new DragEvent('dragstart', {dataTransfer: dt, bubbles: true, cancelable: true}));
+        }""")
+        lit = page.evaluate("""() => Array.from(document.querySelectorAll('#agentrail .rail-chip:not([hidden])')).map(li =>
+            [li.dataset.repo, li.classList.contains('is-candidate'), li.classList.contains('is-dim'),
+             li.querySelector('.rail-open').getAttribute('aria-selected')])""")
+        assert lit == [["luna", True, False, "true"], ["mars", False, True, "false"],
+                       ["sol", False, True, "false"]], lit
 
-            asked: list[str] = []
-            page.on("dialog", lambda d: (asked.append(d.message), d.dismiss()))
-            _drop(page, "mars")
-            _card_open(page)
-            page.locator("#dispatch .dispatch-go").click()
-            page.wait_for_function(
-                "() => /DATAENG/.test(document.querySelector('#dispatch .dispatch-note').textContent)", timeout=5000)
-            note = page.locator("#dispatch .dispatch-note").inner_text()
-            assert "RDSD-118 is a RDSD ticket and mars declares jira_project DATAENG" in note, note
-            assert len(asked) == 1 and "Start it anyway?" in asked[0], asked
-            page.wait_for_timeout(300)
-            assert not errors, errors
-            browser.close()
+        asked: list[str] = []
+        page.on("dialog", lambda d: (asked.append(d.message), d.dismiss()))
+        _drop(page, "mars")
+        _card_open(page)
+        page.locator("#dispatch .dispatch-go").click()
+        page.wait_for_function(
+            "() => /DATAENG/.test(document.querySelector('#dispatch .dispatch-note').textContent)", timeout=5000)
+        note = page.locator("#dispatch .dispatch-note").inner_text()
+        assert "RDSD-118 is a RDSD ticket and mars declares jira_project DATAENG" in note, note
+        assert len(asked) == 1 and "Start it anyway?" in asked[0], asked
+        page.wait_for_timeout(300)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -317,38 +310,36 @@ def test_a_drop_on_a_non_candidate_reads_cross_project_and_declining_the_overrid
 
 
 @pytest.mark.browser
-def test_the_whole_gesture_from_the_keyboard(fleet_home, tmp_path, spawns):
+def test_the_whole_gesture_from_the_keyboard(fleet_home, tmp_path, spawns, desk_browser):
     """Acceptance criterion. From a focused ticket row, `1` hands the ticket to the first rail
     chip and opens the same card; `Esc` closes it and starts nothing; `Enter` hands it to the row's
     one candidate; `Ctrl+Enter` in the brief starts it, with the brief -- once."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _fleet(tmp_path)
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser, page, errors = _board_window(p, port, token)
-            row = page.locator("#tickets li[data-key='RDSD-118']")
-            row.focus()
-            page.keyboard.press("2")                       # the second chip is mars: any chip takes it
-            _card_open(page)
-            assert "RDSD-118 → mars" in page.locator("#dispatch .dispatch-key").inner_text()
+        browser, page, errors = _board_window(desk_browser, port, token)
+        row = page.locator("#tickets li[data-key='RDSD-118']")
+        row.focus()
+        page.keyboard.press("2")                       # the second chip is mars: any chip takes it
+        _card_open(page)
+        assert "RDSD-118 → mars" in page.locator("#dispatch .dispatch-key").inner_text()
 
-            page.keyboard.press("Escape")
-            page.wait_for_selector("#dispatch[hidden]", state="attached", timeout=5000)
-            assert page.evaluate("() => !document.getElementById('board').hidden"), \
-                "Esc closed the card, not the board"
-            assert _started("mars") == 0
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#dispatch[hidden]", state="attached", timeout=5000)
+        assert page.evaluate("() => !document.getElementById('board').hidden"), \
+            "Esc closed the card, not the board"
+        assert _started("mars") == 0
 
-            row.focus()
-            page.keyboard.press("Enter")                   # the row's one candidate is luna
-            _card_open(page)
-            assert "RDSD-118 → luna" in page.locator("#dispatch .dispatch-key").inner_text()
-            page.locator("#dispatch .brief").fill("the window is Tuesday")
-            page.keyboard.press("Control+Enter")
-            assert _eventually(lambda: _started("luna") == 1), "Ctrl+Enter started nothing"
-            assert not errors, errors
-            browser.close()
+        row.focus()
+        page.keyboard.press("Enter")                   # the row's one candidate is luna
+        _card_open(page)
+        assert "RDSD-118 → luna" in page.locator("#dispatch .dispatch-key").inner_text()
+        page.locator("#dispatch .brief").fill("the window is Tuesday")
+        page.keyboard.press("Control+Enter")
+        assert _eventually(lambda: _started("luna") == 1), "Ctrl+Enter started nothing"
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
@@ -365,7 +356,7 @@ def test_the_whole_gesture_from_the_keyboard(fleet_home, tmp_path, spawns):
 
 @pytest.mark.browser
 def test_a_refusal_on_an_open_tile_lands_on_the_tile_and_the_rail_note_stays_empty(
-        fleet_home, tmp_path, spawns, monkeypatch):
+        fleet_home, tmp_path, spawns, monkeypatch, desk_browser):
     """The card is one element with two homes. On a tile that is on the glass -- the grid's every
     tile once, the open one now (#232) -- it draws in the tile that took the drop, exactly where
     #164's tests find it, and a refusal is written on that card -- never under a rail the operator
@@ -376,7 +367,6 @@ def test_a_refusal_on_an_open_tile_lands_on_the_tile_and_the_rail_note_stays_emp
     its why is the note, the keyboard is on the pressed pill, and `h`, `a` and `j` pressed there
     hide nothing, approve nothing and walk nowhere. `more…` opens the model card and it stays open;
     a press there is what the session menu then says a new session starts on."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _fleet(tmp_path)
     S.update_window("main", open="luna")
     PF.write_cache({"issues": {"RDSD-118": {
@@ -400,81 +390,80 @@ def test_a_refusal_on_an_open_tile_lands_on_the_tile_and_the_rail_note_stays_emp
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors: list[str] = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile[data-repo='luna']:visible", timeout=15000)
-            page.evaluate("""() => {
-              const tile = document.querySelector('.tile[data-repo="luna"]');
-              const dt = new DataTransfer();
-              dt.setData('application/x-agentdata-ticket', 'RDSD-118');
-              dt.setData('text/plain', 'RDSD-118');
-              tile.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true}));
-            }""")
-            page.wait_for_selector(".tile[data-repo='luna'] .dispatch-slot #dispatch:not([hidden])", timeout=5000)
-            assert page.evaluate("() => document.getElementById('railnote').hidden")
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector(".tile[data-repo='luna']:visible", timeout=15000)
+        page.evaluate("""() => {
+          const tile = document.querySelector('.tile[data-repo="luna"]');
+          const dt = new DataTransfer();
+          dt.setData('application/x-agentdata-ticket', 'RDSD-118');
+          dt.setData('text/plain', 'RDSD-118');
+          tile.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true}));
+        }""")
+        page.wait_for_selector(".tile[data-repo='luna'] .dispatch-slot #dispatch:not([hidden])", timeout=5000)
+        assert page.evaluate("() => document.getElementById('railnote').hidden")
 
-            # #368: the model is the one thin row; its why is the note, and the keyboard is on the
-            # pressed pill rather than in the brief.
-            page.wait_for_function(
-                "() => document.querySelector('#dispatch .verdict').textContent.trim() !== 'reading…'", timeout=5000)
-            assert page.inner_text("#dispatch .verdict").strip().lower() == "thin"
-            thin = page.evaluate("""() => [...document.querySelectorAll('#dispatch .dispatch-row.r-thin .dr-name')]
-                .map(e => e.textContent)""")
-            assert thin == ["model"], thin
-            page.wait_for_function(
-                """() => document.activeElement.matches('#dispatch .dispatch-model button[aria-pressed="true"]')""",
-                timeout=5000)
-            assert page.evaluate("document.activeElement.dataset.model") == "claude-opus-4.6"
-            assert page.get_attribute("#dispatch .dispatch-note", "role") == "status"
-            note = page.inner_text("#dispatch .dispatch-note")
-            assert note == "not in copilot 1.0.88's list — the turn may fail at start", note
+        # #368: the model is the one thin row; its why is the note, and the keyboard is on the
+        # pressed pill rather than in the brief.
+        page.wait_for_function(
+            "() => document.querySelector('#dispatch .verdict').textContent.trim() !== 'reading…'", timeout=5000)
+        assert page.inner_text("#dispatch .verdict").strip().lower() == "thin"
+        thin = page.evaluate("""() => [...document.querySelectorAll('#dispatch .dispatch-row.r-thin .dr-name')]
+            .map(e => e.textContent)""")
+        assert thin == ["model"], thin
+        page.wait_for_function(
+            """() => document.activeElement.matches('#dispatch .dispatch-model button[aria-pressed="true"]')""",
+            timeout=5000)
+        assert page.evaluate("document.activeElement.dataset.model") == "claude-opus-4.6"
+        assert page.get_attribute("#dispatch .dispatch-note", "role") == "status"
+        note = page.inner_text("#dispatch .dispatch-note")
+        assert note == "not in copilot 1.0.88's list — the turn may fail at start", note
 
-            # A desk key pressed on a dispatch pill is the card's: nothing hidden, nothing approved,
-            # the keyboard where it was and the same pane open.
-            for key in ("h", "a", "j"):
-                page.keyboard.press(key)
-            assert page.evaluate("document.activeElement.dataset.model") == "claude-opus-4.6"
-            assert not page.evaluate("document.querySelector('.tile[data-repo=\"luna\"]').classList.contains('is-hidden')")
-            assert page.is_visible(".tile[data-repo='luna'] .dispatch-slot #dispatch")
-            assert S.desk_state()["arrangement"]["hidden"] == []
-            assert [r["repo"] for r in approval.pending()] == ["luna"], "a key on a pill approved the write"
-            assert page.evaluate("document.querySelector('.tile.is-solo[data-tier=\"full\"]').dataset.repo") == "luna"
+        # A desk key pressed on a dispatch pill is the card's: nothing hidden, nothing approved,
+        # the keyboard where it was and the same pane open.
+        for key in ("h", "a", "j"):
+            page.keyboard.press(key)
+        assert page.evaluate("document.activeElement.dataset.model") == "claude-opus-4.6"
+        assert not page.evaluate("document.querySelector('.tile[data-repo=\"luna\"]').classList.contains('is-hidden')")
+        assert page.is_visible(".tile[data-repo='luna'] .dispatch-slot #dispatch")
+        assert S.desk_state()["arrangement"]["hidden"] == []
+        assert [r["repo"] for r in approval.pending()] == ["luna"], "a key on a pill approved the write"
+        assert page.evaluate("document.querySelector('.tile.is-solo[data-tier=\"full\"]').dataset.repo") == "luna"
 
-            # `more…` opens the model card, and the click that opened it does not close it.
-            page.click("#dispatch .mp-more")
-            page.wait_for_selector("#modelcard:not([hidden])", timeout=5000)
-            page.evaluate("() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))")
-            assert page.is_visible("#modelcard") and page.inner_text("#mc-repo") == "luna"
-            page.wait_for_selector('#modelcard button[data-model="claude-opus-5"]', timeout=5000)
-            page.click('#modelcard button[data-model="claude-opus-5"]')
-            assert _eventually(lambda: _luna_model() == "claude-opus-5"), "the model card's press wrote nothing"
-            # The dispatch card under it says so at once: its `model` row is current and ready, and
-            # with the model the card's one thin row, the card is ready and its button says Start.
-            page.wait_for_function(
-                """() => { const li = document.querySelector('#dispatch .dispatch-row[data-row="model"]');
-                  return li.querySelector('.dr-value').textContent === 'opus 5 · fleet.models.luna'
-                    && li.classList.contains('r-ready') && !li.querySelector('.dr-why'); }""", timeout=5000)
-            assert page.inner_text("#dispatch .verdict").strip().lower() == "ready"
-            assert page.inner_text("#dispatch .dispatch-go").strip() == "Start"
+        # `more…` opens the model card, and the click that opened it does not close it.
+        page.click("#dispatch .mp-more")
+        page.wait_for_selector("#modelcard:not([hidden])", timeout=5000)
+        page.evaluate("() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))")
+        assert page.is_visible("#modelcard") and page.inner_text("#mc-repo") == "luna"
+        page.wait_for_selector('#modelcard button[data-model="claude-opus-5"]', timeout=5000)
+        page.click('#modelcard button[data-model="claude-opus-5"]')
+        assert _eventually(lambda: _luna_model() == "claude-opus-5"), "the model card's press wrote nothing"
+        # The dispatch card under it says so at once: its `model` row is current and ready, and
+        # with the model the card's one thin row, the card is ready and its button says Start.
+        page.wait_for_function(
+            """() => { const li = document.querySelector('#dispatch .dispatch-row[data-row="model"]');
+              return li.querySelector('.dr-value').textContent === 'opus 5 · fleet.models.luna'
+                && li.classList.contains('r-ready') && !li.querySelector('.dr-why'); }""", timeout=5000)
+        assert page.inner_text("#dispatch .verdict").strip().lower() == "ready"
+        assert page.inner_text("#dispatch .dispatch-go").strip() == "Start"
 
-            # The session menu says what a new session and a console start on.
-            page.wait_for_function(
-                """() => document.querySelector('.tile[data-repo="luna"] .sm-new .sm-model').textContent === 'opus 5'""",
-                timeout=5000)
-            page.keyboard.press("Escape")
-            page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
-            page.click(".tile[data-repo='luna'] .spill")
-            page.wait_for_selector(".tile[data-repo='luna'] .sm-new .sm-model", state="visible", timeout=5000)
-            assert page.inner_text(".tile[data-repo='luna'] .sm-new .sm-model") == "opus 5"
-            assert page.inner_text(".tile[data-repo='luna'] .sm-console .sm-model") == "opus 5"
-            assert page.inner_text(".tile[data-repo='luna'] .sm-console .sm-console-label") == "open in a console"
-            assert "fleet.models.luna" in page.get_attribute(".tile[data-repo='luna'] .sm-new .sm-model", "title")
-            assert not errors, errors
-            browser.close()
+        # The session menu says what a new session and a console start on.
+        page.wait_for_function(
+            """() => document.querySelector('.tile[data-repo="luna"] .sm-new .sm-model').textContent === 'opus 5'""",
+            timeout=5000)
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#modelcard[hidden]", state="attached", timeout=5000)
+        page.click(".tile[data-repo='luna'] .spill")
+        page.wait_for_selector(".tile[data-repo='luna'] .sm-new .sm-model", state="visible", timeout=5000)
+        assert page.inner_text(".tile[data-repo='luna'] .sm-new .sm-model") == "opus 5"
+        assert page.inner_text(".tile[data-repo='luna'] .sm-console .sm-model") == "opus 5"
+        assert page.inner_text(".tile[data-repo='luna'] .sm-console .sm-console-label") == "open in a console"
+        assert "fleet.models.luna" in page.get_attribute(".tile[data-repo='luna'] .sm-new .sm-model", "title")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
