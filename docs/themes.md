@@ -236,6 +236,11 @@ means the default variant, as an unknown variant does, and is saved as that vari
 - **The first frame:** the served page carries both sides' tokens under `prefers-color-scheme`, and
   the variant is picked as `common.js` runs, so the page is right in either appearance before its
   first answer.
+- **Which project, on either side:** the server cannot know the side, so a pane no project
+  coloured is sent a mark only when it passes the `--focus` test on both sides' panels and states.
+  None of the four default variants' marks does, so under `auto` such a pane is sent no accent, and
+  the tile's own border paints the strip in the side's `--focus`. A project's own accent is used as
+  chosen.
 
 | Name | Variant | Base palette | Ground | Composited panel | Text contrast | Why |
 |---|---|---|---|---|---|---|

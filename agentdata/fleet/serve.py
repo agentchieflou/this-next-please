@@ -638,13 +638,31 @@ def fleet_snapshot() -> dict:
     served_panels = SK.panels_on(served.name) if served.name != "none" else []
     default_mark = T.pane_mark(served, panels=served_panels)
     served_css = T.to_css(served, panels=served_panels)
+    # The grounds and states a mark is judged on: the served palette's, or, under `<skin>:auto`
+    # (#342), each side's, since the page picks its side and the server cannot know which.
+    sides = [(served_css, served_panels)] if served_css else []
+    if skin_info and skin_info.get("auto"):
+        sides = []
+        for v in skin_info["auto"].values():
+            st = theme_or_none(v["base"])
+            panels = SK.panels_on(st.name) if st.name != "none" else []
+            sides.append((T.to_css(st, panels=panels) if st.name != "none" else {}, panels))
+
+    def clear_everywhere(colour: str | None) -> bool:
+        return bool(sides) and all(css and T.marks_clear(colour, (css["--panel"], *panels),
+                                                         [css[r] for r in T.ROLES])
+                                   for css, panels in sides)
+
+    if skin_info and skin_info.get("auto") and not clear_everywhere(default_mark):
+        # The default variant's mark does not read on the other side: send none, and the tile's own
+        # border paints the strip in `--focus`, which each side's tokens carry and rule 10 holds.
+        default_mark = ""
 
     def palette_mark(colour: str | None) -> str:
         """A palette's accent where it reads as no state on the served page, else the served palette's mark."""
         if not served_css:
             return ""
-        grounds = (served_css["--panel"], *served_panels)
-        return colour if T.marks_clear(colour, grounds, [served_css[r] for r in T.ROLES]) else default_mark
+        return colour if clear_everywhere(colour) else default_mark
     proj_theme_map = cfg.get("theme", {}).get("projects", {})
     if not isinstance(proj_theme_map, dict):
         proj_theme_map = {}

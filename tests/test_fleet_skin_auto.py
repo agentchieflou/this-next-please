@@ -15,7 +15,7 @@ from agentdata import config as C
 from agentdata.fleet import serve as S
 from agentdata.fleet import skins as K
 
-from test_fleet_ink import _serve, _stop, fleet_home  # noqa: F401
+from test_fleet_ink import _desk_of, _serve, _stop, fleet_home  # noqa: F401
 
 PAIRS = {"notebook": ("light", "dark"), "glass": ("frost", "smoke"),
          "graph": ("engineering", "blueprint"), "farmstead": ("daytime", "cave")}
@@ -121,3 +121,29 @@ def test_themes_lists_the_pair_only_where_a_skin_has_one(fleet_home):
         assert {light, dark} <= {v["name"] for v in listed[family]["variants"]}
     for family in ("legalpad", "napkin", "voxel", "none"):
         assert "auto" not in listed[family], family
+
+
+def test_a_pane_no_project_coloured_wears_no_state_on_either_side_of_an_auto_skin(fleet_home, tmp_path):
+    """#342 with #339. The server cannot know which side the page is on, so a pane no project
+    coloured is sent a mark only when it passes #339's test on both sides: >= 3:1 on each side's
+    panel and panels, and clear of each side's states. Otherwise it is sent none, and the tile's own
+    border paints the strip in `--focus`, which each side's tokens carry (rule 10). A project's own
+    accent is used as chosen, as on a fixed skin."""
+    from agentdata import theme as T
+    _desk_of(tmp_path, ("alpha", "beta", "gamma"))
+    for family in PAIRS:
+        cfg = C.load()
+        cfg["theme"] = {"skin": f"{family}:auto", "projects": {"gamma": {"accent": "#3FB950"}}}
+        C.save(cfg)
+        accents = {r["repo"]: r["accent"] for r in S.fleet_snapshot()["repos"]}
+        assert accents["gamma"] == "#3FB950", accents
+        for side, v in K.get_skin(f"{family}:auto")["auto"].items():
+            panels = K.panels_on(v["base"])
+            tokens = T.to_css(S.theme_or_none(v["base"]), panels=panels)
+            roles = [tokens[r] for r in T.ROLES]
+            for repo in ("alpha", "beta"):
+                mark = accents[repo]
+                assert mark == "" or T.marks_clear(mark, (tokens["--panel"], *panels), roles), \
+                    (family, side, repo, mark)
+                shown = mark or tokens["--focus"]
+                assert T.marks_clear(shown, (tokens["--panel"], *panels), roles), (family, side, repo, shown)
