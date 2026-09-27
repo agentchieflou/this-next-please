@@ -21,10 +21,12 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 
 import pytest
 
-from agentdata.fleet import events as E, registry, serve as S
+from agentdata import textio
+from agentdata.fleet import approval, events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
@@ -326,11 +328,61 @@ def test_a_tier_is_left_only_eight_pixels_past_its_boundary(fleet_home, tmp_path
     assert got["fromRail"] == ["rail", "compact", "compact", "full"]
 
 
+# The desktop's own scale, read with a mouse (#574: the coarse block must not move it).
+FINE_SCALE = """() => {
+  const g = (el) => getComputedStyle(el);
+  return { button: g(document.querySelector('.tile.is-solo .row.bottom .send')).minHeight,
+           segment: g(document.querySelector('.segment')).minHeight,
+           body: g(document.body).fontSize,
+           gutter: g(document.querySelector('.gutter')).width };
+}"""
+
+# Every control a finger can reach in the open pane, the header and the footer, and every field.
+COARSE_TARGETS = """() => {
+  const seen = (el) => { const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
+  const small = [];
+  let n = 0;
+  for (const root of [document.querySelector('.tile.is-solo'), document.querySelector('header'),
+                      document.querySelector('footer')])
+    for (const el of root.querySelectorAll('button, a[href], input, select, textarea, [tabindex="0"]')) {
+      if (!seen(el)) continue;
+      n += 1;
+      const r = el.getBoundingClientRect();
+      if (r.width < 44 || r.height < 44)
+        small.push(`${root.tagName.toLowerCase()} ${el.className || el.id || el.tagName} ${Math.round(r.width)}x${Math.round(r.height)}`);
+    }
+  const fonts = [...document.querySelectorAll('input, textarea, select')]
+    .map((el) => [el.className || el.id || el.tagName, getComputedStyle(el).fontSize])
+    .filter(([, size]) => size !== '16px');
+  return { seen: n, small, fonts };
+}"""
+
+# The approval card's decision row, before and after its payload scrolls.
+DECISION_ROW = """() => {
+  const pane = document.querySelector('.tile.is-solo');
+  const card = pane.querySelector('.approval'), row = card.querySelector('.row'), pre = card.querySelector('pre');
+  const read = () => { const p = pane.getBoundingClientRect();
+    return { row: row.getBoundingClientRect().toJSON(), pane: p.toJSON(),
+             foot: Math.min(p.bottom, window.innerHeight),
+             kids: [...row.children].map((k) => k.getBoundingClientRect().toJSON()) }; };
+  const before = read();
+  pre.scrollTop = pre.scrollHeight;
+  return { before, after: read(), scrolled: pre.scrollTop };
+}"""
+
+
 @pytest.mark.browser
 def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp_path):
     """The draw skips what a tier does not show -- a compact pane paints no trace and builds no
     cells -- so a change of tier has to draw the pane again, in the same frame, or a pane made wide
-    by a bigger window would sit there without its cells until the next event."""
+    by a bigger window would sit there without its cells until the next event.
+
+    And a finger (#574): at 390x844 under a coarse pointer every control in the open pane, the
+    header and the footer is 44 px both ways and every field is set at 16 px (iOS zooms the page
+    into a field under 16 px); the approval card's Approve, reason and Deny wrap to three full
+    lines that stay at the pane's foot while the payload scrolls. At 1400x900 with a mouse the
+    desktop's 28 px / 13 px scale is what it was."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["r%02d" % n for n in range(6)]
     _repos(tmp_path, names)
@@ -360,6 +412,27 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
             page.wait_for_selector('.tile[data-repo="r00"][data-tier="compact"]', timeout=5000)
             rails = page.evaluate("""() => [...document.querySelectorAll(
               '#grid .tile[data-tier="rail"]')].map(t => Math.round(t.getBoundingClientRect().width))""")
+            page.set_viewport_size({"width": 1400, "height": 900})
+            page.wait_for_selector(".gutter", state="attached", timeout=5000)
+            mouse = page.evaluate(FINE_SCALE)
+            assert not errors, errors
+
+            # A pending approval on the open pane, then the same desk on a phone.
+            os.makedirs(approval.approvals_dir(), exist_ok=True)
+            rid = approval.new_id("r01", "jira-transition")
+            textio.write_json(os.path.join(approval.approvals_dir(), rid + ".json"), {
+                "id": rid, "repo": "r01", "ticket": "RDSD-1", "kind": "jira-transition",
+                "summary": "RDSD-1: In Progress -> In Review",
+                "payload": {"lines": ["line %d of the dry run" % n for n in range(80)]},
+                "created": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "pid": os.getpid()})
+            phone = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3,
+                                        is_mobile=True, has_touch=True)
+            m = phone.new_page()
+            m.on("pageerror", lambda e: errors.append(str(e)))
+            m.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            m.wait_for_selector('.tile.is-solo[data-repo="r01"] .approval:not([hidden])', timeout=15000)
+            finger = m.evaluate(COARSE_TARGETS)
+            card = m.evaluate(DECISION_ROW)
             assert not errors, errors
             browser.close()
     finally:
@@ -369,6 +442,18 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
     assert after["trace"], "widened to full, the pane never drew its trace"
     assert after["runline"] != "none", after
     assert rails == [RAIL_PX] * 3, rails
+
+    assert mouse == {"button": "28px", "segment": "24px", "body": "13px", "gutter": "8px"}, mouse
+    assert finger["seen"] > 10, finger
+    assert not finger["small"], f"under 44 px at 390 under a finger: {finger['small']}"
+    assert not finger["fonts"], f"fields under 16 px (iOS zooms into them): {finger['fonts']}"
+    kids, row = card["before"]["kids"], card["before"]["row"]
+    assert len(kids) == 3 and all(abs(k["width"] - row["width"]) <= 1 for k in kids), card
+    assert kids[0]["bottom"] <= kids[1]["top"] and kids[1]["bottom"] <= kids[2]["top"], card
+    assert card["scrolled"] > 0, "the payload never scrolled"
+    for step in ("before", "after"):
+        seen = card[step]
+        assert seen["row"]["top"] >= seen["pane"]["top"] and seen["row"]["bottom"] <= seen["foot"] + 1, (step, card)
 
 
 @pytest.mark.browser
