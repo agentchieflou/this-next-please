@@ -561,8 +561,10 @@ def test_the_night_notebook_screens_its_highlighter_onto_charcoal(fleet_home, tm
         # A loaded runner: the next skin's module is up, and the layer has read the page's
         # colours, before that skin's stylesheet applies. The sheet is held until then; once
         # it lands the layer must read them again, or its highlighter stays the fallback.
-        late = inked.pop(0)
-        assert late == "farmstead:daytime", late      # light paper after charcoal, a family of its own
+        # Light paper after charcoal, a family of its own: taken by name, since the order of
+        # HIGHLIGHTED is every_variant()'s, and voxel's worlds (#334) come before farmstead's.
+        late = "farmstead:daytime"
+        inked.remove(late)
         held = []
         page.route("**/static/skins/*/skin.css*", lambda route: held.append(route))
         _choose(page, late)
