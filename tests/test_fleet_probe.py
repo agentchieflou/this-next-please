@@ -39,6 +39,7 @@ from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
 from desk_harness import close_pages
+from desk_waits import DESK_WAIT_MS, counted, observe_quiet
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -640,7 +641,7 @@ def test_a_shell_without_webgl_says_so_and_posts_once(running, desk_browser):
     for a scene that cannot be drawn."""
     _server, token, port = running
     browser = desk_browser
-    page = browser.new_page()
+    page = counted(browser.new_page())
     page.add_init_script("""
           const real = HTMLCanvasElement.prototype.getContext;
           HTMLCanvasElement.prototype.getContext = function (kind, attrs) {
@@ -654,7 +655,9 @@ def test_a_shell_without_webgl_says_so_and_posts_once(running, desk_browser):
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=edge")
     _wait_saved(page)
-    page.wait_for_timeout(300)
+    # Over the page's own work, not a clock: anything the save left in flight or armed runs out
+    # before the posts are counted.
+    observe_quiet(page, passes=2, drive=False)
     shown = page.text_content("#verdict")
     close_pages(browser)
     assert errors == []
@@ -678,7 +681,7 @@ def test_an_ide_window_goes_to_the_probe_by_itself_and_comes_back(running, tmp_p
     printed = {}
 
     browser = desk_browser
-    page = browser.new_page(viewport={"width": 1280, "height": 720})
+    page = counted(browser.new_page(viewport={"width": 1280, "height": 720}))
     asked = []
     page.on("request", lambda r: asked.append((r.method, r.url.split("?")[0])))
     page.goto(f"http://127.0.0.1:{port}/?t={token}&w=pycharm&layout=grid")
@@ -695,7 +698,9 @@ def test_an_ide_window_goes_to_the_probe_by_itself_and_comes_back(running, tmp_p
     _wait_saved(page)
     page.wait_for_url(lambda u: "/probe" not in u, timeout=20000)
     page.wait_for_selector(".tile", timeout=15000)
-    page.wait_for_timeout(1200)
+    # The desk's own boot runs out -- the fleet, then the desk record a second ask would be read
+    # from -- and it is still here.
+    observe_quiet(page, passes=2, drive=False)
     assert "/probe" not in page.url, "the desk went round again"
     terminal.join(timeout=45)
     close_pages(browser)
@@ -754,7 +759,7 @@ def test_a_hidden_window_waits_to_be_shown_and_then_measures(running, desk_brows
     is looked at."""
     _server, token, port = running
     browser = desk_browser
-    page = browser.new_page()
+    page = counted(browser.new_page())
     page.add_init_script(HIDDEN_UNTIL_SHOWN)
     posts = []
     page.on("request", lambda r: posts.append(r.url) if r.method == "POST" else None)
@@ -762,7 +767,8 @@ def test_a_hidden_window_waits_to_be_shown_and_then_measures(running, desk_brows
     page.wait_for_function(
         "() => /waiting for this window/.test(document.getElementById('state').textContent)",
         timeout=15000)
-    page.wait_for_timeout(1500)
+    # Everything the hidden page has in flight or armed runs out, and it has posted nothing.
+    observe_quiet(page, passes=2, drive=False)
     assert posts == [], "a hidden window posted"
     page.evaluate("() => __show(true)")
     _wait_saved(page)
@@ -770,6 +776,19 @@ def test_a_hidden_window_waits_to_be_shown_and_then_measures(running, desk_brows
     rec = PR.load()["vscode"]
     assert rec["hidden"] is False and rec["drawn"] is True and rec["frames"] >= PR.MIN_FRAMES, rec
     assert PR.classify(rec) != "incomplete"
+
+
+#: The probe's draw calls, counted as WebGL makes them: the page's own "drawing" text is in probe.html
+#: from the start, so the first frame drawn is what says the probe is drawing (#305).
+COUNT_DRAWS = """
+  window.__draws = 0;
+  for (const C of [WebGLRenderingContext, WebGL2RenderingContext]) {
+    for (const name of ['drawArrays', 'drawElements']) {
+      const real = C.prototype[name];
+      C.prototype[name] = function () { window.__draws += 1; return real.apply(this, arguments); };
+    }
+  }
+"""
 
 
 @pytest.mark.browser
@@ -781,10 +800,12 @@ def test_a_window_hidden_while_it_draws_does_not_overwrite_the_measurement(runni
     page = browser.new_page()
     page.add_init_script(HIDDEN_UNTIL_SHOWN.replace("window.__hidden = true;",
                                                     "window.__hidden = false;"))
+    page.add_init_script(COUNT_DRAWS)
     page.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=vscode")
     page.wait_for_function(
         "() => /drawing/.test(document.getElementById('state').textContent)", timeout=15000)
-    page.wait_for_timeout(500)
+    # Mid-draw: once three.js has drawn the probe's first frame, and not before.
+    page.wait_for_function("() => window.__draws > 0", timeout=15000)
     page.evaluate("() => __show(false)")
     _wait_saved(page)
     state = page.text_content("#state")
@@ -836,11 +857,17 @@ def test_a_desk_with_a_half_typed_reply_waits_before_it_goes(running, tmp_path, 
     box = page.locator('.tile[data-repo="alpha"] .say')
     box.wait_for(timeout=15000)
     box.fill("half a reply")
+    # Each look the desk takes at the box before it goes (`goProbe`, then its once-a-second
+    # check), counted: `unsentText` is a global the page calls through its binding.
+    page.evaluate("""() => { const real = window.unsentText; window.__looks = 0;
+                           window.unsentText = function () { window.__looks += 1;
+                                                             return real.apply(this, arguments); }; }""")
     S.measure("pycharm")
     page.wait_for_function(
         "() => /asked this window to go to the probe/.test(document.body.textContent)",
         timeout=10000)
-    page.wait_for_timeout(1500)
+    # The ask, and then two of the page's own checks after it, found the reply there and stayed.
+    page.wait_for_function("() => window.__looks >= 3", timeout=DESK_WAIT_MS)
     assert "/probe" not in page.url, "the desk left with a reply half typed"
     assert S._measure_asks.get("pycharm"), "the ask was taken while the desk stayed"
     box.fill("")
