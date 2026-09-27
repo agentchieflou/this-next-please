@@ -2178,9 +2178,14 @@ def test_a_skin_draws_a_material_with_a_tools_stroke(fleet_home, tmp_path, desk_
         assert not errors, errors
         page.close()
 
-        # Reduced motion: the whole line on the first tick, and on the paper to its end.
+        # Reduced motion: the whole line on the first tick, and on the paper to its end. Settled
+        # first (#604): under reduced motion app.css gives every element a 0.01ms transition of
+        # `all`, so the pane that went from rail to full as the page loaded keeps the rail's zero
+        # padding until a frame starts the transition. A `frame` hook called in that frame builds
+        # the group, and the 8px the padding then adds builds it again, drawing the line twice.
         page, errors, _ = _open(browser, port, token, "&ink=on", reduced=True)
         page.evaluate(INK_PEN, ["#ff0000", "#0000ff"])
+        settle(page)
         assert page.evaluate(MATERIAL) == "ink"
         _rest(page, DRAWN)
         ticks = page.evaluate("() => __m.ticks")
