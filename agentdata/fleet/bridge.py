@@ -34,9 +34,9 @@ Records are allow-listed field by field by the exporter. The free text inside th
 table or a row, so `Scrubber` removes, in order: credential shapes (`events.redact()`), every fact
 value of every registered project except the `LINK_FACTS`, the desk's run token, every checkout path,
 `fleet_dir()`, the home folder, the user and machine names, then UNC and drive-path shapes, and
-dotted hostnames other than the hosts of `LINK_FACTS` URLs. `.agent/out/<dir>/<file>` is reduced to
-`.agent/out/<file>`: the rows never leave (AGENTS.md rule 5), but the operator still learns which
-file an approval sends. A deny-list built from the laptop's own facts first, then generic shapes,
+dotted hostnames other than the hosts of `LINK_FACTS` URLs (a three-part version such as `0.17.0` is
+not one). `.agent/out/<dir>/<file>` is reduced to `.agent/out/<file>`: the rows never leave (AGENTS.md
+rule 5), but the operator still learns which file an approval sends. A deny-list built from the laptop's own facts first, then generic shapes,
 because an allow-list cannot be applied to prose.
 """
 from __future__ import annotations
@@ -177,6 +177,9 @@ _UNC = re.compile(r"\\\\[^\s\"']+")
 _DRIVE = re.compile(r"(?<![\w])[A-Za-z]:[\\/][^\s\"']+")      # not the `s:/` of `https://`
 _AGENT_OUT = re.compile(r"\.agent[\\/]out[\\/](\S+)")
 _HOST = re.compile(r"\b[\w-]+(?:\.[\w-]+){2,}\b")
+# Three numbers are a version (`0.17.0`, `v1.4.10`), not a host: no DNS name ends in a numeric label, and
+# an IPv4 address has four. Anything longer or with a letter after the `v` is still a `<host>`.
+_VERSION = re.compile(r"v?\d+\.\d+\.\d+", re.I)
 _FACT_MIN = 4
 _NAME_MIN = 3
 
@@ -232,7 +235,8 @@ class Scrubber:
         out = _UNC.sub("<unc>", out)
         out = _DRIVE.sub("<path>", out)
         out = _AGENT_OUT.sub(lambda m: ".agent/out/" + re.split(r"[\\/]", m.group(1))[-1], out)
-        out = _HOST.sub(lambda m: m.group(0) if m.group(0).lower() in self.link_hosts else "<host>", out)
+        out = _HOST.sub(lambda m: m.group(0) if m.group(0).lower() in self.link_hosts
+                        or _VERSION.fullmatch(m.group(0)) else "<host>", out)
         if limit and len(out) > limit:
             out = out[:max(0, limit - 1)] + "…"
         return out
