@@ -1048,10 +1048,10 @@ def _retry_move(p: _Pass, path: str, name: str, state: dict) -> bool:
 # until its `expires`, then refused `mid_turn` with `retried_s` (MOB-D7). `force` is never read (MOB-D8). The text
 # goes to the agent exactly as typed; nothing of it reaches the stream or the outbox (`answered` ids, a word count).
 
-MESSAGE_MAX = 4000
+MESSAGE_MAX = LIMITS["message"]
 ANSWERS_MAX = 8
 ANSWER_ID_MAX = 32
-ANSWER_MAX = 1000
+ANSWER_MAX = LIMITS["answer"]
 
 
 def _check_reply(p: _Pass, record: dict) -> tuple[str, str, list[str]]:
