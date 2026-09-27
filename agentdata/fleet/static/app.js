@@ -564,8 +564,8 @@ function drawScopeReport(el, row) {
 }
 
 function paintAccent(el, accent) {
-  if (!el || !accent) return;
-  style(el, "border-left-color", accent);
+  if (!el) return;
+  style(el, "border-left-color", accent || "");
 }
 
 var TRACE_H = 18;
@@ -1476,11 +1476,11 @@ function connect() {
       var d = JSON.parse(m.data);
       applyThemeState(d);
       applyTiers(d.tiers);
-      if (d.accents) {
-        Object.keys(d.accents).forEach(function (repo) {
-          if (tiles.has(repo)) paintAccent(tiles.get(repo).el, d.accents[repo]);
-        });
-      }
+      var a = d.accents || {};
+      tiles.forEach(function (entry, name) {
+        var row = entry.row || {};
+        paintAccent(entry.el, a[row.project] || a[name] || a[row.path]);
+      });
     } catch (err) {}
   });
   source.addEventListener("models", function () {
