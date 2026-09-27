@@ -561,6 +561,9 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
             argv = launches(2)
             assert posts[-1] == ("fresh", {"repo": "gamma"}), posts
             assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-gamma" in prompt_of(argv)
+            # The supervisor writes the `started` after the launch the fixture records (#586), so
+            # the stream is waited for rather than read at once.
+            assert _eventually(lambda: len([e for e in E.read("gamma") if e["kind"] == "started"]) == 2)
             began = [e["data"] for e in E.read("gamma") if e["kind"] == "started"][-1]
             assert began["new"] is True and began["leaves"]["session"] == "s-gamma", began
             # A ticket key in the box is today's *Start {ticket}*: it posts `start`, and the live agent
@@ -629,6 +632,85 @@ def test_the_session_menu_is_operable_without_a_mouse(fleet_home, tmp_path, spaw
             head.click()
             argv = launches(4)
             assert "--resume" not in argv and "RDSD-1" in prompt_of(argv) and "s-eps" in prompt_of(argv)
+            assert not errors, errors
+
+            # #544: the sidebar toggle works on a window that has never been seen. A phone's first
+            # write is a rail tap, which makes the record; the page used to read the record's old
+            # default section `tickets` (the board's list) back as the open section, and the toggle
+            # opened that dead id forever. Then the map's `Enter` path: a record made before any
+            # page has read it; and a record an older server wrote with `tickets`, left as it is.
+            sections = ("", "board", "unsorted", "drawer", "found", "inspector")
+            S.update_window(w="frommap", open="alpha")
+            S.update_window(w="oldrecord", open="alpha", section="tickets")
+            for w, first in (("phone544", "rail tap"), ("frommap", "none"), ("oldrecord", "none")):
+                phone = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True)
+                tab = phone.new_page()
+                tab.on("pageerror", lambda e: errors.append(str(e)))
+                tab.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid&w={w}", wait_until="domcontentloaded")
+                tab.wait_for_selector(".tile:visible", timeout=15000)
+                if first == "rail tap":
+                    rail = tab.locator('.tile[data-tier="rail"] .pane-rail').first
+                    name = rail.evaluate("el => el.closest('.tile').dataset.repo")
+                    rail.tap()
+                    tab.wait_for_selector(f'.tile[data-repo="{name}"]:not([data-tier="rail"])', timeout=10000)
+                    assert _eventually(lambda: S.desk_state()["windows"].get(w, {}).get("open") == name)
+                    tab.wait_for_function(                    # the answer is back on the page
+                        f"() => !windowWrites && ((desk.desk.windows || {{}})[W_NAME] || {{}}).open === '{name}'",
+                        timeout=10000)
+                if w != "oldrecord":
+                    assert S.desk_state()["windows"][w]["section"] in sections, S.desk_state()["windows"][w]
+                tab.click("#sidetoggle")
+                tab.wait_for_function("() => !document.getElementById('side').hidden", timeout=5000)
+                assert _eventually(lambda: S.desk_state()["windows"][w]["section"] in sections[1:])
+                # At 390 px the open sheet's scrim lies over the toolbar, so a pointer cannot reach
+                # the button a second time (a tap there closes the sheet, #576, below). The press is
+                # the button's own click, which is what the toggle is.
+                tab.locator("#sidetoggle").dispatch_event("click")
+                tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
+                tab.keyboard.press("b")                       # `b` still opens the board ...
+                tab.wait_for_function(
+                    "() => !document.getElementById('side').hidden && !document.getElementById('board').hidden",
+                    timeout=5000)
+                if w == "phone544":
+                    # #576: at 640 px and under the sidebar is a full-width sheet over a scrim. A tap
+                    # inside the sheet leaves it open; a tap on the scrim above it closes it.
+                    sheet = tab.locator("#side").bounding_box()
+                    assert sheet["x"] == 0 and sheet["width"] == 390 and sheet["y"] > 0, sheet
+                    tab.locator("#board .drawer-head strong").tap()
+                    tab.wait_for_timeout(300)
+                    assert tab.evaluate("() => !document.getElementById('side').hidden"), \
+                        "a tap inside the sheet closed it"
+                    y = sheet["y"] / 2
+                    assert tab.evaluate(f"() => document.elementFromPoint(195, {y}).id") == "side", \
+                        "no scrim above the sheet"
+                    assert tab.evaluate(
+                        "() => getComputedStyle(document.getElementById('side'), '::before').backgroundColor"
+                    ) == "rgba(0, 0, 0, 0.3)"
+                    tab.touchscreen.tap(195, y)
+                    tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
+                    assert _eventually(lambda: S.desk_state()["windows"][w]["section"] == "")
+                    # At a tablet's 820 px the sheet is min(480px, 60vw) and the open pane shows
+                    # beside it; at 1280 px it is the column it was, clamp(300px, 28vw, 440px), and
+                    # no scrim.
+                    tab.set_viewport_size({"width": 820, "height": 1180})
+                    tab.keyboard.press("b")
+                    tab.wait_for_function("() => !document.getElementById('side').hidden", timeout=5000)
+                    sheet = tab.locator("#side").bounding_box()
+                    pane = tab.locator('.tile:not([data-tier="rail"]):visible').first.bounding_box()
+                    assert sheet["width"] == 480 and sheet["x"] + sheet["width"] == 820, sheet
+                    assert pane["x"] < sheet["x"], (pane, sheet)
+                    tab.set_viewport_size({"width": 1280, "height": 900})
+                    tab.wait_for_function(
+                        "() => getComputedStyle(document.getElementById('side')).position === 'static'",
+                        timeout=5000)
+                    column = tab.locator("#side").bounding_box()
+                    assert 300 <= column["width"] <= 440 and column["x"] + column["width"] == 1280, column
+                    assert tab.evaluate(
+                        "() => getComputedStyle(document.getElementById('side'), '::before').content") == "none"
+                    tab.set_viewport_size({"width": 390, "height": 844})
+                tab.keyboard.press("Escape")                  # ... and `Esc` still closes it
+                tab.wait_for_function("() => document.getElementById('side').hidden", timeout=5000)
+                phone.close()
             assert not errors, errors
             browser.close()
     finally:

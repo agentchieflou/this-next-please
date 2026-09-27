@@ -8,6 +8,7 @@ body[data-skin="farmstead"] {
   --farm-band-ink-soft: #F0DCC0;
   --farm-rain: #A9C4DC;
   --ink-pencil: #74695A;
+  --ink-highlighter: #E2B45C;
 }
 
 body[data-skin="farmstead"][data-skin-variant="cave"] {
@@ -21,7 +22,7 @@ body[data-skin="farmstead"][data-skin-variant="cave"] {
   --farm-rain: #9DB8D6;
   --farm-firefly: #D8F07A;
   --ink-pencil: #968F82;
-  --ink-highlighter: #A8861F;
+  --ink-highlighter: #816718;
 }
 
 body[data-skin="farmstead"][data-skin-variant="rainy"] {
@@ -34,6 +35,7 @@ body[data-skin="farmstead"][data-skin-variant="rainy"] {
   --farm-band-ink-soft: #B9CBE4;
   --farm-rain: #8FB0D8;
   --ink-pencil: #8A97AB;
+  --ink-highlighter: #D4A73D;
 }
 
 body[data-skin="farmstead"]:not(.ink-off) header,

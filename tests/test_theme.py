@@ -401,6 +401,51 @@ def test_the_pressed_ground_holds_text_at_4_5():
         assert colour in exc.value.hint, (colour, exc.value.hint)
 
 
+def test_theme_check_rule_10_focus_is_never_a_state():
+    """Rule 10 of theme.check (#339): `--focus`, the keyboard ring, the selected pane's ring and a pressed
+    control's ring, reads >= 3:1 on the palette's panel and every panel it is drawn on, and is achromatic or
+    >= 30 degrees of hue from every chromatic role -- for every built-in with `skins.panels_on(name)` and 200
+    random rolls. It is the cursor where the cursor passes, else the text made neutral; and a palette whose
+    neutral cannot reach 3:1 is refused by rule 10 alone, naming the ring and the panel."""
+    from agentdata.fleet import skins
+
+    palettes = [(t, skins.panels_on(t.name)) for t in theme.list_themes() if t.name != "none"]
+    palettes += [(theme.random_theme(i * 1013 + 7), []) for i in range(200)]
+    kept = []
+    for t, panels in palettes:
+        theme.check(t, panels=panels)
+        c = theme.to_css(t, panels=panels)
+        roles = [c[r] for r in ROLES]
+        focus = c["--focus"]
+        assert all(theme.contrast_ratio(focus, g) >= 3.0 for g in (c["--panel"], *panels)), (t.name, focus)
+        assert theme.saturation(focus) <= 0.25 or all(
+            theme.hue_distance(focus, r) >= 30 for r in roles if theme.saturation(r) > 0.25), (t.name, focus)
+        if focus == t.cursor:
+            kept.append(t.name)
+        else:
+            assert focus == theme.neutral(t.text), (t.name, focus)
+        assert theme.escapes(t).endswith(f"\x1b]12;{t.cursor}\x1b\\"), "the terminal's cursor is unchanged"
+    # The issue's own measurements at 8557b2b: dark's cursor is --running's hue, sand's is --waiting's.
+    assert "vanta-black" in kept and "dark" not in kept and "sand" not in kept, kept
+    assert theme.to_css(theme.get("dark"))["--focus"] == theme.neutral("#E3E7EA")
+
+    crafted = Theme(
+        name="red-ink", title="Red ink", why="a saturated text whose grey is too light to ring with",
+        ground="#FFFFFF", text="#B00000", accent="#B00000", cursor="#B00000",
+        ansi=theme._make_ansi("#FFFFFF", "#B00000", "#B00000", light=True),
+        status={"ok": "#2E7D32", "warn": "#8A6D00", "fail": "#C62828", "skip": "#6E6E6E",
+                "info": "#1565C0"},
+        light=True, muted="#595959",
+    )
+    c = theme.to_css(crafted)
+    assert c["--focus"] == theme.neutral("#B00000") and theme.contrast_ratio(c["--focus"], "#FFFFFF") < 3.0, c
+    with pytest.raises(ThemeError) as exc:
+        check(crafted)
+    # Refused by rule 10, the last: rules 1-9 passed it.
+    assert "the focus ring is" in str(exc.value) and "below 3:1 floor" in str(exc.value), str(exc.value)
+    assert c["--focus"] in exc.value.hint and "#B00000" in exc.value.hint, exc.value.hint
+
+
 def test_theme_escapes_are_byte_identical_to_golden():
     """theme.escapes(t) for every built-in is byte-identical to golden captured at 8557b2b."""
     golden = {
@@ -418,3 +463,37 @@ def test_theme_escapes_are_byte_identical_to_golden():
     }
     for t in theme.list_themes():
         assert theme.escapes(t) == golden[t.name]
+
+
+def test_theme_check_rule_5_reads_the_highlighter_as_the_ink_layer_blends_it():
+    """#329: rule 5 used to read the text through a 38% tint of the highlighter, but the ink layer
+    screens the swipe onto a dark ground at 0.42 of the ink and multiplies it into a light one at
+    0.68 (`static/ink/pen.js`). Glass smoke's old amber passed the tint and read 4.10:1 on the
+    frost's light end; the new one passes. `plain=True` is the plain fallback's 38% tint."""
+    dark, panel = theme.get("dark"), "#273D57"
+    assert theme.is_dark("#1B1E25") and not theme.is_dark("#FBFBF6")
+    assert theme.highlight_under("#000000", "#FFFFFF", True) == theme.rgb_to_hex((0.42,) * 3)
+    assert theme.highlight_under("#FFFFFF", "#000000", False) == theme.rgb_to_hex((0.32,) * 3)
+    old = "#D29922"
+    assert round(theme.contrast_ratio(dark.text, theme.highlight_under(panel, old, True)), 2) == 4.10
+    with pytest.raises(theme.ThemeError) as exc:
+        theme.check(dark, composited_panel=panel, skin="glass:smoke", inks={"highlighter": old})
+    assert "through the highlighter is 4.10:1" in exc.value.args[0]
+    theme.check(dark, composited_panel=panel, skin="glass:smoke", inks={"highlighter": "#A97B1B"})
+    # The same old ink, read the plain way, is the 38% tint -- which it passes.
+    theme.check(dark, composited_panel=panel, inks={"highlighter": old}, plain=True)
+    assert theme.contrast_ratio(dark.text, theme.mix(panel, old, theme.INK_TINT)) >= 4.5
+    # `dark` is the variant's, not the panel's: a light paper named dark is screened.
+    with pytest.raises(theme.ThemeError):
+        theme.check(dark, composited_panel=panel, inks={"highlighter": old}, dark=True)
+
+
+def test_the_highlighter_model_uses_the_constants_the_shader_draws_with():
+    """`HL_SCREEN` and `HL_MULTIPLY` are pen.js's highlighter branch, so the model cannot drift."""
+    import os
+    pen = open(os.path.join(os.path.dirname(theme.__file__), "fleet", "static", "ink", "pen.js"),
+               encoding="utf-8").read()
+    branch = pen[pen.index("if (uKind > 3.5 && uKind < 4.5)"):]
+    branch = branch[:branch.index("return;")]
+    assert f"uColor * ha * {theme.HL_SCREEN}" in branch, branch
+    assert f"mix(vec3(1.0), uColor, ha * {theme.HL_MULTIPLY})" in branch, branch

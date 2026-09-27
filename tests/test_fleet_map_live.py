@@ -195,24 +195,34 @@ def test_the_map_follows_the_fleet_from_its_cursor_and_keeps_deleted_branches_in
             && window.__streams[0].tick > {ticks}""", timeout=15000)
         assert page.evaluate("() => window.__linkMuts") == 0
 
-        # The operator opens the branches; a fake agent then talks every 100 ms for 3 s.
+        # The operator opens the branches; a fake agent then talks every 100 ms, for 3 s and then
+        # for as long as the map has not refetched 5 times (#583). The stream sends a pass's events
+        # as one batch, a pass every `TICK_S` after the last one ended, so a busy fleet is one
+        # refetch per pass: 3 s of talk was 4 refetches once a loaded runner's pass took 0.35 s.
         group = '#maptree [data-node="bs:luna"]'
         page.click(group + " > .say")
         page.wait_for_function(
             f"() => document.querySelector('{group}').getAttribute('aria-expanded') === 'true'",
             timeout=5000)
         before = len(maps)
-        done = threading.Event()
+        cadence, enough, talked = threading.Event(), threading.Event(), [0]
 
         def agent():
-            for i in range(30):
+            for i in range(150):
+                if i >= 30 and enough.is_set():
+                    return
                 E.append("luna", [_say("luna", 200 + i)])
-                done.wait(0.1)                  # the agent's cadence, not a wait for the page
+                talked[0] = i + 1
+                cadence.wait(0.1)               # the agent's cadence, not a wait for the page
         talker = threading.Thread(target=agent, daemon=True)
         talker.start()
+        while len(maps) - before < 5 and talker.is_alive():
+            page.wait_for_event("request", predicate=lambda r: "/api/map" in r.url, timeout=15000)
+        enough.set()
         talker.join(timeout=30)
-        page.wait_for_function("() => FleetMap.stream.frames === 31", timeout=15000)
+        page.wait_for_function(f"() => FleetMap.stream.frames === {1 + talked[0]}", timeout=15000)
         assert len(maps) - before >= 5, maps[before:]
+        assert len(maps) - before <= talked[0] // 2, "the map refetched per frame, not per 400 ms"
         assert page.get_attribute(group, "aria-expanded") == "true"
 
         # A branch leaves the next graph: its item stays, in words, until the list changes again.

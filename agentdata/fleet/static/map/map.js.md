@@ -61,6 +61,17 @@ lack. It stays until a later graph changes that project's branch list again. Thi
 thing the tree carries from one graph to the next; it lives in memory and is not persisted.
 ```
 
+### `function mapOnTwisty`
+
+Above `function mapOnTwisty(say, e) {` and the tree's `click` listener after it:
+
+A press on a checkout's or an agent's words opens it on the desk, as Enter does (#578): on a
+phone there is no Enter, and a tap that only moved the focus left the tree a list to read and
+never a way in. The primary button with no modifier only, so a Ctrl-click stays the browser's.
+The twisty (`.say::before`, the item's first 1.1em) keeps its own click, so a checkout still
+folds and unfolds its agent; a project's and the branches' words still fold, as before. The
+twisty is found by where the press landed, since a pseudo-element is never an event target.
+
 ## load and handle
 
 ### `function mapNewer`

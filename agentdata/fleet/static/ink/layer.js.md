@@ -92,6 +92,13 @@ A colour as the page writes one, to [r, g, b, a] in 0-1 sRGB, without a 2D conte
 has none anywhere now (#257). A computed style is always `rgb()` or `rgba()`; a custom property
 (a hex, a name) goes through three.js's own parser.
 
+### `function hexes`
+
+Above `function hexes(inks) {`:
+
+The inks the layer holds, as `#RRGGBB`, for `inspect`: what a test compares with the variant's own
+(#329's flake was a layer drawing with inks the page had already replaced).
+
 ### `function context`
 
 Above `function context(canvas) {`:
@@ -137,6 +144,15 @@ The page's own rows (#257), which a table that draws with ink is followed by.
 In `constructor`, above `this.onLost = () => this.host.off("the WebGL context was lost");`:
 
 On the page only while a table is set (`setTable`).
+
+In `constructor`, above `this.onSheet = e => {`:
+
+The palette lives in the skin's stylesheet, and a new skin's sheet can arrive after its module:
+`setTable` then reads the colours before they exist, and the highlighter is drawn in the
+fallback (`--waiting`) until something else asks. Any stylesheet that loads (`load` does not
+bubble, so it is caught on the way down) makes the next frame read them again. #329's notebook
+flake: `farmstead:daytime` after `notebook:dark` under load, its name at 4.0:1 through a
+`#A8651B` highlighter the page never asked for.
 
 Above `setTable(t) {`:
 

@@ -6,6 +6,8 @@ proven headlessly is everything that would silently break: the token, the loopba
 frames, the fact that the page fetches nothing from the internet, and that the wheel ships it.
 """
 from __future__ import annotations
+import calendar
+import http.client
 import json
 import re
 import os
@@ -98,6 +100,80 @@ def test_the_server_never_listens_on_anything_but_loopback(running):
             s.connect((host, server.server_address[1]))
 
 
+def _as_host(port, path, host):
+    """A GET from loopback whose `Host` header is exactly `host`, or absent when `host` is None."""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        conn.putrequest("GET", path, skip_host=True, skip_accept_encoding=True)
+        if host is not None:
+            conn.putheader("Host", host)
+        conn.endheaders()
+        answer = conn.getresponse()
+        return answer.status, answer.read().decode("utf-8", "replace"), dict(answer.getheaders())
+    finally:
+        conn.close()
+
+
+def test_a_request_whose_host_is_not_the_loopback_address_is_refused_before_any_route(running):
+    """DNS rebinding (#551): a hostile name that re-resolves to 127.0.0.1 reaches the socket from a
+    loopback peer, so the peer check passes; only `Host` still carries the hostile name."""
+    base, token, server = running
+    port = server.server_address[1]
+    for host in (f"evil.example:{port}", "evil.example", None, "127.0.0.1",
+                 f"127.0.0.2:{port}", f"::1:{port}", f"localhost.evil.example:{port}"):
+        for path in ("/", f"/?t={token}", "/open", "/open?w=vscode", "/api/ping",
+                     f"/api/fleet?t={token}"):
+            code, body, _ = _as_host(port, path, host)
+            assert code == 403, (host, path, code)
+            assert json.loads(body)["error"] == "not authorized", (host, path)
+    for host in (f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}", f"LOCALHOST:{port}",
+                 f"127.0.0.1:{port + 1}"):
+        code, body, headers = _as_host(port, "/open?w=vscode", host)
+        assert code == 302, host
+        assert headers["Location"] == f"/?t={token}&w=vscode", host
+        code, body, _ = _as_host(port, "/api/ping", host)
+        assert code == 200 and json.loads(body)["service"] == "ad-fleet", host
+        code, body, _ = _as_host(port, f"/?t={token}", host)
+        assert code == 200 and "<title>fleet</title>" in body, host
+        code, _, _ = _as_host(port, "/", host)
+        assert code == 403, host
+    for host in (f"evil.example:{port}", None):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            conn.putrequest("POST", f"/api/settings?t={token}", skip_host=True)
+            if host is not None:
+                conn.putheader("Host", host)
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", "2")
+            conn.endheaders(b"{}")
+            answer = conn.getresponse()
+            assert answer.status == 403, host
+            assert json.loads(answer.read())["error"] == "not authorized", host
+        finally:
+            conn.close()
+
+
+def test_a_loopback_host_on_a_forwarded_port_is_served_and_a_rebinding_name_on_it_is_not(running):
+    """Decision 22 on #429: an IDE that forwards the desk to another local port sends that port in
+    `Host`. The name carries the rebinding protection, so a loopback name passes on any port."""
+    base, token, server = running
+    port = server.server_address[1]
+    for forwarded in (port + 1, 8080, 1, 65535):
+        for host in (f"localhost:{forwarded}", f"127.0.0.1:{forwarded}", f"[::1]:{forwarded}"):
+            code, body, headers = _as_host(port, "/open?w=vscode", host)
+            assert code == 302 and headers["Location"] == f"/?t={token}&w=vscode", host
+            code, body, _ = _as_host(port, f"/?t={token}", host)
+            assert code == 200 and "<title>fleet</title>" in body, host
+        for host in (f"evil.example:{forwarded}", f"localhost.evil.example:{forwarded}",
+                     f"127.0.0.2:{forwarded}", f"10.0.0.1:{forwarded}", f"::1:{forwarded}"):
+            code, body, _ = _as_host(port, "/open?w=vscode", host)
+            assert code == 403 and json.loads(body)["error"] == "not authorized", host
+    for host in ("localhost:", "localhost:x", f"localhost:{port}x", "localhost:65536", "localhost:0",
+                 "localhost:\u00b2"):
+        code, _, _ = _as_host(port, "/api/ping", host)
+        assert code == 403, host
+
+
 def test_every_response_carries_the_headers_that_keep_the_page_local(running):
     base, token, _ = running
     _, _, headers = get(base, "/", token)
@@ -141,6 +217,88 @@ def test_a_pending_approval_reaches_the_page_with_its_payload(running, tmp_path,
     data = json.loads(body)
     assert data["repos"][0]["state"] == "waiting_approval"
     assert data["approvals"][0]["payload"]["transition"] == "31 In Review"
+
+
+def test_the_attention_route_answers_only_the_bridges_allow_listed_keys_and_six_agents_fit_in_8kb(running, tmp_path,
+                                                                                                  monkeypatch):
+    """`/api/attention` (#559) is `bridge.attention_row()` over the same snapshot `/api/fleet` folds: one allow-list
+    for the phone's folder and the phone's page, and a fraction of the bytes."""
+    from agentdata.fleet import bridge
+
+    base, token, _ = running
+    for name in ("luna", "uat", "velocity", "prod", "ops", "lab"):
+        a_repo(tmp_path, name, ticket="RDSD-1")
+    monkeypatch.setenv(registry.AGENT_ENV, "luna")
+    id = approval.require("jira-transition", "RDSD-1: In Progress -> In Review", {"key": "RDSD-1"},
+                          ticket="RDSD-1", timeout=0).id
+    monkeypatch.delenv(registry.AGENT_ENV)
+    state = os.path.join(registry.fleet_dir(), bridge.STATE_FILE)
+    assert not os.path.exists(state)
+
+    _, body, _ = get(base, "/api/attention", token)
+    data = json.loads(body)
+    assert set(data) == {"ok", "schema", "generated", "rows"} and data["ok"] is True and data["schema"] == 1
+    assert len(body.encode("utf-8")) < 8 * 1024, len(body)
+    rows = {r["repo"]: r for r in data["rows"]}
+    assert set(rows) == {"luna", "uat", "velocity", "prod", "ops", "lab"}
+    for row in rows.values():
+        assert set(row) == bridge.ATTENTION_KEYS, set(row) ^ bridge.ATTENTION_KEYS
+        assert row["seq"] == 0 and row["digest"] == bridge.attention_digest(row)
+    assert rows["luna"]["approvals"] == [id] and rows["luna"]["needs_human"] is True
+
+    def keys(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                yield k
+                yield from keys(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                yield from keys(v)
+
+    for key in keys(data):
+        assert key not in ("path", "pid", "console", "recent", "trace") and not key.endswith("_source"), key
+    assert not os.path.exists(state), "a GET minted the bridge's state file"
+
+    # `seq` is the bridge's, read and never bumped.
+    with open(state, "w", encoding="utf-8") as f:
+        json.dump({"schema": 1, "attention_seq": {"luna": 7}}, f)
+    before = open(state, "rb").read()
+    rows = {r["repo"]: r for r in json.loads(get(base, "/api/attention", token)[1])["rows"]}
+    assert rows["luna"]["seq"] == 7 and rows["uat"]["seq"] == 0
+    assert open(state, "rb").read() == before
+
+
+def test_the_approval_route_answers_one_mirror_with_its_digest_and_never_the_payload(running, tmp_path, monkeypatch):
+    base, token, _ = running
+    a_repo(tmp_path, "luna")
+    monkeypatch.setenv(registry.AGENT_ENV, "luna")
+    id = approval.require("jira-transition", "RDSD-1: In Progress -> In Review",
+                          {"key": "RDSD-1", "transition": "31 In Review"}, ticket="RDSD-1", timeout=0).id
+    decided = approval.require("jira-comment", "RDSD-1: comment", {"key": "RDSD-1"}, timeout=0).id
+    monkeypatch.delenv(registry.AGENT_ENV)
+    approval.decide(decided, approval.APPROVED, by="operator")
+    request = approval.read_request(id)
+
+    _, body, _ = get(base, f"/api/approval?id={id}", token)
+    data = json.loads(body)
+    assert data["ok"] is True and data["id"] == id and data["repo"] == "luna"
+    assert re.fullmatch(r"[0-9a-f]{64}", data["digest"]) and data["digest"] == approval.digest(request)
+    created = calendar.timegm(time.strptime(request["created"], "%Y-%m-%dT%H:%M:%S"))
+    assert data["created"] == request["created"] + "Z"
+    assert data["expires"] == time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                            time.gmtime(created + approval.timeout_seconds()))
+    assert data["payload_preview"] == {"key": "RDSD-1", "transition": "31 In Review"}
+    assert "payload" not in data and "pid" not in data and str(request["pid"]) not in body
+
+    for missing in (decided, "luna-jira-transition-20260101T000000-dead"):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            get(base, f"/api/approval?id={missing}", token)
+        assert e.value.code == 404, missing
+        assert json.loads(e.value.read()) == {"ok": False, "error": f"no approval called {missing} is waiting"}
+    for bad in ("", "..%2Fserve", "a" * 97, "luna%20x"):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            get(base, f"/api/approval?id={bad}", token)
+        assert e.value.code == 400, bad
 
 
 def test_approving_from_the_page_releases_the_agent(running, tmp_path, monkeypatch):
@@ -304,6 +462,47 @@ def _notify_frames(text: str) -> list[dict]:
             if block.startswith("event: notify\n")]
 
 
+def _ask(base, path, token, encoding):
+    req = urllib.request.Request(f"{base}{path}?t={token}", headers={"Accept-Encoding": encoding})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return r.read(), r.headers
+
+
+def test_the_fleet_and_desk_polls_are_gzipped_only_when_asked_and_over_8_kb(running, tmp_path):
+    """#579: `/api/fleet` and `/api/desk` are the page's polls, and over a tunnel or a phone on the
+    LAN the uncompressed fleet is the dominant cost. They are gzipped when the client asks and the
+    body is over 8 KB; a small fleet, a client that does not ask and every other route go plain."""
+    import gzip as gz
+
+    base, token, _ = running
+    a_repo(tmp_path, "luna", phase="optimizing", ticket="RDSD-1")
+    small, headers = _ask(base, "/api/fleet", token, "gzip")
+    assert len(small) <= 8 * 1024 and not headers.get("Content-Encoding"), len(small)
+    assert json.loads(small)["ok"] is True
+
+    for i, name in enumerate(("sol", "mars", "vega", "rigel", "deneb"), start=2):
+        a_repo(tmp_path, name, phase="optimizing", ticket=f"RDSD-{i}")
+    for route in ("/api/fleet", "/api/desk"):
+        plain, headers = _ask(base, route, token, "identity")
+        assert not headers.get("Content-Encoding") and len(plain) > 8 * 1024, (route, len(plain))
+        packed, headers = _ask(base, route, token, "gzip, deflate")
+        assert headers.get("Content-Encoding") == "gzip", route
+        assert "Accept-Encoding" in (headers.get("Vary") or ""), route
+        assert int(headers["Content-Length"]) == len(packed) < len(plain) // 3, (route, len(packed), len(plain))
+        opened, plainly = json.loads(gz.decompress(packed)), json.loads(plain)
+        assert opened.keys() == plainly.keys(), route
+        if route == "/api/fleet":
+            assert [r["repo"] for r in opened["repos"]] == [r["repo"] for r in plainly["repos"]]
+        else:
+            assert opened == plainly
+        with urllib.request.urlopen(f"{base}{route}?t={token}", timeout=10) as r:  # no header at all
+            assert not r.headers.get("Content-Encoding") and json.loads(r.read())["ok"] is True, route
+
+    for route in ("/api/map", "/api/notifications"):
+        _, headers = _ask(base, route, token, "gzip")
+        assert not headers.get("Content-Encoding"), route
+
+
 @pytest.mark.parametrize("quiet", ["notify=0", "frames=theme"])
 def test_a_stream_that_is_not_a_desk_leaves_the_notifications_to_the_desk(running, tmp_path, quiet):
     """The sweep's cursor is shared and its finds go to whichever stream swept first. A settings
@@ -351,6 +550,34 @@ def test_a_stream_told_not_to_sweep_never_sweeps(fleet_home, tmp_path, monkeypat
     assert calls == []
     passes(5)                                    # the desk's stream, as before: every pass sweeps
     assert len(calls) == 5
+
+
+def test_sweep_if_due_runs_once_per_interval_under_two_callers(fleet_home, monkeypatch):  # noqa: F811
+    """One process-wide sweep (#549, MOB-D9): a desk's stream and the bridge inside one interval sweep once."""
+    from agentdata.fleet import notify as N
+
+    calls = []
+    monkeypatch.setattr(N, "sweep", lambda **k: calls.append(k.get("url")) or [{"repo": "luna"}])
+    assert S.sweep_if_due("http://desk", every=60.0) == [{"repo": "luna"}]
+    assert S.sweep_if_due("", every=60.0) == [], "the second caller inside the interval swept again"
+    assert calls == ["http://desk"]
+
+    # Two at once, with the interval due for both: the lock lets one sweep, and the other finds it just done.
+    monkeypatch.setattr(S, "_last_sweep_at", {})
+    calls.clear()
+    barrier = threading.Barrier(2)
+
+    def caller(url):
+        barrier.wait()
+        S.sweep_if_due(url, every=60.0)
+    threads = [threading.Thread(target=caller, args=(u,)) for u in ("http://desk", "")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert len(calls) == 1, "two callers at once swept twice"
+    S.sweep_if_due("", every=0.0)
+    assert len(calls) == 2, "a due sweep did not run"
 
 
 # -------------------------------------------------------------------------------- the page itself
@@ -641,7 +868,7 @@ def test_the_wheel_ships_the_static_files():
 def test_the_dashboard_is_documented_including_the_keyboard_map():
     text = open(CONTRACT, encoding="utf-8").read()
     for endpoint in ("/api/fleet", "/api/events", "/api/approve", "/api/deny", "/api/start",
-                     "/api/send", "/api/stop"):
+                     "/api/send", "/api/stop", "/api/attention", "/api/approval?id="):
         assert endpoint in text, f"{endpoint} is not documented"
     for key in ("Esc", "1", "9", "a"):
         assert f"`{key}`" in text, f"the {key} key is not in the keyboard map"
@@ -738,3 +965,26 @@ def test_a_file_is_text_whatever_this_machine_calls_it(monkeypatch):
         server.stopping.set()
         server.shutdown()
         server.server_close()
+
+
+def test_a_snapshot_reads_the_registry_once(fleet_home, tmp_path, monkeypatch):  # noqa: F811
+    """#586: a repo registered while a snapshot is being built is in it whole or not at all. The
+    snapshot read `registry.json` twice -- once for the states, once in `supervisor.status()` -- so
+    one registered between the two was listed with no `state.json` behind it: the pane said
+    "a clean session on no ticket" over a session mid-ticket, for one poll."""
+    from agentdata.fleet import supervisor
+
+    path = make_project(tmp_path / "gamma", phase="querying", ticket="RDSD-1")
+    status = supervisor.status
+
+    def registered_between(registry=None):
+        if "gamma" not in Registry().repos:
+            Registry().add(path, name="gamma")
+            E.append("gamma", [E.event("gamma", "session_id", {"session": "s-gamma"}, ticket="RDSD-1")])
+        return status(registry)
+
+    monkeypatch.setattr(supervisor, "status", registered_between)
+    rows = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "gamma"]
+    assert rows == [] or rows[0]["fresh"]["starts"]["ticket"] == "RDSD-1", rows[0]["fresh"]
+    again = [r for r in S.fleet_snapshot()["repos"] if r["repo"] == "gamma"]
+    assert again and again[0]["fresh"]["starts"]["ticket"] == "RDSD-1", again

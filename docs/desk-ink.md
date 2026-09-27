@@ -79,8 +79,16 @@ compressed page is cached per shell and class.
 | where the renderer would not name itself | `unknown` | no | yes |
 | where the probe did not finish | `incomplete` | no | yes |
 | where nothing has measured yet | `unmeasured` | no | yes |
+| on a coarse pointer under 900 px (a phone, a small tablet) | anything | no, `source: "narrow"` | yes |
 | with `?ink=off` | anything | no | yes |
 | with `?ink=on` | anything | yes, `source: "override"` | no |
+
+**`narrow` (#580).** The page has one rule of its own beside the probe:
+`matchMedia("(pointer: coarse) and (max-width: 900px)")` turns ink off whatever the probe said. A phone that opens
+the laptop's `w`-less URL inherits the `browser` record, which may say `hardware`. The layer's canvas is rebuilt on
+every `resize`, and a mobile URL bar fires those over and over. `?ink=off` and `?ink=on` are read first, so the
+override still forces ink on at 390 px. A fine pointer at any width, and a coarse one wider than 900 px, is the
+probe's to decide as before.
 
 The gate can also fail after load. The layer asks for a WebGL context (WebGL2, then WebGL1) **before** it fetches
 three.js, the way the probe does. A shell that will not give one falls back, and three.js is never fetched. If
@@ -661,14 +669,50 @@ frames, so it cues nothing. Skins play nothing for `is-grouped`.
 asked for another frame while more wait or a piece is still in the effects group. A piece older than 90 frames (1.5 s
 at 60 Hz) is taken out, freed and counted in `reaped`. That is a safety net; no shipped skin relies on it.
 
-**`Ink.inspect().layer.fx`** is `{loaded, rows, delivered, queued, dropped, armed, reaped, zero, children, refused}`:
-`armed` says the next match may cue, `zero` counts leave-row matches whose box is stamped empty, and `children` counts
-the effects group's pieces, none on an idle desk.
+**`Ink.inspect().layer.fx`** is `{loaded, rows, delivered, queued, dropped, armed, reaped, zero, children, refused,
+animating, animated, skipped}`: `armed` says the next match may cue, `zero` counts leave-row matches whose box is
+stamped empty, and `children` counts the effects group's pieces, none on an idle desk. The last three are §Moving the
+page's.
 
 **The rule.** A cue is decoration. It never shows a state the page does not have, ends by moving, shrinking or being
 covered and never by an alpha fade, draws nothing under reduced motion, and leaves an idle desk at zero frames. Its
 durations are counted in frames and live in the skin module, under the canvas's ceiling
 ([desk-motion.md](desk-motion.md) §Effects on the canvas).
+
+### Moving the page (#374)
+
+A cue may move the pane it plays in for a moment: a hit shakes it, a pop swells it, a flash rings it. The skin asks,
+from its `cue` hook, and `fx.js` does it; no skin calls `el.animate` itself:
+
+```js
+export function cue({ api }, name, el) { api.fx.animate(el.closest(".tile"), "hit"); }   // true if it started
+```
+
+| Kind | What moves | Over |
+| --- | --- | --- |
+| `hit` | `transform`: translateX 0, -3px, 3px, -2px, 0 | 240 ms |
+| `pop` | `transform`: scale 1, 1.015, 1 | 200 ms |
+| `flash` | `filter`: none, `drop-shadow(0 0 4px currentColor)`, twice (two flashes at most, WCAG 2.3.1) | 320 ms |
+
+It is a Web Animations API animation on the pane with `fill: "none"`: it composites over the pane's own style
+(`composite: "add"` for a transform, so a pane with its own keeps it) and leaves nothing when it ends. Only
+`transform` and `filter`, never a property that lays out, fades or recolours. No `style` is read or written, and no
+class or attribute; a MutationObserver on `<body>` records nothing from the start to ten frames after the end. The
+panel is opaque, so the flash's halo falls outside the pane and never behind a word.
+
+**Where it may run.** On a connected pane of the grid (`#grid > .tile[data-repo]`) with a box, and at most four at
+once. `animate` answers `false`, and counts it in `skipped`, under reduced motion; without a skin or with the layer
+stopped (`body.ink-off`, `?ink=off`, where `fx.js` is never fetched); while the page is hidden; when the pane holds the
+focus; when a selection that is not collapsed touches it (text being selected or read); and when the pane already
+animates. An unknown kind is `false`, said once in the console.
+
+**Taken back.** `Ink.setSkin(null)`, a table change, `Ink.off()`, reduced motion turning on, a focus arriving in the
+pane and the pane leaving the page each cancel it at once, and the pane is as it was. Start and end each tell the
+layer the pane moved, so the marks follow it for `FOLLOW_MS` and the frame after measures the true box. At rest
+nothing is scheduled: the focus and reduced-motion listeners live only while an animation does.
+
+**The rule.** The layer's only touches on the page are the reveal's `clip-path` while a line is written and fx.js's
+transient animations while a cue plays; neither is there at rest.
 
 ## Following the page
 
@@ -691,6 +735,7 @@ on the page for as long as the layer runs.
 | a scroll, a pane's transcript included | a capturing `scroll` listener re-measures. A mark is clipped to every scrolling ancestor, so a line scrolled out of a transcript takes its ellipse with it |
 | any of these, in a pane | a mark in a pane's lane is also clipped to the pane's border box, inset 1px, where the other clips are taken: no mark is drawn past its pane, whatever its shape or `pad` says. The header's lane keeps the viewport. It is a safety net; the shapes keep their own geometry inside (#331) |
 | a reorder (FLIP) or any transition | `transitionrun`/`animationstart` follows every frame for 400ms (`--motion-slow` and a margin) |
+| a pane a cue moves (#374) | `fx.js` calls the layer's `onMove` at the start and at the end: a Web Animations API animation fires no transition or animation event |
 | fonts arriving | re-measures, because the text wrapped |
 | the palette or the colour scheme | reads the inks again and repaints, and a skin's ground, paper and frames are made again (#388) |
 
@@ -754,9 +799,17 @@ it holds (§Effects), so the end state is simply the page as it now is.
 
 ## `theme.check`, and ink on paper
 
-`theme.check(t, composited_panel, skin, inks={tool: colour})` holds ink on paper to the same standard as text on a
-panel. Every ink is a mark on the paper, so it needs **3:1** against it (WCAG 1.4.11, non-text contrast). The
-highlighter is read *through*, so the text needs **4.5:1** on its tint (`theme.INK_TINT`, the plain fallback's 38%).
+`theme.check(t, composited_panel, skin, inks={tool: colour}, *, plain=False, dark=None)` holds ink on paper to the same
+standard as text on a panel. Every ink is a mark on the paper, so it needs **3:1** against it (WCAG 1.4.11, non-text
+contrast). The highlighter is read *through*, so the text needs **4.5:1** on what the swipe leaves under it (#329). In
+ink that is the layer's own blend, `theme.highlight_under(panel, ink, dark)`: screened onto a dark ground at
+`HL_SCREEN` (0.42) of the ink, multiplied into a light one at `HL_MULTIPLY` (0.68), as `pen.js`'s highlighter branch
+draws it (a test reads both numbers back out of pen.js). `dark` is the variant's, as `layer.js` `colours()` decides it
+(`theme.is_dark`, gamma-encoded Rec. 709 weights under 0.4): from the `--paper` its skin.css sets, else the palette's
+ground, never per composited panel. `plain=True` reads the plain fallback instead, the text on a 38% tint of the ink
+(`theme.INK_TINT`). The 38% model used to stand for ink on as well, and passed a glass amber that read 4.10:1 through
+the real swipe. Under a skin the needs-you name is written in `--text`, not red (app.css,
+`body[data-skin] .tile.needs-human .head .repo`): the highlight, the chip, the rail and the rim still say "needs you".
 Rule 6 (#325) holds secondary text (`--muted`) to **4.5:1** on the target ground or composited panel, with a hint
 naming the skin and both colours if refused.
 Rule 8 (#328) holds a word written in a state colour (`--<role>-text`) to **4.5:1** on the target ground and on each of
@@ -816,6 +869,11 @@ nothing; a bad row refuses its table while the marks draw on; reduced motion que
 nothing. **Cues stay disarmed until the stream's first pass has been drawn**, which `_open` does not wait for, so a
 cue test calls `_armed(page)` after opening and after every reload: it waits on `ARMED`, `l.fx.armed` and no
 `body.is-replaying`.
+
+`tests/test_fleet_ink_cues.py` holds every skin module that ships `cues` to the cue contract (#373), with no
+browser: `cue` and `tick` exported, each cue named in a table row of its `docs/skin-<name>.md`, only classes the
+page sets and ids `index.html` has, `hidden` the one attribute, no leave row on an element the page rebuilds or
+trims, and arrive rows on transcript lines only for `li.denied`, `li.friction` and `li.error`.
 
 `tests/test_fleet_ink_bounds.py` covers where a skin's own marks land: inside their pane and off other elements'
 words, on one look per module at 1400px and 700px, and every pane outline and loop padded inside it (#332).

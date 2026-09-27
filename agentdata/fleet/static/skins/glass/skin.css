@@ -19,6 +19,7 @@ body[data-skin="glass"]:not(.ink-off) footer #counts,
 body[data-skin="glass"]:not(.ink-off) footer .keys { color: var(--glass-ink-soft); }
 
 body[data-skin-variant="smoke"] {
+  --ink-highlighter: #A97B1B;
   --glass-fill: rgba(31, 40, 54, 0.36);
   --glass-card: rgba(31, 40, 54, 0.46);
   --glass-mesh-1: rgba(88, 166, 255, 0.35);
@@ -27,7 +28,7 @@ body[data-skin-variant="smoke"] {
 }
 
 body[data-skin-variant="azure"] {
-  --ink-highlighter: var(--accent);
+  --ink-highlighter: #3979BE;
   --glass-fill: rgba(26, 42, 72, 0.40);
   --glass-card: rgba(26, 42, 72, 0.50);
   --glass-mesh-1: rgba(77, 163, 255, 0.30);
@@ -36,6 +37,7 @@ body[data-skin-variant="azure"] {
 }
 
 body[data-skin-variant="noir"] {
+  --ink-highlighter: #AC7D1C;
   --glass-fill: rgba(26, 26, 26, 0.40);
   --glass-card: rgba(26, 26, 26, 0.50);
   --glass-mesh-1: rgba(230, 230, 230, 0.16);
@@ -44,6 +46,7 @@ body[data-skin-variant="noir"] {
 }
 
 body[data-skin-variant="frost"] {
+  --ink-highlighter: #F0DC7A;
   --glass-fill: rgba(244, 238, 224, 0.34);
   --glass-card: rgba(244, 238, 224, 0.44);
   --glass-edge: rgba(0, 0, 0, 0.10);

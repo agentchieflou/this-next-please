@@ -60,22 +60,25 @@ SKINS = {
             "smoke": {"title": "Smoke", "base": "dark",
                       "mesh": [("#58A6FF", 0.35), ("#3FB950", 0.35), ("#D29922", 0.30)],
                       "fill": ("#1F2836", 0.36),
+                      "inks": {"highlighter": "#A97B1B"},
                       "composited_panel": {"darkest": "#181D24", "lightest": "#273D57"},
                       "why": "neutral graphite behind the frost"},
             "azure": {"title": "Azure", "base": "blues",
                       "mesh": [("#4DA3FF", 0.30), ("#5EE1E6", 0.25), ("#3FB950", 0.30)],
                       "fill": ("#1A2A48", 0.40),
-                      "ink_tokens": {"highlighter": "--accent"},
+                      "inks": {"highlighter": "#3979BE"},
                       "composited_panel": {"darkest": "#11213B", "lightest": "#1D3F56"},
                       "why": "cold blue depth, the darkest of the three"},
             "noir": {"title": "Noir", "base": "vanta-black",
                       "mesh": [("#E6E6E6", 0.16), ("#58A6FF", 0.18), ("#9A9A9A", 0.12)],
                       "fill": ("#1A1A1A", 0.40),
+                      "inks": {"highlighter": "#AC7D1C"},
                       "composited_panel": {"darkest": "#0A0A0A", "lightest": "#202020"},
                       "why": "near-black, for a room with the lights off"},
             "frost": {"title": "Frost", "base": "eye-relief-day",
                       "mesh": [("#8A6D1F", 0.30), ("#2A5F9E", 0.25), ("#2A733E", 0.25)],
                       "fill": ("#F4EEE0", 0.34),
+                      "inks": {"highlighter": "#F0DC7A"},
                       "composited_panel": {"darkest": "#DED4B8", "lightest": "#F3EDDD"},
                       "why": "the light one: warm paper under the same frost"},
         },
@@ -112,13 +115,13 @@ SKINS = {
         "auto": {"light": "daytime", "dark": "cave"},
         "variants": {
             "daytime": {"title": "Daytime", "base": "sand", "composited_panel": "#E8DDC3",
-                        "inks": {"pencil": "#74695A"},
+                        "inks": {"pencil": "#74695A", "highlighter": "#E2B45C"},
                         "why": "sunlight on paper and wood"},
             "cave": {"title": "Cave", "base": "eye-relief", "composited_panel": "#33302A",
-                     "inks": {"pencil": "#968F82", "highlighter": "#A8861F"},
+                     "inks": {"pencil": "#968F82", "highlighter": "#816718"},
                      "why": "lamplight underground"},
             "rainy": {"title": "Rainy day", "base": "blues", "composited_panel": "#16243D",
-                      "inks": {"pencil": "#8A97AB"},
+                      "inks": {"pencil": "#8A97AB", "highlighter": "#D4A73D"},
                       "why": "a wet afternoon indoors"},
         },
     },
@@ -143,7 +146,7 @@ SKINS = {
                           "composited_panel": "#123A66", "grid": "#2F6096",
                           "inks": {"pencil": "#C4D3E6", "pen": "#EAF2FF", "red": "#FF8B7E",
                                    "green": "#7BE38B", "marker": "#FF8B7E",
-                                   "highlighter": "#B8A12E", "trace": "#EAF2FF"},
+                                   "highlighter": "#958225", "trace": "#EAF2FF"},
                           "why": "white lines on a cyanotype"},
         },
     },
@@ -207,7 +210,7 @@ SKINS = {
                       "why": "white stock, blue rules, a red margin"},
             "dark": {"title": "Night notebook", "base": "dark", "composited_panel": "#1B1E25",
                      "inks": {"pencil": "#B5BAC4", "pen": "#94B4FF", "red": "#FF6A5E",
-                              "green": "#6FD39A", "marker": "#FF6A5E", "highlighter": "#E6D548"},
+                              "green": "#6FD39A", "marker": "#FF6A5E", "highlighter": "#CEBF40"},
                      "why": "charcoal stock and gel inks, the highlighter screened"},
         },
     },
@@ -227,7 +230,8 @@ PALETTE_ONLY: dict[str, str] = {
 # Glass's inks (#254): the palette token each tool of its mark table (`static/ink/skins/glass.js`)
 # is drawn in, unless a variant's `ink_tokens` names another -- which its skin.css says again as
 # `--ink-<tool>`. Resolved against the variant's own palette, so `theme.check` holds every mark on
-# both ends of the frost, and the highlighter's tint under the text, like any paper skin's inks.
+# both ends of the frost, and the text through the highlighter, like any paper skin's inks. A
+# variant's own `inks` (a literal its skin.css writes as `--ink-<tool>`, #329) win over the tokens.
 GLASS_INKS = {"pen": "--accent", "red": "--human", "green": "--done", "marker": "--human",
               "highlighter": "--waiting"}
 
@@ -237,7 +241,7 @@ def _glass_inks() -> None:
     for spec in SKINS["glass"]["variants"].values():
         css = T.to_css(T.get(spec["base"]))
         tokens = dict(GLASS_INKS, **spec.get("ink_tokens", {}))
-        spec["inks"] = {tool: css[token] for tool, token in tokens.items()}
+        spec["inks"] = dict({tool: css[token] for tool, token in tokens.items()}, **spec.get("inks", {}))
 
 
 _glass_inks()

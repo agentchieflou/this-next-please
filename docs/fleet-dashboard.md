@@ -54,6 +54,13 @@ saving is nothing and the CPU is real, which is why the API's JSON is *not* comp
 polls it four times a second, and nobody waits on that. The page is for the case where the server
 is not loopback — a forwarded port, a phone on the LAN, a remote desktop.
 
+The two polls are the exception (#579): `/api/fleet` and `/api/desk` are gzipped when the client
+sends `Accept-Encoding: gzip` and the body is over 8 KB (`serve.JSON_GZIP_FROM`), with `Vary:
+Accept-Encoding`, and never cached, since the body changes every call. Six agents' `/api/fleet`
+goes from about 74 KB to about 4 KB, which over a tunnel or a slow VPN is most of what the desk
+costs while agents talk. A loopback client that does not ask pays nothing; every other JSON route
+is sent as it was.
+
 ## The URL and the token
 
 The socket binds **127.0.0.1 and nothing else**. Every run generates a fresh token, and every
@@ -72,6 +79,11 @@ dry_run: true}`), which is the only thing the parameter ever posts, and takes it
 reload does not open it again. No parameter confirms anything: only the strip's *start N fresh* posts
 the ticked `repos`, and `/open` needs no token, so an address from anywhere may open a preview and no
 more (DAY-D4).
+
+Every request's `Host` header must also be `127.0.0.1`, `localhost` or `[::1]` with a port, `/open`
+and `/api/ping` included (#551), so a hostile name that re-resolves to the laptop (DNS rebinding) gets
+the same `403 not authorized` before any route, even though it connects from loopback. Any port passes,
+so an IDE that forwards the desk to another local port still reaches it: the name is the protection.
 
 This is loopback security, not authentication. It is the right size for a tool that runs on the
 operator's own machine and is never reachable from another one. Remote access is out of scope.
@@ -523,7 +535,9 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | POST | `/api/load` | `{shell, page, from, how, origin_ms, first_paint_ms, fleet_ms, ink_first_frame_ms, longest_task_ms, skin_first, skin_settled, ua}` — what one page load measured about itself (#350). Kept only while `fleet.loads.enabled` is `true` in the config file ([setup.md](setup.md) §Page-load records); otherwise nothing is written and the answer is `{kept: 0, enabled: false}`, not a refusal. When on: the newest 50 per shell, page and from in `~/.agentdata/fleet/loads.json`, answered `{kept: n}`; a second post from one document (the same shell, page, from, how, `origin_ms` and `ua`) is folded into its record (#531); unknown keys are dropped. `409 load_shape` for a `page` other than `desk`/`settings`, a `from` other than empty/`settings`, an unknown `how`, a duration outside 0-600000 ms, an `origin_ms` more than 24 h from the server's clock, a `ua` over 200 characters, a skin that is not a family word, or a shell that is not a shell name. Never written to `probes.json` |
 | POST | `/api/window` | `{w, …}` — one window's own record. `{w, widths, version}` sets its widths (#234): repository → weight, `0` a rail; `version` is the desk version the page last heard, and a write older than the widths the record holds is refused `409 widths_stale`. Anything but repository → a number of nought or more is `409 widths_shape` |
 | POST | `/api/measure` | `{w}` asks that desk window to go to `/probe` (`ad-fleet probe --open pycharm`). The ask is held in memory for ten minutes and shows in the desk frame's `measure`. `{w, take: true}` is the window claiming it, answered `go: true` once |
-| GET | `/api/fleet` | every repo's state, its model and the one its last turn ran on, the recent events, and the pending approvals. A row's `run` is its current run without its events (`n`, `started`, `session`, `ticket`, `events_n`, …) and `run.origin`, who started it: `console`, `adopted`, `fleet`, or `""` before any `started` event (#401) |
+| GET | `/api/fleet` | every repo's state, its model and the one its last turn ran on, the recent events, and the pending approvals. A row's `run` is its current run without its events (`n`, `started`, `session`, `ticket`, `events_n`, …) and `run.origin`, who started it: `console`, `adopted`, `fleet`, or `""` before any `started` event (#401). Gzipped when asked and over 8 KB (#579) |
+| GET | `/api/attention` | the phone's view of the fleet (#559): `{ok, schema: 1, generated, rows}`, one row per repo as the mobile bridge's outbox writes it (`bridge.attention_row()` over the same snapshot, so one allow-list serves the folder and the page): exactly `bridge.ATTENTION_KEYS`, free text scrubbed, `seq` read from `mobile.state.json` and never bumped. No `path`, `pid`, `console`, `recent`, `trace` or `*_source`; six agents fit in under 8 KB |
+| GET | `/api/approval?id=` | one waiting approval as the bridge mirrors it (#559): `id, repo, ticket, approval_kind, summary, payload_preview, payload_truncated, payload_bytes, digest, created, expires, waiting_s`; `digest` is the whole request's and `expires` is `created` + `fleet.approval_timeout`. Never `payload` or `pid`. 404 `{ok: false, error: "no approval called <id> is waiting"}` for an unknown or decided id; 400 for an id outside `^[A-Za-z0-9_.-]{1,96}$` |
 | GET | `/api/map` | the fleet as one graph (#401): projects, the checkouts that hang from them, and each checkout's agent with its kind (`console`, `adopted`, `headless`, `adoptable`, `none`), each with a sentence. Read-only; schema 1 in [fleet-map.md](fleet-map.md) §The graph |
 | POST | `/api/friction` | `{repo, dismiss: [names]}` or `{repo, earlier: true}` (#499): records the dismissals in the fleet directory, never the checkout, and answers `{repo, dismissed, project}` with the fresh panel. `409 no_repo`, or `not_friction` for a name not in `.agent/friction/` |
 | POST | `/api/act` `refresh` | re-read one checkout now: re-fold its stream, poll its four cells, answer the fresh row. Spends no premium request; refuses `refresh_busy` inside two seconds (#205) |
@@ -537,7 +551,7 @@ without a page reload. `none` follows system `prefers-color-scheme`.
 | GET | `/api/board` | your Jira tickets, and which repo each one belongs to |
 | GET | `/api/history` | what was dispatched, how it ended, what it cost |
 | GET | `/api/notifications` | what has been announced |
-| GET | `/api/desk` | per project: links, polled cells, verify summaries, offered files, the selection |
+| GET | `/api/desk` | per project: links, polled cells, verify summaries, offered files, the selection. Gzipped when asked and over 8 KB (#579) |
 | GET | `/api/show` | one project from the catalogue: facts, state, friction, PBIP |
 | GET | `/api/inbox` | the tray: what Downloads is offering, and what is listed but not offered |
 | GET | `/api/where` | the catalogue search behind the header's box |
@@ -610,18 +624,28 @@ A `notify` event is a notification the sweep found (#97). **Only a desk's stream
 `notify.sweep` advances one shared cursor and hands what it found to whichever stream swept first,
 so a stream that does not draw `notify` frames -- `?notify=0` (the fleet map's), or `?frames=theme`
 (the settings page's) -- would take the desk's bell and chime and drop them. Those two skip the
-sweep entirely. With only a map or a settings window open, nothing sweeps, as when no window is
-open; the next desk stream announces what accumulated, dedupe and cooldown applying.
+sweep entirely. With only a map or a settings window open, no stream sweeps, as when no window is
+open; the next desk stream announces what accumulated, dedupe and cooldown applying. The bridge also
+sweeps (#549, MOB-D9): the streams and the bridge's thread share one process-wide `sweep_if_due`, so two
+callers inside one interval sweep once, and a desk opened after the bridge swept finds those in the
+drawer, not as fresh frames.
 
 A `tick` event goes out at least every 15 seconds. It is not decoration: a proxy that sees no bytes
 for a minute closes the connection, and the tiles then stop updating with nothing anywhere saying
 why. On any disconnect the page reloads `/api/fleet` and redraws from scratch rather than trusting
 what it drew before, then reopens the stream.
 
+A page that goes into the background closes its stream, and one that comes back re-reads
+`/api/fleet` once and reopens it from its cursors (#579, `visibilitychange`): iOS 18 closes a
+backgrounded stream without an `error` and still reports it open, so the page does not wait to be
+told.
+
 ## What is not here
 
 Authentication beyond the loopback token, and access from another machine — both out of scope, and
-both would change what this is. Notifications when a tile turns red are #97. Jira intake in the side
+both would change what this is. The phone is not an exception: the mobile bridge is the one mobile path
+([fleet-mobile.md](fleet-mobile.md), MOB-D10), and it changes neither the bind nor the token model. The laptop writes
+files into a folder OneDrive syncs and reads the phone's back from it; nothing reaches the desk from outside. Notifications when a tile turns red are #97. Jira intake in the side
 panel is #98.
 
 Cost and budget **are** here now (#201): a cell on every full pane, a number in every rail's label, the fleet's

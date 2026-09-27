@@ -21,10 +21,12 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 
 import pytest
 
-from agentdata.fleet import events as E, registry, serve as S
+from agentdata import textio
+from agentdata.fleet import approval, events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
@@ -326,11 +328,108 @@ def test_a_tier_is_left_only_eight_pixels_past_its_boundary(fleet_home, tmp_path
     assert got["fromRail"] == ["rail", "compact", "compact", "full"]
 
 
+# The desktop's own scale, read with a mouse (#574: the coarse block must not move it).
+FINE_SCALE = """() => {
+  const g = (el) => getComputedStyle(el);
+  return { button: g(document.querySelector('.tile.is-solo .row.bottom .send')).minHeight,
+           segment: g(document.querySelector('.segment')).minHeight,
+           body: g(document.body).fontSize,
+           gutter: g(document.querySelector('.gutter')).width };
+}"""
+
+# Every control a finger can reach in the open pane, the header and the footer, and every field.
+COARSE_TARGETS = """() => {
+  const seen = (el) => { const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
+  const small = [];
+  let n = 0;
+  for (const root of [document.querySelector('.tile.is-solo'), document.querySelector('header'),
+                      document.querySelector('footer')])
+    for (const el of root.querySelectorAll('button, a[href], input, select, textarea, [tabindex="0"]')) {
+      if (!seen(el)) continue;
+      n += 1;
+      const r = el.getBoundingClientRect();
+      if (r.width < 44 || r.height < 44)
+        small.push(`${root.tagName.toLowerCase()} ${el.className || el.id || el.tagName} ${Math.round(r.width)}x${Math.round(r.height)}`);
+    }
+  const fonts = [...document.querySelectorAll('input, textarea, select')]
+    .map((el) => [el.className || el.id || el.tagName, getComputedStyle(el).fontSize])
+    .filter(([, size]) => size !== '16px');
+  return { seen: n, small, fonts };
+}"""
+
+# The approval card's decision row, before and after its payload scrolls.
+DECISION_ROW = """() => {
+  const pane = document.querySelector('.tile.is-solo');
+  const card = pane.querySelector('.approval'), row = card.querySelector('.row'), pre = card.querySelector('pre');
+  const read = () => { const p = pane.getBoundingClientRect();
+    return { row: row.getBoundingClientRect().toJSON(), pane: p.toJSON(),
+             foot: Math.min(p.bottom, window.innerHeight),
+             kids: [...row.children].map((k) => k.getBoundingClientRect().toJSON()) }; };
+  const before = read();
+  pre.scrollTop = pre.scrollHeight;
+  return { before, after: read(), scrolled: pre.scrollTop };
+}"""
+
+# The open pane scrolls inside itself in the stack (#575): the decision row stays on the glass
+# whichever end of the pane is showing.
+PANE_SCROLL = """() => {
+  const pane = document.querySelector('.tile.is-solo[data-repo="r01"]'), row = pane.querySelector('.approval .row');
+  const read = () => { const p = pane.getBoundingClientRect(), r = row.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, paneTop: p.top, foot: Math.min(p.bottom, window.innerHeight) }; };
+  pane.scrollTop = 0;
+  const top = read();
+  pane.scrollTop = pane.scrollHeight;
+  const end = read();
+  const scrolled = pane.scrollTop;
+  pane.scrollTop = 0;
+  return { top, end, scrolled, overflowY: getComputedStyle(pane).overflowY };
+}"""
+
+# The stack at 640 px and under (#575): the row wrapped, the open pane over a bottom bar of rails.
+STACK = """() => {
+  const grid = document.getElementById('grid'), g = grid.getBoundingClientRect(), cs = getComputedStyle(grid);
+  const seen = [...grid.querySelectorAll('.tile')].filter((t) => t.offsetParent !== null);
+  const box = (t) => t.getBoundingClientRect();
+  const open = seen.filter((t) => t.classList.contains('is-solo'));
+  const bar = seen.filter((t) => !t.classList.contains('is-solo'));
+  const bottom = document.querySelector('.tile.is-solo .row.bottom').getBoundingClientRect();
+  return { wrap: cs.flexWrap, sw: grid.scrollWidth, cw: grid.clientWidth, sh: grid.scrollHeight, ch: grid.clientHeight,
+           foot: g.bottom - parseFloat(cs.paddingBottom) - parseFloat(cs.borderBottomWidth),
+           open: open.map((t) => ({ repo: t.dataset.repo, tier: t.dataset.tier, width: box(t).width, y: box(t).y })),
+           bar: bar.map((t) => ({ repo: t.dataset.repo, tier: t.dataset.tier, bottom: box(t).bottom, y: box(t).y })),
+           reply: { top: bottom.top, bottom: bottom.bottom }, vh: window.innerHeight,
+           page: document.scrollingElement.scrollTop };
+}"""
+
+# A phone on its side (#575): the open pane scrolled to its end shows the reply row on the screen.
+SIDEWAYS = """() => {
+  const pane = [...document.querySelectorAll('.tile.is-solo')].find((t) => t.offsetParent !== null);
+  pane.scrollTop = pane.scrollHeight;
+  const r = pane.querySelector('.row.bottom').getBoundingClientRect();
+  const out = { wrap: getComputedStyle(document.getElementById('grid')).flexWrap, top: r.top, bottom: r.bottom,
+                vh: window.innerHeight, page: document.scrollingElement.scrollTop, scrolled: pane.scrollTop };
+  pane.scrollTop = 0;
+  return out;
+}"""
+
+
 @pytest.mark.browser
 def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp_path):
     """The draw skips what a tier does not show -- a compact pane paints no trace and builds no
     cells -- so a change of tier has to draw the pane again, in the same frame, or a pane made wide
-    by a bigger window would sit there without its cells until the next event."""
+    by a bigger window would sit there without its cells until the next event.
+
+    And a finger (#574): at 390x844 under a coarse pointer every control in the open pane, the
+    header and the footer is 44 px both ways and every field is set at 16 px (iOS zooms the page
+    into a field under 16 px); the approval card's Approve, reason and Deny wrap to three full
+    lines that stay at the pane's foot while the payload scrolls. At 1400x900 with a mouse the
+    desktop's 28 px / 13 px scale is what it was.
+
+    And the stack (#575): at 390x844 the row wraps, the open pane is full and fills the glass, and
+    the five rails are one bottom bar on the grid's foot; the decision row stays on the glass as the
+    pane scrolls. At 844x390 the pane scrolls to its reply row, at 820x1180 the row is the row, and
+    `all` at 390 stacks the panes and the grid scrolls down."""
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["r%02d" % n for n in range(6)]
     _repos(tmp_path, names)
@@ -360,6 +459,72 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
             page.wait_for_selector('.tile[data-repo="r00"][data-tier="compact"]', timeout=5000)
             rails = page.evaluate("""() => [...document.querySelectorAll(
               '#grid .tile[data-tier="rail"]')].map(t => Math.round(t.getBoundingClientRect().width))""")
+            page.set_viewport_size({"width": 1400, "height": 900})
+            page.wait_for_selector(".gutter", state="attached", timeout=5000)
+            mouse = page.evaluate(FINE_SCALE)
+            assert not errors, errors
+
+            # A pending approval on the open pane, then the same desk on a phone.
+            os.makedirs(approval.approvals_dir(), exist_ok=True)
+            rid = approval.new_id("r01", "jira-transition")
+            textio.write_json(os.path.join(approval.approvals_dir(), rid + ".json"), {
+                "id": rid, "repo": "r01", "ticket": "RDSD-1", "kind": "jira-transition",
+                "summary": "RDSD-1: In Progress -> In Review",
+                "payload": {"lines": ["line %d of the dry run" % n for n in range(80)]},
+                "created": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "pid": os.getpid()})
+            phone = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=3,
+                                        is_mobile=True, has_touch=True)
+            m = phone.new_page()
+            m.on("pageerror", lambda e: errors.append(str(e)))
+            m.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+            m.wait_for_selector('.tile.is-solo[data-repo="r01"] .approval:not([hidden])', timeout=15000)
+            finger = m.evaluate(COARSE_TARGETS)
+            card = m.evaluate(DECISION_ROW)
+            scroll = m.evaluate(PANE_SCROLL)
+
+            # #575: the stack. Unpinned, one pane is open and the other five are the bottom bar.
+            S.arrange(order=names, pinned=[])
+            m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 1",
+                                timeout=10000)
+            m.wait_for_function("""() => [...document.querySelectorAll('#grid .tile')]
+                                     .every((t) => t.dataset.tier === (t.classList.contains('is-solo') ? 'full' : 'rail'))""",
+                                timeout=10000)
+            stack = m.evaluate(STACK)
+            m.set_viewport_size({"width": 844, "height": 390})
+            m.wait_for_function("() => getComputedStyle(document.getElementById('grid')).flexWrap === 'nowrap'",
+                                timeout=5000)
+            m.wait_for_timeout(300)
+            sideways = m.evaluate(SIDEWAYS)
+            m.set_viewport_size({"width": 820, "height": 1180})
+            m.wait_for_selector('#grid .tile.is-solo[data-tier="full"]', timeout=5000)
+            m.wait_for_timeout(300)
+            tablet = m.evaluate(STACK)
+            # #577: `all` on the tablet widens only the panes that fit, rails the rest and says
+            # so, in one write that `u` takes back in one press. The pane you are in stays wide
+            # even when it is last in the row (decision 22).
+            m.locator('.tile[data-repo="r05"] .pane-rail').tap()
+            m.wait_for_function("() => openName() === 'r05' && windowWrites === 0", timeout=10000)
+            posts = []
+            m.on("request", lambda r: posts.append(r.url + " " + (r.post_data or "")) if r.method == "POST" else None)
+            m.locator("#preset-all").tap()
+            m.wait_for_function("() => /^all that fit: \\d+ of 6$/.test(document.getElementById('notice').textContent)"
+                                " && windowWrites === 0 && !inViewTransition && [...document.querySelectorAll('#grid .tile')]"
+                                ".every((t) => !t.style.transform && t.getAnimations().length === 0)", timeout=10000)
+            capped = m.evaluate(STACK)
+            capped["said"] = m.evaluate("() => document.getElementById('notice').textContent")
+            capped["posts"] = list(posts)
+            m.keyboard.press("u")
+            m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 1"
+                                " && windowWrites === 0", timeout=10000)
+            capped["undone"] = list(posts)
+            m.set_viewport_size({"width": 390, "height": 844})
+            m.wait_for_function("() => getComputedStyle(document.getElementById('grid')).flexWrap === 'wrap'",
+                                timeout=5000)
+            m.locator("#preset-all").tap()
+            m.wait_for_function("() => document.querySelectorAll('#grid .tile.is-solo').length === 6",
+                                timeout=10000)
+            m.wait_for_timeout(300)
+            spread = m.evaluate(STACK)
             assert not errors, errors
             browser.close()
     finally:
@@ -369,6 +534,51 @@ def test_a_pane_that_widens_draws_what_its_narrower_tier_skipped(fleet_home, tmp
     assert after["trace"], "widened to full, the pane never drew its trace"
     assert after["runline"] != "none", after
     assert rails == [RAIL_PX] * 3, rails
+
+    assert mouse == {"button": "28px", "segment": "24px", "body": "13px", "gutter": "8px"}, mouse
+    assert finger["seen"] > 10, finger
+    assert not finger["small"], f"under 44 px at 390 under a finger: {finger['small']}"
+    assert not finger["fonts"], f"fields under 16 px (iOS zooms into them): {finger['fonts']}"
+    kids, row = card["before"]["kids"], card["before"]["row"]
+    assert len(kids) == 3 and all(abs(k["width"] - row["width"]) <= 1 for k in kids), card
+    assert kids[0]["bottom"] <= kids[1]["top"] and kids[1]["bottom"] <= kids[2]["top"], card
+    assert card["scrolled"] > 0, "the payload never scrolled"
+    for step in ("before", "after"):
+        seen = card[step]
+        assert seen["row"]["top"] >= seen["pane"]["top"] and seen["row"]["bottom"] <= seen["foot"] + 1, (step, card)
+    # Re-measured in the stack (#575), where the pane itself scrolls: the row stays on the glass at
+    # either end of it.
+    assert scroll["overflowY"] == "auto", scroll
+    for end in ("top", "end"):
+        seen = scroll[end]
+        assert seen["top"] >= seen["paneTop"] and seen["bottom"] <= seen["foot"] + 1, (end, scroll)
+
+    # 390x844: nothing sideways, the open pane full and >= 360 px, every rail a rail on the grid's
+    # foot, the reply row on the screen.
+    assert stack["wrap"] == "wrap" and stack["sw"] <= stack["cw"], stack
+    assert len(stack["open"]) == 1 and stack["open"][0]["tier"] == "full" and stack["open"][0]["width"] >= 360, stack
+    assert len(stack["bar"]) == 5 and all(r["tier"] == "rail" for r in stack["bar"]), stack
+    assert all(abs(r["bottom"] - stack["foot"]) <= 1 for r in stack["bar"]), stack
+    assert 0 <= stack["reply"]["top"] and stack["reply"]["bottom"] <= stack["vh"], stack
+    # 844x390: the row, and the reply row reached by scrolling the pane, not the page.
+    assert sideways["wrap"] == "nowrap" and sideways["page"] == 0, sideways
+    assert 0 <= sideways["top"] and sideways["bottom"] <= sideways["vh"], sideways
+    # 820x1180: the row as it was, one full pane and the rails on one line.
+    assert tablet["wrap"] == "nowrap" and len(tablet["open"]) == 1 and tablet["open"][0]["tier"] == "full", tablet
+    assert len({round(t["y"]) for t in tablet["open"] + tablet["bar"]}) == 1, tablet
+    assert all(r["tier"] == "rail" for r in tablet["bar"]), tablet
+    # `all` at 820x1180 (#577): the panes that fit at the compact minimum, the rest rails, nothing
+    # sideways, one write, and `u` one more.
+    fit = int(capped["said"].split(": ")[1].split(" of ")[0])
+    assert 1 < fit < 6 and capped["wrap"] == "nowrap" and capped["sw"] <= capped["cw"], capped
+    assert len(capped["open"]) == fit and all(t["width"] >= 160 for t in capped["open"]), capped
+    assert [t["repo"] for t in capped["open"]] == names[:fit - 1] + ["r05"], capped
+    assert len(capped["bar"]) == 6 - fit and all(r["tier"] == "rail" for r in capped["bar"]), capped
+    writes = [u for u in capped["posts"] if '"widths"' in u]
+    assert len(writes) == 1 and all("/api/window" in u for u in capped["posts"]), capped
+    assert len([u for u in capped["undone"] if '"widths"' in u]) == 2, capped
+    # `all` at 390: the panes stack and the grid scrolls down, never sideways.
+    assert len(spread["open"]) == 6 and spread["sw"] <= spread["cw"] and spread["sh"] > spread["ch"], spread
 
 
 @pytest.mark.browser

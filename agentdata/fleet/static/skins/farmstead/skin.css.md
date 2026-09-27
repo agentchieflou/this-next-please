@@ -58,6 +58,9 @@ Above `--ink-pencil: #968F82;`:
 
 Lamplight: a paler pencil to be seen by, and a highlighter dark enough that the text read
 through it keeps 4.5:1 (theme.check, test_fleet_ink_farmstead).
+Each weather's `--ink-highlighter` is its own (#329): read through the layer's real blend
+(multiplied by day, screened in the cave and the rain) the palette's amber and the cave's first
+override left the name under 4.5:1.
 
 ### `body[data-skin="farmstead"][data-skin-variant="rainy"]`
 

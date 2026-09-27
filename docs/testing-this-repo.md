@@ -12,6 +12,7 @@ point of everything below is that the next one is found by CI.
 |---|---|
 | `tests/` | the ordinary suite: units, seams, and the static guards |
 | `tests/test_props_*.py` | the generated inputs; hypothesis, from the `dev` extra |
+| `tests/test_fleet_ink_cues.py` | the cue contract for every ink skin that ships cues (#373): read from the sources, no browser, under 2 s |
 | `tests/test_lifecycle.py` | install, update, shadow, uninstall, in real venvs (`slow`) |
 | `tests/conftest.py` | isolation and the shared fixtures |
 | `tests/fixtures/` | inputs, byte-exact (`-text` in `.gitattributes`) |
@@ -44,17 +45,17 @@ test, `test_ui.py::test_every_command_still_works_without_rich`.
 python -m pytest -q -n auto -m "not browser and not measured and not scale and not slow"
 ```
 
-**43 seconds, 3,174 tests.** This is the one to run while you are working, and it is what almost
-every change is actually tested by: four tiers are held out, and between them they are 5% of the
-suite. The same selection takes 2 minutes 27 serially, so the four cores are most of the win and
-the tiers are the rest.
+**4,203 tests, about two minutes on four cores** (116 s on 27 Sep 2026, on a container whose four
+cores three builders shared). This is the one to run while you are working, and it is what almost
+every change is actually tested by: four tiers are held out, and between them they are 411 tests,
+8.9% of the suite. Its 23 `laptop` tests are selected and skip (§Markers).
 
 ### The rest
 
 ```bash
-python -m pytest -q -n auto -m "not measured and not scale"   # + the browser tests, 2m21
-python -m pytest -q -m "measured or scale"                    # the two that need the machine, 1m18
-python -m pytest -q                                           # everything, serially: about 7m30
+python -m pytest -q -n auto -m "not measured and not scale"   # + the browser tests: ~25 min of test time
+python -m pytest -q -m "(measured or scale) and not slow"     # the two that need the machine, 2m27
+python -m pytest -q                                           # everything, serially: ~34 min of test time
 python -m pytest -q --shuffle-seed 1                          # catch order dependence
 HYPOTHESIS_PROFILE=ci python -m pytest -q                     # properties at CI's example count
 AGENTDATA_LAPTOP=1 python -m pytest -m laptop                 # the laptop runbook (real tools)
@@ -66,24 +67,26 @@ $env:AGENTDATA_LAPTOP = '1'; python -m pytest -m laptop     # the same from pwsh
 
 ## The tiers, and why they exist
 
-There are 3,443 tests and the whole suite serially takes **about seven and a half minutes** — the
-tiers below, one after another. That number is not a complaint about any one test; it is what
-happens when 3,400 tests arrive in three weeks and nobody asks what the expensive parts have in
-common. Measured on this container, four cores, each tier timed on its own:
+There are 4,614 tests (`--collect-only`, 27 Sep 2026), and the whole suite serially takes **about 34
+minutes of test time** on CI's Linux runners, three quarters of it the browser tier
+(`tests/durations.json`, one green run; §Step budgets). That number is not a complaint about any one
+test; it is what happens when thousands of tests arrive in weeks and nobody asks what the expensive
+parts have in common. The counts are by tier marker, so a test in two tiers counts in both (8 are
+`browser` and `measured`, 1 is `browser` and `slow`, 2 are `measured` and `scale`):
 
 | Tier | Tests | Cost | What makes it cost |
 | --- | --- | --- | --- |
-| the inner loop | 3,174 | 147 s serial, **43 s on 4 cores** | nothing in particular |
-| `browser` | 108 | 229 s serial; with the inner loop on 4 cores the two together are 142 s | each one launches Chromium and binds a server |
-| `measured` + `scale` | 13 | **78 s, and it must stay serial** | a duration is asserted, or the data is large |
-| `slow` | 51 | minutes | builds a wheel in a fresh venv, or spawns three subprocesses per command |
+| the inner loop | 4,203 | 374 s of test time on CI's Linux; **116 s on 4 shared cores** here | nothing in particular |
+| `browser` | 349 | about 1,525 s of test time on CI's Linux: two whole-file shards per run (#312) | each one launches Chromium and binds a server |
+| `measured` + `scale` | 19 (15 and 6) | **147 s here, and it must stay serial** | a duration is asserted, or the data is large |
+| `slow` | 52 | about 67 s on CI's Linux, 138 s on Windows | builds a wheel in a fresh venv, or spawns three subprocesses per command |
 | `laptop` | 23 | — | needs real tools; gated on `AGENTDATA_LAPTOP=1` |
 
-Everything but the last two, in the two passes CI runs on Linux: **3 minutes 40**, against about
-7m30 serial. On CI's own hardware the win is larger than this container's: the ubuntu suite step
-went from **5m14 to 85 s**.
+The "here" times are this container's on 27 Sep 2026, each tier on its own, while other builders
+shared its four cores; the rest are the summed test times in `tests/durations.json`. Which job runs
+each tier, and how, is the generated matrix in *What CI runs*.
 
-**108 browser tests are half the wall clock and 3% of the suite.** That is the whole finding, and
+**349 browser tests are three quarters of the test time and 8% of the suite.** That is the whole finding, and
 the tiers follow from it: the expensive things are expensive for four distinct reasons, and each
 reason wants a different treatment.
 
@@ -99,6 +102,14 @@ helpers as well as tests — a budget had already moved into a helper, where a s
 could never have seen it. It is a backstop for the common shape and it says so: a test that builds
 its own list of over-budget gestures and asserts the list is empty has no clock and no ceiling for
 any pattern to find, and carries the marker because its author put it there.
+
+**A clock read inline counts, and so does a browser nobody marked** (#602). The scan sees
+`time.monotonic() - t0 < 0.2` and `time.time() - start < 5`, the shape the wrap-up sweep's 0.2 s
+bound had when a Windows runner took 0.735 s (#590), and it opens `regressions/` and `laptop/` as
+well as `tests/`. The same file fails a module that imports Playwright or the desk harness
+(`test_fleet_desk_browser`) with no `browser` marker in it, and each of its tests that starts
+Chromium, itself or through the module's own fixtures, without one: an unmarked Chromium test runs
+in the default tier, gets none of the page diagnostics and escapes the browser shards.
 
 **A `measured` result means something only when the test ran serially** (#473, operator ruling
 (a)). `test_a_gesture_keeps_its_budget_while_the_ink_draws` went over its 50 ms budget under
@@ -135,7 +146,8 @@ should carry one of the three.
 
 `pytest-xdist` is in the dev extra, and `-n auto` is what the inner loop and CI's **Linux** legs
 run for everything outside those two tiers. Three things make that safe, each checked rather than
-hoped for: the `suite · shuffled` job runs two seeded orders on every pull request, `isolated_home`
+hoped for: the `suite · shuffled · seed <n>` jobs run two seeded orders on every pull request (and
+`suite · shuffled · browser · shard K/2` shuffles the browser tier, #312), `isolated_home`
 is autouse and hangs every home off the test's own `tmp_path`, and every server the suite starts is
 built on port 0.
 
@@ -148,7 +160,53 @@ test in a file runs contiguously and that reset holds; interleaved it does not. 
 own weakness, surfaced rather than caused by the tiers, and it is #227. **The cause is fixed at its
 root** (#298): the desk's process state now has one owner that resets all of it for every test
 (§Isolation), and a test that leaves a desk server thread running fails where it did it. Windows
-stays serial until #313 moves it to shards; the leg costs nothing against what it did before.
+stays serial **within each shard** (#311: whole files per job, below) until #313 tries `-n auto` inside them.
+
+**Shards** (#310). `--shard=K/N` (1-based; `tests/shard.py`, listed in conftest's `pytest_plugins`) keeps
+the K-th of N shards of whatever the rest of the command line selected, and prints
+`shard K/N: <files> files, <tests> tests, ~<s> s estimated`. A shard is made of **whole files**, never single
+tests, so a module still runs contiguously in one process, as the serial Windows run relies on. Its hook runs
+last, after the `--shuffle-seed` shuffle and after `-m`/`-k`, so it sees only selected tests and keeps their
+order: a shuffled shard stays shuffled. Files are packed greedily, longest first, ties by path, by their time
+in `tests/durations.json` (#309, `{os: {file: {tier: seconds}}}`), counting only the **tiers of the file's
+selected tests**: a file whose browser tests `-m "not browser"` dropped weighs only its `default` seconds. The
+current OS's entry is used first (`windows` on nt, else `linux`), then the other OS's, then the median of the
+known files; with no table every file weighs the same and the shards split by count. Every process that
+collects the same selection computes the same shards, so `-n` works too (each xdist worker keeps the same
+files; the estimate line is printed only by a serial run). **The union guarantee**: the N shards' node ids are
+pairwise disjoint and add up to exactly the selection. `tests/test_hygiene_shards.py` checks the packing, the
+weighting and the plugin in a throwaway project serially and under `-n 2`; the `scale` test
+`test_the_expensive_tiers_are_a_small_part_of_the_suite` checks the real suite's `--shard=K/3`, with and without
+`-m`, under `--shuffle-seed`. Windows runs in shards (#311, *What CI runs*); Linux is #312.
+
+**The Windows shards** (#311). The one serial Windows 3.14 job outgrew every cap it was given (its pytest step
+took 28-32 minutes of 35), so Windows is four parallel jobs on 3.14, each capped at 20 minutes: three
+`--shard=K/3` jobs that select exactly what the old step did (`not slow and not measured and not scale`), checked
+out with `core.autocrlf true` (Git for Windows' default), and a `packaging and shells` job with `core.autocrlf
+false` (#591: 3.14 is the only Python). A shard is whole files, so each module still runs
+contiguously in one process, which is what #227 needs. The `windows` times in `tests/durations.json` put each
+shard near 9.3 minutes; a file the table does not know weighs the median, so a
+new or renamed file can unbalance the shards until the table is refreshed (§Step budgets). What each job runs is
+decided by its matrix row and each step's `if:`, and `tests/test_hygiene_windows_shards.py` checks that locally:
+it expands the rows as Actions does, evaluates every `if:`, and checks that every shard K/3 exists once, that
+every job is 3.14 and installs and requires Chromium, that the shards check out with `autocrlf true` and
+packaging and shells with `false`, that each shell, encoding and floor step runs in exactly one job, and that each
+job reports its own junit
+files against its caps into an artifact of its own name. How long a shard takes, and whether the job names still
+match any required status check, only a run shows.
+
+**The Linux browser shards** (#312). The page does not depend on the Python version, so Linux runs the browser
+tier (`browser and not slow and not measured and not scale`) once per run, in two `--shard=K/2` jobs
+(`ubuntu · python 3.14 · browser · shard K/2`, under `-n 2`), and once more shuffled on seed 1 in two serial
+`suite · shuffled · browser · shard K/2` jobs, where it had never run: the old `suite · shuffled` job installed no
+browser and every browser test skipped. The one ubuntu leg (#591: 3.14 only) deselects `browser` from its
+parallel step and keeps Chromium for the browser tests that are also `measured` or `slow`, the desk's
+measurements and the demo. `suite · shuffled` is one job per seed
+(`suite · shuffled · seed 1`, `suite · shuffled · seed 20260904`), each the whole non-browser suite, serially,
+and `coverage` deselects `browser` rather than relying on its skip. `tests/test_hygiene_linux_shards.py`
+expands every ubuntu job and evaluates each step's `-m` with pytest's own marker grammar: the tier runs in
+exactly those four jobs, each shard once, every job that installs Chromium requires it, and no job that does
+not selects a browser test.
 
 The coverage job stays serial on purpose: `coverage run -m pytest -n auto` measures the controller
 process and none of the workers, which would quietly report a fraction of the truth.
@@ -191,7 +249,8 @@ python -m pytest -m browser  # or just `pytest`; they run with everything else
 They **skip with the reason named** when there is no browser, and never fail for its absence:
 `AGENTDATA_CHROMIUM` points at one you already have, which is what a machine that ships a browser
 separately from the wheel needs (Playwright pins a build to its own version and otherwise refuses to
-start). CI installs chromium on the Linux legs and on the Windows 3.14 leg, so these run there
+start). CI installs chromium on the ubuntu leg, the Linux browser jobs and every Windows job (the matrix in
+*What CI runs* says which tier runs in each), so these run there
 rather than skipping — a browser test that skips everywhere is the harness that let the defects
 through in the first place.
 
@@ -212,6 +271,39 @@ skip, or a `pytest.importorskip("playwright.sync_api")` — is reported as a fai
 (`browser_skip_is_a_failure`, pinned by
 `tests/regressions/test_20260923_any_linux_ci_skipped_every_browser_test.py`). Without the variable
 nothing changes.
+
+#### Writing a browser test (#299)
+
+Write it on the harness, `tests/desk_harness.py` (a plugin `tests/conftest.py` lists in
+`pytest_plugins`). Each xdist worker, or the one serial process, starts **one** Playwright driver
+and **one** Chromium, lazily, for the first test that asks for `desk_browser`, and keeps them to the
+end; every page is a fresh context, closed when its test ends. A worker that runs no browser test
+starts no Node. Starting a driver and a browser per test cost about 0.65 s each time; a context on a
+browser that is up costs under 0.1 s.
+
+| Fixture | Gives |
+| --- | --- |
+| `desk_server` | a desk served on a daemon thread: `.url(extra="")`, `.token`, `.port`, `.base`, `.server`; stopped at teardown |
+| `desk_browser` | the worker's Chromium (from `launch_chromium`, relaunched if a test closed it); the contexts the test made are closed at teardown |
+| `new_desk_page` | `open(desk, extra="", *, width=1400, height=900, reduced=False, init_scripts=())` → `(page, record)`: a fresh context with `COUNT_FETCHES` installed; `record` keeps page errors, console errors and warnings, failed requests and non-2xx answers |
+| `no_desk_driver` | no shared driver in this thread, for a test that needs `asyncio.run` |
+
+```python
+@pytest.mark.browser
+def test_the_open_pane_is_full(fleet_home, tmp_path, desk_server, new_desk_page):
+    _desk_of(tmp_path)                       # the agents, before the page asks for them
+    page, record = new_desk_page(desk_server, width=1400, height=900)
+    page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
+    assert page.evaluate("() => openName()") == "alpha"
+    assert not record["errors"], record
+```
+
+No `pytest.importorskip("playwright.sync_api")` of its own and no `browser.close()`: the harness does
+both. A test that still opens `with sync_playwright()` works beside it (the harness stops the shared
+driver before any browser test that does not use `desk_browser`, because two sync drivers cannot
+live in one thread), and #300–#303 move the rest over. `tests/test_fleet_desk_browser.py` and
+`tests/test_fleet_ink.py` are the pattern; `test_fleet_ink`'s `_serve`, `_stop` and `_open` are thin
+wrappers over the harness, so the modules that import them keep working.
 
 #### The guards that measure rather than read (#202)
 
@@ -706,25 +798,73 @@ this section, the template and the rule together.
 
 A red job is handled as *When CI is red* says: a flake issue and a reproduction first, never a re-run into green.
 
+### Which tier runs where
+
+<!-- tier-matrix:start -->
+Generated from `.github/workflows/tests.yml` by `tests/tier_matrix.py`; refresh with `python tests/tier_matrix.py --write`. A cell names how the tier runs there: `parallel` (`-n auto`), `2 workers` (`-n 2`), `serial`, `shuffled` (serial, `--shuffle-seed`), `N shards` (whole-file `--shard=K/N` jobs), `named files` (a step that names its test files runs only the tiers those files hold, per `tests/durations.json`), `gated` (selected, and skipped unless `AGENTDATA_LAPTOP=1`), `SKIPS` (a `browser` test selected where no Chromium is installed), or `—` (not selected). `+` joins two steps.
+
+| Tier | ubuntu · 3.14 | windows · 3.14 |
+|---|---|---|
+| `default` | parallel + serial + serial, named files + shuffled (2 seeds) | 3 shards, serial |
+| `browser` | 2 shards, 2 workers + 2 shards, shuffled + serial, named files | 3 shards, serial |
+| `measured` | serial + shuffled (2 seeds) | serial |
+| `scale` | serial + shuffled (2 seeds) | serial |
+| `slow` | serial + shuffled (2 seeds) | serial |
+| `laptop` | gated | gated |
+| `browser+slow` | serial | serial |
+| `browser+measured` | serial + serial, named files | serial |
+| `measured+scale` | serial + serial, named files + shuffled (2 seeds) | serial |
+| `laptop+measured` | gated | gated |
+
+Per job, as the checks are named:
+
+| Job | `default` | `browser` | `measured` | `scale` | `slow` | `laptop` | `browser+slow` | `browser+measured` | `measured+scale` | `laptop+measured` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `ubuntu-latest · python 3.14` | parallel + serial, named files | serial, named files | serial | serial | serial | gated | serial | serial + serial, named files | serial + serial, named files | gated |
+| `ubuntu · python 3.14 · browser · shard 1/2` | — | 2 workers | — | — | — | — | — | — | — | — |
+| `ubuntu · python 3.14 · browser · shard 2/2` | — | 2 workers | — | — | — | — | — | — | — | — |
+| `windows · python 3.14 · shard 1/3` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · shard 2/3` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · shard 3/3` | serial | serial | — | — | — | gated | — | — | — | — |
+| `windows · python 3.14 · packaging and shells` | — | — | serial | serial | serial | — | serial | serial | serial | gated |
+| `lint · bash 4.4 and pwsh 7 floors` | serial, named files | — | — | — | — | — | — | — | — | — |
+| `coverage · per-module floors` | serial | — | serial | serial | serial | gated | — | — | serial | gated |
+| `suite · shuffled · seed 1` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
+| `suite · shuffled · seed 20260904` | shuffled | — | shuffled | shuffled | shuffled | gated | — | — | shuffled | gated |
+| `suite · shuffled · browser · shard 1/2` | — | shuffled | — | — | — | — | — | — | — | — |
+| `suite · shuffled · browser · shard 2/2` | — | shuffled | — | — | — | — | — | — | — | — |
+<!-- tier-matrix:end -->
+
+`tests/test_hygiene_tier_matrix.py` keeps the block equal to the workflow (its failure names the refresh
+command), every tier but `laptop` on at least one Linux and one Windows job, and no `SKIPS` cell anywhere; the
+`scale` test `test_the_expensive_tiers_are_a_small_part_of_the_suite` fails when a test carries a combination of
+tier markers the matrix does not list (#315). The table below is the prose per job.
+
+### What each job proves
+
+
 | Job | What it proves |
 |---|---|
-| `ubuntu · 3.12 / 3.14` | the suite on the floor and on the laptop's Python: the bulk on every core, then `measured` + `scale` with the machine to themselves, then `slow` serially. The 3.12 leg first type-checks the desk, `tsc --noEmit` with a pinned compiler ([desk-types.md](desk-types.md), #236) |
-| `windows · 3.12 / 3.14` | the same tiers but **serially** (see *Parallelism* — #227), plus pwsh 7 / Git Bash / cmd smoke steps, under both `core.autocrlf` settings |
-| `floor · pip refuses the wheel on 3.11` | `Requires-Python` really stops an older interpreter, in the words the user sees |
+| `ubuntu-latest · python 3.14` | the suite on the floor, which is also the laptop's Python (#591): the bulk on every core without the browser tier, then `measured` + `scale` with the machine to themselves, then `slow` serially. It first type-checks the desk, `tsc --noEmit` with a pinned compiler ([desk-types.md](desk-types.md), #236), and keeps Chromium for the `browser` tests that are also `measured` or `slow`, the measurements and the demo (#312) |
+| `ubuntu · python 3.14 · browser · shard K/2` (K = 1, 2) | the browser tier (`browser and not slow and not measured and not scale`), once per run, in two whole-file shards under `-n 2`, with Chromium (#312) |
+| `windows · python 3.14 · shard K/3` (K = 1..3) | the tiers the ubuntu legs run in parallel, as three whole-file shards (#311), each **serially** (see *Parallelism* — #227), with Chromium, `core.autocrlf true` (Git for Windows' default; #591) |
+| `windows · python 3.14 · packaging and shells` | `measured` + `scale` with the machine to themselves, the `slow` tier, and the pwsh 7 / Git Bash / cmd smoke, completion, encoding and 5.1-refusal steps, `core.autocrlf false` |
+| `floor · pip refuses the wheel on 3.13` | `Requires-Python: >=3.14` really stops an older interpreter, in the words the user sees |
 | `lint · shellcheck + PSScriptAnalyzer` | the shipped scripts parse and target the right floors |
 | `lint · bash 4.4 and pwsh 7 floors` | no post-4.4 construct in anything we ship or emit; the laptop suite never executes here |
-| `coverage · per-module floors` | the seven Windows-critical modules stay covered; report uploaded as an artifact |
-| `suite · shuffled` | two seeded shuffles, to catch fixture leakage. Serial on purpose: under `-n` the order a test runs in is the scheduler's, not the seed's, and the job would stop proving anything |
-| `windows · 3.14` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
+| `coverage · per-module floors` | the seven Windows-critical modules stay covered; report uploaded as an artifact. No browser is installed, so `-m "not browser"` (#312) |
+| `suite · shuffled · seed <n>` (n = 1, 20260904) | one seeded shuffle of the whole non-browser suite per job (`-m "not browser"`), to catch fixture leakage. Serial on purpose: under `-n` the order a test runs in is the scheduler's, not the seed's, and the job would stop proving anything (#312: one job per seed, so the two run side by side) |
+| `suite · shuffled · browser · shard K/2` (K = 1, 2) | the browser tier shuffled on seed 1, serially, in two whole-file shards, with Chromium (#312): the tier with the most process-global state had never run in a shuffled order |
+| `windows · python 3.14 · packaging and shells` (the `slow` marker) | the install/update lifecycle, in real venvs, on the OS where packaging goes wrong |
 | every job | `HYPOTHESIS_PROFILE=ci`, so the property tests search 200 examples rather than 50 |
-| every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): both ubuntu legs and the Windows 3.14 leg (a `require_browser` matrix field; the 3.12 leg installs no browser and leaves it empty). A skipped `browser` test fails there, and every other skip prints its reason |
+| every pytest step that installed Chromium | `AGENTDATA_REQUIRE_BROWSER=1` and `-rs` (#296): the ubuntu leg, both `browser` jobs, both `suite · shuffled · browser` jobs and every Windows job (a `require_browser` matrix field). A skipped `browser` test fails there, and every other skip prints its reason |
 | every pytest step | its own `timeout-minutes` and a `--junitxml=junit/<job>-<step>.xml` (#309); every job with one has a job cap and ends with the `if: always()` step *durations · the per-step table* |
 
 ### Step budgets and the durations table
 
 Every CI step that runs pytest has its own cap: about 1.5x its last green time, rounded up to 5 minutes, with
 the run and the times in a comment above the step. A job that had no cap got the sum of its step caps plus 5, at
-most 20. The Windows job keeps its 40 until #311 splits it. **A cap is never raised to make a run green**
+most 20. The Windows jobs are capped at 20 since #311 split them into shards. **A cap is never raised to make a run green**
 (*When CI is red*): a step that outgrows its cap is a finding, and the table below names the file that grew.
 `tests/test_hygiene_ci_budgets.py` fails a pytest step with no `timeout-minutes` or no `--junitxml`, a job with no
 cap or no summary step, and a step cap above its job's cap. The `--collect-only` laptop check is out of its scope.

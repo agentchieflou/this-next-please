@@ -155,6 +155,20 @@ list saved from a page becomes the whole boundary, and an operator who saved one
 stop receiving any command a later version adds. Change those in the file, where the whole list is
 in front of you. The deny-list is a floor: configuration can add to it and can never remove one.
 
+The phone bridge's five keys (#553) are **not** on /settings: each moves a human checkpoint (who may approve from
+outside the laptop, and where records leave it), so they are set in the file or by `ad-setup --patch fleet.mobile`,
+which asks exactly these five. The whole wizard asks only the first while the bridge is off. The `fleet/mobile` and
+`fleet/mobile traffic` doctor rows ([fleet-lifecycle.md](fleet-lifecycle.md) §The doctor rows) name the key behind
+each finding.
+
+| Setting | What it does | Default |
+|---|---|---|
+| `fleet.mobile.enabled` | the bridge runs at all | `false` |
+| `fleet.mobile.folder` | the bridge folder, one OneDrive syncs, outside every checkout and the fleet directory. Never defaulted: `%OneDriveCommercial%/FleetAgent` is only shown as a suggestion | none |
+| `fleet.mobile.operator` | the UPN that may decide from the phone | none |
+| `fleet.mobile.expire_s` | seconds a phone decision stays valid, clamped to 60-3600 | `900` |
+| `fleet.mobile.notify` | the fleet's notifications go to the outbox too | `true` |
+
 ## Sharing setup across a team (`--export-defaults` and `--import`)
 
 Everything stored in `~/.agentdata/config.json` is non-secret by design (`save()` rejects credential-shaped keys;
@@ -375,7 +389,7 @@ byte-identical to `AGENTDATA_COLOR=never`, so no escape ever reaches an agent's 
 ### What CI proves per shell
 
 The laptop runbook (`docs/windows-verification.md`) only needs to cover what CI cannot. CI runs
-`windows-latest` on Python 3.12 (the floor) and 3.14 (the laptop), and each of these is its own step, so
+`windows-latest` on Python 3.14 (the floor, and what the laptop runs), and each of these is its own step, so
 a red job names the shell:
 
 | Step | Shell | What it proves |
@@ -386,7 +400,7 @@ a red job names the shell:
 | `encoding · code page 437` | cmd | `ui.glyphs()` falls back to ASCII rather than printing `?` |
 | `encoding · code page 65001` | cmd | `→ · ≤` survive |
 | `floor · PowerShell 5.1 is refused` | powershell 5.1 | `smoke.ps1`'s `#Requires -Version 7.0` refuses to run, **and** `ad-doctor` prints the "PowerShell 7 required" row. This is the only 5.1 step in the workflow and exists to prove the refusal, not to support the shell |
-| `floor · pip refuses the wheel on 3.11` | bash | the built wheel declares `Requires-Python: >=3.12`, and pip on 3.11 refuses it with *"requires a different Python"* — the message the user actually sees |
+| `floor · pip refuses the wheel on 3.13` | bash | the built wheel declares `Requires-Python: >=3.14`, and pip on 3.13 refuses it with *"requires a different Python"* and *"not in '>=3.14'"* — the message the user actually sees |
 | `lint · shellcheck + PSScriptAnalyzer` | both | `smoke.sh` passes `shellcheck --shell=bash` (the bash 4.4 floor), `smoke.ps1` passes PSScriptAnalyzer with `PSUseCompatibleSyntax` targeting 7.x |
 
 The smoke scripts live in `.github/scripts/` and are the same files a person can run on the laptop.

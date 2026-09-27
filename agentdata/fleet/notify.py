@@ -251,6 +251,53 @@ def send_toast(item: dict, url: str = "") -> bool:
         return False
 
 
+def _oldest_pending(repo: str) -> str:
+    from . import approval
+
+    return next((str(r.get("id") or "") for r in approval.pending() if r.get("repo") == repo), "")
+
+
+def send_mobile(item: dict, cfg: dict | None = None) -> bool:
+    """One `notifications/<at>-<repo>-<state>-<seq>.json` in the bridge's outbox (#549), beside the toast.
+
+    Only when `fleet.mobile.enabled` and `fleet.mobile.notify`, into the folder `bridge.check_folder` accepts, and only
+    if that file is not there yet (the name embeds `seq`, so a second sweeper finding the same item writes nothing).
+    The record is allow-listed: no URL, no `#tile=` link, no run token; `body` goes through the bridge's scrubber.
+    `quiet` is exported, never acted on here: quiet hours downgrade, the phone side decides whether to buzz.
+    Never raises, as `send_toast` never raises: a failed file write is `False` and a debug line.
+    """
+    try:
+        from . import bridge
+
+        s = bridge.settings(cfg)
+        if not (s["enabled"] and s["notify"]):
+            return False
+        folder = bridge.check_folder(cfg)
+        repo, state = str(item.get("repo") or ""), str(item.get("state") or "")
+        at = str(item.get("at") or "").replace("Z", "")[:19]
+        stamp = at.replace("-", "").replace(":", "") + "Z"
+        seq = int(item.get("seq") or 0)
+        path = bridge.outbox_dir(folder, "notifications",
+                                 bridge.safe_file_name(f"{stamp}-{repo}-{state}-{seq}") + ".json")
+        if os.path.exists(path):
+            return True
+        severity = item.get("severity") if item.get("severity") in SEVERITIES else "info"
+        record = {"schema": bridge.MOBILE_SCHEMA, "kind": "notification", "repo": repo[:bridge.LIMITS["repo"]],
+                  "ticket": str(item.get("ticket") or "")[:bridge.LIMITS["ticket"]], "state": state,
+                  "severity": severity, "title": str(item.get("title") or "")[:bridge.LIMITS["title"]],
+                  "body": bridge.Scrubber().scrub(item.get("body") or "", bridge.LIMITS["body"]), "seq": seq,
+                  "at": at + "Z",
+                  "key": f"{repo}:{state}", "quiet": bool(item.get("quiet")),
+                  "approval_id": _oldest_pending(repo)[:bridge.LIMITS["id"]] if state == "waiting_approval" else ""}
+        textio.write_json(path, record)
+        return True
+    except Exception:                                             # noqa: BLE001 - see the docstring
+        from ..log import debug_exc
+
+        debug_exc("fleet mobile notification")
+        return False
+
+
 def deliver(items: list[dict], *, cfg: dict | None = None, url: str = "",
             when: time.struct_time | None = None) -> list[dict]:
     """Record every notification; toast the ones the rules allow. Returns them, marked up."""
@@ -259,6 +306,8 @@ def deliver(items: list[dict], *, cfg: dict | None = None, url: str = "",
     cur_project = os.environ.get("AGENTDATA_PROJECT", "")
     for item in items:
         item["quiet"] = quiet
+        # Before the toast, and whatever the hour: quiet hours export `quiet: true`, never suppress (#549).
+        item["mobile"] = send_mobile(item, cfg)
         item["toasted"] = bool(
             s["toast"] and not quiet and toast_status(cfg) == "ready" and send_toast(item, url))
         # Terminal attention signals for the terminal that has this project active

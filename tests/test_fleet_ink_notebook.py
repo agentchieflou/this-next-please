@@ -33,7 +33,7 @@ from agentdata.fleet import agentstate, events as E, serve as S, skins, supervis
 # The ink layer's own fixtures and helpers: the fleet directory, the desk's globals (autouse), the
 # desk and the page, and what the layer shows of itself.
 from test_fleet_ink import (  # noqa: F401 - fixtures are used by name
-    COUNT_FETCHES, IDLE_LOOP, PEN, _layer, _marks, _open, _repos, _rest, _serve,
+    AT_REST, COUNT_FETCHES, IDLE_LOOP, PEN, _choose, _layer, _marks, _open, _repos, _rest, _serve,
     _stop, fleet_home)
 from test_fleet_desk_browser import launch_chromium
 
@@ -177,6 +177,102 @@ def _until_class(page, repo, cls, on=True):
 
 def _notebook(page, variant="light"):
     page.wait_for_function(f"() => Ink.inspect().table === 'notebook:{variant}'", timeout=15000)
+
+
+#: The skin variants that lay the highlighter on the needs-you name (every skin but voxel, #329).
+HIGHLIGHTED = tuple(f"{s}:{v}" for s, v, _ in skins.every_variant() if s != "voxel")
+
+#: Every word made invisible, so a screenshot is what the text is read on and nothing else.
+NO_TEXT = ("* { color: transparent !important; -webkit-text-fill-color: transparent !important;"
+           " text-shadow: none !important; caret-color: transparent !important; }")
+
+#: The needs-you name and its open question in pane `repo`: each one's computed colour and the rect
+#: of its text (a Range over its contents, not the element's box).
+READ_TARGETS = """(repo) => {
+  const t = document.querySelector(`.tile[data-repo="${repo}"]`);
+  return [t.querySelector('.head .repo'), t.querySelector('.asks:not([hidden]) .ask:not([hidden]) .ask-q')].map(el => {
+    const r = document.createRange(); r.selectNodeContents(el); const b = r.getBoundingClientRect();
+    return { colour: getComputedStyle(el).color, x: b.x, y: b.y, w: b.width, h: b.height }; }); }"""
+
+
+def _rgb_hex(css):
+    r, g, b = (int(float(c)) for c in re.findall(r"[\d.]+", css)[:3])
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+#: The variant `v` is the page's whole look: its table, its skin and variant on <body>, its
+#: stylesheet loaded, and its palette's `--text` on the root. A snapshot answered from before the
+#: choice can put the old palette back for a moment, so this is asked again after the screenshot.
+CHOSEN = """([v, text]) => { const [s, variant] = v.split(':'), l = document.querySelector('link[data-skin]');
+  return Ink.inspect().table === v && document.body.dataset.skin === s && document.body.dataset.skinVariant === variant
+    && !!l && !!l.sheet && l.href.includes('/static/skins/' + s + '/skin.css')
+    && getComputedStyle(document.documentElement).getPropertyValue('--text').trim().toUpperCase() === text; }"""
+
+
+def _read_through_the_highlighter(page, repo, full, plain=False):
+    """#329: the needs-you name and the question in `repo`, in the variant `full` just chosen, read
+    against the pixels actually under them. Every word is made transparent, the paper is let come to
+    rest, and the text's rect is screenshotted: the median and the lowest quartile of the words'
+    colour against those pixels both keep 4.5:1. Returns what was read, for the failure message."""
+    from test_fleet_desk_glass import _png_pixels     # here: that module imports the glass tests
+    skin_name, variant = full.split(":")
+    chosen = [full, theme.to_css(theme.get(skins.SKINS[skin_name]["variants"][variant]["base"]))["--text"].upper()]
+    settled = "() => Ink.inspect().plain" if plain else AT_REST
+    if not plain:
+        # The layer draws with the inks it last read off the page: it has to have read this
+        # variant's, whenever its stylesheet arrived (#329's flake: a sheet later than its module).
+        ink = skins.SKINS[skin_name]["variants"][variant]["inks"]["highlighter"].upper()
+        took = f"() => {{ const l = Ink.inspect().layer; return !!l && l.inks.highlighter === '{ink}'; }}"
+        try:
+            page.wait_for_function(took, timeout=15000)
+        except Exception:
+            raise AssertionError((full, "the layer never took the variant's highlighter", ink,
+                                  (_layer(page) or {}).get("inks"))) from None
+        settled = f"() => ({AT_REST})() && ({took})()"
+    for _ in range(5):
+        # The question is written in the palette's `--text`: once it is, the page has its palette.
+        page.wait_for_function(f"([c, repo, rgb]) => ({CHOSEN})(c) && ({settled})()"
+                               f" && ({READ_TARGETS})(repo)[1].colour === rgb",
+                               arg=[chosen, repo, "rgb(%d, %d, %d)" % tuple(round(v * 255) for v in theme.hex_to_rgb(chosen[1]))],
+                               timeout=30000)
+        targets = page.evaluate(READ_TARGETS, repo)
+        page.evaluate("css => { const s = document.createElement('style'); s.id = 'no-text'; s.textContent = css;"
+                      " document.head.appendChild(s); }", NO_TEXT)
+        page.wait_for_function(f"() => ({settled})()", timeout=30000)
+        page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+        shots = [page.screenshot(clip={"x": tg["x"], "y": tg["y"], "width": tg["w"], "height": tg["h"]})
+                 for tg in targets]
+        page.evaluate("() => document.getElementById('no-text').remove()")
+        try:
+            page.wait_for_function(f"([c, repo, was]) => ({CHOSEN})(c) && ({READ_TARGETS})(repo).map(t => t.colour).join() === was",
+                                   arg=[chosen, repo, ",".join(t["colour"] for t in targets)], timeout=5000)
+            break
+        except Exception:
+            continue
+    else:
+        raise AssertionError((full, "the page never held the variant still long enough to read it"))
+    out = []
+    for name, tg, shot in zip(("name", "question"), targets, shots):
+        assert tg["w"] >= 4 and tg["h"] >= 4, (full, name, tg)
+        w, h, bpp, rows = _png_pixels(shot)
+        words = _rgb_hex(tg["colour"])
+        ratios = sorted(theme.contrast_ratio(words, "#%02X%02X%02X" % tuple(row[x * bpp:x * bpp + 3]))
+                        for row in rows for x in range(w))
+        med, p25 = ratios[len(ratios) // 2], ratios[len(ratios) // 4]
+        out.append((full, "plain" if plain else "ink", name, words, round(med, 2), round(p25, 2)))
+    bad = [o for o in out if o[4] < 4.5 or o[5] < 4.5]
+    assert not bad, ("under 4.5:1 through the highlighter (median, p25)", bad)
+    return out
+
+
+def _each_variant_reads_through_its_highlighter(page, repo, variants, plain=False):
+    """`_choose` each of `variants` in turn and read the name and the question through its
+    highlighter (`_read_through_the_highlighter`), once the variant is the page's whole look."""
+    read = []
+    for full in variants:
+        _choose(page, full)
+        read += _read_through_the_highlighter(page, repo, full, plain=plain)
+    return read
 
 
 def _of(marks, lane, sel_part, tool=None, shape=None, live=True):
@@ -460,7 +556,36 @@ def test_the_night_notebook_screens_its_highlighter_onto_charcoal(fleet_home, tm
                        bg: cs.backgroundColor }; }""")
             spec = skins.SKINS["notebook"]["variants"]["dark"]
             assert seen["paper"].upper() == spec["composited_panel"] and seen["pen"].upper() == spec["inks"]["pen"]
-            assert not errors, errors
+            # #329, folded here (decision 13): the needs-you name and its question read at 4.5:1
+            # through each paper variant's and each farmstead weather's highlighter, ink on (glass
+            # is read in the glass test), and through every variant's plain tint with `?ink=off`.
+            _emit(page, "alpha", ("question_opened", {"question": "which sprint boundary should it use?",
+                                                      "id": "q1", "blocking": True, "choices": ["this", "that"]}))
+            _until_class(page, "alpha", "needs-human")
+            _until(page, '.tile[data-repo="alpha"] .asks:not([hidden]) .ask:not([hidden]) .ask-q')
+            inked = [v for v in HIGHLIGHTED if not v.startswith("glass:")]
+            inked.remove("notebook:dark")
+            _each_variant_reads_through_its_highlighter(page, "alpha", ["notebook:dark"])
+            # A loaded runner: the next skin's module is up, and the layer has read the page's
+            # colours, before that skin's stylesheet applies. The sheet is held until then; once
+            # it lands the layer must read them again, or its highlighter stays the fallback.
+            late = inked.pop(0)
+            assert late == "farmstead:daytime", late      # light paper after charcoal, a family of its own
+            held = []
+            page.route("**/static/skins/*/skin.css*", lambda route: held.append(route))
+            _choose(page, late)
+            page.wait_for_function("v => { const c = document.querySelector('canvas[data-skin]');"
+                                   " return !!c && c.dataset.skin === v; }", arg=late, timeout=15000)
+            assert len(held) == 1, held
+            daytime = skins.SKINS["farmstead"]["variants"]["daytime"]["inks"]["highlighter"]
+            assert _layer(page)["inks"]["highlighter"] != daytime, "the sheet is held: its inks cannot be read yet"
+            held[0].continue_()
+            page.unroute("**/static/skins/*/skin.css*")
+            _read_through_the_highlighter(page, "alpha", late)
+            _each_variant_reads_through_its_highlighter(page, "alpha", inked)
+            plain, perrors, _ = _open(browser, port, token, "&ink=off", reduced=True)
+            _each_variant_reads_through_its_highlighter(plain, "alpha", HIGHLIGHTED, plain=True)
+            assert not errors and not perrors, (errors, perrors)
             browser.close()
     finally:
         _stop(server)

@@ -34,8 +34,9 @@ WHERE = ("browser", "vscode", "pycharm", "edge")
 # `fleet.ts`, #230) and the spike's desktop window (`WINDOW` in ide/desktop/fleet_window.py, #353).
 # Nothing outside its host can point one at a URL, so `ad-fleet open --all` leaves them to it: a
 # browser tab under one of these names would share the host's record. `desktop` is not in `WHERE`:
-# no `ad-fleet` verb launches the spike, only its own command.
-IDE_WINDOWS = ("pycharm", "vscode", "desktop")
+# no `ad-fleet` verb launches the spike, only its own command. A phone and a tablet (#580, MOB-D23)
+# open their own link, `/open?w=phone&ink=off`, and a laptop tab under their name would share it.
+IDE_WINDOWS = ("pycharm", "vscode", "desktop", "phone", "tablet")
 PING_TIMEOUT_S = 2.0
 
 LAUNCHER = "fleet.html"

@@ -25,6 +25,13 @@ The word on each state colour (#327): a chip's, a badge's, a rail glyph's. The f
 every palette. White on --done is 3.57:1 here, so no word is white by default. The dark block
 below needs none: the state colours are shared.
 
+Above `--focus: #1f2123;`:
+
+The ring for focus, the selection and a pressed control (#339): never a state colour. It is
+this block's `--text` made neutral (saturation capped at 0.12), the rule `theme.to_css` uses
+where a palette's cursor is a state hue; the plain accent #1668b8 is 1.3 degrees from
+`--running`. The dark block below carries its own, from its own `--text`.
+
 Above `--running-text: #2a68aa;`:
 
 A word written IN a state colour (#328): the why line, "exit 2", "it asked you:". A state
@@ -61,6 +68,29 @@ The `hidden` attribute has to win, and until this rule it did not: every panel s
 flex` and an id selector outranks the user-agent `[hidden]` rule, so a "closed" drawer stayed on
 the glass swallowing the clicks meant for the tiles under it. `el.hidden = true` is how this
 page closes everything, so it means what it says here or it means nothing.
+
+### `html`, `body`, `header, footer`, `footer` (the viewport, #573)
+
+The viewport foundations for a phone or a tablet (epic #541), each a no-op on a rectangular
+desktop window, where every `env(safe-area-inset-*)` is 0:
+
+- `html { overscroll-behavior-y: contain }`: pull-to-refresh on Chrome for Android no longer
+  reloads the desk mid-approval (no effect on iOS before 16).
+- `body`'s `height: 100dvh` follows a `100vh` line kept as the fallback: iOS's `100vh` is the
+  *large* viewport, so the footer and the reply row sat under the browser's chrome.
+- `header, footer` keep 14 px at the sides or the landscape notch's inset, whichever is larger,
+  and the footer adds the home indicator's inset to its 6 px at the bottom. Both need the pages'
+  `viewport-fit=cover`; `interactive-widget=resizes-content` lets the keyboard resize the layout
+  on Chrome and Firefox for Android, and Safari keeps the reply row a flex child in a pane that
+  scrolls (never `position: fixed`).
+- At 640 px and under, every `kbd` hint is hidden beside the `.keys` popover (MOB-D17's
+  breakpoint): a phone has no keyboard to name.
+- At 640 px and under, `#side` is a full-width sheet (#576) that starts 48 px below the top (plus
+  the notch's inset), and `#side::before` is its scrim: fixed over the whole viewport at
+  `z-index: -1` inside the sheet's own stacking context, so it darkens the page and never the
+  sheet. The scrim is part of `#side`, so a tap on it is a click whose target is `#side` itself,
+  which is how `app.js` tells a tap outside from a tap inside. The 48 px strip is what a thumb
+  taps to dismiss; a sheet that covered the whole screen would have no outside.
 
 ### `.toolbar-group`
 
@@ -131,6 +161,9 @@ Above `@media (max-width: 900px) {`:
 A narrow window -- JCEF's tool window, Simple Browser in a split -- cannot afford a column
 beside the grid, so the sidebar goes back to being an overlay there and says so with a shadow.
 
+`min(480px, 60vw)` (#576): at a tablet's 820 px the overlay is 480 px, so the open pane stays
+visible beside it; the phone rule below takes over at 640 px and under.
+
 ## the row (#233)
 
 The operator's sentence: *each agent is a column, not each agent is stacked in one column --
@@ -161,7 +194,9 @@ than crushing a rail under its 48px.
 
 Above `:root { --rail: 48px; --compact-from: 160px; }`:
 
-The left edge is the PROJECT's accent; the chip is the state. One stripe with two meanings is
+The left edge is the PROJECT's accent; the chip is the state. With no project's accent the strip
+is `--focus` (#339): the server sends the palette's accent only where it reads as no state, a
+neutral grey where it would, and nothing on the plain page, where this border paints it. One stripe with two meanings is
 how a four-monitor desk starts lying: the same red would say "this project" on one screen and
 "this needs you" on the next. #150 fixed the roles, and the accent is the hex that project's
 terminal is painted in.
@@ -296,6 +331,26 @@ Above `.readonly {`:
 The read-only pane. The reply box is not disabled, it is *gone*: a box you can type in that
 cannot send is a worse answer than no box.
 
+### `button:focus-visible, select:focus-visible, input:focus-visible, .segment:focus …`
+
+Above `outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 6px var(--bg);`:
+
+A two-colour focus indicator (#339; WCAG technique C40): the ring in `--focus`, and a halo of
+`--bg` out to 6px, so the ring reads against the halo whatever is drawn beyond it. Farmstead
+daytime is why: its ring, sand's neutral, is 1.5:1 on the wood the skin draws around a header
+button and 2.0:1 on a pane's frame. A pressed control keeps its inset ring under the halo, and a
+selected pane its three rings.
+
+### `.segment.active` and the pressed pin
+
+Above `.segment.active {`, `.head .pintoggle.active {` and `.tile.is-pinned .head .pintoggle {`:
+
+Pressed is drawn the way the model picker draws its pressed pill (#362, #339): `--text` on
+`--select`, which rule 9 holds at 4.5:1 on every palette, and a 2px inset ring in `--focus`.
+Never an accent-coloured word: the accent is a state hue in most palettes, and in sand the word
+read 3.26:1. Under ink, notebook clears the fill, so the word is `--text` on paper and the ring
+carries "pressed".
+
 ### `.chipage`
 
 Above `.chipage { font-weight: 400; }`:
@@ -373,7 +428,9 @@ Above `body:has(> #ink[data-skin]) :is(header, footer, .tile, .approval, .asks, 
 #257: where a skin draws with ink, the page stands aside for it -- once, here, for every skin.
 The canvas is behind the page, so the skin's paper, frames and marks show only where nothing
 opaque is over them: the panes, the header, the footer and the cards on a pane are clear, and
-the pane keeps only its accent on the left (which project, #150) and the selection ring. Keyed on
+the pane keeps only its accent on the left (which project, #150) and the selection ring: there
+three rings (#339), `--bg`, `--focus`, `--bg`, so the focus colour separates from any frame the
+skin draws on both sides. Keyed on
 the canvas being there with a table on it, not on `:not(.ink-off)`: between the gate saying on
 and the layer arriving, a clear pane would have nothing behind it. Everywhere else -- every shell
 the gate turned off, and every CSS skin -- is the one plain look above.
@@ -389,12 +446,16 @@ start: a rule that named only `.tile` once left the column's drag with nothing t
 
 ### `.tile .head, .pane-rail`
 
-Above `.tile .head, .pane-rail { touch-action: none; user-select: none; -webkit-user-select: no …`:
+Above `.tile .head, .pane-rail { touch-action: pan-y; user-select: none; -webkit-user-select: no …`:
 
 A title bar is not text to be selected, and while it was the browser turned the second drag in
 a row into a native drag of the selection the first one had made -- which arrives as
 `pointercancel` and ends the gesture on the frame it began. `draggable` used to suppress this
 as a side effect; saying it outright is what replaces it.
+
+`pan-y`, not `none` (#573): a finger can start a vertical scroll on a head or a rail, and the
+reorder still begins on a sideways start; a vertical one the browser takes arrives as the
+`pointercancel` the drag already handles. `.gutter` keeps `none`: a gutter has no scroll to give.
 
 ### `.tile.is-pinned .head .n::after`
 
@@ -476,6 +537,14 @@ to sit here was focus mode's -- a filter that dimmed every rail whose agent want
 replaced it (#234): a press that makes whoever needs you wide and the rest rails, and takes
 nothing back when one of them stops needing you, so there is nothing left to hold.
 
+### `body[data-skin] .tile.needs-human .head .repo`
+
+Under a skin, the name of the agent that needs you is written in `--text`, not red (#329). Every
+skin but voxel lays the highlighter on it, and red through the swipe read at 1.7-2.4:1; `--text`
+reads at 4.5:1 or better through every variant's highlighter (`theme.check` rule 5), ink on and in
+the plain fallback. The highlight, the chip, the rail and the rim still say "needs you". `none`
+keeps `--human-text` (#328).
+
 ### `.outside`
 
 Above `.outside {`:
@@ -506,6 +575,13 @@ Above `.tile[data-tier="rail"] > :not(.pane-rail):not(.gutter) { display: none !
 a state rule elsewhere that sets `display` on a part of the pane must not put it back inside a
 48px strip (the hold note focus mode had was one). Its face -- and its gutter, which is how a
 rail is pulled wide by hand (#234).
+
+### `.pane-rail`
+
+In `.pane-rail {`, beside `-webkit-touch-callout: none;`:
+
+A finger held on a rail is *open beside* (#577); without this, iOS Safari answers the same hold
+with its own callout over the rail.
 
 ### `.pr-glyph`
 
@@ -582,6 +658,33 @@ Above `.hiddencount, .undo {`:
 The footer's count of what is put away, and the one press that brings it all back -- and beside
 it, the one press that takes the last change of widths back (#234).
 
+### `@media (max-width: 640px)` (the stack, #575)
+
+Above the stack's `@media (max-width: 640px) {`:
+
+A phone cannot hold the row: five 48 px rails and a 160 px pane are 466 px in a 390 px grid, and
+`groupRails` folds only the checkouts of one project. So at 640 px and under (MOB-D17, the key
+map's breakpoint) the row wraps into a stack. Every pane with a width fills the glass's width
+(`order: -1`, one under another when there are several, and the grid scrolls down), and its height
+leaves one 56 px line under it, where the rails wrap into a bottom bar that reads as a tab bar:
+horizontal, their names across. The pane scrolls inside itself.
+
+The bar's rails are `.tile:not(.is-solo)`, not `[data-tier="rail"]`, and never wider than
+`--compact-from` less a pixel: the tier is written from the width, so a rule keyed on the tier that
+grew a rail past 160 px would make it compact, drop the rule, shrink it back, and flip forever.
+The gutters and grips go: there is no width to pull on a phone. The toolbar is two rows, the live
+dot, the presets and the alerts on the first and the `see` group on the second; the brand and the
+chime give up their room for it (the day button, #511, came after the audit's two rows were
+counted).
+
+### `@media (pointer: coarse) and (max-height: 480px)`
+
+A phone on its side (#575): at 844 x 390 the grid is about 130 px tall, the reply row sat below
+the screen and the grid never scrolls down. The open pane scrolls inside itself instead, so its
+reply row is reached without scrolling the page. Coarse only, because a mouse's 8 px gutter hangs
+7 px outside the pane, and a scrolling pane would clip it; under a finger the gutter is inside
+(#574).
+
 ## hide, refresh and the model (#205)
 
 The same three controls on every pane that has a head, so the eye finds them in the same place
@@ -617,6 +720,8 @@ The card behind the model button. Fixed, because it is one card for the page and
 whichever button opened it -- the same "moved, never copied" rule the dispatch card follows. It
 scrolls inside itself (#366): the picker's pills are taller than a short window, and the arrows
 and the wheel have to reach the effort toolbar at the bottom of it.
+Its `100dvh` cap (after the `100vh` fallback, #573) is the visible viewport, so on a phone the
+card never sits under the keyboard or the URL bar.
 
 ## #216: arriving, and going away again
 
@@ -837,3 +942,44 @@ Above `body.settings-page .setrow > .setlabel {`:
 The model block (#367): the fleet-wide picker beside its label, the line saying where the list
 came from beside its refresh button, and a row's expansion under its compact picker, in the same
 cell. The pills are the picker's own (#362); a row's words sit level with its first pills.
+
+## a finger (#574)
+
+### `@media (pointer: coarse)`
+
+Above `@media (pointer: coarse) {` (before `.mpick`: from there to the end of the file the model
+picker's and the settings page's rules are each held to their own prefix by a test):
+
+The touch scale, and only the touch scale: the desktop's 28 px controls and 13 px text are the
+HIG's desktop floor and stay as they are for a mouse and for the IDE shells, so every size a
+finger needs lives in this one block.
+
+- 44 px both ways on every button, segment, pill, list row and head tool (Apple's 44 pt; WCAG 2.2
+  SC 2.5.5). Measured at 390x844 before this block, 24 of 30 targets were under it.
+  `body .mpick .pill`: the picker's own rules come after this block and set its pills' 28 px, so
+  the pills are named one step more specifically here rather than moved.
+- 16 px on every field, `!important` because the components set their own smaller fonts: iOS
+  Safari zooms the page into a field set under 16 px, and a zoomed desk has to be pinched back.
+- `.gutter` 20 px wide at `right: 0`, widened *inward*: the pane after it paints over anything
+  hung across the boundary, so an outward strip would be a strip nobody can press.
+- The approval and question cards' decision rows are `position: sticky; bottom: 0` on the
+  panel's colour: the buttons stay at the pane's foot while the payload scrolls under them.
+- `touch-action: manipulation` on the pressables: no double-tap-to-zoom delay on a tap.
+
+### `@media (max-width: 640px)` (the approval card)
+
+Above `@media (max-width: 640px) {` (the one after the coarse block):
+
+Approve, the reason and Deny each get a full-width line on a phone: side by side at 390 px the
+reason field was 22 px wide.
+
+### `@media (max-width: 640px)` (the settings page, #578)
+
+Above the last `@media (max-width: 640px) {` in the file:
+
+/settings on a phone. At 390 px the page scrolled sideways (`scrollWidth` 596): the 190 px label
+column, 140 px fields, the `.twocol` halves' 260 px floor and a long `code` token set the page's
+width. Here each label takes its own line over a full-width field, the halves stack, the `main`
+is held to the window (its auto margins would otherwise size it to its widest word), `.why`
+breaks anywhere, and a table wider than the window scrolls inside itself rather than the page.
+Every selector keeps the `body.settings-page` prefix: the block is still the settings page's.

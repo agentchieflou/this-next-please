@@ -15,7 +15,7 @@ so. Install pwsh (`winget install Microsoft.PowerShell`) or use Git Bash.
 | `ad-*` (every console script) | any shell |
 | `python -m agentdata <command>` | any shell — identical arguments, and the form to use when `ad-*` is "not recognized" |
 | `gh skill install …` | any shell |
-| `pip install …` | the shell whose `python` you mean, and it must be **3.12 or newer** (0.6.0 refuses older with *"requires a different Python"*). `ad-update --check` lists every `python` on PATH with its version |
+| `pip install …` | the shell whose `python` you mean, and it must be **3.14 or newer** (the package refuses older with *"requires a different Python"*). `ad-update --check` lists every `python` on PATH with its version |
 | `/plugin`, `/skill`, `/agent`, `/model` | **the Copilot chat window only.** A terminal answers `bash: /plugin: No such file or directory`, which reads like a missing tool rather than a wrong window. `ad-help /plugin` says so |
 
 ## Tab-completion

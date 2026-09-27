@@ -58,19 +58,45 @@ def slow_desk_writes(monkeypatch):
     return started
 
 
-def test_a_slow_desk_write_does_not_hold_up_a_read(fleet_home, tmp_path, slow_desk_writes):
+@pytest.fixture()
+def held_desk_writes(monkeypatch):
+    """desk.json's replace parks until the test opens `release`: a write that takes as long as the test says.
+    `(started, release, landed)`: the write is under way; let it go; it is on disk."""
+    real = textio._replace_with_retry
+    started, release, landed = threading.Event(), threading.Event(), threading.Event()
+
+    def held(tmp, path):
+        if os.path.basename(path) != S.DESK_FILE:
+            return real(tmp, path)
+        started.set()
+        release.wait(20)                                     # 20 s only ends a hang
+        try:
+            return real(tmp, path)
+        finally:
+            landed.set()
+
+    monkeypatch.setattr(textio, "_replace_with_retry", held)
+    yield started, release, landed
+    release.set()
+
+
+def test_a_slow_desk_write_does_not_hold_up_a_read(fleet_home, tmp_path, held_desk_writes):
+    started, release, landed = held_desk_writes
     _repos(tmp_path, "alpha", "beta")
     writer = threading.Thread(target=S.update_window, args=("main",), kwargs={"open": "alpha"})
     writer.start()
-    assert slow_desk_writes.wait(5), "the write never started"
+    assert started.wait(5), "the write never started"
 
-    t0 = time.monotonic()
+    # Not a clock (#602): the write is held until the reads are done, so reads that come back while it has not
+    # landed are reads that did not wait behind it. A read that waited would sit until the hold gave up, and
+    # come back after the file had landed.
     state = S.desk_state()
     S.fold_due()
-    took = time.monotonic() - t0
+    assert not landed.is_set(), "a read waited behind a desk.json write"
+    release.set()
     writer.join(5)
 
-    assert took < SLOW_S / 4, f"a read waited {took:.2f}s behind a desk.json write"
+    assert landed.is_set() and not writer.is_alive()
     assert state["windows"]["main"]["open"] == "alpha", "the change is in memory before it is on disk"
 
 

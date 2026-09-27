@@ -71,6 +71,33 @@ against, and names both colours. Rule 9, **pressed ground**, refuses a palette w
 names the text, the select and the accent the select moved toward. A skin reads the ten `--on-*` and `-text` tokens
 and never sets them.
 
+### Focus, selection, pressed and "which project" (#339)
+
+None of the four is ever a state colour. `--focus` is the palette's cursor when that reads at 3:1 on `--panel` and on
+every panel the palette is drawn on, and is achromatic (HSV saturation up to 0.25) or at least 30 degrees of hue from
+every chromatic state colour. Otherwise it is `--text` made neutral: the same value, saturation capped at 0.12.
+Plain `--text` is not enough, because matrix's text is 4 degrees from its done green and sand's is 2 from its waiting
+ochre. Of the built-ins only vanta-black keeps its cursor. The terminal's cursor is unchanged: this is the page's
+token, and `theme.escapes` still paints `t.cursor`.
+
+- **Keyboard focus** is a 2px `--focus` outline at offset 2 with a `--bg` halo out to 6px, a two-colour indicator. The
+  ring then reads against its own halo whatever a skin draws beyond it: on farmstead daytime the wood is 1.5:1
+  against sand's ring.
+- **The selected pane** under ink wears three rings, `--bg`, `--focus` and `--bg`. The plain page keeps its 2px
+  `--focus` ring.
+- **A pressed control** (an open sidebar tab, the pressed pin and maximise) writes `--text` on `--select`, which rule
+  9 holds at 4.5:1, with a 2px inset `--focus` ring. It is never an accent-coloured word. Under ink, notebook clears
+  the fill, and the ring carries "pressed".
+- **Which project.** A project's own accent (`theme.projects`) is used as chosen. With none, a pane is sent the
+  palette's accent when it passes the `--focus` test on the palette the page is served on (a skin's variant base
+  wins). Otherwise it gets the palette's `--muted` made neutral: matrix under voxel overworld #98AD9F, reds under
+  Nether #B7A1A1, sand under farmstead daytime #605B54. On the plain page (`none`) no accent is sent at all. The
+  tile's own left border paints the strip in `--focus`, `app.css :root` carries a `--focus` for light and one for
+  dark, and no pane wears the done green `#3FB950` any more.
+
+`theme.check` rule 10 refuses a palette whose `--focus` falls under 3:1 on the panel it is checked against, or sits
+within 30 degrees of a chromatic state colour, and names the ring, the panel or the state.
+
 ## The Host Matrix
 
 Every mechanism is gated by `color.enabled()`, so a pipe gets zero escape bytes and reports `mechanism: none`.
@@ -163,7 +190,10 @@ A **skin** is one more stylesheet over the same DOM: the approved grid with CSS 
 | `glass` | Drawn by the ink layer (#254): frosted panes over a lit **mesh** of three saturated blobs per variant, a one-pixel edge and a glint that catch the light, a second, more opaque layer for the cards on a pane ([skin-glass.md](skin-glass.md)). Plain CSS where WebGL is not measured as hardware (#257). | *Materials*: translucent material blurs what is behind it and adapts to light and dark while keeping content legible. |
 | `voxel` | Drawn by the ink layer (#256): a ground of 32px voxels, every pane a lit slab with its accent strip as a column of cubes, and a status stack per pane ([skin-voxel.md](skin-voxel.md)). Plain CSS where WebGL is not measured as hardware (#257). Inspired by block-building games; zero copied assets. | *Visual Design*: bold tactile geometry and unmistakable state indicators across a room. |
 | `farmstead` | Drawn by the ink layer (#255): warm cream paper, lit wooden frames and planks, and 5 crop-stage sprites (seed, sprout, sun, bloom, wilted) carrying state beside the chip's word. Plain CSS where WebGL is not measured as hardware (#257). Inspired by pixel farming games; zero copied assets. | *Color & Redundancy*: never colour alone; crop stages provide a second redundant carrier for agent status. |
+| `graph` | Graph paper drawn by the ink layer (#253): a 28px grid on quad-ruled stock (Engineering) or white lines on a cyanotype (Blueprint), a mechanical pencil, ruled marks, and every agent's hour plotted on the grid ([skin-graph.md](skin-graph.md)). Plain CSS where WebGL is not measured as hardware. | *Charts*: the plotted hour is a chart with its axis on the grid, and text crosses a heavy line at 4.5:1. |
 | `legalpad` | A yellow legal pad drawn by the ink layer (#251): canary stock, blue rules on the page's 28px baseline, a double red margin down every pane and a gummed band across the top; state is drawn on it in pencil, pen, marker and an orange-pink highlighter ([desk-ink.md](desk-ink.md) §The legal pad). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: every state is a shape as well as an ink -- an outline, a loop, a strike, a check, a bang. |
+| `napkin` | Napkin notes drawn by the ink layer (#252): quilted two-ply stock, a felt tip that bleeds along the emboss, and a coffee ring under a pane idle a long time ([skin-napkin.md](skin-napkin.md)). Plain CSS where WebGL is not measured as hardware. | *Composited contrast*: the text is checked on the stock and on the coffee ring's rim, the darker end of its panel. |
+| `notebook` | The first skin drawn with ink (#249, #250): white stock with blue rules and a red margin by day, charcoal stock and gel inks by night, and state drawn in pencil, pen, marker and highlighter ([skin-notebook.md](skin-notebook.md)). Plain CSS where WebGL is not measured as hardware. | *Color & Redundancy*: the highlighter is multiplied into the day page and screened onto the night one, and every state is a shape as well as an ink. |
 
 A variant re-colours the surfaces and nothing else. The status chips and the crop stages are
 deliberately **not** among them: a chip means the same thing in every world, and a `fail` that were
@@ -219,7 +249,48 @@ means the default variant, as an unknown variant does, and is saved as that vari
 | `farmstead:daytime` | Daytime *(default)* | `sand` | `#EFE6D2` | `#E8DDC3` | 9.4:1 | sunlight on paper and wood |
 | `farmstead:cave` | Cave | `eye-relief` | `#2B2A27` | `#33302A` | 8.3:1 | lamplight underground |
 | `farmstead:rainy` | Rainy day | `blues` | `#0B1B33` | `#16243D` | 12.0:1 | a wet afternoon indoors |
+| `graph:engineering` | Engineering *(default)* | `eye-relief-day` | `#F2ECDC` | `#F3F6EC` | 10.4:1 | green quad-ruled pad, graphite and a blue pen |
+| `graph:blueprint` | Blueprint | `blues` | `#0B1B33` | `#123A66` | 8.9:1 | white lines on a cyanotype |
 | `legalpad:canary` | Canary *(default)* | `eye-relief-day` | `#F2ECDC` | `#FCF3A6` | 10.1:1 | canary stock, and an orange-pink highlighter that still reads on it |
+| `napkin:diner` | Diner *(default)* | `eye-relief-day` | `#F2ECDC` | `#E3DAD0` … `#FBF9F4` | 8.3:1 at the worse end | a white napkin from the counter, and a blue ballpoint |
+| `napkin:kraft` | Kraft | `sand` | `#EFE6D2` | `#E0D4C2` … `#F2EADA` | 8.7:1 at the worse end | an unbleached napkin, for a warmer page |
+| `notebook:light` | Notebook *(default)* | `eye-relief-day` | `#F2ECDC` | `#FBFBF6` | 11.0:1 | white stock, blue rules, a red margin |
+| `notebook:dark` | Night notebook | `dark` | `#14171A` | `#1B1E25` | 13.4:1 | charcoal stock and gel inks, the highlighter screened |
+
+### Every palette's look
+
+Which looks are drawn on each palette, the signature concept planned or parked for it, or why it stays a palette on
+its own (#393's `skins.PALETTE_ONLY`; epic #294). **Skins drawn on it** lists the variants merged today (skin title ·
+variant title), or `palette only` when there are none. **Status** is the concept's: `built`, `planned`, `parked`, or
+`palette only`. A status says what has merged, never ahead of it: #391, #395, #397 and #398 set their palette's status
+to `built`, and #389, #392, #394 and #396 add their variants, when they merge. `tests/test_fleet_skins.py` holds the
+rows to `skins.py`: every built-in palette has one, a palette any variant is drawn on is never `palette only`, and
+every `PALETTE_ONLY` palette is.
+
+| Palette | Skins drawn on it | Signature concept | Status |
+|---|---|---|---|
+| `nfl-browns` | `palette only` | a coach's chalkboard: O's, routes, a flag (Playbook, #389-#392) | `planned` |
+| `matrix` | Voxel · Overworld | a screen whose code rain settles into the pane (Phosphor, #394, #395) | `planned` |
+| `greens` | `palette only` | a circuit board: solder mask, silkscreen, a pulse per line (#396, #397) | `planned` |
+| `eye-relief` | Farmstead · Cave | a lamp over charcoal stock (Notebook · Lamplight, #398) | `planned` |
+| `sand` | Farmstead · Daytime, Napkin notes · Kraft | a zen garden: raked sand, a stone per agent, one rake line per transcript line | `parked` |
+| `vanta-black` | Glass · Noir, Voxel · The End | an observatory: a star field, a meteor per line, a constellation when done, at least 97% true-black pixels | `parked` |
+| `reds` | Voxel · Nether | a darkroom: a safelight, prints in the tray, a print hung when done | `parked` |
+| `blues` | Glass · Azure, Farmstead · Rainy day, Graph paper · Blueprint | sonar: one ping ring per line | `parked` |
+| `dark` | Glass · Smoke, Notebook · Night notebook | none: the neutral ground the paper skins share | `built` |
+| `eye-relief-day` | Glass · Frost, Graph paper · Engineering, Legal pad · Canary, Napkin notes · Diner, Notebook · Notebook | none: the neutral ground the paper skins share | `built` |
+| `random` | `palette only` | none: generated per project, so no skin can be designed for an unknown ground | `palette only` |
+
+Every concept keeps the same rules, whichever palette it is drawn on:
+
+- **Motion only on an event**: one-shot, at most 320 ms, never looping. Reduced motion draws the end state.
+- **The render contract**: a skin is drawn over the same DOM and never changes it ([desk-ink.md](desk-ink.md)).
+- **`theme.check` pairs** at both ends of a composited panel and plain, and 4.5:1 for any ink that colours text or
+  that text is read through.
+- **The plain fallback**: `body.ink-off` draws the same mark table as CSS, legibly, wherever WebGL is not measured
+  as hardware.
+- **Names** (#318): a new skin's strings and art use names of our own. Names already shipped (the palette title
+  'NFL Browns', the voxel worlds) stay, and the docs may name the inspiration.
 
 ## An Agent Never Sees This
 

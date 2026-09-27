@@ -351,7 +351,7 @@ def test_the_site_facts_are_still_on_ad_fleet_show_where_a_human_asked_for_them(
     S.reset()
 
 
-def test_every_desk_route_filters_the_facts_and_not_just_the_one_panel(running, tmp_path):
+def test_every_desk_route_filters_the_facts_and_not_just_the_one_panel(running, tmp_path, monkeypatch):
     """`/api/show` is one tile and `/api/desk` is all of them; the grid draws from the second. A
     filter on the panel function only is a leak that reappears the moment the page uses the other
     route -- which it does, on a 15 s clock, for every tile at once."""
@@ -362,6 +362,23 @@ def test_every_desk_route_filters_the_facts_and_not_just_the_one_panel(running, 
         assert "teradata-prod.corp.example" not in body, path
         assert "svc_rdsd_ro" not in body, path
         assert "jira_board_id" in body, path
+
+    # The phone's two routes (#559) carry the model's prose and an approval's payload, which can quote any fact: the
+    # bridge's scrubber, not a key filter, is what keeps the four out of them.
+    from agentdata.fleet import approval, registry
+
+    said = ("checked teradata-prod.corp.example as svc_rdsd_ro, wrote \\\\share\\dpm\\runs with "
+            "C:\\Program Files\\TabularEditor 3\\TabularEditor.exe")
+    E.append("velocity", [E.event("velocity", "assistant_text", {"text": said})])
+    monkeypatch.setenv(registry.AGENT_ENV, "velocity")
+    id = approval.require("pncli-write", said, {"sql_user": "svc_rdsd_ro", "note": said}, timeout=0).id
+    monkeypatch.delenv(registry.AGENT_ENV)
+    for path in ("/api/attention", f"/api/approval?id={id}"):
+        answer = get(base, path, token)
+        assert answer["ok"] is True, (path, answer)
+        body = json.dumps(answer)
+        for leak in ("teradata-prod", "svc_rdsd_ro", "dpm\\\\runs", "TabularEditor"):
+            assert leak not in body, (leak, path)
 
 
 def test_search_is_the_same_catalogue_the_cli_verb_asks(desk, tmp_path):
@@ -693,6 +710,9 @@ def test_the_stream_reads_the_registry_once_a_tick_and_not_once_a_tile(desk, tmp
     for i in range(8):
         a_project(tmp_path, f"more{i}", project="DATA")
     reads.clear()
+    # Both passes sweep, like for like: the sweep is process-wide (#549), so a second stream inside one interval
+    # would otherwise not sweep and read the registry once less.
+    monkeypatch.setattr(S, "_last_sweep_at", {})
     S.stream_events({}, threading.Event(), lambda _f: None, once=True, polls=False)
     assert len(reads) == small, f"{small} registry reads for 2 repos, {len(reads)} for 10"
 
@@ -721,7 +741,8 @@ def get(base, path, token):
 
 def test_every_desk_route_needs_the_token_like_everything_else(running):
     base, token = running
-    for path in ("/api/desk", "/api/show?project=luna", "/api/inbox", "/api/where?q=x"):
+    for path in ("/api/desk", "/api/show?project=luna", "/api/inbox", "/api/where?q=x", "/api/attention",
+                 "/api/approval?id=luna-jira-transition-20260927T100000-ab12"):
         with pytest.raises(urllib.error.HTTPError) as e:
             urllib.request.urlopen(f"{base}{path}", timeout=10)
         assert e.value.code == 403, path

@@ -51,6 +51,10 @@ at 1.2 s, and a pane the layer moves (#374) at 320 ms.
   then the layer draws nothing: an idle desk is zero frames. `fx.js` takes out anything a skin left
   in the effects group after 90 frames (1.5 s), a net no shipped skin relies on.
 * **Reduced motion plays none.** No cue is queued, which is the canvas's half of the block below.
+* **A pane the layer moves** (#374, [desk-ink.md](desk-ink.md) §Moving the page) is timed in
+  milliseconds, because it is an animation on the page and not a frame on the canvas: `hit` 240 ms,
+  `pop` 200 ms, `flash` 320 ms. All three are read and gone inside the 320 ms ceiling, and none plays
+  under reduced motion.
 
 ## Arriving and going away: one pattern, nine panels
 
