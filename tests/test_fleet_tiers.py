@@ -25,8 +25,8 @@ import pytest
 from agentdata import config as C
 from agentdata.fleet import registry, serve as S, settings as SET
 
+from desk_harness import close_pages
 from test_fleet_column import _until
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_gutters import _drag_gutter, _page, _read_settled, _repos, _serve, _stop
 from test_fleet_probe import cli, table
 
@@ -227,12 +227,11 @@ DRAWN = """() => ({
 
 @pytest.mark.browser
 def test_the_desk_draws_the_configured_tiers_and_follows_a_change_without_a_reload(fleet_home,
-                                                                                   tmp_path):
+                                                                                   tmp_path, desk_browser):
     """Rail 40, compact from 200, full from 500. Three even panes on a 1400px window are about
     440px each: full at CI's numbers, compact at these. The rail is 40px wide, a gutter pulled
     under the compact minimum settles at 200 and not 160, and the file put back to the defaults
     reaches the open desk on its next tick -- no reload, and nothing written by the page."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma", "delta"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -241,34 +240,33 @@ def test_the_desk_draws_the_configured_tiers_and_follows_a_change_without_a_relo
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, posts = _page(browser, port, token, wide=3)
-            page.wait_for_function("() => TIER_FULL_FROM === 500", timeout=10000)
-            _read_settled(page)
-            configured = page.evaluate(DRAWN)
+        browser = desk_browser
+        page, errors, posts = _page(browser, port, token, wide=3)
+        page.wait_for_function("() => TIER_FULL_FROM === 500", timeout=10000)
+        _read_settled(page)
+        configured = page.evaluate(DRAWN)
 
-            # A gutter pulled well under the compact minimum lands on the configured one.
-            posts.clear()
-            _drag_gutter(page, "alpha", 160 - configured["panes"]["alpha"]["width"], steps=16)
-            page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
-            landed = _read_settled(page)
+        # A gutter pulled well under the compact minimum lands on the configured one.
+        posts.clear()
+        _drag_gutter(page, "alpha", 160 - configured["panes"]["alpha"]["width"], steps=16)
+        page.wait_for_function("() => windowWrites === 0 && !gutterHeld", timeout=8000)
+        landed = _read_settled(page)
 
-            # The file goes back to the defaults; the open desk follows it on the next tick.
-            page.evaluate("() => { window.__sameDocument = true; }")
-            posts.clear()
-            C.save({"fleet": {}})
-            page.wait_for_function("() => TIER_FULL_FROM === 360 && RAIL_PX === 48", timeout=10000)
-            page.wait_for_function(
-                "() => document.querySelector('.tile[data-repo=\"delta\"]')"
-                ".getBoundingClientRect().width === 48", timeout=8000)
-            _read_settled(page)
-            defaults = page.evaluate(DRAWN)
-            same = page.evaluate("() => window.__sameDocument === true")
-            written = [url for url, body in posts
-                       if "/api/arrange" in url or ("/api/window" in url and "widths" in body)]
-            assert not errors, errors
-            browser.close()
+        # The file goes back to the defaults; the open desk follows it on the next tick.
+        page.evaluate("() => { window.__sameDocument = true; }")
+        posts.clear()
+        C.save({"fleet": {}})
+        page.wait_for_function("() => TIER_FULL_FROM === 360 && RAIL_PX === 48", timeout=10000)
+        page.wait_for_function(
+            "() => document.querySelector('.tile[data-repo=\"delta\"]')"
+            ".getBoundingClientRect().width === 48", timeout=8000)
+        _read_settled(page)
+        defaults = page.evaluate(DRAWN)
+        same = page.evaluate("() => window.__sameDocument === true")
+        written = [url for url, body in posts
+                   if "/api/arrange" in url or ("/api/window" in url and "widths" in body)]
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -296,10 +294,9 @@ def test_the_desk_draws_the_configured_tiers_and_follows_a_change_without_a_relo
 
 
 @pytest.mark.browser
-def test_a_desk_on_the_defaults_writes_nothing_for_the_tiers(fleet_home, tmp_path):
+def test_a_desk_on_the_defaults_writes_nothing_for_the_tiers(fleet_home, tmp_path, desk_browser):
     """The root carries no tier property on CI's numbers, and a file that sets CI's numbers in so
     many words draws the same desk: nothing about the defaults is a write."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     names = ["alpha", "beta", "gamma"]
     _repos(tmp_path, names)
     S.arrange(order=names)
@@ -307,13 +304,12 @@ def test_a_desk_on_the_defaults_writes_nothing_for_the_tiers(fleet_home, tmp_pat
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _posts = _page(browser, port, token, wide=1)
-            drawn = page.evaluate(DRAWN)
-            style = page.evaluate("() => document.documentElement.getAttribute('style') || ''")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _posts = _page(browser, port, token, wide=1)
+        drawn = page.evaluate(DRAWN)
+        style = page.evaluate("() => document.documentElement.getAttribute('style') || ''")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
@@ -322,46 +318,44 @@ def test_a_desk_on_the_defaults_writes_nothing_for_the_tiers(fleet_home, tmp_pat
 
 
 @pytest.mark.browser
-def test_the_settings_page_sets_a_tier_and_refuses_one_that_does_not_fit(fleet_home, tmp_path):
+def test_the_settings_page_sets_a_tier_and_refuses_one_that_does_not_fit(fleet_home, tmp_path, desk_browser):
     """Under Appearance, with the server's bounds on the box, and a refusal said on the box that
     was refused -- the file untouched -- while a value that fits is saved and read back."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, ["alpha"])
     C.save({"fleet": {}})
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/settings?t={token}", wait_until="domcontentloaded")
-            page.wait_for_function(
-                "() => document.querySelectorAll('#tierrows .setrow').length === 4", timeout=15000)
-            section = page.evaluate("""() => document.getElementById('cfg-fleet-tiers-full_px')
-                                               .closest('section').querySelector('h2').textContent""")
-            bounds = page.evaluate("""() => { const el = document.getElementById('cfg-fleet-tiers-full_px');
-                                              return [el.min, el.max, el.value]; }""")
-            before = open(C.path(), "rb").read()
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/settings?t={token}", wait_until="domcontentloaded")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#tierrows .setrow').length === 4", timeout=15000)
+        section = page.evaluate("""() => document.getElementById('cfg-fleet-tiers-full_px')
+                                           .closest('section').querySelector('h2').textContent""")
+        bounds = page.evaluate("""() => { const el = document.getElementById('cfg-fleet-tiers-full_px');
+                                          return [el.min, el.max, el.value]; }""")
+        before = open(C.path(), "rb").read()
 
-            box = page.locator("#cfg-fleet-tiers-full_px")
-            box.fill("220")
-            box.dispatch_event("change")
-            page.wait_for_function(
-                "() => document.getElementById('cfg-fleet-tiers-full_px').classList.contains('bad')",
-                timeout=8000)
-            said = box.get_attribute("title") or ""
-            refused_file = open(C.path(), "rb").read()
+        box = page.locator("#cfg-fleet-tiers-full_px")
+        box.fill("220")
+        box.dispatch_event("change")
+        page.wait_for_function(
+            "() => document.getElementById('cfg-fleet-tiers-full_px').classList.contains('bad')",
+            timeout=8000)
+        said = box.get_attribute("title") or ""
+        refused_file = open(C.path(), "rb").read()
 
-            box.fill("420")
-            box.dispatch_event("change")
-            _until(lambda: C.get(C.load(), "fleet.tiers.full_px") == 420)
-            page.wait_for_function(
-                "() => !document.getElementById('cfg-fleet-tiers-full_px').classList.contains('bad')",
-                timeout=8000)
-            assert not errors, errors
-            browser.close()
+        box.fill("420")
+        box.dispatch_event("change")
+        _until(lambda: C.get(C.load(), "fleet.tiers.full_px") == 420)
+        page.wait_for_function(
+            "() => !document.getElementById('cfg-fleet-tiers-full_px').classList.contains('bad')",
+            timeout=8000)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
 
