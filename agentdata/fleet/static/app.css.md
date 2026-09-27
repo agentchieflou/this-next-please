@@ -528,6 +528,13 @@ a state rule elsewhere that sets `display` on a part of the pane must not put it
 48px strip (the hold note focus mode had was one). Its face -- and its gutter, which is how a
 rail is pulled wide by hand (#234).
 
+### `.pane-rail`
+
+In `.pane-rail {`, beside `-webkit-touch-callout: none;`:
+
+A finger held on a rail is *open beside* (#577); without this, iOS Safari answers the same hold
+with its own callout over the rail.
+
 ### `.pr-glyph`
 
 Above `.pr-glyph {`:

@@ -683,7 +683,7 @@ button.cell:hover, button.cell:focus-visible { border-color: var(--accent); }
   gap: 8px;
   width: 100%; min-width: 0; min-height: 0; margin: 0; padding: 8px 0;
   background: transparent; color: var(--text); font: inherit;
-  border: 0; border-radius: 3px; cursor: pointer; overflow: hidden;
+  border: 0; border-radius: 3px; cursor: pointer; overflow: hidden; -webkit-touch-callout: none;
 }
 .pane-rail:hover { background: var(--select); }
 .pr-n { font: 11px var(--mono); color: var(--muted); flex: 0 0 auto; }
