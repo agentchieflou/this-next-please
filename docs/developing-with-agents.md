@@ -173,7 +173,7 @@ fixing the same hunk twice.
 
 | Lane | Files | Rule |
 |---|---|---|
-| `ci` | `.github/workflows/tests.yml`, `.github/ci-paths.json` (decision 23, D6), `tests/conftest.py`, `[tool.pytest.ini_options]` in `pyproject.toml` | **Frozen**: a PR that edits it links the operator's approving comment |
+| `ci` | `.github/workflows/tests.yml`, `.github/ci-paths.json` and `.github/scripts/ci_paths.py` (decision 23, D6), `tests/conftest.py`, `[tool.pytest.ini_options]` in `pyproject.toml` | **Frozen**: a PR that edits it links the operator's approving comment |
 | `relay` | `GEMINI.md`, `AGENTS.md`, this page, `.github/pull_request_template.md`, `.github/agent-lanes.json`, `.github/scripts/agent_pr_check.py`, `tests/test_agent_onramp.py`, `tests/test_agent_pr_check.py` | **Frozen**, as `ci` |
 | `version` | `version` in `pyproject.toml`, `CHANGELOG.md` headings | Release PR only |
 | `ink-core` | `static/ink/ink.js`, `layer.js`, `shapes.js`, `pen.js`, `fx.js` | One PR open at a time; the budget rule is in the decisions register |

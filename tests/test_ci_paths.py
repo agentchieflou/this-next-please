@@ -193,7 +193,8 @@ def test_the_changes_job_fetches_history_caps_its_time_caches_pip_and_outputs_ev
         assert value == f"${{{{ steps.map.outputs.{key} }}}}", key
 
 
-def test_the_map_is_in_the_ci_lane():
+def test_the_map_and_its_script_are_in_the_ci_lane():
     with open(os.path.join(ROOT, ".github", "agent-lanes.json"), encoding="utf-8") as f:
         lanes = json.load(f)["lanes"]
     assert ".github/ci-paths.json" in lanes["ci"]["paths"]
+    assert ".github/scripts/ci_paths.py" in lanes["ci"]["paths"], "it decides what CI runs: CI config in effect"
