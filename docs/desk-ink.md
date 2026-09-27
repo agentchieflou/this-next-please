@@ -710,9 +710,9 @@ asked for another frame while more wait or a piece is still in the effects group
 at 60 Hz) is taken out, freed and counted in `reaped`. That is a safety net; no shipped skin relies on it.
 
 **`Ink.inspect().layer.fx`** is `{loaded, rows, delivered, queued, dropped, armed, reaped, zero, children, refused,
-animating, animated, skipped}`: `armed` says the next match may cue, `zero` counts leave-row matches whose box is
-stamped empty, and `children` counts the effects group's pieces, none on an idle desk. The last three are §Moving the
-page's.
+animating, animated, skipped}`, and `pointer` too for a table that asked for it: `armed` says the next match may cue,
+`zero` counts leave-row matches whose box is stamped empty, and `children` counts the effects group's pieces, none on
+an idle desk. `animating`, `animated` and `skipped` are §Moving the page's, and `pointer` is §Pointer's.
 
 **The rule.** A cue is decoration. It never shows a state the page does not have, ends by moving, shrinking or being
 covered and never by an alpha fade, draws nothing under reduced motion, and leaves an idle desk at zero frames. Its
@@ -775,6 +775,29 @@ that has left the page gives `[]`. Without `options.fx.text`, `api.fx` has neith
 name or a line when a cue plays, never a whole pane or transcript on every frame; nothing is rasterised, and neither
 helper writes to the page. `skins/example.js` asks for them under `example:text`, and its `helpers()` hands a test the
 `api.fx` its hooks were given.
+
+### Pointer (#376)
+
+A material can answer the hand: catch the light where the pointer is, or outline the block under it. A skin asks for
+the pointer in its options, `options.fx.pointer`, and its hooks then read `api.fx.pointer`:
+
+```js
+export function options(variant) { return { fx: variant === "pointer" ? { pointer: true } : undefined }; }
+export function tick({ api }) { const p = api.fx.pointer; /* {x, y, repo, el} or null */ }
+```
+
+`api.fx.pointer` is `{x, y, repo, el}`: the point in viewport CSS px, the pane under it (`repo`, from
+`el.closest('.tile[data-repo]')`, or `null`) and the element it is over, to read and never write; `null` before the first
+move and after the pointer leaves the page. `fx.js` listens with one capturing, passive `pointermove` on `document` and
+one `pointerleave` on `<html>`, only for a table that asked, and takes both away with the table (a table without it,
+`Ink.setSkin(null)`, `Ink.off()`). **One frame a move, none at rest:** a move records the point and asks for a frame
+through `api.request()`, which the layer coalesces into the one rAF it keeps, and the skin's `tick` draws; a leave sets
+`null` and asks for one last frame. Nothing runs while the hand is still, so an idle desk stays at zero frames with the
+pointer resting on it. **Under reduced motion** (`api.reduced`, read on each event) a move is ignored: `pointer` stays
+`null` and no frame is asked for. The canvas keeps `pointer-events: none` and `aria-hidden`; the pointer never changes the
+cursor, and a material that answers it never changes layout or text and never loops. `Ink.inspect().layer.fx.pointer`
+is `{at: {x, y, repo} | null, moves}` for a table that asked, and absent otherwise. `skins/example.js` asks under
+`example:pointer`, and its `tick` puts a square in the palette's accent under the pointer.
 
 ## Following the page
 
@@ -942,6 +965,13 @@ matches each character's own Range rect within 0.5 px; a wrapped `Range.prototyp
 first call, none for an identical second, some again after the text and again after the width changes); the default
 cap is 128, `max` above 256 is clamped, whitespace is skipped, `lines` stays inside its element, and a removed element
 gives `[]`; the example's cue records the name's letters; and under `example` neither helper exists.
+
+And the pointer (#376): under `example:pointer`, ten moves over a pane are ten moves taken and between one and ten
+renders, the square drawn where the last one was; the idle loop with the pointer still writes nothing and draws
+nothing; a `pointerleave` takes the pointer and the square away; `example` takes the listeners with it, so moves then
+draw nothing; and under reduced motion moves draw nothing and `api.fx.pointer` stays `null`. Its measured half is in
+`test_fleet_ink.py`'s gesture-budget test: the page's gestures, taken while a `pointermove` loop drives the layer on a
+table that asks for the pointer, stay inside 50 ms.
 
 `tests/test_fleet_ink_cues.py` holds every skin module that ships `cues` to the cue contract (#373), with no
 browser: `cue` and `tick` exported, each cue named in a table row of its `docs/skin-<name>.md`, only classes the

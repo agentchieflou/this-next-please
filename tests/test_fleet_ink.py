@@ -1705,7 +1705,10 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
     And the throttle a slow runner is reproduced with (#307, `--desk-cpu-throttle`), checked here
     because it is a verdict on real timings (decision 13 folds it): on a desk page throttled at 4, a
     fixed loop takes at least three times what it takes unthrottled, and still does after the page
-    goes to a second address on another site, which Chromium gives a new renderer process."""
+    goes to a second address on another site, which Chromium gives a new renderer process.
+
+    And the pointer (#376): the same gestures, on a table that asks for `api.fx.pointer`, taken while
+    a `pointermove` loop drives the layer a frame a move, stay inside the budget too."""
     names = ("alpha", "beta", "gamma", "delta")
     _desk_of(tmp_path, names)
     server, token, port = _serve()
@@ -1728,6 +1731,12 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
           return { busy: Ink.inspect().layer.busy, measures: performance.getEntriesByType('measure')
             .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1], ms: m.duration })) };
         }""")
+        assert not errors, errors
+        # #376: a table that asks for the pointer, and the gestures again while a move a frame reaches it.
+        page.evaluate(POINTER_TABLE, dict(TABLE, speed=0.25))
+        page.wait_for_function("() => { const l = Ink.inspect().layer; return !!(l && l.fx && l.fx.pointer); }",
+                               timeout=10000)
+        pointed = page.evaluate(GESTURES_WHILE_POINTING)
         assert not errors, errors
         # #307, after the gestures, so their marks are taken as they always were: a page at rate 1
         # and one at rate 4, timed in turn seven times, first on the desk and then on a page of
@@ -1752,10 +1761,53 @@ def test_a_gesture_keeps_its_budget_while_the_ink_draws(fleet_home, tmp_path, de
     worst = max(m["ms"] for m in measures)
     print(f"\n  gestures while the ink draws: {len(measures)} marked, worst {worst:.1f}ms")
     assert [m for m in measures if m["ms"] > LOCAL_BUDGET_MS] == [], measures
+    moving = pointed["measures"]
+    worst = max(m["ms"] for m in moving) if moving else 0
+    print(f"  gestures while the pointer moves: {len(moving)} marked, worst {worst:.1f}ms, "
+          f"{pointed['moves']} moves, {pointed['renders']} renders")
+    assert pointed["moves"] >= 3 and pointed["renders"] >= 1, pointed
+    assert len(moving) >= 4, moving
+    assert [m for m in moving if m["ms"] > LOCAL_BUDGET_MS] == [], moving
     for where, loop in zip(("on the desk", "after a navigation to another site"), loops):
         print(f"  a fixed loop {where}: {loop[1]:.1f}ms, throttled at 4 {loop[4]:.1f}ms")
         assert loop[4] >= 3 * loop[1], (where, loops)
 
+
+#: A table that asks for the pointer (#376), with the test table's marks and hooks that draw nothing of their own.
+POINTER_TABLE = """t => Ink.setSkin(Object.assign({}, t, { fx: { cues: [], use: { pointer: true } } }),
+                                  { cue() {}, tick() { return false; } })"""
+
+#: The gesture set, taken while a `pointermove` a frame crosses alpha (#376): the loop starts, three moves reach
+#: the layer, the gestures run, three frames more, and the loop stops. The moves the effects took, the frames the
+#: layer rendered meanwhile, and the gestures' marks.
+GESTURES_WHILE_POINTING = """async () => {
+  const fx = () => Ink.inspect().layer.fx.pointer, frame = () => new Promise(requestAnimationFrame);
+  const alpha = document.querySelector('.tile[data-repo="alpha"]'), r = alpha.getBoundingClientRect();
+  const m0 = fx().moves, r0 = Ink.inspect().layer.renders;
+  let on = true, i = 0;
+  const move = () => {
+    if (!on) return;
+    i += 1;
+    alpha.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, composed: true,
+      clientX: r.left + 20 + (i % 40), clientY: r.top + r.height / 2 }));
+    requestAnimationFrame(move);
+  };
+  requestAnimationFrame(move);
+  while (fx().moves - m0 < 3) await frame();
+  performance.clearMeasures();
+  setHidden('beta', true);
+  setHidden('beta', false);
+  moveTile('gamma', 1);
+  moveTile('gamma', -1);
+  stepGutter(alpha, -1);
+  evenGutter(alpha);
+  const measures = performance.getEntriesByType('measure')
+    .map(m => ({ name: m.name.split(':')[0] + ':' + m.name.split(':')[1], ms: m.duration }));
+  for (let k = 0; k < 3; k++) await frame();
+  on = false;
+  await frame();
+  return { moves: fx().moves - m0, renders: Ink.inspect().layer.renders - r0, measures };
+}"""
 
 #: A fixed piece of main-thread work, timed on the page in ms (#307: about 40 ms unthrottled).
 FIXED_LOOP = """() => { const t0 = performance.now(); let x = 0;
