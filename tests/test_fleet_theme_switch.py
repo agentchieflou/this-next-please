@@ -19,7 +19,6 @@ from agentdata import theme as T
 from agentdata.fleet import probe as PR
 from agentdata.fleet import serve as S
 
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import (_desk_of, _facts, _serve, _stop, fleet_home)  # noqa: F401
 
 SAMPLER = """
@@ -80,13 +79,10 @@ SETTLED = """() => typeof lastFleet !== 'undefined' && !!lastFleet && themeEvent
              && !document.body.classList.contains('is-stale') && !!window.Ink"""
 
 
-@pytest.fixture(scope="module")
-def browser():
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        b = launch_chromium(p)
-        yield b
-        b.close()
+@pytest.fixture()
+def browser(desk_browser):
+    """The worker's shared Chromium (tests/desk_harness.py); this test's contexts close when it ends."""
+    return desk_browser
 
 
 def _config(fleet_home, **theme):

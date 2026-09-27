@@ -299,10 +299,9 @@ def test_a_theme_only_stream_sends_no_agent_frames(fleet_home, tmp_path):
 
 
 @pytest.mark.browser
-def test_the_settings_page_hears_no_agent_frames(fleet_home, tmp_path):
-    from test_fleet_desk_browser import launch_chromium
+def test_the_settings_page_hears_no_agent_frames(fleet_home, tmp_path, desk_browser):
+    from desk_harness import close_pages
 
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path, ("alpha", "beta"))
     _history()
     _config(fleet_home, theme={"skin": "none"})
@@ -316,51 +315,48 @@ def test_the_settings_page_hears_no_agent_frames(fleet_home, tmp_path):
     })();"""
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page()
-            page.add_init_script(count)
-            page.goto(f"http://127.0.0.1:{port}/settings?t={token}", wait_until="domcontentloaded")
-            page.wait_for_function("() => window.__theme >= 1", timeout=15000)
-            agents = page.evaluate("() => window.__agent")
-            browser.close()
+        browser = desk_browser
+        page = browser.new_page()
+        page.add_init_script(count)
+        page.goto(f"http://127.0.0.1:{port}/settings?t={token}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.__theme >= 1", timeout=15000)
+        agents = page.evaluate("() => window.__agent")
+        close_pages(browser)
     finally:
         _stop(server)
     assert agents == 0, f"/settings downloaded {agents} agent frames to hear one theme frame"
 
 
 @pytest.mark.browser
-def test_another_window_follows_a_skin_chosen_in_settings(fleet_home, tmp_path):
+def test_another_window_follows_a_skin_chosen_in_settings(fleet_home, tmp_path, desk_browser):
     from agentdata.fleet import probe as PR
-    from test_fleet_desk_browser import launch_chromium
+    from desk_harness import close_pages
     from test_fleet_ink import _facts
     from test_fleet_theme_switch import SETTLED
 
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     PR.record(_facts(shell="browser"))
     _desk_of(tmp_path, ("alpha", "beta"))
     _config(fleet_home, theme={"skin": "voxel:nether"})
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            context = browser.new_context(viewport={"width": 1400, "height": 900})
-            desk, settings = context.new_page(), context.new_page()
-            errors = []
-            for page in (desk, settings):
-                page.on("pageerror", lambda e: errors.append(str(e)))
-            desk.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            desk.wait_for_function(SETTLED + " && document.body.dataset.skin === 'voxel'", timeout=15000)
-            settings.goto(f"http://127.0.0.1:{port}/settings?t={token}", wait_until="domcontentloaded")
-            settings.wait_for_function("() => document.getElementById('skin').value === 'voxel:nether'",
-                                       timeout=15000)
-            t0 = time.monotonic()
-            settings.select_option("#skin", "farmstead:daytime")
-            desk.wait_for_function("() => document.body.dataset.skin === 'farmstead'", timeout=15000)
-            ms = 1000 * (time.monotonic() - t0)
-            print(f"\n  the desk followed a skin chosen in /settings after {ms:.0f} ms")
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        context = browser.new_context(viewport={"width": 1400, "height": 900})
+        desk, settings = context.new_page(), context.new_page()
+        errors = []
+        for page in (desk, settings):
+            page.on("pageerror", lambda e: errors.append(str(e)))
+        desk.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        desk.wait_for_function(SETTLED + " && document.body.dataset.skin === 'voxel'", timeout=15000)
+        settings.goto(f"http://127.0.0.1:{port}/settings?t={token}", wait_until="domcontentloaded")
+        settings.wait_for_function("() => document.getElementById('skin').value === 'voxel:nether'",
+                                   timeout=15000)
+        t0 = time.monotonic()
+        settings.select_option("#skin", "farmstead:daytime")
+        desk.wait_for_function("() => document.body.dataset.skin === 'farmstead'", timeout=15000)
+        ms = 1000 * (time.monotonic() - t0)
+        print(f"\n  the desk followed a skin chosen in /settings after {ms:.0f} ms")
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert re.match(r"farmstead", S.theme_state()["skin"])

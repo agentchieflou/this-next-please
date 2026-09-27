@@ -179,8 +179,9 @@ def _notebook(page, variant="light"):
     page.wait_for_function(f"() => Ink.inspect().table === 'notebook:{variant}'", timeout=15000)
 
 
-#: The skin variants that lay the highlighter on the needs-you name (every skin but voxel, #329).
-HIGHLIGHTED = tuple(f"{s}:{v}" for s, v, _ in skins.every_variant() if s != "voxel")
+#: The skin variants that lay the highlighter on the needs-you name: every one (#329; voxel's
+#: worlds since #334's state grammar gave them a highlighter).
+HIGHLIGHTED = tuple(f"{s}:{v}" for s, v, _ in skins.every_variant())
 
 #: Every word made invisible, so a screenshot is what the text is read on and nothing else.
 NO_TEXT = ("* { color: transparent !important; -webkit-text-fill-color: transparent !important;"
@@ -547,8 +548,9 @@ def test_the_night_notebook_screens_its_highlighter_onto_charcoal(fleet_home, tm
         spec = skins.SKINS["notebook"]["variants"]["dark"]
         assert seen["paper"].upper() == spec["composited_panel"] and seen["pen"].upper() == spec["inks"]["pen"]
         # #329, folded here (decision 13): the needs-you name and its question read at 4.5:1
-        # through each paper variant's and each farmstead weather's highlighter, ink on (glass
-        # is read in the glass test), and through every variant's plain tint with `?ink=off`.
+        # through each paper variant's, each farmstead weather's and each voxel world's (#334)
+        # highlighter, ink on (glass is read in the glass test), and through every variant's
+        # plain tint with `?ink=off`.
         _emit(page, "alpha", ("question_opened", {"question": "which sprint boundary should it use?",
                                                   "id": "q1", "blocking": True, "choices": ["this", "that"]}))
         _until_class(page, "alpha", "needs-human")
@@ -559,8 +561,10 @@ def test_the_night_notebook_screens_its_highlighter_onto_charcoal(fleet_home, tm
         # A loaded runner: the next skin's module is up, and the layer has read the page's
         # colours, before that skin's stylesheet applies. The sheet is held until then; once
         # it lands the layer must read them again, or its highlighter stays the fallback.
-        late = inked.pop(0)
-        assert late == "farmstead:daytime", late      # light paper after charcoal, a family of its own
+        # Light paper after charcoal, a family of its own: taken by name, since the order of
+        # HIGHLIGHTED is every_variant()'s, and voxel's worlds (#334) come before farmstead's.
+        late = "farmstead:daytime"
+        inked.remove(late)
         held = []
         page.route("**/static/skins/*/skin.css*", lambda route: held.append(route))
         _choose(page, late)

@@ -21,7 +21,6 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import _serve, _stop
 
 
@@ -142,13 +141,10 @@ class Lanes:
                 "rows": rows, "more": False, "at": T0}
 
 
-@pytest.fixture(scope="module")
-def browser():
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        b = launch_chromium(p)
-        yield b
-        b.close()
+@pytest.fixture()
+def browser(desk_browser):
+    """The worker's shared Chromium (tests/desk_harness.py); this test's contexts close when it ends."""
+    return desk_browser
 
 
 STREAM = "() => ({...FleetMap.stream, rec: window.__streams[window.__streams.length - 1] || null})"

@@ -23,7 +23,7 @@ from agentdata.fleet import events as E, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 
 SKINS = ["none", "glass:smoke", "farmstead:daytime", "voxel:overworld"]
 
@@ -79,29 +79,27 @@ def _serve():
 
 
 @pytest.mark.browser
-def test_five_agents_one_open_and_no_dead_space(fleet_home, tmp_path):
+def test_five_agents_one_open_and_no_dead_space(fleet_home, tmp_path, desk_browser):
     """The demo. Everything asserted here is what the operator asked to be able to see at a glance:
     where everyone is, what the loud one wants, and that the page is full."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of_five(tmp_path)
     shots = os.environ.get("AGENTDATA_SHOTS") or str(tmp_path / "shots")
     os.makedirs(shots, exist_ok=True)
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1600, "height": 1000})
-            errors = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
-            page.wait_for_function(
-                "() => document.querySelectorAll("
-                "'#grid .tile[data-tier=\"rail\"]:not(.is-hidden)').length >= 3",
-                timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile.is-solo[data-tier="full"]', timeout=15000)
+        page.wait_for_function(
+            "() => document.querySelectorAll("
+            "'#grid .tile[data-tier=\"rail\"]:not(.is-hidden)').length >= 3",
+            timeout=15000)
 
-            out = page.evaluate("""() => {
+        out = page.evaluate("""() => {
               const row = document.getElementById('grid');
               const style = getComputedStyle(row);
               const panes = [...row.querySelectorAll('.tile:not(.is-hidden)')];
@@ -131,38 +129,38 @@ def test_five_agents_one_open_and_no_dead_space(fleet_home, tmp_path):
                 tools: [...open.querySelectorAll('.head [data-tool]')].map(b => b.dataset.tool),
               };
             }""")
-            assert not errors, errors
+        assert not errors, errors
 
-            # Four registered agents are not open, one of them hidden: three rails.
-            assert len(out["rails"]) == 3, out["rails"]
-            assert "arl-usage" not in out["rails"] and out["hidden"] == "1 hidden", out
-            assert out["dock"] is False, "the dock went with the grid (#232)"
-            assert out["column"] is False, "the column went with #233"
+        # Four registered agents are not open, one of them hidden: three rails.
+        assert len(out["rails"]) == 3, out["rails"]
+        assert "arl-usage" not in out["rails"] and out["hidden"] == "1 hidden", out
+        assert out["dock"] is False, "the dock went with the grid (#232)"
+        assert out["column"] is False, "the column went with #233"
 
-            # The loud two are red, with a glyph as well as the colour, and their asks are in their
-            # labels -- readable without opening a pane, by a screen reader or a pointer.
-            assert sorted(out["red"]) == ["luna", "velocity"], out["red"]
-            assert out["glyphs"] == ["!", "!"], out["glyphs"]
-            assert any("sprint field is empty" in said for said in out["says"]), out["says"]
-            assert "2 need you" in out["counts"], out["counts"]
+        # The loud two are red, with a glyph as well as the colour, and their asks are in their
+        # labels -- readable without opening a pane, by a screen reader or a pointer.
+        assert sorted(out["red"]) == ["luna", "velocity"], out["red"]
+        assert out["glyphs"] == ["!", "!"], out["glyphs"]
+        assert any("sprint field is empty" in said for said in out["says"]), out["says"]
+        assert "2 need you" in out["counts"], out["counts"]
 
-            # The quiet one says what it did, which a dock chip never had room for.
-            assert any("pushed feature/RDSD-771" in said for said in out["says"]), out["says"]
+        # The quiet one says what it did, which a dock chip never had room for.
+        assert any("pushed feature/RDSD-771" in said for said in out["says"]), out["says"]
 
-            # No dead space: the panes account for the row's width, and every one its height.
-            assert abs(out["sum"] - out["inner"]) < 1.5, out
-            assert out["short"] == [], out
+        # No dead space: the panes account for the row's width, and every one its height.
+        assert abs(out["sum"] - out["inner"]) < 1.5, out
+        assert out["short"] == [], out
 
-            # And the open pane carries the three controls every pane with a head carries.
-            assert out["tools"] == ["hide", "refresh", "model"], out["tools"]
+        # And the open pane carries the three controls every pane with a head carries.
+        assert out["tools"] == ["hide", "refresh", "model"], out["tools"]
 
-            for skin in SKINS:
-                S.act("theme", {"skin": skin})
-                page.wait_for_timeout(350)
-                page.screenshot(path=os.path.join(
-                    shots, "row-" + skin.replace(":", "-") + ".png"))
-            assert not errors, errors
-            browser.close()
+        for skin in SKINS:
+            S.act("theme", {"skin": skin})
+            page.wait_for_timeout(350)
+            page.screenshot(path=os.path.join(
+                shots, "row-" + skin.replace(":", "-") + ".png"))
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

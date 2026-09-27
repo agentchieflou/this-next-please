@@ -27,7 +27,7 @@ from agentdata.fleet import launch, poll as P, registry, serve as S
 from agentdata.fleet.registry import Registry
 
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 
 sys_git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
 
@@ -367,32 +367,30 @@ def test_the_rule_the_skills_and_the_stub_say_the_same_thing():
 
 
 @pytest.mark.browser
-def test_the_cell_reads_the_count_is_amber_and_the_click_opens_the_pane(fleet_home, tmp_path):
+def test_the_cell_reads_the_count_is_amber_and_the_click_opens_the_pane(fleet_home, tmp_path, desk_browser):
     """Acceptance criterion. On the rendered page the git cell reads `7 branches · 3 never reached
     main` and is amber; the click opens the inspector on a pane that lists the three unmerged first
     and says which two carry the ticket. The amber border is measured against `--waiting` and the
     cell's word against `--waiting-text`, the amber a word is written in (#328, decision 12), each
     resolved through the same probe the scrollbar test uses, so every comparison is between two
     computed colours."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repo(tmp_path)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 900})
-            errors: list[str] = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector('.tile[data-repo="luna"] .cell[data-cell="git"]', timeout=20000)
-            page.wait_for_function(
-                """() => /7 branches/.test(document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]').textContent)""",
-                timeout=20000)
-            cell = page.locator('.tile[data-repo="luna"] .cell[data-cell="git"]')
-            assert cell.evaluate("el => el.tagName") == "BUTTON"
-            assert "7 branches · 3 never reached main" in cell.inner_text()
-            assert "feature/RDSD-7-part-2" in cell.inner_text()
-            got = page.evaluate("""() => {
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector('.tile[data-repo="luna"] .cell[data-cell="git"]', timeout=20000)
+        page.wait_for_function(
+            """() => /7 branches/.test(document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]').textContent)""",
+            timeout=20000)
+        cell = page.locator('.tile[data-repo="luna"] .cell[data-cell="git"]')
+        assert cell.evaluate("el => el.tagName") == "BUTTON"
+        assert "7 branches · 3 never reached main" in cell.inner_text()
+        assert "feature/RDSD-7-part-2" in cell.inner_text()
+        got = page.evaluate("""() => {
                 const probe = document.createElement('i');
                 probe.style.color = 'var(--waiting)';
                 document.body.appendChild(probe);
@@ -403,26 +401,26 @@ def test_the_cell_reads_the_count_is_amber_and_the_click_opens_the_pane(fleet_ho
                 const c = getComputedStyle(document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]'));
                 return { waiting, waitingText, border: c.borderTopColor, color: c.color, warn: document.querySelector('.tile[data-repo="luna"] .cell[data-cell="git"]').classList.contains('warn') };
             }""")
-            assert got["warn"] and got["border"] == got["waiting"] and got["color"] == got["waitingText"], got
+        assert got["warn"] and got["border"] == got["waiting"] and got["color"] == got["waitingText"], got
 
-            cell.click()
-            page.wait_for_selector("#inspector:not([hidden]) .branches .branchrow", timeout=10000)
-            page.wait_for_function(
-                "() => document.querySelectorAll('#inspector .branches .branchrow').length === 7", timeout=10000)
-            rows = page.eval_on_selector_all("#inspector .branches .branchrow", """els => els.map(e => ({
+        cell.click()
+        page.wait_for_selector("#inspector:not([hidden]) .branches .branchrow", timeout=10000)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#inspector .branches .branchrow').length === 7", timeout=10000)
+        rows = page.eval_on_selector_all("#inspector .branches .branchrow", """els => els.map(e => ({
                 name: e.querySelector('.bname').textContent, unmerged: e.classList.contains('unmerged'),
                 carries: e.classList.contains('carries'), meta: e.querySelector('.bmeta').textContent }))""")
-            assert [r["unmerged"] for r in rows] == [True, True, True, False, False, False, False], rows
-            assert rows[0]["name"] == "feature/RDSD-7-part-2" and "+2 ahead" in rows[0]["meta"] and "current" in rows[0]["meta"]
-            assert [r["name"] for r in rows if r["carries"]] == ["feature/RDSD-7-part-2", "feature/RDSD-7-part-1"]
-            assert all("none pushed" in r["meta"] for r in rows)
-            carry = page.locator("#inspector .branches-carry").inner_text()
-            assert carry == "two branches carry RDSD-7 (feature/RDSD-7-part-2, feature/RDSD-7-part-1); only one can merge"
-            assert "7 branches · 3 never reached main · on feature/RDSD-7-part-2" in page.locator("#inspector .branches-sum").inner_text()
-            assert "the second half, two" in page.locator("#inspector .commits").inner_text()
-            assert not page.locator("#inspector .branches-note").count(), "nothing more to say on seven"
-            assert not errors, errors
-            browser.close()
+        assert [r["unmerged"] for r in rows] == [True, True, True, False, False, False, False], rows
+        assert rows[0]["name"] == "feature/RDSD-7-part-2" and "+2 ahead" in rows[0]["meta"] and "current" in rows[0]["meta"]
+        assert [r["name"] for r in rows if r["carries"]] == ["feature/RDSD-7-part-2", "feature/RDSD-7-part-1"]
+        assert all("none pushed" in r["meta"] for r in rows)
+        carry = page.locator("#inspector .branches-carry").inner_text()
+        assert carry == "two branches carry RDSD-7 (feature/RDSD-7-part-2, feature/RDSD-7-part-1); only one can merge"
+        assert "7 branches · 3 never reached main · on feature/RDSD-7-part-2" in page.locator("#inspector .branches-sum").inner_text()
+        assert "the second half, two" in page.locator("#inspector .commits").inner_text()
+        assert not page.locator("#inspector .branches-note").count(), "nothing more to say on seven"
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()

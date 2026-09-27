@@ -32,7 +32,6 @@ from agentdata import config as C
 from agentdata.fleet import loads as L
 from agentdata.fleet import serve as S
 
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import _desk_of, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_loads import cli, table
 
@@ -106,13 +105,10 @@ def test_measure_attr_names_only_the_desk_and_settings(fleet_home):
 # ---------------------------------------------------------------------------------- in a browser
 
 
-@pytest.fixture(scope="module")
-def browser():
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-    with sync_playwright() as p:
-        b = launch_chromium(p)
-        yield b
-        b.close()
+@pytest.fixture()
+def browser(desk_browser):
+    """The worker's shared Chromium (tests/desk_harness.py); this test's contexts close when it ends."""
+    return desk_browser
 
 
 @pytest.fixture()

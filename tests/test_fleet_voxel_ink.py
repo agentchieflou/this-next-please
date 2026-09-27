@@ -217,7 +217,7 @@ def test_every_class_the_voxel_reads_is_one_the_page_already_sets():
     selectors = _selectors() + [a or b for a, b in read]
     shown = js[js.index("var SHOWN = {"):]
     shown = shown[:shown.index("};")]
-    assert len(_selectors()) == 6, "one row per state the grammar marks"
+    assert len(_selectors()) == 9, "one row per state the grammar marks"
     for sel in selectors:
         for cls in re.findall(r"\.([A-Za-z][\w-]*)", sel):
             if cls.startswith("state-"):
@@ -253,18 +253,25 @@ def test_the_slab_face_is_the_variants_composited_panel():
 
 def test_theme_check_holds_every_ink_the_voxel_draws_on_its_slab():
     """Rule 5 of `theme.check` with the voxel's pairs: every ink its table draws with, on the slab
-    face (the composited panel) -- 3:1 each -- and each ink the palette's own token, so the pair
-    checked is the pair drawn."""
+    face (the composited panel) -- 3:1 each, and the text 4.5:1 through the highlighter -- and each
+    ink the literal its world's skin.css block writes as `--ink-<tool>` (#334: the highlighter and
+    the pen), or else the palette's own token, so the pair checked is the pair drawn."""
     used = set(re.findall(r'tool: "(\w+)"', open(MODULE, encoding="utf-8").read()))
     token = {"pencil": "--muted", "pen": "--accent", "red": "--human", "green": "--done",
              "marker": "--human", "highlighter": "--waiting"}
+    css_text = open(SKIN_CSS, encoding="utf-8").read()
+    blocks = dict(re.findall(r'body\[data-skin="voxel"\](?:\[data-skin-variant="(\w+)"\])?\s*\{([^}]*)\}', css_text))
     for variant, spec in SK.SKINS["voxel"]["variants"].items():
         inks = spec["inks"]
         assert set(inks) == used, (variant, sorted(inks), sorted(used))
         palette = theme.get(spec["base"])
         css = theme.to_css(palette)
+        block = blocks["" if variant == SK.SKINS["voxel"]["default"] else variant]
+        said = dict(re.findall(r"--ink-(\w+):\s*(#[0-9A-Fa-f]{6})", block))
+        assert {"highlighter", "pen"} <= set(said), (variant, said)
         for tool, colour in inks.items():
-            assert colour.upper() == css[token[tool]].upper(), (variant, tool, colour, css[token[tool]])
+            want = said.get(tool, css[token[tool]])
+            assert colour.upper() == want.upper(), (variant, tool, colour, want)
         theme.check(palette, composited_panel=spec["composited_panel"], skin=f"voxel:{variant}", inks=inks)
 
 
@@ -362,6 +369,8 @@ def test_one_draw_call_per_material_at_one_agent_and_at_twenty(fleet_home, tmp_p
 #: Each state and what the grammar (docs/skin-voxel.md) says the voxel and the ink do.
 MARK = {
     "needs": ".tile.needs-human .head .repo",
+    "question": ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q",
+    "running": ".tile.state-running .head .repo",
     "error": ".tile.state-error",
     "done": ".tile:is(.state-done, .is-done)",
     "stale": ".tile .oldsession:not([hidden])",
@@ -378,8 +387,9 @@ def _live(page, selector, lane):
 @pytest.mark.browser
 def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(fleet_home, tmp_path, world, desk_browser):
     """The grammar, state by state, driven from the server's fold as a real agent would drive it:
-    needs you raises the block and underlines the name; an error cracks it and bangs the margin;
-    done sets the stack full and ticks it; running turns the block a quarter at a time; a stale
+    needs you raises the block and highlights the name and the question; an error cracks it, loops
+    the pane and bangs the margin; done sets the stack full and ticks it; running turns the block a
+    quarter at a time and underlines the name in pen (#334's grammar); a stale
     session leaves a pebble and a dashed pencil box; a finding puts ore in the stack and a red line
     under the line; an answer chosen is looped. When the state goes, so does its response: the
     block drops, mends, empties; pencil is erased and ink is struck."""
@@ -415,6 +425,7 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
         # could land in that one-frame gap on a slow runner (#296). Wait for it to be armed.
         timer = page.wait_for_function(f"() => ({VOXEL})().timer", timeout=10000).json_value()
         marks_on ={k: {n: len(_live(page, sel, "pane:" + n)) for n in names} for k, sel in MARK.items()}
+        on_error = _live(page, MARK["error"], "pane:beta")
         # A running block turns: the next quarter comes from a timer, and is drawn.
         page.wait_for_function(f"""() => ({VOXEL})().panes
             .find(p => p.repo === 'delta').stack.turning > 0""", timeout=10000)
@@ -451,7 +462,10 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     assert on["delta"]["state"] == "running" and timer, "a running block turns on a timer"
     # the marks, per state, each on its own pane
     assert marks_on["needs"]["alpha"] == 1 and marks_on["needs"]["gamma"] == 0, marks_on["needs"]
-    assert marks_on["error"] == {"alpha": 0, "beta": 1, "gamma": 0, "delta": 0}, marks_on["error"]
+    assert marks_on["error"] == {"alpha": 0, "beta": 2, "gamma": 0, "delta": 0}, marks_on["error"]
+    assert sorted(m["shape"] for m in on_error) == ["bang", "loop"], on_error
+    assert marks_on["question"]["alpha"] == 1 and marks_on["question"]["beta"] == 0, marks_on["question"]
+    assert marks_on["running"] == {"alpha": 0, "beta": 0, "gamma": 0, "delta": 1}, marks_on["running"]
     assert marks_on["done"] == {"alpha": 0, "beta": 0, "gamma": 1, "delta": 0}, marks_on["done"]
     assert marks_on["stale"]["alpha"] == 1 and marks_on["stale"]["beta"] == 0, marks_on["stale"]
     assert marks_on["answered"]["alpha"] == 1, marks_on["answered"]
@@ -459,7 +473,8 @@ def test_each_state_has_its_voxel_response_and_its_mark_and_both_leave_with_it(f
     # and they leave with the state
     assert all(s["level"] == 1 and s["lift"] == 0 and s["state"] == "idle" for s in off.values()), off
     assert not off["alpha"]["stale"] and off["beta"]["finding"], "a finding stays while its line does"
-    for key, lane in (("needs", "pane:alpha"), ("error", "pane:beta"), ("done", "pane:gamma")):
+    for key, lane in (("needs", "pane:alpha"), ("question", "pane:alpha"), ("error", "pane:beta"),
+                      ("done", "pane:gamma"), ("running", "pane:delta")):
         assert (lane, "struck") in [m[:2] for m in left[key]], f"{key}: ink leaves by a strike ({left[key]})"
         assert (lane, "drawn") not in [m[:2] for m in left[key]], f"{key}: still drawn ({left[key]})"
     assert not [m for m in left["stale"] if m[1] == "drawn" and not m[3]], f"pencil is erased: {left['stale']}"

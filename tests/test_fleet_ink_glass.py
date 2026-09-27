@@ -415,8 +415,9 @@ def test_the_ground_drifts_only_when_motion_is_allowed_and_the_idle_desk_writes_
 def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_home, tmp_path, desk_browser):
     """The grammar (docs/skin-glass.md), from the classes app.js sets for the rows it is given.
     needs you: the name and the question highlighted, the rim lit in the human colour. answered:
-    the choice circled in pen, and struck when another is chosen. error: a bang, the rim lit.
-    done: a green tick, the rim in green. running: the chip underlined, the top glint running.
+    the choice circled in pen, and struck when another is chosen. error: a marker loop round the
+    pane and a bang, the rim lit. done: a green tick, the rim in green. running: the name
+    underlined (#334: the state grammar; it was the chip), the top glint running.
     stale: no mark, the note's own words (#332: an outline round it ran over the chip's age). A finding: the scope report ringed in red. A state that
     goes is struck (an ink never fades), and the rim that went with it is off. Reduced motion, so
     every step is at rest at once."""
@@ -450,9 +451,12 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
         _choose(page, "glass:smoke")
         _ready(page, "smoke")
         page.click('.tile[data-repo="alpha"] .ask-choice >> nth=0')
-        steps["picked"] = at_rest("Ink.inspect().layer.marks.some(m => m.shape === 'loop')")
+        # The choice's loop, not the error's (#334 loops the error pane too).
+        steps["picked"] = at_rest("Ink.inspect().layer.marks.some(m => m.shape === 'loop'"
+                                  " && m.selector.includes('ask-choice'))")
         page.click('.tile[data-repo="alpha"] .ask-choice >> nth=1')
-        steps["picked again"] = at_rest("Ink.inspect().layer.marks.filter(m => m.shape === 'loop').length === 2")
+        steps["picked again"] = at_rest("Ink.inspect().layer.marks.filter(m => m.shape === 'loop'"
+                                        " && m.selector.includes('ask-choice')).length === 2")
         _states(page, {"alpha": _live("idle", stale={"stale": False}),
                        "beta": _live("idle", scope_report={"edited": 3, "outside": ["docs/x.md"]}),
                        "gamma": _live("running")})
@@ -467,6 +471,7 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     hl, q = ".tile.needs-human .repo", ".tile.needs-human .asks:not([hidden]) .ask:not([hidden]) .ask-q"
     assert _drawn(marks, hl, "pane:alpha") and _drawn(marks, q, "pane:alpha"), marks
     assert _drawn(marks, ".tile.state-error", "pane:beta"), marks
+    assert len([m for m in marks if m[:3] == (".tile.state-error", "pane:beta", "drawn") and not m[3]]) == 2, marks
     assert _drawn(marks, ".tile:is(.state-done, .is-done)", "pane:gamma"), marks
     stale = ".tile .oldsession:not([hidden])"
     assert not [m for m in marks if m[0] == stale], ("stale is the note's own words on glass", marks)
@@ -481,10 +486,11 @@ def test_each_state_is_marked_on_the_glass_and_leaves_drawn_never_faded(fleet_ho
     marks, rims = steps["moved on"]
     assert _struck(marks, hl, "pane:alpha") and _struck(marks, q, "pane:alpha"), marks
     assert _struck(marks, ".tile.state-error", "pane:beta"), marks
+    assert not _drawn(marks, ".tile.state-error", "pane:beta"), marks
     assert _struck(marks, ".tile:is(.state-done, .is-done)", "pane:gamma"), marks
     assert not [m for m in marks if m[0] == stale], marks
     assert _drawn(marks, ".tile .scopereport.outside:not([hidden])", "pane:beta"), marks
-    assert _drawn(marks, ".tile.state-running .chip", "pane:gamma"), marks
+    assert _drawn(marks, ".tile.state-running .head .repo", "pane:gamma"), marks
     assert rims == {"alpha": (None, 0), "beta": (None, 0), "gamma": (None, 0)}, rims
     assert dict(steps["run"]) == {"alpha": 0, "beta": 0, "gamma": 1}, steps["run"]
 

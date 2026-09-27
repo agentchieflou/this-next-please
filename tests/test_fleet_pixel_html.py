@@ -24,7 +24,6 @@ import pytest
 
 from agentdata.fleet import probe as PR, registry, serve as S
 
-from test_fleet_desk_browser import launch_chromium
 from test_fleet_ink import _desk_of, _serve, _stop
 
 #: The switch that turns on Chromium's HTML-in-Canvas behind its flag. For this test only: no shell
@@ -277,7 +276,8 @@ def _isolated_upload(browser, port, token, hic):
 
 @pytest.mark.browser
 def test_html_in_canvas_is_what_the_probe_recorded_and_the_other_routes_are_measured(fleet_home,
-                                                                                    tmp_path):
+                                                                                    tmp_path,
+                                                                                    desk_chromium_with):
     """The probe's `hic_api` is what the engine has, in a Chromium launched with the Blink flag.
 
     Found: the recorded method uploads a cloned pane from a `<canvas layoutsubtree>` in a page of its
@@ -285,38 +285,36 @@ def test_html_in_canvas_is_what_the_probe_recorded_and_the_other_routes_are_meas
     operator ruled is the measured verdict (#446): recorded and printed, and the page is the upload's
     alone. Not found: `hic_api` is empty and the row falls back. The SVG snapshot and the Range
     geometry are measured on the desk page beside it, and hold whatever the upload did."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _desk_of(tmp_path, ("alpha", "beta", "gamma"))
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p, args=(HIC_FLAG,))
-            version = browser.version
+        browser = desk_chromium_with((HIC_FLAG,))
+        version = browser.version
 
-            # The probe page, as tests/test_fleet_engines.py opens it.
-            probe = browser.new_page(viewport={"width": 1280, "height": 720})
-            probe.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=chromium",
-                       wait_until="domcontentloaded")
-            probe.wait_for_function(
-                "() => /saved|not saved/.test(document.getElementById('state').textContent)",
-                timeout=30000)
-            shown = probe.text_content("#features")
-            probe.close()
+        # The probe page, as tests/test_fleet_engines.py opens it.
+        probe = browser.new_page(viewport={"width": 1280, "height": 720})
+        probe.goto(f"http://127.0.0.1:{port}/probe?t={token}&shell=chromium",
+                   wait_until="domcontentloaded")
+        probe.wait_for_function(
+            "() => /saved|not saved/.test(document.getElementById('state').textContent)",
+            timeout=30000)
+        shown = probe.text_content("#features")
+        probe.close()
 
-            # (b) and (c) on the desk page, first, and closed before the upload's page opens.
-            context, page, errors = _desk_page(browser, port, token)
-            engine = page.evaluate(HIC_OF_ENGINE)
-            snapshot = page.evaluate(SNAPSHOT)
-            geometry = page.evaluate(GEOMETRY)
-            left = page.evaluate("() => document.querySelectorAll('canvas').length")
-            asked = page.evaluate("() => window.__contexts")
-            context.close()
+        # (b) and (c) on the desk page, first, and closed before the upload's page opens.
+        context, page, errors = _desk_page(browser, port, token)
+        engine = page.evaluate(HIC_OF_ENGINE)
+        snapshot = page.evaluate(SNAPSHOT)
+        geometry = page.evaluate(GEOMETRY)
+        left = page.evaluate("() => document.querySelectorAll('canvas').length")
+        asked = page.evaluate("() => window.__contexts")
+        context.close()
 
-            rec = PR.attempts()["chromium"]
-            hic = rec.get("hic_api", "")
-            upload = _isolated_upload(browser, port, token, hic) if hic else None
-            browser.close()
+        rec = PR.attempts()["chromium"]
+        hic = rec.get("hic_api", "")
+        upload = _isolated_upload(browser, port, token, hic) if hic else None
+        browser.close()
     finally:
         _stop(server)
 

@@ -22,7 +22,7 @@ import pytest
 from agentdata.fleet import events as E, fingerprint as FP, serve as S
 from agentdata.fleet.registry import Registry
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_desk_glass import _png_pixels
 from test_fleet_ink import AT_REST, _choose, _open, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet import make_project
@@ -116,37 +116,35 @@ def sample(page, points):
 
 @pytest.mark.browser
 def test_the_drawn_page_reaches_the_foot_of_the_panes_with_the_renew_strip_showing(
-        fleet_home, tmp_path, monkeypatch):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+        fleet_home, tmp_path, monkeypatch, desk_browser):
     band_desk(tmp_path, monkeypatch)
     server, token, port = _serve()
     seen, ring = {}, None
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(NAMES),
-                                    width=WIDTH, height=HEIGHT, reduced=True)
-            page.wait_for_function(
-                "() => { const s = document.getElementById('renew-strip');"
-                " if (s && !s.hidden && s.getBoundingClientRect().height > 0) return true; refresh(); return false; }",
-                timeout=15000, polling=250)
-            for look in LOOKS:
-                choose(page, look)
-                if look == "glass:smoke":
-                    ring = page.evaluate("""() => { const t = document.querySelector('#grid .tile.is-selected');
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(NAMES),
+                                width=WIDTH, height=HEIGHT, reduced=True)
+        page.wait_for_function(
+            "() => { const s = document.getElementById('renew-strip');"
+            " if (s && !s.hidden && s.getBoundingClientRect().height > 0) return true; refresh(); return false; }",
+            timeout=15000, polling=250)
+        for look in LOOKS:
+            choose(page, look)
+            if look == "glass:smoke":
+                ring = page.evaluate("""() => { const t = document.querySelector('#grid .tile.is-selected');
                       return t ? getComputedStyle(t).boxShadow : null; }""")
-                points = page.evaluate(POINTS)
-                assert points, (look, "no point in the panes' lowest 80px is clear of words")
-                shown = sample(page, points)
-                page.evaluate(HIDE)
-                page.wait_for_function(AT_REST, timeout=20000)
-                canvas = sample(page, points)
-                page.evaluate(SHOW)
-                strips = page.evaluate("""() => ['renew-strip', 'away-strip'].map(id => {
+            points = page.evaluate(POINTS)
+            assert points, (look, "no point in the panes' lowest 80px is clear of words")
+            shown = sample(page, points)
+            page.evaluate(HIDE)
+            page.wait_for_function(AT_REST, timeout=20000)
+            canvas = sample(page, points)
+            page.evaluate(SHOW)
+            strips = page.evaluate("""() => ['renew-strip', 'away-strip'].map(id => {
                   const e = document.getElementById(id); return [id, getComputedStyle(e).backgroundColor]; })""")
-                seen[look] = (points, shown, canvas, strips)
-            assert not errors, errors
-            browser.close()
+            seen[look] = (points, shown, canvas, strips)
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert ring is not None, "no pane is selected under glass:smoke"

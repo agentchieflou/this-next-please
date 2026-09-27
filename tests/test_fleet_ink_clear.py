@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink import AT_REST, _choose, _open, _serve, _stop, fleet_home  # noqa: F401
 from test_fleet_ink_notebook import _emit, _until, alive, finished  # noqa: F401 - fixtures are used by name
 from test_fleet_ink_margin import OPEN, _sheet, desk_states, margin_desk
@@ -74,29 +74,27 @@ def drawn(page, look, rest=CLEAR_AT_REST):
 
 @pytest.mark.browser
 def test_the_page_stands_aside_for_every_skin_that_draws_in_place_and_after_a_reload(fleet_home, tmp_path,
-                                                                                    alive, finished):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+                                                                                    alive, finished, desk_browser):
     alive.add(OPEN[1])
     finished.add(OPEN[1])
     margin_desk(tmp_path, fleet_home)
     server, token, port = _serve()
     stale = {}
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(OPEN), width=1400, reduced=True)
-            desk_states(page)
-            for look in LOOKS:
-                _choose(page, look)
-                drawn(page, look)
-                in_place = opaque(page.evaluate(PROBE))
-                page.reload(wait_until="domcontentloaded")
-                drawn(page, look)
-                reloaded = opaque(page.evaluate(PROBE))
-                if in_place or reloaded:
-                    stale[look] = {"in place": in_place, "after a reload": reloaded}
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, "&ink=on", panes=len(OPEN), width=1400, reduced=True)
+        desk_states(page)
+        for look in LOOKS:
+            _choose(page, look)
+            drawn(page, look)
+            in_place = opaque(page.evaluate(PROBE))
+            page.reload(wait_until="domcontentloaded")
+            drawn(page, look)
+            reloaded = opaque(page.evaluate(PROBE))
+            if in_place or reloaded:
+                stale[look] = {"in place": in_place, "after a reload": reloaded}
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     # Which looks, and on which path, first: the elements follow.

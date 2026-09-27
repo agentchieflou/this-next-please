@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from test_fleet_desk_browser import launch_chromium
+from desk_harness import close_pages
 from test_fleet_ink_glass import (_finished_desk, _open, _serve, _stop,  # noqa: F401 - fixtures
                                   alive, fleet_home)
 
@@ -36,28 +36,26 @@ CHECKS = """() => (Ink.inspect().layer ? Ink.inspect().layer.marks : []).filter(
 
 @pytest.mark.browser
 @pytest.mark.parametrize("skin", ["glass:smoke", "voxel:overworld"])
-def test_a_finished_agent_nothing_supervises_is_marked_done(fleet_home, tmp_path, alive, skin):
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+def test_a_finished_agent_nothing_supervises_is_marked_done(fleet_home, tmp_path, alive, skin, desk_browser):
     family = skin.split(":")[0]
     _finished_desk(tmp_path, fleet_home, skin=skin)
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page, errors, _ = _open(browser, port, token, reduced=True)
-            page.wait_for_function(f"() => Ink.inspect().table === '{skin}'", timeout=20000)
-            page.evaluate(IMPORT, family)
-            try:
-                page.wait_for_function(f"() => ({CHECKS})() === 1 && ({STATE})('{family}') === 'done'",
-                                       timeout=20000)
-            except Exception:
-                raise AssertionError(("not marked done", page.evaluate(
-                    """() => document.querySelector('.tile[data-repo="beta"]').className"""),
-                    page.evaluate(f"({CHECKS})"),
-                    page.evaluate(STATE, family)))
-            cls = page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className""").split()
-            assert not errors, errors
-            browser.close()
+        browser = desk_browser
+        page, errors, _ = _open(browser, port, token, reduced=True)
+        page.wait_for_function(f"() => Ink.inspect().table === '{skin}'", timeout=20000)
+        page.evaluate(IMPORT, family)
+        try:
+            page.wait_for_function(f"() => ({CHECKS})() === 1 && ({STATE})('{family}') === 'done'",
+                                   timeout=20000)
+        except Exception:
+            raise AssertionError(("not marked done", page.evaluate(
+                """() => document.querySelector('.tile[data-repo="beta"]').className"""),
+                page.evaluate(f"({CHECKS})"),
+                page.evaluate(STATE, family)))
+        cls = page.evaluate("""() => document.querySelector('.tile[data-repo="beta"]').className""").split()
+        assert not errors, errors
+        close_pages(browser)
     finally:
         _stop(server)
     assert "state-idle" in cls and "is-done" in cls, cls
