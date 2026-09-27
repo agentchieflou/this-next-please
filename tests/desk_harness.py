@@ -29,7 +29,7 @@ picks a rate for one page whatever the option says.
 
 A sync Playwright started in a thread and a `with sync_playwright()` in the same thread cannot both
 be alive (Playwright raises "using Playwright Sync API inside the asyncio loop"), so while some
-browser tests are not on the harness yet, `_one_driver_at_a_time` stops the shared driver before any
+browser tests are not on the harness yet, `pytest_runtest_setup` stops the shared driver before any
 browser test that does not use `desk_browser`; the next harness test starts it again. #303 removes
 it once every browser test is here.
 """
@@ -258,11 +258,16 @@ def close_pages(browser) -> None:
     close_new_contexts(browser, ())
 
 
+#: Where `_desk_driver` keeps this process's driver and browser, so `pytest_runtest_setup` can reach
+#: them before any fixture of the next test is set up.
+HELD = pytest.StashKey[dict]()
+
+
 @pytest.fixture(scope="session")
-def _desk_driver():
+def _desk_driver(request):
     """This process's driver and browser, held for every test in it; started by `desk_browser`
     on first use, and stopped here at the end of the session (before `orphans` looks)."""
-    held: dict = {}
+    held = request.session.stash.setdefault(HELD, {})
     yield held
     stop_driver(held)
 
@@ -282,13 +287,18 @@ def off_the_harness(browser_marked: bool, fixturenames) -> bool:
     return browser_marked and "desk_browser" not in fixturenames
 
 
-@pytest.fixture(autouse=True)
-def _one_driver_at_a_time(request, _desk_driver):
-    """A test off the harness cannot start its own driver while the shared one is up in this
-    thread: stop the shared one first. The next harness test starts it again."""
-    if off_the_harness(request.node.get_closest_marker("browser") is not None, request.fixturenames):
-        stop_driver(_desk_driver)
-    yield
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """One driver at a time: a test off the harness cannot start its own driver while the shared
+    one is up in this thread, so stop the shared one first. The next harness test starts it again.
+
+    A hook and not an autouse fixture: a module-scoped `browser` fixture that opens its own
+    `sync_playwright()` (test_fleet_stream_resume's, test_fleet_theme_switch's, and the regressions
+    that import them) is set up before any function-scoped fixture of its module's first test, so
+    a fixture came too late whenever a harness test had run just before it in the same process."""
+    held = item.session.stash.get(HELD, None)
+    if held and off_the_harness(item.get_closest_marker("browser") is not None, item.fixturenames):
+        stop_driver(held)
 
 
 @pytest.fixture()
