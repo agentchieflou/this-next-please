@@ -59,7 +59,7 @@ ad-update --check
 - A failing half now prints the real error, not the last line of pip's chatter, plus a hint for the signature: an
   all-users install a non-elevated pip cannot uninstall, the `ad-update.exe` launcher locking itself (it re-execs
   through `python -m agentdata update` to avoid this), a `--user` copy shadowing the all-users one, a `python` below
-  the 3.12 floor, or a proxy. `ad-update --check` lists every installed `agentdata` and every `python` on PATH, so a
+  the 3.14 floor, or a proxy. `ad-update --check` lists every installed `agentdata` and every `python` on PATH, so a
   shadowed install is visible before it wastes an afternoon, and the report says which shell it came from.
 
 See `docs/shells.md` for which command runs in which shell (and which belong to the Copilot chat
@@ -67,7 +67,7 @@ window rather than a terminal), and how to quote arguments in pwsh 7, Git Bash a
 
 ### First install
 
-The CLI needs **Python 3.12 or newer** (`python --version`; the laptops run 3.14). On an older interpreter pip
+The CLI needs **Python 3.14 or newer** (`python --version`). On an older interpreter pip
 refuses the install with *"requires a different Python"* -- run the command below with the newer `python`.
 
 ```powershell

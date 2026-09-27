@@ -2,7 +2,7 @@
 # here. Windows is also not one shell: the laptop is PowerShell 7 and Git Bash, and people type commands into cmd, so
 # each supported shell gets its own step and a failure names the shell it came from.
 #
-# Floors: Python 3.12 (pyproject requires-python) and PowerShell 7. Windows PowerShell 5.1 is unsupported and appears
+# Floors: Python 3.14 (pyproject requires-python, and the only Python tested; decision 23 on #429) and PowerShell 7. Windows PowerShell 5.1 is unsupported and appears
 # exactly once below, in a step whose only job is to prove the refusal.
 name: tests
 
@@ -42,10 +42,10 @@ jobs:
       matrix:
         include:
           # #312: require_browser marks the leg that installs Chromium. The browser tier itself runs
-          # in its own jobs below (`ubuntu · python 3.12 · browser · shard K/2`), once per run; 3.12
-          # keeps the browser tests that are also measured or slow, the measurements and the demo.
-          - {os: ubuntu-latest, python: "3.12", require_browser: "1"}   # the floor (pyproject requires-python)
-          - {os: ubuntu-latest, python: "3.14", require_browser: ""}    # what the laptop runs
+          # in its own jobs below (`ubuntu · python 3.14 · browser · shard K/2`), once per run; this
+          # leg keeps the browser tests that are also measured or slow, the measurements and the demo.
+          # #591: one leg. 3.14 is the floor (pyproject requires-python) and what the laptop runs.
+          - {os: ubuntu-latest, python: "3.14", require_browser: "1"}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,19 +56,15 @@ jobs:
       # (a panel that could not be closed, a tile that could not be clicked) are invisible to any
       # test that reads the source instead of the page. Chromium is the engine under Edge,
       # PyCharm's JCEF and VS Code's Simple Browser, so one browser covers all three hosts.
-      # #312: 3.12 only. The page does not depend on the Python version, so 3.14 deselects every
-      # browser test rather than paying for the download and running them a second time.
       - name: a browser, so tests/test_fleet_desk*.py run instead of skipping
-        if: matrix.python == '3.12'
         run: python -m playwright install --with-deps chromium
       # #236: the desk's types, checked and never compiled. `tsc --noEmit` reads the JSDoc in
       # `common.js` and `app.js` against their code (`tsconfig.json`, `docs/desk-types.md`); nothing
       # is emitted, and the page is still the bytes in the repository. Its own step, so a type error
       # is named here rather than as one failed test somewhere in the suite, which runs the same
       # command (`tests/test_desk_types.py`). The runner's Node, the one the suite's `node --check`
-      # uses; the compiler pinned exactly; one leg, because the answer does not depend on Python.
+      # uses; the compiler pinned exactly.
       - name: the desk's types (tsc --noEmit)
-        if: matrix.python == '3.12'
         run: npx --yes -p typescript@7.0.2 tsc -p tsconfig.json
       # Split up, because the parts want opposite things from the machine. The bulk is independent
       # work and takes every core there is; the `measured` tier asserts durations -- a 50ms paint
@@ -80,13 +76,12 @@ jobs:
       # second `-m` on a pytest command line REPLACES the first rather than combining with it,
       # so anyone filling that knob in would have silently switched the tier split off.
       #
-      # #296: the 3.12 leg installed Chromium above, so a browser test there may fail but never skip.
+      # #296: this leg installed Chromium above, so a browser test here may fail but never skip.
       # `AGENTDATA_REQUIRE_BROWSER` turns a skipped `browser` test into a failure (tests/conftest.py),
       # and `-rs` prints every remaining skip's reason, so a `no chromium` line cannot hide again.
-      # The 3.14 leg installs none, leaves the variable empty and deselects `browser` in every step.
       #
-      # #312: the parallel step no longer runs the browser tier on either leg; the
-      # `ubuntu · python 3.12 · browser · shard K/2` jobs do, once per run.
+      # #312: the parallel step no longer runs the browser tier; the
+      # `ubuntu · python 3.14 · browser · shard K/2` jobs do, once per run.
       #
       # #309: every pytest step writes a junit file and has its own cap, about 1.5x its last green
       # time rounded up to 5 (run 36035530921, the slower leg): the suite 12m10s, measured and scale
@@ -99,43 +94,28 @@ jobs:
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
         run: python -m pytest -q -rs -n auto -m "not browser and not slow and not measured and not scale" --junitxml=junit/pytest-parallel.xml
+      # #312: the budgets are a property of the engine and the runner, not the Python version, so
+      # the measured browser tests run here, on this leg only.
       - name: the measured and scale tiers, with the machine to themselves
-        if: matrix.python == '3.12'
         timeout-minutes: 5
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
         run: python -m pytest -q -rs -m "(measured or scale) and not slow" --junitxml=junit/pytest-measured.xml
-      # #312: the budgets are a property of the engine and the runner, not the Python version, so
-      # the measured browser tests run on 3.12 only.
-      - name: the measured and scale tiers, no browser
-        if: matrix.python == '3.14'
-        timeout-minutes: 5
-        env:
-          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -q -rs -m "(measured or scale) and not slow and not browser" --junitxml=junit/pytest-measured.xml
       # `slow` stays serial and stays here. It builds wheels in fresh venvs, and four concurrent
       # `pip install`s on a two-core runner is a different risk from the one this change is about;
-      # it ran serially before and it runs serially now. #312: 3.12 keeps the one browser+slow test
-      # (tests/test_fleet_demo_sitting.py); 3.14 has no browser and deselects it.
+      # it ran serially before and it runs serially now. #312: this leg keeps the one browser+slow
+      # test (tests/test_fleet_demo_sitting.py).
       - name: the slow tier, serially
-        if: matrix.python == '3.12'
         timeout-minutes: 5
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
         run: python -m pytest -q -rs -m slow --junitxml=junit/pytest-slow.xml
-      - name: the slow tier, serially, no browser
-        if: matrix.python == '3.14'
-        timeout-minutes: 5
-        env:
-          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -q -rs -m "slow and not browser" --junitxml=junit/pytest-slow.xml
 
       # #220: the desk's own numbers, in the job output rather than in somebody's memory. These
       # tests already measure and assert; `-s` is what lets what they measured reach the log, and
-      # the summary is where a reviewer looks without opening a run. One leg only: the numbers are
+      # the summary is where a reviewer looks without opening a run. One job only: the numbers are
       # a property of the engine and the runner, not of the Python version.
       - name: the desk's measurements, attached
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         timeout-minutes: 5
         env:
           AGENTDATA_REQUIRE_BROWSER: "1"
@@ -157,7 +137,6 @@ jobs:
       # And the demo itself, as the video and the frames it records. Kept for a fortnight, which
       # is long enough for a review and short enough not to be an archive.
       - name: the ownership demo, recorded
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         timeout-minutes: 5
         env:
           AGENTDATA_SHOTS: ${{ github.workspace }}/demo-frames
@@ -165,7 +144,6 @@ jobs:
         run: python -m pytest -q -rs -s -p no:cacheprovider tests/test_fleet_demo_ownership.py --junitxml=junit/pytest-demo.xml
 
       - name: upload the demo
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         uses: actions/upload-artifact@v4
         with:
           name: ownership-demo
@@ -199,12 +177,10 @@ jobs:
           fi
 
       - name: keep the reference output for the Windows byte-comparison
-        if: matrix.python == '3.14'
         run: |
           AGENTDATA_COLOR=never ad-doctor --quiet > doctor-linux.toon || [ $? -eq 1 ]
           python -m agentdata.toon --validate doctor-linux.toon
       - uses: actions/upload-artifact@v4
-        if: matrix.python == '3.14'
         with:
           name: doctor-linux
           path: doctor-linux.toon
@@ -236,12 +212,12 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-  # #312: the browser tier, once per run, on the floor's Python, in two whole-file shards
-  # (tests/shard.py, #310, packed by the `linux` times in tests/durations.json). Before this, both
-  # ubuntu legs paid for it inside their parallel step although the page does not depend on the
-  # Python version. The browser tests that are also `measured` or `slow` stay in the 3.12 leg above.
+  # #312: the browser tier, once per run, in two whole-file shards (tests/shard.py, #310, packed
+  # by the `linux` times in tests/durations.json). Before this, both ubuntu legs paid for it inside
+  # their parallel step although the page does not depend on the Python version. The browser tests
+  # that are also `measured` or `slow` stay in the ubuntu leg above.
   browser:
-    name: ubuntu · python 3.12 · browser · shard ${{ matrix.shard }}
+    name: ubuntu · python 3.14 · browser · shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
     # #309's rule: at most 20; the step cap below plus 5.
     timeout-minutes: 20
@@ -255,7 +231,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: pip install -e ".[dev]"
       - name: a browser, so the browser tier runs instead of skipping
         run: python -m playwright install --with-deps chromium
@@ -273,7 +249,7 @@ jobs:
         if: always()
         shell: bash
         env:
-          JOB_NAME: ubuntu · python 3.12 · browser · shard ${{ matrix.shard }}
+          JOB_NAME: ubuntu · python 3.14 · browser · shard ${{ matrix.shard }}
           KEY: ${{ matrix.key }}
         run: |
           s=.github/scripts/durations.py
@@ -283,12 +259,12 @@ jobs:
             python "$s" job junit/*.xml --job "$JOB_NAME" --cap-minutes 20 | tee -a "$GITHUB_STEP_SUMMARY"
           fi
       # `junit-ubuntu-latest-*`, so docs/testing-this-repo.md's refresh of tests/durations.json
-      # picks the tier up with the two legs' files.
+      # picks the tier up with the ubuntu leg's files.
       - name: durations · upload the junit files
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-ubuntu-latest-3.12-browser-${{ matrix.key }}
+          name: junit-ubuntu-latest-3.14-browser-${{ matrix.key }}
           path: junit/
           retention-days: 14
           if-no-files-found: warn
@@ -301,14 +277,14 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     # #311: shards of whole files, serial within a shard until #313. One serial 3.14 job outgrew
     # every cap it was given (15, 20, 25, 40 minutes; the pytest step alone took 28-32 minutes of
-    # its 35 in runs 36258816693 and 36242056205), so the Windows legs are now six jobs in parallel:
-    #   - 3.14 in three `--shard=K/3` jobs (tests/shard.py, #310): the old step's selection, each
-    #     file whole in one shard, packed by the `windows` times in tests/durations.json, so a
-    #     module still runs contiguously in one process as #227 needs;
-    #   - 3.14 packaging and shells: the measured and scale tiers with the machine to themselves,
-    #     the slow tier (the lifecycle's real venvs; one browser+slow test), and every shell step;
-    #   - 3.12 in two `--shard=K/2` jobs that deselect the browser tier rather than skip it (no
-    #     Chromium is installed); shard 1 also runs 3.12's measured tier and its shell steps.
+    # its 35 in runs 36258816693 and 36242056205), so the Windows leg is now four jobs in parallel:
+    #   - three `--shard=K/3` jobs (tests/shard.py, #310): the old step's selection, each file
+    #     whole in one shard, packed by the `windows` times in tests/durations.json, so a module
+    #     still runs contiguously in one process as #227 needs;
+    #   - packaging and shells: the measured and scale tiers with the machine to themselves, the
+    #     slow tier (the lifecycle's real venvs; one browser+slow test), and every shell step.
+    # #591: 3.14 only. The old floor's two shards were the only rows checked out with
+    # core.autocrlf=true, so the three shards took that over and packaging and shells keeps false.
     # Every job's cap is 20 and each pytest step keeps its own. tests/test_hygiene_windows_shards.py
     # expands these rows the way Actions does and checks what each job runs; only a run shows how
     # long it takes.
@@ -317,16 +293,15 @@ jobs:
       fail-fast: false
       matrix:
         # require_browser (#296): a job that installs Chromium may not skip a browser test.
-        # extras: which non-shard steps the row runs ("3.14": packaging and shells; "3.12": the
-        # floor's measured tier and shells). key: the row's junit file and artifact names.
+        # extras: which non-shard steps the row runs ("3.14": packaging and shells). key: the row's
+        # junit file and artifact names. autocrlf: the shards check out the way Git for Windows
+        # defaults (true, the setting behind train 13's line-ending bug); packaging and shells
+        # leaves line endings alone (false), so the matrix still runs both ways.
         include:
-          - {python: "3.14", autocrlf: "false", require_browser: "1", part: "shard 1/3", shard: "1/3", extras: "", key: "3.14-shard-1"}
-          - {python: "3.14", autocrlf: "false", require_browser: "1", part: "shard 2/3", shard: "2/3", extras: "", key: "3.14-shard-2"}
-          - {python: "3.14", autocrlf: "false", require_browser: "1", part: "shard 3/3", shard: "3/3", extras: "", key: "3.14-shard-3"}
+          - {python: "3.14", autocrlf: "true", require_browser: "1", part: "shard 1/3", shard: "1/3", extras: "", key: "3.14-shard-1"}
+          - {python: "3.14", autocrlf: "true", require_browser: "1", part: "shard 2/3", shard: "2/3", extras: "", key: "3.14-shard-2"}
+          - {python: "3.14", autocrlf: "true", require_browser: "1", part: "shard 3/3", shard: "3/3", extras: "", key: "3.14-shard-3"}
           - {python: "3.14", autocrlf: "false", require_browser: "1", part: "packaging and shells", shard: "", extras: "3.14", key: "3.14-packaging"}
-          # the floor, checked out the way Git for Windows defaults; the 3.14 rows leave line endings alone
-          - {python: "3.12", autocrlf: "true", require_browser: "", part: "shard 1/2", shard: "1/2", extras: "3.12", key: "3.12-shard-1"}
-          - {python: "3.12", autocrlf: "true", require_browser: "", part: "shard 2/2", shard: "2/2", extras: "", key: "3.12-shard-2"}
     steps:
       # A Windows checkout's line endings depend on core.autocrlf, and the fixtures' bytes are the
       # point of several tests. Run the matrix both ways rather than pinning one and hoping.
@@ -354,19 +329,10 @@ jobs:
       # suite had (process-level state in `serve`, reset by per-module autouse fixtures that
       # `--dist load` interleaves straight through), and it is #227; #313 revisits it.
       #
-      # #311: step cap 15. The `windows` times in tests/durations.json put each 3.14 shard at about
-      # 9.3 minutes and each 3.12 shard at about 4.7 (the serial step's last runs: 28-32 minutes on
-      # 3.14, 14m16s on 3.12 in run 36258816693).
-      # No Chromium on 3.12, so the browser tier is deselected, not left to skip.
-      - name: pytest · no browser
-        if: matrix.python == '3.12' && matrix.shard != ''
-        shell: pwsh
-        timeout-minutes: 15
-        env:
-          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -q -rs --shard=${{ matrix.shard }} -m "not browser and not slow and not measured and not scale" --junitxml=junit/windows-${{ matrix.key }}-pytest.xml
+      # #311: step cap 15. The `windows` times in tests/durations.json put each shard at about
+      # 9.3 minutes (the serial step's last runs: 28-32 minutes in run 36258816693).
       - name: pytest
-        if: matrix.python == '3.14' && matrix.shard != ''
+        if: matrix.shard != ''
         shell: pwsh
         timeout-minutes: 15
         env:
@@ -393,13 +359,6 @@ jobs:
         env:
           AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
         run: python -m pytest -q -rs -m "(measured or scale) and not slow" --junitxml=junit/windows-${{ matrix.key }}-measured.xml
-      - name: the measured and scale tiers, no browser
-        if: matrix.extras == '3.12'
-        shell: pwsh
-        timeout-minutes: 5
-        env:
-          AGENTDATA_REQUIRE_BROWSER: ${{ matrix.require_browser }}
-        run: python -m pytest -q -rs -m "(measured or scale) and not slow and not browser" --junitxml=junit/windows-${{ matrix.key }}-measured.xml
 
       # Split out, verbose, and with its own cap on purpose. A hang inside the slow marker used to
       # take the whole job down and `-q` never said which test it was in -- the log simply stopped
@@ -546,13 +505,13 @@ jobs:
           if-no-files-found: warn
 
   floor-python:
-    name: floor · pip refuses the wheel on Python 3.11
+    name: floor · pip refuses the wheel on Python 3.13
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - name: build the wheel
         run: |
           python -m pip install --quiet build
@@ -568,21 +527,23 @@ jobs:
           m = re.search(r"(?m)^Requires-Python: (.+)$", text)
           assert m, "the wheel declares no Requires-Python"
           print("Requires-Python:", m.group(1))
-          assert ">=3.12" in m.group(1), f"the floor moved without anyone saying so: {m.group(1)}"
+          assert ">=3.14" in m.group(1), f"the floor moved without anyone saying so: {m.group(1)}"
           PY
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: pip on 3.11 must refuse it, in those words
+          python-version: "3.13"
+      - name: pip on 3.13 must refuse it, in those words
         run: |
           set +e
-          out=$(python3.11 -m pip install dist_floor/*.whl 2>&1)
+          out=$(python3.13 -m pip install dist_floor/*.whl 2>&1)
           rc=$?
           set -e
           echo "$out"
-          if [ "$rc" -eq 0 ]; then echo "pip installed a >=3.12 wheel on 3.11"; exit 1; fi
+          if [ "$rc" -eq 0 ]; then echo "pip installed a >=3.14 wheel on 3.13"; exit 1; fi
           echo "$out" | grep -q "requires a different Python" || {
             echo "pip refused, but not with the message the docs promise the user will see"; exit 1; }
+          echo "$out" | grep -qF "not in '>=3.14'" || {
+            echo "pip refused, but not because of the 3.14 floor"; exit 1; }
           echo "refused as documented"
 
   lint-shell-scripts:
@@ -592,7 +553,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: pip install -e ".[dev]"
       # The completion scripts are generated, not committed, so they are written out here and linted
       # with everything else -- a script nobody lints is a script that regresses.
@@ -639,7 +600,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: pip install -e ".[dev]"
       # CI's bash is 5.x and its pwsh *is* the floor, so what CI can guard is the feature set:
       # nothing after bash 4.4 in anything we ship or emit, and a declared floor in every .ps1.
@@ -675,7 +636,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: pip install -e ".[dev]"
       # #312: no browser is installed here, so the browser tier is deselected rather than left to skip.
       - name: run the suite under coverage
@@ -724,7 +685,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: pip install -e ".[dev]"
       # A fixture that leaks state shows up here rather than three months later as
       # "works on my machine". Two seeds, because one shuffle proves very little.
@@ -774,7 +735,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: pip install -e ".[dev]"
       - name: a browser, so the browser tier runs instead of skipping
         run: python -m playwright install --with-deps chromium

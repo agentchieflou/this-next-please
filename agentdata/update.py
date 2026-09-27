@@ -182,6 +182,11 @@ def installed_distributions() -> list[dict]:
     return sorted(out, key=lambda d: d["location"])
 
 
+#: pyproject's `requires-python` (decision 23 on #429: 3.14 is the floor and the only version tested).
+#: tests/test_update_windows.py holds the two together.
+PYTHON_FLOOR = (3, 14)
+FLOOR_TEXT = "%d.%d" % PYTHON_FLOOR
+
 _VER_IN_PATH = re.compile(r"python[/\\ ]?(\d)[.\\/]?(\d{1,2})\b", re.I)
 
 
@@ -189,7 +194,7 @@ def _version_from_path(path: str) -> tuple[str, str]:
     """(version, how). Never launches the interpreter: `--check` is a dry run and a test enforces it.
 
     The exact version is only known for the interpreter we are already inside; for the others the
-    directory name (`C:/Python311/python.exe`, `/usr/bin/python3.11`) is what a user reads anyway,
+    directory name (`C:/Python313/python.exe`, `/usr/bin/python3.13`) is what a user reads anyway,
     and it answers the question that matters -- is something older sitting earlier on PATH.
     """
     if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(sys.executable)):
@@ -217,13 +222,18 @@ def pythons_on_path() -> list[dict]:
     seen: list[dict] = []
     for path in paths:
         ver, how = _version_from_path(path)
-        try:
-            too_old = bool(ver) and tuple(int(x) for x in ver.split(".")[:2]) < (3, 12)
-        except ValueError:
-            too_old = False
         seen.append({"path": textio.norm_path(path), "version": ver, "version_from": how,
-                     "too_old": too_old, "store_alias": store_alias(path)})
+                     "too_old": too_old(ver), "store_alias": store_alias(path)})
     return seen
+
+
+def too_old(version: str) -> bool:
+    """A `major.minor[.micro]` below the floor. An unknown or unreadable version is not flagged: the row
+    already says it could not tell."""
+    try:
+        return bool(version) and tuple(int(x) for x in version.split(".")[:2]) < PYTHON_FLOOR
+    except ValueError:
+        return False
 
 
 def store_alias(path: str) -> bool:
@@ -502,7 +512,7 @@ def diagnose(rc: int, out: str, err: str) -> str:
     low = text.lower()
 
     if "requires a different python" in low or "requires-python" in low:
-        return (f"this `python` is {platform.python_version()} at {sys.executable}; agentdata 0.6+ needs 3.12 "
+        return (f"this `python` is {platform.python_version()} at {sys.executable}; agentdata needs {FLOOR_TEXT} "
                 f"or newer -- run the install with the newer interpreter (`py -3.14 -m agentdata update`, "
                 f"or its full path)")
     if "winerror 32" in low or ("uninstalling" in low and "in use" in low) or "being used by another process" in low:
@@ -644,11 +654,11 @@ def main(argv: list[str] | None = None) -> int:
                                      f"interpreter: it opens the Store and installs nothing. Turn it off in "
                                      f"Settings > Apps > Advanced app settings > App execution aliases, or put a "
                                      f"real Python earlier on PATH"})
-        too_old = [p for p in pythons if p.get("too_old")]
-        if too_old:
+        old = [p for p in pythons if p.get("too_old")]
+        if old:
             problems.append({"problem": "python_too_old",
-                             "hint": f"{too_old[0]['path']} is Python {too_old[0]['version']}, below the 3.12 floor, "
-                                     f"and is on PATH: run the install with a 3.12+ interpreter or the `ad-*` "
+                             "hint": f"{old[0]['path']} is Python {old[0]['version']}, below the {FLOOR_TEXT} floor, "
+                                     f"and is on PATH: run the install with a {FLOOR_TEXT}+ interpreter or the `ad-*` "
                                      f"commands will keep resolving to the old one"})
         if not meta["scripts_on_path"]:
             problems.append({"problem": "scripts_not_on_path",

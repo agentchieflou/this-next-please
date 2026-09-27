@@ -1,7 +1,7 @@
 {
   "source": "synthesized",
   "issue": 66,
-  "note": "the refusal the 3.12 floor introduces; CI's floor-python job proves pip really says this",
+  "note": "the refusal the 3.14 floor introduces (#591); CI's floor-python job proves pip on 3.13 really says this",
   "argv": [
     "python",
     "-m",
@@ -13,7 +13,7 @@
   ],
   "returncode": 1,
   "stdout": "",
-  "stderr": "ERROR: Package 'agentdata' requires a different Python: 3.11.9 not in '>=3.12'\n",
+  "stderr": "ERROR: Package 'agentdata' requires a different Python: 3.13.9 not in '>=3.14'\n",
   "captured": "2026-09-03",
   "match": [
     "-m",

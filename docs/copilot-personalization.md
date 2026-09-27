@@ -27,7 +27,7 @@ ordered by how much a violation costs.
 
 ```text
 ME
-Data & BI engineering on Windows — PyCharm, PowerShell 7, Python 3.12+. Power BI (PBIP, TMDL, DAX,
+Data & BI engineering on Windows — PyCharm, PowerShell 7, Python 3.14+. Power BI (PBIP, TMDL, DAX,
 XMLA), Teradata, Hive/Impala, Oracle. Jira, Confluence, Bitbucket. My repos drive an internal CLI
 whose commands are all named ad-*, plus a shared skill set. Treat those names as exact.
 

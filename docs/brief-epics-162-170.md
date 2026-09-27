@@ -21,7 +21,7 @@ Read these, in this order. They are short and every one of them will refuse a ch
    `fleet-layouts.md`, and `plan-desk-refactor.md` (the previous epic on the same page, and the style every plan
    here follows).
 
-**Environment.** Python 3.12 or newer is required (`pyproject.toml` refuses older). Then:
+**Environment.** Python 3.14 or newer is required (`pyproject.toml` refuses older). Then:
 
 ```bash
 pip install -e ".[dev]"

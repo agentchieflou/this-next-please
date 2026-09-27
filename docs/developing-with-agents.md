@@ -246,6 +246,8 @@ operator first, not to a reviewer.
 
 ## 11. Tool setup (September 2026)
 
+- **Python 3.14** for every local gate, builders and conductors alike (decision 23 on #429): it is the floor and the
+  only version CI tests, and `pip install -e .` refuses anything older.
 - **Antigravity 2.0 / `agy`** on the Windows laptop: one worktree per issue, outside the main checkout (Gemini CLI's
   `.gemini/worktrees/` is ignored by git and by the repo-walking guards if you use it). Terminal execution policy
   **Auto**, or **Off** with an allow-list; never **Turbo**. Deny `git push --force`, `git reset --hard`,
