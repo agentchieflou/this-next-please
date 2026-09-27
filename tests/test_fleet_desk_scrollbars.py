@@ -16,8 +16,8 @@ import pytest
 from agentdata.fleet import events as E, registry, serve as S, skins as K
 from agentdata.fleet.registry import Registry
 
+from desk_harness import close_pages
 from test_fleet import make_project
-from test_fleet_desk_browser import launch_chromium
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "agentdata", "fleet", "static")
@@ -87,49 +87,47 @@ def _serve():
 
 
 @pytest.mark.browser
-def test_the_transcript_scrollbar_computes_to_the_palette_in_every_look(fleet_home, tmp_path):
+def test_the_transcript_scrollbar_computes_to_the_palette_in_every_look(fleet_home, tmp_path, desk_browser):
     """Acceptance criterion. `getComputedStyle(transcript).scrollbarColor` equals the declared
     thumb -- resolved through a probe element so the comparison is between two computed colours
     and not between a string and a `color-mix()` -- for `none` and for every skin variant, in the
     same loop that already applies each variant for real."""
-    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     _repos(tmp_path, "alpha")
     looks = ["none"] + [f"{skin}:{variant}" for skin, variant, _spec in K.every_variant()]
 
     server, token, port = _serve()
     try:
-        with sync_playwright() as p:
-            browser = launch_chromium(p)
-            page = browser.new_page(viewport={"width": 1280, "height": 800})
-            errors: list[str] = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
-            page.wait_for_selector(".tile:visible", timeout=15000)
+        browser = desk_browser
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/?t={token}&layout=grid", wait_until="domcontentloaded")
+        page.wait_for_selector(".tile:visible", timeout=15000)
 
-            seen = {}
-            for look in looks:
-                page.evaluate("(name) => post('theme', { skin: name })", look)
-                page.wait_for_timeout(450)
-                got = page.evaluate("""() => {
-                    const probe = document.createElement('i');
-                    probe.style.color = 'var(--scroll-thumb)';
-                    document.body.appendChild(probe);
-                    const thumb = getComputedStyle(probe).color;
-                    probe.remove();
-                    const t = document.querySelector('.tile .transcript');
-                    return { thumb, bar: getComputedStyle(t).scrollbarColor,
-                             width: getComputedStyle(t).scrollbarWidth };
-                }""")
-                assert got["bar"].startswith(got["thumb"]), (look, got)
-                assert got["bar"].endswith("rgba(0, 0, 0, 0)"), (look, "the track is the surface beneath", got)
-                assert got["width"] == "thin", (look, got)
-                seen[look] = got["thumb"]
+        seen = {}
+        for look in looks:
+            page.evaluate("(name) => post('theme', { skin: name })", look)
+            page.wait_for_timeout(450)
+            got = page.evaluate("""() => {
+                const probe = document.createElement('i');
+                probe.style.color = 'var(--scroll-thumb)';
+                document.body.appendChild(probe);
+                const thumb = getComputedStyle(probe).color;
+                probe.remove();
+                const t = document.querySelector('.tile .transcript');
+                return { thumb, bar: getComputedStyle(t).scrollbarColor,
+                         width: getComputedStyle(t).scrollbarWidth };
+            }""")
+            assert got["bar"].startswith(got["thumb"]), (look, got)
+            assert got["bar"].endswith("rgba(0, 0, 0, 0)"), (look, "the track is the surface beneath", got)
+            assert got["width"] == "thin", (look, got)
+            seen[look] = got["thumb"]
 
-            # A skin's thumb is its own, and a palette's is mixed from that palette: the looks
-            # do not all resolve to one colour.
-            assert len(set(seen.values())) > 1, seen
-            assert not errors, errors
-            browser.close()
+        # A skin's thumb is its own, and a palette's is mixed from that palette: the looks
+        # do not all resolve to one colour.
+        assert len(set(seen.values())) > 1, seen
+        assert not errors, errors
+        close_pages(browser)
     finally:
         server.stopping.set()
         server.shutdown()
